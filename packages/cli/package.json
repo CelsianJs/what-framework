@@ -1,0 +1,13 @@
+{
+  "name": "what-fw",
+  "version": "0.1.0",
+  "description": "What framework CLI",
+  "type": "module",
+  "bin": {
+    "what": "./src/cli.js"
+  },
+  "main": "src/cli.js",
+  "exports": {
+    ".": "./src/cli.js"
+  }
+}

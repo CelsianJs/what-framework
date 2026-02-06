@@ -1,0 +1,10 @@
+{
+  "name": "create-what",
+  "version": "0.1.0",
+  "description": "Scaffold a new What framework project",
+  "type": "module",
+  "bin": {
+    "create-what": "./index.js"
+  },
+  "main": "index.js"
+}

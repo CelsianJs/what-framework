@@ -1,0 +1,11 @@
+{
+  "name": "@aspect/server",
+  "version": "0.1.0",
+  "description": "What framework - SSR, islands, static generation",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./islands": "./src/islands.js"
+  }
+}

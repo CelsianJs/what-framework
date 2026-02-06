@@ -1,0 +1,21 @@
+{
+  "name": "what-fw",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The closest framework to vanilla JS",
+  "workspaces": [
+    "packages/*",
+    "demo",
+    "benchmark"
+  ],
+  "scripts": {
+    "build": "node scripts/build.js",
+    "bench": "node benchmark/run.js",
+    "demo": "node demo/serve.js",
+    "test": "node --test packages/core/test/*.test.js packages/router/test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

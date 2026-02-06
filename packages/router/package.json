@@ -1,0 +1,10 @@
+{
+  "name": "@aspect/router",
+  "version": "0.1.0",
+  "description": "What framework - file-based & programmatic router",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  }
+}
