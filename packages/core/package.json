@@ -1,15 +1,50 @@
 {
-  "name": "@aspect/core",
-  "version": "0.1.0",
-  "description": "What framework - reactive core",
+  "name": "what-core",
+  "version": "0.3.0",
+  "description": "What Framework - The closest framework to vanilla JS",
   "type": "module",
   "main": "dist/what.js",
   "module": "src/index.js",
+  "types": "index.d.ts",
   "exports": {
     ".": {
+      "types": "./index.d.ts",
       "import": "./src/index.js",
       "require": "./dist/what.cjs"
+    },
+    "./render": {
+      "import": "./src/render.js"
+    },
+    "./testing": {
+      "types": "./testing.d.ts",
+      "import": "./src/testing.js"
     }
   },
-  "files": ["src", "dist"]
+  "files": [
+    "src",
+    "dist",
+    "index.d.ts",
+    "testing.d.ts"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "framework",
+    "signals",
+    "reactive",
+    "islands",
+    "ssr",
+    "vanilla-js",
+    "lightweight",
+    "vdom"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aspect/what-fw"
+  },
+  "bugs": {
+    "url": "https://github.com/aspect/what-fw/issues"
+  },
+  "homepage": "https://github.com/aspect/what-fw#readme"
 }

@@ -1,84 +1,105 @@
 import { h, useState } from '@what/core';
 
 export function Islands() {
-  return h('div', null,
-    h('h1', null, 'Islands Architecture'),
-    h('p', { style: 'color:var(--muted);margin-bottom:2rem' },
-      'Each section of a page can be independently static or dynamic. The nav is static HTML. The cart is an island that hydrates on interaction. The content area can be fully dynamic.',
+  return h('div', { class: 'section' },
+    h('div', { class: 'features-header' },
+      h('p', { class: 'features-label' }, 'Architecture'),
+      h('h1', { class: 'features-title' }, 'Islands'),
+      h('p', { class: 'features-subtitle' },
+        'Each section of a page can be independently static or dynamic. The Island component is now built into core. Ship zero JavaScript for static content, hydrate only what needs interactivity.',
+      ),
     ),
 
     // Static island example
-    h('div', { class: 'island-demo' },
+    h('div', { class: 'island-demo animate-fade-up' },
       h('span', { class: 'island-label' }, 'static — zero JS'),
       h(StaticNav),
     ),
 
     // Idle-hydrate island
-    h('div', { class: 'island-demo', style: 'margin-top:1.5rem' },
-      h('span', { class: 'island-label' }, 'island: idle — hydrates when browser is idle'),
+    h('div', { class: 'island-demo animate-fade-up', style: 'animation-delay: 100ms' },
+      h('span', { class: 'island-label' }, 'client:idle — hydrates when browser is idle'),
       h(SearchBar),
     ),
 
     // Visible-hydrate island
-    h('div', { class: 'island-demo', style: 'margin-top:1.5rem' },
-      h('span', { class: 'island-label' }, 'island: visible — hydrates on scroll'),
+    h('div', { class: 'island-demo animate-fade-up', style: 'animation-delay: 200ms' },
+      h('span', { class: 'island-label' }, 'client:visible — hydrates on scroll'),
       h(ProductGrid),
     ),
 
     // Action-hydrate island
-    h('div', { class: 'island-demo', style: 'margin-top:1.5rem' },
-      h('span', { class: 'island-label' }, 'island: action — hydrates on first click'),
+    h('div', { class: 'island-demo animate-fade-up', style: 'animation-delay: 300ms' },
+      h('span', { class: 'island-label' }, 'client:load — hydrates immediately'),
       h(CartWidget),
     ),
 
     // Code example
-    h('div', { class: 'section' },
-      h('h2', null, 'How Islands Work'),
-      h('pre', null, h('code', null, `// Define islands with hydration strategies
-import { island, Island } from 'what/server';
+    h('div', { class: 'mt-12' },
+      h('h2', { class: 'section-title' }, 'How Islands Work'),
+      h('div', { class: 'code-block', style: 'max-width: none' },
+        h('div', { class: 'code-header' },
+          h('div', { class: 'code-dots' },
+            h('span', { class: 'code-dot' }),
+            h('span', { class: 'code-dot' }),
+            h('span', { class: 'code-dot' }),
+          ),
+          h('span', { class: 'code-filename' }, 'product-page.jsx'),
+        ),
+        h('div', { class: 'code-content' },
+          h('pre', null, h('code', null, `// The Island component is built into core
+// Components without a client: directive are static (zero JS)
 
-// Register: name, loader, options
-island('cart', () => import('./islands/cart.js'), {
-  mode: 'action'  // Only hydrate on first interaction
-});
+import { Island } from 'what-framework';
+import { Search } from './islands/Search';
+import { Cart } from './islands/Cart';
+import { ProductFeed } from './islands/ProductFeed';
 
-island('search', () => import('./islands/search.js'), {
-  mode: 'idle'    // Hydrate when browser is idle
-});
-
-island('products', () => import('./islands/products.js'), {
-  mode: 'visible' // Hydrate when scrolled into view
-});
-
-// In your page template (SSR):
 function ProductPage({ products }) {
-  return h('div', null,
-    h(Nav),              // Static — no JS shipped
-    h(Island, {          // Interactive — hydrates on idle
-      name: 'search',
-      props: { placeholder: 'Search...' }
-    }),
-    h(Island, {          // Interactive — hydrates on scroll
-      name: 'products',
-      props: { items: products }
-    }),
-    h(Island, {          // Interactive — hydrates on click
-      name: 'cart'
-    }),
-    h(Footer),           // Static — no JS shipped
+  return (
+    <div>
+      <Nav />                          {/* Static — no JS shipped */}
+
+      <Search                          {/* Hydrates when browser is idle */}
+        client:idle
+        placeholder="Search products..."
+      />
+
+      <ProductFeed                     {/* Hydrates when scrolled into view */}
+        client:visible
+        items={products}
+        category="new"
+      />
+
+      <Cart client:load />             {/* Hydrates immediately on page load */}
+
+      <Newsletter                      {/* Hydrates on mobile only */}
+        client:media="(max-width: 768px)"
+      />
+
+      <Footer />                       {/* Static — no JS shipped */}
+    </div>
   );
-}`)),
+}
+
+// Hydration directives:
+// client:load    — Hydrate immediately
+// client:idle    — requestIdleCallback
+// client:visible — IntersectionObserver
+// client:media="(query)" — Media query match
+// (no directive) — Static, never hydrate (zero JS)`)),
+        ),
+      ),
     ),
 
-    h('div', { class: 'section' },
-      h('h2', null, 'Hydration Modes'),
-      h('div', { class: 'features' },
-        mode('load', 'Hydrate immediately when the page loads. Use for above-the-fold interactive content.'),
-        mode('idle', 'Hydrate when the browser is idle (requestIdleCallback). Good default for most islands.'),
-        mode('visible', 'Hydrate when the element scrolls into the viewport (IntersectionObserver). Great for below-the-fold content.'),
-        mode('action', 'Hydrate on first user interaction (click, focus, hover). Perfect for widgets users might not interact with.'),
-        mode('media', 'Hydrate when a media query matches. Use for mobile-only or desktop-only features.'),
-        mode('static', 'Never hydrate. Pure HTML. No JavaScript shipped to the client at all.'),
+    h('div', { class: 'mt-12' },
+      h('h2', { class: 'section-title' }, 'Hydration Directives'),
+      h('div', { class: 'features stagger-children' },
+        mode('client:load', 'Hydrate immediately when the page loads. Use for above-the-fold interactive content.'),
+        mode('client:idle', 'Hydrate when the browser is idle (requestIdleCallback). Good default for most islands.'),
+        mode('client:visible', 'Hydrate when the element scrolls into the viewport (IntersectionObserver). Great for below-the-fold content.'),
+        mode('client:media', 'Hydrate when a media query matches. Use for mobile-only or desktop-only interactive features.'),
+        mode('(no directive)', 'Never hydrate. Pure static HTML. No JavaScript shipped to the client at all.'),
       ),
     ),
   );
@@ -86,11 +107,20 @@ function ProductPage({ products }) {
 
 // Simulated static nav
 function StaticNav() {
-  return h('nav', { style: 'display:flex;gap:1rem;padding:0.75rem;background:#f1f5f9;border-radius:6px' },
-    h('span', { style: 'font-weight:700' }, 'ShopWhat'),
-    h('a', { href: '#', style: 'color:var(--muted);text-decoration:none' }, 'Products'),
-    h('a', { href: '#', style: 'color:var(--muted);text-decoration:none' }, 'About'),
-    h('a', { href: '#', style: 'color:var(--muted);text-decoration:none' }, 'Contact'),
+  return h('nav', {
+    style: {
+      display: 'flex',
+      gap: '1.5rem',
+      padding: '1rem 1.25rem',
+      background: 'var(--color-bg-subtle)',
+      borderRadius: 'var(--radius-lg)',
+      alignItems: 'center',
+    },
+  },
+    h('span', { style: { fontWeight: '700', color: 'var(--color-text)' } }, 'ShopWhat'),
+    h('a', { href: '#', class: 'nav-link' }, 'Products'),
+    h('a', { href: '#', class: 'nav-link' }, 'About'),
+    h('a', { href: '#', class: 'nav-link' }, 'Contact'),
   );
 }
 
@@ -116,11 +146,26 @@ function SearchBar() {
       value: query,
       placeholder: 'Search products...',
       onInput: (e) => search(e.target.value),
-      style: 'width:100%;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem',
+      style: {
+        width: '100%',
+        padding: '0.75rem 1rem',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+        fontSize: 'var(--text-sm)',
+        background: 'var(--color-surface)',
+      },
     }),
     results.length > 0
-      ? h('ul', { style: 'list-style:none;margin-top:0.5rem' },
-          ...results.map(r => h('li', { style: 'padding:0.25rem 0;color:var(--muted)' }, r))
+      ? h('ul', { style: { listStyle: 'none', marginTop: '0.75rem' } },
+          ...results.map(r => h('li', {
+            style: {
+              padding: '0.5rem 0.75rem',
+              color: 'var(--color-text-secondary)',
+              background: 'var(--color-bg-subtle)',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: '0.25rem',
+            },
+          }, r))
         )
       : null,
   );
@@ -134,11 +179,18 @@ function ProductGrid() {
     { name: 'Monitor', price: 349 },
   ];
 
-  return h('div', { style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem' },
+  return h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' } },
     ...products.map(p =>
-      h('div', { style: 'background:#f8fafc;padding:1rem;border-radius:6px;text-align:center' },
-        h('p', { style: 'font-weight:600' }, p.name),
-        h('p', { style: 'color:var(--accent);font-weight:700' }, `$${p.price}`),
+      h('div', {
+        style: {
+          background: 'var(--color-bg-subtle)',
+          padding: '1.5rem',
+          borderRadius: 'var(--radius-lg)',
+          textAlign: 'center',
+        },
+      },
+        h('p', { style: { fontWeight: '600', marginBottom: '0.25rem' } }, p.name),
+        h('p', { style: { color: 'var(--color-accent)', fontWeight: '700' } }, `$${p.price}`),
       )
     ),
   );
@@ -148,16 +200,14 @@ function ProductGrid() {
 function CartWidget() {
   const [items, setItems] = useState(2);
 
-  return h('div', { style: 'display:flex;align-items:center;gap:1rem' },
+  return h('div', { class: 'flex items-center gap-4' },
     h('span', null, 'Cart: ', h('strong', null, items), ' items'),
     h('button', {
       class: 'btn btn-primary',
-      style: 'font-size:0.8rem;padding:0.4rem 0.8rem',
       onClick: () => setItems(i => i + 1),
     }, 'Add Item'),
     h('button', {
-      class: 'btn btn-outline',
-      style: 'font-size:0.8rem;padding:0.4rem 0.8rem',
+      class: 'btn btn-secondary',
       onClick: () => setItems(i => Math.max(0, i - 1)),
     }, 'Remove'),
   );
@@ -165,7 +215,7 @@ function CartWidget() {
 
 function mode(name, desc) {
   return h('div', { class: 'feature' },
-    h('h3', null, name),
-    h('p', null, desc),
+    h('h3', { class: 'feature-title' }, name),
+    h('p', { class: 'feature-description' }, desc),
   );
 }

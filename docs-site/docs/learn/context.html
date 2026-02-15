@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html" class="active">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Context</h1>
+          <p class="subtitle">Share state across your component tree without passing props through every level.</p>
+
+          <h2 id="the-problem">The Prop Drilling Problem</h2>
+          <p>Imagine you have a theme that many components need:</p>
+
+<pre><code><span class="comment">// Without context, you pass theme through every level</span>
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="keyword">const</span> theme = <span class="function">signal</span>(<span class="string">'dark'</span>);
+  <span class="keyword">return</span> &lt;Layout theme={theme} /&gt;;
+}
+
+<span class="keyword">function</span> <span class="function">Layout</span>({ theme }) {
+  <span class="keyword">return</span> &lt;Sidebar theme={theme} /&gt;;  <span class="comment">// just passing it through</span>
+}
+
+<span class="keyword">function</span> <span class="function">Sidebar</span>({ theme }) {
+  <span class="keyword">return</span> &lt;Menu theme={theme} /&gt;;  <span class="comment">// still just passing</span>
+}
+
+<span class="keyword">function</span> <span class="function">Menu</span>({ theme }) {
+  <span class="keyword">return</span> &lt;MenuItem theme={theme} /&gt;;  <span class="comment">// ugh, more passing</span>
+}
+
+<span class="keyword">function</span> <span class="function">MenuItem</span>({ theme }) {
+  <span class="comment">// Finally! We actually use it</span>
+  <span class="keyword">return</span> &lt;span className={theme}&gt;...&lt;/span&gt;;
+}</code></pre>
+
+          <p>This is called <strong>prop drilling</strong>. Context solves it.</p>
+
+          <h2 id="creating-context">Creating Context</h2>
+          <p>Create a context with a default value:</p>
+
+<pre><code><span class="keyword">import</span> { createContext } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Create the context</span>
+<span class="keyword">const</span> ThemeContext = <span class="function">createContext</span>(<span class="string">'light'</span>);</code></pre>
+
+          <h2 id="providing-context">Providing Context</h2>
+          <p>Wrap your tree with the context provider:</p>
+
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="keyword">const</span> theme = <span class="function">signal</span>(<span class="string">'dark'</span>);
+
+  <span class="keyword">return</span> (
+    &lt;ThemeContext.Provider value={theme}&gt;
+      &lt;Layout /&gt;
+    &lt;/ThemeContext.Provider&gt;
+  );
+}</code></pre>
+
+          <h2 id="consuming-context">Consuming Context</h2>
+          <p>Access the value anywhere in the tree:</p>
+
+<pre><code><span class="keyword">import</span> { useContext } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">MenuItem</span>() {
+  <span class="keyword">const</span> theme = <span class="function">useContext</span>(ThemeContext);
+
+  <span class="keyword">return</span> (
+    &lt;span className={<span class="function">() =&gt;</span> theme()}&gt;
+      Menu Item
+    &lt;/span&gt;
+  );
+}</code></pre>
+
+          <p>No more prop drilling! Components in between don't need to know about theme at all.</p>
+
+          <h2 id="complete-example">Complete Example</h2>
+
+          <div class="code-header">src/context/theme.js</div>
+<pre><code><span class="keyword">import</span> { createContext, signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Create context with default</span>
+<span class="keyword">export const</span> ThemeContext = <span class="function">createContext</span>(<span class="keyword">null</span>);
+
+<span class="comment">// Provider component with state and actions</span>
+<span class="keyword">export function</span> <span class="function">ThemeProvider</span>({ children }) {
+  <span class="keyword">const</span> theme = <span class="function">signal</span>(<span class="string">'light'</span>);
+
+  <span class="keyword">const</span> value = {
+    theme,
+    toggle: () =&gt; theme.set(t =&gt; t === <span class="string">'light'</span> ? <span class="string">'dark'</span> : <span class="string">'light'</span>),
+  };
+
+  <span class="keyword">return</span> (
+    &lt;ThemeContext.Provider value={value}&gt;
+      {children}
+    &lt;/ThemeContext.Provider&gt;
+  );
+}</code></pre>
+
+          <div class="code-header">src/components/ThemeToggle.jsx</div>
+<pre><code><span class="keyword">import</span> { useContext } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { ThemeContext } <span class="keyword">from</span> <span class="string">'../context/theme'</span>;
+
+<span class="keyword">export function</span> <span class="function">ThemeToggle</span>() {
+  <span class="keyword">const</span> { theme, toggle } = <span class="function">useContext</span>(ThemeContext);
+
+  <span class="keyword">return</span> (
+    &lt;button onClick={toggle}&gt;
+      Current: {theme}
+    &lt;/button&gt;
+  );
+}</code></pre>
+
+          <div class="code-header">src/app.jsx</div>
+<pre><code><span class="keyword">import</span> { ThemeProvider } <span class="keyword">from</span> <span class="string">'./context/theme'</span>;
+<span class="keyword">import</span> { ThemeToggle } <span class="keyword">from</span> <span class="string">'./components/ThemeToggle'</span>;
+
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="keyword">return</span> (
+    &lt;ThemeProvider&gt;
+      &lt;Header /&gt;
+      &lt;Main /&gt;
+      &lt;Footer /&gt;
+    &lt;/ThemeProvider&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">Header</span>() {
+  <span class="keyword">return</span> (
+    &lt;header&gt;
+      &lt;ThemeToggle /&gt;
+    &lt;/header&gt;
+  );
+}</code></pre>
+
+          <h2 id="nested-providers">Nested Providers</h2>
+          <p>You can nest providers to override values in subtrees:</p>
+
+<pre><code>&lt;ThemeContext.Provider value={<span class="string">'light'</span>}&gt;
+  &lt;Header /&gt;  <span class="comment">{/* uses 'light' */}</span>
+
+  &lt;ThemeContext.Provider value={<span class="string">'dark'</span>}&gt;
+    &lt;Sidebar /&gt;  <span class="comment">{/* uses 'dark' */}</span>
+  &lt;/ThemeContext.Provider&gt;
+
+  &lt;Footer /&gt;  <span class="comment">{/* uses 'light' */}</span>
+&lt;/ThemeContext.Provider&gt;</code></pre>
+
+          <h2 id="common-patterns">Common Patterns</h2>
+
+          <h3>Auth Context</h3>
+<pre><code><span class="keyword">const</span> AuthContext = <span class="function">createContext</span>(<span class="keyword">null</span>);
+
+<span class="keyword">function</span> <span class="function">AuthProvider</span>({ children }) {
+  <span class="keyword">const</span> user = <span class="function">signal</span>(<span class="keyword">null</span>);
+  <span class="keyword">const</span> isLoggedIn = <span class="function">computed</span>(() =&gt; user() !== <span class="keyword">null</span>);
+
+  <span class="keyword">const</span> login = <span class="keyword">async</span> (credentials) =&gt; {
+    <span class="keyword">const</span> userData = <span class="keyword">await</span> api.login(credentials);
+    user.set(userData);
+  };
+
+  <span class="keyword">const</span> logout = () =&gt; user.set(<span class="keyword">null</span>);
+
+  <span class="keyword">return</span> (
+    &lt;AuthContext.Provider value={{ user, isLoggedIn, login, logout }}&gt;
+      {children}
+    &lt;/AuthContext.Provider&gt;
+  );
+}</code></pre>
+
+          <h3>Custom Hook Pattern</h3>
+<pre><code><span class="comment">// Create a custom hook for cleaner usage</span>
+<span class="keyword">function</span> <span class="function">useAuth</span>() {
+  <span class="keyword">const</span> context = <span class="function">useContext</span>(AuthContext);
+  <span class="keyword">if</span> (!context) {
+    <span class="keyword">throw new</span> Error(<span class="string">'useAuth must be used within AuthProvider'</span>);
+  }
+  <span class="keyword">return</span> context;
+}
+
+<span class="comment">// Usage</span>
+<span class="keyword">function</span> <span class="function">Profile</span>() {
+  <span class="keyword">const</span> { user, logout } = <span class="function">useAuth</span>();
+  <span class="comment">// ...</span>
+}</code></pre>
+
+          <h2 id="stores-alternative">Alternative: Stores</h2>
+          <p>For global state that doesn't need the component tree hierarchy, <code>createStore</code> provides a simpler pattern. Use <code>derived()</code> to mark computed properties (this distinguishes them from actions):</p>
+
+<pre><code><span class="keyword">import</span> { createStore, derived } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> useCounter = <span class="function">createStore</span>({
+  <span class="comment">// State (plain values become signals)</span>
+  count: <span class="number">0</span>,
+
+  <span class="comment">// Computed (must use derived marker)</span>
+  doubled: <span class="function">derived</span>(state =&gt; state.count * <span class="number">2</span>),
+
+  <span class="comment">// Actions (plain functions, use `this`)</span>
+  increment() { <span class="keyword">this</span>.count++; },
+  decrement() { <span class="keyword">this</span>.count--; },
+});
+
+<span class="comment">// Use anywhere in your app — no Provider needed</span>
+<span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> { count, doubled, increment } = <span class="function">useCounter</span>();
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;p&gt;Count: {count} / Doubled: {doubled}&lt;/p&gt;
+      &lt;button onClick={increment}&gt;+&lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Why derived()?</p>
+            <p>The <code>derived()</code> marker is required so that <code>createStore</code> can distinguish computed properties from actions. Without it, a function like <code>state =&gt; state.count * 2</code> looks the same as an action like <code>item =&gt; { ... }</code>. The marker removes this ambiguity.</p>
+          </div>
+
+          <h2 id="best-practices">Best Practices</h2>
+          <ul>
+            <li><strong>Don't overuse context.</strong> Props are simpler for 1-2 levels of nesting.</li>
+            <li><strong>Split contexts by concern.</strong> Don't put unrelated state in one context.</li>
+            <li><strong>Provide signals, not values.</strong> Pass signals so consumers can subscribe to updates.</li>
+            <li><strong>Create custom hooks.</strong> Hide context access behind a hook for better DX.</li>
+          </ul>
+
+          <div class="page-nav">
+            <a href="./lifecycle.html">
+              <span class="label">Previous</span>
+              <span class="title">Lifecycle</span>
+            </a>
+            <a href="./refs.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Refs</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#the-problem">The Prop Drilling Problem</a></li>
+            <li><a href="#creating-context">Creating Context</a></li>
+            <li><a href="#providing-context">Providing Context</a></li>
+            <li><a href="#consuming-context">Consuming Context</a></li>
+            <li><a href="#complete-example">Complete Example</a></li>
+            <li><a href="#nested-providers">Nested Providers</a></li>
+            <li><a href="#common-patterns">Common Patterns</a></li>
+            <li><a href="#stores-alternative">Alternative: Stores</a></li>
+            <li><a href="#best-practices">Best Practices</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

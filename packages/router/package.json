@@ -1,10 +1,35 @@
 {
-  "name": "@aspect/router",
-  "version": "0.1.0",
-  "description": "What framework - file-based & programmatic router",
+  "name": "what-router",
+  "version": "0.3.0",
+  "description": "What Framework - File-based & programmatic router with View Transitions",
   "type": "module",
   "main": "src/index.js",
+  "types": "index.d.ts",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "index.d.ts"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "router",
+    "file-based-routing",
+    "view-transitions",
+    "spa",
+    "what-framework"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "what-core": "^0.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aspect/what-fw"
   }
 }

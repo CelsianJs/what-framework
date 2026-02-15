@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Tic-Tac-Toe — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .game-preview {
+      display: flex;
+      gap: 32px;
+      margin: 24px 0;
+      padding: 24px;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 60px);
+      gap: 4px;
+    }
+    .square {
+      width: 60px;
+      height: 60px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      font-size: 24px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .square:hover { background: var(--border); }
+    .game-info { font-size: 15px; }
+    .game-info h4 { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="./" class="active">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Tutorial</div>
+        <ul class="sidebar-links">
+          <li><a href="./" class="active">Overview</a></li>
+          <li><a href="./setup.html">Setup</a></li>
+          <li><a href="./the-board.html">Building the Board</a></li>
+          <li><a href="./state.html">Adding State</a></li>
+          <li><a href="./taking-turns.html">Taking Turns</a></li>
+          <li><a href="./winner.html">Declaring a Winner</a></li>
+          <li><a href="./time-travel.html">Adding Time Travel</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Learn More</div>
+        <ul class="sidebar-links">
+          <li><a href="../learn/">Quick Start</a></li>
+          <li><a href="../learn/signals.html">Signals</a></li>
+          <li><a href="../learn/components.html">Components</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Tutorial: Build Tic-Tac-Toe</h1>
+          <p class="subtitle">Build a complete, interactive tic-tac-toe game step by step. You'll learn the core concepts of What Framework while building something real.</p>
+
+          <div class="game-preview">
+            <div class="board">
+              <button class="square">X</button>
+              <button class="square">O</button>
+              <button class="square">X</button>
+              <button class="square"></button>
+              <button class="square">X</button>
+              <button class="square">O</button>
+              <button class="square">O</button>
+              <button class="square"></button>
+              <button class="square">X</button>
+            </div>
+            <div class="game-info">
+              <h4>Winner: X</h4>
+              <p>This is what you'll build by the end of this tutorial.</p>
+            </div>
+          </div>
+
+          <h2 id="what-youll-learn">What You'll Learn</h2>
+          <p>By the end of this tutorial, you'll understand:</p>
+          <ul>
+            <li><strong>Signals</strong> — Reactive state that updates the UI automatically</li>
+            <li><strong>Computed values</strong> — Derived state that stays in sync</li>
+            <li><strong>Components</strong> — Reusable pieces of UI</li>
+            <li><strong>Event handling</strong> — Responding to user interactions</li>
+            <li><strong>Lifting state</strong> — Sharing state between components</li>
+          </ul>
+
+          <h2 id="prerequisites">Prerequisites</h2>
+          <p>You should be familiar with:</p>
+          <ul>
+            <li>Basic HTML and CSS</li>
+            <li>JavaScript fundamentals (functions, arrays, objects)</li>
+            <li>A text editor (VS Code, Sublime, etc.)</li>
+          </ul>
+
+          <p>Experience with React or other frameworks is helpful but not required.</p>
+
+          <h2 id="how-to-follow">How to Follow Along</h2>
+          <p>You have two options:</p>
+
+          <div class="card-grid">
+            <div class="card">
+              <h4>Option 1: Build Locally</h4>
+              <p>Create a new project and follow along step by step. Best for learning.</p>
+            </div>
+            <div class="card">
+              <h4>Option 2: Read Through</h4>
+              <p>Read the tutorial to understand the concepts. Come back to build later.</p>
+            </div>
+          </div>
+
+          <h2 id="the-plan">The Plan</h2>
+          <p>We'll build this game in stages:</p>
+
+          <div class="step">
+            <span class="step-number">1</span>
+            <div class="step-content">
+              <h4>Setup</h4>
+              <p>Create the project and get a basic app running.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">2</span>
+            <div class="step-content">
+              <h4>Building the Board</h4>
+              <p>Create the game board UI with squares and a grid layout.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">3</span>
+            <div class="step-content">
+              <h4>Adding State</h4>
+              <p>Use signals to track the game state (X, O, empty for each square).</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">4</span>
+            <div class="step-content">
+              <h4>Taking Turns</h4>
+              <p>Alternate between X and O, prevent overwriting moves.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">5</span>
+            <div class="step-content">
+              <h4>Declaring a Winner</h4>
+              <p>Check for winning conditions and display the winner.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">6</span>
+            <div class="step-content">
+              <h4>Time Travel</h4>
+              <p>Add history to revisit previous moves (the advanced part).</p>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Take Your Time</p>
+            <p>Don't rush through. Each step builds on the previous one. Make sure you understand what's happening before moving on.</p>
+          </div>
+
+          <h2 id="ready">Ready?</h2>
+          <p>Let's start by setting up the project.</p>
+
+          <div class="page-nav">
+            <div></div>
+            <a href="./setup.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Setup</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#what-youll-learn">What You'll Learn</a></li>
+            <li><a href="#prerequisites">Prerequisites</a></li>
+            <li><a href="#how-to-follow">How to Follow Along</a></li>
+            <li><a href="#the-plan">The Plan</a></li>
+            <li><a href="#ready">Ready?</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

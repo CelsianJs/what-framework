@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Reference — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="./" class="active">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Reactivity</div>
+        <ul class="sidebar-links">
+          <li><a href="#reactivity">signal / computed / effect</a></li>
+          <li><a href="#reactivity">batch / untrack / flushSync</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Rendering</div>
+        <ul class="sidebar-links">
+          <li><a href="#rendering">h / mount / Fragment</a></li>
+          <li><a href="#control-flow">Show / For / Switch</a></li>
+          <li><a href="#control-flow">ErrorBoundary / Suspense</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Hooks</div>
+        <ul class="sidebar-links">
+          <li><a href="#hooks">useState / useEffect / useMemo</a></li>
+          <li><a href="#lifecycle">onMount / onCleanup</a></li>
+          <li><a href="#context">createContext / useContext</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="#data-fetching">useSWR / useQuery</a></li>
+          <li><a href="#data-fetching">useInfiniteQuery</a></li>
+          <li><a href="#forms">useForm / useField</a></li>
+          <li><a href="#stores">createStore / derived</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="#animation">spring / tween / easings</a></li>
+          <li><a href="#accessibility">Focus / ARIA / Keys</a></li>
+          <li><a href="#scheduler">scheduleRead / scheduleWrite</a></li>
+          <li><a href="#ssr">renderToString / Stream</a></li>
+          <li><a href="#server-actions">action / useMutation</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>API Reference</h1>
+          <p class="subtitle">Complete documentation for all What Framework APIs across 14 modules.</p>
+
+          <h2 id="reactivity">Reactivity</h2>
+          <p>The core primitives for building reactive applications.</p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>signal(value)</code></td><td>Create a reactive value. Returns getter function with <code>.set()</code>, <code>.peek()</code>, <code>.subscribe()</code></td></tr>
+              <tr><td><code>computed(fn)</code></td><td>Create a derived value that auto-updates when dependencies change</td></tr>
+              <tr><td><code>effect(fn)</code></td><td>Run a side effect when dependencies change. Returns dispose function</td></tr>
+              <tr><td><code>batch(fn)</code></td><td>Batch multiple signal writes — effects run once after batch completes</td></tr>
+              <tr><td><code>untrack(fn)</code></td><td>Read signals without creating subscriptions</td></tr>
+              <tr><td><code>flushSync()</code></td><td>Force all pending effects to run synchronously</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="rendering">Rendering</h2>
+          <p>Functions for creating and mounting elements.</p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>h(tag, props, ...children)</code></td><td>Create a VNode. JSX compiles to h() calls via Babel plugin</td></tr>
+              <tr><td><code>mount(element, container)</code></td><td>Render an element tree into the DOM. Returns unmount function</td></tr>
+              <tr><td><code>Fragment({ children })</code></td><td>Group children without a wrapper element</td></tr>
+              <tr><td><code>html`...`</code></td><td>Tagged template literal for HTML. No build step required</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="control-flow">Control Flow Components</h2>
+
+          <table>
+            <thead>
+              <tr><th>Component</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>&lt;Show when fallback&gt;</code></td><td>Conditionally render children based on a condition</td></tr>
+              <tr><td><code>&lt;For each fallback&gt;</code></td><td>Efficiently render a list with auto-keying</td></tr>
+              <tr><td><code>&lt;Switch&gt; / &lt;Match when&gt;</code></td><td>Render one of multiple conditions</td></tr>
+              <tr><td><code>&lt;Portal target&gt;</code></td><td>Render children into a different DOM container</td></tr>
+              <tr><td><code>&lt;ErrorBoundary fallback onError&gt;</code></td><td>Catch errors in child components</td></tr>
+              <tr><td><code>&lt;Suspense fallback&gt;</code></td><td>Show fallback while lazy components load</td></tr>
+              <tr><td><code>memo(Component, areEqual)</code></td><td>Skip re-render when props haven't changed</td></tr>
+              <tr><td><code>lazy(loader)</code></td><td>Code-split a component. Works with Suspense</td></tr>
+              <tr><td><code>&lt;Island component mode&gt;</code></td><td>Deferred hydration: load, idle, visible, interaction, media</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="hooks">Hooks</h2>
+          <p>React-compatible hooks backed by signals.</p>
+
+          <table>
+            <thead>
+              <tr><th>Hook</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>useState(initial)</code></td><td>Returns [value, setter]. Setter triggers component update</td></tr>
+              <tr><td><code>useSignal(initial)</code></td><td>Returns the raw signal for direct signal() and signal.set() access</td></tr>
+              <tr><td><code>useComputed(fn)</code></td><td>Returns a computed signal (read-only derived value)</td></tr>
+              <tr><td><code>useEffect(fn, deps)</code></td><td>Side effect after render. Returns cleanup function</td></tr>
+              <tr><td><code>useMemo(fn, deps)</code></td><td>Memoized computation based on dependencies</td></tr>
+              <tr><td><code>useCallback(fn, deps)</code></td><td>Memoized callback function</td></tr>
+              <tr><td><code>useRef(initial)</code></td><td>Mutable ref that doesn't trigger re-renders. Returns { current }</td></tr>
+              <tr><td><code>useReducer(reducer, init)</code></td><td>State with reducer function. Returns [state, dispatch]</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="lifecycle">Lifecycle</h2>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>onMount(fn)</code></td><td>Run code once after component mounts to the DOM</td></tr>
+              <tr><td><code>onCleanup(fn)</code></td><td>Register cleanup function for component unmount</td></tr>
+              <tr><td><code>createResource(fetcher, opts)</code></td><td>Reactive data fetching. Returns [data, { loading, error, refetch, mutate }]</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="context">Context</h2>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>createContext(default)</code></td><td>Create a context with .Provider component</td></tr>
+              <tr><td><code>useContext(Context)</code></td><td>Access the nearest context value</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="data-fetching">Data Fetching</h2>
+          <p>SWR, query, and cache management primitives. <a href="../learn/data-fetching.html">Learn more →</a></p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>useFetch(url, options)</code></td><td>Simple fetch wrapper. Returns data(), error(), isLoading(), refetch()</td></tr>
+              <tr><td><code>useSWR(key, fetcher, opts)</code></td><td>Stale-while-revalidate with caching, dedup, revalidation on focus/reconnect</td></tr>
+              <tr><td><code>useQuery(options)</code></td><td>Full query management: retry, staleTime, cacheTime, refetchInterval, select</td></tr>
+              <tr><td><code>useInfiniteQuery(options)</code></td><td>Infinite scroll/pagination with getNextPageParam, fetchNextPage</td></tr>
+              <tr><td><code>invalidateQueries(key, opts)</code></td><td>Trigger refetch. <code>{ hard: true }</code> clears data immediately</td></tr>
+              <tr><td><code>prefetchQuery(key, fetcher)</code></td><td>Pre-fill cache before component mounts</td></tr>
+              <tr><td><code>setQueryData(key, updater)</code></td><td>Manually set cache data</td></tr>
+              <tr><td><code>getQueryData(key)</code></td><td>Read cached data</td></tr>
+              <tr><td><code>clearCache()</code></td><td>Clear all cached data</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="forms">Forms &amp; Validation</h2>
+          <p>Form state management and validation. <a href="../learn/forms.html">Learn more →</a></p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>useForm(options)</code></td><td>Complete form management: register, handleSubmit, validate, formState</td></tr>
+              <tr><td><code>useField(name, opts)</code></td><td>Individual field control: value(), error(), inputProps()</td></tr>
+              <tr><td><code>zodResolver(schema)</code></td><td>Zod validation schema adapter</td></tr>
+              <tr><td><code>yupResolver(schema)</code></td><td>Yup validation schema adapter</td></tr>
+              <tr><td><code>rules.required()</code></td><td>Built-in: required, minLength, maxLength, min, max, pattern, email, url, match, custom</td></tr>
+              <tr><td><code>Input / Textarea / Select</code></td><td>Pre-built controlled form components</td></tr>
+              <tr><td><code>Checkbox / Radio</code></td><td>Pre-built controlled toggle components</td></tr>
+              <tr><td><code>ErrorMessage({ name })</code></td><td>Display field validation errors</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="stores">Stores</h2>
+          <p>Global state management. <a href="../learn/stores.html">Learn more →</a></p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>createStore(definition)</code></td><td>Create reactive store with state, computed, and actions</td></tr>
+              <tr><td><code>derived(fn)</code></td><td>Mark a function as computed inside createStore</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="animation">Animation</h2>
+          <p>Physics and time-based animation primitives. <a href="../learn/animation.html">Learn more →</a></p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>spring(initial, opts)</code></td><td>Physics-based spring. Options: stiffness, damping, mass, precision</td></tr>
+              <tr><td><code>tween(from, to, opts)</code></td><td>Time-based easing. Options: duration, easing, onUpdate, onComplete</td></tr>
+              <tr><td><code>easings</code></td><td>Built-in: linear, easeInQuad, easeOutQuad, easeInOutCubic, easeOutBounce, etc.</td></tr>
+              <tr><td><code>useTransition(opts)</code></td><td>Animate state transitions: isTransitioning(), progress(), start()</td></tr>
+              <tr><td><code>useGesture(el, handlers)</code></td><td>Multi-touch: onDrag, onPinch, onSwipe, onTap, onLongPress</td></tr>
+              <tr><td><code>useAnimatedValue(initial)</code></td><td>React Native-like: spring(), timing(), interpolate()</td></tr>
+              <tr><td><code>createTransitionClasses(name)</code></td><td>CSS transition class name generator</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="accessibility">Accessibility</h2>
+          <p>Focus management, ARIA helpers, and keyboard navigation. <a href="../learn/accessibility.html">Learn more →</a></p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>useFocus()</code></td><td>Track focused element: current(), focus(el), blur()</td></tr>
+              <tr><td><code>useFocusTrap(ref)</code></td><td>Trap focus in container: activate(), deactivate()</td></tr>
+              <tr><td><code>FocusTrap({ active })</code></td><td>Component wrapper that traps focus</td></tr>
+              <tr><td><code>announce(msg, opts)</code></td><td>Screen reader announcement: priority, timeout</td></tr>
+              <tr><td><code>useAriaExpanded()</code></td><td>Toggle expanded state: buttonProps(), panelProps()</td></tr>
+              <tr><td><code>useAriaSelected()</code></td><td>Selection state: itemProps(value)</td></tr>
+              <tr><td><code>useAriaChecked()</code></td><td>Checkbox state: checkboxProps()</td></tr>
+              <tr><td><code>useRovingTabIndex(count)</code></td><td>Keyboard navigation: getItemProps(i), containerProps()</td></tr>
+              <tr><td><code>SkipLink / VisuallyHidden</code></td><td>Skip navigation and screen-reader-only content</td></tr>
+              <tr><td><code>useId() / useDescribedBy()</code></td><td>Unique IDs and ARIA attribute linking</td></tr>
+              <tr><td><code>Keys / onKey() / onKeys()</code></td><td>Keyboard event constants and handlers</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="scheduler">DOM Scheduling</h2>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>scheduleRead(fn)</code></td><td>Queue DOM read. Reads run before writes. Returns cancel function</td></tr>
+              <tr><td><code>scheduleWrite(fn)</code></td><td>Queue DOM write. Returns cancel function</td></tr>
+              <tr><td><code>measure(fn)</code></td><td>Promise-based read: <code>await measure(() => el.offsetHeight)</code></td></tr>
+              <tr><td><code>mutate(fn)</code></td><td>Promise-based write: <code>await mutate(() => { el.style.height = '100px' })</code></td></tr>
+              <tr><td><code>nextFrame()</code></td><td>Promise resolving on next animation frame</td></tr>
+              <tr><td><code>onResize(el, cb)</code></td><td>ResizeObserver helper. Returns unobserve function</td></tr>
+              <tr><td><code>onIntersect(el, cb, opts)</code></td><td>IntersectionObserver helper. Returns disconnect function</td></tr>
+              <tr><td><code>smoothScrollTo(el, opts)</code></td><td>Smooth scroll with easing</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="head">Head Management</h2>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>&lt;Head title meta link&gt;</code></td><td>Set document head tags from any component. Auto-deduplicates</td></tr>
+              <tr><td><code>clearHead()</code></td><td>Remove all What-managed head tags</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="helpers">Helpers &amp; Utilities</h2>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>cls(...args)</code></td><td>Conditional class builder: <code>cls('btn', { active: true })</code></td></tr>
+              <tr><td><code>style(obj)</code></td><td>Convert style object to CSS string (for SSR)</td></tr>
+              <tr><td><code>debounce(fn, ms)</code></td><td>Debounce function calls</td></tr>
+              <tr><td><code>throttle(fn, ms)</code></td><td>Throttle function calls</td></tr>
+              <tr><td><code>useMediaQuery(query)</code></td><td>Reactive media query matching. Returns signal</td></tr>
+              <tr><td><code>useLocalStorage(key, init)</code></td><td>Synced localStorage signal</td></tr>
+              <tr><td><code>useClickOutside(ref, handler)</code></td><td>Detect clicks outside element</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="ssr">Server-Side Rendering</h2>
+          <p><a href="../learn/ssr.html">Learn more →</a></p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>renderToString(vnode)</code></td><td>Synchronous render to HTML string</td></tr>
+              <tr><td><code>renderToStream(vnode)</code></td><td>Async generator for streaming SSR</td></tr>
+              <tr><td><code>definePage(config)</code></td><td>Page config: mode (static/server/client/hybrid), title, meta, islands</td></tr>
+              <tr><td><code>server(Component)</code></td><td>Mark component as server-only (no JS shipped)</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="server-actions">Server Actions</h2>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>action(fn, options)</code></td><td>Define server action callable from client via fetch</td></tr>
+              <tr><td><code>formAction(actionFn, opts)</code></td><td>Form submission wrapper with FormData handling</td></tr>
+              <tr><td><code>useAction(actionFn)</code></td><td>Action state: trigger(), isPending(), error(), data()</td></tr>
+              <tr><td><code>useMutation(mutationFn, opts)</code></td><td>Simple mutation: mutate(), isPending(), error()</td></tr>
+              <tr><td><code>useOptimistic(initial, reducer)</code></td><td>Optimistic updates: value(), addOptimistic(), rollback()</td></tr>
+              <tr><td><code>generateCsrfToken()</code></td><td>Generate CSRF token for server actions</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="routing">Router</h2>
+          <p>From <code>what-framework/router</code>.</p>
+
+          <table>
+            <thead>
+              <tr><th>Function</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Router({ routes, fallback })</code></td><td>Main router component with route config array</td></tr>
+              <tr><td><code>Link({ href, activeClass })</code></td><td>Navigation link with automatic active class</td></tr>
+              <tr><td><code>navigate(to, opts)</code></td><td>Programmatic navigation. Options: replace, state, transition</td></tr>
+              <tr><td><code>useRoute()</code></td><td>Reactive route state: path(), params(), query(), hash()</td></tr>
+              <tr><td><code>guard(check, fallback)</code></td><td>Route guard HOC for auth/permissions</td></tr>
+              <tr><td><code>defineRoutes(config)</code></td><td>Convert route config object to route array</td></tr>
+              <tr><td><code>Redirect({ to })</code></td><td>Redirect component</td></tr>
+              <tr><td><code>enableScrollRestoration()</code></td><td>Restore scroll position on navigation</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="quick-reference">Quick Reference</h2>
+
+          <div class="code-header">All Imports</div>
+<pre><code><span class="comment">// Core — what-framework</span>
+<span class="keyword">import</span> {
+  signal, computed, effect, batch, untrack, flushSync,
+  h, mount, Fragment, html,
+  Show, For, Switch, Match, Portal, ErrorBoundary, Suspense,
+  memo, lazy, Island,
+  useState, useSignal, useComputed, useEffect, useMemo,
+  useCallback, useRef, useReducer,
+  onMount, onCleanup, createResource,
+  createContext, useContext,
+  createStore, derived,
+  Head, clearHead,
+  cls, style, debounce, throttle,
+  useMediaQuery, useLocalStorage, useClickOutside,
+} <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Data fetching</span>
+<span class="keyword">import</span> {
+  useFetch, useSWR, useQuery, useInfiniteQuery,
+  invalidateQueries, prefetchQuery, setQueryData,
+  getQueryData, clearCache,
+} <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+
+<span class="comment">// Forms</span>
+<span class="keyword">import</span> {
+  useForm, useField, rules,
+  zodResolver, yupResolver, simpleResolver,
+  Input, Textarea, Select, Checkbox, Radio, ErrorMessage,
+} <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="comment">// Animation</span>
+<span class="keyword">import</span> {
+  spring, tween, easings,
+  useTransition, useGesture, useAnimatedValue,
+} <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="comment">// Accessibility</span>
+<span class="keyword">import</span> {
+  useFocus, useFocusTrap, FocusTrap,
+  announce, announceAssertive, LiveRegion,
+  useAriaExpanded, useAriaSelected, useAriaChecked,
+  useRovingTabIndex, SkipLink, VisuallyHidden,
+  useId, useDescribedBy, useLabelledBy,
+  Keys, onKey, onKeys,
+} <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="comment">// Router</span>
+<span class="keyword">import</span> {
+  Router, Link, navigate, useRoute,
+  guard, defineRoutes, Redirect,
+} <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
+
+<span class="comment">// Server</span>
+<span class="keyword">import</span> {
+  renderToString, renderToStream,
+  definePage, server,
+  action, useAction, useMutation, useOptimistic,
+} <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;</code></pre>
+
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#reactivity">Reactivity</a></li>
+            <li><a href="#rendering">Rendering</a></li>
+            <li><a href="#control-flow">Control Flow</a></li>
+            <li><a href="#hooks">Hooks</a></li>
+            <li><a href="#lifecycle">Lifecycle</a></li>
+            <li><a href="#context">Context</a></li>
+            <li><a href="#data-fetching">Data Fetching</a></li>
+            <li><a href="#forms">Forms</a></li>
+            <li><a href="#stores">Stores</a></li>
+            <li><a href="#animation">Animation</a></li>
+            <li><a href="#accessibility">Accessibility</a></li>
+            <li><a href="#scheduler">DOM Scheduling</a></li>
+            <li><a href="#head">Head Management</a></li>
+            <li><a href="#helpers">Helpers</a></li>
+            <li><a href="#ssr">SSR</a></li>
+            <li><a href="#server-actions">Server Actions</a></li>
+            <li><a href="#routing">Router</a></li>
+            <li><a href="#quick-reference">Quick Reference</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

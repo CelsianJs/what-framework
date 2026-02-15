@@ -2,7 +2,7 @@
 // SSR, static site generation, server components.
 // Zero-JS pages by default. Islands opt-in to client JS.
 
-import { h } from '../../core/src/index.js';
+import { h } from 'what-core';
 
 // --- Render to String ---
 // Renders a VNode tree to an HTML string. Used for SSR and static gen.
@@ -112,7 +112,7 @@ function wrapDocument({ title, meta, body, islands, scripts, styles, mode }) {
     .join('\n    ');
 
   const styleTags = styles
-    .map(href => `<link rel="stylesheet" href="${href}">`)
+    .map(href => `<link rel="stylesheet" href="${escapeHtml(href)}">`)
     .join('\n    ');
 
   const islandScript = islands.length > 0 ? `
@@ -122,7 +122,7 @@ function wrapDocument({ title, meta, body, islands, scripts, styles, mode }) {
     </script>` : '';
 
   const scriptTags = scripts
-    .map(src => `<script type="module" src="${src}"></script>`)
+    .map(src => `<script type="module" src="${escapeHtml(src)}"></script>`)
     .join('\n    ');
 
   const clientScript = mode === 'client' ? `
@@ -201,3 +201,17 @@ const VOID_ELEMENTS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
   'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
+
+// Re-export server actions
+export {
+  action,
+  formAction,
+  useAction,
+  useFormAction,
+  useOptimistic,
+  useMutation,
+  onRevalidate,
+  invalidatePath,
+  handleActionRequest,
+  getRegisteredActions,
+} from './actions.js';

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signals — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html" class="active">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Signals</h1>
+          <p class="subtitle">Signals are the foundation of What's reactivity system. They hold values that can change over time and automatically track where they're used.</p>
+
+          <h2 id="what-is-signal">What is a Signal?</h2>
+          <p>A signal is a container for a value that can change. When you read a signal inside a reactive context (like JSX or an effect), that context automatically "subscribes" to the signal. When the signal's value changes, all subscribers update.</p>
+
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Create a signal with initial value</span>
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="comment">// Read the value</span>
+console.log(count());  <span class="comment">// 0</span>
+
+<span class="comment">// Update the value</span>
+count.set(<span class="number">5</span>);
+console.log(count());  <span class="comment">// 5</span></code></pre>
+
+          <h2 id="reading-signals">Reading Signals</h2>
+          <p>Call the signal like a function to read its value:</p>
+
+<pre><code><span class="keyword">const</span> name = <span class="function">signal</span>(<span class="string">'Alice'</span>);
+
+<span class="comment">// Regular read (creates subscription in reactive contexts)</span>
+console.log(name());  <span class="comment">// "Alice"</span>
+
+<span class="comment">// Read without subscribing</span>
+console.log(name.peek());  <span class="comment">// "Alice" (no subscription)</span></code></pre>
+
+          <p>In JSX, you can use signals directly or call them explicitly. The reconciler handles both forms:</p>
+
+<pre><code><span class="comment">// Both work in JSX:</span>
+&lt;span&gt;{name}&lt;/span&gt;      <span class="comment">// pass signal directly — reconciler reads it</span>
+&lt;span&gt;{name()}&lt;/span&gt;    <span class="comment">// explicit read — value at render time</span>
+&lt;span&gt;{() =&gt; name()}&lt;/span&gt;  <span class="comment">// reactive wrapper — updates when signal changes</span></code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">No Compiler Auto-Wrapping</p>
+            <p>The Babel plugin does not automatically wrap signal reads. Use the <code>() =&gt;</code> arrow wrapper in JSX when you need fine-grained reactive updates for a specific text node or attribute.</p>
+          </div>
+
+          <div class="callout callout-note">
+            <p class="callout-title">When to use <code>peek()</code></p>
+            <p>Use <code>peek()</code> when you want to read a value without creating a subscription. This is useful in effects where you want to read a value once without re-running when it changes.</p>
+          </div>
+
+          <h2 id="updating-signals">Updating Signals</h2>
+          <p>Use <code>.set()</code> to update a signal's value:</p>
+
+<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="comment">// Set a new value directly</span>
+count.set(<span class="number">10</span>);
+
+<span class="comment">// Update based on current value</span>
+count.set(c =&gt; c + <span class="number">1</span>);  <span class="comment">// Now 11</span>
+
+<span class="comment">// Decrement</span>
+count.set(c =&gt; c - <span class="number">1</span>);  <span class="comment">// Now 10</span></code></pre>
+
+          <h3 id="updating-objects">Updating Objects and Arrays</h3>
+          <p>For objects and arrays, create a new reference when updating:</p>
+
+<pre><code><span class="keyword">const</span> user = <span class="function">signal</span>({ name: <span class="string">'Alice'</span>, age: <span class="number">25</span> });
+
+<span class="comment">// Update a property (spread to create new object)</span>
+user.set(u =&gt; ({ ...u, age: <span class="number">26</span> }));
+
+<span class="comment">// Arrays work the same way</span>
+<span class="keyword">const</span> items = <span class="function">signal</span>([<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
+
+<span class="comment">// Add item</span>
+items.set(arr =&gt; [...arr, <span class="number">4</span>]);
+
+<span class="comment">// Remove item</span>
+items.set(arr =&gt; arr.filter(x =&gt; x !== <span class="number">2</span>));
+
+<span class="comment">// Update item</span>
+items.set(arr =&gt; arr.map(x =&gt; x === <span class="number">3</span> ? <span class="number">30</span> : x));</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Don't Mutate</p>
+            <p>Never mutate signal values directly. Always create new references so What can detect changes:</p>
+<pre><code><span class="comment">// BAD - mutation won't trigger updates</span>
+user().name = <span class="string">'Bob'</span>;
+
+<span class="comment">// GOOD - creates new reference</span>
+user.set(u =&gt; ({ ...u, name: <span class="string">'Bob'</span> }));</code></pre>
+          </div>
+
+          <h2 id="computed-values">Computed Values</h2>
+          <p>A <code>computed</code> is a derived signal that automatically updates when its dependencies change:</p>
+
+<pre><code><span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> firstName = <span class="function">signal</span>(<span class="string">'John'</span>);
+<span class="keyword">const</span> lastName = <span class="function">signal</span>(<span class="string">'Doe'</span>);
+
+<span class="comment">// Automatically tracks firstName and lastName</span>
+<span class="keyword">const</span> fullName = <span class="function">computed</span>(() =&gt;
+  <span class="string">`${firstName()} ${lastName()}`</span>
+);
+
+console.log(fullName());  <span class="comment">// "John Doe"</span>
+
+firstName.set(<span class="string">'Jane'</span>);
+console.log(fullName());  <span class="comment">// "Jane Doe"</span></code></pre>
+
+          <h3 id="computed-caching">Caching and Laziness</h3>
+          <p>Computed values are:</p>
+          <ul>
+            <li><strong>Lazy</strong> — They don't compute until first read</li>
+            <li><strong>Cached</strong> — They only recompute when dependencies change</li>
+            <li><strong>Efficient</strong> — Even if dependencies change multiple times, they only compute once per read</li>
+          </ul>
+
+<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="keyword">const</span> expensive = <span class="function">computed</span>(() =&gt; {
+  console.log(<span class="string">'Computing...'</span>);
+  <span class="keyword">return</span> count() * <span class="number">2</span>;
+});
+
+<span class="comment">// Nothing logged yet (lazy)</span>
+
+console.log(expensive());  <span class="comment">// Logs "Computing...", returns 0</span>
+console.log(expensive());  <span class="comment">// Returns 0 (cached, no log)</span>
+
+count.set(<span class="number">5</span>);
+console.log(expensive());  <span class="comment">// Logs "Computing...", returns 10</span></code></pre>
+
+          <h2 id="batching">Batching Updates</h2>
+          <p>When you update multiple signals, you can batch them to prevent intermediate updates:</p>
+
+<pre><code><span class="keyword">import</span> { signal, batch, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> firstName = <span class="function">signal</span>(<span class="string">'John'</span>);
+<span class="keyword">const</span> lastName = <span class="function">signal</span>(<span class="string">'Doe'</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  console.log(<span class="string">`Name: ${firstName()} ${lastName()}`</span>);
+});
+
+<span class="comment">// Without batch: logs twice</span>
+firstName.set(<span class="string">'Jane'</span>);  <span class="comment">// Logs "Name: Jane Doe"</span>
+lastName.set(<span class="string">'Smith'</span>);  <span class="comment">// Logs "Name: Jane Smith"</span>
+
+<span class="comment">// With batch: logs once</span>
+<span class="function">batch</span>(() =&gt; {
+  firstName.set(<span class="string">'Bob'</span>);
+  lastName.set(<span class="string">'Jones'</span>);
+});  <span class="comment">// Logs "Name: Bob Jones"</span></code></pre>
+
+          <h2 id="untrack">Reading Without Tracking</h2>
+          <p>Use <code>untrack()</code> to read signals without creating subscriptions:</p>
+
+<pre><code><span class="keyword">import</span> { signal, effect, untrack } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+<span class="keyword">const</span> multiplier = <span class="function">signal</span>(<span class="number">2</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  <span class="comment">// Re-runs when count changes, but NOT when multiplier changes</span>
+  <span class="keyword">const</span> result = count() * <span class="function">untrack</span>(() =&gt; multiplier());
+  console.log(result);
+});</code></pre>
+
+          <h2 id="best-practices">Best Practices</h2>
+
+          <h3>1. Keep Signals Focused</h3>
+          <p>Create separate signals for unrelated data:</p>
+
+<pre><code><span class="comment">// GOOD - separate concerns</span>
+<span class="keyword">const</span> name = <span class="function">signal</span>(<span class="string">'Alice'</span>);
+<span class="keyword">const</span> age = <span class="function">signal</span>(<span class="number">25</span>);
+
+<span class="comment">// AVOID - unrelated data bundled together</span>
+<span class="keyword">const</span> state = <span class="function">signal</span>({ name: <span class="string">'Alice'</span>, age: <span class="number">25</span>, theme: <span class="string">'dark'</span> });</code></pre>
+
+          <h3>2. Prefer Computed Over Effects for Derived Values</h3>
+<pre><code><span class="comment">// GOOD - computed for derived values</span>
+<span class="keyword">const</span> fullName = <span class="function">computed</span>(() =&gt; <span class="string">`${first()} ${last()}`</span>);
+
+<span class="comment">// AVOID - effect with manual state</span>
+<span class="keyword">const</span> fullName = <span class="function">signal</span>(<span class="string">''</span>);
+<span class="function">effect</span>(() =&gt; {
+  fullName.set(<span class="string">`${first()} ${last()}`</span>);  <span class="comment">// Don't do this</span>
+});</code></pre>
+
+          <h3>3. Use Functional Updates for Derived Values</h3>
+<pre><code><span class="comment">// GOOD - uses current value</span>
+count.set(c =&gt; c + <span class="number">1</span>);
+
+<span class="comment">// RISKY - reads stale closure</span>
+count.set(count() + <span class="number">1</span>);  <span class="comment">// May be stale in async code</span></code></pre>
+
+          <div class="page-nav">
+            <a href="./thinking-in-what.html">
+              <span class="label">Previous</span>
+              <span class="title">Thinking in What</span>
+            </a>
+            <a href="./components.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Components</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#what-is-signal">What is a Signal?</a></li>
+            <li><a href="#reading-signals">Reading Signals</a></li>
+            <li><a href="#updating-signals">Updating Signals</a></li>
+            <li><a href="#computed-values">Computed Values</a></li>
+            <li><a href="#batching">Batching Updates</a></li>
+            <li><a href="#untrack">Reading Without Tracking</a></li>
+            <li><a href="#best-practices">Best Practices</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

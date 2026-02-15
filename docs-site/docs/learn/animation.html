@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Animation — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html" class="active">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Animation</h1>
+          <p class="subtitle">Physics-based springs, tweens, transitions, and gesture detection.</p>
+
+          <h2 id="spring">spring(initialValue, options)</h2>
+          <p>Creates a physics-based spring animation. Springs produce natural, fluid motion by simulating a damped harmonic oscillator. Unlike time-based animations, springs respond dynamically when interrupted — you can redirect a spring mid-flight and it will smoothly change course.</p>
+
+<pre><code><span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Create a spring starting at 0</span>
+<span class="keyword">const</span> position = <span class="function">spring</span>(<span class="number">0</span>, {
+  stiffness: <span class="number">100</span>,   <span class="comment">// Spring tension (default: 100)</span>
+  damping: <span class="number">10</span>,      <span class="comment">// Friction (default: 10)</span>
+  mass: <span class="number">1</span>,          <span class="comment">// Weight of the object (default: 1)</span>
+  precision: <span class="number">0.01</span>,  <span class="comment">// Settle threshold (default: 0.01)</span>
+});
+
+<span class="comment">// Animate to a new value</span>
+position.set(<span class="number">200</span>);
+
+<span class="comment">// Read current animated value (reactive)</span>
+console.log(position.current());
+
+<span class="comment">// Check animation state</span>
+console.log(position.isAnimating());  <span class="comment">// true while moving</span>
+console.log(position.velocity());     <span class="comment">// current speed</span></code></pre>
+
+          <p>The returned object exposes these reactive accessors and methods:</p>
+          <ul>
+            <li><code>current()</code> — the current animated value (reactive signal)</li>
+            <li><code>target()</code> — the value the spring is heading toward</li>
+            <li><code>velocity()</code> — the current velocity of the animation</li>
+            <li><code>isAnimating()</code> — whether the spring is still in motion</li>
+            <li><code>set(target)</code> — start animating toward a new target</li>
+            <li><code>stop()</code> — halt the animation at its current position</li>
+            <li><code>snap(value)</code> — immediately jump to a value (no animation)</li>
+          </ul>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Automatic Cleanup</p>
+            <p>When created inside a component, the spring's <code>requestAnimationFrame</code> loop is automatically cancelled when the component unmounts. No manual cleanup needed.</p>
+          </div>
+
+          <h3 id="spring-counter">Example: Animated Counter</h3>
+          <p>A counter that springs smoothly between values instead of jumping:</p>
+
+<pre><code><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="keyword">function</span> <span class="function">AnimatedCounter</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> display = <span class="function">spring</span>(<span class="number">0</span>, { stiffness: <span class="number">120</span>, damping: <span class="number">14</span> });
+
+  <span class="comment">// When count changes, animate the display value</span>
+  <span class="function">effect</span>(() =&gt; display.set(count()));
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;span&gt;{() =&gt; Math.round(display.current())}&lt;/span&gt;
+      &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">10</span>)}&gt;+10&lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="tween">tween(from, to, options)</h2>
+          <p>Creates a time-based animation that interpolates from one value to another over a fixed duration. Unlike springs, tweens have a predictable end time and use easing functions to control their curve.</p>
+
+<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="comment">// Animate from 0 to 100 over 500ms</span>
+<span class="keyword">const</span> anim = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, {
+  duration: <span class="number">500</span>,                    <span class="comment">// milliseconds (default: 300)</span>
+  easing: easings.easeOutCubic,     <span class="comment">// easing function</span>
+  onUpdate: (value, t) =&gt; {},       <span class="comment">// called each frame</span>
+  onComplete: () =&gt; {},             <span class="comment">// called when finished</span>
+});
+
+<span class="comment">// Reactive accessors</span>
+anim.progress();     <span class="comment">// 0 to 1, raw progress</span>
+anim.value();        <span class="comment">// interpolated value (0 to 100)</span>
+anim.isAnimating();  <span class="comment">// true while running</span>
+
+<span class="comment">// Cancel mid-animation</span>
+anim.cancel();</code></pre>
+
+          <h3 id="tween-progress">Example: Progress Bar</h3>
+          <p>Animate a progress bar from 0% to 100% with a bounce easing:</p>
+
+<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="keyword">function</span> <span class="function">ProgressBar</span>() {
+  <span class="keyword">const</span> bar = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, {
+    duration: <span class="number">1200</span>,
+    easing: easings.easeOutBounce,
+  });
+
+  <span class="keyword">return</span> (
+    &lt;div class=<span class="string">"progress-track"</span>&gt;
+      &lt;div
+        class=<span class="string">"progress-fill"</span>
+        style={() =&gt; <span class="string">`width: ${bar.value()}%`</span>}
+      /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="easings">Easing Functions</h2>
+          <p>The <code>easings</code> object provides a set of common easing curves. Each function maps an input <code>t</code> (0 to 1) to an output value:</p>
+
+<pre><code><span class="keyword">import</span> { easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="comment">// Available easings:</span>
+easings.linear          <span class="comment">// constant speed</span>
+easings.easeInQuad      <span class="comment">// accelerate from zero</span>
+easings.easeOutQuad     <span class="comment">// decelerate to zero</span>
+easings.easeInOutQuad   <span class="comment">// accelerate then decelerate</span>
+easings.easeInCubic     <span class="comment">// stronger acceleration</span>
+easings.easeOutCubic    <span class="comment">// stronger deceleration</span>
+easings.easeInOutCubic  <span class="comment">// stronger ease in/out</span>
+easings.easeInElastic   <span class="comment">// elastic wind-up</span>
+easings.easeOutElastic  <span class="comment">// elastic overshoot</span>
+easings.easeOutBounce   <span class="comment">// bouncing settle</span></code></pre>
+
+          <p>Pass any easing to <code>tween()</code> or <code>useTransition()</code>:</p>
+
+<pre><code><span class="keyword">const</span> anim = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, { easing: easings.easeOutBounce });
+
+<span class="comment">// Or use a custom easing function</span>
+<span class="keyword">const</span> customEase = (t) =&gt; t * t * t;
+<span class="keyword">const</span> anim2 = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, { easing: customEase });</code></pre>
+
+          <h2 id="use-transition">useTransition</h2>
+          <p>Orchestrate state transitions with a progress signal. Useful for coordinating page transitions, view swaps, or multi-step animations where you need to know when the transition completes.</p>
+
+<pre><code><span class="keyword">import</span> { useTransition, easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="keyword">const</span> transition = <span class="function">useTransition</span>({
+  duration: <span class="number">400</span>,                  <span class="comment">// ms (default: 300)</span>
+  easing: easings.easeOutCubic,   <span class="comment">// easing curve</span>
+});
+
+<span class="comment">// Reactive state</span>
+transition.isTransitioning();  <span class="comment">// true during animation</span>
+transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
+
+<span class="comment">// Start a transition — returns a Promise</span>
+<span class="keyword">await</span> transition.start(() =&gt; {
+  <span class="comment">// Callback runs when transition completes</span>
+  swapContent();
+});</code></pre>
+
+          <h3 id="page-transition">Example: Page Transition</h3>
+
+<pre><code><span class="keyword">import</span> { useTransition } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">PageContainer</span>() {
+  <span class="keyword">const</span> currentPage = <span class="function">signal</span>(<span class="string">'home'</span>);
+  <span class="keyword">const</span> fade = <span class="function">useTransition</span>({ duration: <span class="number">250</span> });
+
+  <span class="keyword">async function</span> <span class="function">navigate</span>(page) {
+    <span class="keyword">await</span> fade.start(() =&gt; currentPage.set(page));
+  }
+
+  <span class="keyword">return</span> (
+    &lt;div style={() =&gt; <span class="string">`opacity: ${<span class="number">1</span> - fade.progress()}`</span>}&gt;
+      {() =&gt; renderPage(currentPage())}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="use-gesture">useGesture</h2>
+          <p>Attach multi-touch gesture handlers to an element. Supports drag, swipe, pinch, tap, and long press with velocity tracking. Works with both mouse and touch events.</p>
+
+<pre><code><span class="keyword">import</span> { useGesture } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="keyword">const</span> cardRef = { current: <span class="keyword">null</span> };
+
+<span class="keyword">const</span> gesture = <span class="function">useGesture</span>(cardRef, {
+  onDragStart: ({ x, y }) =&gt; {},
+  onDrag: ({ x, y, deltaX, deltaY, velocity }) =&gt; {},
+  onDragEnd: ({ deltaX, deltaY, velocity }) =&gt; {},
+  onSwipe: ({ direction, velocity }) =&gt; {},
+  onPinch: ({ scale, centerX, centerY }) =&gt; {},
+  onTap: ({ x, y }) =&gt; {},
+  onLongPress: ({ x, y }) =&gt; {},
+  preventDefault: <span class="keyword">false</span>,
+});</code></pre>
+
+          <p>The returned state object provides reactive signals:</p>
+          <ul>
+            <li><code>isDragging()</code> — whether a drag is in progress</li>
+            <li><code>currentX()</code>, <code>currentY()</code> — current pointer position</li>
+            <li><code>deltaX()</code>, <code>deltaY()</code> — distance from drag start</li>
+            <li><code>velocity()</code> — current velocity as <code>{ x, y }</code> in px/sec</li>
+          </ul>
+
+          <h3 id="draggable-card">Example: Draggable Card</h3>
+
+<pre><code><span class="keyword">import</span> { useGesture, spring } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<span class="keyword">import</span> { effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">DraggableCard</span>() {
+  <span class="keyword">const</span> ref = { current: <span class="keyword">null</span> };
+  <span class="keyword">const</span> x = <span class="function">spring</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> y = <span class="function">spring</span>(<span class="number">0</span>);
+
+  <span class="function">useGesture</span>(ref, {
+    onDrag: ({ deltaX, deltaY }) =&gt; {
+      x.snap(deltaX);
+      y.snap(deltaY);
+    },
+    onDragEnd: () =&gt; {
+      <span class="comment">// Spring back to origin</span>
+      x.set(<span class="number">0</span>);
+      y.set(<span class="number">0</span>);
+    },
+  });
+
+  <span class="keyword">return</span> (
+    &lt;div
+      ref={ref}
+      style={() =&gt; <span class="string">`transform: translate(${x.current()}px, ${y.current()}px)`</span>}
+      class=<span class="string">"card"</span>
+    &gt;
+      Drag me!
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Touch Events and Scrolling</p>
+            <p>By default, touch events use <code>{ passive: true }</code> to avoid blocking scroll. Set <code>preventDefault: true</code> if you need to call <code>e.preventDefault()</code> in your handlers (e.g., for a draggable element that should not scroll the page).</p>
+          </div>
+
+          <h2 id="use-animated-value">useAnimatedValue</h2>
+          <p>A React Native-inspired API that wraps a signal with animation methods. Useful when you need to drive multiple animations from a single value or interpolate between ranges.</p>
+
+<pre><code><span class="keyword">import</span> { useAnimatedValue } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="keyword">const</span> progress = <span class="function">useAnimatedValue</span>(<span class="number">0</span>);
+
+<span class="comment">// Spring to a target</span>
+progress.spring(<span class="number">100</span>, { stiffness: <span class="number">120</span>, damping: <span class="number">14</span> });
+
+<span class="comment">// Or tween with timing</span>
+progress.timing(<span class="number">100</span>, { duration: <span class="number">500</span> });
+
+<span class="comment">// Read the current value</span>
+progress.value();  <span class="comment">// reactive</span>
+
+<span class="comment">// Interpolate into a different range</span>
+<span class="keyword">const</span> opacity = progress.interpolate(
+  [<span class="number">0</span>, <span class="number">50</span>, <span class="number">100</span>],    <span class="comment">// input range</span>
+  [<span class="number">0</span>, <span class="number">0.5</span>, <span class="number">1</span>]      <span class="comment">// output range</span>
+);
+
+<span class="comment">// Use in JSX</span>
+&lt;div style={() =&gt; <span class="string">`opacity: ${opacity()}`</span>} /&gt;</code></pre>
+
+          <h2 id="css-transitions">CSS Transitions</h2>
+          <p>For CSS-class-based animations, use <code>createTransitionClasses()</code> and <code>cssTransition()</code>. These follow the enter/exit pattern used by CSS animation libraries.</p>
+
+<pre><code><span class="keyword">import</span> { createTransitionClasses, cssTransition } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+
+<span class="comment">// Generate class names for a transition called "fade"</span>
+<span class="keyword">const</span> classes = <span class="function">createTransitionClasses</span>(<span class="string">'fade'</span>);
+<span class="comment">// {</span>
+<span class="comment">//   enter: 'fade-enter',</span>
+<span class="comment">//   enterActive: 'fade-enter-active',</span>
+<span class="comment">//   enterDone: 'fade-enter-done',</span>
+<span class="comment">//   exit: 'fade-exit',</span>
+<span class="comment">//   exitActive: 'fade-exit-active',</span>
+<span class="comment">//   exitDone: 'fade-exit-done',</span>
+<span class="comment">// }</span>
+
+<span class="comment">// Apply the transition to an element</span>
+<span class="keyword">await</span> <span class="function">cssTransition</span>(element, <span class="string">'fade'</span>, <span class="string">'enter'</span>, <span class="number">300</span>);
+<span class="comment">// Adds fade-enter, then fade-enter-active, then fade-enter-done</span></code></pre>
+
+          <p>Define matching CSS classes in your stylesheet:</p>
+
+<pre><code><span class="comment">/* CSS for fade transition */</span>
+.fade-enter { opacity: <span class="number">0</span>; }
+.fade-enter-active { opacity: <span class="number">1</span>; transition: opacity <span class="number">300</span>ms; }
+.fade-enter-done { opacity: <span class="number">1</span>; }
+.fade-exit { opacity: <span class="number">1</span>; }
+.fade-exit-active { opacity: <span class="number">0</span>; transition: opacity <span class="number">300</span>ms; }
+.fade-exit-done { opacity: <span class="number">0</span>; }</code></pre>
+
+          <h2 id="live-demo">Live Demo</h2>
+          <p>Click the buttons below to see a physics-based spring animation in action. The black square animates to the target position with natural overshoot and settle.</p>
+
+          <script>
+(function() {
+  let _current = null;
+  window.What = {
+    signal(initial) {
+      let value = initial;
+      const subs = new Set();
+      const s = () => { if (_current) subs.add(_current); return value; };
+      s.set = (v) => { value = typeof v === 'function' ? v(value) : v; subs.forEach(fn => fn()); };
+      s.peek = () => value;
+      return s;
+    },
+    effect(fn) {
+      const execute = () => { const prev = _current; _current = execute; fn(); _current = prev; };
+      execute();
+    }
+  };
+})();
+          </script>
+
+          <div class="playground">
+            <div class="playground-header">Live Demo — Spring Animation</div>
+            <div class="playground-result" id="demo-spring"></div>
+          </div>
+          <script>
+(function() {
+  const { signal, effect } = What;
+  const el = document.getElementById('demo-spring');
+  const position = signal(0);
+  const target = signal(0);
+  let velocity = 0;
+  const stiffness = 170, damping = 26, mass = 1;
+
+  function tick() {
+    const x = position.peek();
+    const t = target.peek();
+    const springForce = -stiffness * (x - t);
+    const dampForce = -damping * velocity;
+    const acceleration = (springForce + dampForce) / mass;
+    velocity += acceleration * 0.016;
+    const newX = x + velocity * 0.016;
+    if (Math.abs(newX - t) < 0.5 && Math.abs(velocity) < 0.5) {
+      position.set(t);
+      velocity = 0;
+    } else {
+      position.set(newX);
+      requestAnimationFrame(tick);
+    }
+  }
+
+  effect(() => {
+    const x = position();
+    el.innerHTML = `
+      <div style="margin-bottom:16px">
+        <div style="width:100%;height:48px;background:#f4f4f5;border-radius:8px;position:relative;overflow:hidden">
+          <div style="position:absolute;left:${x}%;top:4px;width:40px;height:40px;background:#18181b;border-radius:8px;transition:none;transform:translateX(-50%)"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="this.closest('.playground-result').__go(0)" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Left</button>
+        <button onclick="this.closest('.playground-result').__go(50)" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Center</button>
+        <button onclick="this.closest('.playground-result').__go(100)" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Right</button>
+      </div>`;
+    el.__go = (t) => { target.set(t); velocity = 0; requestAnimationFrame(tick); };
+  });
+})();
+          </script>
+
+          <div class="page-nav">
+            <a href="./ssr.html">
+              <span class="label">Previous</span>
+              <span class="title">Server Rendering</span>
+            </a>
+            <a href="./accessibility.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Accessibility</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#spring">spring()</a></li>
+            <li><a href="#tween">tween()</a></li>
+            <li><a href="#easings">Easing Functions</a></li>
+            <li><a href="#use-transition">useTransition</a></li>
+            <li><a href="#use-gesture">useGesture</a></li>
+            <li><a href="#use-animated-value">useAnimatedValue</a></li>
+            <li><a href="#css-transitions">CSS Transitions</a></li>
+            <li><a href="#live-demo">Live Demo</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

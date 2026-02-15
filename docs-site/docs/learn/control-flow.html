@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control Flow — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html" class="active">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Control Flow</h1>
+          <p class="subtitle">Components for conditional rendering and lists. Cleaner than ternaries and .map() calls.</p>
+
+          <h2 id="show">Show</h2>
+          <p>Conditionally render content based on a condition:</p>
+
+<pre><code><span class="keyword">import</span> { Show } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">UserGreeting</span>({ user }) {
+  <span class="keyword">return</span> (
+    &lt;Show when={user} fallback={&lt;p&gt;Please log in&lt;/p&gt;}&gt;
+      &lt;p&gt;Welcome back, {<span class="function">() =&gt;</span> user().name}!&lt;/p&gt;
+    &lt;/Show&gt;
+  );
+}</code></pre>
+
+          <h3>How Show Works</h3>
+          <ul>
+            <li><code>when</code> — The condition to check. Can be a signal or value.</li>
+            <li><code>fallback</code> — (Optional) What to render when condition is false.</li>
+            <li>Children render only when <code>when</code> is truthy.</li>
+          </ul>
+
+          <h3>With Signals</h3>
+<pre><code><span class="keyword">const</span> isLoggedIn = <span class="function">signal</span>(<span class="keyword">false</span>);
+
+&lt;Show when={isLoggedIn} fallback={&lt;LoginForm /&gt;}&gt;
+  &lt;Dashboard /&gt;
+&lt;/Show&gt;
+
+<span class="comment">// Toggle login state</span>
+isLoggedIn.set(<span class="keyword">true</span>);  <span class="comment">// Now shows Dashboard</span></code></pre>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Why Show instead of ternary?</p>
+            <p>Show is optimized for fine-grained reactivity. It only re-evaluates when the condition changes, and it properly handles cleanup when toggling between states.</p>
+          </div>
+
+          <h2 id="for">For</h2>
+          <p>Efficiently render a list of items:</p>
+
+<pre><code><span class="keyword">import</span> { For } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> items = <span class="function">signal</span>([
+  { id: <span class="number">1</span>, name: <span class="string">'Apple'</span> },
+  { id: <span class="number">2</span>, name: <span class="string">'Banana'</span> },
+  { id: <span class="number">3</span>, name: <span class="string">'Cherry'</span> },
+]);
+
+&lt;ul&gt;
+  &lt;For each={items}&gt;
+    {(item, index) =&gt; (
+      &lt;li key={item.id}&gt;
+        {index + <span class="number">1</span>}. {item.name}
+      &lt;/li&gt;
+    )}
+  &lt;/For&gt;
+&lt;/ul&gt;</code></pre>
+
+          <h3>How For Works</h3>
+          <ul>
+            <li><code>each</code> — The array to iterate (can be a signal)</li>
+            <li>Children is a function receiving <code>(item, index)</code></li>
+            <li>Always provide a <code>key</code> for efficient updates</li>
+          </ul>
+
+          <h3>Empty State</h3>
+<pre><code>&lt;For each={items} fallback={&lt;p&gt;No items yet&lt;/p&gt;}&gt;
+  {item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;}
+&lt;/For&gt;</code></pre>
+
+          <h3>Reactive Updates</h3>
+<pre><code><span class="keyword">const</span> todos = <span class="function">signal</span>([]);
+
+<span class="comment">// Add item - list updates automatically</span>
+todos.set(t =&gt; [...t, { id: Date.now(), text: <span class="string">'New todo'</span> }]);
+
+<span class="comment">// Remove item</span>
+todos.set(t =&gt; t.filter(item =&gt; item.id !== idToRemove));
+
+<span class="comment">// Update item</span>
+todos.set(t =&gt; t.map(item =&gt;
+  item.id === id ? { ...item, done: <span class="keyword">true</span> } : item
+));</code></pre>
+
+          <h2 id="switch">Switch / Match</h2>
+          <p>Render one of multiple options based on conditions:</p>
+
+<pre><code><span class="keyword">import</span> { Switch, Match } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> status = <span class="function">signal</span>(<span class="string">'loading'</span>);
+
+&lt;Switch fallback={&lt;p&gt;Unknown status&lt;/p&gt;}&gt;
+  &lt;Match when={<span class="function">() =&gt;</span> status() === <span class="string">'loading'</span>}&gt;
+    &lt;Spinner /&gt;
+  &lt;/Match&gt;
+  &lt;Match when={<span class="function">() =&gt;</span> status() === <span class="string">'error'</span>}&gt;
+    &lt;ErrorMessage /&gt;
+  &lt;/Match&gt;
+  &lt;Match when={<span class="function">() =&gt;</span> status() === <span class="string">'success'</span>}&gt;
+    &lt;Content /&gt;
+  &lt;/Match&gt;
+&lt;/Switch&gt;</code></pre>
+
+          <h3>With Data</h3>
+          <p>Match can pass data to children:</p>
+
+<pre><code><span class="keyword">const</span> result = <span class="function">signal</span>({ type: <span class="string">'success'</span>, data: [...] });
+
+&lt;Switch&gt;
+  &lt;Match when={<span class="function">() =&gt;</span> result().type === <span class="string">'success'</span> && result().data}&gt;
+    {data =&gt; &lt;DataTable items={data} /&gt;}
+  &lt;/Match&gt;
+  &lt;Match when={<span class="function">() =&gt;</span> result().type === <span class="string">'error'</span>}&gt;
+    &lt;Error /&gt;
+  &lt;/Match&gt;
+&lt;/Switch&gt;</code></pre>
+
+          <h2 id="portal">Portal</h2>
+          <p>Render children into a different DOM node:</p>
+
+<pre><code><span class="keyword">import</span> { Portal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Modal</span>({ isOpen, onClose, children }) {
+  <span class="keyword">return</span> (
+    &lt;Show when={isOpen}&gt;
+      &lt;Portal mount={document.body}&gt;
+        &lt;div className=<span class="string">"modal-overlay"</span> onClick={onClose}&gt;
+          &lt;div className=<span class="string">"modal"</span> onClick={e =&gt; e.stopPropagation()}&gt;
+            {children}
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/Portal&gt;
+    &lt;/Show&gt;
+  );
+}</code></pre>
+
+          <p>Common uses for Portal:</p>
+          <ul>
+            <li>Modals and dialogs</li>
+            <li>Tooltips and popovers</li>
+            <li>Dropdown menus</li>
+            <li>Notifications/toasts</li>
+          </ul>
+
+          <h2 id="error-boundary">ErrorBoundary</h2>
+          <p>Catch errors in child components:</p>
+
+<pre><code><span class="keyword">import</span> { ErrorBoundary } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+&lt;ErrorBoundary fallback={(err, reset) =&gt; (
+  &lt;div className=<span class="string">"error"</span>&gt;
+    &lt;p&gt;Something went wrong: {err.message}&lt;/p&gt;
+    &lt;button onClick={reset}&gt;Try again&lt;/button&gt;
+  &lt;/div&gt;
+)}&gt;
+  &lt;RiskyComponent /&gt;
+&lt;/ErrorBoundary&gt;</code></pre>
+
+          <h2 id="comparison">Comparison with Plain JS</h2>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Pattern</th>
+                <th>Plain JS</th>
+                <th>What Component</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Conditional</td>
+                <td><code>{cond ? &lt;A/&gt; : &lt;B/&gt;}</code></td>
+                <td><code>&lt;Show when={cond} fallback={&lt;B/&gt;}&gt;&lt;A/&gt;&lt;/Show&gt;</code></td>
+              </tr>
+              <tr>
+                <td>List</td>
+                <td><code>{items.map(i =&gt; &lt;Li/&gt;)}</code></td>
+                <td><code>&lt;For each={items}&gt;{i =&gt; &lt;Li/&gt;}&lt;/For&gt;</code></td>
+              </tr>
+              <tr>
+                <td>Multi-cond</td>
+                <td><code>{a ? &lt;A/&gt; : b ? &lt;B/&gt; : &lt;C/&gt;}</code></td>
+                <td><code>&lt;Switch&gt;&lt;Match&gt;...&lt;/Match&gt;&lt;/Switch&gt;</code></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout callout-success">
+            <p class="callout-title">When to use components vs plain JS</p>
+            <p>Control flow components are optimized for reactive updates and provide better semantics. Use them when the condition depends on signals. For static conditions known at render time, plain JS works fine.</p>
+          </div>
+
+          <div class="page-nav">
+            <a href="./effects.html">
+              <span class="label">Previous</span>
+              <span class="title">Effects</span>
+            </a>
+            <a href="./forms.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Forms & Events</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#show">Show</a></li>
+            <li><a href="#for">For</a></li>
+            <li><a href="#switch">Switch / Match</a></li>
+            <li><a href="#portal">Portal</a></li>
+            <li><a href="#error-boundary">ErrorBoundary</a></li>
+            <li><a href="#comparison">Comparison</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lifecycle — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html" class="active">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Lifecycle</h1>
+          <p class="subtitle">Run code when components mount and unmount. Set up subscriptions, fetch data, and clean up resources.</p>
+
+          <h2 id="onmount">onMount</h2>
+          <p>Run code once when a component first renders:</p>
+
+<pre><code><span class="keyword">import</span> { onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Chart</span>({ data }) {
+  <span class="keyword">let</span> canvas;
+
+  <span class="function">onMount</span>(() =&gt; {
+    <span class="comment">// Component is now in the DOM</span>
+    <span class="comment">// canvas ref is available</span>
+    <span class="keyword">const</span> chart = <span class="keyword">new</span> Chart(canvas, { data });
+    console.log(<span class="string">'Chart initialized'</span>);
+  });
+
+  <span class="keyword">return</span> &lt;canvas ref={el =&gt; canvas = el} /&gt;;
+}</code></pre>
+
+          <p>Use <code>onMount</code> for:</p>
+          <ul>
+            <li>DOM measurements (element sizes, positions)</li>
+            <li>Setting up third-party libraries</li>
+            <li>Initial data fetching</li>
+            <li>Animations on enter</li>
+          </ul>
+
+          <h2 id="oncleanup">onCleanup</h2>
+          <p>Register cleanup code to run when the component unmounts:</p>
+
+<pre><code><span class="keyword">import</span> { onMount, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">WebSocketChat</span>({ roomId }) {
+  <span class="keyword">let</span> socket;
+
+  <span class="function">onMount</span>(() =&gt; {
+    socket = <span class="keyword">new</span> WebSocket(<span class="string">`wss://chat.example.com/${roomId}`</span>);
+    socket.onmessage = (e) =&gt; {
+      console.log(<span class="string">'Message:'</span>, e.data);
+    };
+  });
+
+  <span class="function">onCleanup</span>(() =&gt; {
+    <span class="comment">// Close connection when component unmounts</span>
+    socket?.close();
+  });
+
+  <span class="keyword">return</span> &lt;div className=<span class="string">"chat"</span>&gt;...&lt;/div&gt;;
+}</code></pre>
+
+          <p>Use <code>onCleanup</code> for:</p>
+          <ul>
+            <li>Removing event listeners</li>
+            <li>Closing connections (WebSocket, EventSource)</li>
+            <li>Clearing timers/intervals</li>
+            <li>Canceling pending requests</li>
+            <li>Cleaning up third-party library instances</li>
+          </ul>
+
+          <h2 id="common-patterns">Common Patterns</h2>
+
+          <h3>Event Listeners</h3>
+<pre><code><span class="keyword">function</span> <span class="function">WindowSize</span>() {
+  <span class="keyword">const</span> size = <span class="function">signal</span>({ width: <span class="number">0</span>, height: <span class="number">0</span> });
+
+  <span class="function">onMount</span>(() =&gt; {
+    <span class="keyword">const</span> updateSize = () =&gt; {
+      size.set({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    updateSize();
+    window.addEventListener(<span class="string">'resize'</span>, updateSize);
+  });
+
+  <span class="function">onCleanup</span>(() =&gt; {
+    window.removeEventListener(<span class="string">'resize'</span>, updateSize);
+  });
+
+  <span class="keyword">return</span> &lt;p&gt;{<span class="function">() =&gt;</span> <span class="string">`${size().width} x ${size().height}`</span>}&lt;/p&gt;;
+}</code></pre>
+
+          <h3>Timers</h3>
+<pre><code><span class="keyword">function</span> <span class="function">Clock</span>() {
+  <span class="keyword">const</span> time = <span class="function">signal</span>(<span class="keyword">new</span> Date());
+
+  <span class="function">onMount</span>(() =&gt; {
+    <span class="keyword">const</span> id = setInterval(() =&gt; {
+      time.set(<span class="keyword">new</span> Date());
+    }, <span class="number">1000</span>);
+
+    <span class="comment">// Return cleanup directly from onMount</span>
+    <span class="keyword">return</span> () =&gt; clearInterval(id);
+  });
+
+  <span class="keyword">return</span> &lt;p&gt;{<span class="function">() =&gt;</span> time().toLocaleTimeString()}&lt;/p&gt;;
+}</code></pre>
+
+          <h3>Third-Party Libraries</h3>
+<pre><code><span class="keyword">function</span> <span class="function">Map</span>({ lat, lng }) {
+  <span class="keyword">let</span> container;
+  <span class="keyword">let</span> map;
+
+  <span class="function">onMount</span>(() =&gt; {
+    map = L.map(container).setView([lat, lng], <span class="number">13</span>);
+    L.tileLayer(<span class="string">'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'</span>).addTo(map);
+  });
+
+  <span class="function">onCleanup</span>(() =&gt; {
+    map?.remove();
+  });
+
+  <span class="keyword">return</span> &lt;div ref={el =&gt; container = el} style={{ height: <span class="string">'400px'</span> }} /&gt;;
+}</code></pre>
+
+          <h2 id="useeffect-alternative">useEffect Alternative</h2>
+          <p>For React-style lifecycle, use <code>useEffect</code>:</p>
+
+<pre><code><span class="keyword">import</span> { useEffect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Profile</span>({ userId }) {
+  <span class="keyword">const</span> user = <span class="function">signal</span>(<span class="keyword">null</span>);
+
+  <span class="comment">// Runs on mount and when userId changes</span>
+  <span class="function">useEffect</span>(() =&gt; {
+    fetch(<span class="string">`/api/users/${userId}`</span>)
+      .then(r =&gt; r.json())
+      .then(data =&gt; user.set(data));
+
+    <span class="comment">// Cleanup (optional)</span>
+    <span class="keyword">return</span> () =&gt; {
+      console.log(<span class="string">'Cleanup'</span>);
+    };
+  }, [userId]);  <span class="comment">// Dependencies</span>
+
+  <span class="keyword">return</span> &lt;div&gt;{<span class="function">() =&gt;</span> user()?.name}&lt;/div&gt;;
+}</code></pre>
+
+          <h2 id="comparison">Comparison</h2>
+
+          <table>
+            <thead>
+              <tr>
+                <th>API</th>
+                <th>When to Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>onMount</code></td>
+                <td>Setup that runs once on mount</td>
+              </tr>
+              <tr>
+                <td><code>onCleanup</code></td>
+                <td>Cleanup that runs on unmount</td>
+              </tr>
+              <tr>
+                <td><code>useEffect</code></td>
+                <td>React-style effect with dependencies</td>
+              </tr>
+              <tr>
+                <td><code>effect</code></td>
+                <td>Reactive effect (auto-tracks signals)</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Which to choose?</p>
+            <p>Use <code>onMount</code>/<code>onCleanup</code> for one-time setup. Use <code>effect</code> for reactive side effects that depend on signals. Use <code>useEffect</code> for React compatibility.</p>
+          </div>
+
+          <div class="page-nav">
+            <a href="./forms.html">
+              <span class="label">Previous</span>
+              <span class="title">Forms & Events</span>
+            </a>
+            <a href="./context.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Context</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#onmount">onMount</a></li>
+            <li><a href="#oncleanup">onCleanup</a></li>
+            <li><a href="#common-patterns">Common Patterns</a></li>
+            <li><a href="#useeffect-alternative">useEffect Alternative</a></li>
+            <li><a href="#comparison">Comparison</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

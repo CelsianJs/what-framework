@@ -1,0 +1,34 @@
+{
+  "name": "what-compiler",
+  "version": "0.3.0",
+  "description": "JSX compiler for What Framework - transforms JSX to optimized DOM operations",
+  "main": "src/index.js",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./babel": "./src/babel-plugin.js",
+    "./vite": "./src/vite-plugin.js",
+    "./runtime": "./src/runtime.js"
+  },
+  "keywords": [
+    "what",
+    "framework",
+    "compiler",
+    "jsx",
+    "babel",
+    "vite"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "@babel/core": "^7.0.0",
+    "what-core": "^0.3.0"
+  },
+  "files": [
+    "src"
+  ],
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0"
+  }
+}

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Fetching — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html" class="active">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Data Fetching</h1>
+          <p class="subtitle">Fetch, cache, and synchronize server state with built-in SWR and query primitives.</p>
+
+          <p>What ships four data-fetching hooks that cover everything from a one-line fetch to full TanStack Query-style cache management. Every hook returns reactive signals, so your UI updates automatically when data arrives, errors occur, or background revalidation completes.</p>
+
+<pre><code><span class="keyword">import</span> { useFetch, useSWR, useQuery, useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;</code></pre>
+
+          <h2 id="use-fetch">useFetch</h2>
+          <p><code>useFetch</code> is the simplest way to load data. It fires a request on mount, aborts it on unmount, and gives you reactive <code>data</code>, <code>error</code>, and <code>isLoading</code> signals.</p>
+
+<pre><code><span class="function">useFetch</span>(url, options?)</code></pre>
+
+          <p><strong>Options:</strong></p>
+          <ul>
+            <li><code>method</code> — HTTP method (<code>'GET'</code> by default)</li>
+            <li><code>body</code> — Request body (automatically JSON-stringified)</li>
+            <li><code>headers</code> — Additional headers (merged with <code>Content-Type: application/json</code>)</li>
+            <li><code>transform</code> — Function to transform the parsed JSON before storing</li>
+            <li><code>initialData</code> — Value to use before the first response arrives</li>
+          </ul>
+
+          <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>refetch()</code>, <code>mutate(newData)</code></p>
+
+<pre><code><span class="keyword">import</span> { useFetch } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+
+<span class="keyword">function</span> <span class="function">UserProfile</span>({ userId }) {
+  <span class="keyword">const</span> { data, error, isLoading } = <span class="function">useFetch</span>(
+    <span class="string">`/api/users/${userId}`</span>,
+    { <span class="function">transform</span>: (json) =&gt; json.user }
+  );
+
+  <span class="keyword">return</span> () =&gt; {
+    <span class="keyword">if</span> (isLoading()) <span class="keyword">return</span> &lt;p&gt;Loading...&lt;/p&gt;;
+    <span class="keyword">if</span> (error())    <span class="keyword">return</span> &lt;p&gt;Error: {error().message}&lt;/p&gt;;
+    <span class="keyword">return</span> &lt;h2&gt;{data().name}&lt;/h2&gt;;
+  };
+}</code></pre>
+
+          <p>Call <code>refetch()</code> to re-run the request at any time (the previous in-flight request is automatically aborted). Use <code>mutate(newData)</code> to optimistically update the local data signal without hitting the network.</p>
+
+          <h2 id="use-swr">useSWR</h2>
+          <p><code>useSWR</code> adds a shared cache layer on top of fetching. Multiple components that read the same cache key share one set of signals, so a mutation in one component instantly updates every other component displaying that key.</p>
+
+<pre><code><span class="function">useSWR</span>(key, fetcher, options?)</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">The SWR Pattern</p>
+            <p><strong>Stale-While-Revalidate</strong> returns cached (stale) data immediately so the UI never shows a blank screen, then revalidates in the background and swaps in fresh data when it arrives. This gives users instant perceived performance while keeping data up to date.</p>
+          </div>
+
+          <p><strong>Key concepts:</strong></p>
+          <ul>
+            <li><strong>Cache key</strong> — A string that uniquely identifies the data. All <code>useSWR</code> calls with the same key share a single cache entry.</li>
+            <li><strong>Deduplication</strong> — If two components mount at the same time with the same key, only one network request fires (controlled by <code>dedupingInterval</code>).</li>
+            <li><strong>Revalidation</strong> — Data is automatically re-fetched when the browser tab regains focus or the network reconnects.</li>
+          </ul>
+
+          <p><strong>Options:</strong></p>
+          <ul>
+            <li><code>revalidateOnFocus</code> — Re-fetch when the tab becomes visible (default <code>true</code>)</li>
+            <li><code>revalidateOnReconnect</code> — Re-fetch when the browser comes back online (default <code>true</code>)</li>
+            <li><code>refreshInterval</code> — Poll at this interval in ms (<code>0</code> to disable)</li>
+            <li><code>dedupingInterval</code> — Suppress duplicate requests within this window (default <code>2000</code> ms)</li>
+            <li><code>fallbackData</code> — Data to use before the first fetch completes</li>
+            <li><code>onSuccess(data, key)</code> — Callback after a successful fetch</li>
+            <li><code>onError(error, key)</code> — Callback after a failed fetch</li>
+            <li><code>suspense</code> — Reserved for future Suspense integration</li>
+          </ul>
+
+          <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>isValidating()</code>, <code>mutate(newData, shouldRevalidate?)</code>, <code>revalidate()</code></p>
+
+<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+
+<span class="keyword">function</span> <span class="function">Dashboard</span>() {
+  <span class="keyword">const</span> { data, isValidating } = <span class="function">useSWR</span>(
+    <span class="string">'/api/stats'</span>,
+    (key, { signal }) =&gt; <span class="function">fetch</span>(key, { signal }).then(r =&gt; r.json()),
+    { refreshInterval: <span class="number">30000</span> }  <span class="comment">// poll every 30 s</span>
+  );
+
+  <span class="keyword">return</span> () =&gt; (
+    &lt;div&gt;
+      {isValidating() &amp;&amp; &lt;span class=<span class="string">"badge"</span>&gt;Refreshing...&lt;/span&gt;}
+      &lt;pre&gt;{JSON.stringify(data(), null, <span class="number">2</span>)}&lt;/pre&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>The fetcher receives the cache key as the first argument and an options object with an <code>AbortSignal</code> as the second. Always forward the signal so What can cancel in-flight requests when the component unmounts or a new request starts.</p>
+
+          <h3 id="conditional-fetching">Conditional Fetching</h3>
+          <p>Pass a falsy key (<code>null</code>, <code>undefined</code>, or <code>false</code>) to skip fetching entirely. This is useful for dependent queries where you need to wait for another value first.</p>
+
+<pre><code><span class="keyword">const</span> userId = <span class="function">signal</span>(<span class="keyword">null</span>);
+
+<span class="comment">// Won't fetch until userId is set</span>
+<span class="keyword">const</span> { data } = <span class="function">useSWR</span>(
+  userId() ? <span class="string">`/api/users/${userId()}`</span> : <span class="keyword">null</span>,
+  fetcher
+);</code></pre>
+
+          <h2 id="use-query">useQuery</h2>
+          <p><code>useQuery</code> offers the most control. It mirrors the TanStack Query API with stale times, automatic retries with exponential backoff, and fine-grained status tracking.</p>
+
+<pre><code><span class="function">useQuery</span>(options)</code></pre>
+
+          <p><strong>Options:</strong></p>
+          <ul>
+            <li><code>queryKey</code> — String or array that uniquely identifies the query (arrays are joined with <code>:</code>)</li>
+            <li><code>queryFn({ queryKey, signal })</code> — The async function that fetches data</li>
+            <li><code>enabled</code> — Set to <code>false</code> to prevent automatic fetching (default <code>true</code>)</li>
+            <li><code>staleTime</code> — How long data is considered fresh in ms (default <code>0</code>)</li>
+            <li><code>cacheTime</code> — How long inactive data stays in cache (default <code>300000</code> ms / 5 min)</li>
+            <li><code>refetchOnWindowFocus</code> — Re-fetch on tab focus (default <code>true</code>)</li>
+            <li><code>refetchInterval</code> — Poll interval in ms (<code>false</code> to disable)</li>
+            <li><code>retry</code> — Number of retry attempts on failure (default <code>3</code>)</li>
+            <li><code>retryDelay(attempt)</code> — Delay function (default: exponential backoff capped at 30 s)</li>
+            <li><code>onSuccess(data)</code>, <code>onError(error)</code>, <code>onSettled(data, error)</code> — Lifecycle callbacks</li>
+            <li><code>select(data)</code> — Transform cached data before returning it</li>
+            <li><code>placeholderData</code> — Synchronous placeholder until real data loads</li>
+          </ul>
+
+          <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>status()</code>, <code>fetchStatus()</code>, <code>isLoading()</code>, <code>isError()</code>, <code>isSuccess()</code>, <code>isFetching()</code>, <code>refetch()</code></p>
+
+<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+
+<span class="keyword">function</span> <span class="function">RepoList</span>({ org }) {
+  <span class="keyword">const</span> repos = <span class="function">useQuery</span>({
+    queryKey: [<span class="string">'repos'</span>, org],
+    <span class="function">queryFn</span>: <span class="keyword">async</span> ({ signal }) =&gt; {
+      <span class="keyword">const</span> res = <span class="keyword">await</span> <span class="function">fetch</span>(<span class="string">`/api/orgs/${org}/repos`</span>, { signal });
+      <span class="keyword">if</span> (!res.ok) <span class="keyword">throw</span> <span class="keyword">new</span> Error(res.statusText);
+      <span class="keyword">return</span> res.json();
+    },
+    staleTime: <span class="number">60000</span>,        <span class="comment">// fresh for 1 minute</span>
+    retry: <span class="number">2</span>,                <span class="comment">// retry twice on failure</span>
+    <span class="function">select</span>: (data) =&gt; data.filter(r =&gt; !r.archived),
+  });
+
+  <span class="keyword">return</span> () =&gt; {
+    <span class="keyword">if</span> (repos.isLoading()) <span class="keyword">return</span> &lt;p&gt;Loading repos...&lt;/p&gt;;
+    <span class="keyword">if</span> (repos.isError())   <span class="keyword">return</span> &lt;p&gt;Failed: {repos.error().message}&lt;/p&gt;;
+    <span class="keyword">return</span> (
+      &lt;ul&gt;
+        {repos.data().map(r =&gt; &lt;li key={r.id}&gt;{r.name}&lt;/li&gt;)}
+      &lt;/ul&gt;
+    );
+  };
+}</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Status vs. FetchStatus</p>
+            <p><code>status()</code> tells you about the <em>data</em> — <code>'loading'</code> (no data yet), <code>'error'</code>, or <code>'success'</code>. <code>fetchStatus()</code> tells you about the <em>network</em> — <code>'fetching'</code> or <code>'idle'</code>. A query can be <code>status: 'success'</code> and <code>fetchStatus: 'fetching'</code> at the same time during a background revalidation.</p>
+          </div>
+
+          <h2 id="use-infinite-query">useInfiniteQuery</h2>
+          <p><code>useInfiniteQuery</code> manages paginated or infinite-scroll data. Each "page" is fetched sequentially, and the hook tracks whether more pages are available in either direction.</p>
+
+<pre><code><span class="function">useInfiniteQuery</span>(options)</code></pre>
+
+          <p><strong>Options</strong> (in addition to base query options):</p>
+          <ul>
+            <li><code>queryKey</code> — String or array identifying the query</li>
+            <li><code>queryFn({ queryKey, pageParam, signal })</code> — Fetcher that receives the current page param</li>
+            <li><code>getNextPageParam(lastPage, allPages)</code> — Return the next page param, or <code>undefined</code> to signal the end</li>
+            <li><code>getPreviousPageParam(firstPage, allPages)</code> — Return the previous page param (optional)</li>
+            <li><code>initialPageParam</code> — The param for the first page</li>
+          </ul>
+
+          <p><strong>Returns:</strong> <code>data()</code> (object with <code>pages</code> and <code>pageParams</code> arrays), <code>hasNextPage()</code>, <code>hasPreviousPage()</code>, <code>fetchNextPage()</code>, <code>fetchPreviousPage()</code>, <code>refetch()</code></p>
+
+<pre><code><span class="keyword">import</span> { useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+
+<span class="keyword">function</span> <span class="function">Feed</span>() {
+  <span class="keyword">const</span> feed = <span class="function">useInfiniteQuery</span>({
+    queryKey: [<span class="string">'feed'</span>],
+    <span class="function">queryFn</span>: <span class="keyword">async</span> ({ pageParam, signal }) =&gt; {
+      <span class="keyword">const</span> res = <span class="keyword">await</span> <span class="function">fetch</span>(<span class="string">`/api/feed?cursor=${pageParam}`</span>, { signal });
+      <span class="keyword">return</span> res.json();
+    },
+    initialPageParam: <span class="number">0</span>,
+    <span class="function">getNextPageParam</span>: (lastPage) =&gt; lastPage.nextCursor,
+  });
+
+  <span class="keyword">return</span> () =&gt; (
+    &lt;div&gt;
+      {feed.data().pages.map(page =&gt;
+        page.items.map(item =&gt; &lt;Card key={item.id} item={item} /&gt;)
+      )}
+      {feed.hasNextPage() &amp;&amp; (
+        &lt;button onClick={() =&gt; feed.fetchNextPage()}&gt;
+          Load more
+        &lt;/button&gt;
+      )}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Refetch Behavior</p>
+            <p>When you call <code>refetch()</code> on an infinite query, the existing pages remain visible while the first page is re-fetched in the background (SWR pattern). Once the fresh first page arrives, all pages are replaced atomically. Page fetches are always sequential to preserve ordering.</p>
+          </div>
+
+          <h2 id="cache-management">Cache Management</h2>
+          <p>What provides standalone functions to read, write, and invalidate the shared query cache from anywhere in your application.</p>
+
+<pre><code><span class="keyword">import</span> {
+  invalidateQueries,
+  prefetchQuery,
+  setQueryData,
+  getQueryData,
+  clearCache,
+} <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;</code></pre>
+
+          <h3 id="invalidate"><code>invalidateQueries(keyOrPredicate, options?)</code></h3>
+          <p>Marks one or more cache entries as stale and triggers all active subscribers to re-fetch.</p>
+          <ul>
+            <li>Pass a <strong>string</strong> to invalidate a single key.</li>
+            <li>Pass a <strong>function</strong> <code>(key) => boolean</code> to invalidate all matching keys.</li>
+            <li>Set <code>{ hard: true }</code> to clear the cached data immediately (shows a loading state). The default soft invalidation keeps stale data visible while re-fetching.</li>
+          </ul>
+
+<pre><code><span class="comment">// Soft invalidation — keeps stale data visible</span>
+<span class="function">invalidateQueries</span>(<span class="string">'/api/stats'</span>);
+
+<span class="comment">// Hard invalidation — clears data, shows loading state</span>
+<span class="function">invalidateQueries</span>(<span class="string">'/api/stats'</span>, { hard: <span class="keyword">true</span> });
+
+<span class="comment">// Invalidate all keys matching a predicate</span>
+<span class="function">invalidateQueries</span>(key =&gt; key.startsWith(<span class="string">'/api/users'</span>));</code></pre>
+
+          <h3 id="prefetch"><code>prefetchQuery(key, fetcher)</code></h3>
+          <p>Pre-fills the cache before a component mounts. Useful for route prefetching on hover.</p>
+
+<pre><code><span class="comment">// Prefetch on link hover</span>
+&lt;a
+  href=<span class="string">"/dashboard"</span>
+  onMouseEnter={() =&gt; <span class="function">prefetchQuery</span>(
+    <span class="string">'/api/stats'</span>,
+    (key) =&gt; <span class="function">fetch</span>(key).then(r =&gt; r.json())
+  )}
+&gt;Dashboard&lt;/a&gt;</code></pre>
+
+          <h3 id="set-query-data"><code>setQueryData(key, updater)</code></h3>
+          <p>Directly write to the cache. The updater can be a new value or a function that receives the current cached value. All active subscribers for that key update immediately.</p>
+
+<pre><code><span class="comment">// Optimistic update after a mutation</span>
+<span class="function">setQueryData</span>(<span class="string">'/api/todos'</span>, (old) =&gt;
+  [...old, { id: <span class="function">Date.now</span>(), text: <span class="string">'New todo'</span>, done: <span class="keyword">false</span> }]
+);</code></pre>
+
+          <h3 id="get-query-data"><code>getQueryData(key)</code></h3>
+          <p>Synchronously read the current cached value for a key. Returns <code>undefined</code> if the key has never been fetched.</p>
+
+<pre><code><span class="keyword">const</span> cached = <span class="function">getQueryData</span>(<span class="string">'/api/user'</span>);
+<span class="keyword">if</span> (cached) console.log(cached.name);</code></pre>
+
+          <h3 id="clear-cache"><code>clearCache()</code></h3>
+          <p>Removes every entry from the cache. Useful during logout or testing.</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">logout</span>() {
+  <span class="function">clearCache</span>();
+  <span class="function">navigate</span>(<span class="string">'/login'</span>);
+}</code></pre>
+
+          <div class="page-nav">
+            <a href="./context.html">
+              <span class="label">Previous</span>
+              <span class="title">Context</span>
+            </a>
+            <a href="./forms.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Forms</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#use-fetch">useFetch</a></li>
+            <li><a href="#use-swr">useSWR</a></li>
+            <li><a href="#conditional-fetching">Conditional Fetching</a></li>
+            <li><a href="#use-query">useQuery</a></li>
+            <li><a href="#use-infinite-query">useInfiniteQuery</a></li>
+            <li><a href="#cache-management">Cache Management</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+
+  <script>
+  // Mini reactive runtime for live demos
+  (function() {
+    let _current = null;
+    window.What = {
+      signal(initial) {
+        let value = initial;
+        const subs = new Set();
+        const s = () => { if (_current) subs.add(_current); return value; };
+        s.set = (v) => { value = typeof v === 'function' ? v(value) : v; subs.forEach(fn => fn()); };
+        s.peek = () => value;
+        return s;
+      },
+      effect(fn) {
+        const execute = () => { const prev = _current; _current = execute; fn(); _current = prev; };
+        execute();
+      },
+      computed(fn) {
+        let value = fn();
+        const subs = new Set();
+        What.effect(() => { value = fn(); subs.forEach(f => f()); });
+        const s = () => { if (_current) subs.add(_current); return value; };
+        return s;
+      }
+    };
+  })();
+  </script>
+
+  <div class="playground">
+    <div class="playground-header">Live Demo — Data Fetching</div>
+    <div class="playground-result" id="demo-fetch"></div>
+  </div>
+  <script>
+  (function() {
+    const { signal, effect } = What;
+    const el = document.getElementById('demo-fetch');
+    const data = signal(null);
+    const loading = signal(true);
+    const error = signal(null);
+
+    function fetchUser() {
+      loading.set(true);
+      error.set(null);
+      setTimeout(() => {
+        data.set({ name: 'Jane Doe', email: 'jane@example.com', role: 'Engineer' });
+        loading.set(false);
+      }, 1200);
+    }
+
+    effect(() => {
+      if (loading()) {
+        el.innerHTML = '<div style="color:#a1a1aa;font-size:14px">Loading user data...</div>';
+      } else if (error()) {
+        el.innerHTML = '<div style="color:#ef4444;font-size:14px">Error: ' + error() + '</div>';
+      } else {
+        const u = data();
+        el.innerHTML = `
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="width:48px;height:48px;background:#e4e4e7;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:18px">${u.name[0]}</div>
+            <div>
+              <div style="font-weight:600;font-size:15px">${u.name}</div>
+              <div style="color:#52525b;font-size:13px">${u.email} · ${u.role}</div>
+            </div>
+            <button onclick="this.closest('.playground-result').__refetch()" style="margin-left:auto;padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Refetch</button>
+          </div>`;
+        el.__refetch = fetchUser;
+      }
+    });
+
+    fetchUser();
+  })();
+  </script>
+</body>
+</html>

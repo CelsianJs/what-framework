@@ -1,0 +1,23 @@
+{
+  "name": "what-mcp",
+  "version": "0.1.0",
+  "description": "MCP Server for What Framework documentation and assistance",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "what-mcp": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "mcp",
+    "what-framework",
+    "documentation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

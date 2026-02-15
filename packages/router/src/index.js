@@ -1,14 +1,16 @@
 // What Framework - Router
-// File-based routing (like Next.js/Astro) + programmatic API.
-// Supports nested layouts, dynamic params, catch-all routes, and middleware.
+// Production-grade file-based routing with nested layouts, loading states,
+// route groups, view transitions, and middleware.
 
-import { signal, effect, h, computed } from '../../core/src/index.js';
+import { signal, effect, computed, batch, h, ErrorBoundary } from 'what-core';
 
 // --- Route State (global singleton) ---
 
 const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/');
 const _params = signal({});
 const _query = signal({});
+const _isNavigating = signal(false);
+const _navigationError = signal(null);
 
 export const route = {
   get url() { return _url(); },
@@ -19,18 +21,41 @@ export const route = {
     const h = _url().split('#')[1];
     return h ? '#' + h : '';
   },
+  get isNavigating() { return _isNavigating(); },
+  get error() { return _navigationError(); },
 };
 
-// --- Navigation ---
+// --- Navigation with View Transitions ---
 
-export function navigate(to, opts = {}) {
-  const { replace = false, state = null } = opts;
-  if (replace) {
-    history.replaceState(state, '', to);
+export async function navigate(to, opts = {}) {
+  const { replace = false, state = null, transition = true } = opts;
+
+  // Don't navigate if already on the same URL
+  if (to === _url()) return;
+
+  _isNavigating.set(true);
+  _navigationError.set(null);
+
+  const doNavigation = () => {
+    if (replace) {
+      history.replaceState(state, '', to);
+    } else {
+      history.pushState(state, '', to);
+    }
+    _url.set(to);
+    _isNavigating.set(false);
+  };
+
+  // Use View Transitions API if available and enabled
+  if (transition && typeof document !== 'undefined' && document.startViewTransition) {
+    try {
+      await document.startViewTransition(doNavigation).finished;
+    } catch (e) {
+      // Transition failed, navigation still happened
+    }
   } else {
-    history.pushState(state, '', to);
+    doNavigation();
   }
-  _url.set(to);
 }
 
 // Back/forward support
@@ -46,13 +71,13 @@ function compilePath(path) {
   // /users/:id -> regex + param names
   // /posts/* -> catch-all
   // /[slug] -> dynamic (file-based syntax)
+  // (group) -> route group (ignored in URL)
 
-  // Normalize file-based [param] to :param, preserve catch-all names
-  const catchAllNames = {};
-  let normalized = path.replace(/\[\.\.\.(\w+)\]/g, (_, name) => {
-    catchAllNames['*'] = name;
-    return '*';
-  }).replace(/\[(\w+)\]/g, ':$1');
+  // Remove route groups from path (they don't affect URL matching)
+  const normalized = path
+    .replace(/\([\w-]+\)\//g, '') // Remove (group)/ prefixes
+    .replace(/\[\.\.\.(\w+)\]/g, (_, name) => `*:${name}`) // Preserve catch-all name
+    .replace(/\[(\w+)\]/g, ':$1'); // File-based [param] to :param
 
   const paramNames = [];
   let catchAll = null;
@@ -60,10 +85,14 @@ function compilePath(path) {
   const regexStr = normalized
     .split('/')
     .map(segment => {
+      if (segment.startsWith('*:')) {
+        catchAll = segment.slice(2);
+        paramNames.push(catchAll);
+        return '(.+)';
+      }
       if (segment === '*') {
-        const name = catchAllNames['*'] || 'rest';
-        catchAll = name;
-        paramNames.push(name);
+        catchAll = 'rest';
+        paramNames.push('rest');
         return '(.+)';
       }
       if (segment.startsWith(':')) {
@@ -79,7 +108,14 @@ function compilePath(path) {
 }
 
 function matchRoute(path, routes) {
-  for (const route of routes) {
+  // Sort routes by specificity (more specific first)
+  const sorted = [...routes].sort((a, b) => {
+    const aSpecific = (a.path.match(/:/g) || []).length + (a.path.includes('*') ? 100 : 0);
+    const bSpecific = (b.path.match(/:/g) || []).length + (b.path.includes('*') ? 100 : 0);
+    return aSpecific - bSpecific;
+  });
+
+  for (const route of sorted) {
     const { regex, paramNames } = compilePath(route.path);
     const match = path.match(regex);
     if (match) {
@@ -104,27 +140,99 @@ function parseQuery(search) {
   return params;
 }
 
+// --- Nested Layouts ---
+
+// Build the layout chain for a route
+function buildLayoutChain(route, routes) {
+  const layouts = [];
+
+  // Check for nested layouts based on path segments
+  const segments = route.path.split('/').filter(Boolean);
+  let currentPath = '';
+
+  for (const segment of segments) {
+    currentPath += '/' + segment;
+
+    // Find layout for this path level
+    const layoutRoute = routes.find(r =>
+      r.layout && r.path === currentPath + '/_layout'
+    );
+    if (layoutRoute) {
+      layouts.push(layoutRoute.layout);
+    }
+  }
+
+  // Add route's own layout if specified
+  if (route.layout) {
+    layouts.push(route.layout);
+  }
+
+  return layouts;
+}
+
 // --- Router Component ---
 
-export function Router({ routes, fallback }) {
-  // Reactive: re-renders when URL changes
+export function Router({ routes, fallback, globalLayout }) {
   const currentUrl = _url();
   const path = currentUrl.split('?')[0].split('#')[0];
   const search = currentUrl.split('?')[1]?.split('#')[0] || '';
+  const isNavigating = _isNavigating();
 
   const matched = matchRoute(path, routes);
 
   if (matched) {
-    _params.set(matched.params);
-    _query.set(parseQuery(search));
+    batch(() => {
+      _params.set(matched.params);
+      _query.set(parseQuery(search));
+    });
 
     const { route: r, params } = matched;
+    const queryObj = parseQuery(search);
 
-    // Build layout chain
-    let element = h(r.component, { params, query: parseQuery(search) });
+    // Run middleware (sync only — async middleware should use asyncGuard)
+    if (r.middleware && r.middleware.length > 0) {
+      for (const mw of r.middleware) {
+        const result = mw({ path, params, query: queryObj, route: r });
+        if (result === false) {
+          // Middleware rejected — show fallback
+          if (fallback) return h(fallback, {});
+          return h('div', { class: 'what-403' }, h('h1', null, '403'), h('p', null, 'Access denied'));
+        }
+        if (typeof result === 'string') {
+          // Middleware returned a redirect path
+          navigate(result, { replace: true });
+          return null;
+        }
+      }
+    }
 
-    if (r.layout) {
-      element = h(r.layout, {}, element);
+    // Build element with loading state support
+    let element;
+
+    if (r.loading && isNavigating) {
+      element = h(r.loading, {});
+    } else {
+      element = h(r.component, {
+        params,
+        query: queryObj,
+        route: r,
+      });
+    }
+
+    // Wrap with per-route error boundary if specified
+    if (r.error) {
+      element = h(ErrorBoundary, { fallback: r.error }, element);
+    }
+
+    // Wrap with nested layouts (innermost to outermost)
+    const layouts = buildLayoutChain(r, routes);
+    for (const Layout of layouts.reverse()) {
+      element = h(Layout, { params, query: queryObj }, element);
+    }
+
+    // Global layout wrapper
+    if (globalLayout) {
+      element = h(globalLayout, {}, element);
     }
 
     return element;
@@ -132,36 +240,98 @@ export function Router({ routes, fallback }) {
 
   // 404
   if (fallback) return h(fallback, {});
-  return h('div', { class: 'what-404' }, '404 - Page not found');
+  return h('div', { class: 'what-404' },
+    h('h1', null, '404'),
+    h('p', null, 'Page not found')
+  );
 }
 
 // --- Link Component ---
 
-export function Link({ href, class: cls, className, children, replace: rep, ...rest }) {
+export function Link({
+  href,
+  class: cls,
+  className,
+  children,
+  replace: rep,
+  prefetch: shouldPrefetch = true,
+  activeClass = 'active',
+  exactActiveClass = 'exact-active',
+  transition = true,
+  ...rest
+}) {
+  const currentPath = route.path;
+  // Segment-boundary matching: '/blog' matches '/blog/123' but not '/blog-archive'
+  const isActive = href === '/'
+    ? currentPath === '/'
+    : currentPath === href || currentPath.startsWith(href + '/');
+  const isExactActive = currentPath === href;
+
+  const classes = [
+    cls || className,
+    isActive && activeClass,
+    isExactActive && exactActiveClass,
+  ].filter(Boolean).join(' ') || undefined;
+
   return h('a', {
     href,
-    class: cls || className,
+    class: classes,
     onClick: (e) => {
       // Only intercept left-clicks without modifiers
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
       e.preventDefault();
-      navigate(href, { replace: rep });
+      navigate(href, { replace: rep, transition });
     },
+    onMouseenter: shouldPrefetch ? () => prefetch(href) : undefined,
     ...rest,
   }, ...(Array.isArray(children) ? children : [children]));
+}
+
+// --- NavLink with active states ---
+
+export function NavLink(props) {
+  return Link(props);
 }
 
 // --- Define Routes Helper ---
 // Creates route config from a flat object for convenience.
 
 export function defineRoutes(config) {
-  return Object.entries(config).map(([path, component]) => {
-    if (typeof component === 'function') {
-      return { path, component };
+  return Object.entries(config).map(([path, value]) => {
+    if (typeof value === 'function') {
+      return { path, component: value };
     }
-    // Object form with layout, middleware, etc.
-    return { path, ...component };
+    // Object form with layout, middleware, loading, error, etc.
+    return { path, ...value };
   });
+}
+
+// --- Nested Route Helper ---
+
+export function nestedRoutes(basePath, children, options = {}) {
+  const { layout, loading, error } = options;
+
+  return children.map(child => ({
+    ...child,
+    path: basePath + child.path,
+    layout: child.layout || layout,
+    loading: child.loading || loading,
+    error: child.error || error,
+  }));
+}
+
+// --- Route Groups ---
+// Group routes without affecting URL structure
+
+export function routeGroup(name, routes, options = {}) {
+  const { layout, middleware } = options;
+
+  return routes.map(route => ({
+    ...route,
+    _group: name,
+    layout: route.layout || layout,
+    middleware: [...(route.middleware || []), ...(middleware || [])],
+  }));
 }
 
 // --- Redirect ---
@@ -176,9 +346,55 @@ export function Redirect({ to }) {
 export function guard(check, fallback) {
   return (Component) => {
     return function GuardedRoute(props) {
-      if (check(props)) {
+      const result = check(props);
+
+      // Support async guards
+      if (result instanceof Promise) {
+        // Return loading while checking
+        return h('div', { class: 'what-guard-loading' }, 'Loading...');
+      }
+
+      if (result) {
         return h(Component, props);
       }
+
+      if (typeof fallback === 'string') {
+        navigate(fallback, { replace: true });
+        return null;
+      }
+      return h(fallback, props);
+    };
+  };
+}
+
+// Async guard with suspense
+export function asyncGuard(check, options = {}) {
+  const { fallback = '/login', loading = null } = options;
+
+  return (Component) => {
+    return function AsyncGuardedRoute(props) {
+      const status = signal('pending');
+      const checkResult = signal(null);
+
+      effect(() => {
+        Promise.resolve(check(props))
+          .then(result => {
+            checkResult.set(result);
+            status.set(result ? 'allowed' : 'denied');
+          })
+          .catch(() => status.set('denied'));
+      });
+
+      const currentStatus = status();
+
+      if (currentStatus === 'pending') {
+        return loading ? h(loading, {}) : null;
+      }
+
+      if (currentStatus === 'allowed') {
+        return h(Component, props);
+      }
+
       if (typeof fallback === 'string') {
         navigate(fallback, { replace: true });
         return null;
@@ -191,12 +407,79 @@ export function guard(check, fallback) {
 // --- Prefetch ---
 // Hint the browser to prefetch a route's assets.
 
+const prefetchedUrls = new Set();
+
 export function prefetch(href) {
   if (typeof document === 'undefined') return;
-  const existing = document.querySelector(`link[href="${href}"]`);
-  if (existing) return;
+  if (prefetchedUrls.has(href)) return;
+  prefetchedUrls.add(href);
+
   const link = document.createElement('link');
   link.rel = 'prefetch';
   link.href = href;
   document.head.appendChild(link);
+}
+
+// --- Scroll Restoration ---
+
+const scrollPositions = new Map();
+
+export function enableScrollRestoration() {
+  if (typeof window === 'undefined') return;
+
+  // Save scroll position before navigation
+  window.addEventListener('beforeunload', () => {
+    scrollPositions.set(location.pathname, window.scrollY);
+  });
+
+  // Restore scroll position after navigation
+  effect(() => {
+    const path = route.path;
+    const savedPosition = scrollPositions.get(path);
+
+    requestAnimationFrame(() => {
+      if (savedPosition !== undefined) {
+        window.scrollTo(0, savedPosition);
+      } else if (route.hash) {
+        const el = document.querySelector(route.hash);
+        el?.scrollIntoView();
+      } else {
+        window.scrollTo(0, 0);
+      }
+    });
+  });
+}
+
+// --- View Transition Helpers ---
+
+export function viewTransitionName(name) {
+  return { style: { viewTransitionName: name } };
+}
+
+// Configure view transition types
+export function setViewTransition(type) {
+  if (typeof document === 'undefined') return;
+  document.documentElement.dataset.transition = type;
+}
+
+// --- useRoute Hook ---
+
+export function useRoute() {
+  return {
+    path: computed(() => route.path),
+    params: computed(() => route.params),
+    query: computed(() => route.query),
+    hash: computed(() => route.hash),
+    isNavigating: computed(() => route.isNavigating),
+    navigate,
+    prefetch,
+  };
+}
+
+// --- Outlet Component ---
+// For nested route rendering
+
+export function Outlet({ children }) {
+  // Children passed from parent layout
+  return children || null;
 }

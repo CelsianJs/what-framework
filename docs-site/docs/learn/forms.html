@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forms — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html" class="active">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Forms</h1>
+          <p class="subtitle">Build validated, reactive forms with minimal boilerplate.</p>
+
+          <h2 id="use-form">useForm</h2>
+          <p><code>useForm</code> provides complete form state management, field registration, validation, and submission handling in a single hook. It uses per-field signals internally so that updating one input never causes unrelated fields to re-render.</p>
+
+<pre><code><span class="keyword">import</span> { useForm } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
+  defaultValues: { email: <span class="string">''</span>, password: <span class="string">''</span> },
+  mode: <span class="string">'onSubmit'</span>,        <span class="comment">// 'onSubmit' | 'onChange' | 'onBlur'</span>
+  reValidateMode: <span class="string">'onChange'</span>,
+  resolver: <span class="keyword">undefined</span>,     <span class="comment">// optional schema resolver</span>
+});</code></pre>
+
+          <h3 id="use-form-returns">Return Value</h3>
+          <p><code>useForm</code> returns an object with the following properties:</p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Property</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>register(name, opts?)</code></td><td>Connect a field to the form</td></tr>
+              <tr><td><code>handleSubmit(onValid, onInvalid?)</code></td><td>Returns a submit handler that validates first</td></tr>
+              <tr><td><code>setValue(name, value, opts?)</code></td><td>Programmatically set a field value</td></tr>
+              <tr><td><code>getValue(name)</code></td><td>Read a field's current value</td></tr>
+              <tr><td><code>setError(name, error)</code></td><td>Manually set a field error</td></tr>
+              <tr><td><code>clearError(name)</code></td><td>Clear a single field's error</td></tr>
+              <tr><td><code>clearErrors()</code></td><td>Clear all errors at once</td></tr>
+              <tr><td><code>reset(newValues?)</code></td><td>Reset the form to defaults or new values</td></tr>
+              <tr><td><code>watch(name?)</code></td><td>Returns a computed signal for one field or all values</td></tr>
+              <tr><td><code>validate(name?)</code></td><td>Trigger validation for one field or the entire form</td></tr>
+              <tr><td><code>formState</code></td><td>Reactive state object (see below)</td></tr>
+            </tbody>
+          </table>
+
+          <h3 id="form-state">formState</h3>
+          <p>The <code>formState</code> object exposes reactive getters and signals:</p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Property</th>
+                <th>Type</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>values</code></td><td>object</td><td>All current field values</td></tr>
+              <tr><td><code>errors</code></td><td>object</td><td>All current errors keyed by field name</td></tr>
+              <tr><td><code>touched</code></td><td>object</td><td>Fields the user has interacted with</td></tr>
+              <tr><td><code>isDirty()</code></td><td>boolean</td><td>Whether any field has been modified</td></tr>
+              <tr><td><code>isValid</code></td><td>computed</td><td>True when there are zero errors</td></tr>
+              <tr><td><code>isSubmitting()</code></td><td>boolean</td><td>True during async submit</td></tr>
+              <tr><td><code>isSubmitted()</code></td><td>boolean</td><td>True after first submit attempt</td></tr>
+              <tr><td><code>submitCount()</code></td><td>number</td><td>How many times the form was submitted</td></tr>
+              <tr><td><code>dirtyFields</code></td><td>computed</td><td>Object mapping dirty field names to <code>true</code></td></tr>
+            </tbody>
+          </table>
+
+          <h3 id="complete-example">Complete Example</h3>
+          <p>A registration form with email, password, and password confirmation:</p>
+
+<pre><code><span class="keyword">import</span> { useForm, simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
+  defaultValues: { email: <span class="string">''</span>, password: <span class="string">''</span>, confirmPassword: <span class="string">''</span> },
+  mode: <span class="string">'onBlur'</span>,
+  resolver: <span class="function">simpleResolver</span>({
+    email:           [rules.<span class="function">required</span>(), rules.<span class="function">email</span>()],
+    password:        [rules.<span class="function">required</span>(), rules.<span class="function">minLength</span>(<span class="number">8</span>)],
+    confirmPassword: [rules.<span class="function">required</span>(), rules.<span class="function">match</span>(<span class="string">'password'</span>, <span class="string">'Passwords must match'</span>)],
+  }),
+});
+
+<span class="keyword">function</span> <span class="function">Register</span>() {
+  <span class="keyword">return</span> (
+    &lt;<span class="tag">form</span> <span class="attr">onSubmit</span>={<span class="function">handleSubmit</span>(data =&gt; console.log(data))}&gt;
+      &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> <span class="attr">placeholder</span>=<span class="string">"Email"</span> /&gt;
+      &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'password'</span>)} <span class="attr">type</span>=<span class="string">"password"</span> <span class="attr">placeholder</span>=<span class="string">"Password"</span> /&gt;
+      &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'confirmPassword'</span>)} <span class="attr">type</span>=<span class="string">"password"</span> <span class="attr">placeholder</span>=<span class="string">"Confirm"</span> /&gt;
+      &lt;<span class="tag">button</span> <span class="attr">type</span>=<span class="string">"submit"</span>&gt;Sign Up&lt;/<span class="tag">button</span>&gt;
+    &lt;/<span class="tag">form</span>&gt;
+  );
+}</code></pre>
+
+          <h2 id="register">register()</h2>
+          <p>The <code>register</code> function connects a form field to the reactive state. Call it with a field name and spread the returned props onto your input element.</p>
+
+<pre><code><span class="keyword">const</span> emailProps = <span class="function">register</span>(<span class="string">'email'</span>);
+<span class="comment">// Returns: { name, value, onInput, onBlur, onFocus }</span>
+
+<span class="comment">// Spread onto any input element</span>
+&lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> /&gt;
+&lt;<span class="tag">textarea</span> {...<span class="function">register</span>(<span class="string">'bio'</span>)} /&gt;
+&lt;<span class="tag">select</span> {...<span class="function">register</span>(<span class="string">'role'</span>)}&gt;
+  &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"admin"</span>&gt;Admin&lt;/<span class="tag">option</span>&gt;
+  &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"user"</span>&gt;User&lt;/<span class="tag">option</span>&gt;
+&lt;/<span class="tag">select</span>&gt;</code></pre>
+
+          <p>Each registered field gets its own internal signal. This means typing into the email field only updates components that read the email value, not every field in the form.</p>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Checkbox handling</p>
+            <p><code>register</code> automatically detects <code>type="checkbox"</code> inputs and reads <code>e.target.checked</code> instead of <code>e.target.value</code>, so boolean fields work out of the box.</p>
+          </div>
+
+          <h2 id="validation">Validation</h2>
+          <p>What provides a set of built-in validation rules through the <code>rules</code> export. Combine them with <code>simpleResolver</code> to define constraints per field.</p>
+
+          <h3 id="built-in-rules">Built-in Rules</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th>Signature</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>required</code></td><td><code>required(message?)</code></td><td>Fails on empty, null, or undefined</td></tr>
+              <tr><td><code>minLength</code></td><td><code>minLength(n, message?)</code></td><td>String must be at least <em>n</em> characters</td></tr>
+              <tr><td><code>maxLength</code></td><td><code>maxLength(n, message?)</code></td><td>String must be at most <em>n</em> characters</td></tr>
+              <tr><td><code>min</code></td><td><code>min(n, message?)</code></td><td>Number must be at least <em>n</em></td></tr>
+              <tr><td><code>max</code></td><td><code>max(n, message?)</code></td><td>Number must be at most <em>n</em></td></tr>
+              <tr><td><code>pattern</code></td><td><code>pattern(regex, message?)</code></td><td>String must match the regex</td></tr>
+              <tr><td><code>email</code></td><td><code>email(message?)</code></td><td>Must be a valid email address</td></tr>
+              <tr><td><code>url</code></td><td><code>url(message?)</code></td><td>Must be a valid URL</td></tr>
+              <tr><td><code>match</code></td><td><code>match(field, message?)</code></td><td>Must equal the value of another field</td></tr>
+              <tr><td><code>custom</code></td><td><code>custom(fn)</code></td><td>Pass any <code>(value, allValues) => string | undefined</code></td></tr>
+            </tbody>
+          </table>
+
+          <h3 id="validation-example">Example with Multiple Rules</h3>
+
+<pre><code><span class="keyword">import</span> { simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">const</span> resolver = <span class="function">simpleResolver</span>({
+  username: [
+    rules.<span class="function">required</span>(<span class="string">'Username is required'</span>),
+    rules.<span class="function">minLength</span>(<span class="number">3</span>, <span class="string">'At least 3 characters'</span>),
+    rules.<span class="function">maxLength</span>(<span class="number">20</span>),
+    rules.<span class="function">pattern</span>(<span class="keyword">/</span>^[a-zA-Z0-9_]+$<span class="keyword">/</span>, <span class="string">'Letters, numbers, and underscores only'</span>),
+  ],
+  age: [
+    rules.<span class="function">required</span>(),
+    rules.<span class="function">min</span>(<span class="number">13</span>, <span class="string">'Must be at least 13'</span>),
+    rules.<span class="function">max</span>(<span class="number">120</span>),
+  ],
+  website: [
+    rules.<span class="function">url</span>(<span class="string">'Enter a valid URL'</span>),
+  ],
+});</code></pre>
+
+          <h3 id="error-display">Displaying Errors</h3>
+          <p>Use the <code>ErrorMessage</code> component to display errors inline. It reads the <code>formState.errors</code> signal and renders only when the named field has an error.</p>
+
+<pre><code><span class="keyword">import</span> { ErrorMessage } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+&lt;<span class="tag">form</span> <span class="attr">onSubmit</span>={<span class="function">handleSubmit</span>(onValid)}&gt;
+  &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> /&gt;
+  &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"email"</span> <span class="attr">errors</span>={() =&gt; formState.errors} /&gt;
+
+  <span class="comment">// Custom render for full control</span>
+  &lt;<span class="component">ErrorMessage</span>
+    <span class="attr">name</span>=<span class="string">"email"</span>
+    <span class="attr">errors</span>={() =&gt; formState.errors}
+    <span class="attr">render</span>={({ message }) =&gt; &lt;<span class="tag">span</span> <span class="attr">class</span>=<span class="string">"field-error"</span>&gt;{message}&lt;/<span class="tag">span</span>&gt;}
+  /&gt;
+&lt;/<span class="tag">form</span>&gt;</code></pre>
+
+          <h2 id="schema-validation">Schema Validation</h2>
+          <p>For complex forms, use <code>zodResolver</code> or <code>yupResolver</code> to validate against a schema. This keeps validation logic declarative and co-located with your type definitions.</p>
+
+          <h3 id="zod-example">Zod Example</h3>
+
+<pre><code><span class="keyword">import</span> { z } <span class="keyword">from</span> <span class="string">'zod'</span>;
+<span class="keyword">import</span> { useForm, zodResolver } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">const</span> schema = z.<span class="function">object</span>({
+  email: z.<span class="function">string</span>().<span class="function">email</span>(<span class="string">'Invalid email'</span>),
+  password: z.<span class="function">string</span>().<span class="function">min</span>(<span class="number">8</span>, <span class="string">'At least 8 characters'</span>),
+  age: z.<span class="function">number</span>().<span class="function">min</span>(<span class="number">13</span>).<span class="function">max</span>(<span class="number">120</span>),
+});
+
+<span class="keyword">const</span> { register, handleSubmit } = <span class="function">useForm</span>({
+  resolver: <span class="function">zodResolver</span>(schema),
+  defaultValues: { email: <span class="string">''</span>, password: <span class="string">''</span>, age: <span class="number">0</span> },
+});</code></pre>
+
+          <h3 id="yup-example">Yup Example</h3>
+
+<pre><code><span class="keyword">import</span> * <span class="keyword">as</span> yup <span class="keyword">from</span> <span class="string">'yup'</span>;
+<span class="keyword">import</span> { useForm, yupResolver } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">const</span> schema = yup.<span class="function">object</span>({
+  email: yup.<span class="function">string</span>().<span class="function">email</span>().<span class="function">required</span>(),
+  password: yup.<span class="function">string</span>().<span class="function">min</span>(<span class="number">8</span>).<span class="function">required</span>(),
+});
+
+<span class="keyword">const</span> { register, handleSubmit } = <span class="function">useForm</span>({
+  resolver: <span class="function">yupResolver</span>(schema),
+});</code></pre>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Custom resolvers</p>
+            <p>A resolver is any async function that accepts <code>values</code> and returns <code>{ values, errors }</code>. Use <code>simpleResolver(rules)</code> for lightweight validation without pulling in Zod or Yup.</p>
+          </div>
+
+          <h2 id="use-field">useField</h2>
+          <p><code>useField</code> gives you standalone control over a single field without a parent <code>useForm</code>. This is useful for isolated inputs like search bars, inline edits, or fields managed outside a form context.</p>
+
+<pre><code><span class="keyword">import</span> { useField } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">const</span> username = <span class="function">useField</span>(<span class="string">'username'</span>, {
+  defaultValue: <span class="string">''</span>,
+  validate: (v) =&gt; v.length &lt; <span class="number">3</span> ? <span class="string">'Too short'</span> : <span class="keyword">undefined</span>,
+});</code></pre>
+
+          <h3 id="use-field-returns">Return Value</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Property</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>name</code></td><td>The field name string</td></tr>
+              <tr><td><code>value()</code></td><td>Current value (reactive)</td></tr>
+              <tr><td><code>error()</code></td><td>Current error message or null</td></tr>
+              <tr><td><code>isTouched()</code></td><td>Whether the field has been blurred</td></tr>
+              <tr><td><code>isDirty()</code></td><td>Whether the value differs from default</td></tr>
+              <tr><td><code>setValue(v)</code></td><td>Set the value programmatically</td></tr>
+              <tr><td><code>validate()</code></td><td>Run the validate function manually</td></tr>
+              <tr><td><code>reset()</code></td><td>Reset to default value and clear state</td></tr>
+              <tr><td><code>inputProps()</code></td><td>Returns <code>{ name, value, onInput, onBlur }</code> to spread</td></tr>
+            </tbody>
+          </table>
+
+<pre><code><span class="keyword">function</span> <span class="function">SearchBar</span>() {
+  <span class="keyword">const</span> search = <span class="function">useField</span>(<span class="string">'search'</span>);
+
+  <span class="keyword">return</span> (
+    &lt;<span class="tag">div</span>&gt;
+      &lt;<span class="tag">input</span> {...search.<span class="function">inputProps</span>()} <span class="attr">placeholder</span>=<span class="string">"Search..."</span> /&gt;
+      {() =&gt; search.<span class="function">error</span>() &amp;&amp;
+        &lt;<span class="tag">span</span> <span class="attr">class</span>=<span class="string">"error"</span>&gt;{search.<span class="function">error</span>()}&lt;/<span class="tag">span</span>&gt;
+      }
+    &lt;/<span class="tag">div</span>&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">useField vs register</p>
+            <p>Use <code>register</code> when you already have a <code>useForm</code> instance and want coordinated validation and submission. Use <code>useField</code> when a field is independent or you need fine-grained control over its lifecycle.</p>
+          </div>
+
+          <h2 id="form-components">Form Components</h2>
+          <p>What exports pre-built form components that wire up <code>register</code>, ARIA attributes, and error state automatically. Each component accepts a <code>register</code> prop (the register function from <code>useForm</code>) plus any standard HTML attributes.</p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Renders</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Input</code></td><td><code>&lt;input&gt;</code></td><td>Sets <code>aria-invalid</code> when error is present</td></tr>
+              <tr><td><code>Textarea</code></td><td><code>&lt;textarea&gt;</code></td><td>Sets <code>aria-invalid</code> when error is present</td></tr>
+              <tr><td><code>Select</code></td><td><code>&lt;select&gt;</code></td><td>Pass <code>&lt;option&gt;</code> elements as children</td></tr>
+              <tr><td><code>Checkbox</code></td><td><code>&lt;input type="checkbox"&gt;</code></td><td>Reads <code>checked</code> from registered value</td></tr>
+              <tr><td><code>Radio</code></td><td><code>&lt;input type="radio"&gt;</code></td><td>Pass a <code>value</code> prop; checked when it matches</td></tr>
+              <tr><td><code>ErrorMessage</code></td><td><code>&lt;span role="alert"&gt;</code></td><td>Shows error text or uses custom <code>render</code> prop</td></tr>
+            </tbody>
+          </table>
+
+          <h3 id="components-example">Building a Form with Components</h3>
+
+<pre><code><span class="keyword">import</span> {
+  useForm, Input, Textarea, Select,
+  Checkbox, ErrorMessage, simpleResolver, rules
+} <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">function</span> <span class="function">ContactForm</span>() {
+  <span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
+    defaultValues: { name: <span class="string">''</span>, message: <span class="string">''</span>, topic: <span class="string">'general'</span>, subscribe: <span class="keyword">false</span> },
+    resolver: <span class="function">simpleResolver</span>({
+      name:    [rules.<span class="function">required</span>()],
+      message: [rules.<span class="function">required</span>(), rules.<span class="function">minLength</span>(<span class="number">10</span>)],
+    }),
+  });
+
+  <span class="keyword">return</span> (
+    &lt;<span class="tag">form</span> <span class="attr">onSubmit</span>={<span class="function">handleSubmit</span>(data =&gt; console.log(data))}&gt;
+      &lt;<span class="component">Input</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">register</span>={register} <span class="attr">placeholder</span>=<span class="string">"Your name"</span> /&gt;
+      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">errors</span>={() =&gt; formState.errors} /&gt;
+
+      &lt;<span class="component">Select</span> <span class="attr">name</span>=<span class="string">"topic"</span> <span class="attr">register</span>={register}&gt;
+        &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"general"</span>&gt;General&lt;/<span class="tag">option</span>&gt;
+        &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"support"</span>&gt;Support&lt;/<span class="tag">option</span>&gt;
+        &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"feedback"</span>&gt;Feedback&lt;/<span class="tag">option</span>&gt;
+      &lt;/<span class="component">Select</span>&gt;
+
+      &lt;<span class="component">Textarea</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">register</span>={register} <span class="attr">rows</span>={<span class="number">4</span>} /&gt;
+      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">errors</span>={() =&gt; formState.errors} /&gt;
+
+      &lt;<span class="tag">label</span>&gt;
+        &lt;<span class="component">Checkbox</span> <span class="attr">name</span>=<span class="string">"subscribe"</span> <span class="attr">register</span>={register} /&gt;
+        Subscribe to updates
+      &lt;/<span class="tag">label</span>&gt;
+
+      &lt;<span class="tag">button</span> <span class="attr">type</span>=<span class="string">"submit"</span>&gt;Send&lt;/<span class="tag">button</span>&gt;
+    &lt;/<span class="tag">form</span>&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Always pass register as a prop</p>
+            <p>The pre-built components call <code>register(props.name)</code> internally. Make sure you pass the <code>register</code> function from your <code>useForm</code> instance, not the result of calling it.</p>
+          </div>
+
+          <div class="page-nav">
+            <a href="./data-fetching.html">
+              <span class="label">Previous</span>
+              <span class="title">Data Fetching</span>
+            </a>
+            <a href="./stores.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Stores</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#use-form">useForm</a></li>
+            <li><a href="#use-form-returns" class="toc-h3">Return Value</a></li>
+            <li><a href="#form-state" class="toc-h3">formState</a></li>
+            <li><a href="#complete-example" class="toc-h3">Complete Example</a></li>
+            <li><a href="#register">register()</a></li>
+            <li><a href="#validation">Validation</a></li>
+            <li><a href="#built-in-rules" class="toc-h3">Built-in Rules</a></li>
+            <li><a href="#error-display" class="toc-h3">Displaying Errors</a></li>
+            <li><a href="#schema-validation">Schema Validation</a></li>
+            <li><a href="#use-field">useField</a></li>
+            <li><a href="#form-components">Form Components</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+
+  <style>
+    .playground {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 24px 0;
+    }
+    .playground-header {
+      padding: 10px 16px;
+      background: var(--accent-light);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    .playground-result {
+      padding: 24px;
+      background: var(--bg-alt);
+    }
+  </style>
+
+  <script>
+  (function() {
+    let _current = null;
+    window.What = {
+      signal(initial) {
+        let value = initial;
+        const subs = new Set();
+        const s = () => { if (_current) subs.add(_current); return value; };
+        s.set = (v) => { value = typeof v === 'function' ? v(value) : v; subs.forEach(fn => fn()); };
+        s.peek = () => value;
+        return s;
+      },
+      effect(fn) {
+        const execute = () => { const prev = _current; _current = execute; fn(); _current = prev; };
+        execute();
+      }
+    };
+  })();
+  </script>
+
+  <div style="max-width:720px;margin-left:var(--sidebar-width);padding:0 48px 100px;">
+    <div class="playground">
+      <div class="playground-header">Live Demo — Form Validation</div>
+      <div class="playground-result" id="demo-form"></div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    const { signal, effect } = What;
+    const el = document.getElementById('demo-form');
+    const name = signal('');
+    const email = signal('');
+    const errors = signal({});
+    const submitted = signal(false);
+
+    function validate() {
+      const errs = {};
+      if (!name()) errs.name = 'Name is required';
+      if (!email()) errs.email = 'Email is required';
+      else if (!email().includes('@')) errs.email = 'Invalid email address';
+      errors.set(errs);
+      return Object.keys(errs).length === 0;
+    }
+
+    function handleSubmit() {
+      if (validate()) {
+        submitted.set(true);
+        setTimeout(() => submitted.set(false), 2000);
+      }
+    }
+
+    effect(() => {
+      const inputStyle = 'padding:8px 12px;border-radius:6px;border:1px solid #e4e4e7;font-size:14px;width:100%;outline:none;font-family:inherit';
+      const errorStyle = 'color:#ef4444;font-size:12px;margin-top:4px';
+      const e = errors();
+      const s = submitted();
+
+      el.innerHTML = `
+        <div style="max-width:320px">
+          ${s ? '<div style="padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-size:14px;margin-bottom:16px">Form submitted successfully!</div>' : ''}
+          <div style="margin-bottom:12px">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Name</label>
+            <input id="demo-name" style="${inputStyle}${e.name ? ';border-color:#ef4444' : ''}" value="${name()}" placeholder="Jane Doe">
+            ${e.name ? '<div style="' + errorStyle + '">' + e.name + '</div>' : ''}
+          </div>
+          <div style="margin-bottom:16px">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Email</label>
+            <input id="demo-email" style="${inputStyle}${e.email ? ';border-color:#ef4444' : ''}" value="${email()}" placeholder="jane@example.com">
+            ${e.email ? '<div style="' + errorStyle + '">' + e.email + '</div>' : ''}
+          </div>
+          <button id="demo-submit" style="padding:8px 20px;border-radius:6px;border:none;background:#18181b;color:#fff;cursor:pointer;font-size:14px;font-family:inherit">Sign Up</button>
+        </div>`;
+
+      el.querySelector('#demo-name').oninput = (ev) => name.set(ev.target.value);
+      el.querySelector('#demo-email').oninput = (ev) => email.set(ev.target.value);
+      el.querySelector('#demo-submit').onclick = handleSubmit;
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1,17 +1,27 @@
 // What Framework - Helpers & Utilities
 // Commonly needed patterns, zero overhead.
 
-import { signal, effect, computed, batch } from './reactive.js';
+import { signal, effect, computed, batch, __DEV__ } from './reactive.js';
 
-// --- show(condition, vnode) ---
+// --- show(condition, vnode) --- [DEPRECATED: use <Show> component instead]
 // Conditional rendering. More readable than ternary.
+let _showWarned = false;
 export function show(condition, vnode, fallback = null) {
+  if (!_showWarned) {
+    _showWarned = true;
+    console.warn('[what] show() is deprecated. Use the <Show> component or ternary expressions instead.');
+  }
   return condition ? vnode : fallback;
 }
 
-// --- each(list, fn) ---
+// --- each(list, fn) --- [DEPRECATED: use <For> component or .map() instead]
 // Keyed list rendering. Optimized for reconciliation.
+let _eachWarned = false;
 export function each(list, fn, keyFn) {
+  if (!_eachWarned) {
+    _eachWarned = true;
+    console.warn('[what] each() is deprecated. Use the <For> component or Array.map() instead.');
+  }
   if (!list || list.length === 0) return [];
   return list.map((item, index) => {
     const vnode = fn(item, index);
@@ -76,18 +86,31 @@ export function throttle(fn, ms) {
   };
 }
 
+// Component context ref — injected by dom.js to avoid circular imports
+let _getCurrentComponentRef = null;
+export function _setComponentRef(fn) { _getCurrentComponentRef = fn; }
+
 // --- useMediaQuery ---
-// Reactive media query. Returns a signal.
+// Reactive media query. Returns a signal. Cleans up listener on component unmount.
 export function useMediaQuery(query) {
   if (typeof window === 'undefined') return signal(false);
   const mq = window.matchMedia(query);
   const s = signal(mq.matches);
-  mq.addEventListener('change', (e) => s.set(e.matches));
+  const handler = (e) => s.set(e.matches);
+  mq.addEventListener('change', handler);
+
+  // Register cleanup if inside a component context
+  const ctx = _getCurrentComponentRef?.();
+  if (ctx) {
+    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
+    ctx._cleanupCallbacks.push(() => mq.removeEventListener('change', handler));
+  }
+
   return s;
 }
 
 // --- useLocalStorage ---
-// Signal synced with localStorage.
+// Signal synced with localStorage. Cleans up listeners on component unmount.
 export function useLocalStorage(key, initial) {
   let stored;
   try {
@@ -100,18 +123,34 @@ export function useLocalStorage(key, initial) {
   const s = signal(stored);
 
   // Sync to localStorage on changes
-  effect(() => {
+  const dispose = effect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(s()));
-    } catch { /* quota exceeded, etc */ }
+    } catch (e) {
+      if (__DEV__) console.warn('[what] localStorage write failed (quota exceeded?):', e);
+    }
   });
 
   // Listen for changes from other tabs
+  let storageHandler = null;
   if (typeof window !== 'undefined') {
-    window.addEventListener('storage', (e) => {
+    storageHandler = (e) => {
       if (e.key === key && e.newValue !== null) {
-        try { s.set(JSON.parse(e.newValue)); } catch {}
+        try { s.set(JSON.parse(e.newValue)); } catch (err) {
+          if (__DEV__) console.warn('[what] localStorage parse failed:', err);
+        }
       }
+    };
+    window.addEventListener('storage', storageHandler);
+  }
+
+  // Register cleanup if inside a component context
+  const ctx = _getCurrentComponentRef?.();
+  if (ctx) {
+    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
+    ctx._cleanupCallbacks.push(() => {
+      dispose();
+      if (storageHandler) window.removeEventListener('storage', storageHandler);
     });
   }
 
@@ -129,6 +168,30 @@ export function Portal({ target, children }) {
   if (!container) return null;
   // The DOM reconciler will mount children here
   return { tag: '__portal', props: { container }, children: Array.isArray(children) ? children : [children], _vnode: true };
+}
+
+// --- useClickOutside ---
+// Detect clicks outside a ref'd element. Essential for dropdowns, modals, popovers.
+export function useClickOutside(ref, handler) {
+  if (typeof document === 'undefined') return;
+
+  const listener = (e) => {
+    const el = ref.current || ref;
+    if (!el || el.contains(e.target)) return;
+    handler(e);
+  };
+
+  document.addEventListener('mousedown', listener);
+  document.addEventListener('touchstart', listener);
+
+  const ctx = _getCurrentComponentRef?.();
+  if (ctx) {
+    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
+    ctx._cleanupCallbacks.push(() => {
+      document.removeEventListener('mousedown', listener);
+      document.removeEventListener('touchstart', listener);
+    });
+  }
 }
 
 // --- Transition helper ---

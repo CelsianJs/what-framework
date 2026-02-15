@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Declaring a Winner — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="./" class="active">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Tutorial</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Overview</a></li>
+          <li><a href="./setup.html">Setup</a></li>
+          <li><a href="./the-board.html">Building the Board</a></li>
+          <li><a href="./state.html">Adding State</a></li>
+          <li><a href="./taking-turns.html">Taking Turns</a></li>
+          <li><a href="./winner.html" class="active">Declaring a Winner</a></li>
+          <li><a href="./time-travel.html">Adding Time Travel</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Declaring a Winner</h1>
+          <p class="subtitle">Check for winning combinations and display when someone wins.</p>
+
+          <h2 id="winning-logic">The Winning Logic</h2>
+          <p>A player wins when they have 3 marks in a row — horizontally, vertically, or diagonally. There are exactly 8 winning combinations:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {
+  <span class="keyword">const</span> lines = [
+    [<span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>],  <span class="comment">// top row</span>
+    [<span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>],  <span class="comment">// middle row</span>
+    [<span class="number">6</span>, <span class="number">7</span>, <span class="number">8</span>],  <span class="comment">// bottom row</span>
+    [<span class="number">0</span>, <span class="number">3</span>, <span class="number">6</span>],  <span class="comment">// left column</span>
+    [<span class="number">1</span>, <span class="number">4</span>, <span class="number">7</span>],  <span class="comment">// middle column</span>
+    [<span class="number">2</span>, <span class="number">5</span>, <span class="number">8</span>],  <span class="comment">// right column</span>
+    [<span class="number">0</span>, <span class="number">4</span>, <span class="number">8</span>],  <span class="comment">// diagonal</span>
+    [<span class="number">2</span>, <span class="number">4</span>, <span class="number">6</span>],  <span class="comment">// anti-diagonal</span>
+  ];
+
+  <span class="keyword">for</span> (<span class="keyword">const</span> [a, b, c] <span class="keyword">of</span> lines) {
+    <span class="keyword">if</span> (squares[a] &&
+        squares[a] === squares[b] &&
+        squares[a] === squares[c]) {
+      <span class="keyword">return</span> squares[a];  <span class="comment">// Return 'X' or 'O'</span>
+    }
+  }
+  <span class="keyword">return</span> <span class="keyword">null</span>;  <span class="comment">// No winner yet</span>
+}</code></pre>
+
+          <p>Add this function at the top of your file, before the components.</p>
+
+          <h2 id="computed-status">Using Computed for the Status</h2>
+          <p>Now we can use <code>computed</code> to create a derived value for the status message. A computed value automatically updates when its dependencies change:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+<span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {
+  <span class="comment">// ... (the function from above)</span>
+}
+
+<span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
+  <span class="keyword">const</span> xIsNext = <span class="function">signal</span>(<span class="keyword">true</span>);
+
+  <span class="comment">// Computed value that depends on squares and xIsNext</span>
+  <span class="keyword">const</span> status = <span class="function">computed</span>(() =&gt; {
+    <span class="keyword">const</span> winner = <span class="function">calculateWinner</span>(squares());
+    <span class="keyword">if</span> (winner) {
+      <span class="keyword">return</span> <span class="string">`Winner: ${winner}`</span>;
+    }
+    <span class="keyword">return</span> <span class="string">`Next player: ${xIsNext() ? 'X' : 'O'}`</span>;
+  });
+
+  <span class="keyword">function</span> <span class="function">handleClick</span>(i) {
+    <span class="comment">// Don't allow moves if game is over or square is filled</span>
+    <span class="keyword">if</span> (<span class="function">calculateWinner</span>(squares()) || squares()[i]) {
+      <span class="keyword">return</span>;
+    }
+
+    <span class="keyword">const</span> next = [...squares()];
+    next[i] = xIsNext() ? <span class="string">'X'</span> : <span class="string">'O'</span>;
+    squares.set(next);
+    xIsNext.set(!xIsNext());
+  }
+
+  <span class="keyword">return</span> (
+    &lt;&gt;
+      &lt;div className=<span class="string">"status"</span>&gt;{status}&lt;/div&gt;
+      &lt;div className=<span class="string">"board"</span>&gt;
+        {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+          &lt;Square
+            key={i}
+            value={value}
+            onClick={() =&gt; handleClick(i)}
+          /&gt;
+        ))}
+      &lt;/div&gt;
+    &lt;/&gt;
+  );
+}</code></pre>
+
+          <h2 id="how-computed-works">How Computed Works</h2>
+          <p>The <code>status</code> computed value:</p>
+          <ol>
+            <li>Runs its function and tracks which signals it reads (<code>squares</code> and <code>xIsNext</code>)</li>
+            <li>Caches the result</li>
+            <li>Re-runs only when one of those signals changes</li>
+            <li>Triggers UI updates automatically</li>
+          </ol>
+
+          <div class="callout callout-success">
+            <p class="callout-title">Automatic Optimization</p>
+            <p>Because status is computed, What only recalculates it when squares or xIsNext changes. If you had other signals in your app, changing them wouldn't affect the status computation at all.</p>
+          </div>
+
+          <h2 id="complete-code">Complete Game Code</h2>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+<span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {
+  <span class="keyword">const</span> lines = [
+    [<span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>], [<span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>], [<span class="number">6</span>, <span class="number">7</span>, <span class="number">8</span>],
+    [<span class="number">0</span>, <span class="number">3</span>, <span class="number">6</span>], [<span class="number">1</span>, <span class="number">4</span>, <span class="number">7</span>], [<span class="number">2</span>, <span class="number">5</span>, <span class="number">8</span>],
+    [<span class="number">0</span>, <span class="number">4</span>, <span class="number">8</span>], [<span class="number">2</span>, <span class="number">4</span>, <span class="number">6</span>],
+  ];
+  <span class="keyword">for</span> (<span class="keyword">const</span> [a, b, c] <span class="keyword">of</span> lines) {
+    <span class="keyword">if</span> (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
+      <span class="keyword">return</span> squares[a];
+    }
+  }
+  <span class="keyword">return</span> <span class="keyword">null</span>;
+}
+
+<span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
+  <span class="keyword">const</span> xIsNext = <span class="function">signal</span>(<span class="keyword">true</span>);
+
+  <span class="keyword">const</span> status = <span class="function">computed</span>(() =&gt; {
+    <span class="keyword">const</span> winner = <span class="function">calculateWinner</span>(squares());
+    <span class="keyword">if</span> (winner) <span class="keyword">return</span> <span class="string">`Winner: ${winner}`</span>;
+    <span class="keyword">return</span> <span class="string">`Next player: ${xIsNext() ? 'X' : 'O'}`</span>;
+  });
+
+  <span class="keyword">function</span> <span class="function">handleClick</span>(i) {
+    <span class="keyword">if</span> (<span class="function">calculateWinner</span>(squares()) || squares()[i]) <span class="keyword">return</span>;
+    <span class="keyword">const</span> next = [...squares()];
+    next[i] = xIsNext() ? <span class="string">'X'</span> : <span class="string">'O'</span>;
+    squares.set(next);
+    xIsNext.set(!xIsNext());
+  }
+
+  <span class="keyword">return</span> (
+    &lt;&gt;
+      &lt;div className=<span class="string">"status"</span>&gt;{status}&lt;/div&gt;
+      &lt;div className=<span class="string">"board"</span>&gt;
+        {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+          &lt;Square key={i} value={value} onClick={() =&gt; handleClick(i)} /&gt;
+        ))}
+      &lt;/div&gt;
+    &lt;/&gt;
+  );
+}
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      &lt;Board /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="checkpoint">Checkpoint</h2>
+          <p>Your game is now fully playable!</p>
+          <ul>
+            <li>X and O take turns</li>
+            <li>Can't overwrite squares or play after game ends</li>
+            <li>Shows the winner when someone wins</li>
+          </ul>
+
+          <p>For the final step, we'll add the ability to go back in time and see previous moves.</p>
+
+          <div class="page-nav">
+            <a href="./taking-turns.html">
+              <span class="label">Previous</span>
+              <span class="title">Taking Turns</span>
+            </a>
+            <a href="./time-travel.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Adding Time Travel</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#winning-logic">The Winning Logic</a></li>
+            <li><a href="#computed-status">Using Computed for the Status</a></li>
+            <li><a href="#how-computed-works">How Computed Works</a></li>
+            <li><a href="#complete-code">Complete Game Code</a></li>
+            <li><a href="#checkpoint">Checkpoint</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

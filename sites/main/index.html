@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What Framework — Signals-Based JavaScript Framework</title>
+  <meta name="description" content="A lightweight signals-based JavaScript framework with fine-grained reactivity and islands architecture. No virtual DOM. ~4kB gzipped.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --serif: 'Playfair Display', serif;
+      --sans: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+      --text: #18181b;
+      --text-secondary: #52525b;
+      --text-muted: #a1a1aa;
+      --bg: #fafaf9;
+      --bg-alt: #ffffff;
+      --accent: #18181b;
+      --border: #e4e4e7;
+      --code-bg: #f4f4f5;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .animate { animation: fadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+    .delay-1 { animation-delay: 0.1s; }
+    .delay-2 { animation-delay: 0.2s; }
+    .delay-3 { animation-delay: 0.3s; }
+    .delay-4 { animation-delay: 0.4s; }
+
+    /* Navigation */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(250, 250, 249, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      z-index: 100;
+    }
+
+    .logo {
+      font-family: var(--serif);
+      font-weight: 600;
+      font-size: 24px;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding: 120px 32px 80px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .hero-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    .hero-text h1 {
+      font-family: var(--serif);
+      font-size: clamp(40px, 5vw, 56px);
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 24px;
+    }
+
+    .hero-text p {
+      font-size: 18px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 32px;
+      max-width: 480px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 14px 28px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    }
+
+    .btn-secondary {
+      color: var(--text);
+      border: 1px solid var(--border);
+      background: var(--bg-alt);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--text);
+    }
+
+    /* Code block */
+    .hero-code {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .code-header {
+      padding: 12px 16px;
+      background: var(--code-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .code-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .code-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+    }
+
+    .code-filename {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .code-content {
+      padding: 20px;
+    }
+
+    .code-content pre {
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.7;
+      overflow-x: auto;
+    }
+
+    .keyword { color: #7c3aed; }
+    .string { color: #059669; }
+    .comment { color: #a1a1aa; }
+    .function { color: #2563eb; }
+
+    /* Features */
+    .section {
+      padding: 100px 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .section-header {
+      max-width: 600px;
+      margin-bottom: 64px;
+    }
+
+    .section-label {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-family: var(--serif);
+      font-size: 36px;
+      font-weight: 500;
+      line-height: 1.3;
+      margin-bottom: 16px;
+    }
+
+    .section-desc {
+      font-size: 17px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+    }
+
+    .feature {
+      padding: 32px;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .feature h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .feature p {
+      font-size: 15px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Code Examples Section */
+    .examples-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+    }
+
+    .example {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .example-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .example-header h4 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .example-header p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .example-code {
+      padding: 20px;
+    }
+
+    .example-code pre {
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.6;
+      overflow-x: auto;
+    }
+
+    /* Benchmarks */
+    .benchmarks-table {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .benchmarks-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .benchmarks-table th,
+    .benchmarks-table td {
+      padding: 16px 20px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .benchmarks-table th {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      background: var(--code-bg);
+    }
+
+    .benchmarks-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .benchmarks-table td:first-child {
+      font-weight: 500;
+    }
+
+    .benchmarks-table .value {
+      font-family: var(--mono);
+      font-size: 14px;
+    }
+
+    .benchmark-note {
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* Get Started */
+    .get-started {
+      background: var(--bg-alt);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .get-started-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    .install-command {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 8px;
+      font-family: var(--mono);
+      font-size: 15px;
+      margin-bottom: 24px;
+    }
+
+    .install-command .prompt {
+      opacity: 0.5;
+    }
+
+    .steps {
+      list-style: none;
+    }
+
+    .steps li {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .step-number {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--code-bg);
+      border-radius: 50%;
+      font-size: 13px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .step-text {
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+
+    .step-text code {
+      font-family: var(--mono);
+      font-size: 13px;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Footer */
+    footer {
+      padding: 48px 32px;
+      border-top: 1px solid var(--border);
+    }
+
+    .footer-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-left {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+
+    .footer-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .footer-links a:hover {
+      color: var(--text);
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .hero-content { grid-template-columns: 1fr; gap: 48px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .examples-grid { grid-template-columns: 1fr; }
+      .get-started-content { grid-template-columns: 1fr; gap: 48px; }
+    }
+
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero { padding: 100px 24px 60px; }
+      .section { padding: 60px 24px; }
+      .hero-actions { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/" class="logo">What</a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#examples">Examples</a>
+      <a href="#benchmarks">Benchmarks</a>
+      <a href="#get-started">Get Started</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-text">
+        <h1 class="animate">A signals-based framework for the modern web</h1>
+        <p class="animate delay-1">Fine-grained reactivity without a virtual DOM. Write components with familiar patterns, ship minimal JavaScript. Built for performance from the ground up.</p>
+        <div class="hero-actions animate delay-2">
+          <a href="#get-started" class="btn btn-primary">Get Started</a>
+          <a href="#examples" class="btn btn-secondary">See Examples</a>
+        </div>
+      </div>
+      <div class="hero-code animate delay-3">
+        <div class="code-header">
+          <div class="code-dots">
+            <span class="code-dot"></span>
+            <span class="code-dot"></span>
+            <span class="code-dot"></span>
+          </div>
+          <span class="code-filename">Counter.jsx</span>
+        </div>
+        <div class="code-content">
+<pre><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(0);
+
+  <span class="keyword">return</span> (
+    &lt;button onClick={() => count.set(c => c + 1)}&gt;
+      Clicked {count} times
+    &lt;/button&gt;
+  );
+}</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <div class="section-header">
+      <p class="section-label">Features</p>
+      <h2 class="section-title">Built for simplicity and speed</h2>
+      <p class="section-desc">What combines the best patterns from React, Svelte, and SolidJS into a lightweight package.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature">
+        <h3>Fine-Grained Signals</h3>
+        <p>Reactive primitives that track dependencies automatically. When a signal changes, only the DOM nodes that use it update. No component re-renders.</p>
+      </div>
+      <div class="feature">
+        <h3>No Virtual DOM</h3>
+        <p>Updates go directly to the DOM. No diffing algorithms, no reconciliation overhead. Just surgical updates where they're needed.</p>
+      </div>
+      <div class="feature">
+        <h3>Tiny Bundle</h3>
+        <p>The core runtime is under 4kB gzipped. Zero dependencies. Ships less JavaScript to your users.</p>
+      </div>
+      <div class="feature">
+        <h3>Islands Architecture</h3>
+        <p>Ship static HTML by default. Hydrate interactive components on idle, on visible, or on first interaction.</p>
+      </div>
+      <div class="feature">
+        <h3>Familiar Patterns</h3>
+        <p>JSX syntax, React-like hooks, component composition. Use patterns you already know with better performance characteristics.</p>
+      </div>
+      <div class="feature">
+        <h3>SSR Built-In</h3>
+        <p>Server-side rendering with streaming support. Render to string or stream HTML chunks for faster time-to-first-byte.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="examples" class="section">
+    <div class="section-header">
+      <p class="section-label">Examples</p>
+      <h2 class="section-title">Code that reads clearly</h2>
+      <p class="section-desc">Signals make state management straightforward. No magic, just reactive values.</p>
+    </div>
+
+    <div class="examples-grid">
+      <div class="example">
+        <div class="example-header">
+          <h4>Reactive State</h4>
+          <p>Signals hold values that can change over time</p>
+        </div>
+        <div class="example-code">
+<pre><span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Create reactive values</span>
+<span class="keyword">const</span> firstName = <span class="function">signal</span>(<span class="string">'John'</span>);
+<span class="keyword">const</span> lastName = <span class="function">signal</span>(<span class="string">'Doe'</span>);
+
+<span class="comment">// Derived values update automatically</span>
+<span class="keyword">const</span> fullName = <span class="function">computed</span>(() =>
+  <span class="string">`${firstName()} ${lastName()}`</span>
+);
+
+<span class="comment">// Update the source, derived updates too</span>
+firstName.<span class="function">set</span>(<span class="string">'Jane'</span>);
+console.log(fullName()); <span class="comment">// "Jane Doe"</span></pre>
+        </div>
+      </div>
+
+      <div class="example">
+        <div class="example-header">
+          <h4>Side Effects</h4>
+          <p>Run code when dependencies change</p>
+        </div>
+        <div class="example-code">
+<pre><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> query = <span class="function">signal</span>(<span class="string">''</span>);
+
+<span class="comment">// Runs when query changes</span>
+<span class="function">effect</span>(() => {
+  console.log(<span class="string">'Searching:'</span>, query());
+});
+
+<span class="comment">// Effects can return cleanup functions</span>
+<span class="function">effect</span>(() => {
+  <span class="keyword">const</span> id = setInterval(() => {
+    console.log(query());
+  }, 1000);
+  <span class="keyword">return</span> () => clearInterval(id);
+});</pre>
+        </div>
+      </div>
+
+      <div class="example">
+        <div class="example-header">
+          <h4>Components</h4>
+          <p>Functions that return elements</p>
+        </div>
+        <div class="example-code">
+<pre><span class="keyword">function</span> <span class="function">TodoList</span>() {
+  <span class="keyword">const</span> todos = <span class="function">signal</span>([]);
+  <span class="keyword">const</span> input = <span class="function">signal</span>(<span class="string">''</span>);
+
+  <span class="keyword">const</span> addTodo = () => {
+    todos.<span class="function">set</span>(t => [...t, input()]);
+    input.<span class="function">set</span>(<span class="string">''</span>);
+  };
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;input
+        value={input}
+        onInput={e => input.set(e.target.value)}
+      /&gt;
+      &lt;button onClick={addTodo}&gt;Add&lt;/button&gt;
+      &lt;ul&gt;
+        {() => todos().map(todo => &lt;li&gt;{todo}&lt;/li&gt;)}
+      &lt;/ul&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+        </div>
+      </div>
+
+      <div class="example">
+        <div class="example-header">
+          <h4>Islands</h4>
+          <p>Hydrate components when needed</p>
+        </div>
+        <div class="example-code">
+<pre><span class="comment">// Static by default - no JS shipped</span>
+&lt;Header /&gt;
+&lt;Footer /&gt;
+
+<span class="comment">// Hydrate when the element is visible</span>
+&lt;Comments client:visible /&gt;
+
+<span class="comment">// Hydrate when browser is idle</span>
+&lt;Analytics client:idle /&gt;
+
+<span class="comment">// Hydrate on first click/focus/hover</span>
+&lt;Dropdown client:interaction /&gt;
+
+<span class="comment">// Hydrate immediately</span>
+&lt;Counter client:load /&gt;</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="benchmarks" class="section">
+    <div class="section-header">
+      <p class="section-label">Performance</p>
+      <h2 class="section-title">Measured, not promised</h2>
+      <p class="section-desc">Real benchmark results from the What Framework test suite. Run on a MacBook Pro M2.</p>
+    </div>
+
+    <div class="benchmarks-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Operation</th>
+            <th>Performance</th>
+            <th>Per Operation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Signal create</td>
+            <td class="value">9.3M ops/sec</td>
+            <td class="value">0.0001ms</td>
+          </tr>
+          <tr>
+            <td>Signal read (100x)</td>
+            <td class="value">3.8M ops/sec</td>
+            <td class="value">0.0003ms</td>
+          </tr>
+          <tr>
+            <td>Signal write (no subscribers)</td>
+            <td class="value">1.1M ops/sec</td>
+            <td class="value">0.0009ms</td>
+          </tr>
+          <tr>
+            <td>Signal write (1 subscriber)</td>
+            <td class="value">137K ops/sec</td>
+            <td class="value">0.007ms</td>
+          </tr>
+          <tr>
+            <td>Computed chain (depth 5)</td>
+            <td class="value">1.2M ops/sec</td>
+            <td class="value">0.0008ms</td>
+          </tr>
+          <tr>
+            <td>Effect create + dispose</td>
+            <td class="value">4.2M ops/sec</td>
+            <td class="value">0.0002ms</td>
+          </tr>
+          <tr>
+            <td>Batch 100 writes</td>
+            <td class="value">554K ops/sec</td>
+            <td class="value">0.002ms</td>
+          </tr>
+          <tr>
+            <td>h() element creation</td>
+            <td class="value">8.9M ops/sec</td>
+            <td class="value">0.0001ms</td>
+          </tr>
+          <tr>
+            <td>h() list of 100 items</td>
+            <td class="value">77K ops/sec</td>
+            <td class="value">0.013ms</td>
+          </tr>
+          <tr>
+            <td>SSR simple element</td>
+            <td class="value">1.5M ops/sec</td>
+            <td class="value">0.0007ms</td>
+          </tr>
+          <tr>
+            <td>SSR list of 100</td>
+            <td class="value">18K ops/sec</td>
+            <td class="value">0.055ms</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="benchmark-note">Benchmarks run using Node.js with warmup iterations and trimmed mean calculations. See the source code for methodology.</p>
+  </section>
+
+  <section id="get-started" class="section get-started">
+    <div class="get-started-content">
+      <div>
+        <div class="section-header" style="margin-bottom: 32px;">
+          <p class="section-label">Get Started</p>
+          <h2 class="section-title">Up and running in seconds</h2>
+        </div>
+
+        <div class="install-command">
+          <span class="prompt">$</span>
+          <span>npx create-what my-app</span>
+        </div>
+
+        <ul class="steps">
+          <li>
+            <span class="step-number">1</span>
+            <span class="step-text">Run the create command to scaffold a new project</span>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <span class="step-text">Navigate to your project: <code>cd my-app</code></span>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <span class="step-text">Install dependencies: <code>npm install</code></span>
+          </li>
+          <li>
+            <span class="step-number">4</span>
+            <span class="step-text">Start the dev server: <code>npm run dev</code></span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="example">
+        <div class="example-header">
+          <h4>Or add to an existing project</h4>
+          <p>Install the package and start using signals</p>
+        </div>
+        <div class="example-code">
+<pre><span class="comment"># Install the framework</span>
+npm install what-framework
+
+<span class="comment"># In your code</span>
+<span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { h, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="keyword">const</span> message = <span class="function">signal</span>(<span class="string">'Hello, World!'</span>);
+
+  <span class="keyword">return</span> h(<span class="string">'h1'</span>, {}, () => message());
+}
+
+<span class="function">mount</span>(h(<span class="function">App</span>), <span class="string">'#app'</span>);</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-content">
+      <div class="footer-left">
+        What Framework v0.1.0 — MIT License
+      </div>
+      <div class="footer-links">
+        <a href="https://www.npmjs.com/package/what-framework">npm</a>
+        <a href="https://www.npmjs.com/package/create-what">create-what</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

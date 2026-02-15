@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accessibility — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html" class="active">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Accessibility</h1>
+          <p class="subtitle">Built-in focus management, ARIA helpers, and screen reader support.</p>
+
+          <h2 id="focus-management">Focus Management</h2>
+          <p>What provides three tools for controlling focus: <code>useFocus()</code> for tracking and moving focus programmatically, <code>useFocusTrap()</code> for constraining focus within a container, and the <code>FocusTrap</code> component for declarative focus trapping.</p>
+
+          <h3 id="use-focus">useFocus()</h3>
+          <p>Track the currently focused element and move focus programmatically:</p>
+
+<pre><code><span class="keyword">import</span> { useFocus } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="keyword">const</span> focus = <span class="function">useFocus</span>();
+
+<span class="comment">// Read the currently focused element (reactive)</span>
+focus.current();  <span class="comment">// HTMLElement or null</span>
+
+<span class="comment">// Programmatically focus an element</span>
+focus.focus(myButtonRef.current);
+
+<span class="comment">// Blur the active element</span>
+focus.blur();</code></pre>
+
+          <h3 id="use-focus-trap">useFocusTrap(containerRef)</h3>
+          <p>Trap focus within a container element. When active, pressing Tab at the last focusable element wraps to the first, and Shift+Tab at the first wraps to the last. Essential for modals, dialogs, and dropdown menus.</p>
+
+<pre><code><span class="keyword">import</span> { useFocusTrap } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="keyword">function</span> <span class="function">Modal</span>({ onClose }) {
+  <span class="keyword">const</span> ref = { current: <span class="keyword">null</span> };
+  <span class="keyword">const</span> trap = <span class="function">useFocusTrap</span>(ref);
+
+  <span class="comment">// Activate the trap (focuses first focusable element)</span>
+  onMount(() =&gt; {
+    <span class="keyword">const</span> cleanup = trap.activate();
+    <span class="keyword">return</span> () =&gt; {
+      cleanup?.();
+      trap.deactivate();  <span class="comment">// Restores focus to previously focused element</span>
+    };
+  });
+
+  <span class="keyword">return</span> (
+    &lt;div ref={ref} role=<span class="string">"dialog"</span> aria-modal=<span class="string">"true"</span>&gt;
+      &lt;h2&gt;Confirm Action&lt;/h2&gt;
+      &lt;p&gt;Are you sure you want to proceed?&lt;/p&gt;
+      &lt;button onClick={onClose}&gt;Cancel&lt;/button&gt;
+      &lt;button onClick={handleConfirm}&gt;Confirm&lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h3 id="focus-trap-component">FocusTrap Component</h3>
+          <p>A declarative wrapper that traps focus in its children. Toggle with the <code>active</code> prop:</p>
+
+<pre><code><span class="keyword">import</span> { FocusTrap } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+&lt;FocusTrap active={isOpen()}&gt;
+  &lt;div class=<span class="string">"dropdown-menu"</span>&gt;
+    &lt;a href=<span class="string">"/profile"</span>&gt;Profile&lt;/a&gt;
+    &lt;a href=<span class="string">"/settings"</span>&gt;Settings&lt;/a&gt;
+    &lt;button onClick={logout}&gt;Log out&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/FocusTrap&gt;</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Focus Restoration</p>
+            <p>When <code>deactivate()</code> is called (or the FocusTrap unmounts), focus automatically returns to the element that was focused before the trap was activated.</p>
+          </div>
+
+          <h2 id="screen-reader">Screen Reader Announcements</h2>
+          <p>Announce dynamic content changes to screen readers using an ARIA live region managed by the framework.</p>
+
+<pre><code><span class="keyword">import</span> { announce, announceAssertive } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="comment">// Polite announcement (waits for screen reader to finish current speech)</span>
+<span class="function">announce</span>(<span class="string">'3 new items loaded'</span>, {
+  priority: <span class="string">'polite'</span>,    <span class="comment">// 'polite' or 'assertive' (default: 'polite')</span>
+  timeout: <span class="number">1000</span>,         <span class="comment">// auto-clear after ms (default: 1000)</span>
+});
+
+<span class="comment">// Assertive shortcut — interrupts current speech for urgent alerts</span>
+<span class="function">announceAssertive</span>(<span class="string">'Form submission failed. Please check your input.'</span>);</code></pre>
+
+          <h3 id="live-region">LiveRegion Component</h3>
+          <p>For content that updates continuously, wrap it in a <code>LiveRegion</code>:</p>
+
+<pre><code><span class="keyword">import</span> { LiveRegion } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+&lt;LiveRegion priority=<span class="string">"polite"</span> atomic={<span class="keyword">true</span>}&gt;
+  {() =&gt; <span class="string">`${itemCount()} items in cart`</span>}
+&lt;/LiveRegion&gt;</code></pre>
+
+          <h2 id="aria-helpers">ARIA Helpers</h2>
+          <p>Hooks that manage ARIA attributes as reactive signals, keeping your markup in sync without manual bookkeeping.</p>
+
+          <h3 id="use-aria-expanded">useAriaExpanded</h3>
+          <p>Manage expandable UI like accordions, menus, and collapsible panels. Returns reactive props for the trigger button and the content panel:</p>
+
+<pre><code><span class="keyword">import</span> { useAriaExpanded } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="keyword">function</span> <span class="function">Accordion</span>({ title, children }) {
+  <span class="keyword">const</span> disclosure = <span class="function">useAriaExpanded</span>(<span class="keyword">false</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;button {...disclosure.buttonProps()}&gt;
+        {title}
+      &lt;/button&gt;
+      &lt;div {...disclosure.panelProps()}&gt;
+        {children}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>The <code>buttonProps()</code> spread gives the button <code>aria-expanded</code> and an <code>onClick</code> toggle handler. The <code>panelProps()</code> spread sets <code>hidden</code> based on the expanded state. You can also control the state directly:</p>
+
+<pre><code>disclosure.expanded();  <span class="comment">// reactive boolean</span>
+disclosure.toggle();    <span class="comment">// flip open/closed</span>
+disclosure.open();      <span class="comment">// force open</span>
+disclosure.close();     <span class="comment">// force closed</span></code></pre>
+
+          <h3 id="use-aria-selected">useAriaSelected</h3>
+          <p>Track selection state for tab lists, listboxes, and similar patterns:</p>
+
+<pre><code><span class="keyword">import</span> { useAriaSelected } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="keyword">const</span> tabs = <span class="function">useAriaSelected</span>(<span class="string">'home'</span>);
+
+&lt;div role=<span class="string">"tablist"</span>&gt;
+  &lt;button role=<span class="string">"tab"</span> {...tabs.itemProps(<span class="string">'home'</span>)}&gt;Home&lt;/button&gt;
+  &lt;button role=<span class="string">"tab"</span> {...tabs.itemProps(<span class="string">'about'</span>)}&gt;About&lt;/button&gt;
+&lt;/div&gt;
+
+<span class="comment">// Reactive state</span>
+tabs.selected();             <span class="comment">// 'home'</span>
+tabs.isSelected(<span class="string">'about'</span>);    <span class="comment">// false</span>
+tabs.select(<span class="string">'about'</span>);        <span class="comment">// switch selection</span></code></pre>
+
+          <h3 id="use-aria-checked">useAriaChecked</h3>
+          <p>Build accessible custom checkboxes with proper keyboard support (Space and Enter toggle):</p>
+
+<pre><code><span class="keyword">import</span> { useAriaChecked } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="keyword">const</span> checkbox = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
+
+&lt;div {...checkbox.checkboxProps()}&gt;
+  {() =&gt; checkbox.checked() ? <span class="string">'[x]'</span> : <span class="string">'[ ]'</span>} Accept terms
+&lt;/div&gt;
+
+<span class="comment">// checkboxProps() provides: role, aria-checked, tabIndex, onClick, onKeyDown</span></code></pre>
+
+          <h2 id="keyboard-navigation">Keyboard Navigation</h2>
+          <p>The <code>useRovingTabIndex</code> hook implements the roving tabindex pattern for keyboard navigation in composite widgets like toolbars, menus, and listboxes. Only the focused item has <code>tabIndex="0"</code>; all others have <code>tabIndex="-1"</code>.</p>
+
+<pre><code><span class="keyword">import</span> { useRovingTabIndex } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="keyword">function</span> <span class="function">Toolbar</span>() {
+  <span class="keyword">const</span> items = [<span class="string">'Bold'</span>, <span class="string">'Italic'</span>, <span class="string">'Underline'</span>, <span class="string">'Link'</span>];
+  <span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(items.length);
+
+  <span class="keyword">return</span> (
+    &lt;div role=<span class="string">"toolbar"</span> {...roving.containerProps()}&gt;
+      {items.map((label, i) =&gt;
+        &lt;button {...roving.getItemProps(i)}&gt;{label}&lt;/button&gt;
+      )}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>Supported keys:</p>
+          <ul>
+            <li><strong>ArrowDown / ArrowRight</strong> — move to next item (wraps around)</li>
+            <li><strong>ArrowUp / ArrowLeft</strong> — move to previous item (wraps around)</li>
+            <li><strong>Home</strong> — jump to first item</li>
+            <li><strong>End</strong> — jump to last item</li>
+          </ul>
+
+          <p>You can also pass a signal or getter for dynamic item counts:</p>
+
+<pre><code><span class="keyword">const</span> itemCount = <span class="function">signal</span>(<span class="number">5</span>);
+<span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(() =&gt; itemCount());</code></pre>
+
+          <h2 id="skip-links">Skip Links &amp; Visually Hidden</h2>
+          <p>Help keyboard users bypass navigation and provide screen-reader-only content.</p>
+
+          <h3 id="skip-link">SkipLink</h3>
+          <p>Renders a link that is hidden until focused. When activated, it moves focus to the target element:</p>
+
+<pre><code><span class="keyword">import</span> { SkipLink } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="comment">// Default: skips to #main</span>
+&lt;SkipLink /&gt;
+
+<span class="comment">// Custom target and label</span>
+&lt;SkipLink href=<span class="string">"#content"</span>&gt;Skip to main content&lt;/SkipLink&gt;</code></pre>
+
+          <h3 id="visually-hidden">VisuallyHidden</h3>
+          <p>Hides content visually while keeping it accessible to screen readers. Uses the standard clip/overflow technique:</p>
+
+<pre><code><span class="keyword">import</span> { VisuallyHidden } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+&lt;button&gt;
+  &lt;IconTrash /&gt;
+  &lt;VisuallyHidden&gt;Delete item&lt;/VisuallyHidden&gt;
+&lt;/button&gt;
+
+<span class="comment">// Renders as a span by default, use `as` for other elements</span>
+&lt;VisuallyHidden as=<span class="string">"div"</span>&gt;Loading complete&lt;/VisuallyHidden&gt;</code></pre>
+
+          <h2 id="id-generation">ID Generation</h2>
+          <p>Generate unique, stable IDs for connecting ARIA attributes across elements.</p>
+
+<pre><code><span class="keyword">import</span> { useId, useIds, useDescribedBy, useLabelledBy } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="comment">// Single unique ID</span>
+<span class="keyword">const</span> id = <span class="function">useId</span>(<span class="string">'dialog'</span>);  <span class="comment">// () => 'dialog-1'</span>
+
+<span class="comment">// Multiple IDs at once</span>
+<span class="keyword">const</span> [titleId, bodyId] = <span class="function">useIds</span>(<span class="number">2</span>, <span class="string">'section'</span>);
+<span class="comment">// ['section-2', 'section-3']</span></code></pre>
+
+          <h3 id="described-by">useDescribedBy</h3>
+          <p>Connect a description to an element via <code>aria-describedby</code>:</p>
+
+<pre><code><span class="keyword">const</span> desc = <span class="function">useDescribedBy</span>(<span class="string">'Password must be 8+ characters'</span>);
+
+&lt;input type=<span class="string">"password"</span> {...desc.describedByProps()} /&gt;
+&lt;desc.Description /&gt;
+<span class="comment">// Renders a hidden div with the description text, linked by ID</span></code></pre>
+
+          <h3 id="labelled-by">useLabelledBy</h3>
+          <p>Connect a visible label to an element via <code>aria-labelledby</code>:</p>
+
+<pre><code><span class="keyword">const</span> label = <span class="function">useLabelledBy</span>(<span class="string">'Email Address'</span>);
+
+&lt;h3 {...label.labelProps()}&gt;Email Address&lt;/h3&gt;
+&lt;input type=<span class="string">"email"</span> {...label.labelledByProps()} /&gt;</code></pre>
+
+          <h2 id="keyboard-helpers">Keyboard Helpers</h2>
+          <p>Utility functions and constants for keyboard event handling.</p>
+
+<pre><code><span class="keyword">import</span> { Keys, onKey, onKeys } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+
+<span class="comment">// Keys constant — avoids string typos</span>
+Keys.Enter      <span class="comment">// 'Enter'</span>
+Keys.Space      <span class="comment">// ' '</span>
+Keys.Escape     <span class="comment">// 'Escape'</span>
+Keys.ArrowUp    <span class="comment">// 'ArrowUp'</span>
+Keys.ArrowDown  <span class="comment">// 'ArrowDown'</span>
+Keys.Tab        <span class="comment">// 'Tab'</span>
+Keys.Home       <span class="comment">// 'Home'</span>
+Keys.End        <span class="comment">// 'End'</span>
+
+<span class="comment">// Handle a single key</span>
+&lt;input onKeyDown={<span class="function">onKey</span>(Keys.Escape, () =&gt; close())} /&gt;
+
+<span class="comment">// Handle multiple keys</span>
+&lt;div onKeyDown={<span class="function">onKeys</span>(
+  [Keys.Enter, Keys.Space],
+  (e) =&gt; { e.preventDefault(); activate(); }
+)} /&gt;</code></pre>
+
+          <h2 id="live-demo">Live Demo</h2>
+          <p>An accessible accordion built with <code>aria-expanded</code> attributes. Try using your keyboard — each button correctly announces its expanded state to screen readers.</p>
+
+          <script>
+(function() {
+  if (window.What) return;
+  let _current = null;
+  window.What = {
+    signal(initial) {
+      let value = initial;
+      const subs = new Set();
+      const s = () => { if (_current) subs.add(_current); return value; };
+      s.set = (v) => { value = typeof v === 'function' ? v(value) : v; subs.forEach(fn => fn()); };
+      s.peek = () => value;
+      return s;
+    },
+    effect(fn) {
+      const execute = () => { const prev = _current; _current = execute; fn(); _current = prev; };
+      execute();
+    }
+  };
+})();
+          </script>
+
+          <div class="playground">
+            <div class="playground-header">Live Demo — Accessible Accordion</div>
+            <div class="playground-result" id="demo-a11y"></div>
+          </div>
+          <script>
+(function() {
+  const { signal, effect } = What;
+  const el = document.getElementById('demo-a11y');
+  const sections = [
+    { title: 'What are signals?', content: 'Signals are reactive primitives that hold a value and notify subscribers when it changes. They are the foundation of What Framework\'s reactivity system.' },
+    { title: 'How do effects work?', content: 'Effects automatically track which signals they read. When any of those signals change, the effect re-runs. Effects can return cleanup functions.' },
+    { title: 'What about performance?', content: 'What Framework uses fine-grained reactivity \u2014 only the specific DOM nodes that depend on a changed signal update. No virtual DOM diffing needed.' }
+  ];
+  const openIndex = signal(-1);
+
+  effect(() => {
+    const idx = openIndex();
+    el.innerHTML = sections.map((s, i) => `
+      <div style="border:1px solid #e4e4e7;border-radius:8px;margin-bottom:8px;overflow:hidden">
+        <button
+          aria-expanded="${idx === i}"
+          onclick="this.closest('.playground-result').__toggle(${i})"
+          style="width:100%;padding:12px 16px;border:none;background:${idx === i ? '#f4f4f5' : '#fff'};cursor:pointer;font-size:14px;font-weight:500;text-align:left;font-family:inherit;display:flex;justify-content:space-between;align-items:center">
+          ${s.title}
+          <span style="transform:rotate(${idx === i ? 180 : 0}deg);transition:transform 0.2s">\u25BC</span>
+        </button>
+        ${idx === i ? '<div role="region" style="padding:12px 16px;font-size:14px;color:#52525b;border-top:1px solid #e4e4e7">' + s.content + '</div>' : ''}
+      </div>`).join('');
+    el.__toggle = (i) => openIndex.set(openIndex.peek() === i ? -1 : i);
+  });
+})();
+          </script>
+
+          <div class="page-nav">
+            <a href="./animation.html">
+              <span class="label">Previous</span>
+              <span class="title">Animation</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#focus-management">Focus Management</a></li>
+            <li><a href="#screen-reader">Screen Reader</a></li>
+            <li><a href="#aria-helpers">ARIA Helpers</a></li>
+            <li><a href="#keyboard-navigation">Keyboard Navigation</a></li>
+            <li><a href="#skip-links">Skip Links &amp; Hidden</a></li>
+            <li><a href="#id-generation">ID Generation</a></li>
+            <li><a href="#keyboard-helpers">Keyboard Helpers</a></li>
+            <li><a href="#live-demo">Live Demo</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

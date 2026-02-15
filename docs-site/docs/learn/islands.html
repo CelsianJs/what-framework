@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Islands Architecture — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html" class="active">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Islands Architecture</h1>
+          <p class="subtitle">Ship zero JavaScript by default. Hydrate only what needs interactivity.</p>
+
+          <h2 id="the-concept">The Concept</h2>
+          <p>Most of any web page is static content: headers, text, images, footers. Only small pieces actually need JavaScript for interactivity -- a counter, a search bar, an interactive chart. Islands architecture treats each interactive piece as an independent "island" that hydrates on its own, while the rest of the page stays as pure static HTML.</p>
+          <p>The result: your pages load faster because the browser downloads and executes far less JavaScript. A blog post with a single comment widget only ships JS for that widget, not for the entire page.</p>
+
+          <h2 id="hydration-modes">Hydration Modes</h2>
+          <p>What gives you fine-grained control over <em>when</em> each island hydrates. Choose the mode that matches the island's purpose:</p>
+
+          <h3 id="client-load"><code>client:load</code></h3>
+          <p>Hydrate immediately when the page loads. Use this for islands that must be interactive right away, such as a navigation menu or authentication widget.</p>
+
+<pre><code><span class="function">Island</span>({ name: <span class="string">'NavMenu'</span>, mode: <span class="string">'load'</span> })</code></pre>
+
+          <h3 id="client-idle"><code>client:idle</code></h3>
+          <p>Hydrate when the browser is idle, using <code>requestIdleCallback</code>. This is the default mode. Good for interactive elements that are not needed in the first moments of the page, such as a "like" button or share widget.</p>
+
+<pre><code><span class="function">Island</span>({ name: <span class="string">'LikeButton'</span>, mode: <span class="string">'idle'</span> })</code></pre>
+
+          <h3 id="client-visible"><code>client:visible</code></h3>
+          <p>Hydrate when the island scrolls into the viewport, using <code>IntersectionObserver</code> with a 200px root margin. Ideal for content below the fold: comment sections, related posts, charts that the user might never scroll to.</p>
+
+<pre><code><span class="function">Island</span>({ name: <span class="string">'CommentSection'</span>, mode: <span class="string">'visible'</span> })</code></pre>
+
+          <h3 id="client-interaction"><code>client:interaction</code></h3>
+          <p>Hydrate on the first user interaction -- click, focus, hover, or touch. The island renders as static HTML until the user actually tries to use it. Perfect for accordions, tabs, or dropdown menus.</p>
+
+<pre><code><span class="function">Island</span>({ name: <span class="string">'Accordion'</span>, mode: <span class="string">'action'</span> })</code></pre>
+
+          <h3 id="client-media"><code>client:media</code></h3>
+          <p>Hydrate when a CSS media query matches. Use this for mobile-only or desktop-only interactivity. For example, a hamburger menu that only needs JS on small screens:</p>
+
+<pre><code><span class="function">island</span>(<span class="string">'MobileMenu'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./MobileMenu.js'</span>), {
+  mode: <span class="string">'media'</span>,
+  media: <span class="string">'(max-width: 768px)'</span>,
+})</code></pre>
+
+          <h2 id="island-component">The Island Component</h2>
+          <p>During server rendering, use the <code>Island</code> component to mark where an island should appear. It renders a wrapper <code>&lt;div&gt;</code> with <code>data-island</code> attributes that the client uses for hydration:</p>
+
+<pre><code><span class="keyword">import</span> { Island } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="keyword">function</span> <span class="function">ProductPage</span>({ product }) {
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
+    <span class="comment">// Static HTML — no JS shipped</span>
+    <span class="function">h</span>(<span class="string">'h1'</span>, <span class="keyword">null</span>, product.name),
+    <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, product.description),
+    <span class="function">h</span>(<span class="string">'img'</span>, { src: product.image, alt: product.name }),
+
+    <span class="comment">// Interactive island — JS loaded on interaction</span>
+    <span class="function">Island</span>({
+      name: <span class="string">'AddToCart'</span>,
+      mode: <span class="string">'action'</span>,
+      props: { productId: product.id, price: product.price },
+    }),
+
+    <span class="comment">// Island that hydrates when scrolled into view</span>
+    <span class="function">Island</span>({
+      name: <span class="string">'ReviewSection'</span>,
+      mode: <span class="string">'visible'</span>,
+      props: { productId: product.id },
+    }),
+  );
+}</code></pre>
+
+          <p>Props passed to the <code>Island</code> component are serialized as JSON in a <code>data-island-props</code> attribute and automatically deserialized when the island hydrates on the client.</p>
+
+          <h2 id="registering-islands">Registering Islands</h2>
+          <p>On the client side, register each island with a name and a dynamic import loader. This tells What which component to load when it is time to hydrate:</p>
+
+<pre><code><span class="keyword">import</span> { island, hydrateIslands } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+
+<span class="comment">// Register islands with lazy loaders</span>
+<span class="function">island</span>(<span class="string">'AddToCart'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/AddToCart.js'</span>));
+<span class="function">island</span>(<span class="string">'ReviewSection'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/ReviewSection.js'</span>));
+<span class="function">island</span>(<span class="string">'NavMenu'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/NavMenu.js'</span>), {
+  mode: <span class="string">'load'</span>,
+  priority: <span class="number">10</span>,
+});
+
+<span class="comment">// Find all [data-island] elements and schedule hydration</span>
+<span class="function">hydrateIslands</span>();</code></pre>
+
+          <p>You can also use <code>autoIslands</code> to register and hydrate in one step:</p>
+
+<pre><code><span class="keyword">import</span> { autoIslands } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+
+<span class="function">autoIslands</span>({
+  AddToCart: { loader: () =&gt; <span class="keyword">import</span>(<span class="string">'./components/AddToCart.js'</span>), mode: <span class="string">'action'</span> },
+  ReviewSection: { loader: () =&gt; <span class="keyword">import</span>(<span class="string">'./components/ReviewSection.js'</span>), mode: <span class="string">'visible'</span> },
+  NavMenu: { loader: () =&gt; <span class="keyword">import</span>(<span class="string">'./components/NavMenu.js'</span>), mode: <span class="string">'load'</span> },
+});</code></pre>
+
+          <h2 id="island-stores">Island Stores</h2>
+          <p>When multiple islands need to share state (for example, a cart icon in the header and an "Add to Cart" button in the body), use <code>createIslandStore</code>. These stores are serialized during SSR and hydrated on the client so state survives the server-to-client transition:</p>
+
+<pre><code><span class="keyword">import</span> { createIslandStore } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+
+<span class="comment">// Create a shared store — same name = same instance</span>
+<span class="keyword">const</span> cartStore = <span class="function">createIslandStore</span>(<span class="string">'cart'</span>, {
+  items: [],
+  count: <span class="number">0</span>,
+});
+
+<span class="comment">// Read and write like a normal object</span>
+cartStore.count;           <span class="comment">// reactive read</span>
+cartStore.count = <span class="number">5</span>;       <span class="comment">// reactive write</span>
+cartStore.items = [...cartStore.items, newItem];</code></pre>
+
+          <p>On the server, call <code>serializeIslandStores()</code> to embed state into the HTML. On the client, <code>hydrateIslandStores()</code> restores it before islands hydrate:</p>
+
+<pre><code><span class="comment">// Server-side: embed store state in the HTML</span>
+<span class="keyword">const</span> storeData = <span class="function">serializeIslandStores</span>();
+<span class="keyword">const</span> html = <span class="string">`
+  &lt;script data-island-stores&gt;${storeData}&lt;/script&gt;
+`</span>;
+
+<span class="comment">// Client-side: hydrateIslands() automatically restores stores</span>
+<span class="comment">// from any &lt;script data-island-stores&gt; tag on the page</span></code></pre>
+
+          <h2 id="progressive-enhancement">Progressive Enhancement</h2>
+          <p>Not every interactive feature needs a full island. For simple enhancements -- like a form that submits via fetch instead of a page reload -- use the progressive enhancement helpers:</p>
+
+<pre><code><span class="keyword">import</span> { enhance, enhanceForms } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+
+<span class="comment">// Enhance all forms with data-enhance attribute</span>
+<span class="function">enhanceForms</span>();
+
+<span class="comment">// Or target specific elements with a custom handler</span>
+<span class="function">enhance</span>(<span class="string">'.copy-button'</span>, (el) =&gt; {
+  el.addEventListener(<span class="string">'click'</span>, () =&gt; {
+    navigator.clipboard.writeText(el.dataset.text);
+    el.textContent = <span class="string">'Copied!'</span>;
+  });
+});</code></pre>
+
+          <p>Enhanced forms dispatch <code>form:response</code> and <code>form:error</code> custom events so you can react to the result without mounting a full component:</p>
+
+<pre><code><span class="comment">// In your HTML</span>
+<span class="comment">// &lt;form data-enhance method="POST" action="/subscribe"&gt;</span>
+<span class="comment">//   &lt;input name="email" type="email" /&gt;</span>
+<span class="comment">//   &lt;button&gt;Subscribe&lt;/button&gt;</span>
+<span class="comment">// &lt;/form&gt;</span>
+
+<span class="comment">// Listen for the response</span>
+document.querySelector(<span class="string">'form'</span>).addEventListener(<span class="string">'form:response'</span>, (e) =&gt; {
+  <span class="keyword">if</span> (e.detail.ok) {
+    e.target.innerHTML = <span class="string">'&lt;p&gt;Subscribed!&lt;/p&gt;'</span>;
+  }
+});</code></pre>
+
+          <h2 id="priority-hydration">Priority Hydration</h2>
+          <p>When multiple islands are scheduled to hydrate at the same time, What processes them in priority order. Higher priority islands hydrate first:</p>
+
+<pre><code><span class="comment">// Critical island — hydrates first</span>
+<span class="function">island</span>(<span class="string">'SearchBar'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./SearchBar.js'</span>), {
+  mode: <span class="string">'load'</span>,
+  priority: <span class="number">10</span>,
+});
+
+<span class="comment">// Low priority — hydrates after everything else</span>
+<span class="function">island</span>(<span class="string">'Analytics'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./Analytics.js'</span>), {
+  mode: <span class="string">'idle'</span>,
+  priority: <span class="number">0</span>,
+});</code></pre>
+
+          <p>You can also boost an island's priority at runtime with <code>boostIslandPriority(name, newPriority)</code>, for example when a user starts interacting near a pending island.</p>
+
+          <h2 id="debugging">Debugging</h2>
+          <p>Call <code>getIslandStatus()</code> at any time to inspect the current state of the island system:</p>
+
+<pre><code><span class="keyword">import</span> { getIslandStatus } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+
+<span class="keyword">const</span> status = <span class="function">getIslandStatus</span>();
+console.log(status);
+<span class="comment">// {</span>
+<span class="comment">//   registered: ['AddToCart', 'ReviewSection', 'NavMenu'],</span>
+<span class="comment">//   hydrated: 1,</span>
+<span class="comment">//   pending: 2,</span>
+<span class="comment">//   queue: [</span>
+<span class="comment">//     { name: 'AddToCart', priority: 0 },</span>
+<span class="comment">//     { name: 'ReviewSection', priority: 0 },</span>
+<span class="comment">//   ],</span>
+<span class="comment">//   stores: ['cart'],</span>
+<span class="comment">// }</span></code></pre>
+
+          <p>Each island also dispatches an <code>island:hydrated</code> custom event when it finishes hydrating, which you can use for performance tracking or analytics.</p>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Islands vs Regular Components</p>
+            <p>Islands are designed for multi-page applications with server-side rendering. Each page is its own HTML document, and islands add interactivity to specific parts. If you are building a single-page application where the whole page is already client-rendered, use regular components instead -- there is no benefit to the islands pattern when all your JavaScript is already loaded.</p>
+          </div>
+
+          <div class="page-nav">
+            <a href="./stores.html">
+              <span class="label">Previous</span>
+              <span class="title">Stores</span>
+            </a>
+            <a href="./ssr.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Server Rendering</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#the-concept">The Concept</a></li>
+            <li><a href="#hydration-modes">Hydration Modes</a></li>
+            <li><a href="#island-component">The Island Component</a></li>
+            <li><a href="#registering-islands">Registering Islands</a></li>
+            <li><a href="#island-stores">Island Stores</a></li>
+            <li><a href="#progressive-enhancement">Progressive Enhancement</a></li>
+            <li><a href="#priority-hydration">Priority Hydration</a></li>
+            <li><a href="#debugging">Debugging</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stores — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html" class="active">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Stores</h1>
+          <p class="subtitle">Global state management with reactive stores.</p>
+
+          <h2 id="what-is-a-store">What is a Store?</h2>
+          <p>A store is a self-contained unit of state, computed values, and actions. Instead of scattering signals across your codebase, you define everything in one place and use it from any component. Think of it as Zustand meets signals: define a store once, use it everywhere.</p>
+
+<pre><code><span class="keyword">import</span> { createStore, derived } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> useCounter = <span class="function">createStore</span>({
+  <span class="comment">// State — becomes signals automatically</span>
+  count: <span class="number">0</span>,
+
+  <span class="comment">// Computed — uses derived() to declare</span>
+  doubled: <span class="function">derived</span>(state =&gt; state.count * <span class="number">2</span>),
+
+  <span class="comment">// Actions — methods that mutate state</span>
+  <span class="function">increment</span>() { <span class="keyword">this</span>.count++; },
+  <span class="function">decrement</span>() { <span class="keyword">this</span>.count--; },
+});</code></pre>
+
+          <p><code>createStore</code> returns a hook function. Call it in any component to get reactive access to state, computed values, and actions:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> store = <span class="function">useCounter</span>();
+
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
+    <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, <span class="string">'Count: '</span>, () =&gt; store.count),
+    <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, <span class="string">'Doubled: '</span>, () =&gt; store.doubled),
+    <span class="function">h</span>(<span class="string">'button'</span>, { onClick: store.increment }, <span class="string">'+'</span>),
+    <span class="function">h</span>(<span class="string">'button'</span>, { onClick: store.decrement }, <span class="string">'-'</span>),
+  );
+}</code></pre>
+
+          <h2 id="state-properties">State Properties</h2>
+          <p>Any non-function value in the store definition becomes a signal automatically. Numbers, strings, booleans, arrays, and objects all work:</p>
+
+<pre><code><span class="keyword">const</span> useSettings = <span class="function">createStore</span>({
+  <span class="comment">// All of these become signals</span>
+  theme: <span class="string">'dark'</span>,           <span class="comment">// string</span>
+  fontSize: <span class="number">16</span>,             <span class="comment">// number</span>
+  sidebarOpen: <span class="keyword">true</span>,        <span class="comment">// boolean</span>
+  tags: [<span class="string">'js'</span>, <span class="string">'what'</span>],      <span class="comment">// array</span>
+  user: { name: <span class="string">'Alice'</span> },  <span class="comment">// object</span>
+
+  <span class="function">toggleSidebar</span>() {
+    <span class="keyword">this</span>.sidebarOpen = !<span class="keyword">this</span>.sidebarOpen;
+  },
+});</code></pre>
+
+          <p>When you read a state property from the store object returned by the hook, you get the current value directly. No need to call it as a function. The getter on the returned object calls the underlying signal for you.</p>
+
+          <h2 id="derived-values">Derived Values</h2>
+          <p>Use <code>derived(fn)</code> to declare computed properties that automatically update when the state they depend on changes:</p>
+
+<pre><code><span class="keyword">import</span> { createStore, derived } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> useCart = <span class="function">createStore</span>({
+  items: [],
+
+  <span class="comment">// Recomputes when items changes</span>
+  totalItems: <span class="function">derived</span>(state =&gt; state.items.length),
+
+  <span class="comment">// Can depend on other state</span>
+  totalPrice: <span class="function">derived</span>(state =&gt;
+    state.items.reduce((sum, item) =&gt; sum + item.price * item.qty, <span class="number">0</span>)
+  ),
+
+  <span class="comment">// Can format derived data</span>
+  formattedTotal: <span class="function">derived</span>(state =&gt;
+    <span class="string">`$${state.items.reduce((s, i) =&gt; s + i.price * i.qty, 0).toFixed(2)}`</span>
+  ),
+
+  <span class="function">addItem</span>(item) {
+    <span class="keyword">this</span>.items = [...<span class="keyword">this</span>.items, item];
+  },
+});</code></pre>
+
+          <p>The <code>state</code> parameter in the derived callback is a proxy that reads the current value of other store signals. Derived values are backed by <code>computed()</code> under the hood, so they are lazy and cached: they do not recompute until something they depend on actually changes.</p>
+
+          <h2 id="actions">Actions</h2>
+          <p>Any function in the store definition that is not wrapped with <code>derived()</code> becomes an action. Inside actions, <code>this</code> is a proxy that lets you read and write state properties directly:</p>
+
+<pre><code><span class="keyword">const</span> useTodos = <span class="function">createStore</span>({
+  items: [],
+  filter: <span class="string">'all'</span>,
+
+  <span class="comment">// Read state with this.items, write with this.items = ...</span>
+  <span class="function">addTodo</span>(text) {
+    <span class="keyword">this</span>.items = [...<span class="keyword">this</span>.items, {
+      id: Date.now(),
+      text,
+      done: <span class="keyword">false</span>,
+    }];
+  },
+
+  <span class="function">toggleTodo</span>(id) {
+    <span class="keyword">this</span>.items = <span class="keyword">this</span>.items.map(item =&gt;
+      item.id === id ? { ...item, done: !item.done } : item
+    );
+  },
+
+  <span class="function">setFilter</span>(filter) {
+    <span class="keyword">this</span>.filter = filter;
+  },
+
+  <span class="comment">// Actions can call other actions</span>
+  <span class="function">clearCompleted</span>() {
+    <span class="keyword">this</span>.items = <span class="keyword">this</span>.items.filter(item =&gt; !item.done);
+  },
+});</code></pre>
+
+          <p>All mutations inside a single action are automatically batched. If an action updates three signals, subscribers only re-render once after the action completes.</p>
+
+          <h2 id="using-stores">Using Stores in Components</h2>
+          <p>The hook returned by <code>createStore</code> can be called in any component. Every component that calls the same hook shares the same underlying state:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">TodoList</span>() {
+  <span class="keyword">const</span> todos = <span class="function">useTodos</span>();
+
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
+    <span class="function">h</span>(<span class="string">'h2'</span>, <span class="keyword">null</span>, () =&gt; <span class="string">`${todos.items.length} items`</span>),
+    <span class="function">h</span>(<span class="string">'ul'</span>, <span class="keyword">null</span>,
+      () =&gt; todos.items.map(item =&gt;
+        <span class="function">h</span>(<span class="string">'li'</span>, {
+          key: item.id,
+          onClick: () =&gt; todos.toggleTodo(item.id),
+          style: { textDecoration: item.done ? <span class="string">'line-through'</span> : <span class="string">'none'</span> },
+        }, item.text)
+      )
+    ),
+  );
+}
+
+<span class="keyword">function</span> <span class="function">AddTodo</span>() {
+  <span class="keyword">const</span> todos = <span class="function">useTodos</span>();
+
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'form'</span>, {
+    onSubmit: (e) =&gt; {
+      e.preventDefault();
+      <span class="keyword">const</span> input = e.target.elements.text;
+      todos.addTodo(input.value);
+      input.value = <span class="string">''</span>;
+    },
+  },
+    <span class="function">h</span>(<span class="string">'input'</span>, { name: <span class="string">'text'</span>, placeholder: <span class="string">'New todo...'</span> }),
+    <span class="function">h</span>(<span class="string">'button'</span>, { type: <span class="string">'submit'</span> }, <span class="string">'Add'</span>),
+  );
+}</code></pre>
+
+          <p>Both <code>TodoList</code> and <code>AddTodo</code> share the same store instance. When <code>AddTodo</code> calls <code>addTodo()</code>, the list in <code>TodoList</code> updates automatically.</p>
+
+          <h2 id="multiple-stores">Multiple Stores</h2>
+          <p>Organize your application state by feature. Each store is independent and focused on a single concern:</p>
+
+<pre><code><span class="comment">// stores/auth.js</span>
+<span class="keyword">export const</span> useAuth = <span class="function">createStore</span>({
+  user: <span class="keyword">null</span>,
+  token: <span class="keyword">null</span>,
+  isLoggedIn: <span class="function">derived</span>(state =&gt; state.user !== <span class="keyword">null</span>),
+
+  <span class="function">login</span>(user, token) {
+    <span class="keyword">this</span>.user = user;
+    <span class="keyword">this</span>.token = token;
+  },
+  <span class="function">logout</span>() {
+    <span class="keyword">this</span>.user = <span class="keyword">null</span>;
+    <span class="keyword">this</span>.token = <span class="keyword">null</span>;
+  },
+});
+
+<span class="comment">// stores/cart.js</span>
+<span class="keyword">export const</span> useCart = <span class="function">createStore</span>({
+  items: [],
+  totalPrice: <span class="function">derived</span>(state =&gt;
+    state.items.reduce((s, i) =&gt; s + i.price * i.qty, <span class="number">0</span>)
+  ),
+
+  <span class="function">addItem</span>(product) { <span class="comment">/* ... */</span> },
+  <span class="function">removeItem</span>(id) { <span class="comment">/* ... */</span> },
+});
+
+<span class="comment">// stores/ui.js</span>
+<span class="keyword">export const</span> useUI = <span class="function">createStore</span>({
+  theme: <span class="string">'light'</span>,
+  sidebarOpen: <span class="keyword">false</span>,
+  modal: <span class="keyword">null</span>,
+
+  <span class="function">toggleTheme</span>() {
+    <span class="keyword">this</span>.theme = <span class="keyword">this</span>.theme === <span class="string">'light'</span> ? <span class="string">'dark'</span> : <span class="string">'light'</span>;
+  },
+  <span class="function">openModal</span>(name) { <span class="keyword">this</span>.modal = name; },
+  <span class="function">closeModal</span>() { <span class="keyword">this</span>.modal = <span class="keyword">null</span>; },
+});</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Stores vs Context</p>
+            <p>Use <strong>stores</strong> for global, application-wide state that many unrelated components need (auth, cart, theme). Use <strong>context</strong> for scoped state that only a subtree of components needs (form state, layout config). Stores are singletons; context can have multiple instances in different parts of the tree.</p>
+          </div>
+
+          <h2 id="how-it-works">How It Works</h2>
+          <p>Under the hood, <code>createStore</code> does three things:</p>
+          <ul>
+            <li><strong>State values</strong> are converted into <code>signal()</code> instances. Reading them creates reactive subscriptions.</li>
+            <li><strong>Derived values</strong> (wrapped with <code>derived()</code>) become <code>computed()</code> instances. They track which state signals they read and recompute only when those change.</li>
+            <li><strong>Actions</strong> are wrapped in <code>batch()</code>. The <code>this</code> keyword inside actions is a proxy that reads and writes the underlying signals. Writing <code>this.count++</code> actually calls <code>countSignal.set(countSignal.peek() + 1)</code>.</li>
+          </ul>
+          <p>The hook function returned by <code>createStore</code> creates a new proxy object each time it is called, but all proxies point to the same underlying signals. This means every component gets fresh getter bindings while sharing the same reactive state.</p>
+
+          <div class="page-nav">
+            <a href="./forms.html">
+              <span class="label">Previous</span>
+              <span class="title">Forms</span>
+            </a>
+            <a href="./islands.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Islands</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#what-is-a-store">What is a Store?</a></li>
+            <li><a href="#state-properties">State Properties</a></li>
+            <li><a href="#derived-values">Derived Values</a></li>
+            <li><a href="#actions">Actions</a></li>
+            <li><a href="#using-stores">Using Stores in Components</a></li>
+            <li><a href="#multiple-stores">Multiple Stores</a></li>
+            <li><a href="#how-it-works">How It Works</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <style>
+    .hero-section {
+      padding: 80px 48px;
+      text-align: center;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .hero-section h1 {
+      font-size: 42px;
+      margin-bottom: 16px;
+    }
+    .hero-section .tagline {
+      font-size: 20px;
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 12px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    }
+    .btn-secondary {
+      color: var(--text);
+      border: 1px solid var(--border);
+      background: var(--bg-alt);
+    }
+    .btn-secondary:hover {
+      border-color: var(--text);
+    }
+    .sections {
+      padding: 0 48px 80px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+    .section-card {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      text-decoration: none;
+      color: var(--text);
+      transition: all 0.15s;
+    }
+    .section-card:hover {
+      border-color: var(--text-muted);
+      transform: translateY(-2px);
+    }
+    .section-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .section-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin: 0;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .quick-links {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .quick-link {
+      display: block;
+      padding: 12px 16px;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .quick-link:hover {
+      border-color: var(--text-muted);
+      background: var(--accent-light);
+    }
+    .install-block {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 24px;
+      background: var(--accent);
+      color: white;
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      max-width: 400px;
+      margin: 0 auto 48px;
+    }
+    .install-block .prompt { opacity: 0.5; }
+    @media (max-width: 1024px) {
+      .section-grid { grid-template-columns: 1fr; }
+      .quick-links { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .hero-section { padding: 60px 24px; }
+      .sections { padding: 0 24px 60px; }
+      .hero-actions { flex-direction: column; }
+      .quick-links { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="./" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./learn/">Learn</a>
+        <a href="./reference/">Reference</a>
+        <a href="./tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div style="margin-top: 64px;">
+    <section class="hero-section">
+      <h1>What Framework Documentation</h1>
+      <p class="tagline">Learn to build fast, reactive applications with signals-based state management, fine-grained DOM updates, and islands architecture.</p>
+      <div class="install-block">
+        <span class="prompt">$</span>
+        <span>npx create-what my-app</span>
+      </div>
+      <div class="hero-actions">
+        <a href="./learn/" class="btn btn-primary">Get Started</a>
+        <a href="./tutorial/" class="btn btn-secondary">Tutorial</a>
+      </div>
+    </section>
+
+    <section class="sections">
+      <div class="section-title">Start Here</div>
+      <div class="section-grid">
+        <a href="./learn/" class="section-card">
+          <h3>Quick Start</h3>
+          <p>Create your first What app and learn the core concepts in under 5 minutes.</p>
+        </a>
+        <a href="./tutorial/" class="section-card">
+          <h3>Tutorial: Tic-Tac-Toe</h3>
+          <p>Build a complete game step by step. Learn signals, components, and state management.</p>
+        </a>
+        <a href="./learn/signals.html" class="section-card">
+          <h3>Signals</h3>
+          <p>Understand fine-grained reactivity — the core mental model behind What Framework.</p>
+        </a>
+      </div>
+
+      <div class="section-title">Core Concepts</div>
+      <div class="section-grid">
+        <a href="./learn/components.html" class="section-card">
+          <h3>Components</h3>
+          <p>Build reusable UI pieces with props, children, and composition patterns.</p>
+        </a>
+        <a href="./learn/effects.html" class="section-card">
+          <h3>Effects</h3>
+          <p>Run side effects in response to signal changes. Cleanup and dependencies.</p>
+        </a>
+        <a href="./learn/control-flow.html" class="section-card">
+          <h3>Control Flow</h3>
+          <p>&lt;Show&gt;, &lt;For&gt;, &lt;Switch&gt; — cleaner conditional and list rendering.</p>
+        </a>
+      </div>
+
+      <div class="section-title">Data &amp; State</div>
+      <div class="section-grid">
+        <a href="./learn/data-fetching.html" class="section-card">
+          <h3>Data Fetching</h3>
+          <p>useSWR, useQuery, useInfiniteQuery — fetch, cache, and sync server state with built-in primitives.</p>
+        </a>
+        <a href="./learn/forms.html" class="section-card">
+          <h3>Forms</h3>
+          <p>Build validated forms with useForm, useField, and built-in validation rules. Zod and Yup support.</p>
+        </a>
+        <a href="./learn/stores.html" class="section-card">
+          <h3>Stores</h3>
+          <p>Global state management with reactive stores. Define state, computed values, and actions in one place.</p>
+        </a>
+      </div>
+
+      <div class="section-title">Advanced</div>
+      <div class="section-grid">
+        <a href="./learn/islands.html" class="section-card">
+          <h3>Islands Architecture</h3>
+          <p>Ship zero JS by default. Hydrate interactive components on idle, visible, or interaction.</p>
+        </a>
+        <a href="./learn/ssr.html" class="section-card">
+          <h3>Server Rendering</h3>
+          <p>SSR with streaming, server actions, optimistic updates, and CSRF protection.</p>
+        </a>
+        <a href="./learn/animation.html" class="section-card">
+          <h3>Animation</h3>
+          <p>Physics-based springs, tweens, transitions, and gesture detection built in.</p>
+        </a>
+        <a href="./learn/accessibility.html" class="section-card">
+          <h3>Accessibility</h3>
+          <p>Focus management, ARIA helpers, screen reader announcements, and keyboard navigation.</p>
+        </a>
+        <a href="./learn/lifecycle.html" class="section-card">
+          <h3>Lifecycle</h3>
+          <p>onMount, onCleanup, and component lifecycle patterns.</p>
+        </a>
+        <a href="./learn/context.html" class="section-card">
+          <h3>Context</h3>
+          <p>Share state across your component tree without prop drilling.</p>
+        </a>
+      </div>
+
+      <div class="section-title">API Quick Links</div>
+      <div class="quick-links">
+        <a href="./reference/signal.html" class="quick-link">signal()</a>
+        <a href="./reference/computed.html" class="quick-link">computed()</a>
+        <a href="./reference/effect.html" class="quick-link">effect()</a>
+        <a href="./reference/h.html" class="quick-link">h()</a>
+        <a href="./reference/mount.html" class="quick-link">mount()</a>
+        <a href="./reference/Show.html" class="quick-link">&lt;Show&gt;</a>
+        <a href="./reference/For.html" class="quick-link">&lt;For&gt;</a>
+        <a href="./learn/data-fetching.html" class="quick-link">useSWR()</a>
+        <a href="./learn/data-fetching.html" class="quick-link">useQuery()</a>
+        <a href="./learn/forms.html" class="quick-link">useForm()</a>
+        <a href="./learn/stores.html" class="quick-link">createStore()</a>
+        <a href="./reference/" class="quick-link">Full Reference →</a>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

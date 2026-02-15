@@ -53,8 +53,8 @@ export function Bench() {
       }
     });
 
-    // 6. Props diffing simulation
-    benchResults.propsDiff = bench('Diff 1,000 prop objects', () => {
+    // 6. Props diffing simulation (VNode reconciler)
+    benchResults.propsDiff = bench('Reconciler: diff 1,000 prop objects', () => {
       for (let i = 0; i < 1000; i++) {
         const oldP = { class: 'a', id: `item-${i}`, 'data-index': i, style: 'color:red' };
         const newP = { class: 'b', id: `item-${i}`, 'data-index': i, style: 'color:blue' };
@@ -62,8 +62,8 @@ export function Bench() {
       }
     });
 
-    // 7. VNode creation
-    benchResults.vnodeCreate = bench('Create 10,000 VNodes (h())', () => {
+    // 7. VNode creation (compiler outputs h() calls)
+    benchResults.vnodeCreate = bench('Create 10,000 VNodes via h()', () => {
       for (let i = 0; i < 10000; i++) {
         h('div', { class: 'item', key: i }, h('span', null, `Item ${i}`));
       }
@@ -83,32 +83,37 @@ export function Bench() {
     setRunning(false);
   };
 
-  return h('div', null,
-    h('h1', null, 'Benchmarks'),
-    h('p', { style: 'color:var(--muted);margin-bottom:1.5rem' },
-      'Real performance measurements of What framework primitives. Run in your browser.'
+  return h('div', { class: 'section' },
+    h('div', { class: 'features-header' },
+      h('p', { class: 'features-label' }, 'Performance'),
+      h('h1', { class: 'features-title' }, 'Benchmarks'),
+      h('p', { class: 'features-subtitle' },
+        'Real performance measurements of What framework primitives. Run in your browser.'
+      ),
     ),
 
-    h('button', {
-      class: 'btn btn-primary',
-      onClick: runBenchmarks,
-      disabled: running,
-    }, running ? 'Running...' : 'Run Benchmarks'),
+    h('div', { class: 'text-center mb-8' },
+      h('button', {
+        class: 'btn btn-primary btn-lg',
+        onClick: runBenchmarks,
+        disabled: running,
+      }, running ? 'Running...' : 'Run Benchmarks'),
+    ),
 
     results
-      ? h('div', { class: 'bench-results', style: 'margin-top:1.5rem' },
+      ? h('div', { class: 'bench-results animate-fade-up' },
           ...Object.entries(results).map(([key, r]) =>
             h('div', { class: 'bench-row' },
               h('div', null,
                 h('strong', null, r.name),
-                h('div', { style: 'font-size:0.8rem;color:var(--muted)' },
+                h('div', { class: 'text-muted text-sm' },
                   `${r.opsPerSec.toLocaleString()} ops/sec | ${r.avgMs.toFixed(3)}ms avg`,
                 ),
               ),
-              h('div', { style: 'width:200px;margin-left:1rem' },
+              h('div', { style: 'width: 200px; margin-left: 1rem;' },
                 h('div', {
                   class: 'bench-bar',
-                  style: `width:${Math.min(100, r.score)}%`,
+                  style: `width: ${Math.min(100, r.score)}%`,
                 }),
               ),
             )
@@ -116,24 +121,34 @@ export function Bench() {
         )
       : null,
 
-    h('div', { class: 'section' },
-      h('h2', null, 'What We Measure'),
-      h('div', { class: 'features' },
+    h('div', { class: 'mt-12' },
+      h('h2', { class: 'section-title' }, 'What We Measure'),
+      h('div', { class: 'features stagger-children' },
         feat('Signal Creation', 'How fast we can create reactive atoms. Impacts component mount time.'),
         feat('Signal Read/Write', 'Cost of reading and updating state. This is the hot path.'),
         feat('Batch Updates', 'Grouping multiple writes to avoid redundant effect runs.'),
         feat('DOM Operations', 'Raw element creation speed — our ceiling.'),
-        feat('Props Diffing', 'How efficiently we detect what changed in component props.'),
-        feat('VNode Creation', 'h() call overhead. Must be near zero.'),
-        feat('List Reconciliation', 'Reordering lists efficiently — a classic framework benchmark.'),
+        feat('VNode Reconciler', 'How efficiently the reconciler detects what changed in component props.'),
+        feat('h() Call Output', 'The compiled h() call overhead. JSX compiles to h() through the babel plugin.'),
+        feat('List Reconciliation', 'Reordering lists efficiently through the VNode reconciler — a classic framework benchmark.'),
       ),
     ),
 
-    h('div', { class: 'section' },
-      h('h2', null, 'Design Principles'),
-      h('pre', null, h('code', null, `// What's performance philosophy:
+    h('div', { class: 'mt-12' },
+      h('h2', { class: 'section-title' }, 'Design Principles'),
+      h('div', { class: 'code-block' },
+        h('div', { class: 'code-header' },
+          h('div', { class: 'code-dots' },
+            h('span', { class: 'code-dot' }),
+            h('span', { class: 'code-dot' }),
+            h('span', { class: 'code-dot' }),
+          ),
+          h('span', { class: 'code-filename' }, 'philosophy.js'),
+        ),
+        h('div', { class: 'code-content' },
+          h('pre', null, h('code', null, `// What's performance philosophy:
 //
-// 1. No virtual DOM tree in memory — diff against live DOM
+// 1. Unified rendering: JSX -> babel plugin -> h() -> VNode -> reconciler -> DOM
 // 2. Signals track exact subscribers — no tree walking
 // 3. Batch by default in event handlers
 // 4. Lazy computed values — only recompute when read
@@ -141,8 +156,10 @@ export function Bench() {
 // 6. Event delegation where possible
 // 7. Text nodes updated in place, never recreated
 // 8. Component output memoized via memo()
-// 9. Islands: ship zero JS for static content
-// 10. No runtime parsing — h() creates plain objects`)),
+// 9. Islands (in core): ship zero JS for static content
+// 10. Single VNode reconciler — no dual rendering paths`)),
+        ),
+      ),
     ),
   );
 }
@@ -187,8 +204,8 @@ function tick() {
 
 function feat(title, desc) {
   return h('div', { class: 'feature' },
-    h('h3', null, title),
-    h('p', null, desc),
+    h('h3', { class: 'feature-title' }, title),
+    h('p', { class: 'feature-description' }, desc),
   );
 }
 

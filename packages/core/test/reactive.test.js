@@ -1,7 +1,13 @@
 // Tests for What Framework - Reactive System
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, batch, untrack } from '../src/reactive.js';
+import { signal, computed, effect, batch, untrack, flushSync } from '../src/reactive.js';
+
+// Helper: flush microtask queue
+async function flush() {
+  await new Promise(r => queueMicrotask(r));
+  await new Promise(r => queueMicrotask(r));
+}
 
 describe('signal', () => {
   it('should hold and return a value', () => {
@@ -44,14 +50,18 @@ describe('signal', () => {
     dispose();
   });
 
-  it('should support subscribe()', () => {
+  it('should support subscribe()', async () => {
     const s = signal(0);
     const values = [];
     const unsub = s.subscribe(v => values.push(v));
+    assert.deepEqual(values, [0], 'initial value');
     s.set(1);
+    await flush();
     s.set(2);
+    await flush();
     unsub();
     s.set(3);
+    await flush();
     assert.deepEqual(values, [0, 1, 2]);
   });
 });
@@ -90,12 +100,14 @@ describe('effect', () => {
     dispose();
   });
 
-  it('should re-run when signal changes', () => {
+  it('should re-run when signal changes', async () => {
     const s = signal(0);
     const values = [];
     const dispose = effect(() => values.push(s()));
     s.set(1);
+    await flush();
     s.set(2);
+    await flush();
     assert.deepEqual(values, [0, 1, 2]);
     dispose();
   });
@@ -110,7 +122,7 @@ describe('effect', () => {
     assert.equal(runs, 1);
   });
 
-  it('should track dynamic deps', () => {
+  it('should track dynamic deps', async () => {
     const cond = signal(true);
     const a = signal('A');
     const b = signal('B');
@@ -122,15 +134,19 @@ describe('effect', () => {
 
     assert.deepEqual(values, ['A']);
     a.set('A2');
+    await flush();
     assert.deepEqual(values, ['A', 'A2']);
 
     cond.set(false);
+    await flush();
     assert.deepEqual(values, ['A', 'A2', 'B']);
 
     a.set('A3');
-    assert.deepEqual(values, ['A', 'A2', 'B']);
+    await flush();
+    assert.deepEqual(values, ['A', 'A2', 'B'], 'a no longer tracked');
 
     b.set('B2');
+    await flush();
     assert.deepEqual(values, ['A', 'A2', 'B', 'B2']);
     dispose();
   });

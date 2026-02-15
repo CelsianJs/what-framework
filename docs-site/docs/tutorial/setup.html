@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Setup — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="./" class="active">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Tutorial</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Overview</a></li>
+          <li><a href="./setup.html" class="active">Setup</a></li>
+          <li><a href="./the-board.html">Building the Board</a></li>
+          <li><a href="./state.html">Adding State</a></li>
+          <li><a href="./taking-turns.html">Taking Turns</a></li>
+          <li><a href="./winner.html">Declaring a Winner</a></li>
+          <li><a href="./time-travel.html">Adding Time Travel</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Setup</h1>
+          <p class="subtitle">Create a new project and get the foundation ready for our tic-tac-toe game.</p>
+
+          <h2 id="create-project">Create the Project</h2>
+          <p>Open your terminal and run:</p>
+
+          <div class="code-header">Terminal</div>
+<pre><code>npx create-what tic-tac-toe
+cd tic-tac-toe
+npm install
+npm run dev</code></pre>
+
+          <p>Open <code>http://localhost:5173</code> in your browser. You should see the default What app.</p>
+
+          <h2 id="clean-slate">Start with a Clean Slate</h2>
+          <p>Replace the contents of <code>src/pages/index.jsx</code> with this starter code:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      <span class="comment">{/* We'll add the board here */}</span>
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="add-styles">Add Some Styles</h2>
+          <p>Create <code>src/styles.css</code> with the game styles:</p>
+
+          <div class="code-header">src/styles.css</div>
+<pre><code><span class="comment">/* Game Layout */</span>
+.game {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px;
+  font-family: -apple-system, sans-serif;
+}
+
+.game h1 {
+  margin-bottom: 24px;
+}
+
+<span class="comment">/* Board */</span>
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 80px);
+  gap: 4px;
+  background: #333;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+<span class="comment">/* Squares */</span>
+.square {
+  width: 80px;
+  height: 80px;
+  background: #fff;
+  border: none;
+  font-size: 32px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.square:hover {
+  background: #f0f0f0;
+}
+
+.square:first-child { border-radius: 4px 0 0 0; }
+.square:nth-child(3) { border-radius: 0 4px 0 0; }
+.square:nth-child(7) { border-radius: 0 0 0 4px; }
+.square:last-child { border-radius: 0 0 4px 0; }
+
+<span class="comment">/* Game Info */</span>
+.game-info {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.status {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.moves {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.moves button {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.moves button:hover {
+  background: #f5f5f5;
+}</code></pre>
+
+          <h2 id="import-styles">Import the Styles</h2>
+          <p>Update your <code>index.jsx</code> to import the styles:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="checkpoint">Checkpoint</h2>
+          <p>Your app should now show a centered "Tic-Tac-Toe" heading. If you see that, you're ready for the next step!</p>
+
+          <div class="callout callout-success">
+            <p class="callout-title">You're all set!</p>
+            <p>Next, we'll build the game board with 9 clickable squares.</p>
+          </div>
+
+          <div class="page-nav">
+            <a href="./">
+              <span class="label">Previous</span>
+              <span class="title">Overview</span>
+            </a>
+            <a href="./the-board.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Building the Board</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#create-project">Create the Project</a></li>
+            <li><a href="#clean-slate">Start with a Clean Slate</a></li>
+            <li><a href="#add-styles">Add Some Styles</a></li>
+            <li><a href="#import-styles">Import the Styles</a></li>
+            <li><a href="#checkpoint">Checkpoint</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

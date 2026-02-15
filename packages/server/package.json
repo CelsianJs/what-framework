@@ -1,11 +1,41 @@
 {
-  "name": "@aspect/server",
-  "version": "0.1.0",
-  "description": "What framework - SSR, islands, static generation",
+  "name": "what-server",
+  "version": "0.3.0",
+  "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",
+  "types": "index.d.ts",
   "exports": {
-    ".": "./src/index.js",
-    "./islands": "./src/islands.js"
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./islands": {
+      "import": "./src/islands.js"
+    },
+    "./actions": {
+      "import": "./src/actions.js"
+    }
+  },
+  "files": [
+    "src",
+    "index.d.ts"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "ssr",
+    "islands",
+    "static-generation",
+    "server-rendering",
+    "what-framework"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "what-core": "^0.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aspect/what-fw"
   }
 }

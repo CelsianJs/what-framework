@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Building the Board — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="./" class="active">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Tutorial</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Overview</a></li>
+          <li><a href="./setup.html">Setup</a></li>
+          <li><a href="./the-board.html" class="active">Building the Board</a></li>
+          <li><a href="./state.html">Adding State</a></li>
+          <li><a href="./taking-turns.html">Taking Turns</a></li>
+          <li><a href="./winner.html">Declaring a Winner</a></li>
+          <li><a href="./time-travel.html">Adding Time Travel</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Building the Board</h1>
+          <p class="subtitle">Create the 3x3 grid of squares that makes up our tic-tac-toe board.</p>
+
+          <h2 id="square-component">The Square Component</h2>
+          <p>Let's start by creating a single square. A square is a button that will display either nothing, "X", or "O".</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+
+<span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      &lt;Square value=<span class="string">"X"</span> onClick={() =&gt; console.log(<span class="string">'clicked'</span>)} /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>Click the square and check your browser console. You should see "clicked" logged.</p>
+
+          <h2 id="understanding-square">Understanding the Square</h2>
+          <p>Let's break down what we wrote:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {</code></pre>
+
+          <p>This is a component that receives two props:</p>
+          <ul>
+            <li><code>value</code> — What to display in the square (null, "X", or "O")</li>
+            <li><code>onClick</code> — A function to call when the square is clicked</li>
+          </ul>
+
+          <p>The component returns a button with these props wired up.</p>
+
+          <h2 id="board-component">The Board Component</h2>
+          <p>Now let's create the full board with 9 squares:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+
+<span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"board"</span>&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+      &lt;Square value={<span class="keyword">null</span>} onClick={() =&gt; {}} /&gt;
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      &lt;Board /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>You should now see a 3x3 grid of empty squares. The CSS we added earlier handles the grid layout.</p>
+
+          <h2 id="render-with-loop">Rendering with a Loop</h2>
+          <p>Writing 9 Square components is repetitive. Let's use a loop instead:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">const</span> squares = Array(<span class="number">9</span>).fill(<span class="keyword">null</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"board"</span>&gt;
+      {squares.map((value, i) =&gt; (
+        &lt;Square
+          key={i}
+          value={value}
+          onClick={() =&gt; console.log(<span class="string">`Square ${i} clicked`</span>)}
+        /&gt;
+      ))}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>Now clicking any square logs its index (0-8). This will be important when we track moves.</p>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Why <code>key={i}</code>?</p>
+            <p>When rendering lists, each item needs a unique <code>key</code> prop. This helps What efficiently update the DOM when the list changes. For now, the index works fine.</p>
+          </div>
+
+          <h2 id="checkpoint">Checkpoint</h2>
+          <p>Your code should look like this:</p>
+
+          <div class="code-header">src/pages/index.jsx (complete)</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+
+<span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">const</span> squares = Array(<span class="number">9</span>).fill(<span class="keyword">null</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"board"</span>&gt;
+      {squares.map((value, i) =&gt; (
+        &lt;Square
+          key={i}
+          value={value}
+          onClick={() =&gt; console.log(<span class="string">`Square ${i} clicked`</span>)}
+        /&gt;
+      ))}
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      &lt;Board /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>You have a board with 9 clickable squares. Next, we'll add state to track the game!</p>
+
+          <div class="page-nav">
+            <a href="./setup.html">
+              <span class="label">Previous</span>
+              <span class="title">Setup</span>
+            </a>
+            <a href="./state.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Adding State</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#square-component">The Square Component</a></li>
+            <li><a href="#understanding-square">Understanding the Square</a></li>
+            <li><a href="#board-component">The Board Component</a></li>
+            <li><a href="#render-with-loop">Rendering with a Loop</a></li>
+            <li><a href="#checkpoint">Checkpoint</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

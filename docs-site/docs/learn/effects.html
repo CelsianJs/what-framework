@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Effects — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html" class="active">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Effects</h1>
+          <p class="subtitle">Run side effects in response to signal changes. Effects handle everything that isn't just returning UI.</p>
+
+          <h2 id="what-are-effects">What Are Effects?</h2>
+          <p>Effects are functions that run automatically when their dependencies change. They're for side effects: things like:</p>
+          <ul>
+            <li>Fetching data</li>
+            <li>Setting up subscriptions</li>
+            <li>Updating the document title</li>
+            <li>Logging</li>
+            <li>Syncing with external systems</li>
+          </ul>
+
+<pre><code><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="comment">// Runs immediately, then re-runs when count changes</span>
+<span class="function">effect</span>(() =&gt; {
+  console.log(<span class="string">'Count is now:'</span>, count());
+});
+
+count.set(<span class="number">5</span>);  <span class="comment">// Logs: "Count is now: 5"</span></code></pre>
+
+          <h2 id="how-effects-work">How Effects Work</h2>
+          <p>When you create an effect:</p>
+          <ol>
+            <li>The function runs immediately</li>
+            <li>What tracks which signals are read during execution</li>
+            <li>When any of those signals change, the effect re-runs</li>
+          </ol>
+
+<pre><code><span class="keyword">const</span> a = <span class="function">signal</span>(<span class="number">1</span>);
+<span class="keyword">const</span> b = <span class="function">signal</span>(<span class="number">2</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  console.log(a() + b());  <span class="comment">// Tracks both a and b</span>
+});
+
+a.set(<span class="number">10</span>);  <span class="comment">// Effect re-runs, logs 12</span>
+b.set(<span class="number">20</span>);  <span class="comment">// Effect re-runs, logs 30</span></code></pre>
+
+          <h2 id="cleanup">Cleanup Functions</h2>
+          <p>Effects can return a cleanup function that runs before the next execution or when the effect is disposed:</p>
+
+<pre><code><span class="function">effect</span>(() =&gt; {
+  <span class="keyword">const</span> handler = () =&gt; console.log(<span class="string">'resize'</span>);
+  window.addEventListener(<span class="string">'resize'</span>, handler);
+
+  <span class="comment">// Cleanup: remove the listener</span>
+  <span class="keyword">return</span> () =&gt; {
+    window.removeEventListener(<span class="string">'resize'</span>, handler);
+  };
+});</code></pre>
+
+          <p>Common uses for cleanup:</p>
+          <ul>
+            <li>Removing event listeners</li>
+            <li>Clearing timers/intervals</li>
+            <li>Canceling network requests</li>
+            <li>Closing connections</li>
+          </ul>
+
+          <h2 id="practical-examples">Practical Examples</h2>
+
+          <h3>Document Title</h3>
+<pre><code><span class="keyword">const</span> unreadCount = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  <span class="keyword">const</span> count = unreadCount();
+  document.title = count &gt; <span class="number">0</span>
+    ? <span class="string">`(${count}) My App`</span>
+    : <span class="string">'My App'</span>;
+});</code></pre>
+
+          <h3>Fetch Data</h3>
+<pre><code><span class="keyword">const</span> userId = <span class="function">signal</span>(<span class="number">1</span>);
+<span class="keyword">const</span> user = <span class="function">signal</span>(<span class="keyword">null</span>);
+<span class="keyword">const</span> loading = <span class="function">signal</span>(<span class="keyword">false</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  <span class="keyword">const</span> id = userId();
+  loading.set(<span class="keyword">true</span>);
+
+  fetch(<span class="string">`/api/users/${id}`</span>)
+    .then(r =&gt; r.json())
+    .then(data =&gt; {
+      user.set(data);
+      loading.set(<span class="keyword">false</span>);
+    });
+});</code></pre>
+
+          <h3>Local Storage Sync</h3>
+<pre><code><span class="keyword">const</span> theme = <span class="function">signal</span>(
+  localStorage.getItem(<span class="string">'theme'</span>) || <span class="string">'light'</span>
+);
+
+<span class="function">effect</span>(() =&gt; {
+  localStorage.setItem(<span class="string">'theme'</span>, theme());
+});</code></pre>
+
+          <h3>Debounced Search</h3>
+<pre><code><span class="keyword">const</span> query = <span class="function">signal</span>(<span class="string">''</span>);
+<span class="keyword">const</span> results = <span class="function">signal</span>([]);
+
+<span class="function">effect</span>(() =&gt; {
+  <span class="keyword">const</span> q = query();
+  <span class="keyword">if</span> (!q) {
+    results.set([]);
+    <span class="keyword">return</span>;
+  }
+
+  <span class="keyword">const</span> timeout = setTimeout(() =&gt; {
+    fetch(<span class="string">`/api/search?q=${q}`</span>)
+      .then(r =&gt; r.json())
+      .then(data =&gt; results.set(data));
+  }, <span class="number">300</span>);
+
+  <span class="keyword">return</span> () =&gt; clearTimeout(timeout);
+});</code></pre>
+
+          <h2 id="effects-vs-computed">Effects vs Computed</h2>
+          <p>Use <strong>computed</strong> for derived values (pure transformations):</p>
+
+<pre><code><span class="comment">// GOOD - derived value</span>
+<span class="keyword">const</span> fullName = <span class="function">computed</span>(() =&gt; <span class="string">`${first()} ${last()}`</span>);</code></pre>
+
+          <p>Use <strong>effect</strong> for side effects (interactions with the outside world):</p>
+
+<pre><code><span class="comment">// GOOD - side effect</span>
+<span class="function">effect</span>(() =&gt; {
+  document.title = fullName();
+});</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Avoid: Effects that just set signals</p>
+<pre><code><span class="comment">// BAD - use computed instead</span>
+<span class="keyword">const</span> doubled = <span class="function">signal</span>(<span class="number">0</span>);
+<span class="function">effect</span>(() =&gt; {
+  doubled.set(count() * <span class="number">2</span>);
+});
+
+<span class="comment">// GOOD</span>
+<span class="keyword">const</span> doubled = <span class="function">computed</span>(() =&gt; count() * <span class="number">2</span>);</code></pre>
+          </div>
+
+          <h2 id="conditional-tracking">Conditional Tracking</h2>
+          <p>Only signals read during execution are tracked:</p>
+
+<pre><code><span class="keyword">const</span> showDetails = <span class="function">signal</span>(<span class="keyword">false</span>);
+<span class="keyword">const</span> details = <span class="function">signal</span>(<span class="string">'...'</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  <span class="keyword">if</span> (showDetails()) {
+    console.log(details());  <span class="comment">// Only tracks details when showDetails is true</span>
+  }
+});
+
+details.set(<span class="string">'new'</span>);  <span class="comment">// Doesn't trigger (showDetails is false)</span>
+showDetails.set(<span class="keyword">true</span>);  <span class="comment">// Triggers, now details is tracked</span>
+details.set(<span class="string">'newer'</span>);  <span class="comment">// Triggers</span></code></pre>
+
+          <h2 id="reading-without-tracking">Reading Without Tracking</h2>
+          <p>Use <code>peek()</code> or <code>untrack()</code> to read without creating a subscription:</p>
+
+<pre><code><span class="keyword">import</span> { untrack } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+<span class="keyword">const</span> multiplier = <span class="function">signal</span>(<span class="number">2</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  <span class="comment">// Re-runs when count changes, NOT when multiplier changes</span>
+  <span class="keyword">const</span> result = count() * multiplier.peek();
+  console.log(result);
+});
+
+<span class="comment">// Alternative syntax</span>
+<span class="function">effect</span>(() =&gt; {
+  <span class="keyword">const</span> result = count() * <span class="function">untrack</span>(() =&gt; multiplier());
+  console.log(result);
+});</code></pre>
+
+          <h2 id="best-practices">Best Practices</h2>
+          <ul>
+            <li><strong>Keep effects focused.</strong> One effect, one purpose.</li>
+            <li><strong>Always clean up.</strong> If you add a listener, remove it in cleanup.</li>
+            <li><strong>Prefer computed for derived values.</strong> Effects are for side effects only.</li>
+            <li><strong>Don't modify signals you're reading.</strong> This can cause infinite loops.</li>
+            <li><strong>Handle errors.</strong> Wrap async code in try/catch.</li>
+          </ul>
+
+          <div class="page-nav">
+            <a href="./components.html">
+              <span class="label">Previous</span>
+              <span class="title">Components</span>
+            </a>
+            <a href="./control-flow.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Control Flow</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#what-are-effects">What Are Effects?</a></li>
+            <li><a href="#how-effects-work">How Effects Work</a></li>
+            <li><a href="#cleanup">Cleanup Functions</a></li>
+            <li><a href="#practical-examples">Practical Examples</a></li>
+            <li><a href="#effects-vs-computed">Effects vs Computed</a></li>
+            <li><a href="#conditional-tracking">Conditional Tracking</a></li>
+            <li><a href="#reading-without-tracking">Reading Without Tracking</a></li>
+            <li><a href="#best-practices">Best Practices</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

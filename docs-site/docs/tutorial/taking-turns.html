@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Taking Turns — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="./" class="active">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Tutorial</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Overview</a></li>
+          <li><a href="./setup.html">Setup</a></li>
+          <li><a href="./the-board.html">Building the Board</a></li>
+          <li><a href="./state.html">Adding State</a></li>
+          <li><a href="./taking-turns.html" class="active">Taking Turns</a></li>
+          <li><a href="./winner.html">Declaring a Winner</a></li>
+          <li><a href="./time-travel.html">Adding Time Travel</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Taking Turns</h1>
+          <p class="subtitle">Alternate between X and O, and prevent overwriting existing moves.</p>
+
+          <h2 id="track-turn">Tracking Whose Turn It Is</h2>
+          <p>We need a second signal to track whether it's X's turn or O's turn:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
+  <span class="keyword">const</span> xIsNext = <span class="function">signal</span>(<span class="keyword">true</span>);  <span class="comment">// X goes first</span>
+
+  <span class="keyword">function</span> <span class="function">handleClick</span>(i) {
+    <span class="keyword">const</span> next = [...squares()];
+
+    <span class="comment">// Place X or O depending on whose turn it is</span>
+    next[i] = xIsNext() ? <span class="string">'X'</span> : <span class="string">'O'</span>;
+    squares.set(next);
+
+    <span class="comment">// Toggle the turn</span>
+    xIsNext.set(!xIsNext());
+  }
+
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"board"</span>&gt;
+      {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+        &lt;Square
+          key={i}
+          value={value}
+          onClick={() =&gt; handleClick(i)}
+        /&gt;
+      ))}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>Now when you click, it alternates between X and O. But there's still a problem — you can overwrite existing moves. Let's fix that.</p>
+
+          <h2 id="prevent-overwrite">Preventing Overwrites</h2>
+          <p>We should ignore clicks on squares that already have a value:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">handleClick</span>(i) {
+  <span class="comment">// Don't do anything if square is already filled</span>
+  <span class="keyword">if</span> (squares()[i]) {
+    <span class="keyword">return</span>;
+  }
+
+  <span class="keyword">const</span> next = [...squares()];
+  next[i] = xIsNext() ? <span class="string">'X'</span> : <span class="string">'O'</span>;
+  squares.set(next);
+  xIsNext.set(!xIsNext());
+}</code></pre>
+
+          <p>Now clicking a filled square does nothing. The game is playable!</p>
+
+          <h2 id="show-status">Showing the Current Player</h2>
+          <p>Let's show whose turn it is:</p>
+
+          <div class="code-header">src/pages/index.jsx (updated)</div>
+<pre><code><span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
+  <span class="keyword">const</span> xIsNext = <span class="function">signal</span>(<span class="keyword">true</span>);
+
+  <span class="keyword">function</span> <span class="function">handleClick</span>(i) {
+    <span class="keyword">if</span> (squares()[i]) <span class="keyword">return</span>;
+
+    <span class="keyword">const</span> next = [...squares()];
+    next[i] = xIsNext() ? <span class="string">'X'</span> : <span class="string">'O'</span>;
+    squares.set(next);
+    xIsNext.set(!xIsNext());
+  }
+
+  <span class="keyword">return</span> (
+    &lt;&gt;
+      &lt;div className=<span class="string">"status"</span>&gt;
+        {<span class="function">() =&gt;</span> <span class="string">`Next player: ${xIsNext() ? 'X' : 'O'}`</span>}
+      &lt;/div&gt;
+      &lt;div className=<span class="string">"board"</span>&gt;
+        {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+          &lt;Square
+            key={i}
+            value={value}
+            onClick={() =&gt; handleClick(i)}
+          /&gt;
+        ))}
+      &lt;/div&gt;
+    &lt;/&gt;
+  );
+}</code></pre>
+
+          <p>Notice we wrapped the board in a fragment <code>&lt;&gt;...&lt;/&gt;</code> to return multiple elements.</p>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Reactive Status</p>
+            <p>The status uses <code>{() => ...}</code> to make it reactive. When <code>xIsNext</code> changes, the status text updates automatically.</p>
+          </div>
+
+          <h2 id="complete-code">Complete Code So Far</h2>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+<span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
+  <span class="keyword">const</span> xIsNext = <span class="function">signal</span>(<span class="keyword">true</span>);
+
+  <span class="keyword">function</span> <span class="function">handleClick</span>(i) {
+    <span class="keyword">if</span> (squares()[i]) <span class="keyword">return</span>;
+
+    <span class="keyword">const</span> next = [...squares()];
+    next[i] = xIsNext() ? <span class="string">'X'</span> : <span class="string">'O'</span>;
+    squares.set(next);
+    xIsNext.set(!xIsNext());
+  }
+
+  <span class="keyword">return</span> (
+    &lt;&gt;
+      &lt;div className=<span class="string">"status"</span>&gt;
+        {<span class="function">() =&gt;</span> <span class="string">`Next player: ${xIsNext() ? 'X' : 'O'}`</span>}
+      &lt;/div&gt;
+      &lt;div className=<span class="string">"board"</span>&gt;
+        {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+          &lt;Square
+            key={i}
+            value={value}
+            onClick={() =&gt; handleClick(i)}
+          /&gt;
+        ))}
+      &lt;/div&gt;
+    &lt;/&gt;
+  );
+}
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      &lt;Board /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="checkpoint">Checkpoint</h2>
+          <p>Your game should now:</p>
+          <ul>
+            <li>Alternate between X and O</li>
+            <li>Show whose turn it is</li>
+            <li>Prevent clicking filled squares</li>
+          </ul>
+
+          <p>The only thing missing is detecting when someone wins. Let's add that next!</p>
+
+          <div class="page-nav">
+            <a href="./state.html">
+              <span class="label">Previous</span>
+              <span class="title">Adding State</span>
+            </a>
+            <a href="./winner.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Declaring a Winner</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#track-turn">Tracking Whose Turn It Is</a></li>
+            <li><a href="#prevent-overwrite">Preventing Overwrites</a></li>
+            <li><a href="#show-status">Showing the Current Player</a></li>
+            <li><a href="#complete-code">Complete Code So Far</a></li>
+            <li><a href="#checkpoint">Checkpoint</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

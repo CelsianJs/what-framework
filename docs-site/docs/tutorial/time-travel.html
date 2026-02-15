@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Time Travel — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="./" class="active">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Tutorial</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Overview</a></li>
+          <li><a href="./setup.html">Setup</a></li>
+          <li><a href="./the-board.html">Building the Board</a></li>
+          <li><a href="./state.html">Adding State</a></li>
+          <li><a href="./taking-turns.html">Taking Turns</a></li>
+          <li><a href="./winner.html">Declaring a Winner</a></li>
+          <li><a href="./time-travel.html" class="active">Adding Time Travel</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Adding Time Travel</h1>
+          <p class="subtitle">Store the history of moves and let players jump back to previous states.</p>
+
+          <h2 id="lifting-state">Lifting State Up</h2>
+          <p>To implement time travel, we need to store the history of all moves. This means the Game component needs to own the state, not the Board.</p>
+
+          <p>When multiple components need to share state, we "lift" it to their closest common parent. This is called <strong>lifting state up</strong>.</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+<span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {
+  <span class="keyword">const</span> lines = [
+    [<span class="number">0</span>, <span class="number">1</span>, <span class="number">2</span>], [<span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>], [<span class="number">6</span>, <span class="number">7</span>, <span class="number">8</span>],
+    [<span class="number">0</span>, <span class="number">3</span>, <span class="number">6</span>], [<span class="number">1</span>, <span class="number">4</span>, <span class="number">7</span>], [<span class="number">2</span>, <span class="number">5</span>, <span class="number">8</span>],
+    [<span class="number">0</span>, <span class="number">4</span>, <span class="number">8</span>], [<span class="number">2</span>, <span class="number">4</span>, <span class="number">6</span>],
+  ];
+  <span class="keyword">for</span> (<span class="keyword">const</span> [a, b, c] <span class="keyword">of</span> lines) {
+    <span class="keyword">if</span> (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
+      <span class="keyword">return</span> squares[a];
+    }
+  }
+  <span class="keyword">return</span> <span class="keyword">null</span>;
+}
+
+<span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}
+
+<span class="comment">// Board now receives squares and onPlay as props</span>
+<span class="keyword">function</span> <span class="function">Board</span>({ squares, onPlay }) {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"board"</span>&gt;
+      {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+        &lt;Square key={i} value={value} onClick={() =&gt; onPlay(i)} /&gt;
+      ))}
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="comment">// History is an array of board states</span>
+  <span class="keyword">const</span> history = <span class="function">signal</span>([Array(<span class="number">9</span>).fill(<span class="keyword">null</span>)]);
+  <span class="keyword">const</span> currentMove = <span class="function">signal</span>(<span class="number">0</span>);
+
+  <span class="comment">// Current squares derived from history and currentMove</span>
+  <span class="keyword">const</span> currentSquares = <span class="function">computed</span>(() =&gt;
+    history()[currentMove()]
+  );
+
+  <span class="comment">// X plays on even moves (0, 2, 4...)</span>
+  <span class="keyword">const</span> xIsNext = <span class="function">computed</span>(() =&gt;
+    currentMove() % <span class="number">2</span> === <span class="number">0</span>
+  );
+
+  <span class="keyword">const</span> status = <span class="function">computed</span>(() =&gt; {
+    <span class="keyword">const</span> winner = <span class="function">calculateWinner</span>(currentSquares());
+    <span class="keyword">if</span> (winner) <span class="keyword">return</span> <span class="string">`Winner: ${winner}`</span>;
+    <span class="keyword">return</span> <span class="string">`Next player: ${xIsNext() ? 'X' : 'O'}`</span>;
+  });
+
+  <span class="keyword">function</span> <span class="function">handlePlay</span>(i) {
+    <span class="keyword">const</span> squares = currentSquares();
+    <span class="keyword">if</span> (<span class="function">calculateWinner</span>(squares) || squares[i]) <span class="keyword">return</span>;
+
+    <span class="keyword">const</span> next = [...squares];
+    next[i] = xIsNext() ? <span class="string">'X'</span> : <span class="string">'O'</span>;
+
+    <span class="comment">// Add new state to history (slice to discard future if we jumped back)</span>
+    <span class="keyword">const</span> newHistory = [...history().slice(<span class="number">0</span>, currentMove() + <span class="number">1</span>), next];
+    history.set(newHistory);
+    currentMove.set(newHistory.length - <span class="number">1</span>);
+  }
+
+  <span class="keyword">function</span> <span class="function">jumpTo</span>(move) {
+    currentMove.set(move);
+  }
+
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      &lt;div className=<span class="string">"status"</span>&gt;{status}&lt;/div&gt;
+      &lt;Board squares={currentSquares} onPlay={handlePlay} /&gt;
+      &lt;div className=<span class="string">"game-info"</span>&gt;
+        &lt;div className=<span class="string">"moves"</span>&gt;
+          {<span class="function">() =&gt;</span> history().map((_, move) =&gt; (
+            &lt;button key={move} onClick={() =&gt; jumpTo(move)}&gt;
+              {move === <span class="number">0</span> ? <span class="string">'Go to game start'</span> : <span class="string">`Go to move #${move}`</span>}
+            &lt;/button&gt;
+          ))}
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="how-it-works">How Time Travel Works</h2>
+
+          <div class="step">
+            <span class="step-number">1</span>
+            <div class="step-content">
+              <h4>History Array</h4>
+              <p><code>history</code> stores every board state. It starts with one entry: an empty board.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">2</span>
+            <div class="step-content">
+              <h4>Current Move Index</h4>
+              <p><code>currentMove</code> tracks which move we're viewing. When we make a move, it's the last index. When we jump back, it points to an earlier state.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">3</span>
+            <div class="step-content">
+              <h4>Computed Current Squares</h4>
+              <p><code>currentSquares</code> is derived from history and currentMove. Change either and the board updates.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">4</span>
+            <div class="step-content">
+              <h4>Making a Move</h4>
+              <p>When you click a square, we slice the history up to the current move (discarding any "future" moves if we jumped back), then add the new state.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">5</span>
+            <div class="step-content">
+              <h4>Jumping to a Move</h4>
+              <p>Clicking a history button just updates <code>currentMove</code>. The computed values handle the rest!</p>
+            </div>
+          </div>
+
+          <h2 id="whats-happening">What's Happening Here</h2>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Immutability Enables Time Travel</p>
+            <p>Because we always created new arrays instead of mutating, we have a complete history of every board state. This is a powerful pattern that enables features like undo/redo, debugging, and replay.</p>
+          </div>
+
+          <h2 id="congrats">Congratulations!</h2>
+          <p>You've built a complete tic-tac-toe game with:</p>
+
+          <ul>
+            <li><strong>Signals</strong> — Reactive state that updates the UI</li>
+            <li><strong>Computed values</strong> — Derived state that stays in sync</li>
+            <li><strong>Components</strong> — Reusable UI pieces</li>
+            <li><strong>Event handling</strong> — User interactions</li>
+            <li><strong>Lifting state</strong> — Sharing state between components</li>
+            <li><strong>Immutable updates</strong> — Enabling time travel</li>
+          </ul>
+
+          <h2 id="next-steps">What's Next?</h2>
+          <p>Here are some ideas to improve the game:</p>
+
+          <ul>
+            <li>Highlight the winning squares</li>
+            <li>Add a reset button</li>
+            <li>Show "It's a draw" when the board is full with no winner</li>
+            <li>Save game state to localStorage</li>
+          </ul>
+
+          <p>Or dive deeper into What Framework:</p>
+
+          <div class="card-grid">
+            <a href="../learn/signals.html" class="card">
+              <h4>Signals in Depth</h4>
+              <p>Learn about peek, batch, and untrack.</p>
+            </a>
+            <a href="../learn/effects.html" class="card">
+              <h4>Effects</h4>
+              <p>Run side effects when signals change.</p>
+            </a>
+            <a href="../learn/context.html" class="card">
+              <h4>Context</h4>
+              <p>Share state without prop drilling.</p>
+            </a>
+            <a href="../reference/" class="card">
+              <h4>API Reference</h4>
+              <p>Complete documentation for all APIs.</p>
+            </a>
+          </div>
+
+          <div class="page-nav">
+            <a href="./winner.html">
+              <span class="label">Previous</span>
+              <span class="title">Declaring a Winner</span>
+            </a>
+            <a href="../learn/" class="next">
+              <span class="label">Continue Learning</span>
+              <span class="title">Quick Start</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#lifting-state">Lifting State Up</a></li>
+            <li><a href="#how-it-works">How Time Travel Works</a></li>
+            <li><a href="#whats-happening">What's Happening Here</a></li>
+            <li><a href="#congrats">Congratulations!</a></li>
+            <li><a href="#next-steps">What's Next?</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

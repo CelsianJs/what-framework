@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Adding State — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="./" class="active">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Tutorial</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Overview</a></li>
+          <li><a href="./setup.html">Setup</a></li>
+          <li><a href="./the-board.html">Building the Board</a></li>
+          <li><a href="./state.html" class="active">Adding State</a></li>
+          <li><a href="./taking-turns.html">Taking Turns</a></li>
+          <li><a href="./winner.html">Declaring a Winner</a></li>
+          <li><a href="./time-travel.html">Adding Time Travel</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Adding State</h1>
+          <p class="subtitle">Use signals to track the game state and make squares interactive.</p>
+
+          <h2 id="intro-signals">Introducing Signals</h2>
+          <p>Right now our squares don't remember anything. We need <strong>state</strong> — data that changes over time and updates the UI.</p>
+
+          <p>In What Framework, we use <strong>signals</strong> for state. A signal is a container for a value that can change. When the value changes, any part of the UI that uses it updates automatically.</p>
+
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Create a signal with initial value</span>
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="comment">// Read the value</span>
+console.log(count());  <span class="comment">// 0</span>
+
+<span class="comment">// Update the value</span>
+count.set(<span class="number">1</span>);
+console.log(count());  <span class="comment">// 1</span></code></pre>
+
+          <h2 id="board-state">Adding State to the Board</h2>
+          <p>Let's create a signal to hold the state of all 9 squares:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+<span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">Board</span>() {
+  <span class="comment">// Array of 9 squares, each null (empty) initially</span>
+  <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
+
+  <span class="keyword">function</span> <span class="function">handleClick</span>(i) {
+    <span class="comment">// Create a copy of the squares array</span>
+    <span class="keyword">const</span> next = [...squares()];
+    <span class="comment">// Mark this square as "X"</span>
+    next[i] = <span class="string">'X'</span>;
+    <span class="comment">// Update the signal</span>
+    squares.set(next);
+  }
+
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"board"</span>&gt;
+      {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+        &lt;Square
+          key={i}
+          value={value}
+          onClick={() =&gt; handleClick(i)}
+        /&gt;
+      ))}
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">export default function</span> <span class="function">Game</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"game"</span>&gt;
+      &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
+      &lt;Board /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>Try clicking squares now. Each one you click shows an "X"!</p>
+
+          <h2 id="reactive-rendering">Understanding Reactive Rendering</h2>
+          <p>Notice this line in the Board:</p>
+
+<pre><code>{<span class="function">() =&gt;</span> squares().map((value, i) =&gt; ...</code></pre>
+
+          <p>The arrow function <code>() =></code> is important. It tells What to:</p>
+          <ol>
+            <li>Track that this part of the UI depends on <code>squares</code></li>
+            <li>Re-run this function whenever <code>squares</code> changes</li>
+            <li>Update only this part of the DOM</li>
+          </ol>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Common Mistake</p>
+            <p>If you write <code>{squares().map(...)}</code> without the arrow function, it won't update when the signal changes. The arrow function makes it reactive.</p>
+          </div>
+
+          <h2 id="immutability">Why Copy the Array?</h2>
+          <p>In <code>handleClick</code>, we create a copy of the array instead of modifying it directly:</p>
+
+<pre><code><span class="comment">// Good - create a copy</span>
+<span class="keyword">const</span> next = [...squares()];
+next[i] = <span class="string">'X'</span>;
+squares.set(next);
+
+<span class="comment">// Bad - mutating directly won't work</span>
+<span class="keyword">const</span> current = squares();
+current[i] = <span class="string">'X'</span>;  <span class="comment">// Mutation - What won't detect this change</span></code></pre>
+
+          <p>This is called <strong>immutability</strong>. When you create a new array, What knows something changed. If you mutate the existing array, it looks like the same object and What won't update the UI.</p>
+
+          <h2 id="checkpoint">Checkpoint</h2>
+          <p>Test your game:</p>
+          <ul>
+            <li>Click a square — it should show "X"</li>
+            <li>Click another square — it should also show "X"</li>
+            <li>You can fill the whole board with X's</li>
+          </ul>
+
+          <p>But wait... we can only place X's, and we can overwrite squares. Let's fix that next!</p>
+
+          <div class="page-nav">
+            <a href="./the-board.html">
+              <span class="label">Previous</span>
+              <span class="title">Building the Board</span>
+            </a>
+            <a href="./taking-turns.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Taking Turns</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#intro-signals">Introducing Signals</a></li>
+            <li><a href="#board-state">Adding State to the Board</a></li>
+            <li><a href="#reactive-rendering">Understanding Reactive Rendering</a></li>
+            <li><a href="#immutability">Why Copy the Array?</a></li>
+            <li><a href="#checkpoint">Checkpoint</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

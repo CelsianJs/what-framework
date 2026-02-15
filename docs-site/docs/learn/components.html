@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Components — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html" class="active">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Components</h1>
+          <p class="subtitle">Components are functions that return JSX. They're the building blocks of your UI, letting you split the interface into reusable, independent pieces.</p>
+
+          <h2 id="defining-components">Defining Components</h2>
+          <p>A component is a function that returns JSX:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Greeting</span>() {
+  <span class="keyword">return</span> &lt;h1&gt;Hello, World!&lt;/h1&gt;;
+}
+
+<span class="comment">// Use it like an HTML tag</span>
+&lt;Greeting /&gt;</code></pre>
+
+          <p>Components must start with a capital letter. Lowercase names are treated as HTML elements.</p>
+
+          <h2 id="props">Props</h2>
+          <p>Pass data to components through props:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Greeting</span>({ name, className }) {
+  <span class="keyword">return</span> (
+    &lt;h1 className={className}&gt;
+      Hello, {name}!
+    &lt;/h1&gt;
+  );
+}
+
+<span class="comment">// Usage</span>
+&lt;Greeting name=<span class="string">"Alice"</span> className=<span class="string">"title"</span> /&gt;</code></pre>
+
+          <h3 id="default-props">Default Values</h3>
+          <p>Use destructuring defaults for optional props:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Button</span>({
+  variant = <span class="string">'primary'</span>,
+  size = <span class="string">'medium'</span>,
+  children
+}) {
+  <span class="keyword">return</span> (
+    &lt;button className={<span class="string">`btn btn-${variant} btn-${size}`</span>}&gt;
+      {children}
+    &lt;/button&gt;
+  );
+}
+
+<span class="comment">// Uses defaults</span>
+&lt;Button&gt;Click me&lt;/Button&gt;
+
+<span class="comment">// Override defaults</span>
+&lt;Button variant=<span class="string">"secondary"</span> size=<span class="string">"large"</span>&gt;Submit&lt;/Button&gt;</code></pre>
+
+          <h3 id="spread-props">Spreading Props</h3>
+          <p>Pass remaining props to child elements:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Input</span>({ label, ...rest }) {
+  <span class="keyword">return</span> (
+    &lt;label&gt;
+      {label}
+      &lt;input {...rest} /&gt;
+    &lt;/label&gt;
+  );
+}
+
+&lt;Input
+  label=<span class="string">"Email"</span>
+  type=<span class="string">"email"</span>
+  placeholder=<span class="string">"you@example.com"</span>
+  required
+/&gt;</code></pre>
+
+          <h2 id="children">Children</h2>
+          <p>Content between component tags is passed as <code>children</code>:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Card</span>({ title, children }) {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"card"</span>&gt;
+      &lt;h2&gt;{title}&lt;/h2&gt;
+      &lt;div className=<span class="string">"card-body"</span>&gt;
+        {children}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}
+
+&lt;Card title=<span class="string">"Welcome"</span>&gt;
+  &lt;p&gt;This is the card content.&lt;/p&gt;
+  &lt;button&gt;Learn More&lt;/button&gt;
+&lt;/Card&gt;</code></pre>
+
+          <h2 id="state-in-components">State in Components</h2>
+          <p>Use signals for component state:</p>
+
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;span&gt;Count: {count}&lt;/span&gt;
+      &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
+        Increment
+      &lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Components Run Once</p>
+            <p>Unlike React, What components only run once when first rendered. Updates happen through signals, not by re-running the component function. This is a key difference from React's mental model.</p>
+          </div>
+
+          <h2 id="composition">Composition Patterns</h2>
+
+          <h3 id="compound-components">Compound Components</h3>
+          <p>Create related components that work together:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Tabs</span>({ children }) {
+  <span class="keyword">const</span> activeTab = <span class="function">signal</span>(<span class="number">0</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"tabs"</span>&gt;
+      {children(activeTab)}
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">TabList</span>({ activeTab, children }) {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"tab-list"</span>&gt;
+      {children.map((child, i) =&gt; (
+        &lt;button
+          className={<span class="function">() =&gt;</span> activeTab() === i ? <span class="string">'active'</span> : <span class="string">''</span>}
+          onClick={() =&gt; activeTab.set(i)}
+        &gt;
+          {child}
+        &lt;/button&gt;
+      ))}
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">TabPanels</span>({ activeTab, children }) {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"tab-panels"</span>&gt;
+      {<span class="function">() =&gt;</span> children[activeTab()]}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h3 id="render-props">Render Props</h3>
+          <p>Pass a function as children for flexible rendering:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Toggle</span>({ children }) {
+  <span class="keyword">const</span> on = <span class="function">signal</span>(<span class="keyword">false</span>);
+  <span class="keyword">const</span> toggle = () =&gt; on.set(v =&gt; !v);
+
+  <span class="keyword">return</span> children({ on, toggle });
+}
+
+<span class="comment">// Usage</span>
+&lt;Toggle&gt;
+  {({ on, toggle }) =&gt; (
+    &lt;button onClick={toggle}&gt;
+      {<span class="function">() =&gt;</span> on() ? <span class="string">'ON'</span> : <span class="string">'OFF'</span>}
+    &lt;/button&gt;
+  )}
+&lt;/Toggle&gt;</code></pre>
+
+          <h2 id="how-jsx-compiles">How JSX Compiles</h2>
+          <p>What Framework uses a Babel plugin that compiles all JSX into <code>h()</code> function calls. These <code>h()</code> calls produce VNodes, which are then diffed and patched into the DOM by the unified reconciler.</p>
+
+          <p>The architecture is a single, unified path:</p>
+<pre><code><span class="comment">// Your JSX:</span>
+&lt;div className="card"&gt;&lt;Counter /&gt;&lt;/div&gt;
+
+<span class="comment">// Babel plugin compiles to h() calls:</span>
+h(<span class="string">'div'</span>, { className: <span class="string">'card'</span> }, h(Counter))
+
+<span class="comment">// h() creates VNodes, the reconciler diffs &amp; patches the DOM</span>
+<span class="comment">// Pipeline: JSX → babel plugin → h() → VNode → reconciler → DOM</span></code></pre>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Unified Rendering Path</p>
+            <p>Everything goes through a single path: <code>h()</code> creates VNodes, and the reconciler handles all DOM operations. There is no dual rendering path or separate code paths for elements vs. components. Both native elements like <code>&lt;div&gt;</code> and components like <code>&lt;Counter /&gt;</code> produce VNodes via the same <code>h()</code> function.</p>
+          </div>
+
+          <h2 id="jsx-basics">JSX Basics</h2>
+          <p>JSX is syntactic sugar for creating elements. Here are the key things to know:</p>
+
+          <h3 id="expressions">Expressions</h3>
+          <p>Use curly braces for JavaScript expressions:</p>
+
+<pre><code><span class="keyword">const</span> name = <span class="string">'Alice'</span>;
+<span class="keyword">const</span> items = [<span class="string">'Apple'</span>, <span class="string">'Banana'</span>, <span class="string">'Cherry'</span>];
+
+&lt;div&gt;
+  {<span class="comment">/* Variables */</span>}
+  &lt;h1&gt;Hello, {name}!&lt;/h1&gt;
+
+  {<span class="comment">/* Expressions */</span>}
+  &lt;p&gt;{<span class="number">1</span> + <span class="number">1</span>}&lt;/p&gt;
+
+  {<span class="comment">/* Function calls */</span>}
+  &lt;p&gt;{name.toUpperCase()}&lt;/p&gt;
+
+  {<span class="comment">/* Arrays */</span>}
+  &lt;ul&gt;
+    {items.map(item =&gt; &lt;li&gt;{item}&lt;/li&gt;)}
+  &lt;/ul&gt;
+&lt;/div&gt;</code></pre>
+
+          <h3 id="attributes">Attributes</h3>
+          <p>Some differences from HTML:</p>
+
+<pre><code><span class="comment">// className instead of class</span>
+&lt;div className=<span class="string">"container"</span>&gt;
+
+<span class="comment">// camelCase for multi-word attributes</span>
+&lt;input tabIndex=<span class="number">1</span> autoFocus /&gt;
+
+<span class="comment">// style as an object</span>
+&lt;div style={{ color: <span class="string">'red'</span>, fontSize: <span class="number">16</span> }}&gt;
+
+<span class="comment">// boolean attributes</span>
+&lt;input disabled /&gt;
+&lt;input disabled={<span class="keyword">true</span>} /&gt;
+&lt;input disabled={isDisabled()} /&gt;</code></pre>
+
+          <h3 id="fragments">Fragments</h3>
+          <p>Return multiple elements without a wrapper:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">List</span>() {
+  <span class="keyword">return</span> (
+    &lt;&gt;
+      &lt;li&gt;First&lt;/li&gt;
+      &lt;li&gt;Second&lt;/li&gt;
+      &lt;li&gt;Third&lt;/li&gt;
+    &lt;/&gt;
+  );
+}</code></pre>
+
+          <h2 id="best-practices">Best Practices</h2>
+
+          <h3>1. Keep Components Small</h3>
+          <p>If a component gets too large, split it into smaller pieces:</p>
+
+<pre><code><span class="comment">// Instead of one large component</span>
+<span class="keyword">function</span> <span class="function">Dashboard</span>() {
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;Header /&gt;
+      &lt;Sidebar /&gt;
+      &lt;MainContent /&gt;
+      &lt;Footer /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h3>2. Lift State Up When Needed</h3>
+          <p>If two components need to share state, lift it to their common parent:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Parent</span>() {
+  <span class="keyword">const</span> value = <span class="function">signal</span>(<span class="string">''</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;Input value={value} /&gt;
+      &lt;Display value={value} /&gt;
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">function</span> <span class="function">Input</span>({ value }) {
+  <span class="keyword">return</span> &lt;input value={value} onInput={e =&gt; value.set(e.target.value)} /&gt;;
+}
+
+<span class="keyword">function</span> <span class="function">Display</span>({ value }) {
+  <span class="keyword">return</span> &lt;p&gt;You typed: {value}&lt;/p&gt;;
+}</code></pre>
+
+          <h3>3. Pass Signals, Not Values</h3>
+          <p>For reactive props, pass the signal itself:</p>
+
+<pre><code><span class="comment">// GOOD - Child can update the signal</span>
+&lt;Counter count={count} /&gt;
+
+<span class="keyword">function</span> <span class="function">Counter</span>({ count }) {
+  <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;{count}&lt;/button&gt;;
+}</code></pre>
+
+          <div class="page-nav">
+            <a href="./signals.html">
+              <span class="label">Previous</span>
+              <span class="title">Signals</span>
+            </a>
+            <a href="./effects.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Effects</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#defining-components">Defining Components</a></li>
+            <li><a href="#props">Props</a></li>
+            <li><a href="#children">Children</a></li>
+            <li><a href="#state-in-components">State in Components</a></li>
+            <li><a href="#composition">Composition Patterns</a></li>
+            <li><a href="#how-jsx-compiles">How JSX Compiles</a></li>
+            <li><a href="#jsx-basics">JSX Basics</a></li>
+            <li><a href="#best-practices">Best Practices</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

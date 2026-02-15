@@ -1,0 +1,65 @@
+{
+  "name": "what-framework",
+  "version": "0.3.0",
+  "description": "The closest framework to vanilla JS — signals, components, islands, SSR",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./router": {
+      "types": "./router.d.ts",
+      "import": "./src/router.js"
+    },
+    "./server": {
+      "types": "./server.d.ts",
+      "import": "./src/server.js"
+    },
+    "./render": {
+      "import": "./src/render.js"
+    },
+    "./testing": {
+      "types": "./testing.d.ts",
+      "import": "./src/testing.js"
+    }
+  },
+  "files": [
+    "src",
+    "index.d.ts",
+    "router.d.ts",
+    "server.d.ts",
+    "testing.d.ts"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "framework",
+    "signals",
+    "reactive",
+    "islands",
+    "ssr",
+    "vanilla-js",
+    "lightweight",
+    "router",
+    "components"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aspect/what-fw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aspect/what-fw/issues"
+  },
+  "homepage": "https://github.com/aspect/what-fw#readme",
+  "dependencies": {
+    "what-core": "^0.3.0",
+    "what-router": "^0.3.0",
+    "what-server": "^0.3.0",
+    "what-compiler": "^0.3.0"
+  }
+}

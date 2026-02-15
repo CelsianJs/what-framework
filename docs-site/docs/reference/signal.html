@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>signal() — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <div class="nav-links">
+        <a href="../learn/">Learn</a>
+        <a href="./" class="active">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Reactivity</div>
+        <ul class="sidebar-links">
+          <li><a href="./signal.html" class="active">signal()</a></li>
+          <li><a href="./computed.html">computed()</a></li>
+          <li><a href="./effect.html">effect()</a></li>
+          <li><a href="./batch.html">batch()</a></li>
+          <li><a href="./untrack.html">untrack()</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Components</div>
+        <ul class="sidebar-links">
+          <li><a href="./h.html">h()</a></li>
+          <li><a href="./mount.html">mount()</a></li>
+          <li><a href="./Show.html">&lt;Show&gt;</a></li>
+          <li><a href="./For.html">&lt;For&gt;</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>signal()</h1>
+          <p class="subtitle">Create a reactive value that can be read and updated.</p>
+
+<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(initialValue)</code></pre>
+
+          <h2 id="parameters">Parameters</h2>
+          <table>
+            <thead>
+              <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>initialValue</code></td>
+                <td><code>T</code></td>
+                <td>The initial value for the signal</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2 id="returns">Returns</h2>
+          <p>A signal object with the following methods:</p>
+
+          <table>
+            <thead>
+              <tr><th>Method</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>signal()</code></td>
+                <td>Read the current value (creates subscription in reactive contexts)</td>
+              </tr>
+              <tr>
+                <td><code>signal.set(value)</code></td>
+                <td>Set a new value</td>
+              </tr>
+              <tr>
+                <td><code>signal.set(fn)</code></td>
+                <td>Update based on current value</td>
+              </tr>
+              <tr>
+                <td><code>signal.peek()</code></td>
+                <td>Read value without creating a subscription</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2 id="usage">Usage</h2>
+
+          <h3>Basic Usage</h3>
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="comment">// Read</span>
+console.log(count());  <span class="comment">// 0</span>
+
+<span class="comment">// Update</span>
+count.set(<span class="number">5</span>);
+console.log(count());  <span class="comment">// 5</span>
+
+<span class="comment">// Update with function</span>
+count.set(c =&gt; c + <span class="number">1</span>);
+console.log(count());  <span class="comment">// 6</span></code></pre>
+
+          <h3>In Components</h3>
+<pre><code><span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+  <span class="keyword">return</span> (
+    &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">1</span>)}&gt;
+      Count: {count}
+    &lt;/button&gt;
+  );
+}</code></pre>
+
+          <h3>With Objects</h3>
+<pre><code><span class="keyword">const</span> user = <span class="function">signal</span>({ name: <span class="string">'Alice'</span>, age: <span class="number">25</span> });
+
+<span class="comment">// Update - must create new reference</span>
+user.set(u =&gt; ({ ...u, age: <span class="number">26</span> }));</code></pre>
+
+          <h3>With Arrays</h3>
+<pre><code><span class="keyword">const</span> items = <span class="function">signal</span>([<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]);
+
+<span class="comment">// Add item</span>
+items.set(arr =&gt; [...arr, <span class="number">4</span>]);
+
+<span class="comment">// Remove item</span>
+items.set(arr =&gt; arr.filter(x =&gt; x !== <span class="number">2</span>));</code></pre>
+
+          <h3>Reading Without Subscribing</h3>
+<pre><code><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+<span class="keyword">const</span> multiplier = <span class="function">signal</span>(<span class="number">2</span>);
+
+<span class="function">effect</span>(() =&gt; {
+  <span class="comment">// Uses count but doesn't subscribe to multiplier</span>
+  <span class="keyword">const</span> result = count() * multiplier.peek();
+  console.log(result);
+});</code></pre>
+
+          <h2 id="notes">Notes</h2>
+          <ul>
+            <li>Signals should not be mutated directly. Always use <code>.set()</code> to update.</li>
+            <li>In JSX, signals can be used directly: <code>{count}</code> or explicitly unwrapped: <code>{count()}</code></li>
+            <li>Use <code>peek()</code> when you need the value but don't want to create a subscription</li>
+            <li>For derived values that depend on other signals, use <a href="./computed.html">computed()</a></li>
+          </ul>
+
+          <div class="page-nav">
+            <a href="./">
+              <span class="label">Previous</span>
+              <span class="title">API Reference</span>
+            </a>
+            <a href="./computed.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">computed()</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

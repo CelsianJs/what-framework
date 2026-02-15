@@ -4,15 +4,42 @@
 
 import { signal, computed, batch } from './reactive.js';
 
+// --- storeComputed ---
+// Marker wrapper to explicitly tag a function as a computed in createStore.
+// Without this, createStore can't distinguish computed(state => ...) from action(item => ...).
+//
+// Usage:
+//   const useCounter = createStore({
+//     count: 0,
+//     doubled: storeComputed(state => state.count * 2),
+//     addItem(item) { /* this is an action */ },
+//   });
+
+export function derived(fn) {
+  fn._storeComputed = true;
+  return fn;
+}
+
+// Deprecated alias — use derived() instead
+let _storeComputedWarned = false;
+export function storeComputed(fn) {
+  if (!_storeComputedWarned) {
+    _storeComputedWarned = true;
+    console.warn('[what] storeComputed() is deprecated. Use derived() instead.');
+  }
+  return derived(fn);
+}
+
 // --- createStore ---
 // Creates a reactive store with actions. Each key becomes a signal.
 //
 // Usage:
 //   const useCounter = createStore({
 //     count: 0,
-//     doubled: (state) => state.count * 2,  // computed
-//     increment() { this.count++; },         // action
+//     doubled: storeComputed(state => state.count * 2),  // computed
+//     increment() { this.count++; },                      // action
 //     decrement() { this.count--; },
+//     addItem(item) { this.items.push(item); },           // action (not confused with computed)
 //   });
 //
 //   function Counter() {
@@ -27,12 +54,13 @@ export function createStore(definition) {
   const state = {};
 
   // Separate state, computeds, and actions
+  // Use explicit _storeComputed marker instead of function.length heuristic
   for (const [key, value] of Object.entries(definition)) {
-    if (typeof value === 'function' && value.length > 0 && key !== 'constructor') {
-      // Computed: function that takes state
+    if (typeof value === 'function' && value._storeComputed) {
+      // Computed: explicitly marked with storeComputed()
       computeds[key] = value;
     } else if (typeof value === 'function') {
-      // Action: function with no args that uses `this`
+      // Action: any other function
       actions[key] = value;
     } else {
       // State: initial value
@@ -59,6 +87,8 @@ export function createStore(definition) {
         const proxy = new Proxy({}, {
           get(_, prop) {
             if (signals[prop]) return signals[prop].peek();
+            if (computeds[prop]) return computeds[prop].peek();
+            if (actions[prop]) return actions[prop];
             return undefined;
           },
           set(_, prop, val) {
@@ -87,13 +117,12 @@ export function createStore(definition) {
   };
 }
 
-// --- Simple atom ---
-// Even simpler: a single reactive value accessible globally.
-//
-// const count = atom(0);
-// count();       // read
-// count.set(5);  // write
-
+// --- Simple atom --- [DEPRECATED: use signal() directly]
+let _atomWarned = false;
 export function atom(initial) {
+  if (!_atomWarned) {
+    _atomWarned = true;
+    console.warn('[what] atom() is deprecated. Use signal() directly instead.');
+  }
   return signal(initial);
 }

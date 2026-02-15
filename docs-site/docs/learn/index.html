@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quick Start — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./" class="active">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Quick Start</h1>
+          <p class="subtitle">Build your first What app in under 5 minutes. You'll learn the core concepts by building a simple counter.</p>
+
+          <h2 id="create-project">Create a New Project</h2>
+          <p>The fastest way to get started is with our CLI:</p>
+
+          <div class="code-header">Terminal</div>
+<pre><code>npx create-what my-app
+cd my-app
+npm install
+npm run dev</code></pre>
+
+          <p>Open <code>http://localhost:5173</code> and you'll see your app running.</p>
+
+          <h2 id="project-structure">Project Structure</h2>
+          <p>Your new project looks like this:</p>
+
+<pre><code>my-app/
+├── src/
+│   ├── components/     <span class="comment"># Reusable components</span>
+│   ├── pages/          <span class="comment"># File-based routes</span>
+│   │   └── index.jsx   <span class="comment"># Home page → /</span>
+│   └── app.jsx         <span class="comment"># App entry</span>
+├── public/             <span class="comment"># Static assets</span>
+└── package.json</code></pre>
+
+          <h2 id="your-first-component">Your First Component</h2>
+          <p>Let's build a counter. Open <code>src/pages/index.jsx</code>:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">export default function</span> <span class="function">Home</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;h1&gt;Counter: {count}&lt;/h1&gt;
+      &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
+        Increment
+      &lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>Save the file. The counter now works. Let's break down what's happening:</p>
+
+          <div class="step">
+            <span class="step-number">1</span>
+            <div class="step-content">
+              <h4><code>signal(0)</code></h4>
+              <p>Creates a reactive value starting at 0. Unlike React's useState, signals are reactive primitives that can be read anywhere.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">2</span>
+            <div class="step-content">
+              <h4><code>{count}</code> in JSX</h4>
+              <p>When you use a signal in JSX, What automatically subscribes to it. When the value changes, only that text node updates—not the whole component.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <span class="step-number">3</span>
+            <div class="step-content">
+              <h4><code>count.set(c => c + 1)</code></h4>
+              <p>Updates the signal. The function receives the current value and returns the new one. The DOM updates immediately.</p>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <p class="callout-title">No Re-renders</p>
+            <p>Unlike React, What doesn't re-run your component function when state changes. It updates only the specific DOM nodes that depend on changed signals. This is called fine-grained reactivity.</p>
+          </div>
+
+          <h2 id="adding-computed">Adding Computed Values</h2>
+          <p>Let's add a derived value that updates automatically:</p>
+
+          <div class="code-header">src/pages/index.jsx</div>
+<pre><code><span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">export default function</span> <span class="function">Home</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> doubled = <span class="function">computed</span>(() =&gt; count() * <span class="number">2</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;h1&gt;Count: {count}&lt;/h1&gt;
+      &lt;p&gt;Doubled: {doubled}&lt;/p&gt;
+      &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
+        Increment
+      &lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p><code>computed()</code> creates a derived signal. It:</p>
+          <ul>
+            <li>Tracks which signals it reads (<code>count</code> in this case)</li>
+            <li>Caches its value until dependencies change</li>
+            <li>Updates automatically when <code>count</code> changes</li>
+          </ul>
+
+          <h2 id="side-effects">Running Side Effects</h2>
+          <p>Need to do something when a signal changes? Use <code>effect()</code>:</p>
+
+<pre><code><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+
+<span class="comment">// Runs immediately, then re-runs when count changes</span>
+<span class="function">effect</span>(() =&gt; {
+  console.log(<span class="string">'Count is now:'</span>, count());
+});
+
+count.set(<span class="number">5</span>);  <span class="comment">// Logs: "Count is now: 5"</span></code></pre>
+
+          <h2 id="next-steps">Next Steps</h2>
+          <p>You've learned the basics. Here's where to go next:</p>
+
+          <div class="card-grid">
+            <a href="../tutorial/" class="card">
+              <h4>Tutorial: Build Tic-Tac-Toe</h4>
+              <p>A hands-on guide building a complete game step by step.</p>
+            </a>
+            <a href="./signals.html" class="card">
+              <h4>Deep Dive: Signals</h4>
+              <p>Understand fine-grained reactivity in depth.</p>
+            </a>
+            <a href="./components.html" class="card">
+              <h4>Building Components</h4>
+              <p>Props, children, composition patterns.</p>
+            </a>
+            <a href="./thinking-in-what.html" class="card">
+              <h4>Thinking in What</h4>
+              <p>The mental model behind signals and reactivity.</p>
+            </a>
+          </div>
+
+          <div class="page-nav">
+            <div></div>
+            <a href="./installation.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Installation</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#create-project">Create a New Project</a></li>
+            <li><a href="#project-structure">Project Structure</a></li>
+            <li><a href="#your-first-component">Your First Component</a></li>
+            <li><a href="#adding-computed">Adding Computed Values</a></li>
+            <li><a href="#side-effects">Running Side Effects</a></li>
+            <li><a href="#next-steps">Next Steps</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Active link on scroll
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

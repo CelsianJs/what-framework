@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Rendering — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html" class="active">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Server Rendering</h1>
+          <p class="subtitle">Render pages on the server for instant loads and SEO.</p>
+
+          <h2 id="render-to-string">renderToString</h2>
+          <p>The simplest way to render on the server. Pass a virtual node tree and get back a complete HTML string synchronously. Components are called as functions, event handlers are stripped, and all attributes are properly escaped:</p>
+
+<pre><code><span class="keyword">import</span> { renderToString } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Greeting</span>({ name }) {
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, { class: <span class="string">'greeting'</span> },
+    <span class="function">h</span>(<span class="string">'h1'</span>, <span class="keyword">null</span>, <span class="string">`Hello, ${name}!`</span>),
+    <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, <span class="string">'Welcome to the site.'</span>),
+  );
+}
+
+<span class="keyword">const</span> html = <span class="function">renderToString</span>(
+  <span class="function">h</span>(Greeting, { name: <span class="string">'Alice'</span> })
+);
+
+console.log(html);
+<span class="comment">// &lt;div class="greeting"&gt;&lt;h1&gt;Hello, Alice!&lt;/h1&gt;&lt;p&gt;Welcome to the site.&lt;/p&gt;&lt;/div&gt;</span></code></pre>
+
+          <p>Use this in your server handler to return fully rendered HTML. It handles text nodes, arrays, nested components, void elements (like <code>&lt;img&gt;</code> and <code>&lt;br&gt;</code>), and properly escapes all attribute values and text content to prevent XSS.</p>
+
+          <h2 id="render-to-stream">renderToStream</h2>
+          <p>For large pages, streaming sends HTML to the browser as it is generated instead of waiting for the entire page to finish. <code>renderToStream</code> returns an async generator that yields HTML chunks:</p>
+
+<pre><code><span class="keyword">import</span> { renderToStream } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// In your server handler (Node.js example)</span>
+app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req, res) =&gt; {
+  res.setHeader(<span class="string">'Content-Type'</span>, <span class="string">'text/html'</span>);
+
+  <span class="keyword">const</span> stream = <span class="function">renderToStream</span>(
+    <span class="function">h</span>(App, { url: req.url })
+  );
+
+  <span class="keyword">for await</span> (<span class="keyword">const</span> chunk <span class="keyword">of</span> stream) {
+    res.write(chunk);
+  }
+
+  res.end();
+});</code></pre>
+
+          <p>Streaming is especially powerful with async components. If a component returns a Promise, <code>renderToStream</code> awaits it and continues streaming once the data is ready. The browser can start painting the page header while the database query for the content is still running.</p>
+
+          <h2 id="define-page">definePage</h2>
+          <p>Use <code>definePage</code> to declare how a page should be rendered. It supports four modes:</p>
+          <ul>
+            <li><strong><code>static</code></strong> (default) -- Pre-render at build time. No JavaScript shipped. Best for content that rarely changes.</li>
+            <li><strong><code>server</code></strong> -- Render on every request. Use for personalized or dynamic pages that depend on cookies, headers, or real-time data.</li>
+            <li><strong><code>client</code></strong> -- Render entirely in the browser as a single-page app. The server sends a minimal HTML shell.</li>
+            <li><strong><code>hybrid</code></strong> -- Static HTML shell with interactive islands. The best of both worlds for content-heavy pages with a few interactive widgets.</li>
+          </ul>
+
+<pre><code><span class="keyword">import</span> { definePage } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="comment">// Static blog post — built once at deploy time</span>
+<span class="keyword">export default</span> <span class="function">definePage</span>({
+  mode: <span class="string">'static'</span>,
+  component: BlogPost,
+  title: <span class="string">'My First Post'</span>,
+  meta: { description: <span class="string">'An introduction to What Framework.'</span> },
+});
+
+<span class="comment">// Server-rendered dashboard — fresh data on each request</span>
+<span class="keyword">export default</span> <span class="function">definePage</span>({
+  mode: <span class="string">'server'</span>,
+  component: Dashboard,
+  title: <span class="string">'Dashboard'</span>,
+});
+
+<span class="comment">// Hybrid product page — static shell, interactive cart island</span>
+<span class="keyword">export default</span> <span class="function">definePage</span>({
+  mode: <span class="string">'hybrid'</span>,
+  component: ProductPage,
+  title: <span class="string">'Widget Pro'</span>,
+  islands: [<span class="string">'AddToCart'</span>, <span class="string">'ReviewSection'</span>],
+});</code></pre>
+
+          <h2 id="server-components">Server Components</h2>
+          <p>Mark a component as server-only with <code>server()</code>. Server components render on the server and send pure HTML to the client. No JavaScript for these components is ever shipped to the browser:</p>
+
+<pre><code><span class="keyword">import</span> { server } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="keyword">const</span> UserProfile = <span class="function">server</span>(<span class="keyword">function</span>({ userId }) {
+  <span class="comment">// This code only runs on the server</span>
+  <span class="comment">// Safe to access databases, env vars, secrets</span>
+  <span class="keyword">const</span> user = db.users.find(userId);
+
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, { class: <span class="string">'profile'</span> },
+    <span class="function">h</span>(<span class="string">'img'</span>, { src: user.avatar, alt: user.name }),
+    <span class="function">h</span>(<span class="string">'h2'</span>, <span class="keyword">null</span>, user.name),
+    <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, user.bio),
+  );
+});</code></pre>
+
+          <p>Server components are ideal for data-heavy content that does not need client-side interactivity: user profiles, product details, article bodies, admin tables.</p>
+
+          <h2 id="server-actions">Server Actions</h2>
+          <p>Server actions let you define server-side functions that can be called directly from client code. Define an action on the server, and the client calls it via an automatic RPC mechanism over <code>fetch</code>:</p>
+
+<pre><code><span class="keyword">import</span> { action } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="comment">// Define a server action</span>
+<span class="keyword">const</span> saveUser = <span class="function">action</span>(<span class="keyword">async</span> (data) =&gt; {
+  <span class="keyword">const</span> user = <span class="keyword">await</span> db.users.create(data);
+  <span class="keyword">return</span> { success: <span class="keyword">true</span>, id: user.id };
+}, {
+  onSuccess: (result) =&gt; console.log(<span class="string">'Saved:'</span>, result.id),
+  revalidate: [<span class="string">'/users'</span>],
+});</code></pre>
+
+          <h3 id="use-action">useAction</h3>
+          <p>The <code>useAction</code> hook wraps a server action with reactive state for pending status, errors, and response data:</p>
+
+<pre><code><span class="keyword">import</span> { useAction } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="keyword">function</span> <span class="function">SaveButton</span>() {
+  <span class="keyword">const</span> { trigger, isPending, error, data } = <span class="function">useAction</span>(saveUser);
+
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
+    <span class="function">h</span>(<span class="string">'button'</span>, {
+      onClick: () =&gt; trigger({ name: <span class="string">'Alice'</span>, email: <span class="string">'alice@example.com'</span> }),
+      disabled: isPending,
+    }, () =&gt; isPending() ? <span class="string">'Saving...'</span> : <span class="string">'Save User'</span>),
+
+    () =&gt; error() &amp;&amp; <span class="function">h</span>(<span class="string">'p'</span>, { class: <span class="string">'error'</span> }, error().message),
+    () =&gt; data() &amp;&amp; <span class="function">h</span>(<span class="string">'p'</span>, { class: <span class="string">'success'</span> }, <span class="string">`Saved with ID: ${data().id}`</span>),
+  );
+}</code></pre>
+
+          <h3 id="use-mutation">useMutation</h3>
+          <p>For simpler cases where you just need pending/error/data tracking around any async function, use <code>useMutation</code>:</p>
+
+<pre><code><span class="keyword">import</span> { useMutation } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="keyword">const</span> { mutate, isPending, error, data, reset } = <span class="function">useMutation</span>(
+  <span class="keyword">async</span> (id) =&gt; {
+    <span class="keyword">const</span> res = <span class="keyword">await</span> fetch(<span class="string">`/api/items/${id}`</span>, { method: <span class="string">'DELETE'</span> });
+    <span class="keyword">return</span> res.json();
+  },
+  {
+    onSuccess: () =&gt; console.log(<span class="string">'Deleted'</span>),
+    onError: (err) =&gt; console.error(err),
+    onSettled: () =&gt; console.log(<span class="string">'Done'</span>),
+  }
+);
+
+<span class="comment">// Call the mutation</span>
+<span class="function">mutate</span>(<span class="number">42</span>);</code></pre>
+
+          <h3 id="use-optimistic">useOptimistic</h3>
+          <p>Show the user an instant result while the server processes the real mutation. If the server call fails, the optimistic update is automatically rolled back:</p>
+
+<pre><code><span class="keyword">import</span> { useOptimistic } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="keyword">function</span> <span class="function">LikeButton</span>({ postId, initialCount }) {
+  <span class="keyword">const</span> likes = <span class="function">useOptimistic</span>(
+    initialCount,
+    <span class="comment">// Reducer: how to apply an optimistic action</span>
+    (current, action) =&gt; action === <span class="string">'like'</span> ? current + <span class="number">1</span> : current - <span class="number">1</span>
+  );
+
+  <span class="keyword">async function</span> <span class="function">handleLike</span>() {
+    <span class="comment">// Shows +1 immediately, rolls back on error</span>
+    <span class="keyword">await</span> likes.<span class="function">withOptimistic</span>(<span class="string">'like'</span>, <span class="keyword">async</span> () =&gt; {
+      <span class="keyword">const</span> res = <span class="keyword">await</span> fetch(<span class="string">`/api/posts/${postId}/like`</span>, { method: <span class="string">'POST'</span> });
+      <span class="keyword">const</span> data = <span class="keyword">await</span> res.json();
+      <span class="keyword">return</span> data.count; <span class="comment">// Server's authoritative count</span>
+    });
+  }
+
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'button'</span>, { onClick: handleLike },
+    () =&gt; <span class="string">`Like (${likes.value()})`</span>,
+  );
+}</code></pre>
+
+          <p>The <code>withOptimistic</code> helper applies the optimistic action immediately, runs the async function, and either resolves with the server value or rolls back to the previous state on error.</p>
+
+          <h2 id="csrf-protection">CSRF Protection</h2>
+          <p>Server actions include built-in CSRF protection. What provides three utilities for token management and a fail-closed default that prevents silent security vulnerabilities:</p>
+
+<pre><code><span class="keyword">import</span> {
+  generateCsrfToken,
+  validateCsrfToken,
+  csrfMetaTag,
+  handleActionRequest,
+} <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="comment">// Server: generate a token per session</span>
+app.use((req, res, next) =&gt; {
+  <span class="keyword">if</span> (!req.session.csrfToken) {
+    req.session.csrfToken = <span class="function">generateCsrfToken</span>();
+  }
+  next();
+});
+
+<span class="comment">// Server: inject the token into your HTML</span>
+<span class="keyword">const</span> html = <span class="string">`
+  &lt;head&gt;
+    ${<span class="function">csrfMetaTag</span>(req.session.csrfToken)}
+  &lt;/head&gt;
+`</span>;
+<span class="comment">// Renders: &lt;meta name="what-csrf-token" content="abc-123..."&gt;</span>
+
+<span class="comment">// Server: handle action requests with CSRF validation</span>
+app.post(<span class="string">'/__what_action'</span>, <span class="keyword">async</span> (req, res) =&gt; {
+  <span class="keyword">const</span> { actionId, args } = req.body;
+  <span class="keyword">const</span> result = <span class="keyword">await</span> <span class="function">handleActionRequest</span>(req, actionId, args, {
+    csrfToken: req.session.csrfToken,
+  });
+  res.status(result.status).json(result.body);
+});</code></pre>
+
+          <p><code>handleActionRequest</code> uses fail-closed semantics: if you forget to pass a CSRF token, it returns a 500 error explaining the misconfiguration rather than silently accepting the request. Token comparison uses constant-time string matching to prevent timing attacks. The client reads the token from the <code>&lt;meta&gt;</code> tag automatically and sends it with every action request.</p>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Server Runtime Required</p>
+            <p>Server actions need a server runtime to handle the <code>/__what_action</code> endpoint. They work with Node.js, Deno, and Bun. For purely static sites without a server, use client-side <code>fetch</code> calls to your API instead of server actions.</p>
+          </div>
+
+          <h2 id="static-generation">Static Site Generation</h2>
+          <p>Use <code>generateStaticPage</code> to pre-render pages at build time. It calls <code>renderToString</code> internally and wraps the output in a full HTML document with the configured title, meta tags, styles, and island scripts:</p>
+
+<pre><code><span class="keyword">import</span> { generateStaticPage, definePage } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+
+<span class="keyword">const</span> page = <span class="function">definePage</span>({
+  mode: <span class="string">'hybrid'</span>,
+  component: BlogPost,
+  title: <span class="string">'My Post'</span>,
+  meta: { description: <span class="string">'A great article.'</span> },
+  styles: [<span class="string">'/styles/blog.css'</span>],
+  islands: [<span class="string">'CommentSection'</span>],
+});
+
+<span class="keyword">const</span> html = <span class="function">generateStaticPage</span>(page, { slug: <span class="string">'my-post'</span> });
+<span class="comment">// Full HTML document with &lt;!DOCTYPE html&gt;, &lt;head&gt;, island hydration script</span></code></pre>
+
+          <p>For <code>hybrid</code> pages with islands, the generated HTML includes an automatic <code>&lt;script type="module"&gt;</code> that imports and calls <code>hydrateIslands()</code>. For <code>static</code> pages, no script tags are included at all.</p>
+
+          <div class="page-nav">
+            <a href="./islands.html">
+              <span class="label">Previous</span>
+              <span class="title">Islands</span>
+            </a>
+            <a href="./animation.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Animation</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#render-to-string">renderToString</a></li>
+            <li><a href="#render-to-stream">renderToStream</a></li>
+            <li><a href="#define-page">definePage</a></li>
+            <li><a href="#server-components">Server Components</a></li>
+            <li><a href="#server-actions">Server Actions</a></li>
+            <li><a href="#csrf-protection">CSRF Protection</a></li>
+            <li><a href="#static-generation">Static Site Generation</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>
