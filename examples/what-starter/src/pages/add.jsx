@@ -6,7 +6,11 @@ import { useState } from 'what-framework';
 import { navigate } from 'what-router';
 import { useContacts } from '../store.js';
 
-export function AddContact() {
+export const page = {
+  mode: 'client',
+};
+
+export default function AddContact() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');

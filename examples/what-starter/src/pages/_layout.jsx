@@ -1,9 +1,10 @@
-// Layout — shared shell for all pages
-// Demonstrates: Link with active states, signal reactivity in layout
+// Root layout — wraps all pages in this directory
+// _layout.jsx files are auto-detected by the file router.
+// The matched page renders as {children}.
 
-import { Link, route } from 'what-router';
+import { Link } from 'what-router';
 
-export function Layout({ children }) {
+export default function RootLayout({ children }) {
   return (
     <div class="layout">
       <header class="header">

@@ -5,7 +5,12 @@
 import { useContacts } from '../store.js';
 import { ContactCard } from '../components/ContactCard.jsx';
 
-export function Home() {
+// Page declaration — tells the framework how to render this page
+export const page = {
+  mode: 'client', // fully interactive, JS required
+};
+
+export default function Home() {
   const store = useContacts();
 
   return (

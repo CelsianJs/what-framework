@@ -1,11 +1,18 @@
 /**
  * What Framework Vite Plugin
- * Enables JSX transformation via the What babel plugin.
- * JSX is compiled to h() calls that go through what-core's VNode reconciler.
+ *
+ * 1. Transforms JSX via the What babel plugin
+ * 2. Provides file-based routing via virtual:what-routes
+ * 3. Watches pages directory for HMR
  */
 
+import path from 'path';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
+import { generateRoutesModule, scanPages } from './file-router.js';
+
+const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
+const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
 
 export default function whatVitePlugin(options = {}) {
   const {
@@ -16,11 +23,62 @@ export default function whatVitePlugin(options = {}) {
     // Enable source maps
     sourceMaps = true,
     // Production optimizations
-    production = process.env.NODE_ENV === 'production'
+    production = process.env.NODE_ENV === 'production',
+    // Pages directory (relative to project root)
+    pages = 'src/pages',
   } = options;
+
+  let rootDir = '';
+  let pagesDir = '';
+  let server = null;
 
   return {
     name: 'vite-plugin-what',
+
+    configResolved(config) {
+      rootDir = config.root;
+      pagesDir = path.resolve(rootDir, pages);
+    },
+
+    configureServer(devServer) {
+      server = devServer;
+
+      // Watch the pages directory for file additions/removals
+      devServer.watcher.on('add', (file) => {
+        if (file.startsWith(pagesDir)) {
+          // Invalidate the virtual routes module
+          const mod = devServer.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
+          if (mod) {
+            devServer.moduleGraph.invalidateModule(mod);
+            devServer.ws.send({ type: 'full-reload' });
+          }
+        }
+      });
+
+      devServer.watcher.on('unlink', (file) => {
+        if (file.startsWith(pagesDir)) {
+          const mod = devServer.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
+          if (mod) {
+            devServer.moduleGraph.invalidateModule(mod);
+            devServer.ws.send({ type: 'full-reload' });
+          }
+        }
+      });
+    },
+
+    // Resolve virtual module
+    resolveId(id) {
+      if (id === VIRTUAL_ROUTES_ID) {
+        return RESOLVED_VIRTUAL_ID;
+      }
+    },
+
+    // Generate the routes module
+    load(id) {
+      if (id === RESOLVED_VIRTUAL_ID) {
+        return generateRoutesModule(pagesDir, rootDir);
+      }
+    },
 
     // Transform JSX files
     transform(code, id) {

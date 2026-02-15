@@ -1,7 +1,12 @@
 // About — static page with framework info
 // Demonstrates: simple component, external links
 
-export function About() {
+// This page has no interactivity — it could be pre-rendered at build time
+export const page = {
+  mode: 'static',
+};
+
+export default function About() {
   return (
     <div class="about">
       <h2 class="page-title">About</h2>

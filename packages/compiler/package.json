@@ -8,7 +8,8 @@
     ".": "./src/index.js",
     "./babel": "./src/babel-plugin.js",
     "./vite": "./src/vite-plugin.js",
-    "./runtime": "./src/runtime.js"
+    "./runtime": "./src/runtime.js",
+    "./file-router": "./src/file-router.js"
   },
   "keywords": [
     "what",
