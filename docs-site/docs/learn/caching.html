@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Caching — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Navigation &amp; Caching</div>
+        <ul class="sidebar-links">
+          <li><a href="./routing.html">Routing</a></li>
+          <li><a href="./caching.html" class="active">Caching</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Caching</h1>
+          <p class="subtitle">How What Framework caches server data, deduplicates requests, and keeps your UI fresh.</p>
+
+          <h2 id="swr-model">Stale-While-Revalidate</h2>
+          <p>What's data fetching is built on the <strong>SWR</strong> pattern: show cached (stale) data immediately, then revalidate in the background and update when fresh data arrives. This means your UI never shows a loading spinner for data it's already fetched.</p>
+
+<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">UserProfile</span>({ userId }) {
+  <span class="keyword">const</span> { data, error, isLoading, isValidating } = <span class="function">useSWR</span>(
+    <span class="string">`/api/users/${userId}`</span>,
+    (url) =&gt; fetch(url).then(r =&gt; r.json())
+  );
+
+  <span class="comment">// First load: isLoading=true, data=null</span>
+  <span class="comment">// After fetch: isLoading=false, data={...}</span>
+  <span class="comment">// On revisit: data shows instantly (cached), isValidating=true in background</span>
+  <span class="comment">// When fresh data arrives: data updates seamlessly</span>
+
+  <span class="keyword">if</span> (isLoading()) <span class="keyword">return</span> &lt;p&gt;Loading...&lt;/p&gt;;
+  <span class="keyword">if</span> (error()) <span class="keyword">return</span> &lt;p&gt;Error: {error().message}&lt;/p&gt;;
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;h1&gt;{data().name}&lt;/h1&gt;
+      {isValidating() &amp;&amp; &lt;span class="badge"&gt;Refreshing...&lt;/span&gt;}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Signal Getters</p>
+            <p><code>data()</code>, <code>error()</code>, <code>isLoading()</code>, and <code>isValidating()</code> are all signal getters &mdash; call them with parentheses to read the current value.</p>
+          </div>
+
+          <h2 id="shared-cache">Shared Cache</h2>
+          <p>The cache is global and keyed by the first argument to <code>useSWR</code>. Multiple components reading the same key share one cache entry and one network request:</p>
+
+<pre><code><span class="comment">// Both components read from the same cache entry</span>
+<span class="keyword">function</span> <span class="function">Header</span>() {
+  <span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">'/api/user'</span>, fetchUser);
+  <span class="keyword">return</span> &lt;span&gt;Hi, {data()?.name}&lt;/span&gt;;
+}
+
+<span class="keyword">function</span> <span class="function">Sidebar</span>() {
+  <span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">'/api/user'</span>, fetchUser);
+  <span class="keyword">return</span> &lt;img src={data()?.avatar} /&gt;;
+}
+
+<span class="comment">// Only ONE fetch request is made, and both components update together</span></code></pre>
+
+          <h2 id="deduplication">Request Deduplication</h2>
+          <p>If multiple components mount at the same time and request the same key, What deduplicates the requests. Only one fetch runs; all callers share the result. The deduplication window defaults to 2 seconds:</p>
+
+<pre><code><span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">'/api/posts'</span>, fetcher, {
+  dedupingInterval: <span class="number">5000</span>,  <span class="comment">// 5s dedup window (default: 2000ms)</span>
+});</code></pre>
+
+          <p>Within the dedup window, calling <code>useSWR</code> with the same key returns the in-flight promise instead of starting a new request.</p>
+
+          <h2 id="revalidation">Automatic Revalidation</h2>
+          <p>What automatically revalidates cached data in several scenarios:</p>
+
+<pre><code><span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">'/api/posts'</span>, fetcher, {
+  revalidateOnFocus: <span class="keyword">true</span>,       <span class="comment">// Re-fetch when tab regains focus (default)</span>
+  revalidateOnReconnect: <span class="keyword">true</span>,   <span class="comment">// Re-fetch when network reconnects (default)</span>
+  refreshInterval: <span class="number">30000</span>,       <span class="comment">// Poll every 30s (0 = disabled, default)</span>
+  dedupingInterval: <span class="number">2000</span>,       <span class="comment">// Min time between fetches (default)</span>
+});</code></pre>
+
+          <ul>
+            <li><strong>Focus revalidation</strong> &mdash; When the user switches back to your tab, all active queries re-fetch. Stale data is shown while fresh data loads.</li>
+            <li><strong>Reconnect revalidation</strong> &mdash; When the browser comes back online after losing connection, data is refreshed.</li>
+            <li><strong>Polling</strong> &mdash; Set <code>refreshInterval</code> for data that changes frequently (dashboards, feeds, stock prices).</li>
+          </ul>
+
+          <h2 id="invalidation">Cache Invalidation</h2>
+          <p>After a mutation (create, update, delete), invalidate related queries to trigger a re-fetch:</p>
+
+<pre><code><span class="keyword">import</span> { invalidateQueries } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">async function</span> <span class="function">createPost</span>(data) {
+  <span class="keyword">await</span> fetch(<span class="string">'/api/posts'</span>, {
+    method: <span class="string">'POST'</span>,
+    body: JSON.stringify(data),
+  });
+
+  <span class="comment">// Soft invalidation (default): keeps stale data visible, re-fetches in background</span>
+  <span class="function">invalidateQueries</span>(<span class="string">'/api/posts'</span>);
+}
+
+<span class="comment">// Hard invalidation: clears data immediately, shows loading state</span>
+<span class="function">invalidateQueries</span>(<span class="string">'/api/posts'</span>, { hard: <span class="keyword">true</span> });
+
+<span class="comment">// Invalidate multiple keys with a predicate</span>
+<span class="function">invalidateQueries</span>(key =&gt; key.startsWith(<span class="string">'/api/posts'</span>));</code></pre>
+
+          <div class="callout callout-info">
+            <p class="callout-title">Soft vs Hard</p>
+            <p><strong>Soft invalidation</strong> (default) keeps stale data on screen while re-fetching &mdash; the SWR pattern. <strong>Hard invalidation</strong> clears the cache entry immediately, causing <code>isLoading()</code> to become true and data to be null until the fresh response arrives.</p>
+          </div>
+
+          <h2 id="manual-cache">Manual Cache Control</h2>
+          <p>Read and write cache entries directly for advanced scenarios:</p>
+
+<pre><code><span class="keyword">import</span> { setQueryData, getQueryData, clearCache } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">// Read from cache without triggering a fetch</span>
+<span class="keyword">const</span> cached = <span class="function">getQueryData</span>(<span class="string">'/api/user'</span>);
+
+<span class="comment">// Write to cache directly (updates all subscribers)</span>
+<span class="function">setQueryData</span>(<span class="string">'/api/user'</span>, { name: <span class="string">'Alice'</span>, role: <span class="string">'admin'</span> });
+
+<span class="comment">// Update cache based on current value</span>
+<span class="function">setQueryData</span>(<span class="string">'/api/posts'</span>, posts =&gt;
+  posts.map(p =&gt; p.id === <span class="number">42</span> ? { ...p, title: <span class="string">'Updated'</span> } : p)
+);
+
+<span class="comment">// Clear entire cache (useful for logout)</span>
+<span class="function">clearCache</span>();</code></pre>
+
+          <h2 id="optimistic-updates">Optimistic Updates</h2>
+          <p>Update the UI immediately before the server responds. The <code>mutate</code> function from <code>useSWR</code> lets you set local data that will be replaced when revalidation completes:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">TodoList</span>() {
+  <span class="keyword">const</span> { data, mutate, revalidate } = <span class="function">useSWR</span>(<span class="string">'/api/todos'</span>, fetcher);
+
+  <span class="keyword">async function</span> <span class="function">toggleTodo</span>(id) {
+    <span class="comment">// 1. Optimistically update the cache</span>
+    <span class="function">mutate</span>(todos =&gt;
+      todos.map(t =&gt; t.id === id ? { ...t, done: !t.done } : t)
+    );
+
+    <span class="comment">// 2. Send to server</span>
+    <span class="keyword">await</span> fetch(<span class="string">`/api/todos/${id}/toggle`</span>, { method: <span class="string">'POST'</span> });
+
+    <span class="comment">// 3. Revalidate to get server truth</span>
+    <span class="function">revalidate</span>();
+  }
+
+  <span class="keyword">return</span> (
+    &lt;ul&gt;
+      {data()?.map(todo =&gt;
+        &lt;li onClick={() =&gt; toggleTodo(todo.id)}&gt;
+          {todo.done ? '&#x2713;' : '&#x25CB;'} {todo.text}
+        &lt;/li&gt;
+      )}
+    &lt;/ul&gt;
+  );
+}</code></pre>
+
+          <h2 id="prefetching">Prefetching</h2>
+          <p>Pre-populate the cache before a component mounts. Useful for hover-to-prefetch patterns:</p>
+
+<pre><code><span class="keyword">import</span> { prefetchQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">PostLink</span>({ id, title }) {
+  <span class="keyword">return</span> (
+    &lt;a
+      href={<span class="string">`/posts/${id}`</span>}
+      onMouseenter={() =&gt; <span class="function">prefetchQuery</span>(
+        <span class="string">`/api/posts/${id}`</span>,
+        (url) =&gt; fetch(url).then(r =&gt; r.json())
+      )}
+    &gt;
+      {title}
+    &lt;/a&gt;
+  );
+}</code></pre>
+
+          <p>When the user hovers, the data is fetched and cached. If they click through, <code>useSWR</code> returns the cached data instantly &mdash; no loading spinner.</p>
+
+          <h2 id="conditional">Conditional Fetching</h2>
+          <p>Pass <code>null</code>, <code>undefined</code>, or <code>false</code> as the key to pause fetching. Useful for dependent queries where one fetch depends on another's result:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">UserPosts</span>({ userId }) {
+  <span class="keyword">const</span> user = <span class="function">useSWR</span>(
+    <span class="string">`/api/users/${userId}`</span>,
+    fetcher
+  );
+
+  <span class="comment">// Only fetch posts after user data is available</span>
+  <span class="keyword">const</span> posts = <span class="function">useSWR</span>(
+    user.data() ? <span class="string">`/api/users/${user.data().id}/posts`</span> : <span class="keyword">null</span>,
+    fetcher
+  );
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;h1&gt;{user.data()?.name}&lt;/h1&gt;
+      {posts.data()?.map(p =&gt; &lt;p&gt;{p.title}&lt;/p&gt;)}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="cache-size">Cache Size &amp; Eviction</h2>
+          <p>The global cache holds up to <strong>200 entries</strong>. When the limit is exceeded, the oldest 20% of entries are evicted (LRU policy). Entries with active subscribers are never evicted.</p>
+
+          <p>To customize, clear stale data on logout or route transitions:</p>
+
+<pre><code><span class="keyword">import</span> { clearCache } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">logout</span>() {
+  <span class="function">clearCache</span>();         <span class="comment">// Remove all cached data</span>
+  <span class="function">navigate</span>(<span class="string">'/login'</span>);  <span class="comment">// Redirect to login</span>
+}</code></pre>
+
+          <h2 id="fallback-data">Fallback &amp; Placeholder Data</h2>
+          <p>Provide initial data to show before the first fetch completes:</p>
+
+<pre><code><span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">'/api/settings'</span>, fetcher, {
+  fallbackData: { theme: <span class="string">'light'</span>, lang: <span class="string">'en'</span> },
+});
+
+<span class="comment">// data() returns fallbackData immediately, then updates with server data</span></code></pre>
+
+          <h2 id="error-handling">Error Handling</h2>
+          <p>Errors are captured and available via the <code>error()</code> signal. Use the <code>onError</code> and <code>onSuccess</code> callbacks for side effects:</p>
+
+<pre><code><span class="keyword">const</span> { data, error, revalidate } = <span class="function">useSWR</span>(<span class="string">'/api/data'</span>, fetcher, {
+  onError: (err, key) =&gt; {
+    console.error(<span class="string">`Failed to fetch ${key}:`</span>, err);
+    toast.error(<span class="string">'Something went wrong'</span>);
+  },
+  onSuccess: (result, key) =&gt; {
+    console.log(<span class="string">`Fetched ${key}:`</span>, result);
+  },
+});
+
+<span class="comment">// Retry on error</span>
+<span class="keyword">if</span> (error()) {
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;p&gt;Error: {error().message}&lt;/p&gt;
+      &lt;button onClick={revalidate}&gt;Retry&lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <div class="page-nav">
+            <a href="./routing.html">
+              <span class="label">Previous</span>
+              <span class="title">Routing</span>
+            </a>
+            <a href="./islands.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Islands</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#swr-model">Stale-While-Revalidate</a></li>
+            <li><a href="#shared-cache">Shared Cache</a></li>
+            <li><a href="#deduplication">Request Deduplication</a></li>
+            <li><a href="#revalidation">Automatic Revalidation</a></li>
+            <li><a href="#invalidation">Cache Invalidation</a></li>
+            <li><a href="#manual-cache">Manual Cache Control</a></li>
+            <li><a href="#optimistic-updates">Optimistic Updates</a></li>
+            <li><a href="#prefetching">Prefetching</a></li>
+            <li><a href="#conditional">Conditional Fetching</a></li>
+            <li><a href="#cache-size">Cache Size &amp; Eviction</a></li>
+            <li><a href="#fallback-data">Fallback Data</a></li>
+            <li><a href="#error-handling">Error Handling</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

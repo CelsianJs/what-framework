@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What Starter</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f8fafc; --surface: #fff; --border: #e2e8f0;
+      --text: #1e293b; --text-muted: #64748b; --text-faint: #94a3b8;
+      --primary: #6366f1; --primary-hover: #4f46e5;
+      --danger: #ef4444; --success: #22c55e;
+      --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text);
+      line-height: 1.5;
+    }
+    #app { max-width: 800px; margin: 0 auto; padding: 16px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/app.jsx"></script>
+</body>
+</html>

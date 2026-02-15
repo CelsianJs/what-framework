@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Routing — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Navigation &amp; Caching</div>
+        <ul class="sidebar-links">
+          <li><a href="./routing.html" class="active">Routing</a></li>
+          <li><a href="./caching.html">Caching</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Routing</h1>
+          <p class="subtitle">Client-side navigation with dynamic params, nested layouts, middleware, and view transitions.</p>
+
+          <h2 id="basic-setup">Basic Setup</h2>
+          <p>Define your routes and render the <code>Router</code> component. Each route maps a URL path to a component:</p>
+
+<pre><code><span class="keyword">import</span> { mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { Router, defineRoutes } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">import</span> Home <span class="keyword">from</span> <span class="string">'./pages/Home'</span>;
+<span class="keyword">import</span> About <span class="keyword">from</span> <span class="string">'./pages/About'</span>;
+<span class="keyword">import</span> NotFound <span class="keyword">from</span> <span class="string">'./pages/NotFound'</span>;
+
+<span class="keyword">const</span> routes = <span class="function">defineRoutes</span>({
+  <span class="string">'/'</span>: Home,
+  <span class="string">'/about'</span>: About,
+});
+
+mount(
+  &lt;<span class="function">Router</span> routes={routes} fallback={NotFound} /&gt;,
+  <span class="string">'#app'</span>
+);</code></pre>
+
+          <p><code>defineRoutes</code> accepts a plain object where keys are URL paths and values are components. The <code>fallback</code> prop renders when no route matches (404).</p>
+
+          <h2 id="link">Navigating with Link</h2>
+          <p>Use <code>Link</code> for client-side navigation. It intercepts clicks, updates the URL via <code>history.pushState</code>, and re-renders the router without a full page reload:</p>
+
+<pre><code><span class="keyword">import</span> { Link } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">function</span> <span class="function">Nav</span>() {
+  <span class="keyword">return</span> (
+    &lt;nav&gt;
+      &lt;<span class="function">Link</span> href="/"&gt;Home&lt;/<span class="function">Link</span>&gt;
+      &lt;<span class="function">Link</span> href="/about"&gt;About&lt;/<span class="function">Link</span>&gt;
+      &lt;<span class="function">Link</span> href="/blog"&gt;Blog&lt;/<span class="function">Link</span>&gt;
+    &lt;/nav&gt;
+  );
+}</code></pre>
+
+          <p>Link automatically adds an <code>active</code> class when the current URL matches (or starts with) the href. For exact matching, it also adds <code>exact-active</code>:</p>
+
+<pre><code><span class="comment">// Customize active class names</span>
+&lt;<span class="function">Link</span> href="/blog" activeClass="nav-active" exactActiveClass="nav-exact"&gt;
+  Blog
+&lt;/<span class="function">Link</span>&gt;
+
+<span class="comment">// Replace history entry instead of pushing</span>
+&lt;<span class="function">Link</span> href="/login" replace&gt;Sign In&lt;/<span class="function">Link</span>&gt;</code></pre>
+
+          <h2 id="programmatic">Programmatic Navigation</h2>
+          <p>Use <code>navigate()</code> to change routes from event handlers or effects:</p>
+
+<pre><code><span class="keyword">import</span> { navigate } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">function</span> <span class="function">LoginForm</span>() {
+  <span class="keyword">async function</span> <span class="function">handleSubmit</span>(e) {
+    e.preventDefault();
+    <span class="keyword">await</span> login(email, password);
+    <span class="function">navigate</span>(<span class="string">'/dashboard'</span>);
+  }
+
+  <span class="keyword">return</span> &lt;form onSubmit={handleSubmit}&gt;...&lt;/form&gt;;
+}
+
+<span class="comment">// Options</span>
+<span class="function">navigate</span>(<span class="string">'/settings'</span>, { replace: <span class="keyword">true</span> });   <span class="comment">// Replace history entry</span>
+<span class="function">navigate</span>(<span class="string">'/profile'</span>, { state: { from: <span class="string">'nav'</span> } }); <span class="comment">// Pass state</span>
+<span class="function">navigate</span>(<span class="string">'/page'</span>, { transition: <span class="keyword">false</span> });     <span class="comment">// Skip view transition</span></code></pre>
+
+          <h2 id="route-object">The route Object</h2>
+          <p>Access the current route state from anywhere in your app using the reactive <code>route</code> object:</p>
+
+<pre><code><span class="keyword">import</span> { route } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="comment">// All properties are reactive getters</span>
+route.path     <span class="comment">// "/users/42"</span>
+route.params   <span class="comment">// { id: "42" }</span>
+route.query    <span class="comment">// { tab: "posts" }</span>
+route.hash     <span class="comment">// "#section"</span>
+route.isNavigating  <span class="comment">// true during navigation</span></code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">No Parentheses Needed</p>
+            <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties &mdash; no <code>()</code> call needed. They are still reactive and will trigger re-renders when they change.</p>
+          </div>
+
+          <h2 id="dynamic-params">Dynamic Params</h2>
+          <p>Use <code>:param</code> syntax in route paths to capture dynamic segments. The matched values are passed to your component as <code>params</code>:</p>
+
+<pre><code><span class="keyword">const</span> routes = <span class="function">defineRoutes</span>({
+  <span class="string">'/'</span>: Home,
+  <span class="string">'/users/:id'</span>: UserProfile,
+  <span class="string">'/posts/:slug'</span>: BlogPost,
+  <span class="string">'/files/*'</span>: FileViewer,          <span class="comment">// Catch-all</span>
+  <span class="string">'/docs/[...path]'</span>: DocsPage,     <span class="comment">// Named catch-all</span>
+});
+
+<span class="keyword">function</span> <span class="function">UserProfile</span>({ params }) {
+  <span class="keyword">return</span> &lt;h1&gt;User #{params.id}&lt;/h1&gt;;
+}
+
+<span class="keyword">function</span> <span class="function">DocsPage</span>({ params }) {
+  <span class="keyword">return</span> &lt;p&gt;Path: {params.path}&lt;/p&gt;;  <span class="comment">// "guides/getting-started"</span>
+}</code></pre>
+
+          <p>File-based syntax like <code>[id]</code> and <code>[...path]</code> also works &mdash; it's converted to <code>:id</code> and catch-all internally.</p>
+
+          <h2 id="nested-layouts">Nested Layouts</h2>
+          <p>Wrap groups of routes in shared layouts. The layout component receives the matched route's element as <code>children</code>:</p>
+
+<pre><code><span class="keyword">import</span> { nestedRoutes } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">function</span> <span class="function">DashboardLayout</span>({ children }) {
+  <span class="keyword">return</span> (
+    &lt;div class="dashboard"&gt;
+      &lt;aside&gt;
+        &lt;<span class="function">Link</span> href="/dashboard"&gt;Overview&lt;/<span class="function">Link</span>&gt;
+        &lt;<span class="function">Link</span> href="/dashboard/settings"&gt;Settings&lt;/<span class="function">Link</span>&gt;
+      &lt;/aside&gt;
+      &lt;main&gt;{children}&lt;/main&gt;
+    &lt;/div&gt;
+  );
+}
+
+<span class="keyword">const</span> routes = [
+  { path: <span class="string">'/'</span>, component: Home },
+  ...<span class="function">nestedRoutes</span>(<span class="string">'/dashboard'</span>, [
+    { path: <span class="string">'/'</span>, component: DashboardHome },
+    { path: <span class="string">'/settings'</span>, component: Settings },
+    { path: <span class="string">'/users/:id'</span>, component: UserDetail },
+  ], { layout: DashboardLayout }),
+];</code></pre>
+
+          <h2 id="middleware">Route Guards &amp; Middleware</h2>
+          <p>Protect routes with middleware functions that run before the route renders. Middleware can allow, reject, or redirect:</p>
+
+<pre><code><span class="keyword">import</span> { guard } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="comment">// Sync guard — redirect if not authenticated</span>
+<span class="keyword">const</span> requireAuth = <span class="function">guard</span>(
+  () =&gt; isLoggedIn(),
+  <span class="string">'/login'</span>           <span class="comment">// Redirect path on failure</span>
+);
+
+<span class="keyword">const</span> ProtectedDashboard = <span class="function">requireAuth</span>(Dashboard);
+
+<span class="comment">// Or use middleware in route config</span>
+<span class="keyword">const</span> routes = <span class="function">defineRoutes</span>({
+  <span class="string">'/dashboard'</span>: {
+    component: Dashboard,
+    middleware: [
+      ({ path, params }) =&gt; {
+        <span class="keyword">if</span> (!isLoggedIn()) <span class="keyword">return</span> <span class="string">'/login'</span>; <span class="comment">// Redirect</span>
+        <span class="keyword">if</span> (!isAdmin()) <span class="keyword">return</span> <span class="keyword">false</span>;      <span class="comment">// Block (403)</span>
+        <span class="keyword">return</span> <span class="keyword">true</span>;                       <span class="comment">// Allow</span>
+      }
+    ],
+  },
+});</code></pre>
+
+          <p>For async checks (like verifying a session with the server), use <code>asyncGuard</code>:</p>
+
+<pre><code><span class="keyword">import</span> { asyncGuard } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">const</span> requireSession = <span class="function">asyncGuard</span>(
+  <span class="keyword">async</span> () =&gt; {
+    <span class="keyword">const</span> res = <span class="keyword">await</span> fetch(<span class="string">'/api/session'</span>);
+    <span class="keyword">return</span> res.ok;
+  },
+  { fallback: <span class="string">'/login'</span>, loading: Spinner }
+);</code></pre>
+
+          <h2 id="route-groups">Route Groups</h2>
+          <p>Group routes together to share a layout or middleware without affecting URL structure. The group name in parentheses is stripped from the URL:</p>
+
+<pre><code><span class="keyword">import</span> { routeGroup } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">const</span> routes = [
+  ...<span class="function">routeGroup</span>(<span class="string">'marketing'</span>, [
+    { path: <span class="string">'/'</span>, component: Home },
+    { path: <span class="string">'/about'</span>, component: About },
+    { path: <span class="string">'/pricing'</span>, component: Pricing },
+  ], { layout: MarketingLayout }),
+
+  ...<span class="function">routeGroup</span>(<span class="string">'app'</span>, [
+    { path: <span class="string">'/dashboard'</span>, component: Dashboard },
+    { path: <span class="string">'/settings'</span>, component: Settings },
+  ], { layout: AppLayout, middleware: [requireAuth] }),
+];</code></pre>
+
+          <h2 id="loading-states">Loading &amp; Error States</h2>
+          <p>Specify per-route loading and error components:</p>
+
+<pre><code><span class="keyword">const</span> routes = <span class="function">defineRoutes</span>({
+  <span class="string">'/dashboard'</span>: {
+    component: Dashboard,
+    loading: DashboardSkeleton,  <span class="comment">// Shown during navigation</span>
+    error: DashboardError,       <span class="comment">// Shown on render error</span>
+  },
+});</code></pre>
+
+          <p>The <code>loading</code> component renders while <code>route.isNavigating</code> is true. The <code>error</code> component is wrapped in an <code>ErrorBoundary</code> that catches exceptions during rendering.</p>
+
+          <h2 id="view-transitions">View Transitions</h2>
+          <p>What Router uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API">View Transitions API</a> by default for smooth page transitions. No configuration needed &mdash; just add CSS:</p>
+
+<pre><code><span class="comment">/* Fade in/out by default */</span>
+::view-transition-old(root) {
+  animation: fade-out 150ms ease-out;
+}
+::view-transition-new(root) {
+  animation: fade-in 150ms ease-in;
+}
+
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } }</code></pre>
+
+          <p>Name specific elements for independent transitions:</p>
+
+<pre><code><span class="keyword">import</span> { viewTransitionName } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">function</span> <span class="function">Card</span>({ id, title }) {
+  <span class="keyword">return</span> (
+    &lt;div {...<span class="function">viewTransitionName</span>(<span class="string">`card-${id}`</span>)}&gt;
+      &lt;h2&gt;{title}&lt;/h2&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <h2 id="scroll-restoration">Scroll Restoration</h2>
+          <p>Enable automatic scroll position saving and restoration:</p>
+
+<pre><code><span class="keyword">import</span> { enableScrollRestoration } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="function">enableScrollRestoration</span>();
+<span class="comment">// Now back/forward navigation restores scroll position</span>
+<span class="comment">// New navigations scroll to top</span>
+<span class="comment">// Hash links scroll to the target element</span></code></pre>
+
+          <h2 id="prefetching">Prefetching</h2>
+          <p>Link components prefetch routes on hover by default. You can also prefetch programmatically:</p>
+
+<pre><code><span class="keyword">import</span> { prefetch } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="comment">// Prefetch a route's assets</span>
+<span class="function">prefetch</span>(<span class="string">'/dashboard'</span>);
+
+<span class="comment">// Disable prefetch on a specific Link</span>
+&lt;<span class="function">Link</span> href="/heavy-page" prefetch={<span class="keyword">false</span>}&gt;Heavy Page&lt;/<span class="function">Link</span>&gt;</code></pre>
+
+          <h2 id="use-route">useRoute Hook</h2>
+          <p>Access reactive route state inside any component with the <code>useRoute</code> hook. Returns computed signals for each property:</p>
+
+<pre><code><span class="keyword">import</span> { useRoute } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+
+<span class="keyword">function</span> <span class="function">Breadcrumbs</span>() {
+  <span class="keyword">const</span> { path, params, query, navigate } = <span class="function">useRoute</span>();
+
+  <span class="keyword">return</span> (
+    &lt;nav class="breadcrumbs"&gt;
+      &lt;span&gt;You are at: {path()}&lt;/span&gt;
+    &lt;/nav&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">route vs useRoute</p>
+            <p>The global <code>route</code> object uses property getters (<code>route.path</code>) while <code>useRoute()</code> returns computed signals (<code>path()</code>). Both are reactive. Use <code>route</code> for quick access, <code>useRoute</code> when you want to destructure or pass around individual properties.</p>
+          </div>
+
+          <div class="page-nav">
+            <a href="./stores.html">
+              <span class="label">Previous</span>
+              <span class="title">Stores</span>
+            </a>
+            <a href="./caching.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Caching</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#basic-setup">Basic Setup</a></li>
+            <li><a href="#link">Navigating with Link</a></li>
+            <li><a href="#programmatic">Programmatic Navigation</a></li>
+            <li><a href="#route-object">The route Object</a></li>
+            <li><a href="#dynamic-params">Dynamic Params</a></li>
+            <li><a href="#nested-layouts">Nested Layouts</a></li>
+            <li><a href="#middleware">Route Guards</a></li>
+            <li><a href="#route-groups">Route Groups</a></li>
+            <li><a href="#loading-states">Loading &amp; Error States</a></li>
+            <li><a href="#view-transitions">View Transitions</a></li>
+            <li><a href="#scroll-restoration">Scroll Restoration</a></li>
+            <li><a href="#prefetching">Prefetching</a></li>
+            <li><a href="#use-route">useRoute Hook</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

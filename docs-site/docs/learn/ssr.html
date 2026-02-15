@@ -49,6 +49,13 @@
         </ul>
       </div>
       <div class="sidebar-section">
+        <div class="sidebar-title">Navigation &amp; Caching</div>
+        <ul class="sidebar-links">
+          <li><a href="./routing.html">Routing</a></li>
+          <li><a href="./caching.html">Caching</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
         <div class="sidebar-title">Advanced</div>
         <ul class="sidebar-links">
           <li><a href="./islands.html">Islands</a></li>
@@ -69,17 +76,18 @@
           <p>The simplest way to render on the server. Pass a virtual node tree and get back a complete HTML string synchronously. Components are called as functions, event handlers are stripped, and all attributes are properly escaped:</p>
 
 <pre><code><span class="keyword">import</span> { renderToString } <span class="keyword">from</span> <span class="string">'what-server'</span>;
-<span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Greeting</span>({ name }) {
-  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, { class: <span class="string">'greeting'</span> },
-    <span class="function">h</span>(<span class="string">'h1'</span>, <span class="keyword">null</span>, <span class="string">`Hello, ${name}!`</span>),
-    <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, <span class="string">'Welcome to the site.'</span>),
+  <span class="keyword">return</span> (
+    &lt;div class="greeting"&gt;
+      &lt;h1&gt;Hello, {name}!&lt;/h1&gt;
+      &lt;p&gt;Welcome to the site.&lt;/p&gt;
+    &lt;/div&gt;
   );
 }
 
 <span class="keyword">const</span> html = <span class="function">renderToString</span>(
-  <span class="function">h</span>(Greeting, { name: <span class="string">'Alice'</span> })
+  &lt;<span class="function">Greeting</span> name=<span class="string">"Alice"</span> /&gt;
 );
 
 console.log(html);
@@ -91,14 +99,13 @@ console.log(html);
           <p>For large pages, streaming sends HTML to the browser as it is generated instead of waiting for the entire page to finish. <code>renderToStream</code> returns an async generator that yields HTML chunks:</p>
 
 <pre><code><span class="keyword">import</span> { renderToStream } <span class="keyword">from</span> <span class="string">'what-server'</span>;
-<span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// In your server handler (Node.js example)</span>
 app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req, res) =&gt; {
   res.setHeader(<span class="string">'Content-Type'</span>, <span class="string">'text/html'</span>);
 
   <span class="keyword">const</span> stream = <span class="function">renderToStream</span>(
-    <span class="function">h</span>(App, { url: req.url })
+    &lt;<span class="function">App</span> url={req.url} /&gt;
   );
 
   <span class="keyword">for await</span> (<span class="keyword">const</span> chunk <span class="keyword">of</span> stream) {
@@ -154,10 +161,12 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
   <span class="comment">// Safe to access databases, env vars, secrets</span>
   <span class="keyword">const</span> user = db.users.find(userId);
 
-  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, { class: <span class="string">'profile'</span> },
-    <span class="function">h</span>(<span class="string">'img'</span>, { src: user.avatar, alt: user.name }),
-    <span class="function">h</span>(<span class="string">'h2'</span>, <span class="keyword">null</span>, user.name),
-    <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, user.bio),
+  <span class="keyword">return</span> (
+    &lt;div class="profile"&gt;
+      &lt;img src={user.avatar} alt={user.name} /&gt;
+      &lt;h2&gt;{user.name}&lt;/h2&gt;
+      &lt;p&gt;{user.bio}&lt;/p&gt;
+    &lt;/div&gt;
   );
 });</code></pre>
 
@@ -185,14 +194,18 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
 <span class="keyword">function</span> <span class="function">SaveButton</span>() {
   <span class="keyword">const</span> { trigger, isPending, error, data } = <span class="function">useAction</span>(saveUser);
 
-  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
-    <span class="function">h</span>(<span class="string">'button'</span>, {
-      onClick: () =&gt; trigger({ name: <span class="string">'Alice'</span>, email: <span class="string">'alice@example.com'</span> }),
-      disabled: isPending,
-    }, () =&gt; isPending() ? <span class="string">'Saving...'</span> : <span class="string">'Save User'</span>),
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;button
+        onClick={() =&gt; trigger({ name: <span class="string">'Alice'</span>, email: <span class="string">'alice@example.com'</span> })}
+        disabled={isPending()}
+      &gt;
+        {isPending() ? <span class="string">'Saving...'</span> : <span class="string">'Save User'</span>}
+      &lt;/button&gt;
 
-    () =&gt; error() &amp;&amp; <span class="function">h</span>(<span class="string">'p'</span>, { class: <span class="string">'error'</span> }, error().message),
-    () =&gt; data() &amp;&amp; <span class="function">h</span>(<span class="string">'p'</span>, { class: <span class="string">'success'</span> }, <span class="string">`Saved with ID: ${data().id}`</span>),
+      {error() &amp;&amp; &lt;p class="error"&gt;{error().message}&lt;/p&gt;}
+      {data() &amp;&amp; &lt;p class="success"&gt;Saved with ID: {data().id}&lt;/p&gt;}
+    &lt;/div&gt;
   );
 }</code></pre>
 
@@ -237,8 +250,10 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
     });
   }
 
-  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'button'</span>, { onClick: handleLike },
-    () =&gt; <span class="string">`Like (${likes.value()})`</span>,
+  <span class="keyword">return</span> (
+    &lt;button onClick={handleLike}&gt;
+      Like ({likes.value()})
+    &lt;/button&gt;
   );
 }</code></pre>
 
