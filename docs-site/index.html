@@ -415,22 +415,23 @@
         <span class="code-dot"></span>
       </div>
       <div class="code-content">
-<pre><span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-<span class="keyword">import</span> { h, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><span class="keyword">import</span> { mount, useSignal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="keyword">const</span> count = <span class="function">signal</span>(0);
+  <span class="keyword">const</span> count = <span class="function">useSignal</span>(0);
   <span class="keyword">const</span> doubled = <span class="function">computed</span>(() => count() * 2);
 
-  <span class="keyword">return</span> h(<span class="string">'div'</span>, {},
-    h(<span class="string">'button'</span>, {
-      onClick: () => count.set(c => c + 1)
-    }, <span class="string">'Count: '</span>, () => count()),
-    h(<span class="string">'p'</span>, {}, <span class="string">'Doubled: '</span>, () => doubled())
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
+        Count: {count()}
+      &lt;/button&gt;
+      &lt;p&gt;Doubled: {doubled()}&lt;/p&gt;
+    &lt;/div&gt;
   );
 }
 
-<span class="function">mount</span>(h(<span class="function">Counter</span>), <span class="string">'#app'</span>);</pre>
+<span class="function">mount</span>(&lt;<span class="function">Counter</span> /&gt;, <span class="string">'#app'</span>);</pre>
       </div>
     </div>
   </section>
@@ -521,17 +522,15 @@
 <span class="keyword">function</span> <span class="function">UserProfile</span>({ id }) {
   <span class="keyword">const</span> { data, error, isLoading } = <span class="function">useSWR</span>(
     <span class="string">`user-${id}`</span>,
-    (key, { signal }) =>
-      fetch(<span class="string">`/api/users/${id}`</span>, { signal })
-        .then(r => r.json()),
+    (key) =&gt;
+      fetch(<span class="string">`/api/users/${id}`</span>)
+        .then(r =&gt; r.json()),
     { revalidateOnFocus: <span class="keyword">true</span> }
   );
 
-  <span class="keyword">return</span> h(<span class="string">'div'</span>, {},
-    () => isLoading()
-      ? <span class="string">'Loading...'</span>
-      : data()?.name
-  );
+  <span class="keyword">if</span> (isLoading()) <span class="keyword">return</span> &lt;p&gt;Loading...&lt;/p&gt;;
+
+  <span class="keyword">return</span> &lt;h2&gt;{data()?.name}&lt;/h2&gt;;
 }</pre>
         </div>
       </div>
@@ -541,19 +540,17 @@
 <pre><span class="keyword">import</span> { useForm, rules } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">SignUp</span>() {
-  <span class="keyword">const</span> { register, handleSubmit, formState }
+  <span class="keyword">const</span> { register, handleSubmit }
     = <span class="function">useForm</span>({ mode: <span class="string">'onBlur'</span> });
 
-  <span class="keyword">return</span> h(<span class="string">'form'</span>, {
-    onSubmit: <span class="function">handleSubmit</span>(data => {
-      console.log(data);
-    })
-  },
-    h(<span class="string">'input'</span>, register(<span class="string">'email'</span>, {
-      required: <span class="keyword">true</span>,
-      validate: rules.<span class="function">email</span>()
-    })),
-    h(<span class="string">'button'</span>, {}, <span class="string">'Submit'</span>)
+  <span class="keyword">return</span> (
+    &lt;form onSubmit={<span class="function">handleSubmit</span>(console.log)}&gt;
+      &lt;input {...register(<span class="string">'email'</span>, {
+        required: <span class="keyword">true</span>,
+        validate: rules.<span class="function">email</span>()
+      })} /&gt;
+      &lt;button type=<span class="string">"submit"</span>&gt;Submit&lt;/button&gt;
+    &lt;/form&gt;
   );
 }</pre>
         </div>
