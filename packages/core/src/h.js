@@ -36,6 +36,9 @@ function flattenChildren(children) {
       out.push(...flattenChildren(child));
     } else if (typeof child === 'object' && child._vnode) {
       out.push(child);
+    } else if (typeof child === 'function') {
+      // Reactive child — preserve function for fine-grained DOM updates
+      out.push(child);
     } else {
       // Text node
       out.push(String(child));

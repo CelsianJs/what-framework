@@ -12,6 +12,12 @@
       "import": "./src/index.js",
       "require": "./dist/what.cjs"
     },
+    "./jsx-runtime": {
+      "import": "./src/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "import": "./src/jsx-dev-runtime.js"
+    },
     "./render": {
       "import": "./src/render.js"
     },

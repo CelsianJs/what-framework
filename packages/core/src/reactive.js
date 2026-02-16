@@ -17,29 +17,38 @@ export function signal(initial) {
   let value = initial;
   const subs = new Set();
 
-  function read() {
-    if (currentEffect) {
-      subs.add(currentEffect);
-      currentEffect.deps.push(subs); // Track reverse dep for cleanup
+  // Unified getter/setter: sig() reads, sig(newVal) writes
+  function sig(...args) {
+    if (args.length === 0) {
+      // Read
+      if (currentEffect) {
+        subs.add(currentEffect);
+        currentEffect.deps.push(subs);
+      }
+      return value;
     }
-    return value;
+    // Write
+    const nextVal = typeof args[0] === 'function' ? args[0](value) : args[0];
+    if (Object.is(value, nextVal)) return;
+    value = nextVal;
+    notify(subs);
   }
 
-  read.set = (next) => {
+  sig.set = (next) => {
     const nextVal = typeof next === 'function' ? next(value) : next;
     if (Object.is(value, nextVal)) return;
     value = nextVal;
     notify(subs);
   };
 
-  read.peek = () => value;
+  sig.peek = () => value;
 
-  read.subscribe = (fn) => {
-    return effect(() => fn(read()));
+  sig.subscribe = (fn) => {
+    return effect(() => fn(sig()));
   };
 
-  read._signal = true;
-  return read;
+  sig._signal = true;
+  return sig;
 }
 
 // --- Computed ---

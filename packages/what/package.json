@@ -11,6 +11,12 @@
       "types": "./index.d.ts",
       "import": "./src/index.js"
     },
+    "./jsx-runtime": {
+      "import": "./src/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "import": "./src/jsx-dev-runtime.js"
+    },
     "./router": {
       "types": "./router.d.ts",
       "import": "./src/router.js"

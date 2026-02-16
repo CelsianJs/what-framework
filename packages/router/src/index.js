@@ -108,8 +108,11 @@ function compilePath(path) {
 }
 
 function matchRoute(path, routes) {
+  // Filter out routes without a path (layout-only routes, etc.)
+  const routable = routes.filter(r => r.path);
+
   // Sort routes by specificity (more specific first)
-  const sorted = [...routes].sort((a, b) => {
+  const sorted = routable.sort((a, b) => {
     const aSpecific = (a.path.match(/:/g) || []).length + (a.path.includes('*') ? 100 : 0);
     const bSpecific = (b.path.match(/:/g) || []).length + (b.path.includes('*') ? 100 : 0);
     return aSpecific - bSpecific;
@@ -145,6 +148,7 @@ function parseQuery(search) {
 // Build the layout chain for a route
 function buildLayoutChain(route, routes) {
   const layouts = [];
+  if (!route.path) return layouts;
 
   // Check for nested layouts based on path segments
   const segments = route.path.split('/').filter(Boolean);
@@ -276,13 +280,13 @@ export function Link({
   return h('a', {
     href,
     class: classes,
-    onClick: (e) => {
+    onclick: (e) => {
       // Only intercept left-clicks without modifiers
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
       e.preventDefault();
       navigate(href, { replace: rep, transition });
     },
-    onMouseenter: shouldPrefetch ? () => prefetch(href) : undefined,
+    onmouseenter: shouldPrefetch ? () => prefetch(href) : undefined,
     ...rest,
   }, ...(Array.isArray(children) ? children : [children]));
 }

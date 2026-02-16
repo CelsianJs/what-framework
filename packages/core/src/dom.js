@@ -101,6 +101,18 @@ function createDOM(vnode, parent, isSvg) {
     return document.createTextNode(String(vnode));
   }
 
+  // Reactive function child — creates a text node that updates fine-grained
+  if (typeof vnode === 'function') {
+    const textNode = document.createTextNode('');
+    effect(() => {
+      const val = vnode();
+      // If the function returns a vnode, we can't upgrade a text node to an element.
+      // For now, stringify the result. Component-level re-render handles complex cases.
+      textNode.textContent = (val == null || val === false || val === true) ? '' : String(val);
+    });
+    return textNode;
+  }
+
   // Array (fragment)
   if (Array.isArray(vnode)) {
     const frag = document.createDocumentFragment();
@@ -613,6 +625,20 @@ function patchNode(parent, domNode, vnode) {
       parent.replaceChild(placeholder, domNode);
     }
     return placeholder;
+  }
+
+  // Reactive function child — replace whatever's there with a reactive text node
+  if (typeof vnode === 'function') {
+    const textNode = document.createTextNode('');
+    effect(() => {
+      const val = vnode();
+      textNode.textContent = (val == null || val === false || val === true) ? '' : String(val);
+    });
+    if (domNode && domNode.parentNode) {
+      disposeTree(domNode);
+      parent.replaceChild(textNode, domNode);
+    }
+    return textNode;
   }
 
   // Text
