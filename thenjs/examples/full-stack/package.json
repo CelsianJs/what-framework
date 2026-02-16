@@ -1,0 +1,21 @@
+{
+  "name": "thenjs-full-stack",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "thenjs dev",
+    "build": "thenjs build",
+    "preview": "thenjs preview"
+  },
+  "dependencies": {
+    "thenjs": "*",
+    "@thenjs/rpc": "*",
+    "what-framework": "^0.4.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

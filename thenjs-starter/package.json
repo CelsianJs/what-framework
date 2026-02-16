@@ -1,0 +1,19 @@
+{
+  "name": "thenjs-starter",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "thenjs dev",
+    "build": "thenjs build",
+    "preview": "thenjs preview"
+  },
+  "dependencies": {
+    "thenjs": "^0.1.0",
+    "what-framework": "^0.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

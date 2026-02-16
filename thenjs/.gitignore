@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+*.log
+.vercel/
+coverage/
+
+# Compiled output in examples
+examples/**/*.d.ts
+examples/**/*.d.ts.map
+examples/**/*.js
+examples/**/*.js.map
+
+# Compiled output in test directories
+**/test/*.d.ts
+**/test/*.d.ts.map
+**/test/*.js
+**/test/*.js.map

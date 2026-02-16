@@ -1,0 +1,80 @@
+{
+  "name": "thenjs",
+  "displayName": "ThenJS + What Framework",
+  "description": "Syntax highlighting and snippets for ThenJS and What Framework",
+  "version": "0.1.0",
+  "publisher": "zvndev",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "thenjs",
+    "what-framework",
+    "signals",
+    "jsx",
+    "tsx",
+    "islands",
+    "ssr"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zvndev/thenjs"
+  },
+  "icon": "icon.png",
+  "activationEvents": [
+    "onLanguage:typescriptreact",
+    "onLanguage:typescript"
+  ],
+  "main": "",
+  "contributes": {
+    "grammars": [
+      {
+        "scopeName": "what-framework.injection",
+        "path": "./syntaxes/what-framework.tmLanguage.json",
+        "injectTo": [
+          "source.tsx",
+          "source.jsx"
+        ]
+      },
+      {
+        "scopeName": "thenjs.injection",
+        "path": "./syntaxes/thenjs.tmLanguage.json",
+        "injectTo": [
+          "source.tsx",
+          "source.jsx",
+          "source.ts",
+          "source.js"
+        ]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "typescriptreact",
+        "path": "./snippets/what-framework.json"
+      },
+      {
+        "language": "typescript",
+        "path": "./snippets/what-framework.json"
+      },
+      {
+        "language": "typescriptreact",
+        "path": "./snippets/thenjs.json"
+      },
+      {
+        "language": "typescript",
+        "path": "./snippets/thenjs.json"
+      }
+    ],
+    "languages": [
+      {
+        "id": "typescriptreact",
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  }
+}

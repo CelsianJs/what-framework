@@ -1,0 +1,44 @@
+{
+  "scopeName": "thenjs.injection",
+  "injectionSelector": "L:source.ts, L:source.tsx, L:source.js, L:source.jsx",
+  "patterns": [
+    { "include": "#define-config" },
+    { "include": "#page-export" },
+    { "include": "#rpc-chain" },
+    { "include": "#thenjs-imports" }
+  ],
+  "repository": {
+    "define-config": {
+      "name": "meta.function-call.thenjs",
+      "match": "\\b(defineConfig)\\s*(\\()",
+      "captures": {
+        "1": { "name": "support.function.thenjs" },
+        "2": { "name": "punctuation.definition.arguments.begin.thenjs" }
+      }
+    },
+    "page-export": {
+      "name": "meta.export.page.thenjs",
+      "match": "\\b(export)\\s+(const)\\s+(page)\\s*(=)",
+      "captures": {
+        "1": { "name": "keyword.control.export.thenjs" },
+        "2": { "name": "storage.type.thenjs" },
+        "3": { "name": "variable.other.constant.thenjs" },
+        "4": { "name": "keyword.operator.assignment.thenjs" }
+      }
+    },
+    "rpc-chain": {
+      "name": "meta.function-call.rpc.thenjs",
+      "match": "\\b(procedure|router|createRPCClient|createRouter|createMiddleware)\\b",
+      "captures": {
+        "1": { "name": "support.function.thenjs" }
+      }
+    },
+    "thenjs-imports": {
+      "name": "meta.import.thenjs",
+      "match": "(?<=['\"])(@thenjs/[a-zA-Z-]+|thenjs)(?=['\"])",
+      "captures": {
+        "0": { "name": "support.module.thenjs" }
+      }
+    }
+  }
+}

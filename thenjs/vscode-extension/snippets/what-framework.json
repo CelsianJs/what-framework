@@ -1,0 +1,112 @@
+{
+  "What Framework Component": {
+    "prefix": "what-component",
+    "body": [
+      "import { h, signal, useEffect } from '@what/core';",
+      "",
+      "export function ${1:MyComponent}({ ${2:props} }) {",
+      "  const [${3:state}, set${3/(.*)/${1:/capitalize}/}] = signal(${4:null});",
+      "",
+      "  return (",
+      "    <div>",
+      "      <h1>${1:MyComponent}</h1>",
+      "      $0",
+      "    </div>",
+      "  );",
+      "}"
+    ],
+    "description": "Create a What Framework component with signal state"
+  },
+  "What Signal": {
+    "prefix": "what-signal",
+    "body": [
+      "const [${1:value}, set${1/(.*)/${1:/capitalize}/}] = signal(${2:initialValue});"
+    ],
+    "description": "Create a reactive signal"
+  },
+  "What Effect": {
+    "prefix": "what-effect",
+    "body": [
+      "useEffect(() => {",
+      "  ${1:// side effect}",
+      "  $0",
+      "}, [${2:deps}]);"
+    ],
+    "description": "Create an effect with dependencies"
+  },
+  "What For Loop": {
+    "prefix": "what-for",
+    "body": [
+      "<For each={${1:items}}>",
+      "  {(${2:item}) => (",
+      "    <div>{${2:item}}</div>",
+      "  )}",
+      "</For>"
+    ],
+    "description": "Render a list with the <For> component"
+  },
+  "What Show Conditional": {
+    "prefix": "what-show",
+    "body": [
+      "<Show when={${1:condition}}>",
+      "  <div>${2:content}</div>",
+      "</Show>"
+    ],
+    "description": "Conditionally render with the <Show> component"
+  },
+  "What Switch/Match": {
+    "prefix": "what-switch",
+    "body": [
+      "<Switch>",
+      "  <Match when={${1:condition1}}>",
+      "    <div>${2:case 1}</div>",
+      "  </Match>",
+      "  <Match when={${3:condition2}}>",
+      "    <div>${4:case 2}</div>",
+      "  </Match>",
+      "</Switch>"
+    ],
+    "description": "Multi-branch conditional with <Switch>/<Match>"
+  },
+  "What Island Component": {
+    "prefix": "what-island",
+    "body": [
+      "import { h, signal } from '@what/core';",
+      "",
+      "// client:${1|load,idle,visible|} island",
+      "export default function ${2:Island}() {",
+      "  const [${3:count}, set${3/(.*)/${1:/capitalize}/}] = signal(${4:0});",
+      "",
+      "  return (",
+      "    <div>",
+      "      $0",
+      "    </div>",
+      "  );",
+      "}"
+    ],
+    "description": "Create an island component with client directive"
+  },
+  "What Derived Signal": {
+    "prefix": "what-derived",
+    "body": [
+      "const ${1:computed} = derived(() => ${2:expression});"
+    ],
+    "description": "Create a derived (computed) signal"
+  },
+  "What useSWR": {
+    "prefix": "what-swr",
+    "body": [
+      "const { data, isLoading, error } = useSWR('${1:key}', () => ${2:fetcher});"
+    ],
+    "description": "Fetch data with useSWR (key must be a string)"
+  },
+  "What Event Handler": {
+    "prefix": "what-on",
+    "body": [
+      "on:${1:click}={${2:(e) => {",
+      "  $0",
+      "}}}"
+    ],
+    "description": "What Framework event handler with on: syntax"
+  }
+}

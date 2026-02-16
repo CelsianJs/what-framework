@@ -1,0 +1,236 @@
+---
+title: Tasks & Cron
+description: "Background job processing and scheduled tasks"
+---
+
+ThenJS includes a built-in task queue for background job processing and a cron scheduler for recurring tasks.
+
+## Task Queue
+
+### createTaskQueue
+
+Creates an in-memory job queue with retry, backoff, concurrency control, and delayed execution.
+
+```ts
+import { createTaskQueue } from '@thenjs/server';
+
+const queue = createTaskQueue({
+  concurrency: 5,          // Max parallel jobs
+  pollIntervalMs: 100,     // How often to check for new jobs
+});
+```
+
+### Register Handlers
+
+```ts
+queue.register({
+  name: 'send-email',
+  handler: async (job) => {
+    const { to, subject, body } = job.payload;
+    await emailService.send({ to, subject, body });
+    return { success: true, data: { sentAt: new Date() } };
+  },
+  maxRetries: 3,          // Retry up to 3 times on failure
+  retryDelayMs: 5000,     // Wait 5s between retries
+});
+
+queue.register({
+  name: 'generate-report',
+  handler: async (job) => {
+    const report = await generateReport(job.payload.reportId);
+    await saveReport(report);
+    return { success: true };
+  },
+  maxRetries: 1,
+  retryDelayMs: 10_000,
+});
+```
+
+### Enqueue Jobs
+
+```ts
+// Start processing
+queue.start();
+
+// Add a job
+const jobId = await queue.enqueue('send-email', {
+  to: 'ada@example.com',
+  subject: 'Welcome!',
+  body: 'Thanks for signing up.',
+});
+
+// Add a delayed job (executes after 30 seconds)
+await queue.enqueue('generate-report', { reportId: '123' }, {
+  delay: 30_000,
+});
+```
+
+### Monitor Jobs
+
+```ts
+// Get job details
+const job = queue.getJob(jobId);
+console.log(job.status);   // 'pending' | 'active' | 'completed' | 'failed'
+console.log(job.payload);  // { to: 'ada@example.com', ... }
+console.log(job.result);   // { success: true, data: { sentAt: ... } }
+
+// Queue statistics
+const stats = queue.stats();
+console.log(stats);
+// {
+//   total: 42,
+//   pending: 3,
+//   active: 2,
+//   completed: 35,
+//   failed: 2,
+// }
+```
+
+### Integrate with Routes
+
+```ts
+app.post('/api/export', async (req, reply) => {
+  const jobId = await queue.enqueue('generate-report', {
+    reportId: req.parsedBody.reportId,
+    format: 'pdf',
+  });
+  return reply.status(202).json({ jobId, status: 'queued' });
+});
+
+app.get('/api/export/:jobId', (req, reply) => {
+  const job = queue.getJob(req.params.jobId);
+  if (!job) return reply.status(404).json({ error: 'Job not found' });
+  return reply.json({ status: job.status, result: job.result });
+});
+```
+
+### Lifecycle
+
+```ts
+queue.start();    // Begin processing jobs
+await queue.stop(); // Stop processing (waits for active jobs)
+```
+
+### TaskQueue Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `concurrency` | `number` | `1` | Maximum parallel jobs |
+| `pollIntervalMs` | `number` | `100` | Polling interval in ms |
+
+### TaskDefinition
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `string` | required | Task type identifier |
+| `handler` | `(job) => Promise<TaskResult>` | required | Job handler |
+| `maxRetries` | `number` | `0` | Max retry attempts |
+| `retryDelayMs` | `number` | `1000` | Delay between retries |
+
+### TaskResult
+
+```ts
+interface TaskResult {
+  success: boolean;
+  error?: string;
+  data?: unknown;
+}
+```
+
+### Error Handling
+
+- If a handler returns `{ success: false }`, the job is retried up to `maxRetries` times
+- If a handler throws an exception, it's treated as a failure and retried
+- After exhausting retries, the job is marked as `failed`
+- Failed jobs remain in the queue for inspection via `getJob()`
+
+## Cron Scheduler
+
+### createCronScheduler
+
+Creates a scheduler for recurring tasks using human-readable schedule strings.
+
+```ts
+import { createCronScheduler } from '@thenjs/server';
+
+const cron = createCronScheduler();
+```
+
+### Add Jobs
+
+```ts
+cron.add({
+  name: 'cleanup-expired',
+  schedule: 'every 1h',
+  handler: () => {
+    db.deleteExpiredSessions();
+  },
+});
+
+cron.add({
+  name: 'daily-report',
+  schedule: '24h',
+  immediate: true,  // Also run immediately on start
+  handler: async () => {
+    await generateDailyReport();
+  },
+});
+
+cron.add({
+  name: 'health-check',
+  schedule: '30s',
+  handler: () => {
+    pingExternalService();
+  },
+});
+```
+
+### Schedule Format
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `Nms` | `500ms` | Every N milliseconds |
+| `Ns` | `30s` | Every N seconds |
+| `Nm` | `5m` | Every N minutes |
+| `Nh` | `1h` | Every N hours |
+| `Nd` | `1d` | Every N days |
+| `every N{unit}` | `every 5m` | Same, with "every" prefix |
+| `number` | `60000` | Raw milliseconds (as a number) |
+
+### Lifecycle
+
+```ts
+cron.start();    // Start all scheduled jobs
+cron.stop();     // Stop all jobs
+
+// List registered jobs
+const jobs = cron.list();
+// [{ name: 'cleanup-expired', running: true }, ...]
+```
+
+### Options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `string` | required | Job identifier |
+| `schedule` | `string \| number` | required | How often to run |
+| `handler` | `() => void` | required | Function to execute |
+| `immediate` | `boolean` | `false` | Run once immediately on start |
+
+### Error Handling
+
+Errors thrown inside cron handlers are silently caught to prevent one failing job from stopping the entire scheduler. Use try/catch inside your handler if you need error reporting:
+
+```ts
+cron.add({
+  name: 'risky-job',
+  schedule: '5m',
+  handler: () => {
+    try {
+      riskyOperation();
+    } catch (err) {
+      reportError(err);
+    }
+  },
+});
+```

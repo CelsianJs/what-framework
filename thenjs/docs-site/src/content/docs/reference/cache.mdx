@@ -1,0 +1,285 @@
+---
+title: Caching & Sessions
+description: "@thenjs/cache — KV store, response caching, and session management"
+---
+
+`@thenjs/cache` provides a pluggable caching layer with a KV store abstraction, HTTP response caching, and cookie-based session management.
+
+## Installation
+
+```bash
+npm install @thenjs/cache
+```
+
+## MemoryKVStore
+
+In-memory key-value store with TTL support, pattern matching, batch operations, and atomic counters.
+
+```ts
+import { MemoryKVStore } from '@thenjs/cache';
+
+const store = new MemoryKVStore({
+  cleanupIntervalMs: 60_000, // Auto-cleanup expired keys (0 to disable)
+});
+```
+
+### Basic Operations
+
+```ts
+// Set and get
+await store.set('user:1', { name: 'Ada', role: 'admin' });
+const user = await store.get('user:1'); // { name: 'Ada', role: 'admin' }
+
+// Set with TTL (expires in 5 minutes)
+await store.set('token:abc', { valid: true }, 300_000);
+
+// Check existence
+await store.has('user:1'); // true (checks TTL)
+
+// Delete
+await store.delete('user:1');
+
+// Get remaining TTL
+await store.ttl('token:abc'); // milliseconds remaining, -1 if no TTL, -2 if not found
+```
+
+### Pattern Matching
+
+```ts
+// Find keys by glob pattern
+const userKeys = await store.keys('user:*');     // ['user:1', 'user:2', ...]
+const allKeys = await store.keys('*');            // Everything
+
+// Clear by prefix
+await store.clear('session:'); // Delete all session keys
+await store.clear();           // Delete everything
+```
+
+### Batch Operations
+
+```ts
+// Get multiple keys at once
+const values = await store.getMany(['user:1', 'user:2', 'user:3']);
+// [{ name: 'Ada' }, { name: 'Grace' }, undefined]
+
+// Set multiple keys at once
+await store.setMany([
+  { key: 'config:theme', value: 'dark' },
+  { key: 'config:lang', value: 'en', ttl: 86_400_000 },
+]);
+```
+
+### Atomic Counters
+
+```ts
+// Increment (creates key if it doesn't exist)
+const newVal = await store.incr('pageviews');  // 1
+await store.incr('pageviews');                  // 2
+await store.incr('pageviews', 10);              // 12
+
+// Decrement
+await store.decr('stock:item-1');              // -1
+await store.decr('stock:item-1', 5);           // -6
+```
+
+### Cleanup
+
+```ts
+// Manual cleanup
+store.destroy(); // Stops auto-cleanup timer
+```
+
+### KVStore Interface
+
+Implement this interface for custom backends (Redis, DynamoDB, etc.):
+
+```ts
+interface KVStore {
+  get(key: string): Promise<unknown>;
+  set(key: string, value: unknown, ttl?: number): Promise<void>;
+  delete(key: string): Promise<boolean>;
+  has(key: string): Promise<boolean>;
+  keys(pattern?: string): Promise<string[]>;
+  clear(prefix?: string): Promise<void>;
+  ttl(key: string): Promise<number>;
+  getMany(keys: string[]): Promise<unknown[]>;
+  setMany(entries: { key: string; value: unknown; ttl?: number }[]): Promise<void>;
+  incr(key: string, amount?: number): Promise<number>;
+  decr(key: string, amount?: number): Promise<number>;
+}
+```
+
+## Response Cache
+
+Automatic HTTP response caching with cache headers.
+
+```ts
+import { MemoryKVStore } from '@thenjs/cache';
+import { createResponseCache } from '@thenjs/cache';
+
+const store = new MemoryKVStore();
+const cache = createResponseCache({
+  store,
+  ttlMs: 60_000,       // Cache for 1 minute
+  exclude: ['/api/auth'], // Never cache these paths
+});
+```
+
+### Inline Caching
+
+```ts
+app.get('/api/data', async (req, reply) => {
+  return cache.cached(req, () => {
+    // This only runs on cache MISS
+    return reply.json(expensiveQuery());
+  });
+});
+```
+
+Responses include a cache header:
+```
+X-Cache: HIT   // Served from cache
+X-Cache: MISS  // Fresh response, now cached
+```
+
+### Wrap Handler
+
+Wrap an entire handler for automatic caching:
+
+```ts
+const cachedHandler = cache.wrap(async (req, reply) => {
+  return reply.json(await fetchData());
+});
+
+app.get('/api/feed', cachedHandler);
+```
+
+### Cache Invalidation
+
+```ts
+// Invalidate a specific key
+cache.invalidate('/api/data');
+
+// Invalidate everything
+cache.invalidateAll();
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `store` | `KVStore` | required | Storage backend |
+| `ttlMs` | `number` | `60000` | Cache duration in milliseconds |
+| `exclude` | `string[]` | `[]` | Paths to never cache |
+| `methods` | `string[]` | `['GET']` | HTTP methods to cache |
+| `keyGenerator` | `(req) => string` | URL path | Custom cache key |
+
+### What Gets Cached
+
+- Only `GET` requests by default (configurable via `methods`)
+- Only `200 OK` responses
+- Paths in `exclude` are skipped
+- `POST`, `PUT`, `DELETE` are never cached by default
+
+## Session Management
+
+Cookie-based session management with the KV store.
+
+```ts
+import { MemoryKVStore, createSessionManager } from '@thenjs/cache';
+
+const store = new MemoryKVStore();
+const sessions = createSessionManager({
+  store,
+  ttlMs: 86_400_000,      // Session lifetime: 24 hours
+  cookieName: 'sid',        // Cookie name
+  cookieOptions: {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+  },
+});
+```
+
+### Create a Session
+
+```ts
+app.post('/api/login', async (req, reply) => {
+  const user = await authenticateUser(req.parsedBody);
+
+  const session = await sessions.create({ userId: user.id, role: user.role });
+  await session.save();
+
+  return reply
+    .header('set-cookie', sessions.cookie(session.id))
+    .json({ ok: true });
+});
+```
+
+### Load a Session
+
+```ts
+app.get('/api/profile', async (req, reply) => {
+  // Automatically parses the cookie and loads session data
+  const session = await sessions.fromRequest(req);
+
+  if (!session.get('userId')) {
+    return reply.status(401).json({ error: 'Not authenticated' });
+  }
+
+  return reply.json({
+    userId: session.get('userId'),
+    role: session.get('role'),
+  });
+});
+```
+
+### Session API
+
+```ts
+const session = await sessions.create({ key: 'value' });
+
+// Read
+session.get('key');           // 'value'
+session.all();                // { key: 'value' } — returns a copy
+
+// Write
+session.set('theme', 'dark');
+session.delete('theme');
+
+// Persist changes
+await session.save();
+
+// Security
+await session.regenerate();   // New ID, keeps data (prevents fixation)
+await session.destroy();      // Delete session entirely
+```
+
+### Load by ID
+
+```ts
+const session = await sessions.load(sessionId);
+if (!session) {
+  // Session expired or doesn't exist
+}
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `store` | `KVStore` | required | Storage backend |
+| `ttlMs` | `number` | `86400000` | Session lifetime (24h default) |
+| `cookieName` | `string` | `'sid'` | Cookie name |
+| `cookieOptions` | `object` | See below | Cookie attributes |
+
+Default cookie options:
+```ts
+{
+  httpOnly: true,
+  secure: false,
+  sameSite: 'lax',
+  path: '/',
+}
+```

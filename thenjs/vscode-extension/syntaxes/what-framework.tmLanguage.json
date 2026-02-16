@@ -1,0 +1,59 @@
+{
+  "scopeName": "what-framework.injection",
+  "injectionSelector": "L:meta.tag.attributes",
+  "patterns": [
+    { "include": "#event-modifiers" },
+    { "include": "#binding-directive" },
+    { "include": "#client-directive" },
+    { "include": "#control-flow-components" }
+  ],
+  "repository": {
+    "event-modifiers": {
+      "name": "meta.attribute.event.what",
+      "match": "(on)(:)([a-zA-Z]+)((?:\\|[a-zA-Z]+)*)",
+      "captures": {
+        "1": { "name": "entity.other.attribute-name.event.what" },
+        "2": { "name": "punctuation.separator.event.what" },
+        "3": { "name": "entity.other.attribute-name.event.what" },
+        "4": {
+          "patterns": [
+            {
+              "match": "(\\|)([a-zA-Z]+)",
+              "captures": {
+                "1": { "name": "punctuation.separator.modifier.what" },
+                "2": { "name": "keyword.operator.modifier.what" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "binding-directive": {
+      "name": "meta.attribute.binding.what",
+      "match": "(bind)(:)([a-zA-Z]+)",
+      "captures": {
+        "1": { "name": "entity.other.attribute-name.binding.what" },
+        "2": { "name": "punctuation.separator.binding.what" },
+        "3": { "name": "entity.other.attribute-name.binding.what" }
+      }
+    },
+    "client-directive": {
+      "name": "meta.attribute.directive.what",
+      "match": "(client)(:)(load|idle|visible|media|only)",
+      "captures": {
+        "1": { "name": "entity.other.attribute-name.directive.what" },
+        "2": { "name": "punctuation.separator.directive.what" },
+        "3": { "name": "entity.other.attribute-name.directive.what" }
+      }
+    },
+    "control-flow-components": {
+      "name": "meta.tag.component.what",
+      "match": "(</?)(For|Show|Switch|Match)(\\s|>|/)",
+      "captures": {
+        "1": { "name": "punctuation.definition.tag.begin.jsx" },
+        "2": { "name": "support.class.component.what" },
+        "3": { "name": "punctuation.definition.tag.end.jsx" }
+      }
+    }
+  }
+}

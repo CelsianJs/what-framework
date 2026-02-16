@@ -1,0 +1,94 @@
+---
+title: Configuration
+description: Full reference for then.config.ts
+---
+
+ThenJS is configured via `then.config.ts` at your project root.
+
+## Basic Config
+
+```ts
+// then.config.ts
+import { defineConfig } from 'thenjs';
+
+export default defineConfig({
+  server: {
+    port: 3000,
+    host: 'localhost',
+    defaultPageMode: 'hybrid',
+  },
+  build: {
+    adapter: 'auto',
+    outDir: 'dist',
+  },
+});
+```
+
+## Full Reference
+
+### `server`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `port` | `number` | `3000` | Dev server port |
+| `host` | `string` | `'localhost'` | Dev server host |
+| `defaultPageMode` | `'client' \| 'server' \| 'static' \| 'hybrid'` | `'hybrid'` | Default rendering mode for pages |
+
+### `build`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `adapter` | `'auto' \| 'node' \| 'vercel' \| string` | `'auto'` | Deployment adapter |
+| `outDir` | `string` | `'dist'` | Build output directory |
+
+`'auto'` detects the platform: Vercel (`VERCEL` env), Netlify (`NETLIFY` env), Cloudflare (`CF_PAGES` env), or falls back to Node.js.
+
+### `rpc`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `schema` | `'zod' \| 'typebox' \| 'valibot' \| 'arktype'` | — | Default schema library |
+| `openapi.title` | `string` | `'ThenJS RPC API'` | OpenAPI spec title |
+| `openapi.version` | `string` | `'1.0.0'` | OpenAPI spec version |
+| `openapi.description` | `string` | — | OpenAPI spec description |
+
+### `what`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `compiler.mode` | `'vdom' \| 'fine-grained'` | `'fine-grained'` | What Framework compiler mode |
+
+### `tasks`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `queue` | `'memory' \| 'redis' \| 'sqs'` | — | Background task queue backend |
+
+## Full-Stack Example
+
+```ts
+import { defineConfig } from 'thenjs';
+
+export default defineConfig({
+  server: {
+    defaultPageMode: 'server',
+    port: 4000,
+  },
+  build: {
+    adapter: 'vercel',
+  },
+  rpc: {
+    schema: 'zod',
+    openapi: {
+      title: 'My API',
+      version: '2.0.0',
+      description: 'Production API',
+    },
+  },
+  what: {
+    compiler: {
+      mode: 'fine-grained',
+    },
+  },
+});
+```

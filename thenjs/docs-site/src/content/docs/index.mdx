@@ -1,0 +1,54 @@
+---
+title: ThenJS
+description: The backend framework built on standards
+template: splash
+hero:
+  tagline: "Hook-based server, type-safe RPC, real-time streaming, caching, task queues — built entirely on Web Standard APIs. 125K req/sec. Zero lock-in."
+  actions:
+    - text: Get Started
+      link: /guides/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: Try in StackBlitz
+      link: https://stackblitz.com/github/zvndev/thenjs-starter
+      icon: external
+    - text: View on GitHub
+      link: https://github.com/zvndev/thenjs
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Core
+
+<CardGrid stagger>
+  <Card title="Hook-Based Server" icon="setting">
+    8 lifecycle hooks give you full control: onRequest, preParsing, preValidation, preHandler, preSerialization, onSend, onResponse, onError. Plugin encapsulation keeps middleware isolated.
+  </Card>
+  <Card title="Type-Safe RPC" icon="puzzle">
+    Build procedures with input/output schema validation (Zod, TypeBox, Valibot). Compose nested routers. Call from the client with full TypeScript inference. Auto-generated OpenAPI specs.
+  </Card>
+  <Card title="File-Based Routing" icon="document">
+    Pages in `src/pages/`, API routes in `src/api/`, RPC in `src/rpc/` — all auto-discovered at build time. Supports static, SSR, hybrid, and client rendering modes.
+  </Card>
+  <Card title="Deploy Anywhere" icon="rocket">
+    Adapters for Node.js and Vercel. Compatible with Bun (`Bun.serve({ fetch: app.fetch })`) and Deno (`Deno.serve(app.fetch)`). Web Standard APIs mean zero runtime lock-in.
+  </Card>
+</CardGrid>
+
+## Real-Time & Background
+
+<CardGrid>
+  <Card title="SSE & WebSockets" icon="star">
+    Server-Sent Events with `createSSEStream()` and fan-out hubs. WebSocket abstractions with rooms, broadcasting, and registry-based routing.
+  </Card>
+  <Card title="Task Queues" icon="list-format">
+    Background job processing with retry/backoff, concurrency control, and delayed execution. Cron scheduler with human-readable schedules like `"every 5m"`.
+  </Card>
+  <Card title="Caching & Sessions" icon="open-book">
+    Response caching with `x-cache: HIT/MISS` headers. KV store abstraction with TTL, batch ops, and atomic counters. Cookie-based session management.
+  </Card>
+  <Card title="Middleware Ecosystem" icon="approve-check-circle">
+    CORS, rate limiting, JWT auth, structured logging, and ETag — all built-in. Register with one line: `app.register(cors, { origin: '*' })`.
+  </Card>
+</CardGrid>

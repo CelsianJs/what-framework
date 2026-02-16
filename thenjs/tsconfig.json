@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/schema" },
+    { "path": "packages/server" },
+    { "path": "packages/rpc" },
+    { "path": "packages/build" },
+    { "path": "packages/thenjs" },
+    { "path": "packages/adapter-node" },
+    { "path": "packages/adapter-vercel" },
+    { "path": "packages/create-then" }
+  ]
+}

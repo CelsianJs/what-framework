@@ -1,0 +1,210 @@
+---
+title: Middleware
+description: "Built-in middleware plugins — CORS, rate limiting, JWT auth, logging, ETag"
+---
+
+ThenJS ships with production-ready middleware plugins. Register them with `app.register()` and they apply to all routes.
+
+## CORS
+
+Cross-origin resource sharing with preflight handling.
+
+```ts
+import { createApp, cors } from '@thenjs/server';
+
+const app = createApp();
+
+await app.register(cors, {
+  origin: 'https://example.com',  // string | string[] | '*'
+  credentials: true,               // Allow credentials
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['content-type', 'authorization'],
+  maxAge: 86400,                   // Preflight cache duration
+});
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `origin` | `string \| string[]` | `'*'` | Allowed origins |
+| `methods` | `string[]` | All methods | Allowed HTTP methods |
+| `allowedHeaders` | `string[]` | `['content-type']` | Allowed request headers |
+| `exposedHeaders` | `string[]` | `[]` | Headers exposed to the browser |
+| `credentials` | `boolean` | `false` | Allow credentials (cookies, auth) |
+| `maxAge` | `number` | `86400` | Preflight cache duration in seconds |
+
+### Behavior
+
+- **Simple requests**: Adds `Access-Control-Allow-Origin` and related headers to the response
+- **Preflight (OPTIONS)**: Returns `204 No Content` with CORS headers and short-circuits the lifecycle
+- **Disallowed origins**: No CORS headers are added to the response
+
+## Rate Limiting
+
+Sliding-window rate limiting with custom store support.
+
+```ts
+import { createApp, rateLimit } from '@thenjs/server';
+
+const app = createApp();
+
+await app.register(rateLimit, {
+  max: 100,              // Max requests per window
+  windowMs: 60_000,      // Window size (1 minute)
+});
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `max` | `number` | `100` | Maximum requests per window |
+| `windowMs` | `number` | `60000` | Window size in milliseconds |
+| `store` | `RateLimitStore` | `MemoryStore` | Custom store for distributed rate limiting |
+| `keyGenerator` | `(req) => string` | IP-based | Custom key extraction |
+
+### Response Headers
+
+Every response includes rate limit information:
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 97
+X-RateLimit-Reset: 1708099200
+```
+
+When the limit is exceeded, the server returns `429 Too Many Requests` with a `Retry-After` header.
+
+### Custom Store
+
+Implement `RateLimitStore` for distributed rate limiting (e.g., Redis):
+
+```ts
+interface RateLimitStore {
+  increment(key: string, windowMs: number): Promise<{ count: number; resetAt: number }>;
+}
+```
+
+## JWT Authentication
+
+Token validation with custom claims extraction.
+
+```ts
+import { createApp, jwtAuth } from '@thenjs/server';
+
+const app = createApp();
+
+await app.register(jwtAuth, {
+  secret: process.env.JWT_SECRET!,
+  algorithms: ['HS256'],
+  extractToken: (req) => {
+    const auth = req.headers.get('authorization');
+    return auth?.replace('Bearer ', '') ?? null;
+  },
+});
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `secret` | `string` | required | JWT signing secret |
+| `algorithms` | `string[]` | `['HS256']` | Allowed algorithms |
+| `extractToken` | `(req) => string \| null` | Bearer token | Custom token extraction |
+
+The decoded JWT payload is available on `request.user` after validation.
+
+### Protected Routes
+
+```ts
+app.get('/api/profile', (req, reply) => {
+  // req.user is set by jwtAuth middleware
+  return reply.json({ user: req.user });
+});
+```
+
+## Logger
+
+Structured request logging with timing information.
+
+```ts
+import { createApp, logger } from '@thenjs/server';
+
+const app = createApp();
+
+await app.register(logger, {
+  level: 'info',
+  timestamp: true,
+});
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `level` | `string` | `'info'` | Minimum log level |
+| `timestamp` | `boolean` | `true` | Include timestamp |
+| `serializer` | `(entry) => string` | JSON | Custom log formatting |
+
+### Log Entry
+
+```ts
+interface LogEntry {
+  method: string;
+  url: string;
+  status: number;
+  duration: number;  // milliseconds
+  timestamp?: string;
+}
+```
+
+## ETag
+
+Conditional response caching with ETag validation.
+
+```ts
+import { createApp, etag, withETag } from '@thenjs/server';
+
+const app = createApp();
+
+// As a plugin (adds ETag to all responses)
+await app.register(etag);
+
+// Or per-route helper
+app.get('/api/data', (req, reply) => {
+  const data = getExpensiveData();
+  return withETag(req, reply, data);
+});
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `weak` | `boolean` | `true` | Use weak ETags |
+
+### Behavior
+
+1. Computes a hash of the response body
+2. Sets `ETag` header on the response
+3. On subsequent requests with `If-None-Match`, returns `304 Not Modified` if the ETag matches
+
+## Plugin Encapsulation
+
+All middleware plugins use `fp()` (framework-plugin) to skip encapsulation, meaning they inject hooks at the scope where they're registered rather than creating a child context:
+
+```ts
+import { fp } from '@thenjs/server';
+
+// Custom middleware that affects all routes in scope
+export const myMiddleware = fp(async (app, options) => {
+  app.addHook('onRequest', async (req, reply) => {
+    // Runs for all routes in the registering scope
+  });
+});
+
+await app.register(myMiddleware);
+```
+
+Without `fp()`, hooks added inside a plugin only affect routes registered within that same plugin. Use `fp()` when you want middleware behavior.

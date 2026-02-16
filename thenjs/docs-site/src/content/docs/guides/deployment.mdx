@@ -1,0 +1,113 @@
+---
+title: Deployment
+description: Deploy your ThenJS app to Vercel or Node.js.
+---
+
+## Vercel
+
+### Automatic Detection
+
+If the `VERCEL` environment variable is set, ThenJS auto-selects the Vercel adapter:
+
+```ts
+// then.config.ts
+export default defineConfig({
+  build: { adapter: 'auto' }, // Detects Vercel automatically
+});
+```
+
+Or set it explicitly:
+
+```ts
+export default defineConfig({
+  build: { adapter: 'vercel' },
+});
+```
+
+### Build & Deploy
+
+```bash
+npx thenjs build
+vercel deploy
+```
+
+The adapter generates [Build Output API v3](https://vercel.com/docs/build-output-api/v3):
+
+```
+.vercel/output/
+  config.json        # Routing rules
+  static/            # CDN-served assets
+  functions/         # Serverless functions
+```
+
+### What Gets Deployed
+
+- **Static pages** → CDN (immutable cache)
+- **SSR pages** → Serverless functions (Node.js 22.x)
+- **API routes** → Individual serverless functions
+- **RPC** → Single `/_rpc` serverless function
+- **Cron jobs** → `crons.json` for Vercel Cron
+
+## Node.js
+
+### Configuration
+
+```ts
+export default defineConfig({
+  build: { adapter: 'node' },
+});
+```
+
+### Build & Run
+
+```bash
+npx thenjs build
+node dist/server/entry-server.js
+```
+
+The adapter generates a standalone `node:http` server that:
+
+1. Serves static assets with immutable cache headers
+2. Serves pre-rendered HTML
+3. Handles SSR and API routes via Web Standard Request/Response
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | Server port |
+| `HOST` | `0.0.0.0` | Server host |
+
+### Docker
+
+```dockerfile
+FROM node:22-slim
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --production
+COPY dist/ ./dist/
+EXPOSE 3000
+CMD ["node", "dist/server/entry-server.js"]
+```
+
+## Custom Adapters
+
+You can write a custom adapter by implementing the `ThenAdapter` interface:
+
+```ts
+export default {
+  name: 'my-adapter',
+  async buildEnd({ serverEntry, clientDir, staticDir, routes, tasks }) {
+    // Transform build output for your platform
+  },
+  entryTemplate: 'my-platform',
+};
+```
+
+Set it in your config:
+
+```ts
+export default defineConfig({
+  build: { adapter: './my-adapter.js' },
+});
+```

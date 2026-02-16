@@ -58,7 +58,7 @@ export function scanPages(pagesDir) {
           continue;
         }
 
-        walk(fullPath, urlPrefix + '/' + entry.name);
+        walk(fullPath, urlPrefix + '/' + fileNameToSegment(entry.name));
         continue;
       }
 
@@ -103,7 +103,7 @@ export function scanPages(pagesDir) {
       const fullPath = path.join(dir, entry.name);
 
       if (entry.isDirectory()) {
-        walkApi(fullPath, urlPrefix + '/' + entry.name);
+        walkApi(fullPath, urlPrefix + '/' + fileNameToSegment(entry.name));
         continue;
       }
 

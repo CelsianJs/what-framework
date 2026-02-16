@@ -1,0 +1,71 @@
+---
+title: CLI
+description: ThenJS CLI commands reference.
+---
+
+The `thenjs` CLI provides commands for development, building, and previewing.
+
+## Commands
+
+### `thenjs dev`
+
+Start the development server with HMR.
+
+```bash
+npx thenjs dev
+npx thenjs dev --port 4000
+npx thenjs dev --open
+```
+
+Features:
+- Vite-powered HMR
+- SSR middleware for pages
+- API route auto-loading from `src/api/`
+- RPC handler at `/_rpc/`
+
+### `thenjs build`
+
+Build for production.
+
+```bash
+npx thenjs build
+```
+
+Steps:
+1. Client build (Vite, with manifest)
+2. Server build (SSR entry)
+3. Static pre-rendering (for static/hybrid pages)
+4. Route manifest generation
+5. Adapter transform
+
+### `thenjs preview`
+
+Preview the production build locally.
+
+```bash
+npx thenjs preview
+npx thenjs preview --port 4000
+```
+
+## Options
+
+| Flag | Alias | Description | Default |
+|------|-------|-------------|---------|
+| `--port <port>` | `-p` | Server port | `3000` |
+| `--host <host>` | `-H` | Server host | `localhost` |
+| `--open` | `-o` | Open in browser | `false` |
+| `--help` | `-h` | Show help | |
+| `--version` | `-v` | Show version | |
+
+## Scaffolding
+
+Use `create-then` to scaffold a new project:
+
+```bash
+npx create-then my-app
+npx create-then my-app --template full-stack
+```
+
+Templates:
+- **starter** — Basic app with pages and API routes
+- **full-stack** — Includes RPC, Zod validation, auth middleware

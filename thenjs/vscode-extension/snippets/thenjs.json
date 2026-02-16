@@ -1,0 +1,141 @@
+{
+  "ThenJS Config": {
+    "prefix": "then-config",
+    "body": [
+      "import { defineConfig } from 'thenjs';",
+      "",
+      "export default defineConfig({",
+      "  server: {",
+      "    port: ${1:3000},",
+      "  },",
+      "  build: {",
+      "    outDir: '${2:dist}',",
+      "  },",
+      "  $0",
+      "});"
+    ],
+    "description": "ThenJS defineConfig scaffold"
+  },
+  "ThenJS Page Export": {
+    "prefix": "then-page",
+    "body": [
+      "export const page = {",
+      "  mode: '${1|ssr,ssg,spa,islands|}',",
+      "  ${2:cache: { maxAge: ${3:60} \\}}",
+      "};",
+      "",
+      "export default function ${4:Page}() {",
+      "  return (",
+      "    <div>",
+      "      $0",
+      "    </div>",
+      "  );",
+      "}"
+    ],
+    "description": "Page export with rendering mode declaration"
+  },
+  "ThenJS API Route": {
+    "prefix": "then-api",
+    "body": [
+      "import type { APIContext } from 'thenjs';",
+      "",
+      "export async function ${1|GET,POST,PUT,DELETE,PATCH|}({ request, params }: APIContext) {",
+      "  ${2:const body = await request.json();}",
+      "",
+      "  return new Response(JSON.stringify({",
+      "    ${3:data: null}",
+      "  }), {",
+      "    status: ${4:200},",
+      "    headers: { 'Content-Type': 'application/json' },",
+      "  });",
+      "}"
+    ],
+    "description": "API route handler with typed context"
+  },
+  "ThenJS RPC Procedure": {
+    "prefix": "then-rpc",
+    "body": [
+      "import { procedure } from '@thenjs/rpc';",
+      "import { z } from 'zod';",
+      "",
+      "export const ${1:myProcedure} = procedure",
+      "  .input(z.object({",
+      "    ${2:id: z.string()}",
+      "  }))",
+      "  .${3|query,mutation|}(async ({ input }) => {",
+      "    $0",
+      "    return { ${4:result: null} };",
+      "  });"
+    ],
+    "description": "RPC procedure with Zod input validation"
+  },
+  "ThenJS RPC Router": {
+    "prefix": "then-router",
+    "body": [
+      "import { createRouter, procedure } from '@thenjs/rpc';",
+      "import { z } from 'zod';",
+      "",
+      "export const ${1:appRouter} = createRouter({",
+      "  ${2:getItem}: procedure",
+      "    .input(z.object({",
+      "      ${3:id: z.string()}",
+      "    }))",
+      "    .query(async ({ input }) => {",
+      "      $0",
+      "    }),",
+      "});",
+      "",
+      "export type ${4:AppRouter} = typeof ${1:appRouter};"
+    ],
+    "description": "RPC router scaffold with type export"
+  },
+  "ThenJS Middleware / Hook": {
+    "prefix": "then-middleware",
+    "body": [
+      "import type { HookHandler } from 'thenjs';",
+      "",
+      "export const ${1:myMiddleware}: HookHandler = async ({ request, next }) => {",
+      "  ${2:// Before handler}",
+      "  console.log('${3:Request}:', request.url);",
+      "",
+      "  const response = await next();",
+      "",
+      "  ${4:// After handler}",
+      "  return response;",
+      "};"
+    ],
+    "description": "Hook handler / middleware scaffold"
+  },
+  "ThenJS RPC Client": {
+    "prefix": "then-client",
+    "body": [
+      "import { createRPCClient } from '@thenjs/rpc/client';",
+      "import type { ${1:AppRouter} } from '${2:./server/router}';",
+      "",
+      "export const rpc = createRPCClient<${1:AppRouter}>({",
+      "  url: '${3:/api/rpc}',",
+      "});"
+    ],
+    "description": "Create a typed RPC client"
+  },
+  "ThenJS Layout": {
+    "prefix": "then-layout",
+    "body": [
+      "export default function ${1:Layout}({ children }) {",
+      "  return (",
+      "    <html lang=\"${2:en}\">",
+      "      <head>",
+      "        <meta charset=\"UTF-8\" />",
+      "        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />",
+      "        <title>${3:ThenJS App}</title>",
+      "      </head>",
+      "      <body>",
+      "        {children}",
+      "      </body>",
+      "    </html>",
+      "  );",
+      "}"
+    ],
+    "description": "Page layout component"
+  }
+}

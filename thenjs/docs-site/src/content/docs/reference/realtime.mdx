@@ -1,0 +1,239 @@
+---
+title: Real-Time
+description: "SSE streaming and WebSocket support"
+---
+
+ThenJS provides first-class support for real-time communication through Server-Sent Events (SSE) and WebSocket abstractions.
+
+## Server-Sent Events (SSE)
+
+### createSSEStream
+
+Creates a streaming SSE channel for a single client connection.
+
+```ts
+import { createSSEStream } from '@thenjs/server';
+
+app.get('/api/events', (req) => {
+  const channel = createSSEStream(req, {
+    pingInterval: 30_000, // Keep-alive ping every 30s (0 to disable)
+  });
+
+  channel.send({
+    event: 'greeting',
+    data: { message: 'Hello!' },
+    id: '1',
+  });
+
+  channel.send({
+    event: 'update',
+    data: { count: 42 },
+    retry: 3000, // Client reconnect delay
+  });
+
+  // Close when done (or leave open for streaming)
+  channel.close();
+
+  return channel.response;
+});
+```
+
+### SSEChannel API
+
+| Method | Description |
+|--------|-------------|
+| `send(event)` | Send a named event with data |
+| `sendData(data)` | Send data without an event name |
+| `close()` | Close the stream |
+| `response` | The `Response` object to return from your handler |
+| `isOpen` | Whether the stream is still open |
+
+### SSE Event Shape
+
+```ts
+interface SSEEvent {
+  event?: string;           // Event name
+  data: unknown;            // Will be JSON.stringify'd
+  id?: string;              // Event ID for reconnection
+  retry?: number;           // Client reconnect delay in ms
+}
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `pingInterval` | `number` | `30000` | Keep-alive ping interval in ms (0 to disable) |
+| `headers` | `Record<string, string>` | `{}` | Additional response headers |
+| `onClose` | `() => void` | — | Callback when the stream closes |
+
+### createSSEHub
+
+Fan-out pattern for broadcasting to multiple connected clients.
+
+```ts
+import { createSSEHub } from '@thenjs/server';
+
+const hub = createSSEHub();
+
+// Each client subscribes
+app.get('/api/live', (req) => {
+  const channel = hub.subscribe(req, {
+    onClose: () => console.log('Client disconnected'),
+  });
+  return channel.response;
+});
+
+// Broadcast to all connected clients
+hub.broadcast({ event: 'update', data: { price: 42.50 } });
+hub.broadcastData({ message: 'plain data' });
+
+// Management
+console.log(hub.size);  // Number of connected clients
+hub.closeAll();          // Disconnect everyone
+```
+
+### SSEHub API
+
+| Method | Description |
+|--------|-------------|
+| `subscribe(req, opts?)` | Add a client and return their SSEChannel |
+| `broadcast(event)` | Send an event to all connected clients |
+| `broadcastData(data)` | Send data to all clients (no event name) |
+| `closeAll()` | Close all client connections |
+| `size` | Number of currently connected clients |
+
+## WebSockets
+
+### WSRegistry
+
+Path-based WebSocket route registration and matching.
+
+```ts
+import { WSRegistry, createRoom, wrapWebSocket } from '@thenjs/server';
+
+const ws = new WSRegistry();
+
+ws.addRoute('/ws/chat', {
+  open(socket) {
+    chatRoom.join(socket);
+  },
+  message(socket, msg) {
+    chatRoom.broadcast(msg, socket); // Exclude sender
+  },
+  close(socket) {
+    chatRoom.leave(socket);
+  },
+});
+
+// Match incoming WebSocket upgrades
+const handler = ws.match('/ws/chat');
+if (handler) {
+  handler.open(wrappedSocket);
+}
+```
+
+### WSHandler
+
+```ts
+interface WSHandler {
+  open?(socket: WSSocket): void;
+  message?(socket: WSSocket, message: WSMessage): void;
+  close?(socket: WSSocket, code?: number, reason?: string): void;
+  error?(socket: WSSocket, error: Error): void;
+}
+```
+
+### createRoom
+
+Room-based WebSocket grouping for broadcasting.
+
+```ts
+import { createRoom } from '@thenjs/server';
+
+const room = createRoom();
+
+// In your WebSocket handler
+ws.addRoute('/ws/game', {
+  open(socket) {
+    room.join(socket);
+    room.broadcast(JSON.stringify({ type: 'joined', count: room.size }));
+  },
+  message(socket, msg) {
+    // Broadcast to everyone except sender
+    room.broadcast(msg.raw, socket);
+    // Or broadcast JSON directly
+    room.broadcastJSON({ type: 'chat', text: msg.text });
+  },
+  close(socket) {
+    room.leave(socket);
+  },
+});
+
+// Management
+room.size;       // Number of members
+room.closeAll(); // Disconnect all members
+```
+
+### wrapWebSocket
+
+Wraps a runtime-specific WebSocket (Bun, Deno, Node) into the universal `WSSocket` interface.
+
+```ts
+import { wrapWebSocket } from '@thenjs/server';
+
+// Works with any WebSocket implementation
+const socket = wrapWebSocket(rawWebSocket);
+
+socket.send('hello');
+socket.sendJSON({ type: 'greeting' });
+socket.close(1000, 'done');
+socket.data.userId = '123'; // Attach custom data
+```
+
+### WSSocket
+
+```ts
+interface WSSocket {
+  send(data: string | ArrayBuffer): void;
+  sendJSON(data: unknown): void;
+  close(code?: number, reason?: string): void;
+  readyState: number;
+  data: Record<string, unknown>; // User-attached data
+}
+```
+
+### parseWSMessage
+
+Parse incoming WebSocket messages into a consistent format.
+
+```ts
+import { parseWSMessage } from '@thenjs/server';
+
+// In a message handler
+ws.addRoute('/ws/api', {
+  message(socket, rawMsg) {
+    const msg = parseWSMessage(rawMsg);
+    console.log(msg.text);  // Always a string
+    console.log(msg.json);  // Parsed JSON or null
+    console.log(msg.raw);   // Original data
+  },
+});
+```
+
+### websocket Plugin
+
+Register WebSocket support as a ThenJS plugin:
+
+```ts
+import { websocket, WSRegistry } from '@thenjs/server';
+
+const app = createApp();
+const ws = new WSRegistry();
+
+// Register routes
+ws.addRoute('/ws/live', { ... });
+
+// Register as plugin
+await app.register(websocket, { registry: ws });
+```

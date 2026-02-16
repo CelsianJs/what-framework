@@ -1,0 +1,167 @@
+---
+title: RPC
+description: "@thenjs/rpc — Type-safe remote procedure calls"
+---
+
+`@thenjs/rpc` provides a type-safe RPC system with schema validation, middleware, and auto-generated client proxies.
+
+## Procedures
+
+Build procedures using the chainable API:
+
+```ts
+import { procedure } from '@thenjs/rpc';
+import { z } from 'zod';
+
+const getUser = procedure
+  .input(z.object({ id: z.string() }))
+  .output(z.object({ id: z.string(), name: z.string() }))
+  .query(async ({ input, ctx }) => {
+    return { id: input.id, name: 'Ada Lovelace' };
+  });
+
+const createUser = procedure
+  .input(z.object({ name: z.string(), email: z.string().email() }))
+  .mutation(async ({ input }) => {
+    return { id: crypto.randomUUID(), ...input };
+  });
+```
+
+- `.input(schema)` — validates input (Zod, TypeBox, Valibot, or StandardSchema)
+- `.output(schema)` — validates output
+- `.use(middleware)` — adds middleware
+- `.query(handler)` — creates a read-only procedure (GET)
+- `.mutation(handler)` — creates a side-effect procedure (POST)
+
+## Routers
+
+Group procedures into nested routers:
+
+```ts
+import { router } from '@thenjs/rpc';
+
+const appRouter = router({
+  user: {
+    getById: getUser,
+    create: createUser,
+  },
+  post: {
+    list: listPosts,
+  },
+});
+
+export type AppRouter = typeof appRouter;
+```
+
+Procedures are flattened to dot-separated paths: `user.getById`, `user.create`, `post.list`.
+
+## Server Handler
+
+`RPCHandler` converts a router into a Request handler:
+
+```ts
+import { RPCHandler } from '@thenjs/rpc';
+
+const handler = new RPCHandler(appRouter, (request) => ({
+  request,
+  userId: getUserId(request), // custom context
+}));
+
+// Handle a request
+const response = await handler.handle(request);
+```
+
+### Endpoints
+
+| Path | Method | Description |
+|------|--------|-------------|
+| `/_rpc/{path}` | GET | Query procedures (input in `?input=` param) |
+| `/_rpc/{path}` | POST | Mutation procedures (input in JSON body) |
+| `/_rpc/manifest.json` | GET | Procedure manifest |
+| `/_rpc/openapi.json` | GET | OpenAPI 3.1 spec |
+
+## Client
+
+`createRPCClient` returns a type-safe proxy:
+
+```ts
+import { createRPCClient } from '@thenjs/rpc';
+import type { AppRouter } from './rpc/index.js';
+
+const rpc = createRPCClient<AppRouter>({ baseUrl: '/_rpc' });
+
+// Query
+const user = await rpc.user.getById.query({ id: '1' });
+
+// Mutation
+const created = await rpc.user.create.mutate({
+  name: 'Ada',
+  email: 'ada@example.com',
+});
+
+// SWR integration
+const { key, fetcher } = rpc.user.getById.useSWR({ id: '1' });
+```
+
+### Client Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `baseUrl` | `string` | `'/_rpc'` | RPC endpoint base URL |
+| `fetch` | `typeof fetch` | `globalThis.fetch` | Custom fetch function |
+| `headers` | `Record<string, string>` | `{}` | Default headers |
+
+## Middleware
+
+Share middleware across procedures:
+
+```ts
+import { createProcedure } from '@thenjs/rpc';
+
+const authedProcedure = createProcedure(async ({ ctx, next }) => {
+  const token = ctx.request.headers.get('authorization');
+  if (!token) throw new Error('Unauthorized');
+  ctx.user = await verifyToken(token);
+  return next();
+});
+
+// All procedures built from this share the auth check
+const secretData = authedProcedure
+  .input(z.object({ key: z.string() }))
+  .query(async ({ input, ctx }) => {
+    return { value: 'secret' };
+  });
+```
+
+## Wire Protocol
+
+The wire protocol preserves native JavaScript types over JSON:
+
+| Type | Encoding |
+|------|----------|
+| `Date` | `{ __t: 'Date', v: '2024-01-01T00:00:00.000Z' }` |
+| `BigInt` | `{ __t: 'BigInt', v: '12345' }` |
+| `Set` | `{ __t: 'Set', v: [...items] }` |
+| `Map` | `{ __t: 'Map', v: [[key, value], ...] }` |
+| `RegExp` | `{ __t: 'RegExp', v: '/pattern/flags' }` |
+
+```ts
+import { encode, decode } from '@thenjs/rpc';
+
+const encoded = encode({ date: new Date(), big: 123n });
+const decoded = decode(encoded); // Types restored
+```
+
+## Schema Adapters
+
+`@thenjs/schema` supports multiple validation libraries:
+
+```ts
+import { fromZod, fromTypeBox, fromValibot, fromSchema } from '@thenjs/schema';
+
+// Explicit
+const schema = fromZod(z.object({ name: z.string() }));
+
+// Auto-detect
+const schema = fromSchema(anySchema);
+```

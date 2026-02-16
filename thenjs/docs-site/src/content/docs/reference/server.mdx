@@ -1,0 +1,138 @@
+---
+title: Server
+description: "@thenjs/server — Hook-based server on Web Standard APIs"
+---
+
+`@thenjs/server` provides a hook-based server runtime built entirely on Web Standard APIs (Request, Response, URL, Headers). No Express, no Fastify — just standards.
+
+## createApp
+
+```ts
+import { createApp } from '@thenjs/server';
+
+const app = createApp({ prefix: '/api' });
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `prefix` | `string` | `''` | Base prefix for all routes |
+| `trustProxy` | `boolean` | `false` | Trust proxy headers |
+
+## Routes
+
+```ts
+app.get('/users', async (request, reply) => {
+  return reply.json([{ id: '1', name: 'Ada' }]);
+});
+
+app.post('/users', async (request, reply) => {
+  const body = request.parsedBody;
+  return reply.status(201).json({ id: crypto.randomUUID(), ...body });
+});
+
+// All methods: get, post, put, patch, delete
+```
+
+### Route Options
+
+```ts
+app.route({
+  method: ['GET', 'POST'],
+  url: '/items/:id',
+  handler: async (request, reply) => {
+    const { id } = request.params;
+    return reply.json({ id });
+  },
+  kind: 'serverless', // 'serverless' | 'hot' | 'task'
+  schema: {
+    params: z.object({ id: z.string() }),
+  },
+});
+```
+
+## Request
+
+`ThenRequest` extends the Web Standard `Request` with:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `params` | `Record<string, string>` | URL parameters (`:id`) |
+| `query` | `Record<string, string>` | Query string parameters |
+| `parsedBody` | `unknown` | Parsed body (JSON, FormData, text) |
+
+## Reply
+
+`ThenReply` provides a chainable response builder:
+
+```ts
+reply.status(200).header('x-custom', 'value').json({ ok: true });
+reply.html('<h1>Hello</h1>');
+reply.stream(readableStream);
+reply.redirect('/new-location', 302);
+```
+
+## Hooks
+
+ThenJS provides 8 lifecycle hooks:
+
+```
+onRequest → preParsing → [body parse] → preValidation → preHandler → [handler]
+  → preSerialization → onSend → [response sent] → onResponse
+  ↘ onError (on any error)
+```
+
+```ts
+app.addHook('onRequest', async (request, reply) => {
+  // Runs before anything else — auth checks, logging
+});
+
+app.addHook('preHandler', async (request, reply) => {
+  // Runs after body parsing and validation, before handler
+});
+
+app.addHook('onError', async (error, request, reply) => {
+  console.error(error);
+  return reply.status(500).json({ error: error.message });
+});
+```
+
+Return a `Response` from any hook to short-circuit the lifecycle.
+
+## Plugins
+
+Plugins use encapsulation — hooks and decorators registered inside a plugin only apply to routes registered in that plugin:
+
+```ts
+async function authPlugin(app, options) {
+  app.addHook('onRequest', async (request, reply) => {
+    const token = request.headers.get('authorization');
+    if (!token) return reply.status(401).json({ error: 'Unauthorized' });
+  });
+
+  app.get('/protected', async (req, reply) => {
+    return reply.json({ secret: 'data' });
+  });
+}
+
+await app.register(authPlugin, { prefix: '/admin' });
+```
+
+## Decorators
+
+```ts
+app.decorate('db', database);
+app.decorateRequest('user', null); // Available on every request
+```
+
+## Handling Requests
+
+```ts
+// Direct handling
+const response = await app.handle(request);
+
+// Fetch-compatible (Bun, Deno)
+Bun.serve({ fetch: app.fetch });
+Deno.serve(app.fetch);
+```

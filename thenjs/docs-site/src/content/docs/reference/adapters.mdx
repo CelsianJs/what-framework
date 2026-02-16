@@ -1,0 +1,94 @@
+---
+title: Adapters
+description: Deployment adapters for Node.js, Vercel, and custom platforms.
+---
+
+Adapters transform the ThenJS build output for specific deployment platforms.
+
+## Node.js
+
+`@thenjs/adapter-node` generates a standalone `node:http` server.
+
+```ts
+// then.config.ts
+export default defineConfig({
+  build: { adapter: 'node' },
+});
+```
+
+After building:
+```bash
+npx thenjs build
+node dist/server/entry-server.js
+```
+
+### Runtime Usage
+
+You can also use the adapter at runtime without building:
+
+```ts
+import { createApp } from '@thenjs/server';
+import { serve } from '@thenjs/adapter-node';
+
+const app = createApp();
+app.get('/health', (req, reply) => reply.json({ status: 'ok' }));
+
+serve(app, {
+  port: 3000,
+  host: '0.0.0.0',
+  staticDir: './public',
+});
+```
+
+## Vercel
+
+`@thenjs/adapter-vercel` produces [Build Output API v3](https://vercel.com/docs/build-output-api/v3).
+
+```ts
+export default defineConfig({
+  build: { adapter: 'vercel' },
+});
+```
+
+Generates:
+- `static/` — CDN assets with immutable cache
+- `functions/` — Serverless functions (Node.js 22.x)
+- `config.json` — Routing rules
+- `crons.json` — Scheduled tasks
+
+## Auto-Detection
+
+With `adapter: 'auto'`, ThenJS detects the platform via environment variables:
+
+| Environment Variable | Adapter |
+|---------------------|---------|
+| `VERCEL` | `@thenjs/adapter-vercel` |
+| `NETLIFY` | `@thenjs/adapter-netlify` |
+| `CF_PAGES` | `@thenjs/adapter-cloudflare` |
+| (none) | `@thenjs/adapter-node` |
+
+## Custom Adapters
+
+Implement the `ThenAdapter` interface:
+
+```ts
+import type { RouteManifest, TaskManifest } from '@thenjs/build';
+
+export default {
+  name: 'my-platform',
+  async buildEnd({ serverEntry, clientDir, staticDir, routes, tasks }) {
+    // Transform build output for your platform
+  },
+  entryTemplate: 'my-platform',
+};
+```
+
+### buildEnd Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `serverEntry` | `string` | Path to server bundle |
+| `clientDir` | `string` | Path to client assets |
+| `staticDir` | `string` | Path to pre-rendered HTML |
+| `routes` | `RouteManifest` | Pages, API routes, RPC procedures |
+| `tasks` | `TaskManifest` | Cron jobs and queue workers |
