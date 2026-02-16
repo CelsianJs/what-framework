@@ -7,3 +7,8 @@ node_modules/
 benchmark-page.png
 .vercel
 .claude/
+
+# Training build artifacts
+training-builds/*/dist/
+training-builds/*/node_modules/
+training-builds/*/package-lock.json
