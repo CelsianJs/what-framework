@@ -1,9 +1,17 @@
-// @thenjs/rpc — Type-safe RPC procedures
+// @thenjs/rpc — Thin re-export layer over @celsian/rpc
+// All RPC functionality comes from CelsianJS.
 
-export { procedure, createProcedure } from './procedure.js';
-export { router, RPCHandler } from './router.js';
-export { createRPCClient, RPCError, generateClientCode } from './client.js';
-export { encode, decode } from './wire.js';
+export {
+  procedure,
+  createProcedure,
+  router,
+  RPCHandler,
+  createRPCClient,
+  RPCError,
+  encode,
+  decode,
+  generateOpenAPI,
+} from '@celsian/rpc';
 
 export type {
   RPCContext,
@@ -17,6 +25,5 @@ export type {
   RPCResponse,
   TaggedValue,
   OpenAPISpec,
-} from './types.js';
-
-export type { RPCClientOptions } from './client.js';
+  RPCClientOptions,
+} from '@celsian/rpc';

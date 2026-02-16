@@ -1,6 +1,7 @@
 {
   "name": "@thenjs/rpc",
   "version": "0.1.0",
+  "description": "ThenJS RPC — thin wrapper over @celsian/rpc",
   "type": "module",
   "license": "MIT",
   "main": "dist/index.js",
@@ -18,10 +19,7 @@
     "build": "tsc -b",
     "prepublishOnly": "tsc -b"
   },
-  "peerDependencies": {
-    "what-framework": "*"
-  },
   "dependencies": {
-    "@thenjs/schema": "*"
+    "@celsian/rpc": "*"
   }
 }

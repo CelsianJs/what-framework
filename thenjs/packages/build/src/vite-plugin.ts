@@ -147,12 +147,13 @@ export function thenVitePlugin(options: ThenVitePluginOptions = {}): Plugin[] {
     },
 
     async load(id) {
+      const defaultMode = config.server?.defaultPageMode ?? 'hybrid';
       if (id === RESOLVED_PREFIX + VIRTUAL_ROUTES) {
-        return await generateRoutesVirtualModule(resolvedConfig?.root ?? process.cwd());
+        return await generateRoutesVirtualModule(resolvedConfig?.root ?? process.cwd(), defaultMode);
       }
 
       if (id === RESOLVED_PREFIX + VIRTUAL_MANIFEST) {
-        return await generateManifestVirtualModule(resolvedConfig?.root ?? process.cwd());
+        return await generateManifestVirtualModule(resolvedConfig?.root ?? process.cwd(), defaultMode);
       }
 
       if (id === RESOLVED_PREFIX + VIRTUAL_RPC_CLIENT) {
@@ -168,8 +169,8 @@ export function thenVitePlugin(options: ThenVitePluginOptions = {}): Plugin[] {
 
 // ─── Virtual Module Generators ───
 
-async function generateRoutesVirtualModule(root: string): Promise<string> {
-  const pages = await scanPages(root);
+async function generateRoutesVirtualModule(root: string, defaultMode: string = 'hybrid'): Promise<string> {
+  const pages = await scanPages(root, { defaultMode: defaultMode as any });
   const apiRoutes = await scanAPI(root);
 
   // Generate import statements and route arrays
@@ -239,8 +240,8 @@ export const loadingPages = {};
 `;
 }
 
-async function generateManifestVirtualModule(root: string): Promise<string> {
-  const pages = await scanPages(root);
+async function generateManifestVirtualModule(root: string, defaultMode: string = 'hybrid'): Promise<string> {
+  const pages = await scanPages(root, { defaultMode: defaultMode as any });
   const apiRoutes = await scanAPI(root);
   const rpc = await scanRPC(root);
 

@@ -1,6 +1,7 @@
 {
   "name": "@thenjs/build",
   "version": "0.1.0",
+  "description": "ThenJS build tooling — Vite plugin, file scanner, virtual modules",
   "type": "module",
   "license": "MIT",
   "main": "dist/index.js",
@@ -17,6 +18,10 @@
   "scripts": {
     "build": "tsc -b",
     "prepublishOnly": "tsc -b"
+  },
+  "dependencies": {
+    "@thenjs/server": "*",
+    "@thenjs/rpc": "*"
   },
   "peerDependencies": {
     "vite": "^6.0.0",

@@ -1,6 +1,7 @@
 {
   "name": "@thenjs/server",
   "version": "0.1.0",
+  "description": "ThenJS server runtime — thin wrapper over @celsian/server",
   "type": "module",
   "license": "MIT",
   "main": "dist/index.js",
@@ -18,7 +19,7 @@
     "build": "tsc -b",
     "prepublishOnly": "tsc -b"
   },
-  "peerDependencies": {
-    "what-framework": "*"
+  "dependencies": {
+    "@celsian/server": "*"
   }
 }

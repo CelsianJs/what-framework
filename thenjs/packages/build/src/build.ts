@@ -195,16 +195,25 @@ function resolveAdapter(adapter: string): string {
   if (adapter === 'auto') {
     return detectAdapter();
   }
-  if (adapter === 'node') return '@thenjs/adapter-node';
-  if (adapter === 'vercel') return '@thenjs/adapter-vercel';
-  return adapter;
+  // Short aliases → full package names
+  const aliases: Record<string, string> = {
+    node: '@celsian/adapter-node',
+    vercel: '@celsian/adapter-vercel',
+    cloudflare: '@celsian/adapter-cloudflare',
+    lambda: '@celsian/adapter-lambda',
+    railway: '@celsian/adapter-railway',
+    fly: '@celsian/adapter-fly',
+  };
+  return aliases[adapter] ?? adapter;
 }
 
 function detectAdapter(): string {
-  if (process.env.VERCEL) return '@thenjs/adapter-vercel';
-  if (process.env.NETLIFY) return '@thenjs/adapter-netlify';
-  if (process.env.CF_PAGES) return '@thenjs/adapter-cloudflare';
-  return '@thenjs/adapter-node';
+  if (process.env.VERCEL) return '@celsian/adapter-vercel';
+  if (process.env.RAILWAY_ENVIRONMENT) return '@celsian/adapter-railway';
+  if (process.env.FLY_APP_NAME) return '@celsian/adapter-fly';
+  if (process.env.CF_PAGES) return '@celsian/adapter-cloudflare';
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) return '@celsian/adapter-lambda';
+  return '@celsian/adapter-node';
 }
 
 async function loadAdapter(name: string): Promise<{

@@ -41,7 +41,8 @@ export interface ScannedPage {
  *   src/pages/_layout.tsx   → layout wrapper
  *   src/pages/_error.tsx    → error boundary
  */
-export async function scanPages(root: string): Promise<ScannedPage[]> {
+export async function scanPages(root: string, options?: { defaultMode?: ScannedPage['mode'] }): Promise<ScannedPage[]> {
+  const defaultMode = options?.defaultMode ?? 'hybrid';
   const pagesDir = join(root, 'src', 'pages');
   const pages: ScannedPage[] = [];
 
@@ -64,7 +65,7 @@ export async function scanPages(root: string): Promise<ScannedPage[]> {
     const routePath = fileToRoutePath(relPath, ext);
 
     // Extract page mode from the file's `export const page = { mode: '...' }`
-    const mode = await extractPageMode(filePath);
+    const mode = await extractPageMode(filePath, defaultMode);
 
     // Find the nearest layout
     const layout = await findNearestLayout(dirname(filePath), pagesDir);
@@ -343,7 +344,10 @@ function fileToRoutePath(relPath: string, ext: string): string {
   return route;
 }
 
-async function extractPageMode(filePath: string): Promise<'client' | 'server' | 'static' | 'hybrid'> {
+async function extractPageMode(
+  filePath: string,
+  defaultMode: 'client' | 'server' | 'static' | 'hybrid' = 'hybrid',
+): Promise<'client' | 'server' | 'static' | 'hybrid'> {
   try {
     const content = await readFile(filePath, 'utf8');
     // Look for: export const page = { mode: 'server' }
@@ -357,7 +361,7 @@ async function extractPageMode(filePath: string): Promise<'client' | 'server' | 
   } catch {
     // File read failed
   }
-  return 'hybrid'; // Default mode
+  return defaultMode;
 }
 
 async function extractExportedMethods(filePath: string): Promise<string[]> {

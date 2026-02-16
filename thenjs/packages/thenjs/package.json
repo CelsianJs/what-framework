@@ -1,6 +1,7 @@
 {
   "name": "thenjs",
   "version": "0.1.0",
+  "description": "ThenJS — Meta-framework for What Framework + CelsianJS",
   "type": "module",
   "license": "MIT",
   "main": "dist/index.js",
@@ -23,7 +24,8 @@
   },
   "dependencies": {
     "@thenjs/server": "*",
-    "@thenjs/build": "*"
+    "@thenjs/build": "*",
+    "@thenjs/rpc": "*"
   },
   "peerDependencies": {
     "vite": "^6.0.0"
