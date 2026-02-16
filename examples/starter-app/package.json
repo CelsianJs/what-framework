@@ -1,0 +1,13 @@
+{
+  "name": "what-starter-app",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node serve.js",
+    "build": "echo 'Static site — no build needed'"
+  },
+  "dependencies": {
+    "what-framework": "workspace:*"
+  }
+}
