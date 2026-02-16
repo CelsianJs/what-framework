@@ -60,11 +60,15 @@ function disposeComponent(ctx) {
   mountedComponents.delete(ctx);
 }
 
-// Dispose all components attached to a DOM subtree
+// Dispose all components and reactive effects attached to a DOM subtree
 function disposeTree(node) {
   if (!node) return;
   if (node._componentCtx) {
     disposeComponent(node._componentCtx);
+  }
+  // Dispose reactive function child effects ({() => ...} wrappers)
+  if (node._dispose) {
+    try { node._dispose(); } catch (e) { /* already disposed */ }
   }
   if (node.childNodes) {
     for (const child of node.childNodes) {
@@ -101,16 +105,29 @@ function createDOM(vnode, parent, isSvg) {
     return document.createTextNode(String(vnode));
   }
 
-  // Reactive function child — creates a text node that updates fine-grained
+  // Reactive function child — creates a wrapper that updates fine-grained
+  // Handles both primitives ({() => count()}) and vnodes ({() => items().map(...)})
   if (typeof vnode === 'function') {
-    const textNode = document.createTextNode('');
-    effect(() => {
+    const wrapper = document.createElement('what-c');
+    let mounted = false;
+    const dispose = effect(() => {
       const val = vnode();
-      // If the function returns a vnode, we can't upgrade a text node to an element.
-      // For now, stringify the result. Component-level re-render handles complex cases.
-      textNode.textContent = (val == null || val === false || val === true) ? '' : String(val);
+      // Normalize: null/false/true → empty, primitives and vnodes → array
+      const vnodes = (val == null || val === false || val === true)
+        ? []
+        : Array.isArray(val) ? val : [val];
+      if (!mounted) {
+        mounted = true;
+        for (const v of vnodes) {
+          const node = createDOM(v, wrapper, parent?._isSvg);
+          if (node) wrapper.appendChild(node);
+        }
+      } else {
+        reconcileChildren(wrapper, vnodes);
+      }
     });
-    return textNode;
+    wrapper._dispose = dispose;
+    return wrapper;
   }
 
   // Array (fragment)
@@ -265,6 +282,7 @@ function createComponent(vnode, parent, isSvg) {
   });
 
   ctx.effects.push(dispose);
+  wrapper._vnode = vnode; // Store vnode for keyed reconciliation
   return wrapper;
 }
 
@@ -627,18 +645,31 @@ function patchNode(parent, domNode, vnode) {
     return placeholder;
   }
 
-  // Reactive function child — replace whatever's there with a reactive text node
+  // Reactive function child — replace whatever's there with a reactive wrapper
   if (typeof vnode === 'function') {
-    const textNode = document.createTextNode('');
-    effect(() => {
+    const wrapper = document.createElement('what-c');
+    let mounted = false;
+    const dispose = effect(() => {
       const val = vnode();
-      textNode.textContent = (val == null || val === false || val === true) ? '' : String(val);
+      const vnodes = (val == null || val === false || val === true)
+        ? []
+        : Array.isArray(val) ? val : [val];
+      if (!mounted) {
+        mounted = true;
+        for (const v of vnodes) {
+          const node = createDOM(v, wrapper);
+          if (node) wrapper.appendChild(node);
+        }
+      } else {
+        reconcileChildren(wrapper, vnodes);
+      }
     });
+    wrapper._dispose = dispose;
     if (domNode && domNode.parentNode) {
       disposeTree(domNode);
-      parent.replaceChild(textNode, domNode);
+      parent.replaceChild(wrapper, domNode);
     }
-    return textNode;
+    return wrapper;
   }
 
   // Text
@@ -714,6 +745,7 @@ function patchNode(parent, domNode, vnode) {
         && domNode._componentCtx.Component === vnode.tag) {
       // Same component — update props reactively, let its effect re-render
       domNode._componentCtx._propsSignal.set({ ...vnode.props, children: vnode.children });
+      domNode._vnode = vnode; // Keep vnode current for keyed reconciliation
       return domNode;
     }
     // Different component or not a component — dispose old, create new

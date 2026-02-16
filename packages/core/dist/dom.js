@@ -60,11 +60,15 @@ function disposeComponent(ctx) {
   mountedComponents.delete(ctx);
 }
 
-// Dispose all components attached to a DOM subtree
+// Dispose all components and reactive effects attached to a DOM subtree
 function disposeTree(node) {
   if (!node) return;
   if (node._componentCtx) {
     disposeComponent(node._componentCtx);
+  }
+  // Dispose reactive function child effects ({() => ...} wrappers)
+  if (node._dispose) {
+    try { node._dispose(); } catch (e) { /* already disposed */ }
   }
   if (node.childNodes) {
     for (const child of node.childNodes) {
@@ -99,6 +103,31 @@ function createDOM(vnode, parent, isSvg) {
   // Text
   if (typeof vnode === 'string' || typeof vnode === 'number') {
     return document.createTextNode(String(vnode));
+  }
+
+  // Reactive function child — creates a wrapper that updates fine-grained
+  // Handles both primitives ({() => count()}) and vnodes ({() => items().map(...)})
+  if (typeof vnode === 'function') {
+    const wrapper = document.createElement('what-c');
+    let mounted = false;
+    const dispose = effect(() => {
+      const val = vnode();
+      // Normalize: null/false/true → empty, primitives and vnodes → array
+      const vnodes = (val == null || val === false || val === true)
+        ? []
+        : Array.isArray(val) ? val : [val];
+      if (!mounted) {
+        mounted = true;
+        for (const v of vnodes) {
+          const node = createDOM(v, wrapper, parent?._isSvg);
+          if (node) wrapper.appendChild(node);
+        }
+      } else {
+        reconcileChildren(wrapper, vnodes);
+      }
+    });
+    wrapper._dispose = dispose;
+    return wrapper;
   }
 
   // Array (fragment)
@@ -253,6 +282,7 @@ function createComponent(vnode, parent, isSvg) {
   });
 
   ctx.effects.push(dispose);
+  wrapper._vnode = vnode; // Store vnode for keyed reconciliation
   return wrapper;
 }
 
@@ -615,6 +645,33 @@ function patchNode(parent, domNode, vnode) {
     return placeholder;
   }
 
+  // Reactive function child — replace whatever's there with a reactive wrapper
+  if (typeof vnode === 'function') {
+    const wrapper = document.createElement('what-c');
+    let mounted = false;
+    const dispose = effect(() => {
+      const val = vnode();
+      const vnodes = (val == null || val === false || val === true)
+        ? []
+        : Array.isArray(val) ? val : [val];
+      if (!mounted) {
+        mounted = true;
+        for (const v of vnodes) {
+          const node = createDOM(v, wrapper);
+          if (node) wrapper.appendChild(node);
+        }
+      } else {
+        reconcileChildren(wrapper, vnodes);
+      }
+    });
+    wrapper._dispose = dispose;
+    if (domNode && domNode.parentNode) {
+      disposeTree(domNode);
+      parent.replaceChild(wrapper, domNode);
+    }
+    return wrapper;
+  }
+
   // Text
   if (typeof vnode === 'string' || typeof vnode === 'number') {
     const text = String(vnode);
@@ -688,6 +745,7 @@ function patchNode(parent, domNode, vnode) {
         && domNode._componentCtx.Component === vnode.tag) {
       // Same component — update props reactively, let its effect re-render
       domNode._componentCtx._propsSignal.set({ ...vnode.props, children: vnode.children });
+      domNode._vnode = vnode; // Keep vnode current for keyed reconciliation
       return domNode;
     }
     // Different component or not a component — dispose old, create new
