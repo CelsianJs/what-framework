@@ -1,6 +1,6 @@
 {
   "name": "what-router",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "What Framework - File-based & programmatic router with View Transitions",
   "type": "module",
   "main": "src/index.js",
