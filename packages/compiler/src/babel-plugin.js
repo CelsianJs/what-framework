@@ -20,6 +20,22 @@
 
 const EVENT_MODIFIERS = new Set(['preventDefault', 'stopPropagation', 'once', 'capture', 'passive', 'self']);
 const EVENT_OPTION_MODIFIERS = new Set(['once', 'capture', 'passive']);
+const VOID_HTML_ELEMENTS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr'
+]);
 
 export default function whatBabelPlugin({ types: t }) {
   const mode = 'fine-grained'; // Can be overridden via plugin options
@@ -47,11 +63,21 @@ export default function whatBabelPlugin({ types: t }) {
     return /^[A-Z]/.test(name);
   }
 
+  function isVoidHtmlElement(name) {
+    return VOID_HTML_ELEMENTS.has(String(name).toLowerCase());
+  }
+
   function getAttributeValue(value) {
     if (!value) return t.booleanLiteral(true);
     if (t.isJSXExpressionContainer(value)) return value.expression;
     if (t.isStringLiteral(value)) return value;
     return t.stringLiteral(value.value || '');
+  }
+
+  function normalizeAttrName(attrName) {
+    if (attrName === 'className') return 'class';
+    if (attrName === 'htmlFor') return 'for';
+    return attrName;
   }
 
   function createEventHandler(handler, modifiers) {
@@ -456,6 +482,14 @@ export default function whatBabelPlugin({ types: t }) {
     if (t.isTemplateLiteral(expr)) {
       return expr.expressions.some(isPotentiallyReactive);
     }
+    if (t.isObjectExpression(expr)) {
+      return expr.properties.some(prop =>
+        t.isObjectProperty(prop) && isPotentiallyReactive(prop.value)
+      );
+    }
+    if (t.isArrayExpression(expr)) {
+      return expr.elements.some(el => el && isPotentiallyReactive(el));
+    }
     return false;
   }
 
@@ -467,8 +501,9 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     if (t.isJSXExpressionContainer(node)) {
-      // Dynamic — leave a placeholder
-      return '';
+      // Dynamic child marker so insert() can preserve source ordering
+      if (t.isJSXEmptyExpression(node.expression)) return '';
+      return '<!--$-->';
     }
 
     if (!t.isJSXElement(node)) return '';
@@ -501,9 +536,13 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     const selfClosing = node.openingElement.selfClosing;
+    if (selfClosing && isVoidHtmlElement(tagName)) {
+      html += '>';
+      return html;
+    }
+
     if (selfClosing) {
-      // Void elements
-      html += '/>';
+      html += `></${tagName}>`;
       return html;
     }
 
@@ -515,11 +554,12 @@ export default function whatBabelPlugin({ types: t }) {
         const text = child.value.replace(/\n\s+/g, ' ').trim();
         if (text) html += escapeHTML(text);
       } else if (t.isJSXExpressionContainer(child)) {
-        // Dynamic child — placeholder will be handled by insert()
-        // Skip entirely from template
+        if (!t.isJSXEmptyExpression(child.expression)) {
+          html += '<!--$-->';
+        }
       } else if (t.isJSXElement(child)) {
         if (isComponent(child.openingElement.name.name)) {
-          // Component — skip from template
+          html += '<!--$-->';
         } else {
           html += extractStaticHTML(child);
         }
@@ -615,6 +655,15 @@ export default function whatBabelPlugin({ types: t }) {
   }
 
   function applyDynamicAttrs(statements, elId, attributes, state) {
+    function buildSetPropCall(propName, valueExpr) {
+      state.needsSetProp = true;
+      return t.callExpression(t.identifier('_$setProp'), [
+        t.identifier(elId),
+        t.stringLiteral(propName),
+        valueExpr
+      ]);
+    }
+
     for (const attr of attributes) {
       if (t.isJSXSpreadAttribute(attr)) {
         // spread(el, props) — use runtime spread
@@ -718,75 +767,21 @@ export default function whatBabelPlugin({ types: t }) {
       // Dynamic attribute (expression)
       if (t.isJSXExpressionContainer(attr.value)) {
         const expr = attr.value.expression;
-        let domName = attrName;
-        if (attrName === 'className') domName = 'class';
-        if (attrName === 'htmlFor') domName = 'for';
+        const domName = normalizeAttrName(attrName);
 
         if (isPotentiallyReactive(expr)) {
           // Reactive attribute — wrap in effect
           state.needsEffect = true;
-          if (domName === 'class') {
-            statements.push(
-              t.expressionStatement(
-                t.callExpression(t.identifier('_$effect'), [
-                  t.arrowFunctionExpression([], t.assignmentExpression('=',
-                    t.memberExpression(t.identifier(elId), t.identifier('className')),
-                    t.logicalExpression('||', expr, t.stringLiteral(''))
-                  ))
-                ])
-              )
-            );
-          } else if (domName === 'style') {
-            statements.push(
-              t.expressionStatement(
-                t.callExpression(t.identifier('_$effect'), [
-                  t.arrowFunctionExpression([], t.blockStatement([
-                    t.expressionStatement(
-                      t.callExpression(
-                        t.memberExpression(
-                          t.memberExpression(t.identifier('Object'), t.identifier('assign')),
-                          t.identifier('call')
-                        ),
-                        [t.nullLiteral(), t.memberExpression(t.identifier(elId), t.identifier('style')), expr]
-                      )
-                    )
-                  ]))
-                ])
-              )
-            );
-          } else {
-            statements.push(
-              t.expressionStatement(
-                t.callExpression(t.identifier('_$effect'), [
-                  t.arrowFunctionExpression([], t.callExpression(
-                    t.memberExpression(t.identifier(elId), t.identifier('setAttribute')),
-                    [t.stringLiteral(domName), expr]
-                  ))
-                ])
-              )
-            );
-          }
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$effect'), [
+                t.arrowFunctionExpression([], buildSetPropCall(domName, expr))
+              ])
+            )
+          );
         } else {
           // Static expression (no signal calls) — set once
-          if (domName === 'class') {
-            statements.push(
-              t.expressionStatement(
-                t.assignmentExpression('=',
-                  t.memberExpression(t.identifier(elId), t.identifier('className')),
-                  t.logicalExpression('||', expr, t.stringLiteral(''))
-                )
-              )
-            );
-          } else {
-            statements.push(
-              t.expressionStatement(
-                t.callExpression(
-                  t.memberExpression(t.identifier(elId), t.identifier('setAttribute')),
-                  [t.stringLiteral(domName), expr]
-                )
-              )
-            );
-          }
+          statements.push(t.expressionStatement(buildSetPropCall(domName, expr)));
         }
       }
       // Static string/boolean attributes already in template
@@ -809,16 +804,16 @@ export default function whatBabelPlugin({ types: t }) {
         if (t.isJSXEmptyExpression(child.expression)) continue;
 
         const expr = child.expression;
+        const marker = buildChildAccess(elId, childIndex);
         state.needsInsert = true;
 
-        // insert(parent, () => expr, marker?)
-        // For now use simple insert without marker — appends
         if (isPotentiallyReactive(expr)) {
           statements.push(
             t.expressionStatement(
               t.callExpression(t.identifier('_$insert'), [
                 t.identifier(elId),
-                t.arrowFunctionExpression([], expr)
+                t.arrowFunctionExpression([], expr),
+                marker
               ])
             )
           );
@@ -827,11 +822,13 @@ export default function whatBabelPlugin({ types: t }) {
             t.expressionStatement(
               t.callExpression(t.identifier('_$insert'), [
                 t.identifier(elId),
-                expr
+                expr,
+                marker
               ])
             )
           );
         }
+        childIndex++;
         continue;
       }
 
@@ -840,15 +837,18 @@ export default function whatBabelPlugin({ types: t }) {
         if (isComponent(childTag) || childTag === 'For' || childTag === 'Show') {
           // Component/control-flow — transform and insert
           const transformed = transformElementFineGrained({ node: child }, state);
+          const marker = buildChildAccess(elId, childIndex);
           state.needsInsert = true;
           statements.push(
             t.expressionStatement(
               t.callExpression(t.identifier('_$insert'), [
                 t.identifier(elId),
-                transformed
+                transformed,
+                marker
               ])
             )
           );
+          childIndex++;
         } else {
           // Static child element — already in template
           // But check if it has dynamic children/attrs that need effects
@@ -907,10 +907,10 @@ export default function whatBabelPlugin({ types: t }) {
   }
 
   function buildChildAccess(elId, index) {
-    // Build _el$.children[index] or _el$.firstChild / .firstChild.nextSibling chain
-    // Use children[n] for simplicity and readability
+    // Use childNodes[n] (not children[n]) so indices remain stable when text/comment
+    // placeholders are present in the static template.
     return t.memberExpression(
-      t.memberExpression(t.identifier(elId), t.identifier('children')),
+      t.memberExpression(t.identifier(elId), t.identifier('childNodes')),
       t.numericLiteral(index),
       true // computed
     );
@@ -1022,6 +1022,7 @@ export default function whatBabelPlugin({ types: t }) {
           state.needsEffect = false;
           state.needsMapArray = false;
           state.needsSpread = false;
+          state.needsSetProp = false;
           state.templates = [];
           state.templateCount = 0;
           state._varCounter = 0;
@@ -1069,6 +1070,11 @@ export default function whatBabelPlugin({ types: t }) {
                 t.importSpecifier(t.identifier('_$spread'), t.identifier('spread'))
               );
             }
+            if (state.needsSetProp) {
+              fgSpecifiers.push(
+                t.importSpecifier(t.identifier('_$setProp'), t.identifier('setProp'))
+              );
+            }
 
             // Also include h/Fragment/Island if vdom mode used for components
             const coreSpecifiers = [];
@@ -1101,7 +1107,19 @@ export default function whatBabelPlugin({ types: t }) {
                 }
               }
 
-              if (!existingRenderImport) {
+              if (existingRenderImport) {
+                const existingNames = new Set(
+                  existingRenderImport.specifiers
+                    .filter(s => t.isImportSpecifier(s))
+                    .map(s => s.imported.name)
+                );
+
+                for (const spec of fgSpecifiers) {
+                  if (!existingNames.has(spec.imported.name)) {
+                    existingRenderImport.specifiers.push(spec);
+                  }
+                }
+              } else {
                 path.unshiftContainer('body',
                   t.importDeclaration(fgSpecifiers, t.stringLiteral('what-framework/render'))
                 );

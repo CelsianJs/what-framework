@@ -42,11 +42,11 @@ writeFileSync(join(root, 'package.json'), JSON.stringify({
     preview: 'vite preview',
   },
   dependencies: {
-    'what-framework': '^0.4.2',
+    'what-framework': '^0.5.1',
   },
   devDependencies: {
     vite: '^5.4.0',
-    ...(useJSX ? { 'what-compiler': '^0.4.2' } : {}),
+    ...(useJSX ? { 'what-compiler': '^0.5.1' } : {}),
   },
 }, null, 2) + '\n');
 
@@ -56,6 +56,7 @@ writeFileSync(join(root, 'index.html'), `<!doctype html>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${projectName}</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
@@ -63,6 +64,18 @@ writeFileSync(join(root, 'index.html'), `<!doctype html>
     <script type="module" src="/${entry}"></script>
   </body>
 </html>
+`);
+
+writeFileSync(join(root, 'public', 'favicon.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)" />
+  <path d="M17 20h10l5 20 5-20h10L36 49h-8z" fill="#fff" />
+</svg>
 `);
 
 if (useJSX) {
@@ -192,6 +205,7 @@ Open [http://localhost:5173](http://localhost:5173).
 - Canonical package name is \`what-framework\`.
 - JSX path is compiler-first and recommended.
 - Runtime \`h()\` path is available with \`--vanilla\`.
+- Vite is preconfigured under the hood; use \`npm run dev/build/preview\`.
 - Event handlers accept both \`onClick\` and \`onclick\`; docs and templates use \`onClick\`.
 `);
 

@@ -268,6 +268,7 @@ count.peek();          // untracked read
 const { formState } = useForm();
 
 formState.errors.email?.message; // correct
+formState.error('email')?.message; // optional field accessor
 ```
 
 ### `ErrorMessage`

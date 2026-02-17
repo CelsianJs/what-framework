@@ -3,6 +3,9 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, signal } from './reactive.js';
+import { createDOM, disposeTree } from './dom.js';
+
+export { effect, untrack };
 
 // --- template(html) ---
 // Pre-parse HTML string into a <template> element. Returns a factory function
@@ -22,72 +25,124 @@ export function template(html) {
 // - array → insert each element
 
 export function insert(parent, child, marker) {
-  if (child == null || typeof child === 'boolean') return;
-
-  if (typeof child === 'string' || typeof child === 'number') {
-    const textNode = document.createTextNode(String(child));
-    parent.insertBefore(textNode, marker || null);
-    return textNode;
-  }
-
   if (typeof child === 'function') {
-    // Reactive expression — create micro-effect
-    let currentNode = document.createTextNode('');
-    parent.insertBefore(currentNode, marker || null);
-
+    let current = null;
     effect(() => {
-      const value = child();
-      if (value instanceof Node) {
-        // Function returned a DOM node — replace text node with it
-        if (currentNode !== value) {
-          parent.replaceChild(value, currentNode);
-          currentNode = value;
-        }
-      } else if (Array.isArray(value)) {
-        // Function returned array — handle dynamic lists
-        _insertArray(parent, value, currentNode, marker);
-      } else {
-        // Primitive — update text content
-        const text = value == null || typeof value === 'boolean' ? '' : String(value);
-        if (currentNode.nodeType === 3) {
-          if (currentNode.textContent !== text) currentNode.textContent = text;
-        } else {
-          const textNode = document.createTextNode(text);
-          parent.replaceChild(textNode, currentNode);
-          currentNode = textNode;
-        }
-      }
+      current = reconcileInsert(parent, child(), current, marker || null);
     });
-
-    return currentNode;
+    return current;
   }
 
-  if (child instanceof Node) {
-    parent.insertBefore(child, marker || null);
-    return child;
-  }
-
-  if (Array.isArray(child)) {
-    const nodes = [];
-    for (let i = 0; i < child.length; i++) {
-      const node = insert(parent, child[i], marker);
-      if (node) nodes.push(node);
-    }
-    return nodes;
-  }
+  return reconcileInsert(parent, child, null, marker || null);
 }
 
-function _insertArray(parent, arr, currentNode, marker) {
-  // Simple case: replace placeholder with array nodes
-  const frag = document.createDocumentFragment();
-  for (let i = 0; i < arr.length; i++) {
-    if (arr[i] instanceof Node) {
-      frag.appendChild(arr[i]);
-    } else if (arr[i] != null && typeof arr[i] !== 'boolean') {
-      frag.appendChild(document.createTextNode(String(arr[i])));
+function isDomNode(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (typeof Node !== 'undefined' && value instanceof Node) return true;
+  return typeof value.nodeType === 'number' && typeof value.nodeName === 'string';
+}
+
+function isVNode(value) {
+  return !!value && typeof value === 'object' && (value._vnode === true || 'tag' in value);
+}
+
+function isSvgParent(parent) {
+  return typeof SVGElement !== 'undefined'
+    && parent instanceof SVGElement
+    && parent.tagName.toLowerCase() !== 'foreignobject';
+}
+
+function asNodeArray(value) {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function valuesToNodes(value, parent, out) {
+  if (value == null || typeof value === 'boolean') return out;
+
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      valuesToNodes(value[i], parent, out);
+    }
+    return out;
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    out.push(document.createTextNode(String(value)));
+    return out;
+  }
+
+  if (isDomNode(value)) {
+    out.push(value);
+    return out;
+  }
+
+  if (isVNode(value)) {
+    out.push(createDOM(value, parent, isSvgParent(parent)));
+    return out;
+  }
+
+  out.push(document.createTextNode(String(value)));
+  return out;
+}
+
+function sameNodeArray(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function reconcileInsert(parent, value, current, marker) {
+  const targetMarker = marker || null;
+
+  if (value == null || typeof value === 'boolean') {
+    const oldNodes = asNodeArray(current);
+    for (let i = 0; i < oldNodes.length; i++) {
+      const oldNode = oldNodes[i];
+      if (oldNode.parentNode === parent) {
+        disposeTree(oldNode);
+        parent.removeChild(oldNode);
+      }
+    }
+    return null;
+  }
+
+  if ((typeof value === 'string' || typeof value === 'number')
+      && current && !Array.isArray(current) && current.nodeType === 3) {
+    const text = String(value);
+    if (current.textContent !== text) current.textContent = text;
+    return current;
+  }
+
+  const newNodes = valuesToNodes(value, parent, []);
+  const oldNodes = asNodeArray(current);
+
+  if (sameNodeArray(oldNodes, newNodes)) {
+    return current;
+  }
+
+  const keep = new Set(newNodes);
+  for (let i = 0; i < oldNodes.length; i++) {
+    const oldNode = oldNodes[i];
+    if (!keep.has(oldNode) && oldNode.parentNode === parent) {
+      disposeTree(oldNode);
+      parent.removeChild(oldNode);
     }
   }
-  parent.replaceChild(frag, currentNode);
+
+  let ref = targetMarker;
+  for (let i = newNodes.length - 1; i >= 0; i--) {
+    const node = newNodes[i];
+    if (node.parentNode !== parent || node.nextSibling !== ref) {
+      parent.insertBefore(node, ref);
+    }
+    ref = node;
+  }
+
+  if (newNodes.length === 0) return null;
+  return newNodes.length === 1 ? newNodes[0] : newNodes;
 }
 
 // --- mapArray(source, mapFn, options?) ---
@@ -638,16 +693,16 @@ export function spread(el, props) {
           }
         });
       } else {
-        effect(() => { setPropDirect(el, key, value()); });
+        effect(() => { setProp(el, key, value()); });
       }
     } else {
       // Static prop
-      setPropDirect(el, key, value);
+      setProp(el, key, value);
     }
   }
 }
 
-function setPropDirect(el, key, value) {
+export function setProp(el, key, value) {
   if (key === 'class' || key === 'className') {
     el.className = value || '';
   } else if (key === 'dangerouslySetInnerHTML') {

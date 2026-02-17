@@ -1,0 +1,17 @@
+{
+  "name": "local-loop-validation",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5499 --strictPort",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "what-framework": "file:../../packages/what"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "what-compiler": "file:../../packages/compiler"
+  }
+}

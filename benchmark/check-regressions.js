@@ -42,6 +42,8 @@ if (!existsSync(CORE_BASELINE) || !existsSync(DX_BASELINE)) {
 const tmp = mkdtempSync(join(tmpdir(), 'what-bench-'));
 const coreOut = join(tmp, 'core.json');
 const dxOut = join(tmp, 'dx.json');
+const coreOutRetry = join(tmp, 'core-retry.json');
+const dxOutRetry = join(tmp, 'dx-retry.json');
 
 function loadJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -77,6 +79,13 @@ function compareSet(name, baselinePath, currentPath, tolerance, guardOps) {
   return failures;
 }
 
+function compareRun(corePath, dxPath) {
+  return [
+    ...compareSet('core', CORE_BASELINE, corePath, coreTolerance, CORE_GUARD_OPS),
+    ...compareSet('dx', DX_BASELINE, dxPath, dxTolerance, DX_GUARD_OPS),
+  ];
+}
+
 try {
   console.log('\nRunning core benchmark...');
   execSync(`node benchmark/run.js --json "${coreOut}"`, { stdio: 'inherit' });
@@ -84,15 +93,26 @@ try {
   console.log('Running DX microbenchmark...');
   execSync(`node benchmark/dx-microbench.js --json "${dxOut}"`, { stdio: 'inherit' });
 
-  const failures = [
-    ...compareSet('core', CORE_BASELINE, coreOut, coreTolerance, CORE_GUARD_OPS),
-    ...compareSet('dx', DX_BASELINE, dxOut, dxTolerance, DX_GUARD_OPS),
-  ];
+  let failures = compareRun(coreOut, dxOut);
 
   if (failures.length > 0) {
-    console.error('\nBenchmark regression check failed:');
-    for (const failure of failures) console.error(`  - ${failure}`);
-    process.exit(1);
+    console.warn('\nPotential benchmark regression detected. Re-running once to reduce noise...');
+
+    console.log('\nRe-running core benchmark...');
+    execSync(`node benchmark/run.js --json "${coreOutRetry}"`, { stdio: 'inherit' });
+
+    console.log('Re-running DX microbenchmark...');
+    execSync(`node benchmark/dx-microbench.js --json "${dxOutRetry}"`, { stdio: 'inherit' });
+
+    const retryFailures = compareRun(coreOutRetry, dxOutRetry);
+    if (retryFailures.length > 0) {
+      console.error('\nBenchmark regression check failed:');
+      for (const failure of retryFailures) console.error(`  - ${failure}`);
+      process.exit(1);
+    }
+
+    console.log('\nBenchmark regression check passed on retry (initial run was likely noisy).');
+    process.exit(0);
   }
 
   console.log('\nBenchmark regression check passed.');

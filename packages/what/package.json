@@ -1,6 +1,6 @@
 {
   "name": "what-framework",
-  "version": "0.4.2",
+  "version": "0.5.1",
   "description": "The closest framework to vanilla JS — signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",
@@ -26,6 +26,7 @@
       "import": "./src/server.js"
     },
     "./render": {
+      "types": "./render.d.ts",
       "import": "./src/render.js"
     },
     "./testing": {
@@ -36,6 +37,7 @@
   "files": [
     "src",
     "index.d.ts",
+    "render.d.ts",
     "router.d.ts",
     "server.d.ts",
     "testing.d.ts"
@@ -63,9 +65,9 @@
   },
   "homepage": "https://github.com/aspect/what-fw#readme",
   "dependencies": {
-    "what-core": "^0.4.2",
-    "what-router": "^0.4.2",
-    "what-server": "^0.4.2",
-    "what-compiler": "^0.4.2"
+    "what-core": "^0.5.1",
+    "what-router": "^0.5.1",
+    "what-server": "^0.5.1",
+    "what-compiler": "^0.5.1"
   }
 }

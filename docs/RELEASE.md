@@ -71,14 +71,11 @@ npm run deploy:vercel -- --dry-run
 Override targets:
 
 ```bash
-npm run deploy:vercel -- --targets "sites/main,docs-site"
+npm run deploy:vercel -- --targets "sites/benchmarks,docs-site"
 ```
 
 Current default targets in `scripts/deploy-vercel.mjs`:
 
-1. `sites/main`
-2. `sites/immersive`
-3. `sites/editorial`
-4. `sites/benchmarks`
-5. `docs-site`
-6. `docs-site/docs`
+1. `sites/benchmarks`
+2. `docs-site`
+3. `docs-site/docs`

@@ -24,6 +24,7 @@ if (!global.customElements) {
 const { signal, computed, effect, batch, flushSync } = await import('../src/reactive.js');
 const { h, Fragment } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
+const { template, insert } = await import('../src/render.js');
 
 // Helper: flush microtask queue
 async function flush() {
@@ -40,6 +41,68 @@ function getContainer() {
 // =========================================================================
 // Reactive Function Children — Basic Use Cases
 // =========================================================================
+
+describe('compiler-first interop', () => {
+  it('mounts a component that returns a real DOM node', async () => {
+    const makeSection = template('<section><h2>Compiler App</h2></section>');
+    const container = getContainer();
+
+    function App() {
+      return makeSection();
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.equal(container.querySelector('h2')?.textContent, 'Compiler App');
+    assert.ok(!container.textContent.includes('undefined'));
+  });
+
+  it('insert() handles vnode component children from compiler-style output', async () => {
+    const makeHost = template('<div class="host"></div>');
+    const container = getContainer();
+
+    function Chip() {
+      return h('span', { class: 'chip' }, 'hello');
+    }
+
+    function App() {
+      const el = makeHost();
+      insert(el, h(Chip, null));
+      return el;
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.equal(container.querySelector('.chip')?.textContent, 'hello');
+  });
+
+  it('insert() updates reactive vnode arrays without stringifying objects', async () => {
+    const items = signal(['A', 'B']);
+    const makeList = template('<ul class="list"></ul>');
+    const container = getContainer();
+
+    function App() {
+      const el = makeList();
+      insert(el, () => items().map((item) => h('li', null, item)));
+      return el;
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.equal(container.querySelectorAll('li').length, 2);
+    assert.equal(container.querySelectorAll('li')[1].textContent, 'B');
+
+    items(['A', 'B', 'C']);
+    await flush();
+
+    assert.equal(container.querySelectorAll('li').length, 3);
+    assert.equal(container.querySelectorAll('li')[2].textContent, 'C');
+    assert.ok(!container.textContent.includes('[object Object]'));
+  });
+});
 
 describe('reactive function children', () => {
   it('renders primitive text reactively with {() => count()}', async () => {

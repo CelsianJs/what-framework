@@ -13,6 +13,8 @@ npm run dev
 
 Open `http://localhost:5173`.
 
+`create-what` includes Vite internally. You use `npm run dev/build/preview` and can ignore bundler internals unless you want custom tooling.
+
 ## 2. Core patterns
 
 ### Signals

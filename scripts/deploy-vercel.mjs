@@ -9,9 +9,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
 
 const DEFAULT_TARGETS = [
-  'sites/main',
-  'sites/immersive',
-  'sites/editorial',
   'sites/benchmarks',
   'docs-site',
   'docs-site/docs',

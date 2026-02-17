@@ -70,6 +70,7 @@ export function mapArray<T>(
   options?: { key?: (item: T) => string | number; raw?: boolean },
 ): (parent: Node, marker?: Node | null) => Node;
 export function spread(el: Element, props: Record<string, any>): void;
+export function setProp(el: Element, key: string, value: any): void;
 export function delegateEvents(eventNames: string[]): void;
 export function on(el: Element, event: string, handler: (e: Event) => void): () => void;
 export function classList(el: Element, classes: Record<string, boolean | (() => boolean)>): void;
@@ -420,6 +421,7 @@ export interface RegisterProps {
 export interface FormState {
   readonly values: Record<string, any>;
   readonly errors: Record<string, FieldError>;
+  error: (name: string) => FieldError | null;
   readonly touched: Record<string, boolean>;
   isDirty: () => boolean;
   isValid: Computed<boolean>;

@@ -13,7 +13,9 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-## 2. Manual setup (Vite + compiler-first JSX)
+`create-what` abstracts the Vite wiring by default, so most teams never touch bundler config.
+
+## 2. Manual setup (advanced: Vite + compiler-first JSX)
 
 ```bash
 mkdir my-app && cd my-app

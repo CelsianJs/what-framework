@@ -5,7 +5,7 @@
 export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot } from './reactive.js';
 
 // Fine-grained rendering primitives
-export { template, insert, mapArray, spread, delegateEvents, on, classList } from './render.js';
+export { template, insert, mapArray, spread, setProp, delegateEvents, on, classList } from './render.js';
 
 // Virtual DOM
 export { h, Fragment, html } from './h.js';

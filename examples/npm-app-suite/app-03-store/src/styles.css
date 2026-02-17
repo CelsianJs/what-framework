@@ -1,0 +1,12 @@
+:root { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f8fafc; color: #0f172a; }
+.app-shell { max-width: 720px; margin: 2rem auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.25rem; }
+.row { display: flex; gap: 0.6rem; margin-bottom: 0.75rem; }
+input[type="text"], input:not([type="checkbox"]) { border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 0.6rem; }
+button { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer; }
+button.active { border-color: #0f766e; color: #0f766e; }
+ul { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.45rem; }
+li { padding: 0.45rem 0.5rem; border: 1px solid #e2e8f0; border-radius: 8px; }
+.done { text-decoration: line-through; color: #64748b; }
+footer { color: #475569; font-size: 0.95rem; }

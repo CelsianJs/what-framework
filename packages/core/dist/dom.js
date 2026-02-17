@@ -20,6 +20,14 @@ const SVG_ELEMENTS = new Set([
 ]);
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const mountedComponents = new Set();
+function isDomNode(value) {
+if (!value || typeof value !== 'object') return false;
+if (typeof Node !== 'undefined' && value instanceof Node) return true;
+return typeof value.nodeType === 'number' && typeof value.nodeName === 'string';
+}
+function isVNode(value) {
+return !!value && typeof value === 'object' && (value._vnode === true || 'tag' in value);
+}
 function disposeComponent(ctx) {
 if (ctx.disposed) return;
 ctx.disposed = true;
@@ -38,7 +46,7 @@ try { dispose(); } catch (e) {  }
 }
 mountedComponents.delete(ctx);
 }
-function disposeTree(node) {
+export function disposeTree(node) {
 if (!node) return;
 if (node._componentCtx) {
 disposeComponent(node._componentCtx);
@@ -65,12 +73,15 @@ disposeTree(container);
 container.textContent = '';
 };
 }
-function createDOM(vnode, parent, isSvg) {
+export function createDOM(vnode, parent, isSvg) {
 if (vnode == null || vnode === false || vnode === true) {
 return document.createComment('');
 }
 if (typeof vnode === 'string' || typeof vnode === 'number') {
 return document.createTextNode(String(vnode));
+}
+if (isDomNode(vnode)) {
+return vnode;
 }
 if (typeof vnode === 'function') {
 const wrapper = document.createElement('what-c');
@@ -100,6 +111,9 @@ const node = createDOM(child, parent, isSvg);
 if (node) frag.appendChild(node);
 }
 return frag;
+}
+if (!isVNode(vnode)) {
+return document.createTextNode(String(vnode));
 }
 if (typeof vnode.tag === 'function') {
 return createComponent(vnode, parent, isSvg);
@@ -497,6 +511,14 @@ parent.replaceChild(wrapper, domNode);
 }
 return wrapper;
 }
+if (isDomNode(vnode)) {
+if (domNode === vnode) return domNode;
+if (domNode && domNode.parentNode) {
+disposeTree(domNode);
+parent.replaceChild(vnode, domNode);
+}
+return vnode;
+}
 if (typeof vnode === 'string' || typeof vnode === 'number') {
 const text = String(vnode);
 if (domNode && domNode.nodeType === 8 && domNode._arrayEnd) {
@@ -550,6 +572,17 @@ if (node) parent.insertBefore(node, endMarker);
 }
 startMarker._arrayEnd = endMarker;
 return startMarker;
+}
+if (!isVNode(vnode)) {
+const text = String(vnode);
+if (domNode.nodeType === 3) {
+if (domNode.textContent !== text) domNode.textContent = text;
+return domNode;
+}
+const newNode = document.createTextNode(text);
+disposeTree(domNode);
+parent.replaceChild(newNode, domNode);
+return newNode;
 }
 if (typeof vnode.tag === 'function') {
 if (domNode._componentCtx && !domNode._componentCtx.disposed

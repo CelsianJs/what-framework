@@ -44,7 +44,8 @@ npm run demo
 Notes:
 
 - `npm run demo` serves the demo app on `http://localhost:3000`.
-- scaffolded apps (`create-what`) run via Vite at `http://localhost:5173`.
+- scaffolded apps (`create-what`) run at `http://localhost:5173`.
+- Vite is the current implementation detail behind the scaffold; app teams should use `npm run dev/build/preview` rather than Vite commands directly.
 
 ## DX cleanup regression checks
 
@@ -60,6 +61,8 @@ This runs:
 
 A regression beyond configured tolerance fails the command.
 
+To reduce flaky failures from machine jitter, the gate re-runs benchmarks once when an initial regression is detected.
+
 ## Release automation
 
 Canonical CI/release workflows:
@@ -70,7 +73,7 @@ Canonical CI/release workflows:
 The release workflow runs tests/build/bench gates, then can:
 
 1. Publish packages to npm in dependency order.
-2. Deploy docs/landing surfaces to linked Vercel projects.
+2. Deploy configured docs/web surfaces to linked Vercel projects.
 
 See `/docs/RELEASE.md` for required secrets and one-button run steps.
 
@@ -96,7 +99,7 @@ When changing behavior, update these together:
 - `/docs/API.md`
 - `/docs/GOTCHAS.md`
 - `/docs/STYLING.md`
-- `/Agents.md`
+- `/AGENTS.md`
 - `/docs/RELEASE.md`
 
 ## API contract checklist

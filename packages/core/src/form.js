@@ -2,12 +2,28 @@
 // Controlled inputs, validation, and form state management
 
 import { signal, computed, batch } from './reactive.js';
+import { getCurrentComponent } from './dom.js';
 import { h } from './h.js';
 
 // --- useForm Hook ---
 // Complete form state management with validation
 
 export function useForm(options = {}) {
+  // Hook-stable behavior inside components
+  const ctx = getCurrentComponent?.();
+  if (ctx) {
+    const index = ctx.hookIndex++;
+    if (!ctx.hooks[index]) {
+      ctx.hooks[index] = createFormController(options);
+    }
+    return ctx.hooks[index];
+  }
+
+  // Standalone usage outside component scope
+  return createFormController(options);
+}
+
+function createFormController(options = {}) {
   const {
     defaultValues = {},
     mode = 'onSubmit', // 'onSubmit' | 'onChange' | 'onBlur'
@@ -19,6 +35,7 @@ export function useForm(options = {}) {
   const fieldSignals = {};
   const errorSignals = {};
   const touchedSignals = {};
+  const errorsState = signal({});
 
   function getFieldSignal(name) {
     if (!fieldSignals[name]) {
@@ -60,21 +77,42 @@ export function useForm(options = {}) {
   // Helper: get all current errors as a plain object.
   // tracked=true subscribes to all known field errors; tracked=false is snapshot-only.
   function getAllErrors(tracked = false) {
-    const result = {};
-    for (const [name, sig] of Object.entries(errorSignals)) {
-      const err = tracked ? sig() : sig.peek();
-      if (err) result[name] = err;
-    }
-    return result;
+    return tracked ? errorsState() : errorsState.peek();
+  }
+
+  function setFieldError(name, error) {
+    const nextError = error ?? null;
+    getErrorSignal(name).set(nextError);
+    errorsState.set((prev) => {
+      const prevError = prev[name];
+      if (prevError === nextError) return prev;
+      if (nextError == null) {
+        if (!Object.prototype.hasOwnProperty.call(prev, name)) return prev;
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      }
+      return { ...prev, [name]: nextError };
+    });
+  }
+
+  function replaceAllErrors(nextErrors = {}) {
+    const normalized = nextErrors || {};
+    batch(() => {
+      for (const [name, sig] of Object.entries(errorSignals)) {
+        if (!Object.prototype.hasOwnProperty.call(normalized, name)) {
+          sig.set(null);
+        }
+      }
+      for (const [name, err] of Object.entries(normalized)) {
+        getErrorSignal(name).set(err ?? null);
+      }
+      errorsState.set({ ...normalized });
+    });
   }
 
   // Computed states
-  const isValid = computed(() => {
-    for (const sig of Object.values(errorSignals)) {
-      if (sig()) return false;
-    }
-    return true;
-  });
+  const isValid = computed(() => Object.keys(getAllErrors(true)).length === 0);
 
   const dirtyFields = computed(() => {
     const dirty = {};
@@ -91,30 +129,15 @@ export function useForm(options = {}) {
     if (!resolver) return true;
 
     const result = await resolver(getAllValues(false));
+    const nextErrors = result?.errors || {};
 
     if (fieldName) {
-      // Validate single field — only update that field's error signal
-      const errSig = getErrorSignal(fieldName);
-      if (result.errors[fieldName]) {
-        errSig.set(result.errors[fieldName]);
-        return false;
-      } else {
-        errSig.set(null);
-        return true;
-      }
+      const nextError = nextErrors[fieldName] ?? null;
+      setFieldError(fieldName, nextError);
+      return !nextError;
     } else {
-      // Validate all fields
-      batch(() => {
-        // Clear existing errors
-        for (const sig of Object.values(errorSignals)) {
-          sig.set(null);
-        }
-        // Set new errors
-        for (const [name, err] of Object.entries(result.errors || {})) {
-          getErrorSignal(name).set(err);
-        }
-      });
-      return Object.keys(result.errors || {}).length === 0;
+      replaceAllErrors(nextErrors);
+      return Object.keys(nextErrors).length === 0;
     }
   }
 
@@ -164,21 +187,17 @@ export function useForm(options = {}) {
 
   // Set error for a field
   function setError(name, error) {
-    getErrorSignal(name).set(error);
+    setFieldError(name, error);
   }
 
   // Clear error for a field
   function clearError(name) {
-    getErrorSignal(name).set(null);
+    setFieldError(name, null);
   }
 
   // Clear all errors
   function clearErrors() {
-    batch(() => {
-      for (const sig of Object.values(errorSignals)) {
-        sig.set(null);
-      }
-    });
+    replaceAllErrors({});
   }
 
   // Reset form
@@ -190,6 +209,7 @@ export function useForm(options = {}) {
       for (const sig of Object.values(errorSignals)) {
         sig.set(null);
       }
+      errorsState.set({});
       for (const sig of Object.values(touchedSignals)) {
         sig.set(false);
       }
@@ -229,20 +249,21 @@ export function useForm(options = {}) {
   }
 
   return {
-      register,
-      handleSubmit,
-      setValue,
-      getValue,
-      setError,
-      clearError,
-      clearErrors,
-      reset,
-      watch,
-      validate,
-      // Form state — uses getters for errors/touched to enable per-field granularity
+    register,
+    handleSubmit,
+    setValue,
+    getValue,
+    setError,
+    clearError,
+    clearErrors,
+    reset,
+    watch,
+    validate,
+    // Form state
     formState: {
       get values() { return getAllValues(true); },
       get errors() { return getAllErrors(true); },
+      error: (name) => getErrorSignal(name)(),
       get touched() {
         const result = {};
         for (const [name, sig] of Object.entries(touchedSignals)) {
@@ -500,11 +521,15 @@ export function Radio(props) {
 // --- Form Error Display ---
 
 export function ErrorMessage({ name, formState, errors, render }) {
-  const formErrors = formState?.errors;
-  const errorSource = formErrors != null
-    ? formErrors
-    : (typeof errors === 'function' ? errors() : errors);
-  const error = errorSource?.[name] || null;
+  const error = formState && typeof formState.error === 'function'
+    ? formState.error(name)
+    : (
+      (
+        formState?.errors != null
+          ? formState.errors
+          : (typeof errors === 'function' ? errors() : errors)
+      )?.[name] || null
+    );
   if (!error) return null;
 
   if (render) {

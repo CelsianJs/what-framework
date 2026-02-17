@@ -24,7 +24,9 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-## JSX Setup (Manual)
+You do not need to configure Vite directly in the default workflow. `create-what` handles it.
+
+## JSX Setup (Advanced Manual Path)
 
 ```bash
 npm install what-framework what-compiler
@@ -193,6 +195,7 @@ npm run bench:gate
 ```
 
 This checks core benchmarks + DX microbenchmarks against committed baselines.
+If a run is noisy, the gate auto-retries once before failing.
 
 ## Release & Deploy
 
@@ -200,7 +203,7 @@ Canonical one-button release pipeline is GitHub Actions workflow:
 
 - `/.github/workflows/release-and-deploy.yml`
 
-It runs quality gates, can publish npm packages, and can deploy docs/landing surfaces to Vercel.
+It runs quality gates, can publish npm packages, and can deploy configured docs/web surfaces to Vercel.
 
 See `/docs/RELEASE.md` for setup and secrets.
 

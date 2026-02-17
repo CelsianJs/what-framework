@@ -34,7 +34,7 @@
     "demo": "node demo/serve.js",
     "release:publish": "node scripts/publish-packages.mjs",
     "release:verify": "npm run -s test && npm run -s build && npm run -s bench:gate",
-    "test": "node --test packages/core/test/*.test.js packages/router/test/*.test.js"
+    "test": "node --test packages/core/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js"
   },
   "engines": {
     "node": ">=20"
