@@ -82,9 +82,3 @@ Current default targets in `scripts/deploy-vercel.mjs`:
 4. `sites/benchmarks`
 5. `docs-site`
 6. `docs-site/docs`
-
-Removed targets:
-
-- `sites/gradient`
-- `sites/geometric`
-- `sites/minimal`
