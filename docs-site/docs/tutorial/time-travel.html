@@ -12,7 +12,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -48,8 +48,8 @@
 
           <p>When multiple components need to share state, we "lift" it to their closest common parent. This is called <strong>lifting state up</strong>.</p>
 
-          <div class="code-header">src/pages/index.jsx</div>
-<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+          <div class="code-header">src/main.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
 <span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {

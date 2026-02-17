@@ -42,7 +42,7 @@ export function App() {
               type="text"
               placeholder="Search tasks..."
               value={search()}
-              oninput={(e) => search(e.target.value)}
+              onInput={(e) => search(e.target.value)}
               style="
                 background: #1a1a2e;
                 border: 1px solid #2a2a3e;
@@ -54,8 +54,8 @@ export function App() {
                 outline: none;
                 transition: border-color 0.2s;
               "
-              onfocus={(e) => { e.target.style.borderColor = '#6366f1'; }}
-              onblur={(e) => { e.target.style.borderColor = '#2a2a3e'; }}
+              onFocus={(e) => { e.target.style.borderColor = '#6366f1'; }}
+              onBlur={(e) => { e.target.style.borderColor = '#2a2a3e'; }}
             />
             <span style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #737373; pointer-events: none; font-size: 0.875rem;">
               &#128269;

@@ -18,11 +18,11 @@ export function Pagination({ currentPage, totalPages, onPageChange }) {
   return (
     <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 1.25rem; padding-top: 1rem;">
       <button
-        onclick={handlePrev}
+        onClick={handlePrev}
         disabled={currentPage() <= 1}
         style={currentPage() <= 1 ? btnDisabled : btnEnabled}
-        onmouseenter={(e) => { if (currentPage() > 1) { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#3b82f6'; } }}
-        onmouseleave={(e) => { if (currentPage() > 1) { e.target.style.background = '#141414'; e.target.style.borderColor = '#2a2a2a'; } }}
+        onMouseEnter={(e) => { if (currentPage() > 1) { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#3b82f6'; } }}
+        onMouseLeave={(e) => { if (currentPage() > 1) { e.target.style.background = '#141414'; e.target.style.borderColor = '#2a2a2a'; } }}
       >
         &larr; Previous
       </button>
@@ -59,10 +59,10 @@ export function Pagination({ currentPage, totalPages, onPageChange }) {
             return (
               <button
                 key={p}
-                onclick={() => onPageChange(p)}
+                onClick={() => onPageChange(p)}
                 style={p === page ? btnActive : btnEnabled}
-                onmouseenter={(e) => { if (p !== page) { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#3b82f6'; } }}
-                onmouseleave={(e) => { if (p !== page) { e.target.style.background = '#141414'; e.target.style.borderColor = '#2a2a2a'; } }}
+                onMouseEnter={(e) => { if (p !== page) { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#3b82f6'; } }}
+                onMouseLeave={(e) => { if (p !== page) { e.target.style.background = '#141414'; e.target.style.borderColor = '#2a2a2a'; } }}
               >
                 {p}
               </button>
@@ -72,11 +72,11 @@ export function Pagination({ currentPage, totalPages, onPageChange }) {
       </div>
 
       <button
-        onclick={handleNext}
+        onClick={handleNext}
         disabled={currentPage() >= totalPages()}
         style={currentPage() >= totalPages() ? btnDisabled : btnEnabled}
-        onmouseenter={(e) => { if (currentPage() < totalPages()) { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#3b82f6'; } }}
-        onmouseleave={(e) => { if (currentPage() < totalPages()) { e.target.style.background = '#141414'; e.target.style.borderColor = '#2a2a2a'; } }}
+        onMouseEnter={(e) => { if (currentPage() < totalPages()) { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#3b82f6'; } }}
+        onMouseLeave={(e) => { if (currentPage() < totalPages()) { e.target.style.background = '#141414'; e.target.style.borderColor = '#2a2a2a'; } }}
       >
         Next &rarr;
       </button>

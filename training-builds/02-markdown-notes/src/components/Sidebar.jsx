@@ -23,10 +23,10 @@ export function Sidebar({ notes, activeId, onSelect, onNew, onDelete }) {
             Notes
           </h2>
           <button
-            onclick={onNew}
+            onClick={onNew}
             style="padding: 0.375rem 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: background 0.2s;"
-            onmouseenter={(e) => { e.target.style.background = '#2563eb'; }}
-            onmouseleave={(e) => { e.target.style.background = '#3b82f6'; }}
+            onMouseEnter={(e) => { e.target.style.background = '#2563eb'; }}
+            onMouseLeave={(e) => { e.target.style.background = '#3b82f6'; }}
           >
             + New
           </button>
@@ -36,10 +36,10 @@ export function Sidebar({ notes, activeId, onSelect, onNew, onDelete }) {
           type="text"
           placeholder="Search notes..."
           value={searchQuery()}
-          oninput={(e) => searchQuery(e.target.value)}
+          onInput={(e) => searchQuery(e.target.value)}
           style="width: 100%; padding: 0.5rem 0.75rem; background: #1a1a1a; border: 1px solid #282828; border-radius: 0.375rem; color: #e5e5e5; font-size: 0.8125rem; outline: none; transition: border-color 0.2s;"
-          onfocus={(e) => { e.target.style.borderColor = '#444'; }}
-          onblur={(e) => { e.target.style.borderColor = '#282828'; }}
+          onFocus={(e) => { e.target.style.borderColor = '#444'; }}
+          onBlur={(e) => { e.target.style.borderColor = '#282828'; }}
         />
       </div>
 

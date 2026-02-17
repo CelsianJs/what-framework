@@ -75,7 +75,7 @@
           <h2 id="render-to-string">renderToString</h2>
           <p>The simplest way to render on the server. Pass a virtual node tree and get back a complete HTML string synchronously. Components are called as functions, event handlers are stripped, and all attributes are properly escaped:</p>
 
-<pre><code><span class="keyword">import</span> { renderToString } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { renderToString } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">function</span> <span class="function">Greeting</span>({ name }) {
   <span class="keyword">return</span> (
@@ -98,7 +98,7 @@ console.log(html);
           <h2 id="render-to-stream">renderToStream</h2>
           <p>For large pages, streaming sends HTML to the browser as it is generated instead of waiting for the entire page to finish. <code>renderToStream</code> returns an async generator that yields HTML chunks:</p>
 
-<pre><code><span class="keyword">import</span> { renderToStream } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { renderToStream } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// In your server handler (Node.js example)</span>
 app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req, res) =&gt; {
@@ -126,7 +126,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
             <li><strong><code>hybrid</code></strong> -- Static HTML shell with interactive islands. The best of both worlds for content-heavy pages with a few interactive widgets.</li>
           </ul>
 
-<pre><code><span class="keyword">import</span> { definePage } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { definePage } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// Static blog post — built once at deploy time</span>
 <span class="keyword">export default</span> <span class="function">definePage</span>({
@@ -154,7 +154,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
           <h2 id="server-components">Server Components</h2>
           <p>Mark a component as server-only with <code>server()</code>. Server components render on the server and send pure HTML to the client. No JavaScript for these components is ever shipped to the browser:</p>
 
-<pre><code><span class="keyword">import</span> { server } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { server } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">const</span> UserProfile = <span class="function">server</span>(<span class="keyword">function</span>({ userId }) {
   <span class="comment">// This code only runs on the server</span>
@@ -175,7 +175,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
           <h2 id="server-actions">Server Actions</h2>
           <p>Server actions let you define server-side functions that can be called directly from client code. Define an action on the server, and the client calls it via an automatic RPC mechanism over <code>fetch</code>:</p>
 
-<pre><code><span class="keyword">import</span> { action } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { action } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// Define a server action</span>
 <span class="keyword">const</span> saveUser = <span class="function">action</span>(<span class="keyword">async</span> (data) =&gt; {
@@ -189,7 +189,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
           <h3 id="use-action">useAction</h3>
           <p>The <code>useAction</code> hook wraps a server action with reactive state for pending status, errors, and response data:</p>
 
-<pre><code><span class="keyword">import</span> { useAction } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { useAction } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">function</span> <span class="function">SaveButton</span>() {
   <span class="keyword">const</span> { trigger, isPending, error, data } = <span class="function">useAction</span>(saveUser);
@@ -212,7 +212,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
           <h3 id="use-mutation">useMutation</h3>
           <p>For simpler cases where you just need pending/error/data tracking around any async function, use <code>useMutation</code>:</p>
 
-<pre><code><span class="keyword">import</span> { useMutation } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { useMutation } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">const</span> { mutate, isPending, error, data, reset } = <span class="function">useMutation</span>(
   <span class="keyword">async</span> (id) =&gt; {
@@ -232,7 +232,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
           <h3 id="use-optimistic">useOptimistic</h3>
           <p>Show the user an instant result while the server processes the real mutation. If the server call fails, the optimistic update is automatically rolled back:</p>
 
-<pre><code><span class="keyword">import</span> { useOptimistic } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { useOptimistic } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">function</span> <span class="function">LikeButton</span>({ postId, initialCount }) {
   <span class="keyword">const</span> likes = <span class="function">useOptimistic</span>(
@@ -267,7 +267,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
   validateCsrfToken,
   csrfMetaTag,
   handleActionRequest,
-} <span class="keyword">from</span> <span class="string">'what-server'</span>;
+} <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// Server: generate a token per session</span>
 app.use((req, res, next) =&gt; {
@@ -304,7 +304,7 @@ app.post(<span class="string">'/__what_action'</span>, <span class="keyword">asy
           <h2 id="static-generation">Static Site Generation</h2>
           <p>Use <code>generateStaticPage</code> to pre-render pages at build time. It calls <code>renderToString</code> internally and wraps the output in a full HTML document with the configured title, meta tags, styles, and island scripts:</p>
 
-<pre><code><span class="keyword">import</span> { generateStaticPage, definePage } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { generateStaticPage, definePage } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">const</span> page = <span class="function">definePage</span>({
   mode: <span class="string">'hybrid'</span>,

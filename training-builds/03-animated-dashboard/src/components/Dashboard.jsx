@@ -55,7 +55,7 @@ export function Dashboard() {
         </div>
 
         <button
-          onclick={handleRefresh}
+          onClick={handleRefresh}
           style={{
             background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
             color: '#fff',
@@ -68,18 +68,18 @@ export function Dashboard() {
             transition: 'transform 0.15s, box-shadow 0.15s',
             boxShadow: '0 2px 12px rgba(99, 102, 241, 0.3)',
           }}
-          onmouseenter={(e) => {
+          onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'scale(1.03)';
             e.currentTarget.style.boxShadow = '0 4px 20px rgba(99, 102, 241, 0.45)';
           }}
-          onmouseleave={(e) => {
+          onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'scale(1)';
             e.currentTarget.style.boxShadow = '0 2px 12px rgba(99, 102, 241, 0.3)';
           }}
-          onmousedown={(e) => {
+          onMouseDown={(e) => {
             e.currentTarget.style.transform = 'scale(0.97)';
           }}
-          onmouseup={(e) => {
+          onMouseUp={(e) => {
             e.currentTarget.style.transform = 'scale(1.03)';
           }}
         >

@@ -650,6 +650,14 @@ export function spread(el, props) {
 function setPropDirect(el, key, value) {
   if (key === 'class' || key === 'className') {
     el.className = value || '';
+  } else if (key === 'dangerouslySetInnerHTML') {
+    el.innerHTML = value?.__html ?? '';
+  } else if (key === 'innerHTML') {
+    if (value && typeof value === 'object' && '__html' in value) {
+      el.innerHTML = value.__html ?? '';
+    } else {
+      el.innerHTML = value ?? '';
+    }
   } else if (key === 'style') {
     if (typeof value === 'string') {
       el.style.cssText = value;

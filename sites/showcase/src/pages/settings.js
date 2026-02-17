@@ -5,7 +5,7 @@ import {
   useForm, rules, simpleResolver,
   announce,
   useLocalStorage,
-} from '@what/core';
+} from 'what-framework';
 import { useAppStore } from '../app.js';
 
 // ─── Profile Form ───

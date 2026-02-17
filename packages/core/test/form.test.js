@@ -2,7 +2,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { useForm, useField, rules, simpleResolver, zodResolver, yupResolver } = await import('../src/form.js');
+const { useForm, useField, rules, simpleResolver, zodResolver, yupResolver, ErrorMessage } = await import('../src/form.js');
 
 describe('form utilities', () => {
   describe('rules', () => {
@@ -246,6 +246,33 @@ describe('form utilities', () => {
 
       form.setValue('count', 5);
       assert.equal(countSignal(), 5);
+    });
+
+    it('should render ErrorMessage from formState.errors getter', () => {
+      const form = useForm();
+      form.setError('email', { type: 'required', message: 'Email required' });
+
+      const vnode = ErrorMessage({ name: 'email', formState: form.formState });
+      assert.ok(vnode);
+      assert.equal(vnode.tag, 'span');
+      assert.equal(vnode.children[0], 'Email required');
+    });
+
+    it('should support ErrorMessage legacy errors function compatibility', () => {
+      const vnode = ErrorMessage({
+        name: 'email',
+        errors: () => ({ email: { type: 'custom', message: 'Legacy source' } }),
+      });
+
+      assert.ok(vnode);
+      assert.equal(vnode.tag, 'span');
+      assert.equal(vnode.children[0], 'Legacy source');
+    });
+
+    it('should return null from ErrorMessage when no error exists', () => {
+      const form = useForm();
+      const vnode = ErrorMessage({ name: 'email', formState: form.formState });
+      assert.equal(vnode, null);
     });
   });
 

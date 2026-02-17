@@ -4,8 +4,12 @@
 import { signal, computed, effect, batch, untrack } from '../packages/core/src/reactive.js';
 import { h, Fragment } from '../packages/core/src/h.js';
 import { renderToString } from '../packages/server/src/index.js';
+import { writeFileSync } from 'node:fs';
 
 const results = [];
+const args = process.argv.slice(2);
+const jsonIndex = args.indexOf('--json');
+const jsonPath = jsonIndex >= 0 ? args[jsonIndex + 1] : null;
 
 function bench(name, fn, iterations = 10000) {
   // Warmup
@@ -235,3 +239,16 @@ const slowest = results.reduce((worst, r) => r.opsPerSec < worst.opsPerSec ? r :
 console.log(`  Fastest: ${fastest.name} (${fastest.opsPerSec.toLocaleString()} ops/s)`);
 console.log(`  Slowest: ${slowest.name} (${slowest.opsPerSec.toLocaleString()} ops/s)`);
 console.log('');
+
+if (jsonPath) {
+  writeFileSync(
+    jsonPath,
+    JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      node: process.version,
+      platform: process.platform,
+      results,
+    }, null, 2) + '\n'
+  );
+  console.log(`  Wrote JSON report: ${jsonPath}\n`);
+}

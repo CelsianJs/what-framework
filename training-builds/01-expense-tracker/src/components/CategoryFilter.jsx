@@ -15,7 +15,7 @@ export function CategoryFilter() {
           return (
             <button
               key={filter}
-              onclick={() => activeFilter.set(filter)}
+              onClick={() => activeFilter.set(filter)}
               class={cls('filter-btn')}
               style={`
                 padding: 0.375rem 0.875rem;
@@ -28,12 +28,12 @@ export function CategoryFilter() {
                 background: ${activeFilter() === filter ? color : 'transparent'};
                 color: ${activeFilter() === filter ? '#fff' : color};
               `}
-              onmouseenter={(e) => {
+              onMouseEnter={(e) => {
                 if (activeFilter() !== filter) {
                   e.target.style.background = color + '22';
                 }
               }}
-              onmouseleave={(e) => {
+              onMouseLeave={(e) => {
                 if (activeFilter() !== filter) {
                   e.target.style.background = 'transparent';
                 }

@@ -2,7 +2,7 @@
 // Lightweight global state management. Signal-based, type-safe, ergonomic.
 // Like Zustand meets signals — define a store, use it anywhere.
 
-import { signal, computed, batch } from './reactive.js';
+import { signal, computed, batch, __DEV__ } from './reactive.js';
 
 // --- storeComputed ---
 // Marker wrapper to explicitly tag a function as a computed in createStore.
@@ -57,6 +57,11 @@ export function createStore(definition) {
   // Use explicit _storeComputed marker instead of function.length heuristic
   for (const [key, value] of Object.entries(definition)) {
     if (typeof value === 'function' && value._storeComputed) {
+      if (__DEV__ && value.length === 0) {
+        console.warn(
+          `[what] derived() for "${key}" should accept the state parameter, e.g. derived(state => ...).`
+        );
+      }
       // Computed: explicitly marked with storeComputed()
       computeds[key] = value;
     } else if (typeof value === 'function') {

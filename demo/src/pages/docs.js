@@ -1,4 +1,4 @@
-import { h, useState, useMemo } from '@what/core';
+import { h, useState, useMemo } from 'what-framework';
 
 const sections = [
   {
@@ -116,15 +116,15 @@ const [count, setCount] = useState(0);
 setCount(c => c + 1);
 
 // useSignal — more direct, less overhead
-const count = useSignal(0);
-count();        // read
-count.set(5);   // write
+const countSig = useSignal(0);
+countSig();        // read
+countSig.set(5);   // write
 
-// useEffect — with dependency array
+// useEffect — signal reads are tracked automatically
 useEffect(() => {
-  document.title = \`Count: \${count}\`;
+  document.title = \`Count: \${countSig()}\`;
   return () => { /* cleanup */ };
-}, [count]);
+});
 
 // useReducer — complex state logic
 const [state, dispatch] = useReducer(
@@ -351,7 +351,7 @@ node dist/server.js
 # dist/
 #   index.html          (pre-rendered)
 #   about/index.html    (pre-rendered)
-#   @what/core.js       (runtime, ~3kB gzip)
+#   framework.js        (runtime, ~3kB gzip)
 #   assets/             (CSS, images)
 #   islands/            (island JS, code-split)`,
   },

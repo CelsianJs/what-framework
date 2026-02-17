@@ -22,8 +22,8 @@ export function TableRow({ user }) {
   return (
     <tr
       style="transition: background 0.15s; border-bottom: 1px solid #1a1a1a;"
-      onmouseenter={(e) => { e.currentTarget.style.background = '#111'; }}
-      onmouseleave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = '#111'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
       <td style="padding: 0.75rem 1rem; font-size: 0.875rem; color: #888; font-variant-numeric: tabular-nums;">
         {user.id}

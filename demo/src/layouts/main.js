@@ -1,5 +1,5 @@
-import { h } from '@what/core';
-import { Link } from '@what/router';
+import { h } from 'what-framework';
+import { Link } from 'what-framework/router';
 
 export function Layout({ children }) {
   return h('div', { class: 'layout' },

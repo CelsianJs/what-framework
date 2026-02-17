@@ -90,8 +90,8 @@ export function ConfirmDialog({
           {/* Cancel button */}
           <button
             tabIndex={roving.getItemProps(0).tabIndex}
-            onclick={handleCancel}
-            onkeydown={(e) => {
+            onClick={handleCancel}
+            onKeyDown={(e) => {
               roving.getItemProps(0).onKeyDown(e);
             }}
             style={{
@@ -106,18 +106,18 @@ export function ConfirmDialog({
               transition: 'background 0.15s, border-color 0.15s',
               outline: 'none',
             }}
-            onfocus={(e) => {
+            onFocus={(e) => {
               e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99, 102, 241, 0.5)';
               roving.getItemProps(0).onFocus();
             }}
-            onblur={(e) => {
+            onBlur={(e) => {
               e.currentTarget.style.boxShadow = 'none';
             }}
-            onmouseenter={(e) => {
+            onMouseEnter={(e) => {
               e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
               e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
             }}
-            onmouseleave={(e) => {
+            onMouseLeave={(e) => {
               e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
               e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
             }}
@@ -128,8 +128,8 @@ export function ConfirmDialog({
           {/* Confirm button */}
           <button
             tabIndex={roving.getItemProps(1).tabIndex}
-            onclick={handleConfirm}
-            onkeydown={(e) => {
+            onClick={handleConfirm}
+            onKeyDown={(e) => {
               roving.getItemProps(1).onKeyDown(e);
             }}
             style={{
@@ -145,18 +145,18 @@ export function ConfirmDialog({
               boxShadow: `0 2px 12px ${confirmColors.shadow}`,
               outline: 'none',
             }}
-            onfocus={(e) => {
+            onFocus={(e) => {
               e.currentTarget.style.boxShadow = `0 2px 12px ${confirmColors.shadow}, 0 0 0 2px rgba(99, 102, 241, 0.5)`;
               roving.getItemProps(1).onFocus();
             }}
-            onblur={(e) => {
+            onBlur={(e) => {
               e.currentTarget.style.boxShadow = `0 2px 12px ${confirmColors.shadow}`;
             }}
-            onmouseenter={(e) => {
+            onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'scale(1.03)';
               e.currentTarget.style.boxShadow = `0 4px 20px ${confirmColors.hoverShadow}`;
             }}
-            onmouseleave={(e) => {
+            onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)';
               e.currentTarget.style.boxShadow = `0 2px 12px ${confirmColors.shadow}`;
             }}

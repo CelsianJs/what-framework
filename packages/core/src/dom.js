@@ -154,9 +154,16 @@ function createDOM(vnode, parent, isSvg) {
     : document.createElement(vnode.tag);
 
   applyProps(el, vnode.props, {}, svgContext);
-  for (const child of vnode.children) {
-    const node = createDOM(child, el, svgContext && vnode.tag !== 'foreignObject');
-    if (node) el.appendChild(node);
+  const hasRawHtml = vnode.props && (
+    Object.prototype.hasOwnProperty.call(vnode.props, 'dangerouslySetInnerHTML') ||
+    Object.prototype.hasOwnProperty.call(vnode.props, 'innerHTML')
+  );
+
+  if (!hasRawHtml) {
+    for (const child of vnode.children) {
+      const node = createDOM(child, el, svgContext && vnode.tag !== 'foreignObject');
+      if (node) el.appendChild(node);
+    }
   }
 
   // Store vnode on element for diffing
@@ -758,8 +765,26 @@ function patchNode(parent, domNode, vnode) {
   // Element: same tag? Patch props + children
   if (domNode.nodeType === 1 && domNode.tagName.toLowerCase() === vnode.tag) {
     const oldProps = domNode._vnode?.props || {};
-    applyProps(domNode, vnode.props, oldProps);
-    reconcileChildren(domNode, vnode.children);
+    const nextProps = vnode.props || {};
+    const hadRawHtml = Object.prototype.hasOwnProperty.call(oldProps, 'dangerouslySetInnerHTML')
+      || Object.prototype.hasOwnProperty.call(oldProps, 'innerHTML');
+    const hasRawHtml = Object.prototype.hasOwnProperty.call(nextProps, 'dangerouslySetInnerHTML')
+      || Object.prototype.hasOwnProperty.call(nextProps, 'innerHTML');
+
+    // If switching from normal children to raw HTML, dispose existing child effects first.
+    if (hasRawHtml && !hadRawHtml) {
+      for (const child of Array.from(domNode.childNodes)) {
+        disposeTree(child);
+      }
+    }
+
+    applyProps(domNode, nextProps, oldProps);
+
+    // Raw HTML props own the element's children. Skip vnode child reconciliation.
+    if (!hasRawHtml) {
+      reconcileChildren(domNode, vnode.children);
+    }
+
     domNode._vnode = vnode;
     return domNode;
   }
@@ -888,7 +913,17 @@ function setProp(el, key, value, isSvg) {
 
   // dangerouslySetInnerHTML
   if (key === 'dangerouslySetInnerHTML') {
-    el.innerHTML = value.__html;
+    el.innerHTML = value?.__html ?? '';
+    return;
+  }
+
+  // innerHTML convenience alias
+  if (key === 'innerHTML') {
+    if (value && typeof value === 'object' && '__html' in value) {
+      el.innerHTML = value.__html ?? '';
+    } else {
+      el.innerHTML = value ?? '';
+    }
     return;
   }
 
@@ -941,6 +976,11 @@ function removeProp(el, key, oldValue) {
   if (key === 'style') {
     el.style.cssText = '';
     el._prevStyle = null;
+    return;
+  }
+
+  if (key === 'dangerouslySetInnerHTML' || key === 'innerHTML') {
+    el.innerHTML = '';
     return;
   }
 

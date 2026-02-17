@@ -76,6 +76,28 @@ describe('renderToString', () => {
     assert.equal(html, '<div style="color:red;font-size:16px"></div>');
   });
 
+  it('should render dangerouslySetInnerHTML content', () => {
+    const html = renderToString(h('div', { dangerouslySetInnerHTML: { __html: '<b>Bold</b>' } }));
+    assert.equal(html, '<div><b>Bold</b></div>');
+  });
+
+  it('should render innerHTML content (string and object)', () => {
+    const stringHtml = renderToString(h('div', { innerHTML: '<i>Italic</i>' }));
+    assert.equal(stringHtml, '<div><i>Italic</i></div>');
+
+    const objectHtml = renderToString(h('div', { innerHTML: { __html: '<u>Underline</u>' } }));
+    assert.equal(objectHtml, '<div><u>Underline</u></div>');
+  });
+
+  it('should not emit innerHTML attributes in SSR output', () => {
+    const html = renderToString(h('div', {
+      id: 'x',
+      innerHTML: '<span>A</span>',
+      dangerouslySetInnerHTML: { __html: '<span>B</span>' },
+    }));
+    assert.equal(html, '<div id="x"><span>B</span></div>');
+  });
+
   it('should handle null/undefined/boolean children', () => {
     const html = renderToString(h('div', null, null, false, true, 'visible'));
     assert.equal(html, '<div>visible</div>');

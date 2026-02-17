@@ -366,3 +366,120 @@ describe('signal unified getter/setter', () => {
     dispose();
   });
 });
+
+// =========================================================================
+// Event Casing Compatibility
+// =========================================================================
+
+describe('event casing compatibility', () => {
+  it('supports both onClick and onclick handlers', async () => {
+    const camelClicks = signal(0);
+    const lowerClicks = signal(0);
+    const container = getContainer();
+
+    mount(
+      h('div', null,
+        h('button', { id: 'camel', onClick: () => camelClicks(c => c + 1) }, 'Camel'),
+        h('button', { id: 'lower', onclick: () => lowerClicks(c => c + 1) }, 'Lower'),
+      ),
+      container
+    );
+    await flush();
+
+    container.querySelector('#camel').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    container.querySelector('#lower').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+    assert.equal(camelClicks(), 1);
+    assert.equal(lowerClicks(), 1);
+  });
+
+  it('keeps handler working when switching between onClick and onclick', async () => {
+    const useLower = signal(false);
+    const clicks = signal(0);
+    const container = getContainer();
+
+    function App() {
+      return h(
+        'button',
+        useLower()
+          ? { id: 'switch-case', onclick: () => clicks(c => c + 1) }
+          : { id: 'switch-case', onClick: () => clicks(c => c + 1) },
+        'Switch',
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    container.querySelector('#switch-case').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.equal(clicks(), 1);
+
+    useLower(true);
+    await flush();
+
+    container.querySelector('#switch-case').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.equal(clicks(), 2);
+  });
+});
+
+// =========================================================================
+// innerHTML / dangerouslySetInnerHTML
+// =========================================================================
+
+describe('innerHTML props', () => {
+  it('supports innerHTML as string and updates reactively', async () => {
+    const html = signal('<strong>Hello</strong>');
+    const container = getContainer();
+
+    function App() {
+      return h('div', { id: 'target', innerHTML: html() });
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.equal(container.querySelector('#target').innerHTML, '<strong>Hello</strong>');
+
+    html('<em>Updated</em>');
+    await flush();
+    assert.equal(container.querySelector('#target').innerHTML, '<em>Updated</em>');
+  });
+
+  it('supports dangerouslySetInnerHTML and clears content when removed', async () => {
+    const enabled = signal(true);
+    const container = getContainer();
+
+    function App() {
+      return enabled()
+        ? h('div', { id: 'danger', dangerouslySetInnerHTML: { __html: '<span>Unsafe</span>' } })
+        : h('div', { id: 'danger' }, 'Safe');
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    const target = container.querySelector('#danger');
+    assert.equal(target.innerHTML, '<span>Unsafe</span>');
+
+    enabled(false);
+    await flush();
+    assert.equal(target.innerHTML, 'Safe');
+  });
+
+  it('supports innerHTML on SVG elements', async () => {
+    const container = getContainer();
+
+    mount(
+      h('svg', {
+        id: 'svg-root',
+        innerHTML: '<circle cx="5" cy="5" r="5"></circle>',
+      }),
+      container,
+    );
+    await flush();
+
+    const svg = container.querySelector('#svg-root');
+    const circle = svg.querySelector('circle');
+    assert.ok(circle, 'circle should be inserted via innerHTML on svg');
+  });
+});

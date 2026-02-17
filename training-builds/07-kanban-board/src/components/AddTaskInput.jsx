@@ -25,8 +25,8 @@ export function AddTaskInput({ columnId }) {
       type="text"
       placeholder="+ Add a task..."
       value={value()}
-      oninput={(e) => value(e.target.value)}
-      onkeydown={handleSubmit}
+      onInput={(e) => value(e.target.value)}
+      onKeyDown={handleSubmit}
       style="
         width: 100%;
         background: transparent;
@@ -38,11 +38,11 @@ export function AddTaskInput({ columnId }) {
         outline: none;
         transition: border-color 0.15s, color 0.15s;
       "
-      onfocus={(e) => {
+      onFocus={(e) => {
         e.target.style.borderColor = '#3a3a4e';
         e.target.style.color = '#e5e5e5';
       }}
-      onblur={(e) => {
+      onBlur={(e) => {
         e.target.style.borderColor = '#2a2a3e';
         e.target.style.color = '#737373';
       }}

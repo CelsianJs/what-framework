@@ -1,5 +1,5 @@
-import { h, useState } from '@what/core';
-import { Link } from '@what/router';
+import { h, useState } from 'what-framework';
+import { Link } from 'what-framework/router';
 
 export function Home() {
   const [count, setCount] = useState(0);
@@ -49,7 +49,7 @@ function Counter() {
   const count = signal(0);
   return (
     <button onClick={() => count.set(c => c + 1)}>
-      Count: {count}
+      Count: {count()}
     </button>
   );
 }

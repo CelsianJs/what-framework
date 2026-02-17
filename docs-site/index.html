@@ -415,11 +415,11 @@
         <span class="code-dot"></span>
       </div>
       <div class="code-content">
-<pre><span class="keyword">import</span> { mount, useSignal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><span class="keyword">import</span> { mount, useSignal, useComputed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Counter</span>() {
   <span class="keyword">const</span> count = <span class="function">useSignal</span>(0);
-  <span class="keyword">const</span> doubled = <span class="function">computed</span>(() => count() * 2);
+  <span class="keyword">const</span> doubled = <span class="function">useComputed</span>(() => count() * 2);
 
   <span class="keyword">return</span> (
     &lt;div&gt;
@@ -498,7 +498,7 @@
         <div class="stat-label">Dependencies</div>
       </div>
       <div>
-        <div class="stat-value">113</div>
+        <div class="stat-value">192</div>
         <div class="stat-label">Tests passing</div>
       </div>
       <div>

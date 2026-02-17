@@ -1,0 +1,85 @@
+name: Release And Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_packages:
+        description: Publish packages to npm
+        required: true
+        default: true
+        type: boolean
+      deploy_web:
+        description: Deploy landing/docs surfaces to Vercel
+        required: true
+        default: true
+        type: boolean
+      deploy_targets:
+        description: Comma-separated deploy targets (empty = defaults in script)
+        required: false
+        default: ""
+        type: string
+      npm_tag:
+        description: npm dist-tag for publish
+        required: false
+        default: latest
+        type: string
+      dry_run:
+        description: Run without publishing/deploying
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-and-deploy-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify quality gates
+        run: npm run -s release:verify
+
+      - name: Publish npm packages
+        if: ${{ inputs.publish_packages }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          ARGS=()
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          if [ -n "${{ inputs.npm_tag }}" ]; then
+            ARGS+=(--tag "${{ inputs.npm_tag }}")
+          fi
+          node scripts/publish-packages.mjs "${ARGS[@]}"
+
+      - name: Deploy Vercel targets
+        if: ${{ inputs.deploy_web }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          ARGS=()
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          if [ -n "${{ inputs.deploy_targets }}" ]; then
+            ARGS+=(--targets "${{ inputs.deploy_targets }}")
+          fi
+          node scripts/deploy-vercel.mjs "${ARGS[@]}"

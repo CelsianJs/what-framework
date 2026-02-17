@@ -13,10 +13,10 @@ export function SortHeader({ label, field, currentSort, currentDir, onSort }) {
 
   return (
     <th
-      onclick={handleClick}
+      onClick={handleClick}
       style="padding: 0.75rem 1rem; text-align: left; font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #999; cursor: pointer; user-select: none; transition: color 0.2s; white-space: nowrap; border-bottom: 1px solid #1e1e1e;"
-      onmouseenter={(e) => { e.currentTarget.style.color = '#e5e5e5'; }}
-      onmouseleave={(e) => { e.currentTarget.style.color = '#999'; }}
+      onMouseEnter={(e) => { e.currentTarget.style.color = '#e5e5e5'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
     >
       <div style="display: flex; align-items: center; gap: 0.375rem;">
         <span>{label}</span>

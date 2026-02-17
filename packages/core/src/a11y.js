@@ -24,6 +24,30 @@ export function useFocus() {
   };
 }
 
+// Capture/restore focus around transient UI (dialogs, popovers, drawers).
+// Parent components can call capture() before opening and restore() on close.
+export function useFocusRestore() {
+  const previousFocusRef = { current: null };
+
+  function capture(target) {
+    if (typeof document === 'undefined') return;
+    previousFocusRef.current = target || document.activeElement || null;
+  }
+
+  function restore(fallbackTarget) {
+    const target = previousFocusRef.current || fallbackTarget;
+    if (target && typeof target.focus === 'function') {
+      target.focus();
+    }
+  }
+
+  return {
+    capture,
+    restore,
+    previous: () => previousFocusRef.current,
+  };
+}
+
 // --- Focus Trap ---
 // Keep focus within a container (for modals, dialogs, etc.)
 
@@ -36,7 +60,7 @@ export function useFocusTrap(containerRef) {
     previousFocus = document.activeElement;
     const container = containerRef.current || containerRef;
 
-    if (!container) return;
+    if (!container || typeof container.querySelectorAll !== 'function') return;
 
     // Find all focusable elements
     const focusables = getFocusableElements(container);
@@ -104,14 +128,31 @@ function getFocusableElements(container) {
 
 export function FocusTrap({ children, active = true }) {
   const containerRef = { current: null };
+  const refVersion = signal(0);
   const trap = useFocusTrap(containerRef);
+  let trapCleanup = null;
+
+  const setRef = (el) => {
+    containerRef.current = el;
+    refVersion.set(v => v + 1);
+  };
 
   // Scope the effect to the component lifecycle so it disposes on unmount
   const dispose = effect(() => {
-    if (active) {
-      const cleanup = trap.activate();
+    // Re-run activation after the ref element is attached/updated.
+    refVersion();
+
+    if (trapCleanup) {
+      trapCleanup();
+      trapCleanup = null;
+      trap.deactivate();
+    }
+
+    if (active && containerRef.current) {
+      trapCleanup = trap.activate();
       return () => {
-        cleanup?.();
+        trapCleanup?.();
+        trapCleanup = null;
         trap.deactivate();
       };
     }
@@ -121,10 +162,15 @@ export function FocusTrap({ children, active = true }) {
   const ctx = getCurrentComponent?.();
   if (ctx) {
     ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(dispose);
+    ctx._cleanupCallbacks.push(() => {
+      dispose();
+      trapCleanup?.();
+      trapCleanup = null;
+      trap.deactivate();
+    });
   }
 
-  return h('div', { ref: containerRef }, children);
+  return h('div', { ref: setRef }, children);
 }
 
 // --- Screen Reader Announcements ---

@@ -12,8 +12,8 @@ import {
   // Skeleton
   Skeleton, SkeletonText, SkeletonCard,
   // Utils
-  show, cls,
-} from '@what/core';
+  cls,
+} from 'what-framework';
 
 // --- Counter Demo ---
 function Counter() {
@@ -220,7 +220,7 @@ function FormDemo() {
 
   return h('div', { class: 'demo-card' },
     h('h3', { class: 'demo-title' }, 'Form Validation'),
-    show(submitted,
+    submitted ? (
       h('div', {
         style: {
           padding: '1rem',
@@ -230,44 +230,44 @@ function FormDemo() {
           marginBottom: '1rem',
         },
       }, '\u2713 Form submitted: ', () => submitted?.email)
-    ),
+    ) : null,
     h('form', { onSubmit: handleSubmit(onSubmit), style: { display: 'flex', flexDirection: 'column', gap: '1rem' } },
       h('div', null,
         h('input', {
           ...register('email'),
           placeholder: 'Email',
-          style: {
+          style: () => ({
             width: '100%',
             padding: '0.75rem 1rem',
-            border: () => formState.errors().email ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
+            border: formState.errors.email ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
             borderRadius: 'var(--radius-lg)',
             fontSize: 'var(--text-sm)',
-          },
+          }),
         }),
-        show(formState.errors().email,
+        formState.errors.email ? (
           h('span', { style: { color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: '0.25rem', display: 'block' } },
-            () => formState.errors().email?.message
+            formState.errors.email?.message
           )
-        ),
+        ) : null,
       ),
       h('div', null,
         h('input', {
           ...register('password'),
           type: 'password',
           placeholder: 'Password',
-          style: {
+          style: () => ({
             width: '100%',
             padding: '0.75rem 1rem',
-            border: () => formState.errors().password ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
+            border: formState.errors.password ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
             borderRadius: 'var(--radius-lg)',
             fontSize: 'var(--text-sm)',
-          },
+          }),
         }),
-        show(formState.errors().password,
+        formState.errors.password ? (
           h('span', { style: { color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: '0.25rem', display: 'block' } },
-            () => formState.errors().password?.message
+            formState.errors.password?.message
           )
-        ),
+        ) : null,
       ),
       h('button', {
         type: 'submit',
@@ -297,15 +297,15 @@ function DataDemo() {
     h('div', { class: 'mb-4' },
       h('button', { class: 'btn btn-secondary', onClick: () => mutate() }, '\u21bb Refetch'),
     ),
-    show(isLoading,
+    isLoading() ? (
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.5rem' } },
         h(Skeleton, { width: '100%', height: 48 }),
         h(Skeleton, { width: '100%', height: 48 }),
         h(Skeleton, { width: '100%', height: 48 }),
       )
-    ),
-    show(error, h('p', { style: { color: 'var(--color-error)' } }, 'Error loading data')),
-    show(() => data() && !isLoading(),
+    ) : null,
+    error() ? h('p', { style: { color: 'var(--color-error)' } }, 'Error loading data') : null,
+    data() && !isLoading() ? (
       h('ul', { style: { listStyle: 'none', padding: 0 } },
         () => (data() || []).map(user =>
           h('li', {
@@ -324,7 +324,7 @@ function DataDemo() {
           )
         )
       )
-    ),
+    ) : null,
   );
 }
 
@@ -342,7 +342,7 @@ function SkeletonDemo() {
     h('p', { class: 'text-muted mb-4' },
       'Auto-toggles every 2s: ', () => loading ? 'Loading...' : 'Loaded!'
     ),
-    show(loading,
+    loading ? (
       h('div', { style: { display: 'flex', gap: '1rem' } },
         h(Skeleton, { width: 60, height: 60, style: { borderRadius: '50%' } }),
         h('div', { style: { flex: 1 } },
@@ -350,8 +350,8 @@ function SkeletonDemo() {
           h(SkeletonText, { lines: 2, style: { gap: '0.5rem' } }),
         ),
       )
-    ),
-    show(() => !loading,
+    ) : null,
+    !loading ? (
       h('div', { style: { display: 'flex', gap: '1rem', alignItems: 'center' } },
         h('div', {
           style: {
@@ -366,7 +366,7 @@ function SkeletonDemo() {
           h('p', { class: 'text-muted', style: { margin: 0 } }, 'Software Engineer at Acme Inc.'),
         ),
       )
-    ),
+    ) : null,
   );
 }
 
@@ -399,12 +399,12 @@ function A11yDemo() {
         setAnnounceText('Announcement sent');
       } }, 'Announce'),
     ),
-    show(announceText,
+    announceText ? (
       h('p', { class: 'text-muted', style: { fontStyle: 'italic' } },
         'Last action: ', announceText
       )
-    ),
-    show(modalOpen,
+    ) : null,
+    modalOpen ? (
       h('div', {
         style: {
           position: 'fixed',
@@ -442,7 +442,7 @@ function A11yDemo() {
           ),
         )
       )
-    ),
+    ) : null,
   );
 }
 

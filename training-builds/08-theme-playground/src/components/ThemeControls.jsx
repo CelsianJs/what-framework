@@ -55,7 +55,7 @@ export function ThemeControls() {
           {() => themePresets.map(preset => (
             <button
               key={preset.key}
-              onclick={() => handlePresetClick(preset.key)}
+              onClick={() => handlePresetClick(preset.key)}
               class={cls(
                 'preset-btn',
                 ctx.themeName() === preset.key && 'preset-btn--active'
@@ -116,7 +116,7 @@ export function ThemeControls() {
             min="0"
             max="24"
             value={ctx.theme().radius}
-            oninput={(e) => ctx.customizeRadius(Number(e.target.value))}
+            onInput={(e) => ctx.customizeRadius(Number(e.target.value))}
             style="
               flex: 1;
               accent-color: var(--primary);
@@ -140,7 +140,7 @@ export function ThemeControls() {
             min="8"
             max="32"
             value={ctx.theme().spacing}
-            oninput={(e) => ctx.customizeSpacing(Number(e.target.value))}
+            onInput={(e) => ctx.customizeSpacing(Number(e.target.value))}
             style="
               flex: 1;
               accent-color: var(--primary);
@@ -158,7 +158,7 @@ export function ThemeControls() {
 
       {/* Reset Button */}
       <button
-        onclick={handleReset}
+        onClick={handleReset}
         style="
           background: transparent;
           color: var(--error);
@@ -170,11 +170,11 @@ export function ThemeControls() {
           transition: all 0.2s;
           width: 100%;
         "
-        onmouseenter={(e) => {
+        onMouseEnter={(e) => {
           e.currentTarget.style.background = 'var(--error)';
           e.currentTarget.style.color = '#fff';
         }}
-        onmouseleave={(e) => {
+        onMouseLeave={(e) => {
           e.currentTarget.style.background = 'transparent';
           e.currentTarget.style.color = 'var(--error)';
         }}

@@ -47,14 +47,14 @@ export function InlineEditor({ task, onSave, onCancel }) {
         flex-direction: column;
         gap: 0.5rem;
       "
-      onclick={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
     >
       {/* Title Input */}
       <input
         type="text"
         value={title()}
-        oninput={(e) => title(e.target.value)}
-        onkeydown={handleKeyDown}
+        onInput={(e) => title(e.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder="Task title"
         style="
           background: #111118;
@@ -68,15 +68,15 @@ export function InlineEditor({ task, onSave, onCancel }) {
           width: 100%;
           transition: border-color 0.15s;
         "
-        onfocus={(e) => { e.target.style.borderColor = '#6366f1'; }}
-        onblur={(e) => { e.target.style.borderColor = '#2a2a3e'; }}
+        onFocus={(e) => { e.target.style.borderColor = '#6366f1'; }}
+        onBlur={(e) => { e.target.style.borderColor = '#2a2a3e'; }}
       />
 
       {/* Description Textarea */}
       <textarea
         value={description()}
-        oninput={(e) => description(e.target.value)}
-        onkeydown={handleKeyDown}
+        onInput={(e) => description(e.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder="Description (optional)"
         rows="2"
         style="
@@ -93,15 +93,15 @@ export function InlineEditor({ task, onSave, onCancel }) {
           transition: border-color 0.15s;
           font-family: inherit;
         "
-        onfocus={(e) => { e.target.style.borderColor = '#6366f1'; }}
-        onblur={(e) => { e.target.style.borderColor = '#2a2a3e'; }}
+        onFocus={(e) => { e.target.style.borderColor = '#6366f1'; }}
+        onBlur={(e) => { e.target.style.borderColor = '#2a2a3e'; }}
       />
 
       {/* Priority Select & Actions */}
       <div style="display: flex; align-items: center; gap: 0.5rem;">
         <select
           value={priority()}
-          onchange={(e) => priority(e.target.value)}
+          onChange={(e) => priority(e.target.value)}
           style="
             background: #111118;
             border: 1px solid #2a2a3e;
@@ -120,7 +120,7 @@ export function InlineEditor({ task, onSave, onCancel }) {
         </select>
 
         <button
-          onclick={save}
+          onClick={save}
           style="
             background: #6366f1;
             color: #fff;
@@ -131,13 +131,13 @@ export function InlineEditor({ task, onSave, onCancel }) {
             font-weight: 500;
             transition: background 0.15s;
           "
-          onmouseenter={(e) => { e.currentTarget.style.background = '#4f46e5'; }}
-          onmouseleave={(e) => { e.currentTarget.style.background = '#6366f1'; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#4f46e5'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#6366f1'; }}
         >
           Save
         </button>
         <button
-          onclick={onCancel}
+          onClick={onCancel}
           style="
             background: transparent;
             color: #737373;
@@ -147,11 +147,11 @@ export function InlineEditor({ task, onSave, onCancel }) {
             font-size: 0.8125rem;
             transition: color 0.15s, border-color 0.15s;
           "
-          onmouseenter={(e) => {
+          onMouseEnter={(e) => {
             e.currentTarget.style.color = '#e5e5e5';
             e.currentTarget.style.borderColor = '#3a3a4e';
           }}
-          onmouseleave={(e) => {
+          onMouseLeave={(e) => {
             e.currentTarget.style.color = '#737373';
             e.currentTarget.style.borderColor = '#2a2a3e';
           }}

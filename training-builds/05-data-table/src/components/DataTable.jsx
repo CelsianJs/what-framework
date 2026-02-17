@@ -81,10 +81,10 @@ export function DataTable() {
                 Failed to load users: {error.message}
               </p>
               <button
-                onclick={() => result.revalidate()}
+                onClick={() => result.revalidate()}
                 style="padding: 0.5rem 1.25rem; background: #dc2626; color: white; border: none; border-radius: 0.5rem; font-size: 0.8125rem; cursor: pointer; transition: background 0.2s;"
-                onmouseenter={(e) => { e.target.style.background = '#b91c1c'; }}
-                onmouseleave={(e) => { e.target.style.background = '#dc2626'; }}
+                onMouseEnter={(e) => { e.target.style.background = '#b91c1c'; }}
+                onMouseLeave={(e) => { e.target.style.background = '#dc2626'; }}
               >
                 Retry
               </button>

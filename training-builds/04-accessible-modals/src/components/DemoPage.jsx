@@ -121,7 +121,7 @@ export function DemoPage() {
           <ModalTrigger
             label="Basic Modal"
             variant="primary"
-            onclick={(ref) => {
+            onClick={(ref) => {
               basicTriggerRef.current = ref.current;
               basicModalOpen(true);
             }}
@@ -129,7 +129,7 @@ export function DemoPage() {
           <ModalTrigger
             label="Confirm Delete"
             variant="danger"
-            onclick={(ref) => {
+            onClick={(ref) => {
               confirmTriggerRef.current = ref.current;
               confirmDeleteOpen(true);
             }}
@@ -137,7 +137,7 @@ export function DemoPage() {
           <ModalTrigger
             label="Info Dialog"
             variant="success"
-            onclick={(ref) => {
+            onClick={(ref) => {
               infoTriggerRef.current = ref.current;
               infoDialogOpen(true);
             }}
@@ -159,10 +159,10 @@ export function DemoPage() {
         <ButtonGroup
           ariaLabel="Sample actions"
           buttons={[
-            { label: 'Save', variant: 'primary', onclick: () => setStatus('Save clicked') },
-            { label: 'Export', variant: 'success', onclick: () => setStatus('Export clicked') },
-            { label: 'Delete', variant: 'danger', onclick: () => setStatus('Delete clicked') },
-            { label: 'Cancel', variant: 'default', onclick: () => setStatus('Cancel clicked') },
+            { label: 'Save', variant: 'primary', onClick: () => setStatus('Save clicked') },
+            { label: 'Export', variant: 'success', onClick: () => setStatus('Export clicked') },
+            { label: 'Delete', variant: 'danger', onClick: () => setStatus('Delete clicked') },
+            { label: 'Cancel', variant: 'default', onClick: () => setStatus('Cancel clicked') },
           ]}
         />
       </section>
@@ -292,16 +292,16 @@ export function DemoPage() {
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
-                onclick={() => {
+                onClick={() => {
                   basicModalOpen(false);
                   setStatus('Basic modal closed via button');
                   if (basicTriggerRef.current) basicTriggerRef.current.focus();
                 }}
                 style={primaryButtonStyle}
-                onmouseenter={(e) => {
+                onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'scale(1.03)';
                 }}
-                onmouseleave={(e) => {
+                onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'scale(1)';
                 }}
               >
@@ -386,16 +386,16 @@ export function DemoPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
-                onclick={() => {
+                onClick={() => {
                   infoDialogOpen(false);
                   setStatus('Info dialog closed');
                   if (infoTriggerRef.current) infoTriggerRef.current.focus();
                 }}
                 style={successButtonStyle}
-                onmouseenter={(e) => {
+                onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'scale(1.03)';
                 }}
-                onmouseleave={(e) => {
+                onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'scale(1)';
                 }}
               >

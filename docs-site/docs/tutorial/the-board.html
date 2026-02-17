@@ -12,7 +12,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -46,8 +46,8 @@
           <h2 id="square-component">The Square Component</h2>
           <p>Let's start by creating a single square. A square is a button that will display either nothing, "X", or "O".</p>
 
-          <div class="code-header">src/pages/index.jsx</div>
-<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+          <div class="code-header">src/main.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (
@@ -84,8 +84,8 @@
           <h2 id="board-component">The Board Component</h2>
           <p>Now let's create the full board with 9 squares:</p>
 
-          <div class="code-header">src/pages/index.jsx</div>
-<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+          <div class="code-header">src/main.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (
@@ -125,7 +125,7 @@
           <h2 id="render-with-loop">Rendering with a Loop</h2>
           <p>Writing 9 Square components is repetitive. Let's use a loop instead:</p>
 
-          <div class="code-header">src/pages/index.jsx</div>
+          <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">function</span> <span class="function">Board</span>() {
   <span class="keyword">const</span> squares = Array(<span class="number">9</span>).fill(<span class="keyword">null</span>);
 
@@ -152,8 +152,8 @@
           <h2 id="checkpoint">Checkpoint</h2>
           <p>Your code should look like this:</p>
 
-          <div class="code-header">src/pages/index.jsx (complete)</div>
-<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+          <div class="code-header">src/main.jsx (complete)</div>
+<pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (

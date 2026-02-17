@@ -63,9 +63,9 @@
   },
   "homepage": "https://github.com/aspect/what-fw#readme",
   "dependencies": {
-    "what-core": "^0.4.0",
-    "what-router": "^0.4.0",
-    "what-server": "^0.4.0",
-    "what-compiler": "^0.4.0"
+    "what-core": "^0.4.2",
+    "what-router": "^0.4.2",
+    "what-server": "^0.4.2",
+    "what-compiler": "^0.4.2"
   }
 }

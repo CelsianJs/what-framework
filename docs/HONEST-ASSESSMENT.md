@@ -2,6 +2,9 @@
 
 An unsparing analysis of the What Framework compared to React, Solid, Svelte, Vue, and Preact. Written after reading every source file in the core, router, server, and compiler packages.
 
+> Historical note: This document captures pre-cleanup findings and terminology.
+> Canonical current guidance lives in `/README.md`, `/GETTING-STARTED.md`, `/docs/QUICKSTART.md`, `/docs/API.md`, and `/docs/GOTCHAS.md`.
+
 ---
 
 ## 1. Performance

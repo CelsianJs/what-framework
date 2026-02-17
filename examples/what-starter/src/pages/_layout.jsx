@@ -2,7 +2,7 @@
 // _layout.jsx files are auto-detected by the file router.
 // The matched page renders as {children}.
 
-import { Link } from 'what-router';
+import { Link } from 'what-framework/router';
 
 export default function RootLayout({ children }) {
   return (

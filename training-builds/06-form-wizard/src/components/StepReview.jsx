@@ -46,10 +46,10 @@ export function StepReview() {
                 Your account has been successfully created. Welcome aboard!
               </p>
               <button
-                onclick={handleReset}
+                onClick={handleReset}
                 style="padding: 0.75rem 2rem; background: #1a1a1a; color: #e5e5e5; border: 1px solid #2a2a2a; border-radius: 0.625rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s;"
-                onmouseenter={(e) => { e.target.style.background = '#222'; e.target.style.borderColor = '#3b82f6'; }}
-                onmouseleave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.borderColor = '#2a2a2a'; }}
+                onMouseEnter={(e) => { e.target.style.background = '#222'; e.target.style.borderColor = '#3b82f6'; }}
+                onMouseLeave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.borderColor = '#2a2a2a'; }}
               >
                 Start Over
               </button>
@@ -71,10 +71,10 @@ export function StepReview() {
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
                 <h3 style="font-size: 0.9375rem; font-weight: 600; color: #e5e5e5;">Account</h3>
                 <button
-                  onclick={() => wizard.goTo(0)}
+                  onClick={() => wizard.goTo(0)}
                   style="padding: 0.25rem 0.75rem; background: none; border: 1px solid #2a2a2a; border-radius: 0.375rem; color: #3b82f6; font-size: 0.75rem; cursor: pointer; transition: all 0.2s;"
-                  onmouseenter={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.background = '#0c1a30'; }}
-                  onmouseleave={(e) => { e.target.style.borderColor = '#2a2a2a'; e.target.style.background = 'none'; }}
+                  onMouseEnter={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.background = '#0c1a30'; }}
+                  onMouseLeave={(e) => { e.target.style.borderColor = '#2a2a2a'; e.target.style.background = 'none'; }}
                 >
                   Edit
                 </button>
@@ -88,10 +88,10 @@ export function StepReview() {
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
                 <h3 style="font-size: 0.9375rem; font-weight: 600; color: #e5e5e5;">Profile</h3>
                 <button
-                  onclick={() => wizard.goTo(1)}
+                  onClick={() => wizard.goTo(1)}
                   style="padding: 0.25rem 0.75rem; background: none; border: 1px solid #2a2a2a; border-radius: 0.375rem; color: #3b82f6; font-size: 0.75rem; cursor: pointer; transition: all 0.2s;"
-                  onmouseenter={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.background = '#0c1a30'; }}
-                  onmouseleave={(e) => { e.target.style.borderColor = '#2a2a2a'; e.target.style.background = 'none'; }}
+                  onMouseEnter={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.background = '#0c1a30'; }}
+                  onMouseLeave={(e) => { e.target.style.borderColor = '#2a2a2a'; e.target.style.background = 'none'; }}
                 >
                   Edit
                 </button>
@@ -112,19 +112,19 @@ export function StepReview() {
             <div style="display: flex; gap: 0.75rem;">
               <button
                 type="button"
-                onclick={() => wizard.prev()}
+                onClick={() => wizard.prev()}
                 style="flex: 1; padding: 0.75rem; background: #1a1a1a; color: #ccc; border: 1px solid #2a2a2a; border-radius: 0.625rem; font-size: 0.9375rem; font-weight: 500; cursor: pointer; transition: all 0.2s;"
-                onmouseenter={(e) => { e.target.style.background = '#222'; e.target.style.borderColor = '#444'; }}
-                onmouseleave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.borderColor = '#2a2a2a'; }}
+                onMouseEnter={(e) => { e.target.style.background = '#222'; e.target.style.borderColor = '#444'; }}
+                onMouseLeave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.borderColor = '#2a2a2a'; }}
               >
                 Back
               </button>
               <button
-                onclick={handleSubmit}
+                onClick={handleSubmit}
                 disabled={isSubmitting()}
                 style={`flex: 2; padding: 0.75rem; border: none; border-radius: 0.625rem; font-size: 0.9375rem; font-weight: 600; cursor: pointer; transition: background 0.2s; ${isSubmitting() ? 'background: #1e40af; color: #93c5fd; cursor: wait;' : 'background: #22c55e; color: white;'}`}
-                onmouseenter={(e) => { if (!isSubmitting()) e.target.style.background = '#16a34a'; }}
-                onmouseleave={(e) => { if (!isSubmitting()) e.target.style.background = '#22c55e'; }}
+                onMouseEnter={(e) => { if (!isSubmitting()) e.target.style.background = '#16a34a'; }}
+                onMouseLeave={(e) => { if (!isSubmitting()) e.target.style.background = '#22c55e'; }}
               >
                 {() => isSubmitting() ? 'Creating account...' : 'Create Account'}
               </button>

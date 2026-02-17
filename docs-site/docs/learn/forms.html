@@ -75,7 +75,7 @@
           <h2 id="use-form">useForm</h2>
           <p><code>useForm</code> provides complete form state management, field registration, validation, and submission handling in a single hook. It uses per-field signals internally so that updating one input never causes unrelated fields to re-render.</p>
 
-<pre><code><span class="keyword">import</span> { useForm } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+<pre><code><span class="keyword">import</span> { useForm } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
   defaultValues: { email: <span class="string">''</span>, password: <span class="string">''</span> },
@@ -110,7 +110,7 @@
           </table>
 
           <h3 id="form-state">formState</h3>
-          <p>The <code>formState</code> object exposes reactive getters and signals:</p>
+          <p>The <code>formState</code> object exposes reactive getters and methods:</p>
 
           <table>
             <thead>
@@ -136,7 +136,7 @@
           <h3 id="complete-example">Complete Example</h3>
           <p>A registration form with email, password, and password confirmation:</p>
 
-<pre><code><span class="keyword">import</span> { useForm, simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+<pre><code><span class="keyword">import</span> { useForm, simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
   defaultValues: { email: <span class="string">''</span>, password: <span class="string">''</span>, confirmPassword: <span class="string">''</span> },
@@ -208,7 +208,7 @@
 
           <h3 id="validation-example">Example with Multiple Rules</h3>
 
-<pre><code><span class="keyword">import</span> { simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+<pre><code><span class="keyword">import</span> { simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> resolver = <span class="function">simpleResolver</span>({
   username: [
@@ -228,18 +228,18 @@
 });</code></pre>
 
           <h3 id="error-display">Displaying Errors</h3>
-          <p>Use the <code>ErrorMessage</code> component to display errors inline. It reads the <code>formState.errors</code> signal and renders only when the named field has an error.</p>
+          <p>Use the <code>ErrorMessage</code> component to display errors inline. It reads the <code>formState.errors</code> getter object and renders only when the named field has an error.</p>
 
-<pre><code><span class="keyword">import</span> { ErrorMessage } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+<pre><code><span class="keyword">import</span> { ErrorMessage } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 &lt;<span class="tag">form</span> <span class="attr">onSubmit</span>={<span class="function">handleSubmit</span>(onValid)}&gt;
   &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> /&gt;
-  &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"email"</span> <span class="attr">errors</span>={() =&gt; formState.errors} /&gt;
+  &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"email"</span> <span class="attr">formState</span>={formState} /&gt;
 
   <span class="comment">// Custom render for full control</span>
   &lt;<span class="component">ErrorMessage</span>
     <span class="attr">name</span>=<span class="string">"email"</span>
-    <span class="attr">errors</span>={() =&gt; formState.errors}
+    <span class="attr">formState</span>={formState}
     <span class="attr">render</span>={({ message }) =&gt; &lt;<span class="tag">span</span> <span class="attr">class</span>=<span class="string">"field-error"</span>&gt;{message}&lt;/<span class="tag">span</span>&gt;}
   /&gt;
 &lt;/<span class="tag">form</span>&gt;</code></pre>
@@ -250,7 +250,7 @@
           <h3 id="zod-example">Zod Example</h3>
 
 <pre><code><span class="keyword">import</span> { z } <span class="keyword">from</span> <span class="string">'zod'</span>;
-<span class="keyword">import</span> { useForm, zodResolver } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+<span class="keyword">import</span> { useForm, zodResolver } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> schema = z.<span class="function">object</span>({
   email: z.<span class="function">string</span>().<span class="function">email</span>(<span class="string">'Invalid email'</span>),
@@ -266,7 +266,7 @@
           <h3 id="yup-example">Yup Example</h3>
 
 <pre><code><span class="keyword">import</span> * <span class="keyword">as</span> yup <span class="keyword">from</span> <span class="string">'yup'</span>;
-<span class="keyword">import</span> { useForm, yupResolver } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+<span class="keyword">import</span> { useForm, yupResolver } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> schema = yup.<span class="function">object</span>({
   email: yup.<span class="function">string</span>().<span class="function">email</span>().<span class="function">required</span>(),
@@ -285,7 +285,7 @@
           <h2 id="use-field">useField</h2>
           <p><code>useField</code> gives you standalone control over a single field without a parent <code>useForm</code>. This is useful for isolated inputs like search bars, inline edits, or fields managed outside a form context.</p>
 
-<pre><code><span class="keyword">import</span> { useField } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+<pre><code><span class="keyword">import</span> { useField } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> username = <span class="function">useField</span>(<span class="string">'username'</span>, {
   defaultValue: <span class="string">''</span>,
@@ -357,7 +357,7 @@
 <pre><code><span class="keyword">import</span> {
   useForm, Input, Textarea, Select,
   Checkbox, ErrorMessage, simpleResolver, rules
-} <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+} <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">ContactForm</span>() {
   <span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
@@ -371,7 +371,7 @@
   <span class="keyword">return</span> (
     &lt;<span class="tag">form</span> <span class="attr">onSubmit</span>={<span class="function">handleSubmit</span>(data =&gt; console.log(data))}&gt;
       &lt;<span class="component">Input</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">register</span>={register} <span class="attr">placeholder</span>=<span class="string">"Your name"</span> /&gt;
-      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">errors</span>={() =&gt; formState.errors} /&gt;
+      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">formState</span>={formState} /&gt;
 
       &lt;<span class="component">Select</span> <span class="attr">name</span>=<span class="string">"topic"</span> <span class="attr">register</span>={register}&gt;
         &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"general"</span>&gt;General&lt;/<span class="tag">option</span>&gt;
@@ -380,7 +380,7 @@
       &lt;/<span class="component">Select</span>&gt;
 
       &lt;<span class="component">Textarea</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">register</span>={register} <span class="attr">rows</span>={<span class="number">4</span>} /&gt;
-      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">errors</span>={() =&gt; formState.errors} /&gt;
+      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">formState</span>={formState} /&gt;
 
       &lt;<span class="tag">label</span>&gt;
         &lt;<span class="component">Checkbox</span> <span class="attr">name</span>=<span class="string">"subscribe"</span> <span class="attr">register</span>={register} /&gt;
@@ -538,9 +538,9 @@
           <button id="demo-submit" style="padding:8px 20px;border-radius:6px;border:none;background:#18181b;color:#fff;cursor:pointer;font-size:14px;font-family:inherit">Sign Up</button>
         </div>`;
 
-      el.querySelector('#demo-name').oninput = (ev) => name.set(ev.target.value);
-      el.querySelector('#demo-email').oninput = (ev) => email.set(ev.target.value);
-      el.querySelector('#demo-submit').onclick = handleSubmit;
+      el.querySelector('#demo-name').addEventListener('input', (ev) => name.set(ev.target.value));
+      el.querySelector('#demo-email').addEventListener('input', (ev) => email.set(ev.target.value));
+      el.querySelector('#demo-submit').addEventListener('click', handleSubmit);
     });
   })();
   </script>

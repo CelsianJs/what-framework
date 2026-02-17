@@ -73,12 +73,12 @@
           <p class="subtitle">Built-in focus management, ARIA helpers, and screen reader support.</p>
 
           <h2 id="focus-management">Focus Management</h2>
-          <p>What provides three tools for controlling focus: <code>useFocus()</code> for tracking and moving focus programmatically, <code>useFocusTrap()</code> for constraining focus within a container, and the <code>FocusTrap</code> component for declarative focus trapping.</p>
+          <p>What provides four tools for controlling focus: <code>useFocus()</code> for tracking/moving focus, <code>useFocusRestore()</code> for parent-controlled restore, <code>useFocusTrap()</code> for container-level trapping, and <code>FocusTrap</code> for declarative dialog boundaries.</p>
 
           <h3 id="use-focus">useFocus()</h3>
           <p>Track the currently focused element and move focus programmatically:</p>
 
-<pre><code><span class="keyword">import</span> { useFocus } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { useFocus } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> focus = <span class="function">useFocus</span>();
 
@@ -91,10 +91,27 @@ focus.focus(myButtonRef.current);
 <span class="comment">// Blur the active element</span>
 focus.blur();</code></pre>
 
+          <h3 id="use-focus-restore">useFocusRestore()</h3>
+          <p>Capture trigger focus before opening overlays, then restore it after close:</p>
+
+<pre><code><span class="keyword">import</span> { useFocusRestore } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> focusRestore = <span class="function">useFocusRestore</span>();
+
+<span class="keyword">function</span> <span class="function">openDialog</span>(e) {
+  focusRestore.<span class="function">capture</span>(e.currentTarget);
+  setOpen(<span class="keyword">true</span>);
+}
+
+<span class="keyword">function</span> <span class="function">closeDialog</span>() {
+  setOpen(<span class="keyword">false</span>);
+  focusRestore.<span class="function">restore</span>();
+}</code></pre>
+
           <h3 id="use-focus-trap">useFocusTrap(containerRef)</h3>
           <p>Trap focus within a container element. When active, pressing Tab at the last focusable element wraps to the first, and Shift+Tab at the first wraps to the last. Essential for modals, dialogs, and dropdown menus.</p>
 
-<pre><code><span class="keyword">import</span> { useFocusTrap } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { useFocusTrap } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Modal</span>({ onClose }) {
   <span class="keyword">const</span> ref = { current: <span class="keyword">null</span> };
@@ -105,7 +122,7 @@ focus.blur();</code></pre>
     <span class="keyword">const</span> cleanup = trap.activate();
     <span class="keyword">return</span> () =&gt; {
       cleanup?.();
-      trap.deactivate();  <span class="comment">// Restores focus to previously focused element</span>
+      trap.deactivate();
     };
   });
 
@@ -120,27 +137,29 @@ focus.blur();</code></pre>
 }</code></pre>
 
           <h3 id="focus-trap-component">FocusTrap Component</h3>
-          <p>A declarative wrapper that traps focus in its children. Toggle with the <code>active</code> prop:</p>
+          <p>Wrap the dialog subtree and conditionally mount it while open:</p>
 
-<pre><code><span class="keyword">import</span> { FocusTrap } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { FocusTrap } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-&lt;FocusTrap active={isOpen()}&gt;
-  &lt;div class=<span class="string">"dropdown-menu"</span>&gt;
-    &lt;a href=<span class="string">"/profile"</span>&gt;Profile&lt;/a&gt;
-    &lt;a href=<span class="string">"/settings"</span>&gt;Settings&lt;/a&gt;
-    &lt;button onClick={logout}&gt;Log out&lt;/button&gt;
-  &lt;/div&gt;
-&lt;/FocusTrap&gt;</code></pre>
+{isOpen() ? (
+  &lt;FocusTrap&gt;
+    &lt;div class=<span class="string">"dropdown-menu"</span> role=<span class="string">"dialog"</span> aria-modal={<span class="keyword">true</span>}&gt;
+      &lt;a href=<span class="string">"/profile"</span>&gt;Profile&lt;/a&gt;
+      &lt;a href=<span class="string">"/settings"</span>&gt;Settings&lt;/a&gt;
+      &lt;button onClick={logout}&gt;Log out&lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/FocusTrap&gt;
+) : <span class="keyword">null</span>}</code></pre>
 
           <div class="callout callout-note">
             <p class="callout-title">Focus Restoration</p>
-            <p>When <code>deactivate()</code> is called (or the FocusTrap unmounts), focus automatically returns to the element that was focused before the trap was activated.</p>
+            <p>For predictable UX, capture the trigger with <code>useFocusRestore().capture(...)</code> in parent logic and call <code>restore()</code> when closing the overlay.</p>
           </div>
 
           <h2 id="screen-reader">Screen Reader Announcements</h2>
           <p>Announce dynamic content changes to screen readers using an ARIA live region managed by the framework.</p>
 
-<pre><code><span class="keyword">import</span> { announce, announceAssertive } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { announce, announceAssertive } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Polite announcement (waits for screen reader to finish current speech)</span>
 <span class="function">announce</span>(<span class="string">'3 new items loaded'</span>, {
@@ -154,7 +173,7 @@ focus.blur();</code></pre>
           <h3 id="live-region">LiveRegion Component</h3>
           <p>For content that updates continuously, wrap it in a <code>LiveRegion</code>:</p>
 
-<pre><code><span class="keyword">import</span> { LiveRegion } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { LiveRegion } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 &lt;LiveRegion priority=<span class="string">"polite"</span> atomic={<span class="keyword">true</span>}&gt;
   {() =&gt; <span class="string">`${itemCount()} items in cart`</span>}
@@ -166,7 +185,7 @@ focus.blur();</code></pre>
           <h3 id="use-aria-expanded">useAriaExpanded</h3>
           <p>Manage expandable UI like accordions, menus, and collapsible panels. Returns reactive props for the trigger button and the content panel:</p>
 
-<pre><code><span class="keyword">import</span> { useAriaExpanded } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { useAriaExpanded } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Accordion</span>({ title, children }) {
   <span class="keyword">const</span> disclosure = <span class="function">useAriaExpanded</span>(<span class="keyword">false</span>);
@@ -193,7 +212,7 @@ disclosure.close();     <span class="comment">// force closed</span></code></pre
           <h3 id="use-aria-selected">useAriaSelected</h3>
           <p>Track selection state for tab lists, listboxes, and similar patterns:</p>
 
-<pre><code><span class="keyword">import</span> { useAriaSelected } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { useAriaSelected } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> tabs = <span class="function">useAriaSelected</span>(<span class="string">'home'</span>);
 
@@ -210,7 +229,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h3 id="use-aria-checked">useAriaChecked</h3>
           <p>Build accessible custom checkboxes with proper keyboard support (Space and Enter toggle):</p>
 
-<pre><code><span class="keyword">import</span> { useAriaChecked } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { useAriaChecked } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> checkbox = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
 
@@ -223,7 +242,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h2 id="keyboard-navigation">Keyboard Navigation</h2>
           <p>The <code>useRovingTabIndex</code> hook implements the roving tabindex pattern for keyboard navigation in composite widgets like toolbars, menus, and listboxes. Only the focused item has <code>tabIndex="0"</code>; all others have <code>tabIndex="-1"</code>.</p>
 
-<pre><code><span class="keyword">import</span> { useRovingTabIndex } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { useRovingTabIndex } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Toolbar</span>() {
   <span class="keyword">const</span> items = [<span class="string">'Bold'</span>, <span class="string">'Italic'</span>, <span class="string">'Underline'</span>, <span class="string">'Link'</span>];
@@ -257,7 +276,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h3 id="skip-link">SkipLink</h3>
           <p>Renders a link that is hidden until focused. When activated, it moves focus to the target element:</p>
 
-<pre><code><span class="keyword">import</span> { SkipLink } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { SkipLink } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Default: skips to #main</span>
 &lt;SkipLink /&gt;
@@ -268,7 +287,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h3 id="visually-hidden">VisuallyHidden</h3>
           <p>Hides content visually while keeping it accessible to screen readers. Uses the standard clip/overflow technique:</p>
 
-<pre><code><span class="keyword">import</span> { VisuallyHidden } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { VisuallyHidden } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 &lt;button&gt;
   &lt;IconTrash /&gt;
@@ -281,7 +300,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h2 id="id-generation">ID Generation</h2>
           <p>Generate unique, stable IDs for connecting ARIA attributes across elements.</p>
 
-<pre><code><span class="keyword">import</span> { useId, useIds, useDescribedBy, useLabelledBy } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { useId, useIds, useDescribedBy, useLabelledBy } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Single unique ID</span>
 <span class="keyword">const</span> id = <span class="function">useId</span>(<span class="string">'dialog'</span>);  <span class="comment">// () => 'dialog-1'</span>
@@ -310,7 +329,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h2 id="keyboard-helpers">Keyboard Helpers</h2>
           <p>Utility functions and constants for keyboard event handling.</p>
 
-<pre><code><span class="keyword">import</span> { Keys, onKey, onKeys } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+<pre><code><span class="keyword">import</span> { Keys, onKey, onKeys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Keys constant — avoids string typos</span>
 Keys.Enter      <span class="comment">// 'Enter'</span>
@@ -376,7 +395,7 @@ Keys.End        <span class="comment">// 'End'</span>
       <div style="border:1px solid #e4e4e7;border-radius:8px;margin-bottom:8px;overflow:hidden">
         <button
           aria-expanded="${idx === i}"
-          onclick="this.closest('.playground-result').__toggle(${i})"
+          data-idx="${i}"
           style="width:100%;padding:12px 16px;border:none;background:${idx === i ? '#f4f4f5' : '#fff'};cursor:pointer;font-size:14px;font-weight:500;text-align:left;font-family:inherit;display:flex;justify-content:space-between;align-items:center">
           ${s.title}
           <span style="transform:rotate(${idx === i ? 180 : 0}deg);transition:transform 0.2s">\u25BC</span>
@@ -384,6 +403,9 @@ Keys.End        <span class="comment">// 'End'</span>
         ${idx === i ? '<div role="region" style="padding:12px 16px;font-size:14px;color:#52525b;border-top:1px solid #e4e4e7">' + s.content + '</div>' : ''}
       </div>`).join('');
     el.__toggle = (i) => openIndex.set(openIndex.peek() === i ? -1 : i);
+    el.querySelectorAll('button[data-idx]').forEach((btn) => {
+      btn.addEventListener('click', () => el.__toggle(Number(btn.dataset.idx)));
+    });
   });
 })();
           </script>

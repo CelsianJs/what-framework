@@ -59,7 +59,7 @@ export function Editor({ note, onUpdate }) {
             <textarea
               ref={textareaRef}
               value={current.content}
-              oninput={handleInput}
+              onInput={handleInput}
               placeholder="Start writing in Markdown..."
               style="flex: 1; width: 100%; min-height: 300px; background: transparent; border: none; color: #e5e5e5; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 0.875rem; line-height: 1.7; resize: none; outline: none; padding: 0;"
             />

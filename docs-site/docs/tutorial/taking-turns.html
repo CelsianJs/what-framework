@@ -12,7 +12,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -46,7 +46,7 @@
           <h2 id="track-turn">Tracking Whose Turn It Is</h2>
           <p>We need a second signal to track whether it's X's turn or O's turn:</p>
 
-          <div class="code-header">src/pages/index.jsx</div>
+          <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">function</span> <span class="function">Board</span>() {
   <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
   <span class="keyword">const</span> xIsNext = <span class="function">signal</span>(<span class="keyword">true</span>);  <span class="comment">// X goes first</span>
@@ -97,7 +97,7 @@
           <h2 id="show-status">Showing the Current Player</h2>
           <p>Let's show whose turn it is:</p>
 
-          <div class="code-header">src/pages/index.jsx (updated)</div>
+          <div class="code-header">src/main.jsx (updated)</div>
 <pre><code><span class="keyword">function</span> <span class="function">Board</span>() {
   <span class="keyword">const</span> squares = <span class="function">signal</span>(Array(<span class="number">9</span>).fill(<span class="keyword">null</span>));
   <span class="keyword">const</span> xIsNext = <span class="function">signal</span>(<span class="keyword">true</span>);
@@ -138,8 +138,8 @@
 
           <h2 id="complete-code">Complete Code So Far</h2>
 
-          <div class="code-header">src/pages/index.jsx</div>
-<pre><code><span class="keyword">import</span> <span class="string">'../styles.css'</span>;
+          <div class="code-header">src/main.jsx</div>
+<pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
 <span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {

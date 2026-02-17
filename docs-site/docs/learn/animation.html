@@ -115,7 +115,7 @@ console.log(position.velocity());     <span class="comment">// current speed</sp
           <p>A counter that springs smoothly between values instead of jumping:</p>
 
 <pre><code><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-<span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">AnimatedCounter</span>() {
   <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
@@ -135,7 +135,7 @@ console.log(position.velocity());     <span class="comment">// current speed</sp
           <h2 id="tween">tween(from, to, options)</h2>
           <p>Creates a time-based animation that interpolates from one value to another over a fixed duration. Unlike springs, tweens have a predictable end time and use easing functions to control their curve.</p>
 
-<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Animate from 0 to 100 over 500ms</span>
 <span class="keyword">const</span> anim = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, {
@@ -156,7 +156,7 @@ anim.cancel();</code></pre>
           <h3 id="tween-progress">Example: Progress Bar</h3>
           <p>Animate a progress bar from 0% to 100% with a bounce easing:</p>
 
-<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">ProgressBar</span>() {
   <span class="keyword">const</span> bar = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, {
@@ -177,7 +177,7 @@ anim.cancel();</code></pre>
           <h2 id="easings">Easing Functions</h2>
           <p>The <code>easings</code> object provides a set of common easing curves. Each function maps an input <code>t</code> (0 to 1) to an output value:</p>
 
-<pre><code><span class="keyword">import</span> { easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Available easings:</span>
 easings.linear          <span class="comment">// constant speed</span>
@@ -202,7 +202,7 @@ easings.easeOutBounce   <span class="comment">// bouncing settle</span></code></
           <h2 id="use-transition">useTransition</h2>
           <p>Orchestrate state transitions with a progress signal. Useful for coordinating page transitions, view swaps, or multi-step animations where you need to know when the transition completes.</p>
 
-<pre><code><span class="keyword">import</span> { useTransition, easings } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { useTransition, easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> transition = <span class="function">useTransition</span>({
   duration: <span class="number">400</span>,                  <span class="comment">// ms (default: 300)</span>
@@ -221,7 +221,7 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
           <h3 id="page-transition">Example: Page Transition</h3>
 
-<pre><code><span class="keyword">import</span> { useTransition } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { useTransition } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 <span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">PageContainer</span>() {
@@ -242,7 +242,7 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
           <h2 id="use-gesture">useGesture</h2>
           <p>Attach multi-touch gesture handlers to an element. Supports drag, swipe, pinch, tap, and long press with velocity tracking. Works with both mouse and touch events.</p>
 
-<pre><code><span class="keyword">import</span> { useGesture } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { useGesture } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> cardRef = { current: <span class="keyword">null</span> };
 
@@ -267,7 +267,7 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
           <h3 id="draggable-card">Example: Draggable Card</h3>
 
-<pre><code><span class="keyword">import</span> { useGesture, spring } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { useGesture, spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 <span class="keyword">import</span> { effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">DraggableCard</span>() {
@@ -306,7 +306,7 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
           <h2 id="use-animated-value">useAnimatedValue</h2>
           <p>A React Native-inspired API that wraps a signal with animation methods. Useful when you need to drive multiple animations from a single value or interpolate between ranges.</p>
 
-<pre><code><span class="keyword">import</span> { useAnimatedValue } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { useAnimatedValue } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> progress = <span class="function">useAnimatedValue</span>(<span class="number">0</span>);
 
@@ -331,7 +331,7 @@ progress.value();  <span class="comment">// reactive</span>
           <h2 id="css-transitions">CSS Transitions</h2>
           <p>For CSS-class-based animations, use <code>createTransitionClasses()</code> and <code>cssTransition()</code>. These follow the enter/exit pattern used by CSS animation libraries.</p>
 
-<pre><code><span class="keyword">import</span> { createTransitionClasses, cssTransition } <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+<pre><code><span class="keyword">import</span> { createTransitionClasses, cssTransition } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Generate class names for a transition called "fade"</span>
 <span class="keyword">const</span> classes = <span class="function">createTransitionClasses</span>(<span class="string">'fade'</span>);
@@ -420,11 +420,14 @@ progress.value();  <span class="comment">// reactive</span>
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="this.closest('.playground-result').__go(0)" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Left</button>
-        <button onclick="this.closest('.playground-result').__go(50)" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Center</button>
-        <button onclick="this.closest('.playground-result').__go(100)" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Right</button>
+        <button data-go="0" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Left</button>
+        <button data-go="50" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Center</button>
+        <button data-go="100" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Right</button>
       </div>`;
     el.__go = (t) => { target.set(t); velocity = 0; requestAnimationFrame(tick); };
+    el.querySelectorAll('[data-go]').forEach((btn) => {
+      btn.addEventListener('click', () => el.__go(Number(btn.dataset.go)));
+    });
   });
 })();
           </script>

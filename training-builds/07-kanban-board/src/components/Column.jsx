@@ -47,9 +47,9 @@ export function Column({ id, title, color, search }) {
 
   return (
     <div
-      ondragover={handleDragOver}
-      ondragleave={handleDragLeave}
-      ondrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       style={`
         background: ${isDragOver() ? '#1a1a2e' : '#111118'};
         border: 2px solid ${isDragOver() ? color : '#1e1e2e'};

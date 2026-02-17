@@ -20,6 +20,8 @@ function getHook(ctx) {
   return { index, exists: index < ctx.hooks.length };
 }
 
+let _useMemoNoDepsWarned = false;
+
 // --- useState ---
 // Returns [value, setter]. Setter triggers re-render of this component only.
 
@@ -96,6 +98,15 @@ export function useEffect(fn, deps) {
 export function useMemo(fn, deps) {
   const ctx = getCtx();
   const { index, exists } = getHook(ctx);
+
+  if (__DEV__ && deps === undefined && !_useMemoNoDepsWarned) {
+    _useMemoNoDepsWarned = true;
+    console.warn(
+      '[what] useMemo() called without a deps array. ' +
+      'This recomputes every render. Use useComputed() for signal-derived values, ' +
+      'or pass deps to useMemo().'
+    );
+  }
 
   if (!exists) {
     ctx.hooks[index] = { value: undefined, deps: undefined };

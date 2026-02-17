@@ -121,7 +121,7 @@ export function Modal({ isOpen, onClose, title, children, description }) {
       {/* Backdrop */}
       <div
         style={backdropStyle}
-        onkeydown={onKey(Keys.Escape, (e) => {
+        onKeyDown={onKey(Keys.Escape, (e) => {
           e.preventDefault();
           onClose();
         })}
@@ -174,14 +174,14 @@ export function Modal({ isOpen, onClose, title, children, description }) {
                     {title}
                   </h2>
                   <button
-                    onclick={onClose}
+                    onClick={onClose}
                     aria-label="Close dialog"
                     style={closeButtonStyle}
-                    onmouseenter={(e) => {
+                    onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
                       e.currentTarget.style.color = '#f0f0f0';
                     }}
-                    onmouseleave={(e) => {
+                    onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
                       e.currentTarget.style.color = '#a1a1aa';
                     }}

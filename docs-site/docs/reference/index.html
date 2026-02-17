@@ -247,6 +247,7 @@
             </thead>
             <tbody>
               <tr><td><code>useFocus()</code></td><td>Track focused element: current(), focus(el), blur()</td></tr>
+              <tr><td><code>useFocusRestore()</code></td><td>Capture and restore focus from trigger elements</td></tr>
               <tr><td><code>useFocusTrap(ref)</code></td><td>Trap focus in container: activate(), deactivate()</td></tr>
               <tr><td><code>FocusTrap({ active })</code></td><td>Component wrapper that traps focus</td></tr>
               <tr><td><code>announce(msg, opts)</code></td><td>Screen reader announcement: priority, timeout</td></tr>
@@ -381,30 +382,30 @@
   useFetch, useSWR, useQuery, useInfiniteQuery,
   invalidateQueries, prefetchQuery, setQueryData,
   getQueryData, clearCache,
-} <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+} <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Forms</span>
 <span class="keyword">import</span> {
   useForm, useField, rules,
   zodResolver, yupResolver, simpleResolver,
   Input, Textarea, Select, Checkbox, Radio, ErrorMessage,
-} <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+} <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Animation</span>
 <span class="keyword">import</span> {
   spring, tween, easings,
   useTransition, useGesture, useAnimatedValue,
-} <span class="keyword">from</span> <span class="string">'what-framework/animation'</span>;
+} <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Accessibility</span>
 <span class="keyword">import</span> {
-  useFocus, useFocusTrap, FocusTrap,
+  useFocus, useFocusRestore, useFocusTrap, FocusTrap,
   announce, announceAssertive, LiveRegion,
   useAriaExpanded, useAriaSelected, useAriaChecked,
   useRovingTabIndex, SkipLink, VisuallyHidden,
   useId, useDescribedBy, useLabelledBy,
   Keys, onKey, onKeys,
-} <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
+} <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Router</span>
 <span class="keyword">import</span> {

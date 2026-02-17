@@ -3,7 +3,7 @@
 // validation, programmatic navigation after action
 
 import { useState } from 'what-framework';
-import { navigate } from 'what-router';
+import { navigate } from 'what-framework/router';
 import { useContacts } from '../store.js';
 
 export const page = {

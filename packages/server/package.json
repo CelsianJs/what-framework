@@ -1,6 +1,6 @@
 {
   "name": "what-server",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",
@@ -32,10 +32,10 @@
   "author": "",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.4.0"
+    "what-core": "^0.4.2"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/aspect/what-fw"
+    "url": "git+https://github.com/aspect/what-fw.git"
   }
 }

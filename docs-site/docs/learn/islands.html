@@ -110,7 +110,7 @@
           <h2 id="island-component">The Island Component</h2>
           <p>During server rendering, use the <code>Island</code> component to mark where an island should appear. It renders a wrapper <code>&lt;div&gt;</code> with <code>data-island</code> attributes that the client uses for hydration:</p>
 
-<pre><code><span class="keyword">import</span> { Island } <span class="keyword">from</span> <span class="string">'what-server'</span>;
+<pre><code><span class="keyword">import</span> { Island } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">function</span> <span class="function">ProductPage</span>({ product }) {
   <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
@@ -140,7 +140,7 @@
           <h2 id="registering-islands">Registering Islands</h2>
           <p>On the client side, register each island with a name and a dynamic import loader. This tells What which component to load when it is time to hydrate:</p>
 
-<pre><code><span class="keyword">import</span> { island, hydrateIslands } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+<pre><code><span class="keyword">import</span> { island, hydrateIslands } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// Register islands with lazy loaders</span>
 <span class="function">island</span>(<span class="string">'AddToCart'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/AddToCart.js'</span>));
@@ -155,7 +155,7 @@
 
           <p>You can also use <code>autoIslands</code> to register and hydrate in one step:</p>
 
-<pre><code><span class="keyword">import</span> { autoIslands } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+<pre><code><span class="keyword">import</span> { autoIslands } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="function">autoIslands</span>({
   AddToCart: { loader: () =&gt; <span class="keyword">import</span>(<span class="string">'./components/AddToCart.js'</span>), mode: <span class="string">'action'</span> },
@@ -166,7 +166,7 @@
           <h2 id="island-stores">Island Stores</h2>
           <p>When multiple islands need to share state (for example, a cart icon in the header and an "Add to Cart" button in the body), use <code>createIslandStore</code>. These stores are serialized during SSR and hydrated on the client so state survives the server-to-client transition:</p>
 
-<pre><code><span class="keyword">import</span> { createIslandStore } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+<pre><code><span class="keyword">import</span> { createIslandStore } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// Create a shared store — same name = same instance</span>
 <span class="keyword">const</span> cartStore = <span class="function">createIslandStore</span>(<span class="string">'cart'</span>, {
@@ -193,7 +193,7 @@ cartStore.items = [...cartStore.items, newItem];</code></pre>
           <h2 id="progressive-enhancement">Progressive Enhancement</h2>
           <p>Not every interactive feature needs a full island. For simple enhancements -- like a form that submits via fetch instead of a page reload -- use the progressive enhancement helpers:</p>
 
-<pre><code><span class="keyword">import</span> { enhance, enhanceForms } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+<pre><code><span class="keyword">import</span> { enhance, enhanceForms } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// Enhance all forms with data-enhance attribute</span>
 <span class="function">enhanceForms</span>();
@@ -241,7 +241,7 @@ document.querySelector(<span class="string">'form'</span>).addEventListener(<spa
           <h2 id="debugging">Debugging</h2>
           <p>Call <code>getIslandStatus()</code> at any time to inspect the current state of the island system:</p>
 
-<pre><code><span class="keyword">import</span> { getIslandStatus } <span class="keyword">from</span> <span class="string">'what-server/islands'</span>;
+<pre><code><span class="keyword">import</span> { getIslandStatus } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">const</span> status = <span class="function">getIslandStatus</span>();
 console.log(status);

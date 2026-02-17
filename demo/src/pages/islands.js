@@ -1,4 +1,4 @@
-import { h, useState } from '@what/core';
+import { h, useState } from 'what-framework';
 
 export function Islands() {
   return h('div', { class: 'section' },

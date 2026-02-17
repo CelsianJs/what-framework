@@ -5,7 +5,7 @@ import {
   useSWR,
   Skeleton,
   announce,
-} from '@what/core';
+} from 'what-framework';
 import { useAppStore } from '../app.js';
 import { fetchPeople } from '../data.js';
 

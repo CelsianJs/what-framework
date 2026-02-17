@@ -509,7 +509,7 @@
 
   <span class="keyword">return</span> (
     &lt;button onClick={() => count.set(c => c + 1)}&gt;
-      Clicked {count} times
+      Clicked {count()} times
     &lt;/button&gt;
   );
 }</pre>
@@ -627,12 +627,12 @@ console.log(fullName()); <span class="comment">// "Jane Doe"</span></pre>
   <span class="keyword">return</span> (
     &lt;div&gt;
       &lt;input
-        value={input}
+        value={input()}
         onInput={e => input.set(e.target.value)}
       /&gt;
       &lt;button onClick={addTodo}&gt;Add&lt;/button&gt;
       &lt;ul&gt;
-        {() => todos().map(todo => &lt;li&gt;{todo}&lt;/li&gt;)}
+        {todos().map(todo => &lt;li&gt;{todo}&lt;/li&gt;)}
       &lt;/ul&gt;
     &lt;/div&gt;
   );

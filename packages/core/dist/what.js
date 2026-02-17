@@ -1,4 +1,5 @@
-export { signal, computed, effect, batch, untrack } from './reactive.js';
+export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot } from './reactive.js';
+export { template, insert, mapArray, spread, delegateEvents, on, classList } from './render.js';
 export { h, Fragment, html } from './h.js';
 export { mount } from './dom.js';
 export {
@@ -17,10 +18,9 @@ onCleanup,
 createResource,
 } from './hooks.js';
 export { memo, lazy, Suspense, ErrorBoundary, Show, For, Switch, Match, Island } from './components.js';
-export { createStore, storeComputed, atom } from './store.js';
+export { createStore, derived, storeComputed, atom } from './store.js';
 export { Head, clearHead } from './head.js';
 export {
-show,
 each,
 cls,
 style,
@@ -28,6 +28,7 @@ debounce,
 throttle,
 useMediaQuery,
 useLocalStorage,
+useClickOutside,
 Portal,
 transition,
 } from './helpers.js';
@@ -56,6 +57,7 @@ cssTransition,
 } from './animation.js';
 export {
 useFocus,
+useFocusRestore,
 useFocusTrap,
 FocusTrap,
 announce,

@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-02-17T03:00:47.569Z",
+  "node": "v22.13.1",
+  "platform": "darwin",
+  "results": [
+    {
+      "name": "event prop normalize (onClick)",
+      "avg": 1.1915562083333364,
+      "p50": 1.1325410000000602,
+      "p99": 1.849458000000027,
+      "opsPerSec": 839,
+      "iterations": 150
+    },
+    {
+      "name": "event prop normalize (onclick)",
+      "avg": 1.1835263916666718,
+      "p50": 1.1322920000000067,
+      "p99": 1.7274169999999458,
+      "opsPerSec": 845,
+      "iterations": 150
+    },
+    {
+      "name": "innerHTML patch path",
+      "avg": 0.11619414500000516,
+      "p50": 0.11404200000004039,
+      "p99": 0.49087500000007367,
+      "opsPerSec": 8606,
+      "iterations": 250
+    },
+    {
+      "name": "dangerouslySetInnerHTML patch path",
+      "avg": 0.07722642000000007,
+      "p50": 0.077666000000022,
+      "p99": 0.18891600000006292,
+      "opsPerSec": 12949,
+      "iterations": 250
+    },
+    {
+      "name": "formState.errors getter read",
+      "avg": 0.0016619266666693495,
+      "p50": 0.0016249999999899956,
+      "p99": 0.010375000000067303,
+      "opsPerSec": 601711,
+      "iterations": 1500
+    }
+  ]
+}

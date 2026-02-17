@@ -6,8 +6,8 @@ import {
   createStore, derived,
   announce,
   useLocalStorage,
-} from '@what/core';
-import { Router, Link, defineRoutes, route, navigate, useRoute } from '@what/router';
+} from 'what-framework';
+import { Router, Link, defineRoutes, route, navigate, useRoute } from 'what-framework/router';
 
 import { Dashboard } from './pages/dashboard.js';
 import { Projects } from './pages/projects.js';

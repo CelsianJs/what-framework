@@ -27,10 +27,18 @@ function resolveFile(pathname) {
 
 function transformImports(code) {
   return code
+    .replace(/from\s+['"]what-framework['"]/g, `from '/framework/core/src/index.js'`)
+    .replace(/from\s+['"]what-framework\/router['"]/g, `from '/framework/router/src/index.js'`)
+    .replace(/from\s+['"]what-framework\/server['"]/g, `from '/framework/server/src/index.js'`)
+    // Legacy aliases
     .replace(/from\s+['"]@what\/core['"]/g, `from '/framework/core/src/index.js'`)
     .replace(/from\s+['"]@what\/router['"]/g, `from '/framework/router/src/index.js'`)
     .replace(/from\s+['"]@what\/server['"]/g, `from '/framework/server/src/index.js'`)
-    .replace(/from\s+['"]@what\/islands['"]/g, `from '/framework/server/src/islands.js'`)
+    // Internal package imports
+    .replace(/from\s+['"]what-core['"]/g, `from '/framework/core/src/index.js'`)
+    .replace(/from\s+['"]what-router['"]/g, `from '/framework/router/src/index.js'`)
+    .replace(/from\s+['"]what-server['"]/g, `from '/framework/server/src/index.js'`)
+    .replace(/from\s+['"]what-server\/islands['"]/g, `from '/framework/server/src/islands.js'`)
     // Relative framework imports
     .replace(/from\s+['"]\.\.\/\.\.\/packages\//g, `from '/framework/`);
 }

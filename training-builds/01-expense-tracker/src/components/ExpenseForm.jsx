@@ -35,7 +35,7 @@ export function ExpenseForm() {
   });
 
   return (
-    <form onsubmit={onSubmit} style="margin-bottom: 2rem;">
+    <form onSubmit={onSubmit} style="margin-bottom: 2rem;">
       <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: #f5f5f5;">
         Add Expense
       </h2>
@@ -100,8 +100,8 @@ export function ExpenseForm() {
         <button
           type="submit"
           style="padding: 0.625rem 1.5rem; background: #3b82f6; color: white; border: none; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: background 0.2s; white-space: nowrap;"
-          onmouseenter={(e) => { e.target.style.background = '#2563eb'; }}
-          onmouseleave={(e) => { e.target.style.background = '#3b82f6'; }}
+          onMouseEnter={(e) => { e.target.style.background = '#2563eb'; }}
+          onMouseLeave={(e) => { e.target.style.background = '#3b82f6'; }}
         >
           Add Expense
         </button>

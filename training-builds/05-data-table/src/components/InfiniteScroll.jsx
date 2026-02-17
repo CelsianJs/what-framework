@@ -111,10 +111,10 @@ export function InfiniteScroll() {
 
             return (
               <button
-                onclick={handleLoadMore}
+                onClick={handleLoadMore}
                 style="padding: 0.625rem 1.5rem; background: #1e1e1e; color: #e5e5e5; border: 1px solid #2a2a2a; border-radius: 0.5rem; font-size: 0.8125rem; cursor: pointer; transition: all 0.2s;"
-                onmouseenter={(e) => { e.target.style.background = '#2a2a2a'; e.target.style.borderColor = '#3b82f6'; }}
-                onmouseleave={(e) => { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#2a2a2a'; }}
+                onMouseEnter={(e) => { e.target.style.background = '#2a2a2a'; e.target.style.borderColor = '#3b82f6'; }}
+                onMouseLeave={(e) => { e.target.style.background = '#1e1e1e'; e.target.style.borderColor = '#2a2a2a'; }}
               >
                 Load More
               </button>

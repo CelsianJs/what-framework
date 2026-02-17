@@ -33,7 +33,7 @@ export function PreviewForm() {
         Preview Form
       </h3>
 
-      <form onsubmit={handleSubmit} style="display: flex; flex-direction: column; gap: var(--spacing);">
+      <form onSubmit={handleSubmit} style="display: flex; flex-direction: column; gap: var(--spacing);">
         {/* Name Input */}
         <div style="display: flex; flex-direction: column; gap: 0.375rem;">
           <label style="font-size: 0.8125rem; font-weight: 500; color: var(--text);">
@@ -43,7 +43,7 @@ export function PreviewForm() {
             type="text"
             placeholder="Enter your name"
             value={name()}
-            oninput={(e) => { name(e.target.value); showError(false); }}
+            onInput={(e) => { name(e.target.value); showError(false); }}
             style="
               background: var(--bg);
               border: 1px solid var(--border);
@@ -55,8 +55,8 @@ export function PreviewForm() {
               transition: border-color 0.2s;
               width: 100%;
             "
-            onfocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
-            onblur={(e) => { e.target.style.borderColor = 'var(--border)'; }}
+            onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
+            onBlur={(e) => { e.target.style.borderColor = 'var(--border)'; }}
           />
         </div>
 
@@ -69,7 +69,7 @@ export function PreviewForm() {
             type="email"
             placeholder="you@example.com"
             value={email()}
-            oninput={(e) => { email(e.target.value); showError(false); }}
+            onInput={(e) => { email(e.target.value); showError(false); }}
             style={`
               background: var(--bg);
               border: 1px solid ${showError() && !email().trim() ? 'var(--error)' : 'var(--border)'};
@@ -81,8 +81,8 @@ export function PreviewForm() {
               transition: border-color 0.2s;
               width: 100%;
             `}
-            onfocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
-            onblur={(e) => {
+            onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
+            onBlur={(e) => {
               e.target.style.borderColor = showError() && !email().trim() ? 'var(--error)' : 'var(--border)';
             }}
           />
@@ -100,7 +100,7 @@ export function PreviewForm() {
           </label>
           <select
             value={role()}
-            onchange={(e) => role(e.target.value)}
+            onChange={(e) => role(e.target.value)}
             style="
               background: var(--bg);
               border: 1px solid var(--border);
@@ -149,7 +149,7 @@ export function PreviewForm() {
           <input
             type="checkbox"
             checked={agreed()}
-            onchange={(e) => agreed(e.target.checked)}
+            onChange={(e) => agreed(e.target.checked)}
             style="
               accent-color: var(--primary);
               width: 1rem;
@@ -204,8 +204,8 @@ export function PreviewForm() {
               font-weight: 500;
               transition: opacity 0.2s;
             "
-            onmouseenter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
-            onmouseleave={(e) => { e.currentTarget.style.opacity = '1'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
           >
             Submit
           </button>
@@ -221,7 +221,7 @@ export function PreviewForm() {
               font-weight: 500;
               transition: all 0.2s;
             "
-            onclick={() => {
+            onClick={() => {
               name('');
               email('');
               role('developer');
@@ -229,11 +229,11 @@ export function PreviewForm() {
               showError(false);
               submitted(false);
             }}
-            onmouseenter={(e) => {
+            onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'var(--text-muted)';
               e.currentTarget.style.color = 'var(--text)';
             }}
-            onmouseleave={(e) => {
+            onMouseLeave={(e) => {
               e.currentTarget.style.borderColor = 'var(--border)';
               e.currentTarget.style.color = 'var(--text-muted)';
             }}

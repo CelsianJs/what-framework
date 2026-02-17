@@ -21,7 +21,7 @@ export default function About() {
       <h3 class="section-title">Stack</h3>
       <ul class="feature-list">
         <li><strong>what-framework</strong> — signals, stores, components</li>
-        <li><strong>what-router</strong> — client-side routing with Link</li>
+        <li><strong>what-framework/router</strong> — client-side routing with Link</li>
         <li><strong>what-compiler</strong> — JSX to h() via Vite plugin</li>
       </ul>
 

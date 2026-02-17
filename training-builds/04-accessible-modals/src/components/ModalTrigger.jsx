@@ -7,11 +7,11 @@ import { useRef } from 'what-framework';
  *
  * Props:
  *   label     - button text
- *   onclick   - click handler (receives the button ref as argument)
+ *   onClick   - click handler (receives the button ref as argument)
  *   variant   - 'primary' | 'danger' | 'success' | 'default'
  *   onRef     - callback to receive the button ref
  */
-export function ModalTrigger({ label, onclick, variant = 'primary', onRef }) {
+export function ModalTrigger({ label, onClick, variant = 'primary', onRef }) {
   const btnRef = useRef(null);
 
   function getStyle() {
@@ -65,26 +65,26 @@ export function ModalTrigger({ label, onclick, variant = 'primary', onRef }) {
         btnRef.current = el;
         if (onRef) onRef(btnRef);
       }}
-      onclick={() => {
-        if (onclick) onclick(btnRef);
+      onClick={() => {
+        if (onClick) onClick(btnRef);
       }}
       style={getStyle()}
-      onmouseenter={(e) => {
+      onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'scale(1.03)';
       }}
-      onmouseleave={(e) => {
+      onMouseLeave={(e) => {
         e.currentTarget.style.transform = 'scale(1)';
       }}
-      onmousedown={(e) => {
+      onMouseDown={(e) => {
         e.currentTarget.style.transform = 'scale(0.97)';
       }}
-      onmouseup={(e) => {
+      onMouseUp={(e) => {
         e.currentTarget.style.transform = 'scale(1.03)';
       }}
-      onfocus={(e) => {
+      onFocus={(e) => {
         e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99, 102, 241, 0.5), 0 2px 12px rgba(99, 102, 241, 0.3)';
       }}
-      onblur={(e) => {
+      onBlur={(e) => {
         // Reset to variant-appropriate shadow
         const style = getStyle();
         e.currentTarget.style.boxShadow = style.boxShadow || 'none';

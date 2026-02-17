@@ -53,7 +53,7 @@ export function StepAccount() {
         <p style="font-size: 0.8125rem; color: #666;">Enter your email and set a secure password</p>
       </div>
 
-      <form onsubmit={onSubmit} style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <form onSubmit={onSubmit} style="display: flex; flex-direction: column; gap: 1.25rem;">
         {/* Email */}
         <div>
           <label style={labelStyle}>Email address</label>
@@ -62,8 +62,8 @@ export function StepAccount() {
             type="email"
             placeholder="you@example.com"
             style={inputStyle}
-            onfocus={focusInput}
-            onblur={(e) => {
+            onFocus={focusInput}
+            onBlur={(e) => {
               emailField.onBlur();
               blurInput(e, formState.errors.email);
             }}
@@ -85,18 +85,18 @@ export function StepAccount() {
               type={showPassword() ? 'text' : 'password'}
               placeholder="At least 8 characters"
               style={inputStyle + ' padding-right: 3rem;'}
-              onfocus={focusInput}
-              onblur={(e) => {
+              onFocus={focusInput}
+              onBlur={(e) => {
                 passwordField.onBlur();
                 blurInput(e, formState.errors.password);
               }}
             />
             <button
               type="button"
-              onclick={() => showPassword(!showPassword())}
+              onClick={() => showPassword(!showPassword())}
               style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: #666; cursor: pointer; padding: 0.25rem; font-size: 0.75rem; transition: color 0.2s;"
-              onmouseenter={(e) => { e.target.style.color = '#e5e5e5'; }}
-              onmouseleave={(e) => { e.target.style.color = '#666'; }}
+              onMouseEnter={(e) => { e.target.style.color = '#e5e5e5'; }}
+              onMouseLeave={(e) => { e.target.style.color = '#666'; }}
             >
               {() => showPassword() ? 'Hide' : 'Show'}
             </button>
@@ -118,18 +118,18 @@ export function StepAccount() {
               type={showConfirm() ? 'text' : 'password'}
               placeholder="Re-enter your password"
               style={inputStyle + ' padding-right: 3rem;'}
-              onfocus={focusInput}
-              onblur={(e) => {
+              onFocus={focusInput}
+              onBlur={(e) => {
                 confirmPasswordField.onBlur();
                 blurInput(e, formState.errors.confirmPassword);
               }}
             />
             <button
               type="button"
-              onclick={() => showConfirm(!showConfirm())}
+              onClick={() => showConfirm(!showConfirm())}
               style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: #666; cursor: pointer; padding: 0.25rem; font-size: 0.75rem; transition: color 0.2s;"
-              onmouseenter={(e) => { e.target.style.color = '#e5e5e5'; }}
-              onmouseleave={(e) => { e.target.style.color = '#666'; }}
+              onMouseEnter={(e) => { e.target.style.color = '#e5e5e5'; }}
+              onMouseLeave={(e) => { e.target.style.color = '#666'; }}
             >
               {() => showConfirm() ? 'Hide' : 'Show'}
             </button>
@@ -146,8 +146,8 @@ export function StepAccount() {
         <button
           type="submit"
           style="width: 100%; padding: 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 0.625rem; font-size: 0.9375rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 0.5rem;"
-          onmouseenter={(e) => { e.target.style.background = '#2563eb'; }}
-          onmouseleave={(e) => { e.target.style.background = '#3b82f6'; }}
+          onMouseEnter={(e) => { e.target.style.background = '#2563eb'; }}
+          onMouseLeave={(e) => { e.target.style.background = '#3b82f6'; }}
         >
           Continue
         </button>

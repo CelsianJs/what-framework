@@ -33,17 +33,17 @@ export function SearchBar({ searchQuery, onSearch, totalResults }) {
             type="text"
             placeholder="Search users by name, email, or role..."
             value={localValue()}
-            oninput={handleInput}
+            onInput={handleInput}
             style="width: 100%; padding: 0.75rem 2.5rem 0.75rem 2.75rem; background: #141414; border: 1px solid #2a2a2a; border-radius: 0.625rem; color: #e5e5e5; font-size: 0.875rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s;"
-            onfocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.15)'; }}
-            onblur={(e) => { e.target.style.borderColor = '#2a2a2a'; e.target.style.boxShadow = 'none'; }}
+            onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.15)'; }}
+            onBlur={(e) => { e.target.style.borderColor = '#2a2a2a'; e.target.style.boxShadow = 'none'; }}
           />
           {() => localValue() ? (
             <button
-              onclick={handleClear}
+              onClick={handleClear}
               style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: #666; font-size: 1.125rem; cursor: pointer; padding: 0.25rem; line-height: 1; border-radius: 50%; transition: color 0.2s;"
-              onmouseenter={(e) => { e.target.style.color = '#e5e5e5'; }}
-              onmouseleave={(e) => { e.target.style.color = '#666'; }}
+              onMouseEnter={(e) => { e.target.style.color = '#e5e5e5'; }}
+              onMouseLeave={(e) => { e.target.style.color = '#666'; }}
             >
               &times;
             </button>

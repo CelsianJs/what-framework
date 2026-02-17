@@ -76,7 +76,7 @@ export function StepProfile() {
         <p style="font-size: 0.8125rem; color: #666;">Set up your public profile</p>
       </div>
 
-      <form onsubmit={onSubmit} style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <form onSubmit={onSubmit} style="display: flex; flex-direction: column; gap: 1.25rem;">
         {/* Full Name */}
         <div>
           <label style={labelStyle}>Full name</label>
@@ -85,8 +85,8 @@ export function StepProfile() {
             type="text"
             placeholder="John Doe"
             style={inputStyle}
-            onfocus={focusInput}
-            onblur={(e) => {
+            onFocus={focusInput}
+            onBlur={(e) => {
               fullNameField.onBlur();
               blurInput(e, formState.errors.fullName);
             }}
@@ -109,8 +109,8 @@ export function StepProfile() {
               type="text"
               placeholder="johndoe"
               style={inputStyle + ' padding-left: 2rem;'}
-              onfocus={focusInput}
-              onblur={(e) => {
+              onFocus={focusInput}
+              onBlur={(e) => {
                 usernameField.onBlur();
                 blurInput(e, formState.errors.username);
               }}
@@ -143,8 +143,8 @@ export function StepProfile() {
             placeholder="Tell us a bit about yourself..."
             rows="3"
             style={inputStyle + ' resize: vertical; min-height: 80px;'}
-            onfocus={focusInput}
-            onblur={(e) => {
+            onFocus={focusInput}
+            onBlur={(e) => {
               bioField.onBlur();
               blurInput(e, formState.errors.bio);
             }}
@@ -163,8 +163,8 @@ export function StepProfile() {
           <select
             {...roleField}
             style={inputStyle + ' cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23666\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 1rem center;'}
-            onfocus={focusInput}
-            onblur={(e) => {
+            onFocus={focusInput}
+            onBlur={(e) => {
               roleField.onBlur();
               blurInput(e, formState.errors.role);
             }}
@@ -208,18 +208,18 @@ export function StepProfile() {
         <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
           <button
             type="button"
-            onclick={handleBack}
+            onClick={handleBack}
             style="flex: 1; padding: 0.75rem; background: #1a1a1a; color: #ccc; border: 1px solid #2a2a2a; border-radius: 0.625rem; font-size: 0.9375rem; font-weight: 500; cursor: pointer; transition: all 0.2s;"
-            onmouseenter={(e) => { e.target.style.background = '#222'; e.target.style.borderColor = '#444'; }}
-            onmouseleave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.borderColor = '#2a2a2a'; }}
+            onMouseEnter={(e) => { e.target.style.background = '#222'; e.target.style.borderColor = '#444'; }}
+            onMouseLeave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.borderColor = '#2a2a2a'; }}
           >
             Back
           </button>
           <button
             type="submit"
             style="flex: 2; padding: 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 0.625rem; font-size: 0.9375rem; font-weight: 600; cursor: pointer; transition: background 0.2s;"
-            onmouseenter={(e) => { e.target.style.background = '#2563eb'; }}
-            onmouseleave={(e) => { e.target.style.background = '#3b82f6'; }}
+            onMouseEnter={(e) => { e.target.style.background = '#2563eb'; }}
+            onMouseLeave={(e) => { e.target.style.background = '#3b82f6'; }}
           >
             Continue
           </button>

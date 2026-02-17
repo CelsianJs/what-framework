@@ -1,6 +1,6 @@
 // What Framework Demo App
-import { h, mount, signal } from '@what/core';
-import { Router, Link, defineRoutes } from '@what/router';
+import { h, mount, signal } from 'what-framework';
+import { Router, Link, defineRoutes } from 'what-framework/router';
 import { Layout } from './layouts/main.js';
 import { Home } from './pages/home.js';
 import { Docs } from './pages/docs.js';

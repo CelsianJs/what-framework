@@ -16,13 +16,13 @@ function ExpenseItem({ expense, selected, onToggle, onDelete }) {
         border-radius: 0.5rem;
         transition: all 0.2s;
       `}
-      onmouseenter={(e) => { if (!selected) e.currentTarget.style.borderColor = '#333'; }}
-      onmouseleave={(e) => { if (!selected) e.currentTarget.style.borderColor = '#222'; }}
+      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.borderColor = '#333'; }}
+      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.borderColor = '#222'; }}
     >
       <input
         type="checkbox"
         checked={selected}
-        oninput={onToggle}
+        onInput={onToggle}
         style="width: 1rem; height: 1rem; cursor: pointer; accent-color: #3b82f6;"
       />
 
@@ -55,10 +55,10 @@ function ExpenseItem({ expense, selected, onToggle, onDelete }) {
       </span>
 
       <button
-        onclick={onDelete}
+        onClick={onDelete}
         style="padding: 0.375rem 0.625rem; background: transparent; border: 1px solid #333; border-radius: 0.375rem; color: #666; font-size: 0.75rem; cursor: pointer; transition: all 0.2s;"
-        onmouseenter={(e) => { e.target.style.background = '#ef444422'; e.target.style.borderColor = '#ef4444'; e.target.style.color = '#ef4444'; }}
-        onmouseleave={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = '#333'; e.target.style.color = '#666'; }}
+        onMouseEnter={(e) => { e.target.style.background = '#ef444422'; e.target.style.borderColor = '#ef4444'; e.target.style.color = '#ef4444'; }}
+        onMouseLeave={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = '#333'; e.target.style.color = '#666'; }}
         title="Delete expense"
       >
         Delete
@@ -143,10 +143,10 @@ export function ExpenseList() {
           const count = selectedCount();
           return count > 0 ? (
             <button
-              onclick={handleBulkDelete}
+              onClick={handleBulkDelete}
               style="padding: 0.5rem 1rem; background: #ef444422; border: 1px solid #ef4444; border-radius: 0.5rem; color: #ef4444; font-size: 0.8125rem; font-weight: 500; cursor: pointer; transition: all 0.2s;"
-              onmouseenter={(e) => { e.target.style.background = '#ef444444'; }}
-              onmouseleave={(e) => { e.target.style.background = '#ef444422'; }}
+              onMouseEnter={(e) => { e.target.style.background = '#ef444444'; }}
+              onMouseLeave={(e) => { e.target.style.background = '#ef444422'; }}
             >
               Delete Selected ({count})
             </button>
@@ -178,7 +178,7 @@ export function ExpenseList() {
               <input
                 type="checkbox"
                 checked={allSelected()}
-                oninput={toggleAll}
+                onInput={toggleAll}
                 style="width: 1rem; height: 1rem; cursor: pointer; accent-color: #3b82f6;"
               />
               <span style="font-size: 0.8125rem; color: #666;">Select all</span>

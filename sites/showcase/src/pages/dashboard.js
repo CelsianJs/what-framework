@@ -6,7 +6,7 @@ import {
   useSWR,
   Skeleton, SkeletonText,
   announce,
-} from '@what/core';
+} from 'what-framework';
 import { useAppStore } from '../app.js';
 import { fetchStats, fetchActivity, CHART_DATA } from '../data.js';
 

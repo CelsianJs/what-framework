@@ -21,7 +21,7 @@ export function ProgressBar() {
               {/* Step circle + label */}
               <div
                 style="display: flex; flex-direction: column; align-items: center; cursor: pointer; position: relative; z-index: 1;"
-                onclick={() => {
+                onClick={() => {
                   const state = wizard.getState();
                   // Only allow going to completed steps or the current step
                   if (state.completed.includes(i) || i === state.step) {

@@ -67,9 +67,9 @@ export function TaskCard({ task }) {
   return (
     <div
       draggable="true"
-      ondragstart={handleDragStart}
-      ondragend={handleDragEnd}
-      onclick={handleClick}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onClick={handleClick}
       class={cls(
         'task-card',
         isDragging() && 'task-card--dragging'
@@ -85,12 +85,12 @@ export function TaskCard({ task }) {
         user-select: none;
         opacity: ${isDragging() ? '0.5' : '1'};
       `}
-      onmouseenter={(e) => {
+      onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = '#3a3a4e';
         e.currentTarget.style.transform = 'translateY(-1px)';
         e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
       }}
-      onmouseleave={(e) => {
+      onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = '#2a2a3e';
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = 'none';
@@ -98,7 +98,7 @@ export function TaskCard({ task }) {
     >
       {/* Delete Button */}
       <button
-        onclick={handleDelete}
+        onClick={handleDelete}
         style="
           position: absolute;
           top: 0.5rem;
@@ -116,11 +116,11 @@ export function TaskCard({ task }) {
           transition: color 0.15s, background 0.15s;
           line-height: 1;
         "
-        onmouseenter={(e) => {
+        onMouseEnter={(e) => {
           e.currentTarget.style.color = '#ef4444';
           e.currentTarget.style.background = '#ef444420';
         }}
-        onmouseleave={(e) => {
+        onMouseLeave={(e) => {
           e.currentTarget.style.color = '#525252';
           e.currentTarget.style.background = 'none';
         }}

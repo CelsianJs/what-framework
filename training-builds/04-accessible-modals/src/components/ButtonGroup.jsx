@@ -6,7 +6,7 @@ import { useRovingTabIndex } from 'what-framework';
  * Arrow keys move focus between buttons; Home/End jump to first/last.
  *
  * Props:
- *   buttons  - array of { label, onclick, variant? }
+ *   buttons  - array of { label, onClick, variant? }
  *   ariaLabel - accessible label for the group
  */
 export function ButtonGroup({ buttons, ariaLabel = 'Action buttons' }) {
@@ -63,11 +63,11 @@ export function ButtonGroup({ buttons, ariaLabel = 'Action buttons' }) {
           <button
             key={btn.label}
             tabIndex={itemProps.tabIndex}
-            onclick={btn.onclick}
-            onkeydown={(e) => {
+            onClick={btn.onClick}
+            onKeyDown={(e) => {
               itemProps.onKeyDown(e);
             }}
-            onfocus={() => {
+            onFocus={() => {
               itemProps.onFocus();
             }}
             style={{
@@ -80,10 +80,10 @@ export function ButtonGroup({ buttons, ariaLabel = 'Action buttons' }) {
               transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
               outline: 'none',
             }}
-            onmouseenter={(e) => {
+            onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'scale(1.03)';
             }}
-            onmouseleave={(e) => {
+            onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)';
             }}
           >

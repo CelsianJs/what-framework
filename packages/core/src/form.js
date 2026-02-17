@@ -1,7 +1,7 @@
 // What Framework - Form Utilities
 // Controlled inputs, validation, and form state management
 
-import { signal, computed, batch, effect } from './reactive.js';
+import { signal, computed, batch } from './reactive.js';
 import { h } from './h.js';
 
 // --- useForm Hook ---
@@ -47,20 +47,22 @@ export function useForm(options = {}) {
   const isSubmitted = signal(false);
   const submitCount = signal(0);
 
-  // Helper: get all current values as a plain object
-  function getAllValues() {
+  // Helper: get all current values as a plain object.
+  // tracked=true subscribes to all known fields; tracked=false is snapshot-only.
+  function getAllValues(tracked = false) {
     const result = { ...defaultValues };
     for (const [name, sig] of Object.entries(fieldSignals)) {
-      result[name] = sig.peek();
+      result[name] = tracked ? sig() : sig.peek();
     }
     return result;
   }
 
-  // Helper: get all current errors as a plain object
-  function getAllErrors() {
+  // Helper: get all current errors as a plain object.
+  // tracked=true subscribes to all known field errors; tracked=false is snapshot-only.
+  function getAllErrors(tracked = false) {
     const result = {};
     for (const [name, sig] of Object.entries(errorSignals)) {
-      const err = sig.peek();
+      const err = tracked ? sig() : sig.peek();
       if (err) result[name] = err;
     }
     return result;
@@ -88,7 +90,7 @@ export function useForm(options = {}) {
   async function validate(fieldName) {
     if (!resolver) return true;
 
-    const result = await resolver(getAllValues());
+    const result = await resolver(getAllValues(false));
 
     if (fieldName) {
       // Validate single field — only update that field's error signal
@@ -210,7 +212,7 @@ export function useForm(options = {}) {
       if (isFormValid) {
         await onValid(getAllValues());
       } else if (onInvalid) {
-        onInvalid(getAllErrors());
+        onInvalid(getAllErrors(false));
       }
 
       isSubmitting.set(false);
@@ -223,24 +225,24 @@ export function useForm(options = {}) {
       return computed(() => getFieldSignal(name)());
     }
     // Watch all: return a computed that reads all field signals
-    return computed(() => getAllValues());
+    return computed(() => getAllValues(true));
   }
 
   return {
-    register,
-    handleSubmit,
-    setValue,
-    getValue,
-    setError,
-    clearError,
-    clearErrors,
-    reset,
-    watch,
-    validate,
-    // Form state — uses getters for errors/touched to enable per-field granularity
+      register,
+      handleSubmit,
+      setValue,
+      getValue,
+      setError,
+      clearError,
+      clearErrors,
+      reset,
+      watch,
+      validate,
+      // Form state — uses getters for errors/touched to enable per-field granularity
     formState: {
-      get values() { return getAllValues(); },
-      get errors() { return getAllErrors(); },
+      get values() { return getAllValues(true); },
+      get errors() { return getAllErrors(true); },
       get touched() {
         const result = {};
         for (const [name, sig] of Object.entries(touchedSignals)) {
@@ -497,8 +499,12 @@ export function Radio(props) {
 
 // --- Form Error Display ---
 
-export function ErrorMessage({ name, errors, render }) {
-  const error = errors ? errors()[name] : null;
+export function ErrorMessage({ name, formState, errors, render }) {
+  const formErrors = formState?.errors;
+  const errorSource = formErrors != null
+    ? formErrors
+    : (typeof errors === 'function' ? errors() : errors);
+  const error = errorSource?.[name] || null;
   if (!error) return null;
 
   if (render) {

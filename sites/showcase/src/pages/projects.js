@@ -4,7 +4,7 @@ import {
   signal, computed, batch,
   spring,
   announce,
-} from '@what/core';
+} from 'what-framework';
 import { useAppStore } from '../app.js';
 import { TASKS, PEOPLE } from '../data.js';
 

@@ -170,7 +170,7 @@ packages/
 │       ├── components.js  memo, lazy, Suspense, ErrorBoundary
 │       ├── store.js       Global state management
 │       ├── head.js        Document head management
-│       ├── helpers.js     Utilities (cls, show, each, etc.)
+│       ├── helpers.js     Utilities (cls, each, etc.)
 │       └── index.js       Public API
 ├── router/         Client-side routing
 │   └── src/

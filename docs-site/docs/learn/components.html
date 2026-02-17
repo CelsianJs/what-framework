@@ -167,7 +167,7 @@
 
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;span&gt;Count: {count}&lt;/span&gt;
+      &lt;span&gt;Count: {count()}&lt;/span&gt;
       &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
         Increment
       &lt;/button&gt;
@@ -356,7 +356,7 @@ h(<span class="string">'div'</span>, { className: <span class="string">'card'</s
 &lt;Counter count={count} /&gt;
 
 <span class="keyword">function</span> <span class="function">Counter</span>({ count }) {
-  <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;{count}&lt;/button&gt;;
+  <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;{count()}&lt;/button&gt;;
 }</code></pre>
 
           <div class="page-nav">

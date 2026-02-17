@@ -88,47 +88,49 @@ npm run dev</code></pre>
 
 <pre><code>my-app/
 ├── src/
-│   ├── components/     <span class="comment"># Reusable components</span>
-│   ├── pages/          <span class="comment"># File-based routes</span>
-│   │   └── index.jsx   <span class="comment"># Home page → /</span>
-│   └── app.jsx         <span class="comment"># App entry</span>
-├── public/             <span class="comment"># Static assets</span>
+│   ├── main.jsx        <span class="comment"># App entry</span>
+│   └── styles.css      <span class="comment"># App styles</span>
+├── public/             <span class="comment"># Optional static assets</span>
+├── index.html
+├── vite.config.js
 └── package.json</code></pre>
 
           <h2 id="your-first-component">Your First Component</h2>
-          <p>Let's build a counter. Open <code>src/pages/index.jsx</code>:</p>
+          <p>Let's build a counter. Open <code>src/main.jsx</code>:</p>
 
-          <div class="code-header">src/pages/index.jsx</div>
-<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+          <div class="code-header">src/main.jsx</div>
+<pre><code><span class="keyword">import</span> { mount, useSignal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="keyword">export default function</span> <span class="function">Home</span>() {
-  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
 
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;h1&gt;Counter: {count}&lt;/h1&gt;
+      &lt;h1&gt;Counter: {count()}&lt;/h1&gt;
       &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
         Increment
       &lt;/button&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+<span class="function">mount</span>(&lt;App /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <p>Save the file. The counter now works. Let's break down what's happening:</p>
 
           <div class="step">
             <span class="step-number">1</span>
             <div class="step-content">
-              <h4><code>signal(0)</code></h4>
-              <p>Creates a reactive value starting at 0. Unlike React's useState, signals are reactive primitives that can be read anywhere.</p>
+              <h4><code>useSignal(0)</code></h4>
+              <p>Creates a reactive value starting at 0. Unlike React's useState tuple, this returns a signal getter/setter pair in one primitive.</p>
             </div>
           </div>
 
           <div class="step">
             <span class="step-number">2</span>
             <div class="step-content">
-              <h4><code>{count}</code> in JSX</h4>
-              <p>When you use a signal in JSX, What automatically subscribes to it. When the value changes, only that text node updates—not the whole component.</p>
+              <h4><code>{count()}</code> in JSX</h4>
+              <p>Reading the signal in JSX subscribes that text node. When the value changes, only that node updates, not the whole component.</p>
             </div>
           </div>
 
@@ -148,23 +150,25 @@ npm run dev</code></pre>
           <h2 id="adding-computed">Adding Computed Values</h2>
           <p>Let's add a derived value that updates automatically:</p>
 
-          <div class="code-header">src/pages/index.jsx</div>
-<pre><code><span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+          <div class="code-header">src/main.jsx</div>
+<pre><code><span class="keyword">import</span> { mount, useSignal, useComputed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="keyword">export default function</span> <span class="function">Home</span>() {
-  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
-  <span class="keyword">const</span> doubled = <span class="function">computed</span>(() =&gt; count() * <span class="number">2</span>);
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> doubled = <span class="function">useComputed</span>(() =&gt; count() * <span class="number">2</span>);
 
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;h1&gt;Count: {count}&lt;/h1&gt;
-      &lt;p&gt;Doubled: {doubled}&lt;/p&gt;
+      &lt;h1&gt;Count: {count()}&lt;/h1&gt;
+      &lt;p&gt;Doubled: {doubled()}&lt;/p&gt;
       &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
         Increment
       &lt;/button&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+<span class="function">mount</span>(&lt;App /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <p><code>computed()</code> creates a derived signal. It:</p>
           <ul>

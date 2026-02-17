@@ -29,7 +29,7 @@ const NoteListItem = memo(function NoteListItem({ note, isActive, onSelect, onDe
 
   return (
     <div
-      onclick={onSelect}
+      onClick={onSelect}
       style={`
         padding: 0.75rem 1rem;
         cursor: pointer;
@@ -40,12 +40,12 @@ const NoteListItem = memo(function NoteListItem({ note, isActive, onSelect, onDe
         margin-bottom: 0.25rem;
         position: relative;
       `}
-      onmouseenter={(e) => {
+      onMouseEnter={(e) => {
         if (!isActive) e.currentTarget.style.background = '#ffffff08';
         const btn = e.currentTarget.querySelector('.delete-btn');
         if (btn) btn.style.opacity = '1';
       }}
-      onmouseleave={(e) => {
+      onMouseLeave={(e) => {
         if (!isActive) e.currentTarget.style.background = 'transparent';
         const btn = e.currentTarget.querySelector('.delete-btn');
         if (btn) btn.style.opacity = '0';
@@ -57,10 +57,10 @@ const NoteListItem = memo(function NoteListItem({ note, isActive, onSelect, onDe
         </div>
         <button
           class="delete-btn"
-          onclick={handleDelete}
+          onClick={handleDelete}
           style="opacity: 0; padding: 0.125rem 0.375rem; background: transparent; border: 1px solid #333; border-radius: 0.25rem; color: #666; font-size: 0.625rem; cursor: pointer; transition: all 0.15s; flex-shrink: 0; margin-left: 0.5rem;"
-          onmouseenter={(e) => { e.target.style.borderColor = '#ef4444'; e.target.style.color = '#ef4444'; }}
-          onmouseleave={(e) => { e.target.style.borderColor = '#333'; e.target.style.color = '#666'; }}
+          onMouseEnter={(e) => { e.target.style.borderColor = '#ef4444'; e.target.style.color = '#ef4444'; }}
+          onMouseLeave={(e) => { e.target.style.borderColor = '#333'; e.target.style.color = '#666'; }}
           title="Delete note"
         >
           x

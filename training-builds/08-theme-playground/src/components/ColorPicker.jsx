@@ -53,7 +53,7 @@ export function ColorPicker({ label, propKey }) {
         {() => (
           <button
             ref={swatchRef}
-            onclick={handleSwatchClick}
+            onClick={handleSwatchClick}
             style={`
               width: 28px;
               height: 28px;
@@ -65,11 +65,11 @@ export function ColorPicker({ label, propKey }) {
               transition: border-color 0.15s, transform 0.15s;
               flex-shrink: 0;
             `}
-            onmouseenter={(e) => {
+            onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'var(--text-muted)';
               e.currentTarget.style.transform = 'scale(1.1)';
             }}
-            onmouseleave={(e) => {
+            onMouseLeave={(e) => {
               e.currentTarget.style.borderColor = 'var(--border)';
               e.currentTarget.style.transform = 'scale(1)';
             }}
@@ -105,7 +105,7 @@ export function ColorPicker({ label, propKey }) {
             <input
               type="color"
               value={currentColor()}
-              oninput={handleColorChange}
+              onInput={handleColorChange}
               style="
                 width: 100%;
                 height: 40px;
@@ -121,7 +121,7 @@ export function ColorPicker({ label, propKey }) {
               <input
                 type="text"
                 value={hexInput()}
-                oninput={handleHexInput}
+                onInput={handleHexInput}
                 maxlength="7"
                 style="
                   flex: 1;
@@ -134,8 +134,8 @@ export function ColorPicker({ label, propKey }) {
                   font-family: monospace;
                   outline: none;
                 "
-                onfocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
-                onblur={(e) => { e.target.style.borderColor = 'var(--border)'; }}
+                onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
+                onBlur={(e) => { e.target.style.borderColor = 'var(--border)'; }}
               />
             </div>
           </div>

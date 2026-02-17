@@ -74,7 +74,7 @@
 
           <p>What ships four data-fetching hooks that cover everything from a one-line fetch to full TanStack Query-style cache management. Every hook returns reactive signals, so your UI updates automatically when data arrives, errors occur, or background revalidation completes.</p>
 
-<pre><code><span class="keyword">import</span> { useFetch, useSWR, useQuery, useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;</code></pre>
+<pre><code><span class="keyword">import</span> { useFetch, useSWR, useQuery, useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;</code></pre>
 
           <h2 id="use-fetch">useFetch</h2>
           <p><code>useFetch</code> is the simplest way to load data. It fires a request on mount, aborts it on unmount, and gives you reactive <code>data</code>, <code>error</code>, and <code>isLoading</code> signals.</p>
@@ -92,7 +92,7 @@
 
           <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>refetch()</code>, <code>mutate(newData)</code></p>
 
-<pre><code><span class="keyword">import</span> { useFetch } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+<pre><code><span class="keyword">import</span> { useFetch } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">UserProfile</span>({ userId }) {
   <span class="keyword">const</span> { data, error, isLoading } = <span class="function">useFetch</span>(
@@ -140,7 +140,7 @@
 
           <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>isValidating()</code>, <code>mutate(newData, shouldRevalidate?)</code>, <code>revalidate()</code></p>
 
-<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Dashboard</span>() {
   <span class="keyword">const</span> { data, isValidating } = <span class="function">useSWR</span>(
@@ -193,7 +193,7 @@
 
           <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>status()</code>, <code>fetchStatus()</code>, <code>isLoading()</code>, <code>isError()</code>, <code>isSuccess()</code>, <code>isFetching()</code>, <code>refetch()</code></p>
 
-<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">RepoList</span>({ org }) {
   <span class="keyword">const</span> repos = <span class="function">useQuery</span>({
@@ -240,7 +240,7 @@
 
           <p><strong>Returns:</strong> <code>data()</code> (object with <code>pages</code> and <code>pageParams</code> arrays), <code>hasNextPage()</code>, <code>hasPreviousPage()</code>, <code>fetchNextPage()</code>, <code>fetchPreviousPage()</code>, <code>refetch()</code></p>
 
-<pre><code><span class="keyword">import</span> { useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+<pre><code><span class="keyword">import</span> { useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Feed</span>() {
   <span class="keyword">const</span> feed = <span class="function">useInfiniteQuery</span>({
@@ -281,7 +281,7 @@
   setQueryData,
   getQueryData,
   clearCache,
-} <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;</code></pre>
+} <span class="keyword">from</span> <span class="string">'what-framework'</span>;</code></pre>
 
           <h3 id="invalidate"><code>invalidateQueries(keyOrPredicate, options?)</code></h3>
           <p>Marks one or more cache entries as stale and triggers all active subscribers to re-fetch.</p>
@@ -437,9 +437,10 @@
               <div style="font-weight:600;font-size:15px">${u.name}</div>
               <div style="color:#52525b;font-size:13px">${u.email} · ${u.role}</div>
             </div>
-            <button onclick="this.closest('.playground-result').__refetch()" style="margin-left:auto;padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Refetch</button>
+            <button id="demo-refetch" style="margin-left:auto;padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Refetch</button>
           </div>`;
         el.__refetch = fetchUser;
+        el.querySelector('#demo-refetch')?.addEventListener('click', () => el.__refetch());
       }
     });
 

@@ -1,4 +1,4 @@
-import { h, useState, useEffect, useRef, useMemo, signal, batch } from '@what/core';
+import { h, useState, useEffect, useRef, useMemo, signal, batch } from 'what-framework';
 
 export function Bench() {
   const [results, setResults] = useState(null);
@@ -210,4 +210,4 @@ function feat(title, desc) {
 }
 
 // Export needed for h() import in bench
-export { h } from '@what/core';
+export { h } from 'what-framework';

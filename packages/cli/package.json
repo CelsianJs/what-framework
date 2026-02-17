@@ -22,7 +22,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "what-framework": "^0.4.0"
+    "what-framework": "^0.4.2"
   },
   "repository": {
     "type": "git",

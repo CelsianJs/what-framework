@@ -12,7 +12,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.1</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v1.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -117,7 +117,7 @@ console.log(count());  <span class="comment">// 6</span></code></pre>
 
   <span class="keyword">return</span> (
     &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">1</span>)}&gt;
-      Count: {count}
+      Count: {count()}
     &lt;/button&gt;
   );
 }</code></pre>
@@ -152,7 +152,7 @@ items.set(arr =&gt; arr.filter(x =&gt; x !== <span class="number">2</span>));</c
           <h2 id="notes">Notes</h2>
           <ul>
             <li>Signals should not be mutated directly. Always use <code>.set()</code> to update.</li>
-            <li>In JSX, signals can be used directly: <code>{count}</code> or explicitly unwrapped: <code>{count()}</code></li>
+            <li>In JSX, read signals with <code>()</code>: <code>{count()}</code></li>
             <li>Use <code>peek()</code> when you need the value but don't want to create a subscription</li>
             <li>For derived values that depend on other signals, use <a href="./computed.html">computed()</a></li>
           </ul>

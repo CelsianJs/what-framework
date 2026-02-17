@@ -39,8 +39,8 @@ function StatsBar() {
           <div
             key={item.label}
             style={`background: #111; border: 1px solid #1e1e1e; border-radius: 0.75rem; padding: 1rem 1.25rem; transition: border-color 0.2s;`}
-            onmouseenter={(e) => { e.currentTarget.style.borderColor = item.color + '44'; }}
-            onmouseleave={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = item.color + '44'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }}
           >
             <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: #666; margin-bottom: 0.375rem;">
               {item.label}
@@ -61,13 +61,13 @@ function ViewToggle({ mode, onToggle }) {
   return (
     <div style="display: flex; border-radius: 0.5rem; overflow: hidden; border: 1px solid #2a2a2a;">
       <button
-        onclick={() => onToggle('paginated')}
+        onClick={() => onToggle('paginated')}
         style={`${btnBase} border-right: none; border-radius: 0.5rem 0 0 0.5rem; ${mode() === 'paginated' ? 'background: #3b82f6; color: white; border-color: #3b82f6;' : 'background: #141414; color: #999;'}`}
       >
         Paginated
       </button>
       <button
-        onclick={() => onToggle('infinite')}
+        onClick={() => onToggle('infinite')}
         style={`${btnBase} border-radius: 0 0.5rem 0.5rem 0; ${mode() === 'infinite' ? 'background: #3b82f6; color: white; border-color: #3b82f6;' : 'background: #141414; color: #999;'}`}
       >
         Infinite Scroll
@@ -87,7 +87,7 @@ export function App() {
             <h2 style="color: #fca5a5; font-size: 1.25rem; margin-bottom: 0.75rem;">Something went wrong</h2>
             <p style="color: #ef4444; font-size: 0.875rem; margin-bottom: 1rem;">{error.message}</p>
             <button
-              onclick={reset}
+              onClick={reset}
               style="padding: 0.5rem 1.25rem; background: #dc2626; color: white; border: none; border-radius: 0.5rem; font-size: 0.8125rem; cursor: pointer;"
             >
               Try Again

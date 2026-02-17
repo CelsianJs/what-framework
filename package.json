@@ -25,7 +25,15 @@
   "scripts": {
     "build": "node scripts/build.js",
     "bench": "node benchmark/run.js",
+    "bench:core": "node benchmark/run.js",
+    "bench:dx": "node benchmark/dx-microbench.js",
+    "bench:gate": "node benchmark/check-regressions.js",
+    "codemod:show": "node scripts/codemods/show-to-ternary.js --write demo examples training-builds",
+    "codemod:show:check": "node scripts/codemods/show-to-ternary.js demo examples training-builds",
+    "deploy:vercel": "node scripts/deploy-vercel.mjs",
     "demo": "node demo/serve.js",
+    "release:publish": "node scripts/publish-packages.mjs",
+    "release:verify": "npm run -s test && npm run -s build && npm run -s bench:gate",
     "test": "node --test packages/core/test/*.test.js packages/router/test/*.test.js"
   },
   "engines": {

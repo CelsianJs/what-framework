@@ -1,18 +1,7 @@
 // What Framework - Helpers & Utilities
 // Commonly needed patterns, zero overhead.
 
-import { signal, effect, computed, batch, __DEV__ } from './reactive.js';
-
-// --- show(condition, vnode) --- [DEPRECATED: use <Show> component instead]
-// Conditional rendering. More readable than ternary.
-let _showWarned = false;
-export function show(condition, vnode, fallback = null) {
-  if (!_showWarned) {
-    _showWarned = true;
-    console.warn('[what] show() is deprecated. Use the <Show> component or ternary expressions instead.');
-  }
-  return condition ? vnode : fallback;
-}
+import { signal, effect, __DEV__ } from './reactive.js';
 
 // --- each(list, fn) --- [DEPRECATED: use <For> component or .map() instead]
 // Keyed list rendering. Optimized for reconciliation.

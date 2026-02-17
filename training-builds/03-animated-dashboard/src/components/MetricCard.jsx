@@ -96,12 +96,12 @@ export function MetricCard({ metric, value, index }) {
         cursor: 'default',
         willChange: 'opacity, transform',
       }}
-      onmouseenter={(e) => {
+      onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)';
         e.currentTarget.style.boxShadow = '0 8px 32px rgba(99, 102, 241, 0.15)';
         e.currentTarget.style.transform = 'translateY(-2px)';
       }}
-      onmouseleave={(e) => {
+      onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
         e.currentTarget.style.boxShadow = 'none';
         e.currentTarget.style.transform = 'translateY(0)';

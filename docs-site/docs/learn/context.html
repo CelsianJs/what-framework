@@ -274,7 +274,7 @@
   <span class="keyword">const</span> { count, doubled, increment } = <span class="function">useCounter</span>();
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;p&gt;Count: {count} / Doubled: {doubled}&lt;/p&gt;
+      &lt;p&gt;Count: {count()} / Doubled: {doubled()}&lt;/p&gt;
       &lt;button onClick={increment}&gt;+&lt;/button&gt;
     &lt;/div&gt;
   );

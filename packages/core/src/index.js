@@ -41,7 +41,6 @@ export { Head, clearHead } from './head.js';
 
 // Utilities
 export {
-  show,
   each,
   cls,
   style,
@@ -87,6 +86,7 @@ export {
 // Accessibility utilities
 export {
   useFocus,
+  useFocusRestore,
   useFocusTrap,
   FocusTrap,
   announce,

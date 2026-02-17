@@ -5,6 +5,8 @@
 **Scope:** 8 training applications, all source files in `src/` directories
 **Framework Version:** what-framework 0.4.x
 
+> Update (2026-02-17): This review captures findings before the DX cleanup pass. Some issues noted here were intentionally fixed in framework/runtime/docs. See `training-builds/CLEANUP_STATUS.md` for current status.
+
 ---
 
 ## Table of Contents

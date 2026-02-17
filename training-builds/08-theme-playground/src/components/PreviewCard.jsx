@@ -128,8 +128,8 @@ export function PreviewCard() {
               flex: 1;
               transition: opacity 0.2s;
             "
-            onmouseenter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
-            onmouseleave={(e) => { e.currentTarget.style.opacity = '1'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
           >
             Primary Action
           </button>
@@ -145,8 +145,8 @@ export function PreviewCard() {
               flex: 1;
               transition: border-color 0.2s;
             "
-            onmouseenter={(e) => { e.currentTarget.style.borderColor = 'var(--text-muted)'; }}
-            onmouseleave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--text-muted)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
           >
             Secondary
           </button>

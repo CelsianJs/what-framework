@@ -4,6 +4,8 @@
 **Framework Version:** what-framework@0.4.2
 **Process:** 8 training apps built by engineer agents, reviewed by senior reviewer, iterated 1 round of fixes, all verified with `vite build`.
 
+> Update (2026-02-17): This document is a pre-cleanup snapshot. Several issues here are now resolved in runtime/docs. See `training-builds/CLEANUP_STATUS.md` and top-level docs (`README.md`, `GETTING-STARTED.md`, `docs/QUICKSTART.md`) for current canonical behavior.
+
 ---
 
 ## Part 1: Best Practices for Developer Docs

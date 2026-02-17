@@ -76,7 +76,7 @@
           <p>Define your routes and render the <code>Router</code> component. Each route maps a URL path to a component:</p>
 
 <pre><code><span class="keyword">import</span> { mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-<span class="keyword">import</span> { Router, defineRoutes } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<span class="keyword">import</span> { Router, defineRoutes } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">import</span> Home <span class="keyword">from</span> <span class="string">'./pages/Home'</span>;
 <span class="keyword">import</span> About <span class="keyword">from</span> <span class="string">'./pages/About'</span>;
@@ -97,7 +97,7 @@ mount(
           <h2 id="link">Navigating with Link</h2>
           <p>Use <code>Link</code> for client-side navigation. It intercepts clicks, updates the URL via <code>history.pushState</code>, and re-renders the router without a full page reload:</p>
 
-<pre><code><span class="keyword">import</span> { Link } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { Link } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">Nav</span>() {
   <span class="keyword">return</span> (
@@ -122,7 +122,7 @@ mount(
           <h2 id="programmatic">Programmatic Navigation</h2>
           <p>Use <code>navigate()</code> to change routes from event handlers or effects:</p>
 
-<pre><code><span class="keyword">import</span> { navigate } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { navigate } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">LoginForm</span>() {
   <span class="keyword">async function</span> <span class="function">handleSubmit</span>(e) {
@@ -142,7 +142,7 @@ mount(
           <h2 id="route-object">The route Object</h2>
           <p>Access the current route state from anywhere in your app using the reactive <code>route</code> object:</p>
 
-<pre><code><span class="keyword">import</span> { route } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { route } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="comment">// All properties are reactive getters</span>
 route.path     <span class="comment">// "/users/42"</span>
@@ -180,7 +180,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
           <h2 id="nested-layouts">Nested Layouts</h2>
           <p>Wrap groups of routes in shared layouts. The layout component receives the matched route's element as <code>children</code>:</p>
 
-<pre><code><span class="keyword">import</span> { nestedRoutes } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { nestedRoutes } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">DashboardLayout</span>({ children }) {
   <span class="keyword">return</span> (
@@ -206,7 +206,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
           <h2 id="middleware">Route Guards &amp; Middleware</h2>
           <p>Protect routes with middleware functions that run before the route renders. Middleware can allow, reject, or redirect:</p>
 
-<pre><code><span class="keyword">import</span> { guard } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { guard } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="comment">// Sync guard — redirect if not authenticated</span>
 <span class="keyword">const</span> requireAuth = <span class="function">guard</span>(
@@ -232,7 +232,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 
           <p>For async checks (like verifying a session with the server), use <code>asyncGuard</code>:</p>
 
-<pre><code><span class="keyword">import</span> { asyncGuard } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { asyncGuard } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">const</span> requireSession = <span class="function">asyncGuard</span>(
   <span class="keyword">async</span> () =&gt; {
@@ -245,7 +245,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
           <h2 id="route-groups">Route Groups</h2>
           <p>Group routes together to share a layout or middleware without affecting URL structure. The group name in parentheses is stripped from the URL:</p>
 
-<pre><code><span class="keyword">import</span> { routeGroup } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { routeGroup } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">const</span> routes = [
   ...<span class="function">routeGroup</span>(<span class="string">'marketing'</span>, [
@@ -289,7 +289,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 
           <p>Name specific elements for independent transitions:</p>
 
-<pre><code><span class="keyword">import</span> { viewTransitionName } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { viewTransitionName } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">Card</span>({ id, title }) {
   <span class="keyword">return</span> (
@@ -302,7 +302,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
           <h2 id="scroll-restoration">Scroll Restoration</h2>
           <p>Enable automatic scroll position saving and restoration:</p>
 
-<pre><code><span class="keyword">import</span> { enableScrollRestoration } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { enableScrollRestoration } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="function">enableScrollRestoration</span>();
 <span class="comment">// Now back/forward navigation restores scroll position</span>
@@ -312,7 +312,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
           <h2 id="prefetching">Prefetching</h2>
           <p>Link components prefetch routes on hover by default. You can also prefetch programmatically:</p>
 
-<pre><code><span class="keyword">import</span> { prefetch } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { prefetch } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="comment">// Prefetch a route's assets</span>
 <span class="function">prefetch</span>(<span class="string">'/dashboard'</span>);
@@ -323,7 +323,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
           <h2 id="use-route">useRoute Hook</h2>
           <p>Access reactive route state inside any component with the <code>useRoute</code> hook. Returns computed signals for each property:</p>
 
-<pre><code><span class="keyword">import</span> { useRoute } <span class="keyword">from</span> <span class="string">'what-router'</span>;
+<pre><code><span class="keyword">import</span> { useRoute } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">Breadcrumbs</span>() {
   <span class="keyword">const</span> { path, params, query, navigate } = <span class="function">useRoute</span>();

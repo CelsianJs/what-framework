@@ -34,7 +34,10 @@ export function renderToString(vnode) {
   // Void elements
   if (VOID_ELEMENTS.has(tag)) return open;
 
-  const inner = children.map(renderToString).join('');
+  const rawInner = props?.dangerouslySetInnerHTML?.__html
+    ?? props?.innerHTML?.__html
+    ?? props?.innerHTML;
+  const inner = rawInner != null ? String(rawInner) : children.map(renderToString).join('');
   return `${open}${inner}</${tag}>`;
 }
 
@@ -69,8 +72,15 @@ export async function* renderToStream(vnode) {
   yield `<${tag}${attrs}>`;
 
   if (!VOID_ELEMENTS.has(tag)) {
-    for (const child of children) {
-      yield* renderToStream(child);
+    const rawInner = props?.dangerouslySetInnerHTML?.__html
+      ?? props?.innerHTML?.__html
+      ?? props?.innerHTML;
+    if (rawInner != null) {
+      yield String(rawInner);
+    } else {
+      for (const child of children) {
+        yield* renderToStream(child);
+      }
     }
     yield `</${tag}>`;
   }
@@ -159,7 +169,7 @@ export function server(Component) {
 function renderAttrs(props) {
   let out = '';
   for (const [key, val] of Object.entries(props)) {
-    if (key === 'key' || key === 'ref' || key === 'children' || key === 'dangerouslySetInnerHTML') continue;
+    if (key === 'key' || key === 'ref' || key === 'children' || key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
     if (key.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
     if (val === false || val == null) continue;
 
@@ -175,11 +185,6 @@ function renderAttrs(props) {
     } else {
       out += ` ${key}="${escapeHtml(String(val))}"`;
     }
-  }
-
-  // Handle dangerouslySetInnerHTML separately
-  if (props.dangerouslySetInnerHTML) {
-    // This is handled in the content rendering, not attrs
   }
 
   return out;
