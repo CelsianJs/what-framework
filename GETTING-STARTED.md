@@ -1,6 +1,6 @@
 # Getting Started with What Framework
 
-Canonical setup for new apps.
+Canonical setup for new apps. The What compiler is required — it handles JSX transforms and automatic reactivity wrapping.
 
 ## 1. Create a project
 
@@ -13,9 +13,11 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-`create-what` abstracts the Vite wiring by default, so most teams never touch bundler config.
+Bun works too: `bun create what@latest my-app`, then `bun run dev`.
 
-## 2. Manual setup (advanced: Vite + compiler-first JSX)
+`create-what` wires up Vite + the compiler automatically, so most teams never touch bundler config.
+
+## 2. Manual setup (Vite + compiler)
 
 ```bash
 mkdir my-app && cd my-app
@@ -83,14 +85,14 @@ mount(<App />, '#app');
 
 ## 4. Reactivity mental model
 
-Compiler-first JSX handles common reactive expressions directly:
+The compiler handles reactive expressions automatically:
 
 ```jsx
 <p>{count()}</p>
 <ul>{items().map(item => <li key={item.id}>{item.name}</li>)}</ul>
 ```
 
-For advanced runtime/h() patterns, explicit accessor wrappers are still available where needed.
+Signal reads in JSX attributes and children are auto-wrapped — no manual `{() => ...}` needed.
 
 ## 5. Forms
 

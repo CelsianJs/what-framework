@@ -4,17 +4,14 @@
 // Canonical scaffold for What Framework projects.
 // Usage:
 //   npx create-what my-app
-//   npx create-what my-app --vanilla
 
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
-const flags = args.filter(a => a.startsWith('-'));
 const positional = args.filter(a => !a.startsWith('-'));
 
 const projectName = positional[0] || 'my-what-app';
-const useJSX = !flags.includes('--no-jsx') && !flags.includes('--vanilla');
 
 const root = join(process.cwd(), projectName);
 
@@ -25,9 +22,6 @@ if (existsSync(root)) {
 
 mkdirSync(join(root, 'src'), { recursive: true });
 mkdirSync(join(root, 'public'), { recursive: true });
-
-const ext = useJSX ? 'jsx' : 'js';
-const entry = `src/main.${ext}`;
 
 writeFileSync(join(root, '.gitignore'), `node_modules\ndist\n.DS_Store\n`);
 
@@ -46,7 +40,7 @@ writeFileSync(join(root, 'package.json'), JSON.stringify({
   },
   devDependencies: {
     vite: '^5.4.0',
-    ...(useJSX ? { 'what-compiler': '^0.5.1' } : {}),
+    'what-compiler': '^0.5.1',
   },
 }, null, 2) + '\n');
 
@@ -61,7 +55,7 @@ writeFileSync(join(root, 'index.html'), `<!doctype html>
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/${entry}"></script>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
 `);
@@ -78,8 +72,7 @@ writeFileSync(join(root, 'public', 'favicon.svg'), `<svg xmlns="http://www.w3.or
 </svg>
 `);
 
-if (useJSX) {
-  writeFileSync(join(root, 'vite.config.js'), `import { defineConfig } from 'vite';
+writeFileSync(join(root, 'vite.config.js'), `import { defineConfig } from 'vite';
 import what from 'what-compiler/vite';
 
 export default defineConfig({
@@ -87,7 +80,7 @@ export default defineConfig({
 });
 `);
 
-  writeFileSync(join(root, 'src', 'main.jsx'), `import { mount, useSignal } from 'what-framework';
+writeFileSync(join(root, 'src', 'main.jsx'), `import { mount, useSignal } from 'what-framework';
 
 function App() {
   const count = useSignal(0);
@@ -108,31 +101,6 @@ function App() {
 
 mount(<App />, '#app');
 `);
-} else {
-  writeFileSync(join(root, 'vite.config.js'), `import { defineConfig } from 'vite';
-
-export default defineConfig({});
-`);
-
-  writeFileSync(join(root, 'src', 'main.js'), `import { h, mount, signal } from 'what-framework';
-
-function App() {
-  const count = signal(0);
-
-  return h('main', { class: 'app-shell' },
-    h('h1', null, 'What Framework'),
-    h('p', null, 'Runtime h() path (advanced).'),
-    h('section', { class: 'counter' },
-      h('button', { onClick: () => count.set(c => c - 1) }, '-'),
-      h('output', null, () => count()),
-      h('button', { onClick: () => count.set(c => c + 1) }, '+'),
-    ),
-  );
-}
-
-mount(h(App), '#app');
-`);
-}
 
 writeFileSync(join(root, 'src', 'styles.css'), `:root {
   color-scheme: light;
@@ -203,13 +171,13 @@ Open [http://localhost:5173](http://localhost:5173).
 ## Notes
 
 - Canonical package name is \`what-framework\`.
-- JSX path is compiler-first and recommended.
-- Runtime \`h()\` path is available with \`--vanilla\`.
-- Vite is preconfigured under the hood; use \`npm run dev/build/preview\`.
+- Uses the What compiler for JSX transforms and automatic reactivity.
+- Vite is preconfigured; use \`npm run dev/build/preview\`.
 - Event handlers accept both \`onClick\` and \`onclick\`; docs and templates use \`onClick\`.
+- Bun is also supported: \`bun create what@latest\`, \`bun run dev\`.
 `);
 
-console.log(`\nCreated ${projectName} (${useJSX ? 'jsx' : 'vanilla'} mode).`);
+console.log(`\nCreated ${projectName}.`);
 console.log('Next steps:');
 console.log(`  cd ${projectName}`);
 console.log('  npm install');

@@ -1,8 +1,6 @@
 import { defineConfig } from 'vite';
+import what from 'what-compiler/vite';
 
 export default defineConfig({
-  esbuild: {
-    jsx: 'automatic',
-    jsxImportSource: 'what-framework',
-  },
+  plugins: [what()],
 });

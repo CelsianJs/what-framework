@@ -13,7 +13,9 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-`create-what` includes Vite internally. You use `npm run dev/build/preview` and can ignore bundler internals unless you want custom tooling.
+`create-what` includes Vite + the What compiler. You use `npm run dev/build/preview` and can ignore bundler internals unless you want custom tooling.
+
+Bun works too: `bun create what@latest my-app`, then `bun run dev`.
 
 ## 2. Core patterns
 
@@ -175,22 +177,7 @@ If either prop is set, it owns that element's children.
 - `derived(fn)`: derived fields inside `createStore(...)`.
 - `useMemo(fn, deps)`: dependency-array memo for non-signal values.
 
-## 9. Runtime `h()` path (advanced)
-
-```js
-import { h, mount, signal } from 'what-framework';
-
-function App() {
-  const count = signal(0);
-  return h('button', { onClick: () => count.set(c => c + 1) }, () => count());
-}
-
-mount(h(App), '#app');
-```
-
-Use this path when you intentionally want compiler-free authoring.
-
-## 10. Migration helpers
+## 9. Migration helpers
 
 ```bash
 npm run codemod:show

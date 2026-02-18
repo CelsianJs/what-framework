@@ -4,8 +4,8 @@ The closest framework to vanilla JS, with a React-familiar authoring experience.
 
 - Fine-grained reactivity (signals)
 - No virtual DOM diff tree
-- Compiler-first JSX path (recommended)
-- Optional runtime `h()` path (advanced)
+- Compiler-powered JSX (automatic reactivity)
+- `h()` and `Fragment` available as low-level APIs (used internally by the compiler)
 
 ## Install
 
@@ -26,7 +26,7 @@ Open `http://localhost:5173`.
 
 You do not need to configure Vite directly in the default workflow. `create-what` handles it.
 
-## JSX Setup (Advanced Manual Path)
+## Manual Setup
 
 ```bash
 npm install what-framework what-compiler
@@ -42,6 +42,8 @@ export default defineConfig({
   plugins: [what()],
 });
 ```
+
+Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## First App
 
@@ -68,7 +70,7 @@ mount(<Counter />, '#app');
 
 ## Canonical DX Rules
 
-1. Default to compiler-first JSX.
+1. The compiler is required — all JSX goes through `what-compiler`.
 2. Use `onClick` in docs/examples.
 3. Runtime supports both `onClick` and `onclick` for compatibility.
 4. Use signal `.set(...)` as the primary write style.
@@ -79,14 +81,14 @@ mount(<Counter />, '#app');
 
 ## Reactivity Ergonomics
 
-Compiler-first JSX handles common reactive expressions directly:
+The compiler handles reactive expressions automatically:
 
 ```jsx
 <p>{count()}</p>
 <ul>{items().map(item => <li key={item.id}>{item.label}</li>)}</ul>
 ```
 
-In advanced runtime patterns (manual `h()` / lower-level render primitives), explicit function accessors are still useful when you want isolated fine-grained updates.
+Signal reads in JSX attributes and children are auto-wrapped — no manual `{() => ...}` needed.
 
 ## Decision Matrix
 
