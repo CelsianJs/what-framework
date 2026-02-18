@@ -10,6 +10,7 @@ import path from 'path';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
 import { generateRoutesModule, scanPages } from './file-router.js';
+import { setupErrorOverlay } from './error-overlay.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
@@ -42,6 +43,9 @@ export default function whatVitePlugin(options = {}) {
 
     configureServer(devServer) {
       server = devServer;
+
+      // Set up What-branded error overlay
+      setupErrorOverlay(devServer);
 
       // Watch the pages directory for file additions/removals
       devServer.watcher.on('add', (file) => {
@@ -107,6 +111,12 @@ export default function whatVitePlugin(options = {}) {
           map: result.map
         };
       } catch (error) {
+        // Enrich Babel errors with file context for the error overlay
+        error.plugin = 'vite-plugin-what';
+        if (!error.id) error.id = id;
+        if (error.loc === undefined && error._loc) {
+          error.loc = { file: id, line: error._loc.line, column: error._loc.column };
+        }
         console.error(`[what] Error transforming ${id}:`, error.message);
         throw error;
       }

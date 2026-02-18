@@ -14,7 +14,7 @@ export function Layout({ children }) {
           h(Link, { href: '/bench', class: 'nav-link' }, 'Benchmarks'),
           h(Link, { href: '/docs', class: 'nav-link' }, 'Docs'),
           h('a', {
-            href: 'https://github.com/aspect/what-fw',
+            href: 'https://github.com/zvndev/what-fw',
             class: 'nav-cta',
             target: '_blank',
             rel: 'noopener',

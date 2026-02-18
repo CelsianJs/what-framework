@@ -58,12 +58,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aspect/what-fw.git"
+    "url": "https://github.com/zvndev/what-fw"
   },
   "bugs": {
-    "url": "https://github.com/aspect/what-fw/issues"
+    "url": "https://github.com/zvndev/what-fw/issues"
   },
-  "homepage": "https://github.com/aspect/what-fw#readme",
+  "homepage": "https://whatframework.dev",
   "dependencies": {
     "what-core": "^0.5.2",
     "what-router": "^0.5.2",

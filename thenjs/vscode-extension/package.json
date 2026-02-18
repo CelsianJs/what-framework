@@ -1,7 +1,7 @@
 {
   "name": "thenjs",
   "displayName": "ThenJS + What Framework",
-  "description": "Syntax highlighting and snippets for ThenJS and What Framework",
+  "description": "Syntax highlighting, snippets, and JSX support for ThenJS and What Framework — signals-based UI with compiler-first JSX",
   "version": "0.1.0",
   "publisher": "zvndev",
   "license": "MIT",
@@ -10,7 +10,8 @@
   },
   "categories": [
     "Programming Languages",
-    "Snippets"
+    "Snippets",
+    "Formatters"
   ],
   "keywords": [
     "thenjs",
@@ -19,16 +20,32 @@
     "jsx",
     "tsx",
     "islands",
-    "ssr"
+    "ssr",
+    "reactive",
+    "framework"
+  ],
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/npm/v/what-framework?color=%232563eb&label=what-framework",
+      "href": "https://www.npmjs.com/package/what-framework",
+      "description": "What Framework on npm"
+    }
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/zvndev/thenjs"
   },
+  "homepage": "https://whatframework.dev",
   "icon": "icon.png",
   "activationEvents": [
     "onLanguage:typescriptreact",
-    "onLanguage:typescript"
+    "onLanguage:typescript",
+    "onLanguage:javascriptreact",
+    "onLanguage:javascript"
   ],
   "main": "",
   "contributes": {

@@ -31,5 +31,13 @@
   "devDependencies": {
     "@babel/core": "^7.23.0",
     "@babel/preset-env": "^7.23.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zvndev/what-fw"
+  },
+  "bugs": {
+    "url": "https://github.com/zvndev/what-fw/issues"
+  },
+  "homepage": "https://whatframework.dev"
 }

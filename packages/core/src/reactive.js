@@ -4,6 +4,15 @@
 // Dev-mode flag — build tools can dead-code-eliminate when false
 export const __DEV__ = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production' || true;
 
+// DevTools hooks — set by what-devtools when installed.
+// These are no-ops in production (dead-code eliminated with __DEV__).
+export let __devtools = null;
+
+/** @internal Install devtools hooks. Called by what-devtools. */
+export function __setDevToolsHooks(hooks) {
+  if (__DEV__) __devtools = hooks;
+}
+
 let currentEffect = null;
 let currentRoot = null;
 let batchDepth = 0;
@@ -31,6 +40,7 @@ export function signal(initial) {
     const nextVal = typeof args[0] === 'function' ? args[0](value) : args[0];
     if (Object.is(value, nextVal)) return;
     value = nextVal;
+    if (__DEV__ && __devtools) __devtools.onSignalUpdate(sig);
     notify(subs);
   }
 
@@ -38,6 +48,7 @@ export function signal(initial) {
     const nextVal = typeof next === 'function' ? next(value) : next;
     if (Object.is(value, nextVal)) return;
     value = nextVal;
+    if (__DEV__ && __devtools) __devtools.onSignalUpdate(sig);
     notify(subs);
   };
 
@@ -48,6 +59,10 @@ export function signal(initial) {
   };
 
   sig._signal = true;
+
+  // Notify devtools of signal creation
+  if (__DEV__ && __devtools) __devtools.onSignalCreate(sig);
+
   return sig;
 }
 
@@ -130,7 +145,7 @@ export function batch(fn) {
 // --- Internals ---
 
 function _createEffect(fn, lazy) {
-  return {
+  const e = {
     fn,
     deps: [],            // array of subscriber sets (cheaper than Set for typical 1-3 deps)
     lazy: lazy || false,
@@ -139,6 +154,8 @@ function _createEffect(fn, lazy) {
     _pending: false,
     _stable: false,      // stable effects skip cleanup/re-subscribe on re-run
   };
+  if (__DEV__ && __devtools) __devtools.onEffectCreate(e);
+  return e;
 }
 
 function _runEffect(e) {
@@ -187,6 +204,7 @@ function _runEffect(e) {
 
 function _disposeEffect(e) {
   e.disposed = true;
+  if (__DEV__ && __devtools) __devtools.onEffectDispose(e);
   cleanup(e);
   // Run cleanup on dispose
   if (e._cleanup) {

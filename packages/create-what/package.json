@@ -21,6 +21,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aspect/what-fw.git"
-  }
+    "url": "https://github.com/zvndev/what-fw"
+  },
+  "bugs": {
+    "url": "https://github.com/zvndev/what-fw/issues"
+  },
+  "homepage": "https://whatframework.dev"
 }

@@ -177,7 +177,30 @@ If either prop is set, it owns that element's children.
 - `derived(fn)`: derived fields inside `createStore(...)`.
 - `useMemo(fn, deps)`: dependency-array memo for non-signal values.
 
-## 9. Migration helpers
+## 9. TypeScript
+
+Projects scaffolded with `create-what` include a `tsconfig.json` pre-configured for What Framework. Rename `.jsx` files to `.tsx` to enable type checking:
+
+```tsx
+import { useSignal } from 'what-framework';
+
+function Counter() {
+  const count = useSignal<number>(0);
+  return <button onclick={() => count.set(c => c + 1)}>{count()}</button>;
+}
+```
+
+Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSource": "what-core"`.
+
+See [TYPESCRIPT.md](./TYPESCRIPT.md) for the full guide.
+
+## 10. Tooling
+
+- **ESLint**: `npm i -D eslint-plugin-what` — catches signal bugs, enforces patterns
+- **VS Code**: Install `zvndev.thenjs` extension for syntax highlighting + snippets
+- **DevTools**: `npm i -D what-devtools` — signal inspector panel for development
+
+## 11. Migration helpers
 
 ```bash
 npm run codemod:show

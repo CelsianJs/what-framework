@@ -29,5 +29,13 @@
   },
   "peerDependencies": {
     "vite": "^6.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zvndev/thenjs"
+  },
+  "bugs": {
+    "url": "https://github.com/zvndev/thenjs/issues"
+  },
+  "homepage": "https://thenjs.dev"
 }

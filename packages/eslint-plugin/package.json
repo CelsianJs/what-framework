@@ -1,29 +1,28 @@
 {
-  "name": "what-framework-cli",
+  "name": "eslint-plugin-what",
   "version": "0.5.2",
-  "description": "What Framework CLI - Dev server, build, and deployment tools",
+  "description": "ESLint rules for What Framework — catch signal bugs, enforce patterns",
   "type": "module",
-  "bin": {
-    "what": "./src/cli.js"
-  },
-  "main": "src/cli.js",
+  "main": "src/index.js",
   "exports": {
-    ".": "./src/cli.js"
+    ".": "./src/index.js"
   },
   "files": [
     "src"
   ],
   "keywords": [
-    "cli",
-    "dev-server",
-    "build-tool",
-    "what-framework"
+    "eslint",
+    "eslintplugin",
+    "what",
+    "framework",
+    "signals",
+    "reactive"
   ],
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  },
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "what-framework": "^0.5.2"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/zvndev/what-fw"

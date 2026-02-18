@@ -80,6 +80,39 @@ export default defineConfig({
 });
 `);
 
+// TypeScript configuration (works for both .jsx and .tsx projects)
+writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
+  compilerOptions: {
+    target: 'ES2022',
+    module: 'ESNext',
+    moduleResolution: 'bundler',
+    jsx: 'preserve',
+    jsxImportSource: 'what-core',
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    esModuleInterop: true,
+    resolveJsonModule: true,
+    isolatedModules: true,
+    types: ['vite/client'],
+  },
+  include: ['src'],
+}, null, 2) + '\n');
+
+// VS Code workspace settings
+mkdirSync(join(root, '.vscode'), { recursive: true });
+
+writeFileSync(join(root, '.vscode', 'settings.json'), JSON.stringify({
+  'typescript.tsdk': 'node_modules/typescript/lib',
+  'editor.formatOnSave': true,
+}, null, 2) + '\n');
+
+writeFileSync(join(root, '.vscode', 'extensions.json'), JSON.stringify({
+  recommendations: [
+    'zvndev.thenjs',
+  ],
+}, null, 2) + '\n');
+
 writeFileSync(join(root, 'src', 'main.jsx'), `import { mount, useSignal } from 'what-framework';
 
 function App() {

@@ -19,5 +19,13 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zvndev/what-fw"
+  },
+  "bugs": {
+    "url": "https://github.com/zvndev/what-fw/issues"
+  },
+  "homepage": "https://whatframework.dev"
 }
