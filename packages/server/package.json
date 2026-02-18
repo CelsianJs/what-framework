@@ -1,6 +1,6 @@
 {
   "name": "what-server",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",
@@ -32,7 +32,7 @@
   "author": "",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.5.1"
+    "what-core": "^0.5.2"
   },
   "repository": {
     "type": "git",

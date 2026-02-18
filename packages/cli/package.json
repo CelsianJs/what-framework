@@ -1,6 +1,6 @@
 {
   "name": "what-framework-cli",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "What Framework CLI - Dev server, build, and deployment tools",
   "type": "module",
   "bin": {
@@ -22,7 +22,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "what-framework": "^0.5.1"
+    "what-framework": "^0.5.2"
   },
   "repository": {
     "type": "git",

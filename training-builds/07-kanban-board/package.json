@@ -7,10 +7,10 @@
     "build": "vite build"
   },
   "dependencies": {
-    "what-framework": "^0.5.1"
+    "what-framework": "^0.5.2"
   },
   "devDependencies": {
     "vite": "^5.4.0",
-    "what-compiler": "^0.5.1"
+    "what-compiler": "^0.5.2"
   }
 }

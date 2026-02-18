@@ -9,10 +9,10 @@
     "preview": "vite preview --port 5514 --strictPort"
   },
   "dependencies": {
-    "what-framework": "^0.5.0"
+    "what-framework": "^0.5.2"
   },
   "devDependencies": {
     "vite": "^5.4.0",
-    "what-compiler": "^0.5.0"
+    "what-compiler": "^0.5.2"
   }
 }

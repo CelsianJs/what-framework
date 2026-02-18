@@ -36,11 +36,11 @@ writeFileSync(join(root, 'package.json'), JSON.stringify({
     preview: 'vite preview',
   },
   dependencies: {
-    'what-framework': '^0.5.1',
+    'what-framework': '^0.5.2',
   },
   devDependencies: {
     vite: '^5.4.0',
-    'what-compiler': '^0.5.1',
+    'what-compiler': '^0.5.2',
   },
 }, null, 2) + '\n');
 
