@@ -523,9 +523,33 @@ function reconcileUnkeyed(parent, oldNodes, newVNodes, beforeMarker) {
 
 // Keyed reconciliation with LIS algorithm for O(n log n) minimal moves
 function reconcileKeyed(parent, oldNodes, newVNodes, beforeMarker) {
+  const newLen = newVNodes.length;
+  const oldLen = oldNodes.length;
+
+  // --- Fast path: same-position keys (covers "update N items in-place") ---
+  // If same length and all keys match at the same index, skip LIS entirely.
+  // Just patch each node in-place — O(n) with zero DOM moves.
+  if (newLen === oldLen && newLen > 0) {
+    let allMatch = true;
+    for (let i = 0; i < newLen; i++) {
+      const newKey = newVNodes[i]?.key;
+      const oldKey = oldNodes[i]?._vnode?.key;
+      if (newKey == null || newKey !== oldKey) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch) {
+      for (let i = 0; i < newLen; i++) {
+        patchNode(parent, oldNodes[i], newVNodes[i]);
+      }
+      return;
+    }
+  }
+
   // Build old key -> { node, index } map
   const oldKeyMap = new Map();
-  for (let i = 0; i < oldNodes.length; i++) {
+  for (let i = 0; i < oldLen; i++) {
     const node = oldNodes[i];
     const key = node._vnode?.key;
     if (key != null) {
@@ -534,7 +558,6 @@ function reconcileKeyed(parent, oldNodes, newVNodes, beforeMarker) {
   }
 
   const newNodes = [];
-  const newLen = newVNodes.length;
 
   // First pass: match keys and find reusable nodes
   const sources = new Array(newLen).fill(-1); // Maps new index to old index
@@ -551,7 +574,7 @@ function reconcileKeyed(parent, oldNodes, newVNodes, beforeMarker) {
   }
 
   // Remove nodes that aren't reused
-  for (let i = 0; i < oldNodes.length; i++) {
+  for (let i = 0; i < oldLen; i++) {
     if (!reused.has(i) && oldNodes[i]?.parentNode) {
       disposeTree(oldNodes[i]);
       oldNodes[i].parentNode.removeChild(oldNodes[i]);

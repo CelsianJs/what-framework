@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Library Benchmark — What Framework vs React</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #08090d;
+  --bg-card: #111319;
+  --border: #1e2130;
+  --text: #e8eaf0;
+  --text-dim: #7a7f99;
+  --accent: #3b7aff;
+  --green: #22c55e;
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --font: 'Outfit', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.6;
+  padding: 40px 24px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 32px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  letter-spacing: -0.02em;
+}
+
+h1 span { color: var(--accent); }
+
+.subtitle {
+  color: var(--text-dim);
+  margin-bottom: 32px;
+  font-size: 15px;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+button {
+  font-family: var(--font);
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+
+button:hover { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+button.primary:hover { background: #2a6ae8; }
+
+.progress-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s;
+  width: 0%;
+}
+
+.status {
+  color: var(--text-dim);
+  margin-bottom: 24px;
+  font-size: 14px;
+  font-family: var(--mono);
+  min-height: 20px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead th {
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+thead th:nth-child(2), thead th:nth-child(3), thead th:nth-child(4) {
+  text-align: right;
+}
+
+tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.test-name { font-weight: 500; }
+.test-desc { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+.lib-tag {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #1e2130;
+  color: var(--text-dim);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.faster { color: var(--green); font-weight: 600; }
+.slower { color: var(--red); font-weight: 600; }
+.neutral { color: var(--amber); }
+
+.bar-cell { position: relative; min-width: 200px; }
+.bar-track { display: flex; gap: 2px; align-items: center; height: 24px; }
+.bar {
+  height: 100%;
+  border-radius: 3px;
+  min-width: 2px;
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bar.what { background: var(--accent); }
+.bar.react { background: #61dafb40; border: 1px solid #61dafb; }
+
+.legend {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+.legend-dot.what { background: var(--accent); }
+.legend-dot.react { background: #61dafb40; border: 1px solid #61dafb; }
+
+.iframes {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 800px;
+  height: 600px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.summary {
+  margin-top: 32px;
+  padding: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.summary h3 { font-size: 18px; margin-bottom: 12px; }
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.stat-card { text-align: center; }
+.stat-value { font-size: 28px; font-weight: 800; font-family: var(--mono); }
+.stat-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.section-header {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  padding: 16px 16px 8px;
+  border-bottom: 1px solid var(--border);
+}
+</style>
+</head>
+<body>
+
+<h1>Library Benchmark — <span>What</span> vs React</h1>
+<p class="subtitle">Same libraries (Zustand, React Hook Form, TanStack Table) running on What Framework's compat layer vs real React</p>
+
+<div class="controls">
+  <button class="primary" id="runAll" onclick="runAllBenchmarks()">Run All Benchmarks</button>
+  <button onclick="runCategory('zustand')">Zustand Only</button>
+  <button onclick="runCategory('hookForm')">Hook Form Only</button>
+  <button onclick="runCategory('table')">TanStack Table Only</button>
+</div>
+
+<div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+<div class="status" id="status">Waiting for both frameworks to load...</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot what"></div>What Framework</div>
+  <div class="legend-item"><div class="legend-dot react"></div>React</div>
+  <div class="legend-item" style="margin-left: auto; font-family: var(--mono);">Lower is better (ms)</div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Test</th>
+      <th>What (ms)</th>
+      <th>React (ms)</th>
+      <th>Diff</th>
+      <th style="min-width: 200px">Comparison</th>
+    </tr>
+  </thead>
+  <tbody id="results">
+    <!-- Zustand -->
+    <tr><td colspan="5" class="section-header">Zustand — State Management</td></tr>
+    <tr id="row-zustand-create">
+      <td><div class="test-name">Create 10K store items</div><div class="test-desc">Push 10,000 objects into Zustand store</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-zustand-update">
+      <td><div class="test-name">Update every 10th item</div><div class="test-desc">Partial store update (1,000 items mutated)</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-zustand-rapid">
+      <td><div class="test-name">5K rapid increments</div><div class="test-desc">5,000 sequential store updates</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+
+    <!-- React Hook Form -->
+    <tr><td colspan="5" class="section-header">React Hook Form — Forms (20 fields)</td></tr>
+    <tr id="row-form-set">
+      <td><div class="test-name">Set 200 field values</div><div class="test-desc">200 sequential setValue() calls across 20 fields</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-form-reset">
+      <td><div class="test-name">Reset form</div><div class="test-desc">Full form reset to defaults (20 fields)</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+
+    <!-- TanStack Table -->
+    <tr><td colspan="5" class="section-header">TanStack Table — Data Grid</td></tr>
+    <tr id="row-table-create">
+      <td><div class="test-name">Create 5K rows</div><div class="test-desc">Generate and render 5,000 table rows</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-table-sort">
+      <td><div class="test-name">Sort 5K rows by value</div><div class="test-desc">Sort 5,000 rows by numeric column</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-table-update">
+      <td><div class="test-name">Update every 10th of 5K</div><div class="test-desc">Partial table update (500 rows changed)</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="summary" id="summary" style="display: none">
+  <h3>Results Summary</h3>
+  <div class="summary-stats">
+    <div class="stat-card">
+      <div class="stat-value faster" id="avg-speedup">—</div>
+      <div class="stat-label">Average Ratio</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="tests-won">—</div>
+      <div class="stat-label">Tests Won by What</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="max-speedup">—</div>
+      <div class="stat-label">Best Ratio</div>
+    </div>
+  </div>
+</div>
+
+<div class="iframes">
+  <!-- What Framework runs on port 4569 (aliased react → what-react) -->
+  <iframe id="whatFrame" src="http://localhost:4569/lib-bench-what.html" width="800" height="600"></iframe>
+  <!-- React runs on port 4568 (real react) -->
+  <iframe id="reactFrame" src="http://localhost:4568/lib-bench-react.html" width="800" height="600"></iframe>
+</div>
+
+<script>
+const WARMUP_RUNS = 3;
+const MEASURED_RUNS = 7;
+const results = {};
+let msgId = 0;
+
+const readyFrames = { what: false, react: false };
+const pendingMessages = {};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Listen for postMessage responses from iframes
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'bench-ready') {
+    readyFrames[e.data.framework] = true;
+    updateReadyStatus();
+  }
+  if (e.data?.type === 'bench-result') {
+    const pending = pendingMessages[e.data.id];
+    if (pending) {
+      delete pendingMessages[e.data.id];
+      if (e.data.error) pending.reject(new Error(e.data.error));
+      else pending.resolve();
+    }
+  }
+});
+
+function updateReadyStatus() {
+  const status = document.getElementById('status');
+  if (readyFrames.what && readyFrames.react) {
+    status.textContent = 'Both frameworks ready — click Run All Benchmarks';
+  } else if (readyFrames.what) {
+    status.textContent = 'What Framework ready, waiting for React...';
+  } else if (readyFrames.react) {
+    status.textContent = 'React ready, waiting for What Framework...';
+  }
+}
+
+function sendToFrame(frameName, test, args) {
+  return new Promise((resolve, reject) => {
+    const id = ++msgId;
+    const frame = document.getElementById(frameName + 'Frame');
+    pendingMessages[id] = { resolve, reject };
+    frame.contentWindow.postMessage({ type: 'bench-run', id, test, args }, '*');
+    // Timeout after 30s
+    setTimeout(() => {
+      if (pendingMessages[id]) {
+        delete pendingMessages[id];
+        reject(new Error(`Timeout: ${test} on ${frameName}`));
+      }
+    }, 30000);
+  });
+}
+
+async function waitForBothFrames(timeout = 20000) {
+  const start = Date.now();
+  while ((!readyFrames.what || !readyFrames.react) && Date.now() - start < timeout) {
+    await sleep(200);
+  }
+  if (!readyFrames.what || !readyFrames.react) {
+    throw new Error('Timeout waiting for frameworks. Ensure both Vite servers are running.');
+  }
+}
+
+// Benchmark definitions: test string = "lib.method"
+const benchmarks = [
+  { id: 'zustand-create', category: 'zustand', test: 'zustand.createItems10k', teardown: 'zustand.clear' },
+  { id: 'zustand-update', category: 'zustand', test: 'zustand.updateTenth', setup: 'zustand.createItems10k', teardown: 'zustand.clear' },
+  { id: 'zustand-rapid', category: 'zustand', test: 'zustand.rapidUpdates' },
+  { id: 'form-set', category: 'hookForm', test: 'hookForm.setManyFields' },
+  { id: 'form-reset', category: 'hookForm', test: 'hookForm.resetForm', setup: 'hookForm.setManyFields' },
+  { id: 'table-create', category: 'table', test: 'table.createRows5k', teardown: 'table.clear' },
+  { id: 'table-sort', category: 'table', test: 'table.sortByValue', setup: 'table.createRows5k', teardown: 'table.clear' },
+  { id: 'table-update', category: 'table', test: 'table.updateTenth', setup: 'table.createRows5k', teardown: 'table.clear' },
+];
+
+// Wall-clock measurement: time from sending the command to receiving the response
+async function timedSend(frameName, test, args) {
+  const t0 = performance.now();
+  await sendToFrame(frameName, test, args);
+  return performance.now() - t0;
+}
+
+async function runSingleBenchmark(bench) {
+  const times = { what: [], react: [] };
+
+  // Warmup
+  for (let i = 0; i < WARMUP_RUNS; i++) {
+    if (bench.setup) {
+      await sendToFrame('what', bench.setup, bench.setupArgs);
+      await sendToFrame('react', bench.setup, bench.setupArgs);
+    }
+    await sendToFrame('what', bench.test, bench.args);
+    await sendToFrame('react', bench.test, bench.args);
+    if (bench.teardown) {
+      await sendToFrame('what', bench.teardown);
+      await sendToFrame('react', bench.teardown);
+    }
+    await sleep(50);
+  }
+
+  // Measured runs — wall-clock timing from the comparison page
+  for (let i = 0; i < MEASURED_RUNS; i++) {
+    // What Framework
+    if (bench.setup) { await sendToFrame('what', bench.setup, bench.setupArgs); await sleep(16); }
+    const whatTime = await timedSend('what', bench.test, bench.args);
+    times.what.push(whatTime);
+    if (bench.teardown) await sendToFrame('what', bench.teardown);
+    await sleep(50);
+
+    // React
+    if (bench.setup) { await sendToFrame('react', bench.setup, bench.setupArgs); await sleep(16); }
+    const reactTime = await timedSend('react', bench.test, bench.args);
+    times.react.push(reactTime);
+    if (bench.teardown) await sendToFrame('react', bench.teardown);
+    await sleep(50);
+  }
+
+  // Median
+  times.what.sort((a, b) => a - b);
+  times.react.sort((a, b) => a - b);
+  return {
+    what: times.what[Math.floor(times.what.length / 2)],
+    react: times.react[Math.floor(times.react.length / 2)],
+  };
+}
+
+function updateRow(testId, what, react) {
+  const row = document.getElementById('row-' + testId);
+  if (!row) return;
+
+  row.querySelector('.what-val').textContent = what.toFixed(2);
+  row.querySelector('.react-val').textContent = react.toFixed(2);
+
+  const ratio = what > 0 ? react / what : 1;
+  const speedupEl = row.querySelector('.speedup');
+
+  if (!isFinite(ratio) || isNaN(ratio)) {
+    speedupEl.innerHTML = `<span class="neutral">~same</span>`;
+  } else if (ratio > 1.1) {
+    speedupEl.innerHTML = `<span class="faster">${ratio.toFixed(1)}x faster</span>`;
+  } else if (ratio < 0.9) {
+    speedupEl.innerHTML = `<span class="slower">${(1/ratio).toFixed(1)}x slower</span>`;
+  } else {
+    speedupEl.innerHTML = `<span class="neutral">~same</span>`;
+  }
+
+  const maxVal = Math.max(what, react);
+  const bars = row.querySelectorAll('.bar');
+  bars[0].style.width = Math.max(2, (what / maxVal * 150)) + 'px';
+  bars[1].style.width = Math.max(2, (react / maxVal * 150)) + 'px';
+
+  results[testId] = { what, react, ratio };
+}
+
+function updateSummary() {
+  const vals = Object.values(results);
+  if (vals.length === 0) return;
+
+  const ratios = vals.map(v => v.what > 0 ? v.react / v.what : 1).filter(r => isFinite(r) && !isNaN(r));
+  if (ratios.length === 0) return;
+  const avg = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  const won = ratios.filter(r => r > 1.05).length;
+  const max = Math.max(...ratios);
+
+  document.getElementById('summary').style.display = '';
+  const avgEl = document.getElementById('avg-speedup');
+  avgEl.textContent = avg.toFixed(2) + 'x';
+  avgEl.className = avg > 1.05 ? 'stat-value faster' : avg < 0.95 ? 'stat-value slower' : 'stat-value neutral';
+  document.getElementById('tests-won').textContent = won + '/' + vals.length;
+  document.getElementById('max-speedup').textContent = max.toFixed(2) + 'x';
+}
+
+async function runAllBenchmarks() {
+  const btns = document.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+
+  const progress = document.getElementById('progress');
+  const status = document.getElementById('status');
+
+  try {
+    await waitForBothFrames();
+
+    for (let i = 0; i < benchmarks.length; i++) {
+      const bench = benchmarks[i];
+      progress.style.width = ((i / benchmarks.length) * 100).toFixed(0) + '%';
+      status.textContent = `Running: ${bench.id} (${i + 1}/${benchmarks.length})...`;
+
+      const { what, react } = await runSingleBenchmark(bench);
+      updateRow(bench.id, what, react);
+    }
+
+    progress.style.width = '100%';
+    status.textContent = 'All benchmarks complete!';
+    updateSummary();
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    console.error(e);
+  }
+
+  btns.forEach(b => b.disabled = false);
+}
+
+async function runCategory(cat) {
+  const btns = document.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+
+  const status = document.getElementById('status');
+  const subset = benchmarks.filter(b => b.category === cat);
+
+  try {
+    await waitForBothFrames();
+
+    for (const bench of subset) {
+      status.textContent = `Running: ${bench.id}...`;
+      const { what, react } = await runSingleBenchmark(bench);
+      updateRow(bench.id, what, react);
+    }
+
+    status.textContent = `${cat} benchmarks complete!`;
+    updateSummary();
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    console.error(e);
+  }
+
+  btns.forEach(b => b.disabled = false);
+}
+
+// Initial ready check
+window.addEventListener('load', async () => {
+  try {
+    await waitForBothFrames();
+  } catch (e) {
+    document.getElementById('status').textContent = 'Waiting — ensure both Vite servers are running (ports 4568 + 4569)';
+  }
+});
+</script>
+</body>
+</html>
