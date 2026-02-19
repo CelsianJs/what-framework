@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What React Compat — Package Tests</title>
+  <style>
+    * { margin: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #e5e5e5; padding: 24px; }
+    h1 { font-size: 20px; margin-bottom: 16px; color: #fff; }
+    .test-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+    .test-card { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 16px; }
+    .test-card.pass { border-color: #22c55e40; }
+    .test-card.fail { border-color: #ef444440; }
+    .test-card h3 { font-size: 14px; margin-bottom: 4px; }
+    .test-card .status { font-size: 12px; font-family: monospace; }
+    .pass .status { color: #22c55e; }
+    .fail .status { color: #ef4444; }
+    .test-card .downloads { font-size: 11px; color: #666; }
+    .test-card .demo { margin-top: 8px; padding: 8px; background: #0f0f0f; border-radius: 4px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>what-react Compat Layer — Package Tests</h1>
+  <div id="root"></div>
+  <script type="module" src="./main.jsx"></script>
+</body>
+</html>

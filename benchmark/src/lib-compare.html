@@ -221,7 +221,7 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
 <body>
 
 <h1>Library Benchmark — <span>What</span> vs React</h1>
-<p class="subtitle">6 popular React libraries running on What Framework's compat layer vs real React — Zustand, React Hook Form, TanStack Table, Jotai, Redux Toolkit, TanStack Virtual</p>
+<p class="subtitle">8 popular React libraries running on What Framework's compat layer vs real React — Zustand, React Hook Form, TanStack Table, Jotai, Redux Toolkit, TanStack Virtual, Formik, Immer</p>
 
 <div class="controls">
   <button class="primary" id="runAll" onclick="runAllBenchmarks()">Run All Benchmarks</button>
@@ -231,6 +231,8 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
   <button onclick="runCategory('jotai')">Jotai</button>
   <button onclick="runCategory('redux')">Redux TK</button>
   <button onclick="runCategory('virtual')">TanStack Virtual</button>
+  <button onclick="runCategory('formik')">Formik</button>
+  <button onclick="runCategory('immer')">Immer</button>
 </div>
 
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
@@ -355,6 +357,42 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
       <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
       <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
     </tr>
+
+    <!-- Formik -->
+    <tr><td colspan="5" class="section-header">Formik — Forms <span class="dl-badge">3.4M/week</span></td></tr>
+    <tr id="row-formik-set">
+      <td><div class="test-name">Set 200 field values</div><div class="test-desc">200 sequential setFieldValue() calls across 20 fields</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-formik-reset">
+      <td><div class="test-name">Reset form</div><div class="test-desc">Full form reset to defaults (20 fields)</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-formik-validate">
+      <td><div class="test-name">Validate all 20 fields</div><div class="test-desc">Trigger validation on all 20 fields with required rules</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+
+    <!-- Immer -->
+    <tr><td colspan="5" class="section-header">Immer — Immutable State Updates <span class="dl-badge">26.8M/week</span></td></tr>
+    <tr id="row-immer-produce">
+      <td><div class="test-name">Produce 10K items</div><div class="test-desc">Use produce() to create 10,000 items in nested state</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-immer-update">
+      <td><div class="test-name">Update every 10th of 10K</div><div class="test-desc">Use produce() to update every 10th item in 10K array</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-immer-deep">
+      <td><div class="test-name">Deep nested produce</div><div class="test-desc">Use produce() on 10-level deep object, modify leaf</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
   </tbody>
 </table>
 
@@ -472,6 +510,14 @@ const benchmarks = [
   { id: 'virtual-create', category: 'virtual', test: 'virtual.createItems50k', teardown: 'virtual.clear' },
   { id: 'virtual-update', category: 'virtual', test: 'virtual.updateTenth', setup: 'virtual.createItems50k', teardown: 'virtual.clear' },
   { id: 'virtual-scroll', category: 'virtual', test: 'virtual.scrollToMiddle', setup: 'virtual.createItems50k', teardown: 'virtual.clear' },
+  // Formik
+  { id: 'formik-set', category: 'formik', test: 'formik.setManyFields' },
+  { id: 'formik-reset', category: 'formik', test: 'formik.resetForm', setup: 'formik.setManyFields' },
+  { id: 'formik-validate', category: 'formik', test: 'formik.validateAll' },
+  // Immer
+  { id: 'immer-produce', category: 'immer', test: 'immer.produce10k', teardown: 'immer.clear' },
+  { id: 'immer-update', category: 'immer', test: 'immer.updateTenth', setup: 'immer.produce10k', teardown: 'immer.clear' },
+  { id: 'immer-deep', category: 'immer', test: 'immer.deepNested', teardown: 'immer.clear' },
 ];
 
 // Wall-clock measurement: time from sending the command to receiving the response

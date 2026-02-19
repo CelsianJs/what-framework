@@ -13,6 +13,8 @@ import { atom, useAtom, useAtomValue, useSetAtom, createStore, Provider as Jotai
 import { configureStore, createSlice } from '@reduxjs/toolkit';
 import { Provider as ReduxProvider, useSelector, useDispatch } from 'react-redux';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Formik, Field, Form } from 'formik';
+import { produce } from 'immer';
 
 // ---- Zustand Benchmark ----
 const useCounterStore = create((set) => ({
@@ -351,6 +353,109 @@ function VirtualBench() {
   );
 }
 
+// ---- Formik Benchmark ----
+const formikDefaults = {};
+for (let i = 0; i < 20; i++) formikDefaults[`field${i}`] = '';
+
+const formikValidate = (values) => {
+  const errors = {};
+  for (let i = 0; i < 20; i++) {
+    if (!values[`field${i}`]) errors[`field${i}`] = 'Required';
+  }
+  return errors;
+};
+
+function FormikBench() {
+  const formikRef = useRef(null);
+
+  window._libBench = window._libBench || {};
+  window._libBench.formik = {
+    setManyFields: () => {
+      const fk = formikRef.current;
+      if (!fk) return;
+      for (let i = 0; i < 200; i++) {
+        fk.setFieldValue(`field${i % 20}`, `value-${i}-${Date.now()}`);
+      }
+    },
+    resetForm: () => {
+      const fk = formikRef.current;
+      if (!fk) return;
+      fk.resetForm();
+    },
+    validateAll: () => {
+      const fk = formikRef.current;
+      if (!fk) return;
+      fk.validateForm();
+    },
+  };
+
+  return (
+    <div>
+      <Formik
+        initialValues={formikDefaults}
+        validate={formikValidate}
+        onSubmit={() => {}}
+        innerRef={formikRef}
+      >
+        {({ dirty }) => (
+          <Form>
+            {Array.from({ length: 20 }, (_, i) => (
+              <Field key={i} name={`field${i}`} />
+            ))}
+            <div>Formik: {dirty ? 'dirty' : 'clean'}</div>
+          </Form>
+        )}
+      </Formik>
+    </div>
+  );
+}
+
+// ---- Immer Benchmark ----
+function ImmerBench() {
+  const [state, setState] = useState({ items: [], nested: {} });
+
+  window._libBench = window._libBench || {};
+  window._libBench.immer = {
+    produce10k: () => {
+      setState(prev => produce(prev, draft => {
+        draft.items = Array.from({ length: 10000 }, (_, i) => ({ id: i, value: `Item ${i}`, tags: ['a', 'b'] }));
+      }));
+    },
+    updateTenth: () => {
+      setState(prev => produce(prev, draft => {
+        for (let i = 0; i < draft.items.length; i += 10) {
+          draft.items[i].value = draft.items[i].value + ' !!!';
+        }
+      }));
+    },
+    deepNested: () => {
+      // Build a 10-level deep nested object, then modify the leaf
+      const deep = { a: { b: { c: { d: { e: { f: { g: { h: { i: { j: 'leaf' } } } } } } } } } };
+      setState(prev => produce(prev, draft => {
+        draft.nested = deep;
+      }));
+      setState(prev => produce(prev, draft => {
+        draft.nested.a.b.c.d.e.f.g.h.i.j = 'modified-' + Date.now();
+      }));
+    },
+    clear: () => {
+      setState({ items: [], nested: {} });
+    },
+    getItemCount: () => state.items.length,
+  };
+
+  return (
+    <div>
+      <div>Immer: items={state.items.length}</div>
+      <ul style={{ display: 'none' }}>
+        {state.items.slice(0, 100).map(item => (
+          <li key={item.id}>{item.value}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ---- Main App ----
 function App() {
   return (
@@ -362,6 +467,8 @@ function App() {
       <JotaiBench />
       <ReduxBench />
       <VirtualBench />
+      <FormikBench />
+      <ImmerBench />
       <div id="status">Ready</div>
     </div>
   );

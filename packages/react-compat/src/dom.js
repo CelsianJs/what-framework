@@ -76,10 +76,18 @@ export function flushSync(fn) {
   whatFlushSync();
 }
 
-// ---- findDOMNode (deprecated) ----
+// ---- findDOMNode (deprecated but needed for legacy packages) ----
 
 export function findDOMNode(component) {
-  console.warn('[what-react] findDOMNode is deprecated.');
+  if (component == null) return null;
+  // If it's already a DOM node, return it
+  if (component instanceof HTMLElement) return component;
+  // Class component instance — look for _domNode or _container
+  if (component._domNode) return component._domNode;
+  // If the component has a ref attached, try that
+  if (component._ref?.current instanceof HTMLElement) return component._ref.current;
+  // what-c wrapper element — return the first child
+  if (component instanceof Element) return component;
   return null;
 }
 

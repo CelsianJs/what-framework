@@ -8,7 +8,8 @@
     ".": "./src/index.js",
     "./dom": "./src/dom.js",
     "./jsx-runtime": "./src/jsx-runtime.js",
-    "./jsx-dev-runtime": "./src/jsx-dev-runtime.js"
+    "./jsx-dev-runtime": "./src/jsx-dev-runtime.js",
+    "./vite": "./src/vite-plugin.js"
   },
   "files": [
     "src"

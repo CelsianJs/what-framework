@@ -14,6 +14,36 @@ if (typeof customElements !== 'undefined' && !customElements.get('what-c')) {
     connectedCallback() {
       this.style.display = 'contents';
     }
+    // display:contents elements don't generate a layout box — getBoundingClientRect()
+    // returns zeros, offsetWidth/Height return 0. React libraries (react-draggable,
+    // react-colorful, etc.) traverse parentNode and call getBoundingClientRect() on
+    // what they expect to be a layout container. Since <what-c> is layout-invisible,
+    // delegate to the nearest ancestor that has a real box.
+    _layoutParent() {
+      let el = this.parentElement;
+      while (el && el.tagName === 'WHAT-C') el = el.parentElement;
+      return el;
+    }
+    getBoundingClientRect() {
+      const p = this._layoutParent();
+      return p ? p.getBoundingClientRect() : super.getBoundingClientRect();
+    }
+    get offsetWidth() {
+      const p = this._layoutParent();
+      return p ? p.offsetWidth : 0;
+    }
+    get offsetHeight() {
+      const p = this._layoutParent();
+      return p ? p.offsetHeight : 0;
+    }
+    get clientWidth() {
+      const p = this._layoutParent();
+      return p ? p.clientWidth : 0;
+    }
+    get clientHeight() {
+      const p = this._layoutParent();
+      return p ? p.clientHeight : 0;
+    }
   });
 }
 
@@ -983,8 +1013,14 @@ function setProp(el, key, value, isSvg) {
     if (old && old._original === value) return;
     if (old) el.removeEventListener(event, old, useCapture);
     if (!el._events) el._events = {};
-    // Wrap handler to untrack signal reads
-    const wrappedHandler = (e) => untrack(() => value(e));
+    // Wrap handler to untrack signal reads.
+    // Add nativeEvent for React compat — React synthetic events have
+    // e.nativeEvent pointing to the actual DOM event. Libraries like
+    // react-colorful, cmdk, and @floating-ui/react check this property.
+    const wrappedHandler = (e) => {
+      if (!e.nativeEvent) e.nativeEvent = e;
+      return untrack(() => value(e));
+    };
     wrappedHandler._original = value;
     el._events[storageKey] = wrappedHandler;
     // Check for _eventOpts (once/capture/passive from compiler)

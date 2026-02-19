@@ -11,6 +11,7 @@
     "@reduxjs/toolkit": "^2.11.2",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.18",
+    "formik": "^2.4.9",
     "immer": "^11.1.4",
     "jotai": "^2.18.0",
     "react-hook-form": "^7.71.1",
