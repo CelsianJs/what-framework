@@ -49,10 +49,110 @@ export const Suspense = WhatSuspense;
 export const memo = whatMemo;
 export const lazy = whatLazy;
 
+// ---- Class component wrapper ----
+
+const classWrapperCache = new WeakMap();
+
+function isClassComponent(type) {
+  return (
+    typeof type === 'function' &&
+    (type.prototype?.isReactComponent || type.prototype?.render)
+  );
+}
+
+function getClassWrapper(ClassComp) {
+  let wrapper = classWrapperCache.get(ClassComp);
+  if (wrapper) return wrapper;
+
+  wrapper = function ClassComponentWrapper(props) {
+    // Instantiate the class with new
+    const instanceRef = whatUseRef(null);
+    const [renderCount, forceRender] = whatUseState(0);
+
+    if (instanceRef.current === null) {
+      const instance = new ClassComp(props);
+      // Throttle forceUpdate to prevent infinite loops from rapid setState
+      let updateScheduled = false;
+      instance._forceUpdate = () => {
+        if (!updateScheduled) {
+          updateScheduled = true;
+          queueMicrotask(() => {
+            updateScheduled = false;
+            forceRender(c => c + 1);
+          });
+        }
+      };
+      instanceRef.current = instance;
+    }
+
+    const instance = instanceRef.current;
+    instance.props = props;
+
+    // componentDidMount / componentWillUnmount lifecycle
+    whatUseEffect(() => {
+      instance._mounted = true;
+      if (instance.componentDidMount) {
+        instance.componentDidMount();
+      }
+      return () => {
+        instance._mounted = false;
+        if (instance.componentWillUnmount) {
+          instance.componentWillUnmount();
+        }
+      };
+    }, []);
+
+    // componentDidUpdate — track with render count to avoid infinite loops
+    const prevRef = whatUseRef({ props: null, state: null, rendered: false });
+    whatUseEffect(() => {
+      if (!prevRef.current.rendered) {
+        // First render — skip (componentDidMount handles this)
+        prevRef.current = { props, state: instance.state, rendered: true };
+        return;
+      }
+      const prev = prevRef.current;
+      prevRef.current = { props, state: instance.state, rendered: true };
+      if (instance.componentDidUpdate) {
+        instance.componentDidUpdate(prev.props, prev.state);
+      }
+    }, [props, renderCount]);
+
+    return instance.render();
+  };
+
+  // Preserve static properties and displayName
+  wrapper.displayName = ClassComp.displayName || ClassComp.name || 'ClassComponent';
+  // Copy static properties (e.g., getDerivedStateFromProps, defaultProps)
+  for (const key of Object.getOwnPropertyNames(ClassComp)) {
+    if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments') {
+      try { wrapper[key] = ClassComp[key]; } catch (e) {}
+    }
+  }
+
+  classWrapperCache.set(ClassComp, wrapper);
+  return wrapper;
+}
+
 // ---- createElement ----
 
 export function createElement(type, props, ...children) {
   if (props == null) props = {};
+
+  // Wrap class components so What's reconciler can call them as functions
+  if (isClassComponent(type)) {
+    type = getClassWrapper(type);
+  }
+
+  // React libraries sometimes pass children via props instead of as spread args
+  // (e.g., React Router's createElement(Router, { children, location, ... })).
+  // Move props.children into the spread children array so h() puts them
+  // in vnode.children — otherwise the reconciler overwrites props.children.
+  if (children.length === 0 && props.children !== undefined) {
+    const pc = props.children;
+    children = Array.isArray(pc) ? pc : [pc];
+    props = { ...props };
+    delete props.children;
+  }
 
   // Normalize className → class, htmlFor → for for HTML elements
   if (typeof type === 'string') {
@@ -75,6 +175,15 @@ export function createElement(type, props, ...children) {
 
   // Alias tag → type so React libraries can access element.type
   vnode.type = vnode.tag;
+
+  // Mirror children into props for React compat — React libraries read
+  // element.props.children (e.g., React Router's createRoutesFromChildren)
+  if (vnode.children.length > 0) {
+    vnode.props = { ...vnode.props };
+    vnode.props.children = vnode.children.length === 1
+      ? vnode.children[0]
+      : vnode.children;
+  }
 
   return vnode;
 }

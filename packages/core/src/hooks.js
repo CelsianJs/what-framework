@@ -192,6 +192,11 @@ export function createContext(defaultValue) {
       }
       return children;
     },
+    // React-compatible Consumer: <Context.Consumer>{value => ...}</Context.Consumer>
+    Consumer: ({ children }) => {
+      const value = useContext(context);
+      return typeof children === 'function' ? children(value) : children;
+    },
   };
   return context;
 }

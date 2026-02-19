@@ -213,7 +213,20 @@ export function getComponentStack() {
 }
 
 function createComponent(vnode, parent, isSvg) {
-  const { tag: Component, props, children } = vnode;
+  let { tag: Component, props, children } = vnode;
+
+  // Class component detection — ES6 classes can't be called without `new`.
+  // React compat layer wraps class components in createElement, but some
+  // library-internal components may bypass that path. Detect and wrap here.
+  if (typeof Component === 'function' &&
+      (Component.prototype?.isReactComponent || Component.prototype?.render)) {
+    const ClassComp = Component;
+    Component = function ClassComponentBridge(props) {
+      const instance = new ClassComp(props);
+      return instance.render();
+    };
+    Component.displayName = ClassComp.displayName || ClassComp.name || 'ClassComponent';
+  }
 
   // Handle special boundary components
   if (Component === '__errorBoundary' || vnode.tag === '__errorBoundary') {
