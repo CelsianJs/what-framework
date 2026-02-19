@@ -1012,6 +1012,8 @@ function setProp(el, key, value, isSvg) {
     // Skip re-wrapping if same handler function
     if (old && old._original === value) return;
     if (old) el.removeEventListener(event, old, useCapture);
+    // If handler is null/undefined, just remove the old one and bail
+    if (value == null) return;
     if (!el._events) el._events = {};
     // Wrap handler to untrack signal reads.
     // Add nativeEvent for React compat — React synthetic events have

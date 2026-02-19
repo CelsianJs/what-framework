@@ -189,10 +189,10 @@ function Hero() {
           on a signals-powered engine. Same imports. Same API. Faster runtime.
         </p>
         <div class="stats-bar">
-          <Counter target={49} suffix="" colorClass="c-blue">Confirmed Working</Counter>
-          <Counter target={100} suffix="+" colorClass="c-cyan">Total Compatible</Counter>
+          <Counter target={90} suffix="" colorClass="c-blue">Confirmed Working</Counter>
+          <Counter target={96} suffix="+" colorClass="c-cyan">Total Compatible</Counter>
           <Counter target={0} suffix="" colorClass="c-purple">Lines Changed</Counter>
-          <Counter target={350} suffix="M+" colorClass="c-green">Downloads/Week</Counter>
+          <Counter target={500} suffix="M+" colorClass="c-green">Downloads/Week</Counter>
         </div>
       </div>
     </section>
