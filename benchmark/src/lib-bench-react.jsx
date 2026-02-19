@@ -285,6 +285,8 @@ function ReduxBench() {
 }
 
 // ---- TanStack Virtual Benchmark ----
+// NOTE: visibility:hidden (not display:none!) so the virtualizer can measure
+// the scroll container and actually render rows. display:none = zero dimensions = 0 rows rendered.
 function VirtualBench() {
   const [items, setItems] = useState([]);
   const parentRef = useRef(null);
@@ -293,7 +295,7 @@ function VirtualBench() {
     count: items.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 35,
-    overscan: 5,
+    overscan: 20,  // Higher overscan = more rows rendered = more framework work
   });
 
   window._libBench = window._libBench || {};
@@ -319,6 +321,7 @@ function VirtualBench() {
       setItems([]);
     },
     getItemCount: () => items.length,
+    getRenderedCount: () => virtualizer.getVirtualItems().length,
   };
 
   return (
@@ -326,7 +329,7 @@ function VirtualBench() {
       <div>Virtual: {items.length} items, rendered: {virtualizer.getVirtualItems().length}</div>
       <div
         ref={parentRef}
-        style={{ height: 300, overflow: 'auto', display: 'none' }}
+        style={{ height: 600, overflow: 'auto', visibility: 'hidden', position: 'absolute' }}
       >
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
           {virtualizer.getVirtualItems().map(vRow => (
