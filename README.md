@@ -211,10 +211,31 @@ See `/docs/RELEASE.md` for setup and secrets.
 
 ## Packages
 
-- `what-framework`
-- `what-framework/router`
-- `what-framework/server`
-- `what-framework/testing`
+- `what-framework` — core signals, components, reactivity
+- `what-framework/router` — client-side routing with View Transitions
+- `what-framework/server` — SSR, islands architecture, static generation
+- `what-framework/testing` — test utilities
+- `what-react` — React compatibility layer (use React packages with signals)
+
+## React Compatibility
+
+Use 90+ React ecosystem libraries with zero code changes:
+
+```bash
+npm install what-react
+```
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import { reactCompat } from 'what-react/vite';
+
+export default defineConfig({
+  plugins: [reactCompat()],
+});
+```
+
+Zustand, React Hook Form, TanStack Query, Radix UI, Framer Motion, and many more — all work out of the box. `useState` becomes a signal, `useEffect` becomes an effect. Same API, faster runtime.
 
 ## Docs
 

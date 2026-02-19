@@ -12,6 +12,7 @@ const DEFAULT_TARGETS = [
   'sites/benchmarks',
   'docs-site',
   'docs-site/docs',
+  'sites/react-compat',
 ];
 
 const options = parseArgs(process.argv.slice(2));

@@ -12,7 +12,7 @@ export default function About() {
       <h2 class="page-title">About</h2>
       <p>
         This is a starter app built with{' '}
-        <a href="https://github.com/nicholasgriffintn/what-fw" target="_blank">What Framework</a>.
+        <a href="https://github.com/zvndev/what-fw" target="_blank">What Framework</a>.
       </p>
       <p>
         It demonstrates signals, stores, routing, forms, and component patterns.

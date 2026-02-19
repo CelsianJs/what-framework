@@ -16,6 +16,9 @@ const PACKAGE_ORDER = [
   'packages/what',
   'packages/create-what',
   'packages/cli',
+  'packages/eslint-plugin',
+  'packages/devtools',
+  'packages/react-compat',
 ];
 
 const options = parseArgs(process.argv.slice(2));

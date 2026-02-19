@@ -1,6 +1,6 @@
 {
   "name": "what-framework",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "The closest framework to vanilla JS — signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",
@@ -65,9 +65,9 @@
   },
   "homepage": "https://whatframework.dev",
   "dependencies": {
-    "what-core": "^0.5.2",
-    "what-router": "^0.5.2",
-    "what-server": "^0.5.2",
-    "what-compiler": "^0.5.2"
+    "what-core": "^0.5.3",
+    "what-router": "^0.5.3",
+    "what-server": "^0.5.3",
+    "what-compiler": "^0.5.3"
   }
 }

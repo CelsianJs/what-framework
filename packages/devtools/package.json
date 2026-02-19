@@ -1,6 +1,6 @@
 {
   "name": "what-devtools",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Dev tools for What Framework — signal inspector, component tree, effect graph",
   "type": "module",
   "main": "src/index.js",
@@ -20,7 +20,7 @@
     "inspector"
   ],
   "peerDependencies": {
-    "what-core": "^0.5.2"
+    "what-core": "^0.5.3"
   },
   "author": "",
   "license": "MIT",

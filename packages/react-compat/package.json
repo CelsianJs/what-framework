@@ -23,7 +23,7 @@
     "compatibility"
   ],
   "peerDependencies": {
-    "what-core": "^0.5.2"
+    "what-core": "^0.5.3"
   },
   "author": "",
   "license": "MIT",
