@@ -380,55 +380,59 @@ export function StrictMode({ children }) {
 }
 
 // ---- Component / PureComponent ----
+// Use function constructors (not native classes) so that transpiled code
+// using Component.call(this, props) works alongside native class extends.
 
-export class Component {
-  constructor(props) {
-    this.props = props;
-    this.state = {};
-    this._stateSignal = null;
-    this._mounted = false;
-    this._forceUpdate = null;
-  }
-
-  setState(update, callback) {
-    const nextState = typeof update === 'function'
-      ? { ...this.state, ...update(this.state, this.props) }
-      : { ...this.state, ...update };
-
-    this.state = nextState;
-
-    if (this._forceUpdate) {
-      this._forceUpdate();
-    }
-
-    if (callback) {
-      queueMicrotask(callback);
-    }
-  }
-
-  forceUpdate(callback) {
-    if (this._forceUpdate) {
-      this._forceUpdate();
-    }
-    if (callback) {
-      queueMicrotask(callback);
-    }
-  }
-
-  render() {
-    return null;
-  }
+export function Component(props) {
+  this.props = props;
+  this.state = {};
+  this._stateSignal = null;
+  this._mounted = false;
+  this._forceUpdate = null;
 }
 
 Component.prototype.isReactComponent = {};
 
-export class PureComponent extends Component {
-  shouldComponentUpdate(nextProps, nextState) {
-    return !shallowEqual(this.props, nextProps) || !shallowEqual(this.state, nextState);
+Component.prototype.setState = function(update, callback) {
+  const nextState = typeof update === 'function'
+    ? { ...this.state, ...update(this.state, this.props) }
+    : { ...this.state, ...update };
+
+  this.state = nextState;
+
+  if (this._forceUpdate) {
+    this._forceUpdate();
   }
+
+  if (callback) {
+    queueMicrotask(callback);
+  }
+};
+
+Component.prototype.forceUpdate = function(callback) {
+  if (this._forceUpdate) {
+    this._forceUpdate();
+  }
+  if (callback) {
+    queueMicrotask(callback);
+  }
+};
+
+Component.prototype.render = function() {
+  return null;
+};
+
+export function PureComponent(props) {
+  Component.call(this, props);
 }
 
+PureComponent.prototype = Object.create(Component.prototype);
+PureComponent.prototype.constructor = PureComponent;
 PureComponent.prototype.isPureReactComponent = true;
+
+PureComponent.prototype.shouldComponentUpdate = function(nextProps, nextState) {
+  return !shallowEqual(this.props, nextProps) || !shallowEqual(this.state, nextState);
+};
 
 // ---- Internal helpers ----
 
