@@ -3,12 +3,16 @@
  * Same tests as lib-bench-what.jsx but running on actual React.
  * Timing is done by the comparison runner (wall-clock round-trip).
  */
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { create } from 'zustand';
 import { useForm } from 'react-hook-form';
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender } from '@tanstack/react-table';
+import { atom, useAtom, useAtomValue, useSetAtom, createStore, Provider as JotaiProvider } from 'jotai';
+import { configureStore, createSlice } from '@reduxjs/toolkit';
+import { Provider as ReduxProvider, useSelector, useDispatch } from 'react-redux';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 // ---- Zustand Benchmark ----
 const useCounterStore = create((set) => ({
@@ -170,6 +174,181 @@ function TableBench() {
   );
 }
 
+// ---- Jotai Benchmark ----
+const countAtom = atom(0);
+const itemsAtom = atom([]);
+const itemCountAtom = atom((get) => get(itemsAtom).length);
+
+function JotaiBenchInner() {
+  const [count, setCount] = useAtom(countAtom);
+  const [items, setItems] = useAtom(itemsAtom);
+  const itemCount = useAtomValue(itemCountAtom);
+
+  window._libBench = window._libBench || {};
+  window._libBench.jotai = {
+    createItems10k: () => {
+      const data = Array.from({ length: 10000 }, (_, i) => ({ id: i, value: `Item ${i}` }));
+      setItems(data);
+    },
+    updateTenth: () => {
+      setItems(prev => prev.map((item, i) => i % 10 === 0 ? { ...item, value: item.value + ' !!!' } : item));
+    },
+    rapidUpdates: () => {
+      for (let i = 0; i < 5000; i++) setCount(c => c + 1);
+    },
+    clear: () => {
+      setItems([]);
+      setCount(0);
+    },
+    getCount: () => count,
+    getItemCount: () => itemCount,
+  };
+
+  return (
+    <div>
+      <div>Jotai: count={count}, items={itemCount}</div>
+      <ul style={{ display: 'none' }}>
+        {items.slice(0, 100).map(item => (
+          <li key={item.id}>{item.value}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function JotaiBench() {
+  return <JotaiBenchInner />;
+}
+
+// ---- Redux Toolkit Benchmark ----
+const benchSlice = createSlice({
+  name: 'bench',
+  initialState: { count: 0, items: [] },
+  reducers: {
+    increment: (state) => { state.count += 1; },
+    setItems: (state, action) => { state.items = action.payload; },
+    updateEveryTenth: (state) => {
+      for (let i = 0; i < state.items.length; i += 10) {
+        state.items[i] = { ...state.items[i], value: state.items[i].value + ' !!!' };
+      }
+    },
+    clearItems: (state) => { state.items = []; state.count = 0; },
+  },
+});
+
+const reduxStore = configureStore({
+  reducer: { bench: benchSlice.reducer },
+});
+
+function ReduxBenchInner() {
+  const count = useSelector(s => s.bench.count);
+  const items = useSelector(s => s.bench.items);
+  const dispatch = useDispatch();
+
+  window._libBench = window._libBench || {};
+  window._libBench.redux = {
+    createItems10k: () => {
+      const data = Array.from({ length: 10000 }, (_, i) => ({ id: i, value: `Item ${i}` }));
+      dispatch(benchSlice.actions.setItems(data));
+    },
+    updateTenth: () => {
+      dispatch(benchSlice.actions.updateEveryTenth());
+    },
+    rapidUpdates: () => {
+      for (let i = 0; i < 5000; i++) dispatch(benchSlice.actions.increment());
+    },
+    clear: () => {
+      dispatch(benchSlice.actions.clearItems());
+    },
+    getCount: () => count,
+    getItemCount: () => items.length,
+  };
+
+  return (
+    <div>
+      <div>Redux: count={count}, items={items.length}</div>
+      <ul style={{ display: 'none' }}>
+        {items.slice(0, 100).map(item => (
+          <li key={item.id}>{item.value}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ReduxBench() {
+  return (
+    <ReduxProvider store={reduxStore}>
+      <ReduxBenchInner />
+    </ReduxProvider>
+  );
+}
+
+// ---- TanStack Virtual Benchmark ----
+function VirtualBench() {
+  const [items, setItems] = useState([]);
+  const parentRef = useRef(null);
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 35,
+    overscan: 5,
+  });
+
+  window._libBench = window._libBench || {};
+  window._libBench.virtual = {
+    createItems50k: () => {
+      const data = Array.from({ length: 50000 }, (_, i) => ({ id: i, value: `Row ${i}`, extra: Math.random() }));
+      setItems(data);
+    },
+    createItems10k: () => {
+      const data = Array.from({ length: 10000 }, (_, i) => ({ id: i, value: `Row ${i}` }));
+      setItems(data);
+    },
+    updateTenth: () => {
+      setItems(prev => prev.map((item, i) => i % 10 === 0 ? { ...item, value: item.value + ' !!!' } : item));
+    },
+    scrollToMiddle: () => {
+      virtualizer.scrollToIndex(Math.floor(items.length / 2));
+    },
+    scrollToEnd: () => {
+      virtualizer.scrollToIndex(items.length - 1);
+    },
+    clear: () => {
+      setItems([]);
+    },
+    getItemCount: () => items.length,
+  };
+
+  return (
+    <div>
+      <div>Virtual: {items.length} items, rendered: {virtualizer.getVirtualItems().length}</div>
+      <div
+        ref={parentRef}
+        style={{ height: 300, overflow: 'auto', display: 'none' }}
+      >
+        <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+          {virtualizer.getVirtualItems().map(vRow => (
+            <div
+              key={vRow.key}
+              style={{
+                position: 'absolute',
+                top: vRow.start,
+                height: vRow.size,
+                width: '100%',
+              }}
+            >
+              {items[vRow.index]?.value}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Main App ----
 function App() {
   return (
     <div style={{ padding: 16, fontFamily: 'monospace', fontSize: 12 }}>
@@ -177,6 +356,9 @@ function App() {
       <ZustandBench />
       <HookFormBench />
       <TableBench />
+      <JotaiBench />
+      <ReduxBench />
+      <VirtualBench />
       <div id="status">Ready</div>
     </div>
   );

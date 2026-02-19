@@ -4,7 +4,7 @@
 // No virtual DOM tree kept in memory — we diff against the live DOM.
 
 import { effect, batch, untrack, signal } from './reactive.js';
-import { reportError, _injectGetCurrentComponent } from './components.js';
+import { reportError, _injectGetCurrentComponent, shallowEqual } from './components.js';
 import { _setComponentRef } from './helpers.js';
 
 // Register <what-c> custom element to prevent flash of unstyled content
@@ -848,7 +848,12 @@ function patchNode(parent, domNode, vnode) {
       // Same component — update props reactively, let its effect re-render
       const ch = vnode.children;
       const patchChildren = ch.length === 0 ? undefined : ch.length === 1 ? ch[0] : ch;
-      domNode._componentCtx._propsSignal.set({ ...vnode.props, children: patchChildren });
+      const nextProps = { ...vnode.props, children: patchChildren };
+      // Skip signal update if props haven't changed (shallow compare)
+      const prevProps = domNode._componentCtx._propsSignal.peek();
+      if (!shallowEqual(prevProps, nextProps)) {
+        domNode._componentCtx._propsSignal.set(nextProps);
+      }
       domNode._vnode = vnode; // Keep vnode current for keyed reconciliation
       return domNode;
     }

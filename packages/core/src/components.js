@@ -50,7 +50,7 @@ export function memo(Component, areEqual) {
 let _getCurrentComponent = null;
 export function _injectGetCurrentComponent(fn) { _getCurrentComponent = fn; }
 
-function shallowEqual(a, b) {
+export function shallowEqual(a, b) {
   if (a === b) return true;
   const keysA = Object.keys(a);
   const keysB = Object.keys(b);

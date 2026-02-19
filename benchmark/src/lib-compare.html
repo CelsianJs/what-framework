@@ -29,7 +29,7 @@ body {
   font-family: var(--font);
   line-height: 1.6;
   padding: 40px 24px;
-  max-width: 1000px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -209,18 +209,28 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
   padding: 16px 16px 8px;
   border-bottom: 1px solid var(--border);
 }
+
+.dl-badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 400;
+  margin-left: 8px;
+}
 </style>
 </head>
 <body>
 
 <h1>Library Benchmark — <span>What</span> vs React</h1>
-<p class="subtitle">Same libraries (Zustand, React Hook Form, TanStack Table) running on What Framework's compat layer vs real React</p>
+<p class="subtitle">6 popular React libraries running on What Framework's compat layer vs real React — Zustand, React Hook Form, TanStack Table, Jotai, Redux Toolkit, TanStack Virtual</p>
 
 <div class="controls">
   <button class="primary" id="runAll" onclick="runAllBenchmarks()">Run All Benchmarks</button>
-  <button onclick="runCategory('zustand')">Zustand Only</button>
-  <button onclick="runCategory('hookForm')">Hook Form Only</button>
-  <button onclick="runCategory('table')">TanStack Table Only</button>
+  <button onclick="runCategory('zustand')">Zustand</button>
+  <button onclick="runCategory('hookForm')">Hook Form</button>
+  <button onclick="runCategory('table')">TanStack Table</button>
+  <button onclick="runCategory('jotai')">Jotai</button>
+  <button onclick="runCategory('redux')">Redux TK</button>
+  <button onclick="runCategory('virtual')">TanStack Virtual</button>
 </div>
 
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
@@ -244,7 +254,7 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
   </thead>
   <tbody id="results">
     <!-- Zustand -->
-    <tr><td colspan="5" class="section-header">Zustand — State Management</td></tr>
+    <tr><td colspan="5" class="section-header">Zustand — State Management <span class="dl-badge">19.1M/week</span></td></tr>
     <tr id="row-zustand-create">
       <td><div class="test-name">Create 10K store items</div><div class="test-desc">Push 10,000 objects into Zustand store</div></td>
       <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
@@ -262,7 +272,7 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
     </tr>
 
     <!-- React Hook Form -->
-    <tr><td colspan="5" class="section-header">React Hook Form — Forms (20 fields)</td></tr>
+    <tr><td colspan="5" class="section-header">React Hook Form — Forms <span class="dl-badge">15.8M/week</span></td></tr>
     <tr id="row-form-set">
       <td><div class="test-name">Set 200 field values</div><div class="test-desc">200 sequential setValue() calls across 20 fields</div></td>
       <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
@@ -275,7 +285,7 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
     </tr>
 
     <!-- TanStack Table -->
-    <tr><td colspan="5" class="section-header">TanStack Table — Data Grid</td></tr>
+    <tr><td colspan="5" class="section-header">TanStack Table — Data Grid <span class="dl-badge">5.3M/week</span></td></tr>
     <tr id="row-table-create">
       <td><div class="test-name">Create 5K rows</div><div class="test-desc">Generate and render 5,000 table rows</div></td>
       <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
@@ -288,6 +298,60 @@ tbody td:nth-child(2), tbody td:nth-child(3), tbody td:nth-child(4) {
     </tr>
     <tr id="row-table-update">
       <td><div class="test-name">Update every 10th of 5K</div><div class="test-desc">Partial table update (500 rows changed)</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+
+    <!-- Jotai -->
+    <tr><td colspan="5" class="section-header">Jotai — Atomic State <span class="dl-badge">2.6M/week</span></td></tr>
+    <tr id="row-jotai-create">
+      <td><div class="test-name">Create 10K atom items</div><div class="test-desc">Push 10,000 objects into atom state</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-jotai-update">
+      <td><div class="test-name">Update every 10th item</div><div class="test-desc">Partial atom update (1,000 items mutated)</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-jotai-rapid">
+      <td><div class="test-name">5K rapid atom updates</div><div class="test-desc">5,000 sequential atom writes</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+
+    <!-- Redux Toolkit -->
+    <tr><td colspan="5" class="section-header">Redux Toolkit — State Management <span class="dl-badge">15.8M/week</span></td></tr>
+    <tr id="row-redux-create">
+      <td><div class="test-name">Create 10K items via dispatch</div><div class="test-desc">Dispatch action with 10,000-item payload</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-redux-update">
+      <td><div class="test-name">Update every 10th via dispatch</div><div class="test-desc">Dispatch partial update (1,000 items mutated via Immer)</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-redux-rapid">
+      <td><div class="test-name">5K rapid dispatches</div><div class="test-desc">5,000 sequential increment dispatches</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+
+    <!-- TanStack Virtual -->
+    <tr><td colspan="5" class="section-header">TanStack Virtual — Virtualization <span class="dl-badge">8.3M/week</span></td></tr>
+    <tr id="row-virtual-create">
+      <td><div class="test-name">Create 50K virtual items</div><div class="test-desc">Set 50,000 items into virtualized list</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-virtual-update">
+      <td><div class="test-name">Update every 10th of 50K</div><div class="test-desc">Partial update of virtualized dataset</div></td>
+      <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
+    </tr>
+    <tr id="row-virtual-scroll">
+      <td><div class="test-name">Scroll to middle of 50K</div><div class="test-desc">Jump scroll position to row 25,000</div></td>
       <td class="what-val">—</td><td class="react-val">—</td><td class="speedup">—</td>
       <td class="bar-cell"><div class="bar-track"><div class="bar what" style="width:0"></div><div class="bar react" style="width:0"></div></div></td>
     </tr>
@@ -385,14 +449,29 @@ async function waitForBothFrames(timeout = 20000) {
 
 // Benchmark definitions: test string = "lib.method"
 const benchmarks = [
+  // Zustand
   { id: 'zustand-create', category: 'zustand', test: 'zustand.createItems10k', teardown: 'zustand.clear' },
   { id: 'zustand-update', category: 'zustand', test: 'zustand.updateTenth', setup: 'zustand.createItems10k', teardown: 'zustand.clear' },
   { id: 'zustand-rapid', category: 'zustand', test: 'zustand.rapidUpdates' },
+  // React Hook Form
   { id: 'form-set', category: 'hookForm', test: 'hookForm.setManyFields' },
   { id: 'form-reset', category: 'hookForm', test: 'hookForm.resetForm', setup: 'hookForm.setManyFields' },
+  // TanStack Table
   { id: 'table-create', category: 'table', test: 'table.createRows5k', teardown: 'table.clear' },
   { id: 'table-sort', category: 'table', test: 'table.sortByValue', setup: 'table.createRows5k', teardown: 'table.clear' },
   { id: 'table-update', category: 'table', test: 'table.updateTenth', setup: 'table.createRows5k', teardown: 'table.clear' },
+  // Jotai
+  { id: 'jotai-create', category: 'jotai', test: 'jotai.createItems10k', teardown: 'jotai.clear' },
+  { id: 'jotai-update', category: 'jotai', test: 'jotai.updateTenth', setup: 'jotai.createItems10k', teardown: 'jotai.clear' },
+  { id: 'jotai-rapid', category: 'jotai', test: 'jotai.rapidUpdates', teardown: 'jotai.clear' },
+  // Redux Toolkit
+  { id: 'redux-create', category: 'redux', test: 'redux.createItems10k', teardown: 'redux.clear' },
+  { id: 'redux-update', category: 'redux', test: 'redux.updateTenth', setup: 'redux.createItems10k', teardown: 'redux.clear' },
+  { id: 'redux-rapid', category: 'redux', test: 'redux.rapidUpdates', teardown: 'redux.clear' },
+  // TanStack Virtual
+  { id: 'virtual-create', category: 'virtual', test: 'virtual.createItems50k', teardown: 'virtual.clear' },
+  { id: 'virtual-update', category: 'virtual', test: 'virtual.updateTenth', setup: 'virtual.createItems50k', teardown: 'virtual.clear' },
+  { id: 'virtual-scroll', category: 'virtual', test: 'virtual.scrollToMiddle', setup: 'virtual.createItems50k', teardown: 'virtual.clear' },
 ];
 
 // Wall-clock measurement: time from sending the command to receiving the response
