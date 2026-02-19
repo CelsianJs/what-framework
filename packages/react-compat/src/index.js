@@ -60,18 +60,55 @@ function isClassComponent(type) {
   );
 }
 
+// Max re-renders per component per frame to prevent infinite loops
+const MAX_RENDERS_PER_FRAME = 50;
+
 function getClassWrapper(ClassComp) {
   let wrapper = classWrapperCache.get(ClassComp);
   if (wrapper) return wrapper;
 
   wrapper = function ClassComponentWrapper(props) {
-    // Instantiate the class with new
     const instanceRef = whatUseRef(null);
     const [renderCount, forceRender] = whatUseState(0);
+    const renderGuardRef = whatUseRef({ count: 0, frame: 0 });
+
+    // Render cycle guard — prevent infinite re-render loops
+    const currentFrame = renderGuardRef.current.frame;
+    if (typeof requestAnimationFrame !== 'undefined') {
+      renderGuardRef.current.count++;
+      if (renderGuardRef.current.count > MAX_RENDERS_PER_FRAME) {
+        console.error(`[what-react] Max re-renders exceeded for ${ClassComp.displayName || ClassComp.name || 'ClassComponent'}. Possible infinite loop.`);
+        return null;
+      }
+      // Reset count on next frame
+      if (renderGuardRef.current._raf === undefined) {
+        renderGuardRef.current._raf = requestAnimationFrame(() => {
+          renderGuardRef.current.count = 0;
+          renderGuardRef.current.frame++;
+          renderGuardRef.current._raf = undefined;
+        });
+      }
+    }
+
+    // Apply defaultProps
+    let mergedProps = props;
+    if (ClassComp.defaultProps) {
+      mergedProps = { ...ClassComp.defaultProps, ...props };
+    }
 
     if (instanceRef.current === null) {
-      const instance = new ClassComp(props);
-      // Throttle forceUpdate to prevent infinite loops from rapid setState
+      // Initialize state from constructor
+      const instance = new ClassComp(mergedProps);
+
+      // Apply getDerivedStateFromProps on initial render
+      if (ClassComp.getDerivedStateFromProps) {
+        const derived = ClassComp.getDerivedStateFromProps(mergedProps, instance.state);
+        if (derived !== null && derived !== undefined) {
+          instance.state = { ...instance.state, ...derived };
+        }
+      }
+
+      // Throttle forceUpdate — coalesce rapid setState calls
       let updateScheduled = false;
       instance._forceUpdate = () => {
         if (!updateScheduled) {
@@ -86,7 +123,24 @@ function getClassWrapper(ClassComp) {
     }
 
     const instance = instanceRef.current;
-    instance.props = props;
+    instance.props = mergedProps;
+
+    // Apply getDerivedStateFromProps on every render (React semantics)
+    if (ClassComp.getDerivedStateFromProps) {
+      const derived = ClassComp.getDerivedStateFromProps(mergedProps, instance.state);
+      if (derived !== null && derived !== undefined) {
+        instance.state = { ...instance.state, ...derived };
+      }
+    }
+
+    // Static contextType support — inject this.context from nearest provider
+    if (ClassComp.contextType && ClassComp.contextType._whatContext) {
+      try {
+        instance.context = whatUseContext(ClassComp.contextType);
+      } catch (e) {
+        // Context not available — leave as undefined
+      }
+    }
 
     // componentDidMount / componentWillUnmount lifecycle
     whatUseEffect(() => {
@@ -102,27 +156,34 @@ function getClassWrapper(ClassComp) {
       };
     }, []);
 
-    // componentDidUpdate — track with render count to avoid infinite loops
-    const prevRef = whatUseRef({ props: null, state: null, rendered: false });
+    // componentDidUpdate + getSnapshotBeforeUpdate
+    const prevRef = whatUseRef({ props: null, state: null, rendered: false, snapshot: undefined });
     whatUseEffect(() => {
       if (!prevRef.current.rendered) {
-        // First render — skip (componentDidMount handles this)
-        prevRef.current = { props, state: instance.state, rendered: true };
+        prevRef.current = { props: mergedProps, state: instance.state, rendered: true, snapshot: undefined };
         return;
       }
       const prev = prevRef.current;
-      prevRef.current = { props, state: instance.state, rendered: true };
+      prevRef.current = { props: mergedProps, state: instance.state, rendered: true, snapshot: undefined };
       if (instance.componentDidUpdate) {
-        instance.componentDidUpdate(prev.props, prev.state);
+        instance.componentDidUpdate(prev.props, prev.state, prev.snapshot);
       }
-    }, [props, renderCount]);
+    }, [mergedProps, renderCount]);
+
+    // getSnapshotBeforeUpdate — capture before DOM updates
+    // We approximate by calling it synchronously before render returns
+    if (instance.getSnapshotBeforeUpdate && prevRef.current.rendered) {
+      prevRef.current.snapshot = instance.getSnapshotBeforeUpdate(
+        prevRef.current.props, prevRef.current.state
+      );
+    }
 
     return instance.render();
   };
 
   // Preserve static properties and displayName
   wrapper.displayName = ClassComp.displayName || ClassComp.name || 'ClassComponent';
-  // Copy static properties (e.g., getDerivedStateFromProps, defaultProps)
+  // Copy static properties (getDerivedStateFromProps, defaultProps, contextType, etc.)
   for (const key of Object.getOwnPropertyNames(ClassComp)) {
     if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments') {
       try { wrapper[key] = ClassComp[key]; } catch (e) {}
@@ -250,15 +311,37 @@ export const Children = {
 // ---- cloneElement ----
 
 export function cloneElement(element, props, ...children) {
-  if (!element || !element._vnode) {
-    return element;
+  if (!element) return element;
+
+  // Handle both vnode objects and plain React-style elements
+  const tag = element.tag || element.type;
+  const oldProps = element.props || {};
+  const oldChildren = element.children || [];
+  const oldKey = element.key;
+  const oldRef = oldProps.ref;
+
+  if (!tag) return element;
+
+  const newProps = { ...oldProps, ...props };
+  // Preserve ref from old element if not overridden
+  if (props && props.ref !== undefined) {
+    newProps.ref = props.ref;
+  } else if (oldRef !== undefined) {
+    newProps.ref = oldRef;
   }
+  const newChildren = children.length > 0 ? children : oldChildren;
+  const newKey = props?.key !== undefined ? props.key : oldKey;
+  if (newKey !== undefined) newProps.key = newKey;
 
-  const newProps = { ...element.props, ...props };
-  const newChildren = children.length > 0 ? children : element.children;
-  const newKey = props?.key !== undefined ? props.key : element.key;
+  return createElement(tag, newProps, ...([].concat(newChildren || [])));
+}
 
-  return h(element.tag, { ...newProps, key: newKey }, ...([].concat(newChildren || [])));
+// ---- createFactory (deprecated but used by some libraries) ----
+
+export function createFactory(type) {
+  const factory = createElement.bind(null, type);
+  factory.type = type;
+  return factory;
 }
 
 // ---- isValidElement ----
@@ -477,6 +560,7 @@ const React = {
   createElement,
   createContext: whatCreateContext,
   createRef,
+  createFactory,
   forwardRef,
   cloneElement,
   isValidElement,
