@@ -1,0 +1,37 @@
+{
+  "name": "what-react",
+  "version": "0.1.0",
+  "description": "React compatibility layer for What Framework — use React packages with signals under the hood",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./dom": "./src/dom.js",
+    "./jsx-runtime": "./src/jsx-runtime.js",
+    "./jsx-dev-runtime": "./src/jsx-dev-runtime.js"
+  },
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "react",
+    "compat",
+    "what",
+    "framework",
+    "signals",
+    "compatibility"
+  ],
+  "peerDependencies": {
+    "what-core": "^0.5.2"
+  },
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zvndev/what-fw"
+  },
+  "bugs": {
+    "url": "https://github.com/zvndev/what-fw/issues"
+  },
+  "homepage": "https://whatframework.dev"
+}

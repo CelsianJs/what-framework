@@ -160,6 +160,11 @@ export function createDOM(vnode, parent, isSvg) {
     return document.createTextNode(String(vnode));
   }
 
+  // Portal (string-tagged vnodes from helpers.js Portal or react-compat createPortal)
+  if (vnode.tag === '__portal') {
+    return createPortalDOM(vnode, parent);
+  }
+
   // Component
   if (typeof vnode.tag === 'function') {
     return createComponent(vnode, parent, isSvg);
@@ -217,8 +222,8 @@ function createComponent(vnode, parent, isSvg) {
   if (Component === '__suspense' || vnode.tag === '__suspense') {
     return createSuspenseBoundary(vnode, parent);
   }
-  if (Component === '__portal' || vnode.tag === '__portal') {
-    return createPortal(vnode, parent);
+  if (Component === '__portal' || vnode.tag === '__portal') { // Now also handled in createDOM directly
+    return createPortalDOM(vnode, parent);
   }
 
   // Component context for hooks
@@ -258,7 +263,9 @@ function createComponent(vnode, parent, isSvg) {
   mountedComponents.add(ctx);
 
   // Props signal for reactive updates from parent
-  const propsSignal = signal({ ...props, children });
+  // Match React's children semantics: 0→undefined, 1→single child, N→array
+  const propsChildren = children.length === 0 ? undefined : children.length === 1 ? children[0] : children;
+  const propsSignal = signal({ ...props, children: propsChildren });
   ctx._propsSignal = propsSignal;
 
   // Reactive render: re-renders when signals used inside change
@@ -280,7 +287,9 @@ function createComponent(vnode, parent, isSvg) {
       return;
     }
 
-    componentStack.pop();
+    // Keep ctx on componentStack while creating/reconciling children
+    // so child components' _parentCtx correctly points to this component.
+    // This is essential for context propagation (useContext walks _parentCtx).
 
     const vnodes = Array.isArray(result) ? result : [result];
 
@@ -306,6 +315,8 @@ function createComponent(vnode, parent, isSvg) {
       // Update: reconcile children inside wrapper
       reconcileChildren(wrapper, vnodes);
     }
+
+    componentStack.pop();
   });
 
   ctx.effects.push(dispose);
@@ -343,7 +354,6 @@ function createErrorBoundary(vnode, parent) {
       vnodes = children;
     }
 
-    componentStack.pop();
     vnodes = Array.isArray(vnodes) ? vnodes : [vnodes];
 
     if (wrapper.childNodes.length === 0) {
@@ -354,6 +364,8 @@ function createErrorBoundary(vnode, parent) {
     } else {
       reconcileChildren(wrapper, vnodes);
     }
+
+    componentStack.pop();
   });
 
   boundaryCtx.effects.push(dispose);
@@ -381,6 +393,8 @@ function createSuspenseBoundary(vnode, parent) {
     const vnodes = isLoading ? [fallback] : children;
     const normalized = Array.isArray(vnodes) ? vnodes : [vnodes];
 
+    componentStack.push(boundaryCtx);
+
     if (wrapper.childNodes.length === 0) {
       for (const v of normalized) {
         const node = createDOM(v, wrapper);
@@ -389,6 +403,8 @@ function createSuspenseBoundary(vnode, parent) {
     } else {
       reconcileChildren(wrapper, normalized);
     }
+
+    componentStack.pop();
   });
 
   boundaryCtx.effects.push(dispose);
@@ -396,7 +412,7 @@ function createSuspenseBoundary(vnode, parent) {
 }
 
 // Portal component handler — renders children into a different DOM container
-function createPortal(vnode, parent) {
+function createPortalDOM(vnode, parent) {
   const { container } = vnode.props;
   const children = vnode.children;
 
@@ -794,7 +810,9 @@ function patchNode(parent, domNode, vnode) {
     if (domNode._componentCtx && !domNode._componentCtx.disposed
         && domNode._componentCtx.Component === vnode.tag) {
       // Same component — update props reactively, let its effect re-render
-      domNode._componentCtx._propsSignal.set({ ...vnode.props, children: vnode.children });
+      const ch = vnode.children;
+      const patchChildren = ch.length === 0 ? undefined : ch.length === 1 ? ch[0] : ch;
+      domNode._componentCtx._propsSignal.set({ ...vnode.props, children: patchChildren });
       domNode._vnode = vnode; // Keep vnode current for keyed reconciliation
       return domNode;
     }
@@ -905,23 +923,32 @@ function applyProps(el, newProps, oldProps, isSvg) {
 }
 
 function setProp(el, key, value, isSvg) {
-  // Event handlers: onClick -> click
+  // Event handlers: onClick -> click, onFocusCapture -> focus (capture phase)
   // Wrap in untrack so signal reads in handlers don't create subscriptions
   if (key.startsWith('on') && key.length > 2) {
-    const event = key.slice(2).toLowerCase();
+    let eventName = key.slice(2);
+    // React-style capture phase: onClickCapture → click in capture phase
+    let useCapture = false;
+    if (eventName.endsWith('Capture')) {
+      eventName = eventName.slice(0, -7);
+      useCapture = true;
+    }
+    const event = eventName.toLowerCase();
+    // Use a combined key for storage so capture/bubble don't conflict
+    const storageKey = useCapture ? event + '_capture' : event;
     // Store handler for removal
-    const old = el._events?.[event];
+    const old = el._events?.[storageKey];
     // Skip re-wrapping if same handler function
     if (old && old._original === value) return;
-    if (old) el.removeEventListener(event, old);
+    if (old) el.removeEventListener(event, old, useCapture);
     if (!el._events) el._events = {};
     // Wrap handler to untrack signal reads
     const wrappedHandler = (e) => untrack(() => value(e));
     wrappedHandler._original = value;
-    el._events[event] = wrappedHandler;
+    el._events[storageKey] = wrappedHandler;
     // Check for _eventOpts (once/capture/passive from compiler)
     const eventOpts = value._eventOpts;
-    el.addEventListener(event, wrappedHandler, eventOpts || undefined);
+    el.addEventListener(event, wrappedHandler, eventOpts || useCapture || undefined);
     return;
   }
 
@@ -1003,10 +1030,17 @@ function setProp(el, key, value, isSvg) {
 
 function removeProp(el, key, oldValue) {
   if (key.startsWith('on') && key.length > 2) {
-    const event = key.slice(2).toLowerCase();
-    if (el._events?.[event]) {
-      el.removeEventListener(event, el._events[event]);
-      delete el._events[event];
+    let eventName = key.slice(2);
+    let useCapture = false;
+    if (eventName.endsWith('Capture')) {
+      eventName = eventName.slice(0, -7);
+      useCapture = true;
+    }
+    const event = eventName.toLowerCase();
+    const storageKey = useCapture ? event + '_capture' : event;
+    if (el._events?.[storageKey]) {
+      el.removeEventListener(event, el._events[storageKey], useCapture);
+      delete el._events[storageKey];
     }
     return;
   }
