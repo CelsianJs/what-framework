@@ -14,11 +14,12 @@ import reactiveJsxChildren from './rules/reactive-jsx-children.js';
 import noSignalWriteInRender from './rules/no-signal-write-in-render.js';
 import noCamelcaseEvents from './rules/no-camelcase-events.js';
 import preferSet from './rules/prefer-set.js';
+import noUncalledSignals from './rules/no-uncalled-signals.js';
 
 const plugin = {
   meta: {
     name: 'eslint-plugin-what',
-    version: '0.5.2',
+    version: '0.5.6',
   },
 
   rules: {
@@ -27,6 +28,7 @@ const plugin = {
     'no-signal-write-in-render': noSignalWriteInRender,
     'no-camelcase-events': noCamelcaseEvents,
     'prefer-set': preferSet,
+    'no-uncalled-signals': noUncalledSignals,
   },
 
   configs: {},
@@ -41,6 +43,7 @@ plugin.configs.recommended = {
     'what/reactive-jsx-children': 'warn',
     'what/no-signal-write-in-render': 'warn',
     'what/no-camelcase-events': 'warn',
+    'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
   },
 };
@@ -53,6 +56,7 @@ plugin.configs.strict = {
     'what/reactive-jsx-children': 'error',
     'what/no-signal-write-in-render': 'error',
     'what/no-camelcase-events': 'error',
+    'what/no-uncalled-signals': 'error',
     'what/prefer-set': 'warn',
   },
 };
@@ -65,6 +69,7 @@ plugin.configs.compiler = {
     'what/reactive-jsx-children': 'off',       // compiler handles reactive wrapping
     'what/no-signal-write-in-render': 'warn',
     'what/no-camelcase-events': 'off',          // compiler normalizes events
+    'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
   },
 };

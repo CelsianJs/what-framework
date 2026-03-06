@@ -10,6 +10,8 @@
  * Good: useEffect(() => { count(0); })
  */
 
+import { createSignalTracker } from '../utils/signal-tracking.js';
+
 export default {
   meta: {
     type: 'problem',
@@ -26,7 +28,7 @@ export default {
   },
 
   create(context) {
-    const signalVars = new Set();
+    const tracker = createSignalTracker();
 
     // Track whether we're inside a "safe" write context
     function isInsideSafeContext(node) {
@@ -78,15 +80,7 @@ export default {
 
     return {
       VariableDeclarator(node) {
-        if (!node.init) return;
-        if (
-          node.init.type === 'CallExpression' &&
-          node.init.callee.type === 'Identifier' &&
-          ['signal', 'useSignal', 'computed', 'useComputed'].includes(node.init.callee.name) &&
-          node.id.type === 'Identifier'
-        ) {
-          signalVars.add(node.id.name);
-        }
+        tracker.visitors.VariableDeclarator(node);
       },
 
       CallExpression(node) {
@@ -96,7 +90,7 @@ export default {
         // Direct call: count(value) — with at least one argument (0-arg is a read)
         if (
           node.callee.type === 'Identifier' &&
-          signalVars.has(node.callee.name) &&
+          tracker.isSignal(node.callee.name) &&
           node.arguments.length > 0
         ) {
           signalName = node.callee.name;
@@ -106,7 +100,7 @@ export default {
         if (
           node.callee.type === 'MemberExpression' &&
           node.callee.object.type === 'Identifier' &&
-          signalVars.has(node.callee.object.name) &&
+          tracker.isSignal(node.callee.object.name) &&
           node.callee.property.type === 'Identifier' &&
           node.callee.property.name === 'set'
         ) {

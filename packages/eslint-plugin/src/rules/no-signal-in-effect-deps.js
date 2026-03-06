@@ -10,6 +10,8 @@
  * Good: useEffect(() => { count(); }, [])     // or rely on auto-tracking
  */
 
+import { createSignalTracker } from '../utils/signal-tracking.js';
+
 export default {
   meta: {
     type: 'problem',
@@ -26,22 +28,11 @@ export default {
   },
 
   create(context) {
-    // Track variables initialized from signal/useSignal/computed calls
-    const signalVars = new Set();
+    const tracker = createSignalTracker();
 
     return {
       VariableDeclarator(node) {
-        if (!node.init) return;
-
-        // Detect: const x = signal(...), useSignal(...), computed(...)
-        if (
-          node.init.type === 'CallExpression' &&
-          node.init.callee.type === 'Identifier' &&
-          ['signal', 'useSignal', 'computed', 'useComputed'].includes(node.init.callee.name) &&
-          node.id.type === 'Identifier'
-        ) {
-          signalVars.add(node.id.name);
-        }
+        tracker.visitors.VariableDeclarator(node);
       },
 
       CallExpression(node) {
@@ -60,7 +51,7 @@ export default {
           // Direct signal reference: useEffect(fn, [count])
           if (
             element.type === 'Identifier' &&
-            signalVars.has(element.name)
+            tracker.isSignalLike(element.name)
           ) {
             context.report({
               node: element,

@@ -2,7 +2,7 @@
  * Rule: what/reactive-jsx-children
  *
  * Warn when using bare signal calls as JSX children without the compiler.
- * Without the What compiler, esbuild/TS handles JSX → h() calls, and a bare
+ * Without the What compiler, esbuild/TS handles JSX -> h() calls, and a bare
  * signal read like {count()} won't be reactive — it captures the value once.
  *
  * The rule checks if the project uses what-compiler (via config option or
@@ -12,6 +12,8 @@
  * Bad (without compiler):  <p>{count()}</p>
  * Good (without compiler): <p>{() => count()}</p>
  */
+
+import { createSignalTracker } from '../utils/signal-tracking.js';
 
 export default {
   meta: {
@@ -45,20 +47,11 @@ export default {
     // If the user explicitly says they have the compiler, skip all checks
     if (options.hasCompiler === true) return {};
 
-    // Track signal variables
-    const signalVars = new Set();
+    const tracker = createSignalTracker();
 
     return {
       VariableDeclarator(node) {
-        if (!node.init) return;
-        if (
-          node.init.type === 'CallExpression' &&
-          node.init.callee.type === 'Identifier' &&
-          ['signal', 'useSignal', 'computed', 'useComputed'].includes(node.init.callee.name) &&
-          node.id.type === 'Identifier'
-        ) {
-          signalVars.add(node.id.name);
-        }
+        tracker.visitors.VariableDeclarator(node);
       },
 
       // JSX expression: {count()}
@@ -76,7 +69,7 @@ export default {
         if (
           expr.type === 'CallExpression' &&
           expr.callee.type === 'Identifier' &&
-          signalVars.has(expr.callee.name) &&
+          tracker.isSignalLike(expr.callee.name) &&
           expr.arguments.length === 0
         ) {
           context.report({

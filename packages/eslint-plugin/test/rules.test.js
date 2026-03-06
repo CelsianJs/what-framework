@@ -270,4 +270,213 @@ describe('eslint-plugin-what', () => {
       assert.deepStrictEqual(visitors, {});
     });
   });
+
+  describe('no-uncalled-signals', async () => {
+    const { default: rule } = await import('../src/rules/no-uncalled-signals.js');
+
+    it('warns on bare signal reference in JSX expression', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      // Register signal
+      visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
+
+      // Bare reference: {count} in JSX
+      const countId = id('count');
+      countId.parent = { type: 'JSXExpressionContainer', parent: { type: 'JSXElement' } };
+      visitors.Identifier(countId);
+
+      assert.strictEqual(reports.length, 1);
+      assert.strictEqual(reports[0].messageId, 'uncalledSignal');
+      assert.strictEqual(reports[0].data.name, 'count');
+    });
+
+    it('allows signal calls (count())', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
+
+      // count() — being called, should NOT warn
+      const countId = id('count');
+      const call = { type: 'CallExpression', callee: countId, arguments: [] };
+      countId.parent = call;
+      visitors.Identifier(countId);
+
+      assert.strictEqual(reports.length, 0);
+    });
+
+    it('allows signal.set() access', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
+
+      // count.set — accessing method, should NOT warn
+      const countId = id('count');
+      countId.parent = {
+        type: 'MemberExpression',
+        object: countId,
+        property: id('set'),
+        computed: false,
+      };
+      visitors.Identifier(countId);
+
+      assert.strictEqual(reports.length, 0);
+    });
+
+    it('allows passing signal as argument', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
+
+      // someFunc(count) — passing signal reference, should NOT warn
+      const countId = id('count');
+      const call = { type: 'CallExpression', callee: id('someFunc'), arguments: [countId] };
+      countId.parent = call;
+      visitors.Identifier(countId);
+
+      assert.strictEqual(reports.length, 0);
+    });
+
+    it('warns on bare signal in logical expression', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator(varDecl('isLoading', callExpr('useSignal', [{ type: 'Literal', value: false }])));
+
+      // isLoading && <Spinner /> — should warn (always truthy)
+      const loadingId = id('isLoading');
+      loadingId.parent = { type: 'LogicalExpression', operator: '&&', left: loadingId };
+      visitors.Identifier(loadingId);
+
+      assert.strictEqual(reports.length, 1);
+      assert.strictEqual(reports[0].data.name, 'isLoading');
+    });
+
+    it('warns on SWR object getter used without call', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      // const swr = useSWR(...)
+      visitors.VariableDeclarator({
+        type: 'VariableDeclarator',
+        id: id('swr'),
+        init: callExpr('useSWR', [{ type: 'Literal', value: 'key' }]),
+      });
+
+      // swr.data without () — should warn
+      const swrId = id('swr');
+      const dataId = id('data');
+      const memberExpr = {
+        type: 'MemberExpression',
+        object: swrId,
+        property: dataId,
+        computed: false,
+        parent: { type: 'JSXExpressionContainer', parent: { type: 'JSXElement' } },
+      };
+      swrId.parent = memberExpr;
+      dataId.parent = memberExpr;
+
+      visitors.MemberExpression(memberExpr);
+
+      assert.strictEqual(reports.length, 1);
+      assert.strictEqual(reports[0].messageId, 'uncalledSWRField');
+      assert.strictEqual(reports[0].data.obj, 'swr');
+      assert.strictEqual(reports[0].data.prop, 'data');
+    });
+
+    it('allows SWR getter called: swr.data()', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator({
+        type: 'VariableDeclarator',
+        id: id('swr'),
+        init: callExpr('useSWR', [{ type: 'Literal', value: 'key' }]),
+      });
+
+      // swr.data() — being called, should NOT warn
+      const swrId = id('swr');
+      const dataId = id('data');
+      const memberExpr = {
+        type: 'MemberExpression',
+        object: swrId,
+        property: dataId,
+        computed: false,
+      };
+      memberExpr.parent = { type: 'CallExpression', callee: memberExpr, arguments: [] };
+      swrId.parent = memberExpr;
+      dataId.parent = memberExpr;
+
+      visitors.MemberExpression(memberExpr);
+
+      assert.strictEqual(reports.length, 0);
+    });
+
+    it('warns on destructured SWR getter used without call', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      // const { data, isLoading } = useSWR(...)
+      visitors.VariableDeclarator({
+        type: 'VariableDeclarator',
+        id: {
+          type: 'ObjectPattern',
+          properties: [
+            { type: 'Property', key: id('data'), value: id('data'), computed: false },
+            { type: 'Property', key: id('isLoading'), value: id('isLoading'), computed: false },
+          ],
+        },
+        init: callExpr('useSWR', [{ type: 'Literal', value: 'key' }]),
+      });
+
+      // data used without () — should warn
+      const dataId = id('data');
+      dataId.parent = { type: 'JSXExpressionContainer', parent: { type: 'JSXElement' } };
+      visitors.Identifier(dataId);
+
+      assert.strictEqual(reports.length, 1);
+      assert.strictEqual(reports[0].messageId, 'uncalledDestructuredGetter');
+    });
+
+    it('tracks useComputed and computed signals', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator(varDecl('doubled', callExpr('useComputed', [])));
+
+      const doubledId = id('doubled');
+      doubledId.parent = { type: 'LogicalExpression', operator: '&&', left: doubledId };
+      visitors.Identifier(doubledId);
+
+      assert.strictEqual(reports.length, 1);
+      assert.strictEqual(reports[0].data.name, 'doubled');
+    });
+
+    it('skips declaration positions', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
+
+      // count in: const count = useSignal(0) — declaration, should NOT warn
+      const countId = id('count');
+      countId.parent = { type: 'VariableDeclarator', id: countId, init: {} };
+      visitors.Identifier(countId);
+
+      assert.strictEqual(reports.length, 0);
+    });
+  });
 });

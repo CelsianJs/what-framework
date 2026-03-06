@@ -13,6 +13,8 @@
  * This rule is off by default (style preference, not a bug).
  */
 
+import { createSignalTracker } from '../utils/signal-tracking.js';
+
 export default {
   meta: {
     type: 'suggestion',
@@ -29,26 +31,18 @@ export default {
   },
 
   create(context) {
-    const signalVars = new Set();
+    const tracker = createSignalTracker();
 
     return {
       VariableDeclarator(node) {
-        if (!node.init) return;
-        if (
-          node.init.type === 'CallExpression' &&
-          node.init.callee.type === 'Identifier' &&
-          ['signal', 'useSignal', 'computed', 'useComputed'].includes(node.init.callee.name) &&
-          node.id.type === 'Identifier'
-        ) {
-          signalVars.add(node.id.name);
-        }
+        tracker.visitors.VariableDeclarator(node);
       },
 
       CallExpression(node) {
         // Only match: signalVar(value) with exactly 1 argument
         if (
           node.callee.type !== 'Identifier' ||
-          !signalVars.has(node.callee.name) ||
+          !tracker.isSignal(node.callee.name) ||
           node.arguments.length !== 1
         ) return;
 
