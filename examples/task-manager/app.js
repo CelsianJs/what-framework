@@ -297,7 +297,7 @@ function App() {
     // Footer
     h('footer', { class: 'app-footer' },
       'Built with ',
-      h('a', { href: 'https://github.com/CelsianJs/whatfw', target: '_blank' }, 'What Framework'),
+      h('a', { href: 'https://github.com/CelsianJs/what-framework', target: '_blank' }, 'What Framework'),
       ' \u00B7 Tasks persist in localStorage',
     ),
   );

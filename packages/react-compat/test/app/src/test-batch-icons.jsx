@@ -59,7 +59,7 @@ function T3() {
 import QRCode from 'react-qr-code';
 function T4() {
   return <div style={{ background: '#fff', padding: 8, display: 'inline-block', borderRadius: 4 }}>
-    <QRCode value="https://github.com/CelsianJs/whatfw" size={80} />
+    <QRCode value="https://github.com/CelsianJs/what-framework" size={80} />
   </div>;
 }
 

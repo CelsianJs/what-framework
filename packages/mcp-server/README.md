@@ -64,7 +64,7 @@ When connected, an AI assistant can use these tools to answer questions about Wh
 ## Links
 
 - [Documentation](https://whatfw.com)
-- [GitHub](https://github.com/CelsianJs/whatfw)
+- [GitHub](https://github.com/CelsianJs/what-framework)
 - [MCP Specification](https://modelcontextprotocol.io/)
 
 ## License

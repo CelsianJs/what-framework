@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Development Setup
 
 ```bash
-git clone https://github.com/CelsianJs/whatfw.git
+git clone https://github.com/CelsianJs/what-framework.git
 cd whatfw
 npm install
 npm test  # 257 tests should pass
@@ -51,7 +51,7 @@ Tests use Node's built-in test runner. No external test framework needed.
 
 ## Reporting Issues
 
-Open an issue at [github.com/CelsianJs/whatfw/issues](https://github.com/CelsianJs/whatfw/issues). Include:
+Open an issue at [github.com/CelsianJs/what-framework/issues](https://github.com/CelsianJs/what-framework/issues). Include:
 - What you expected to happen
 - What actually happened
 - Steps to reproduce

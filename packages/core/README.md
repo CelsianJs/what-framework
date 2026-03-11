@@ -111,7 +111,7 @@ mount(h(Counter), '#app');
 ## Links
 
 - [Documentation](https://whatfw.com)
-- [GitHub](https://github.com/CelsianJs/whatfw)
+- [GitHub](https://github.com/CelsianJs/what-framework)
 - [Benchmarks](https://benchmarks.whatfw.com)
 
 ## License

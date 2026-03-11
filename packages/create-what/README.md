@@ -70,7 +70,7 @@ StyleX is configured via `vite-plugin-stylex`. The counter example uses `stylex.
 ## Links
 
 - [Documentation](https://whatfw.com)
-- [GitHub](https://github.com/CelsianJs/whatfw)
+- [GitHub](https://github.com/CelsianJs/what-framework)
 
 ## License
 

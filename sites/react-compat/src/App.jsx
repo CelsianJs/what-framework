@@ -171,7 +171,7 @@ function Nav() {
           <li><a href="#architecture">Architecture</a></li>
           <li><a href="#benchmarks">Performance</a></li>
           <li><a href="https://whatfw.com">What Framework</a></li>
-          <li><a href="https://github.com/CelsianJs/whatfw" class="nav-cta">GitHub</a></li>
+          <li><a href="https://github.com/CelsianJs/what-framework" class="nav-cta">GitHub</a></li>
         </ul>
       </div>
     </nav>
@@ -226,7 +226,7 @@ function Packages() {
             <h3>Tested a React library that works?</h3>
             <p>Submit it to the community list. If it uses hooks & standard React APIs, it probably just works.</p>
           </div>
-          <a href="https://github.com/CelsianJs/whatfw/issues/new?labels=compat-report&template=compat-report.md&title=%5BCompat%5D+Package+Name" target="_blank" rel="noopener">
+          <a href="https://github.com/CelsianJs/what-framework/issues/new?labels=compat-report&template=compat-report.md&title=%5BCompat%5D+Package+Name" target="_blank" rel="noopener">
             <GitHubIcon />
             Submit a Package
           </a>
@@ -463,7 +463,7 @@ function CallToAction() {
         <h2 class="cta-title">Your React code.<br />Our signals engine.</h2>
         <p class="cta-desc">Migrate your entire project in under a minute. Keep every library you depend on.</p>
         <div class="cta-buttons">
-          <a href="https://github.com/CelsianJs/whatfw" class="btn btn-primary">
+          <a href="https://github.com/CelsianJs/what-framework" class="btn btn-primary">
             <GitHubStroke />
             View on GitHub
           </a>
@@ -479,7 +479,7 @@ function Footer() {
   return (
     <footer>
       <div class="container">
-        <p><a href="https://whatfw.com">What Framework</a> — <a href="https://benchmarks.whatfw.com">Benchmarks</a> — <a href="https://github.com/CelsianJs/whatfw">GitHub</a></p>
+        <p><a href="https://whatfw.com">What Framework</a> — <a href="https://benchmarks.whatfw.com">Benchmarks</a> — <a href="https://github.com/CelsianJs/what-framework">GitHub</a></p>
         <div class="built-with">
           Built with <span class="fw-badge">What Framework</span>
         </div>

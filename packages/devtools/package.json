@@ -26,10 +26,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/whatfw"
+    "url": "https://github.com/CelsianJs/what-framework"
   },
   "bugs": {
-    "url": "https://github.com/CelsianJs/whatfw/issues"
+    "url": "https://github.com/CelsianJs/what-framework/issues"
   },
   "homepage": "https://whatfw.com"
 }

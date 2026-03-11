@@ -408,7 +408,7 @@ mount(<App />, '#app');
 
 ## Links
 
-- GitHub: https://github.com/CelsianJs/whatfw
+- GitHub: https://github.com/CelsianJs/what-framework
 - npm: https://www.npmjs.com/package/what-framework
 - Docs: https://whatfw.com
 - React Compat: https://react.whatfw.com
