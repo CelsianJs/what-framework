@@ -1,6 +1,6 @@
 # Gotchas and Footguns
 
-Updated for the fine-grained reactive architecture.
+Updated for the fine-grained reactive architecture. Includes agent-specific gotchas.
 
 ## 1. Signal Read Requires `()` Call
 
@@ -13,12 +13,12 @@ const count = useSignal(0);
 console.log(count());        // 0
 console.log(count() + 1);   // 1
 
-// wrong — this is the function reference, not the value
+// wrong -- this is the function reference, not the value
 console.log(count);          // [Function: sig]
 console.log(count + 1);     // "function sig() { ... }1"
 ```
 
-This is the most common mistake for developers coming from React, where `useState` returns a plain value.
+This is the most common mistake for developers and agents coming from React, where `useState` returns a plain value.
 
 ## 2. JSX Dynamic Expressions Need `() =>`
 
@@ -27,13 +27,13 @@ In JSX, `{count}` passes the function reference, which renders as text like `"fu
 ```jsx
 const count = useSignal(0);
 
-// correct — reactive, updates when count changes
+// correct -- reactive, updates when count changes
 <p>{() => count()}</p>
 
-// correct — compiler auto-wraps in fine-grained mode
+// correct -- compiler auto-wraps in fine-grained mode
 <p>{count()}</p>
 
-// wrong — renders the function reference as a string
+// wrong -- renders the function reference as a string
 <p>{count}</p>
 ```
 
@@ -46,19 +46,19 @@ Signals use `Object.is` for equality checks. Mutating an object/array in place a
 ```jsx
 const items = useSignal([1, 2, 3]);
 
-// wrong — mutates in place, Object.is sees same reference
+// wrong -- mutates in place, Object.is sees same reference
 items().push(4);
 items.set(items());  // No update! Same array reference.
 
-// correct — create a new array
+// correct -- create a new array
 items.set(prev => [...prev, 4]);
 
-// wrong — mutates object in place
+// wrong -- mutates object in place
 const user = useSignal({ name: 'Alice', age: 30 });
 user().name = 'Bob';
 user.set(user());  // No update!
 
-// correct — spread into a new object
+// correct -- spread into a new object
 user.set(prev => ({ ...prev, name: 'Bob' }));
 ```
 
@@ -121,14 +121,12 @@ Using the wrong one often causes confusion about when recomputation occurs.
 
 ## 9. Raw HTML Props Own Element Children
 
-Both are valid:
+Use the `{ __html: string }` form for security:
 
 ```jsx
 <div innerHTML={{ __html: '<strong>Hello</strong>' }} />
 <div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
 ```
-
-Plain string `innerHTML` is rejected for security. Always use the `{ __html: string }` form.
 
 If you use either prop, do not rely on vnode children in the same element.
 
@@ -149,12 +147,12 @@ When you pass a signal to a child component or import one from a module, reading
 const count = useSignal(0);
 <Child count={count} />
 
-// child.jsx — inside the component
+// child.jsx -- inside the component
 function Child({ count }) {
-  // correct — reactive
+  // correct -- reactive
   return <p>{() => count()}</p>;
 
-  // wrong — reads once, never updates
+  // wrong -- reads once, never updates
   const val = count();
   return <p>{val}</p>;
 }
@@ -167,12 +165,12 @@ The key rule: if you want the DOM to update when a signal changes, the signal re
 SVG elements are created with the SVG namespace automatically when nested inside `<svg>`. If you dynamically create SVG elements outside an `<svg>` parent, they may be created as HTML elements instead. Always nest SVG content within an `<svg>` element:
 
 ```jsx
-// correct — svg parent detected, children get SVG namespace
+// correct -- svg parent detected, children get SVG namespace
 <svg viewBox="0 0 100 100">
   <circle cx="50" cy="50" r="40" />
 </svg>
 
-// may fail — circle created as HTML element
+// may fail -- circle created as HTML element
 {() => showCircle() ? <circle cx="50" cy="50" r="40" /> : null}
 // Fix: ensure it's inside an <svg> parent
 ```
@@ -183,10 +181,10 @@ Unlike React, the component function body executes exactly once. Code that expec
 
 ```jsx
 function Greeter({ name }) {
-  // wrong — this only logs the initial value
+  // wrong -- this only logs the initial value
   console.log('Rendering with name:', name());
 
-  // correct — logs every time name changes
+  // correct -- logs every time name changes
   useEffect(() => {
     console.log('Name changed to:', name());
   });
@@ -216,4 +214,47 @@ effect(() => {
     console.log(d);
   }
 });
+```
+
+---
+
+## Agent-Specific Gotchas
+
+### 16. Dev-Mode Validation Messages
+
+In development mode, the runtime logs warnings for common mistakes:
+- Passing a signal function reference where a value is expected
+- Using `formState.errors()` as a function call
+- Mixing raw HTML props with children
+
+Agents should treat dev-mode warnings as errors and fix the underlying code.
+
+### 17. innerHTML Requires `{ __html: string }` Object
+
+A common agent mistake is using a plain string for innerHTML. The framework requires the `{ __html: string }` wrapper for security:
+
+```jsx
+// WRONG -- agents often generate this
+<div innerHTML="<b>bold</b>" />
+
+// CORRECT
+<div innerHTML={{ __html: '<b>bold</b>' }} />
+```
+
+### 18. MCP Tool Responses Are JSON
+
+All MCP DevTools tool responses are JSON with a `summary` field for quick reading and detailed data fields for deeper inspection. Agents should read the `summary` first and only parse detailed fields when needed.
+
+### 19. Signal IDs Are Runtime-Assigned
+
+Signal and effect IDs returned by MCP tools (`what_signals`, `what_effects`) are assigned at runtime and change between page reloads. Do not hardcode them. Always query for the current ID before using `what_set_signal` or `what_dependency_graph`.
+
+### 20. Effects Flush Asynchronously
+
+Signal writes do not immediately trigger effects. Effects are collected and flushed on the next microtask. If an agent needs to verify the result of a signal write via MCP, it should use `what_watch` with a short duration rather than immediately reading signals.
+
+```
+Agent: what_set_signal { signalId: 3, value: 42 }
+Agent: what_watch { duration: 500, filter: "signal:updated" }
+  -> Confirms the update propagated
 ```

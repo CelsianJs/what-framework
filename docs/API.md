@@ -1,6 +1,6 @@
 # What Framework API Reference
 
-This page reflects the current public API for `what-framework`.
+Complete public API for `what-framework`. Verified against `packages/core/src/index.js`.
 
 ## Conventions
 
@@ -35,6 +35,7 @@ count.set(1);          // canonical write
 count.set(c => c + 1); // updater
 count(2);              // compatibility write
 count.peek();          // untracked read
+count.subscribe(fn);   // shorthand for effect(() => fn(count()))
 ```
 
 ---
@@ -47,7 +48,7 @@ count.peek();          // untracked read
 | `html\`...\`` | Tagged template vnode API |
 | `mount(vnode, container)` | Mount root vnode |
 
-> JSX is the only supported authoring format. The compiler transforms JSX into optimized DOM operations. There is no public `h()` function — component instantiation is handled internally by the compiler and runtime.
+> JSX is the only supported authoring format. The compiler transforms JSX into optimized DOM operations. There is no public `h()` function -- component instantiation is handled internally by the compiler and runtime.
 
 ### Fine-grained primitives
 
@@ -291,7 +292,7 @@ Compatibility input is supported:
 Both are supported in DOM + SSR:
 
 ```jsx
-<div innerHTML="<strong>Hello</strong>" />
+<div innerHTML={{ __html: '<strong>Hello</strong>' }} />
 <div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
 ```
 

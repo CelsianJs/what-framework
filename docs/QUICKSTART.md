@@ -1,8 +1,8 @@
 # What Framework Quickstart
 
-This is the canonical path for app teams.
+Get a WhatFW app running in under 2 minutes. This guide covers both human developers and AI agents.
 
-## 1. Scaffold and run
+## 1. Scaffold and Run
 
 ```bash
 npm create what@latest my-app
@@ -17,7 +17,56 @@ Open `http://localhost:5173`.
 
 Bun works too: `bun create what@latest my-app`, then `bun run dev`.
 
-## 2. Core patterns
+## 2. MCP Setup (for AI Agents)
+
+If you are an AI agent (Claude Code, Cursor, etc.), add the MCP servers for documentation and live debugging.
+
+### Documentation Server
+
+```json
+{
+  "mcpServers": {
+    "what-framework": {
+      "command": "npx",
+      "args": ["what-mcp"]
+    }
+  }
+}
+```
+
+This gives you 13 tools for querying API docs, examples, and guidance.
+
+### Live DevTools (Optional)
+
+For runtime debugging, add the DevTools MCP server:
+
+```json
+{
+  "mcpServers": {
+    "what-devtools": {
+      "command": "npx",
+      "args": ["what-devtools-mcp"]
+    }
+  }
+}
+```
+
+And add the Vite plugin to your app:
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import what from 'what-compiler/vite';
+import whatDevToolsMCP from 'what-devtools-mcp/vite-plugin';
+
+export default defineConfig({
+  plugins: [what(), whatDevToolsMCP()],
+});
+```
+
+Now you can inspect signals, effects, components, DOM, and cache at runtime. See `/docs/MCP-DEVTOOLS.md` for the full tool reference.
+
+## 3. Core Patterns
 
 ### Signals
 
@@ -31,7 +80,7 @@ count.set(c => c + 1);
 
 Runtime compatibility: `count(1)` also works, but docs standardize on `.set(...)`.
 
-### Derived values
+### Derived Values
 
 ```jsx
 import { useComputed } from 'what-framework';
@@ -49,7 +98,7 @@ Use React-style casing in source:
 
 Runtime accepts both `onClick` and `onclick`.
 
-## 3. Rendering patterns
+## 4. Rendering Patterns
 
 ### Conditionals
 
@@ -75,9 +124,9 @@ Or:
 </ul>
 ```
 
-`<For>` is also available.
+`<For>` is also available for keyed list rendering with LIS-based reconciliation.
 
-## 4. Forms
+## 5. Forms
 
 ```jsx
 import { useForm, ErrorMessage, rules, simpleResolver } from 'what-framework';
@@ -109,7 +158,7 @@ function Login() {
 
 `formState.errors` is a getter object. Do not call `formState.errors()`.
 
-## 5. Styling
+## 6. Styling
 
 Default to CSS-first:
 
@@ -124,7 +173,7 @@ Default to CSS-first:
 
 Avoid per-element JS hover mutation handlers.
 
-## 6. Focus management
+## 7. Focus Management
 
 Use `FocusTrap` for dialogs and `useFocusRestore` in parent logic:
 
@@ -160,24 +209,24 @@ function DialogExample() {
 }
 ```
 
-## 7. Raw HTML
+## 8. Raw HTML
 
 Both props are supported:
 
 ```jsx
-<div innerHTML="<strong>Hello</strong>" />
+<div innerHTML={{ __html: '<strong>Hello</strong>' }} />
 <div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
 ```
 
 If either prop is set, it owns that element's children.
 
-## 8. Decision matrix
+## 9. Decision Matrix
 
 - `useComputed(fn)`: derived from signals in a component.
 - `derived(fn)`: derived fields inside `createStore(...)`.
 - `useMemo(fn, deps)`: dependency-array memo for non-signal values.
 
-## 9. TypeScript
+## 10. TypeScript
 
 Projects scaffolded with `create-what` include a `tsconfig.json` pre-configured for What Framework. Rename `.jsx` files to `.tsx` to enable type checking:
 
@@ -186,7 +235,7 @@ import { useSignal } from 'what-framework';
 
 function Counter() {
   const count = useSignal<number>(0);
-  return <button onclick={() => count.set(c => c + 1)}>{count()}</button>;
+  return <button onClick={() => count.set(c => c + 1)}>{count()}</button>;
 }
 ```
 
@@ -194,16 +243,18 @@ Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSo
 
 See [TYPESCRIPT.md](./TYPESCRIPT.md) for the full guide.
 
-## 10. Tooling
+## 11. Tooling
 
-- **ESLint**: `npm i -D eslint-plugin-what` — catches signal bugs, enforces patterns
+- **ESLint**: `npm i -D eslint-plugin-what` -- catches signal bugs, enforces patterns
 - **VS Code**: Install `eslint-plugin-what` for editor integration
-- **DevTools**: `npm i -D what-devtools` — signal inspector panel for development
+- **DevTools**: `npm i -D what-devtools` -- signal inspector panel for development
+- **MCP DevTools**: `npx what-devtools-mcp` -- AI agent debugging bridge
 
-## 11. Migration helpers
+## 12. Next Docs
 
-```bash
-npm run codemod:show
-```
-
-Converts `show(condition, a, b)` to `condition ? a : b`.
+- `/Agents.md` -- Complete agent coding guide
+- `/docs/API.md` -- Full API reference
+- `/docs/GOTCHAS.md` -- Common mistakes
+- `/docs/MCP-DEVTOOLS.md` -- MCP tools reference
+- `/docs/AGENT-PATTERNS.md` -- Agent best practices
+- `/docs/STYLING.md` -- Styling guide

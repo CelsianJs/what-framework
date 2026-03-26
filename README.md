@@ -111,23 +111,42 @@ export default defineConfig({
 
 Bun works too: `bun create what@latest` and `bun run dev`.
 
+## MCP DevTools (AI Agent Debugging)
+
+WhatFW ships MCP servers for AI-assisted development:
+
+```json
+{
+  "mcpServers": {
+    "what-framework": { "command": "npx", "args": ["what-mcp"] },
+    "what-devtools": { "command": "npx", "args": ["what-devtools-mcp"] }
+  }
+}
+```
+
+18 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
+
 ## React Compatibility
 
-Use 90+ React ecosystem libraries with zero code changes via `what-react`:
+Use 49+ React ecosystem libraries with `what-react`. This is a secondary feature -- native WhatFW APIs are preferred for new code.
 
 ```bash
 npm install what-react
 ```
 
-Zustand, React Hook Form, TanStack Query, Radix UI, Framer Motion, and more — all work out of the box. `useState` becomes a signal, `useEffect` becomes an effect. Same API, faster runtime.
+See `/REACT-COMPAT.md` for the full compatibility matrix.
 
 ## Docs
 
-- [Getting Started](/GETTING-STARTED.md)
-- [Quick Start](/docs/QUICKSTART.md)
-- [API Reference](/docs/API.md)
+- [Agent Guide](/Agents.md) -- MCP, patterns, mistakes
+- [Getting Started](/GETTING-STARTED.md) -- Setup for agents and developers
+- [Quick Start](/docs/QUICKSTART.md) -- Tutorial
+- [API Reference](/docs/API.md) -- Full API
+- [Architecture](/docs/ARCHITECTURE.md) -- Deep-dive
+- [MCP DevTools](/docs/MCP-DEVTOOLS.md) -- MCP tools reference
+- [Agent Patterns](/docs/AGENT-PATTERNS.md) -- Best practices
+- [Gotchas](/docs/GOTCHAS.md) -- Common mistakes
 - [Styling Guide](/docs/STYLING.md)
-- [Gotchas](/docs/GOTCHAS.md)
 - [Development](/docs/DEVELOPMENT.md)
 - [Release](/docs/RELEASE.md)
 
