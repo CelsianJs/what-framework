@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>What Framework — Signals-Based Web Framework</title>
-  <meta name="description" content="A lightweight signals-based web framework with fine-grained reactivity, islands architecture, and surgical DOM updates. ~4kB gzipped core. Zero dependencies.">
+  <title>What Framework — The Web Framework Built for AI Agents</title>
+  <meta name="description" content="The first web framework built for AI agents. MCP DevTools, structured errors, runtime guardrails. Your AI writes better code with What Framework.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -234,6 +234,36 @@
       line-height: 1.7;
     }
 
+    /* --- Side-by-Side Panels --- */
+    .side-by-side {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--bg-raised);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .side-panel {
+      padding: 0;
+    }
+
+    .side-panel .code-header {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .side-panel:first-child {
+      border-right: 1px solid var(--border);
+    }
+
+    .side-panel .code-body pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+
     /* --- Sections --- */
     .section-dark {
       background: var(--bg-deep);
@@ -288,11 +318,45 @@
       color: var(--text-on-cream-secondary);
     }
 
+    /* --- Problem Section --- */
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    .problem-card {
+      padding: 28px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .problem-card h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--error);
+    }
+
+    .problem-card p {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
     /* --- Features (Cream Section) --- */
     .features-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 24px;
+    }
+
+    .features-grid-2col {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+      margin-top: 24px;
     }
 
     .feature-card {
@@ -400,7 +464,87 @@
       line-height: 1.7;
     }
 
-    /* --- Ecosystem (Cream Section) --- */
+    /* --- Comparison Table --- */
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      background: var(--bg-cream-raised);
+      border: 1px solid var(--border-cream);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .comparison-table thead th {
+      padding: 16px 20px;
+      text-align: left;
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: var(--text-on-cream);
+      border-bottom: 2px solid var(--border-cream);
+      background: var(--bg-cream-surface);
+    }
+
+    .comparison-table thead th:first-child {
+      width: 220px;
+    }
+
+    .comparison-table tbody td {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-cream);
+      color: var(--text-on-cream-secondary);
+    }
+
+    .comparison-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .comparison-table tbody td:first-child {
+      font-weight: 600;
+      color: var(--text-on-cream);
+    }
+
+    .check { color: var(--success); font-weight: 700; }
+    .cross { color: var(--text-muted); }
+    .partial { color: var(--warning); font-weight: 600; }
+    .highlight-col { background: rgba(62, 207, 142, 0.06); }
+
+    /* --- Getting Started (Dark Section) --- */
+    .setup-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    .setup-card {
+      padding: 32px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .setup-card h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .setup-card .setup-desc {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .setup-card .feature-code {
+      background: var(--bg-deep);
+      border-color: var(--border);
+    }
+
+    /* --- Ecosystem Grid --- */
     .ecosystem-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -584,9 +728,17 @@
       .hero-inner { grid-template-columns: 1fr; gap: 48px; }
       .hero-code { max-width: 560px; }
       .features-grid { grid-template-columns: 1fr 1fr; }
+      .features-grid-2col { grid-template-columns: 1fr; }
       .ecosystem-grid { grid-template-columns: 1fr 1fr; }
       .stats-grid { grid-template-columns: repeat(2, 1fr); }
       .footer-inner { grid-template-columns: 1fr 1fr; }
+      .side-by-side { grid-template-columns: 1fr; }
+      .side-panel:first-child { border-right: none; border-bottom: 1px solid var(--border); }
+      .problem-grid { grid-template-columns: 1fr; }
+      .setup-grid { grid-template-columns: 1fr; }
+      .comparison-table { font-size: 0.8rem; }
+      .comparison-table thead th,
+      .comparison-table tbody td { padding: 10px 12px; }
     }
 
     @media (max-width: 768px) {
@@ -609,6 +761,7 @@
       .footer-inner { grid-template-columns: 1fr; gap: 32px; }
       .code-body pre { font-size: 12px; }
       .feature-code pre { font-size: 11.5px; }
+      .comparison-table { display: block; overflow-x: auto; }
     }
 
     @media (max-width: 480px) {
@@ -641,12 +794,12 @@
     </div>
   </nav>
 
-  <!-- Hero — Split Layout -->
+  <!-- Hero -->
   <section class="hero">
     <div class="hero-inner">
       <div class="hero-text">
-        <h1 class="animate-in">No Virtual DOM.<br>No re-renders.</h1>
-        <p class="subtitle animate-in delay-1">A fine-grained reactive framework where components run once. Signals update the exact DOM nodes that need changing. Compiler-optimized JSX compiles to direct DOM operations. React-compatible. ~4kB gzipped.</p>
+        <h1 class="animate-in">The Web Framework<br>Built for AI Agents.</h1>
+        <p class="subtitle animate-in delay-1">MCP DevTools. Structured errors. Runtime guardrails. Your AI writes better code with What Framework.</p>
 
         <div class="hero-buttons animate-in delay-2">
           <a href="/docs/learn/" class="btn btn-primary">Get Started</a>
@@ -669,18 +822,18 @@
             <span class="code-filename">Counter.jsx</span>
           </div>
           <div class="code-body">
-<pre><span class="keyword">import</span> { mount, signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>
+<pre><span class="keyword">import</span> { mount, useSignal, useComputed } <span class="keyword">from</span> <span class="string">'what-framework'</span>
 
 <span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="keyword">const</span> count <span class="operator">=</span> <span class="function">signal</span>(<span class="number">0</span>)
-  <span class="keyword">const</span> doubled <span class="operator">=</span> <span class="function">computed</span>(() <span class="operator">=&gt;</span> <span class="function">count</span>() <span class="operator">*</span> <span class="number">2</span>)
+  <span class="keyword">const</span> count <span class="operator">=</span> <span class="function">useSignal</span>(<span class="number">0</span>)
+  <span class="keyword">const</span> doubled <span class="operator">=</span> <span class="function">useComputed</span>(() <span class="operator">=&gt;</span> count() <span class="operator">*</span> <span class="number">2</span>)
 
   <span class="keyword">return</span> (
     <span class="tag">&lt;div&gt;</span>
-      <span class="tag">&lt;button</span> <span class="attr">onclick</span><span class="operator">=</span>{() <span class="operator">=&gt;</span> <span class="function">count</span>(c <span class="operator">=&gt;</span> c <span class="operator">+</span> <span class="number">1</span>)}<span class="tag">&gt;</span>
-        Count: {<span class="function">count</span>()}
+      <span class="tag">&lt;button</span> <span class="attr">onClick</span><span class="operator">=</span>{() <span class="operator">=&gt;</span> count.<span class="function">set</span>(c <span class="operator">=&gt;</span> c <span class="operator">+</span> <span class="number">1</span>)}<span class="tag">&gt;</span>
+        Count: {count()}
       <span class="tag">&lt;/button&gt;</span>
-      <span class="tag">&lt;p&gt;</span>Doubled: {<span class="function">doubled</span>()}<span class="tag">&lt;/p&gt;</span>
+      <span class="tag">&lt;p&gt;</span>Doubled: {doubled()}<span class="tag">&lt;/p&gt;</span>
     <span class="tag">&lt;/div&gt;</span>
   )
 }
@@ -692,163 +845,324 @@
     </div>
   </section>
 
-  <!-- Why What — Cream Section -->
+  <!-- Problem Statement — Dark Section -->
+  <section class="section-dark" id="problem">
+    <div class="section-inner">
+      <div class="section-header animate-in">
+        <span class="pill">The Problem</span>
+        <h2>Every framework was designed<br>before AI wrote code.</h2>
+        <p>AI agents generate more frontend code every month. But existing frameworks give them nothing to work with.</p>
+      </div>
+
+      <div class="problem-grid">
+        <div class="problem-card animate-in delay-1">
+          <h3>Cryptic Errors</h3>
+          <p>Stack traces full of minified internals. "Cannot read property of undefined" with no hint where the signal, effect, or component went wrong. Agents guess, retry, break more things.</p>
+        </div>
+        <div class="problem-card animate-in delay-2">
+          <h3>No State Inspection</h3>
+          <p>When an agent builds a component, it cannot see signal values, dependency graphs, or effect states at runtime. Debugging is blind.</p>
+        </div>
+        <div class="problem-card animate-in delay-3">
+          <h3>Silent Failures</h3>
+          <p>Forgot to clean up an effect? Created an infinite reactive loop? Passed wrong props? Other frameworks stay quiet. The bug ships.</p>
+        </div>
+        <div class="problem-card animate-in delay-4">
+          <h3>APIs Built for Text Editors</h3>
+          <p>Autocomplete, hover docs, and inline hints help humans in IDEs. AI agents need structured, machine-readable contracts they can query programmatically.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Solution Cards — Cream Section -->
   <section class="section-cream" id="features">
     <div class="section-inner">
       <div class="section-header animate-in">
-        <span class="pill">Why What</span>
-        <h2>Everything you need.<br>Nothing you don't.</h2>
-        <p>A complete framework that respects your bundle size. Zero dependencies. Fine-grained reactivity that only updates what changed.</p>
+        <span class="pill">The Solution</span>
+        <h2>Built for AI agents<br>from the ground up.</h2>
+        <p>Every layer of What Framework gives AI agents the context they need to write correct code, catch errors, and ship faster.</p>
       </div>
 
       <div class="features-grid">
         <div class="feature-card animate-in delay-1">
           <div class="feature-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </div>
-          <h3>Fine-Grained Signals</h3>
-          <p>Reactive primitives that track exact dependencies. When a signal changes, only the DOM nodes that read it update.</p>
+          <h3>MCP DevTools</h3>
+          <p>AI agents inspect every signal, effect, and component in a running app via the Model Context Protocol. Live state, dependency graphs, performance data -- all queryable.</p>
           <div class="feature-code">
-<pre><span class="keyword">const</span> count <span class="operator">=</span> <span class="function">signal</span>(<span class="number">0</span>)
-<span class="keyword">const</span> doubled <span class="operator">=</span> <span class="function">computed</span>(() <span class="operator">=&gt;</span> <span class="function">count</span>() <span class="operator">*</span> <span class="number">2</span>)
-<span class="comment">// Only this text node re-renders:</span>
-<span class="tag">&lt;p&gt;</span>{() <span class="operator">=&gt;</span> <span class="function">doubled</span>()}<span class="tag">&lt;/p&gt;</span></pre>
+<pre><span class="comment">// Agent calls MCP tool:</span>
+<span class="function">what_devtools.getSignals</span>()
+<span class="comment">// Returns:</span>
+{ <span class="attr">count</span>: { <span class="attr">value</span>: <span class="number">5</span>, <span class="attr">subscribers</span>: <span class="number">2</span> },
+  <span class="attr">doubled</span>: { <span class="attr">value</span>: <span class="number">10</span>, <span class="attr">type</span>: <span class="string">"computed"</span> } }</pre>
           </div>
         </div>
 
         <div class="feature-card animate-in delay-2">
           <div class="feature-icon feature-icon-orange">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
-          <h3>Islands Architecture</h3>
-          <p>Ship zero JavaScript by default. Hydrate components on idle, visible, or first interaction. Perfect for content sites.</p>
+          <h3>Structured Errors</h3>
+          <p>Every error returns JSON with an error code, human message, suggested fix, and code example. Agents parse, understand, and fix errors in a single pass.</p>
           <div class="feature-code">
-<pre><span class="tag">&lt;</span><span class="component">Header</span> <span class="tag">/&gt;</span>          <span class="comment">// Static HTML</span>
-<span class="tag">&lt;</span><span class="component">Comments</span> <span class="attr">client:visible</span> <span class="tag">/&gt;</span>
-<span class="tag">&lt;</span><span class="component">Analytics</span> <span class="attr">client:idle</span> <span class="tag">/&gt;</span>
-<span class="tag">&lt;</span><span class="component">Menu</span> <span class="attr">client:interaction</span> <span class="tag">/&gt;</span></pre>
+<pre>{ <span class="attr">code</span>: <span class="string">"SIGNAL_READ_OUTSIDE_TRACKING"</span>,
+  <span class="attr">message</span>: <span class="string">"Signal read outside reactive scope"</span>,
+  <span class="attr">fix</span>: <span class="string">"Wrap in useComputed() or useEffect()"</span>,
+  <span class="attr">example</span>: <span class="string">"useComputed(() =&gt; count())"</span> }</pre>
           </div>
         </div>
 
         <div class="feature-card animate-in delay-3">
           <div class="feature-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.24 12.24a6 6 0 00-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
-          <h3>~4kB Core</h3>
-          <p>The full reactive runtime and component system in under 4kB gzipped. No virtual DOM overhead. Zero dependencies. Tree-shakeable.</p>
+          <h3>Agent Guardrails</h3>
+          <p>Runtime catches infinite loops, missing effect cleanup, XSS via innerHTML, and signal misuse before they hit production. The framework protects agents from common mistakes.</p>
           <div class="feature-code">
-<pre><span class="comment">// Import only what you use:</span>
-<span class="keyword">import</span> { signal, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>
-<span class="comment">// ~1.2kB for just signals</span>
-<span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-core'</span></pre>
+<pre><span class="comment">// Runtime catches this automatically:</span>
+<span class="function">useEffect</span>(() <span class="operator">=&gt;</span> {
+  count.<span class="function">set</span>(count() <span class="operator">+</span> <span class="number">1</span>) <span class="comment">// Infinite loop</span>
+})
+<span class="comment">// Error: EFFECT_LOOP_DETECTED</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="features-grid-2col">
+        <div class="feature-card animate-in delay-1">
+          <div class="feature-icon feature-icon-orange">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </div>
+          <h3>Compiler Intelligence</h3>
+          <p>Write normal JSX. The compiler transforms it into fine-grained reactive DOM operations. No virtual DOM diff. Components run once. Agents write familiar code, the compiler optimizes it.</p>
+          <div class="feature-code">
+<pre><span class="comment">// You write:</span>
+<span class="tag">&lt;p&gt;</span>{count()}<span class="tag">&lt;/p&gt;</span>
+<span class="comment">// Compiler outputs: direct DOM text node update</span>
+<span class="comment">// No re-renders. No VDOM. No reconciliation.</span></pre>
+          </div>
+        </div>
+
+        <div class="feature-card animate-in delay-2">
+          <div class="feature-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <h3>Small &amp; Fast</h3>
+          <p>~15 core APIs. 12KB runtime. Zero dependencies. Tree-shakeable. Agents generate less code, ship smaller bundles, and reason about a smaller API surface.</p>
+          <div class="feature-code">
+<pre><span class="comment">// The full API an agent needs to learn:</span>
+<span class="keyword">import</span> { useSignal, useComputed, useEffect,
+  mount, Show, For, createStore } <span class="keyword">from</span> <span class="string">'what-framework'</span>
+<span class="comment">// ~12KB gzipped. That's it.</span></pre>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Code Examples — Dark Section -->
-  <section class="section-dark" id="examples">
+  <!-- Code + MCP Side-by-Side — Dark Section -->
+  <section class="section-dark" id="mcp-demo">
     <div class="section-inner">
       <div class="section-header animate-in">
-        <span class="pill">Examples</span>
-        <h2>Code that reads clearly.</h2>
-        <p>No magic. Just reactive values and clean APIs.</p>
+        <span class="pill">MCP in Action</span>
+        <h2>Your component code.<br>What your agent sees.</h2>
+        <p>The left panel is what you write. The right is what an AI agent can query via MCP DevTools at runtime.</p>
       </div>
 
-      <div class="code-examples-wrapper animate-in delay-1">
-        <div class="code-tabs">
-          <button class="code-tab active" data-tab="counter">Counter</button>
-          <button class="code-tab" data-tab="fetching">Data Fetching</button>
-          <button class="code-tab" data-tab="store">Store</button>
-          <button class="code-tab" data-tab="animation">Animation</button>
-        </div>
+      <div class="side-by-side animate-in delay-1">
+        <div class="side-panel">
+          <div class="code-header">
+            <span class="code-dot"></span>
+            <span class="code-dot"></span>
+            <span class="code-dot"></span>
+            <span class="code-filename">TodoApp.jsx</span>
+          </div>
+          <div class="code-body">
+<pre><span class="keyword">import</span> { useSignal, useComputed, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>
 
-        <div class="code-panel active" data-panel="counter">
-<pre><span class="keyword">import</span> { signal, computed, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>
+<span class="keyword">function</span> <span class="function">TodoApp</span>() {
+  <span class="keyword">const</span> todos <span class="operator">=</span> <span class="function">useSignal</span>([])
+  <span class="keyword">const</span> filter <span class="operator">=</span> <span class="function">useSignal</span>(<span class="string">'all'</span>)
 
-<span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="keyword">const</span> count <span class="operator">=</span> <span class="function">signal</span>(<span class="number">0</span>)
-  <span class="keyword">const</span> doubled <span class="operator">=</span> <span class="function">computed</span>(() <span class="operator">=&gt;</span> <span class="function">count</span>() <span class="operator">*</span> <span class="number">2</span>)
-
-  <span class="keyword">return</span> (
-    <span class="tag">&lt;div&gt;</span>
-      <span class="tag">&lt;h1&gt;</span>{() <span class="operator">=&gt;</span> <span class="function">count</span>()}<span class="tag">&lt;/h1&gt;</span>
-      <span class="tag">&lt;p&gt;</span>Doubled: {() <span class="operator">=&gt;</span> <span class="function">doubled</span>()}<span class="tag">&lt;/p&gt;</span>
-      <span class="tag">&lt;button</span> <span class="attr">onclick</span><span class="operator">=</span>{() <span class="operator">=&gt;</span> <span class="function">count</span>(c <span class="operator">=&gt;</span> c <span class="operator">+</span> <span class="number">1</span>)}<span class="tag">&gt;</span>Increment<span class="tag">&lt;/button&gt;</span>
-    <span class="tag">&lt;/div&gt;</span>
-  )
-}
-
-<span class="function">mount</span>(<span class="tag">&lt;</span><span class="component">Counter</span> <span class="tag">/&gt;</span>, <span class="string">'#app'</span>)</pre>
-        </div>
-
-        <div class="code-panel" data-panel="fetching">
-<pre><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>
-
-<span class="keyword">function</span> <span class="function">UserProfile</span>({ id }) {
-  <span class="keyword">const</span> { data, error, isLoading } <span class="operator">=</span> <span class="function">useSWR</span>(
-    <span class="string">`user-</span>${id}<span class="string">`</span>,
-    () <span class="operator">=&gt;</span> <span class="function">fetch</span>(<span class="string">`/api/users/</span>${id}<span class="string">`</span>).then(r <span class="operator">=&gt;</span> r.json()),
-    { revalidateOnFocus: <span class="keyword">true</span> }
-  )
-
-  <span class="keyword">return</span> (
-    <span class="tag">&lt;div&gt;</span>
-      {() <span class="operator">=&gt;</span> <span class="function">isLoading</span>()
-        ? <span class="tag">&lt;p&gt;</span>Loading...<span class="tag">&lt;/p&gt;</span>
-        : <span class="tag">&lt;h2&gt;</span>{<span class="function">data</span>()?.name}<span class="tag">&lt;/h2&gt;</span>
-      }
-    <span class="tag">&lt;/div&gt;</span>
-  )
-}</pre>
-        </div>
-
-        <div class="code-panel" data-panel="store">
-<pre><span class="keyword">import</span> { createStore, derived } <span class="keyword">from</span> <span class="string">'what-framework'</span>
-
-<span class="keyword">const</span> useCart <span class="operator">=</span> <span class="function">createStore</span>({
-  items: [],
-
-  total: <span class="function">derived</span>(state <span class="operator">=&gt;</span>
-    state.items.reduce((sum, i) <span class="operator">=&gt;</span> sum <span class="operator">+</span> i.price, <span class="number">0</span>)
-  ),
-
-  <span class="function">addItem</span>(item) {
-    <span class="keyword">this</span>.items <span class="operator">=</span> [...<span class="keyword">this</span>.items, item]
-  },
-
-  <span class="function">clear</span>() {
-    <span class="keyword">this</span>.items <span class="operator">=</span> []
-  }
-})
-
-<span class="comment">// Use anywhere — no provider needed</span>
-<span class="keyword">const</span> { items, total, addItem } <span class="operator">=</span> <span class="function">useCart</span>()</pre>
-        </div>
-
-        <div class="code-panel" data-panel="animation">
-<pre><span class="keyword">import</span> { signal, spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>
-
-<span class="keyword">function</span> <span class="function">AnimatedBox</span>() {
-  <span class="keyword">const</span> pos <span class="operator">=</span> <span class="function">spring</span>(<span class="number">0</span>, {
-    stiffness: <span class="number">170</span>,
-    damping: <span class="number">26</span>
+  <span class="keyword">const</span> visible <span class="operator">=</span> <span class="function">useComputed</span>(() <span class="operator">=&gt;</span> {
+    <span class="keyword">if</span> (filter() <span class="operator">===</span> <span class="string">'all'</span>) <span class="keyword">return</span> todos()
+    <span class="keyword">const</span> done <span class="operator">=</span> filter() <span class="operator">===</span> <span class="string">'done'</span>
+    <span class="keyword">return</span> todos().<span class="function">filter</span>(t <span class="operator">=&gt;</span> t.done <span class="operator">===</span> done)
   })
 
+  <span class="keyword">const</span> remaining <span class="operator">=</span> <span class="function">useComputed</span>(() <span class="operator">=&gt;</span>
+    todos().<span class="function">filter</span>(t <span class="operator">=&gt;</span> !t.done).length
+  )
+
   <span class="keyword">return</span> (
-    <span class="tag">&lt;div&gt;</span>
-      <span class="tag">&lt;div</span>
-        <span class="attr">style</span><span class="operator">=</span>{() <span class="operator">=&gt;</span> <span class="string">`transform: translateX(</span>${<span class="function">pos</span>()}<span class="string">px)`</span>}
-        <span class="attr">class</span><span class="operator">=</span><span class="string">"box"</span>
-      <span class="tag">/&gt;</span>
-      <span class="tag">&lt;button</span> <span class="attr">onclick</span><span class="operator">=</span>{() <span class="operator">=&gt;</span> pos.set(<span class="number">200</span>)}<span class="tag">&gt;</span>
-        Animate
-      <span class="tag">&lt;/button&gt;</span>
-    <span class="tag">&lt;/div&gt;</span>
+    <span class="tag">&lt;main&gt;</span>
+      <span class="tag">&lt;h1&gt;</span>Todos ({remaining()})<span class="tag">&lt;/h1&gt;</span>
+      <span class="tag">&lt;</span><span class="component">For</span> <span class="attr">each</span><span class="operator">=</span>{visible()}<span class="tag">&gt;</span>
+        {todo <span class="operator">=&gt;</span> <span class="tag">&lt;</span><span class="component">TodoItem</span> <span class="attr">item</span><span class="operator">=</span>{todo} <span class="tag">/&gt;</span>}
+      <span class="tag">&lt;/</span><span class="component">For</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;/main&gt;</span>
   )
 }</pre>
+          </div>
         </div>
+        <div class="side-panel">
+          <div class="code-header">
+            <span class="code-dot"></span>
+            <span class="code-dot"></span>
+            <span class="code-dot"></span>
+            <span class="code-filename">MCP DevTools Response</span>
+          </div>
+          <div class="code-body">
+<pre><span class="comment">// what_devtools.inspectComponent("TodoApp")</span>
+{
+  <span class="attr">"component"</span>: <span class="string">"TodoApp"</span>,
+  <span class="attr">"signals"</span>: {
+    <span class="attr">"todos"</span>: {
+      <span class="attr">"value"</span>: [
+        { <span class="attr">"text"</span>: <span class="string">"Ship v1"</span>, <span class="attr">"done"</span>: <span class="keyword">false</span> },
+        { <span class="attr">"text"</span>: <span class="string">"Write tests"</span>, <span class="attr">"done"</span>: <span class="keyword">true</span> }
+      ],
+      <span class="attr">"subscribers"</span>: <span class="number">2</span>
+    },
+    <span class="attr">"filter"</span>: { <span class="attr">"value"</span>: <span class="string">"all"</span>, <span class="attr">"subscribers"</span>: <span class="number">1</span> }
+  },
+  <span class="attr">"computed"</span>: {
+    <span class="attr">"visible"</span>: { <span class="attr">"value"</span>: [<span class="string">"...2 items"</span>], <span class="attr">"deps"</span>: [<span class="string">"todos"</span>, <span class="string">"filter"</span>] },
+    <span class="attr">"remaining"</span>: { <span class="attr">"value"</span>: <span class="number">1</span>, <span class="attr">"deps"</span>: [<span class="string">"todos"</span>] }
+  },
+  <span class="attr">"children"</span>: [<span class="string">"TodoItem"</span>, <span class="string">"TodoItem"</span>]
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Getting Started with MCP — Cream Section -->
+  <section class="section-cream" id="mcp-setup">
+    <div class="section-inner">
+      <div class="section-header animate-in">
+        <span class="pill">Getting Started</span>
+        <h2>Set up MCP in two minutes.</h2>
+        <p>Connect your AI agent to a running What app. Works with Claude Code, Cursor, and any MCP-compatible client.</p>
+      </div>
+
+      <div class="setup-grid">
+        <div class="setup-card animate-in delay-1">
+          <h3>Claude Code</h3>
+          <p class="setup-desc">Add the What DevTools MCP server to your Claude Code config.</p>
+          <div class="feature-code">
+<pre><span class="comment">// .claude/mcp_servers.json</span>
+{
+  <span class="attr">"what-devtools"</span>: {
+    <span class="attr">"command"</span>: <span class="string">"npx"</span>,
+    <span class="attr">"args"</span>: [<span class="string">"what-devtools"</span>, <span class="string">"--mcp"</span>],
+    <span class="attr">"env"</span>: { <span class="attr">"PORT"</span>: <span class="string">"3001"</span> }
+  }
+}</pre>
+          </div>
+        </div>
+
+        <div class="setup-card animate-in delay-2">
+          <h3>Cursor</h3>
+          <p class="setup-desc">Add the MCP server to your Cursor workspace settings.</p>
+          <div class="feature-code">
+<pre><span class="comment">// .cursor/mcp.json</span>
+{
+  <span class="attr">"mcpServers"</span>: {
+    <span class="attr">"what-devtools"</span>: {
+      <span class="attr">"command"</span>: <span class="string">"npx"</span>,
+      <span class="attr">"args"</span>: [<span class="string">"what-devtools"</span>, <span class="string">"--mcp"</span>]
+    }
+  }
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison Table — Dark Section -->
+  <section class="section-dark" id="compare">
+    <div class="section-inner">
+      <div class="section-header animate-in">
+        <span class="pill">Comparison</span>
+        <h2>How What compares.</h2>
+        <p>A factual look at AI-agent capabilities across frameworks.</p>
+      </div>
+
+      <div class="animate-in delay-1" style="overflow-x: auto;">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="highlight-col">What</th>
+              <th>React</th>
+              <th>Solid</th>
+              <th>Svelte</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>MCP DevTools</td>
+              <td class="highlight-col"><span class="check">Built in</span></td>
+              <td><span class="cross">No</span></td>
+              <td><span class="cross">No</span></td>
+              <td><span class="cross">No</span></td>
+            </tr>
+            <tr>
+              <td>Structured Errors</td>
+              <td class="highlight-col"><span class="check">JSON + fix</span></td>
+              <td><span class="cross">Stack trace</span></td>
+              <td><span class="cross">Stack trace</span></td>
+              <td><span class="partial">Warnings</span></td>
+            </tr>
+            <tr>
+              <td>Runtime Guardrails</td>
+              <td class="highlight-col"><span class="check">Loops, XSS, cleanup</span></td>
+              <td><span class="partial">StrictMode</span></td>
+              <td><span class="cross">Minimal</span></td>
+              <td><span class="cross">Minimal</span></td>
+            </tr>
+            <tr>
+              <td>Reactivity</td>
+              <td class="highlight-col"><span class="check">Fine-grained signals</span></td>
+              <td><span class="cross">VDOM diff</span></td>
+              <td><span class="check">Fine-grained signals</span></td>
+              <td><span class="check">Compiler runes</span></td>
+            </tr>
+            <tr>
+              <td>JSX</td>
+              <td class="highlight-col"><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="cross">Custom syntax</span></td>
+            </tr>
+            <tr>
+              <td>SSR / Islands</td>
+              <td class="highlight-col"><span class="check">Built in</span></td>
+              <td><span class="partial">Via Next.js</span></td>
+              <td><span class="check">SolidStart</span></td>
+              <td><span class="check">SvelteKit</span></td>
+            </tr>
+            <tr>
+              <td>React Library Compat</td>
+              <td class="highlight-col"><span class="check">90+ via what-react</span></td>
+              <td><span class="check">Native</span></td>
+              <td><span class="cross">No</span></td>
+              <td><span class="cross">No</span></td>
+            </tr>
+            <tr>
+              <td>Runtime Size</td>
+              <td class="highlight-col"><span class="check">~12KB</span></td>
+              <td><span class="cross">~44KB</span></td>
+              <td><span class="check">~8KB</span></td>
+              <td><span class="check">~16KB</span></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -864,23 +1178,23 @@
 
       <div class="ecosystem-grid">
         <a href="/docs/learn/signals.html" class="eco-card animate-in delay-1">
-          <div class="eco-card-name">what-core <span class="eco-tag">core</span></div>
-          <p>Signals, computed, effects, batch, untrack. The reactive foundation.</p>
+          <div class="eco-card-name">what-framework <span class="eco-tag">core</span></div>
+          <p>Signals, computed, effects, components, forms, routing. The full reactive runtime.</p>
         </a>
-        <a href="/docs/learn/routing.html" class="eco-card animate-in delay-2">
-          <div class="eco-card-name">what-router</div>
-          <p>Client-side routing with dynamic params, nested layouts, and view transitions.</p>
+        <a href="/docs/reference/" class="eco-card animate-in delay-2">
+          <div class="eco-card-name">what-devtools <span class="eco-tag">MCP</span></div>
+          <p>MCP server for AI agents. Inspect signals, components, effects, and performance in real time.</p>
         </a>
         <a href="/docs/learn/components.html" class="eco-card animate-in delay-3">
           <div class="eco-card-name">what-compiler</div>
-          <p>JSX transform, optimizing compiler, dead code elimination.</p>
+          <p>JSX transform, optimizing compiler, fine-grained reactivity output.</p>
         </a>
-        <a href="/docs/reference/" class="eco-card animate-in delay-1">
-          <div class="eco-card-name">what-devtools</div>
-          <p>Component inspector, signal graph, performance profiler, MCP integration.</p>
+        <a href="/docs/learn/routing.html" class="eco-card animate-in delay-1">
+          <div class="eco-card-name">what-framework/router</div>
+          <p>Client-side routing with dynamic params, nested layouts, and View Transitions.</p>
         </a>
         <a href="https://react.whatfw.com" class="eco-card animate-in delay-2">
-          <div class="eco-card-name">what-react <span class="eco-tag">new</span></div>
+          <div class="eco-card-name">what-react</div>
           <p>React compatibility layer. 90+ React libraries working with zero code changes.</p>
         </a>
         <a href="/docs/learn/" class="eco-card animate-in delay-3">
@@ -901,12 +1215,12 @@
 
       <div class="stats-grid">
         <div class="stat animate-in delay-1">
-          <div class="stat-value">~4kB</div>
-          <div class="stat-label">Gzipped core</div>
+          <div class="stat-value">~12KB</div>
+          <div class="stat-label">Gzipped runtime</div>
         </div>
         <div class="stat animate-in delay-2">
-          <div class="stat-value stat-value-orange">0</div>
-          <div class="stat-label">Dependencies</div>
+          <div class="stat-value stat-value-orange">~15</div>
+          <div class="stat-label">Core APIs</div>
         </div>
         <div class="stat animate-in delay-3">
           <div class="stat-value">257</div>
@@ -923,8 +1237,8 @@
   <!-- CTA -->
   <section class="cta-section">
     <div>
-      <h2 class="animate-in">Start building in seconds.</h2>
-      <p class="cta-desc animate-in delay-1">One command. No config. Just code.</p>
+      <h2 class="animate-in">Let your AI agent build with confidence.</h2>
+      <p class="cta-desc animate-in delay-1">MCP DevTools. Structured errors. Runtime guardrails. One command to start.</p>
       <div class="cta-buttons animate-in delay-2">
         <a href="/docs/learn/" class="btn btn-primary">Get Started</a>
         <a href="https://github.com/CelsianJs/what-framework" class="btn btn-secondary">View on GitHub</a>
@@ -944,7 +1258,7 @@
     <div class="footer-inner">
       <div class="footer-brand">
         <div class="footer-logo">What Framework</div>
-        <div class="footer-desc">A fine-grained reactive framework with React compatibility. Components run once. Signals drive DOM updates directly.</div>
+        <div class="footer-desc">The web framework built for AI agents. MCP DevTools, structured errors, and runtime guardrails -- so your AI writes correct code the first time.</div>
         <div class="footer-meta">v0.5.4 &middot; MIT License</div>
       </div>
       <div class="footer-col">

@@ -1,21 +1,20 @@
 # What Framework
 
-**[whatfw.com](https://whatfw.com)** · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
+**The web framework built for AI agents.**
 
-The closest framework to vanilla JS, with a React-familiar authoring experience.
+[whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
 
-- Fine-grained reactivity (signals)
-- No virtual DOM diff tree
-- Compiler-powered JSX (automatic reactivity)
-- JSX is the only supported authoring format -- the compiler transforms it into optimized DOM operations
+---
 
-## Install
+## Why What?
 
-```bash
-npm install what-framework
-```
+- **MCP DevTools** — AI agents inspect every signal, effect, and component in a running app via the Model Context Protocol
+- **Structured Errors** — Every error returns JSON with code, message, suggested fix, and code example. Agents parse and fix in one pass
+- **Agent Guardrails** — Runtime catches infinite loops, missing cleanup, XSS, and signal misuse before they ship
+- **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
+- **Small & Fast** — ~15 core APIs, 12KB runtime, zero dependencies, tree-shakeable
 
-## Fastest Start
+## Quick Start
 
 ```bash
 npm create what@latest my-app
@@ -26,28 +25,36 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-You do not need to configure Vite directly in the default workflow. `create-what` handles it.
+## MCP Setup
 
-## Manual Setup
+Connect your AI agent to a running What app:
 
-```bash
-npm install what-framework what-compiler
-npm install -D vite
+**Claude Code:**
+```json
+// .claude/mcp_servers.json
+{
+  "what-devtools": {
+    "command": "npx",
+    "args": ["what-devtools", "--mcp"],
+    "env": { "PORT": "3001" }
+  }
+}
 ```
 
-```js
-// vite.config.js
-import { defineConfig } from 'vite';
-import what from 'what-compiler/vite';
-
-export default defineConfig({
-  plugins: [what()],
-});
+**Cursor:**
+```json
+// .cursor/mcp.json
+{
+  "mcpServers": {
+    "what-devtools": {
+      "command": "npx",
+      "args": ["what-devtools", "--mcp"]
+    }
+  }
+}
 ```
 
-Bun works too: `bun create what@latest` and `bun run dev`.
-
-## First App
+## Example Component
 
 ```jsx
 import { mount, useSignal, useComputed } from 'what-framework';
@@ -70,181 +77,60 @@ function Counter() {
 mount(<Counter />, '#app');
 ```
 
-## Canonical DX Rules
-
-1. The compiler is required — all JSX goes through `what-compiler`.
-2. Use `onClick` in docs/examples.
-3. Runtime supports both `onClick` and `onclick` for compatibility.
-4. Use signal `.set(...)` as the primary write style.
-5. Runtime also supports callable writes (`sig(next)`), kept for compatibility.
-6. Use ternaries or `<Show>` for conditionals.
-7. `show()` helper was removed from the public API.
-8. `formState.errors` is a getter object, not a function.
-
-## Reactivity Ergonomics
-
-The compiler handles reactive expressions automatically:
-
-```jsx
-<p>{count()}</p>
-<ul>{items().map(item => <li key={item.id}>{item.label}</li>)}</ul>
-```
-
-Signal reads in JSX attributes and children are auto-wrapped — no manual `{() => ...}` needed.
-
-## Decision Matrix
-
-- Use `useComputed()` for values derived from signals inside components.
-- Use `derived()` only inside `createStore(...)`.
-- Use `useMemo()` for non-signal dependency-array memoization.
-
-## Forms: Correct Pattern
-
-```jsx
-import { useForm, ErrorMessage } from 'what-framework';
-
-function Signup() {
-  const { register, handleSubmit, formState } = useForm();
-
-  return (
-    <form onSubmit={handleSubmit(async (values) => console.log(values))}>
-      <input {...register('email')} placeholder="Email" />
-      <ErrorMessage name="email" formState={formState} />
-
-      {formState.errors.password && (
-        <span>{formState.errors.password.message}</span>
-      )}
-
-      <button type="submit">Submit</button>
-    </form>
-  );
-}
-```
-
-## `innerHTML` Rules
-
-Both are supported:
-
-```jsx
-<div innerHTML="<strong>Hello</strong>" />
-<div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
-```
-
-- `dangerouslySetInnerHTML` and `innerHTML` own the element children.
-- Avoid mixing raw HTML props with vnode children on the same element.
-- SSR supports both forms.
-
-## Focus Management Pattern
-
-`FocusTrap` is for trapping tab navigation inside dialogs. Use `useFocusRestore()` in the parent to capture/restore trigger focus.
-
-```jsx
-import { useSignal, useFocusRestore, FocusTrap } from 'what-framework';
-
-function DialogExample() {
-  const open = useSignal(false);
-  const focusRestore = useFocusRestore();
-
-  const openDialog = (e) => {
-    focusRestore.capture(e.currentTarget);
-    open.set(true);
-  };
-
-  const closeDialog = () => {
-    open.set(false);
-    focusRestore.restore();
-  };
-
-  return (
-    <>
-      <button onClick={openDialog}>Open</button>
-      {open() ? (
-        <FocusTrap>
-          <div role="dialog" aria-modal="true">
-            <button onClick={closeDialog}>Close</button>
-          </div>
-        </FocusTrap>
-      ) : null}
-    </>
-  );
-}
-```
-
-## Styling Guidance
-
-CSS-first by default:
-
-- Use classes, pseudo-classes (`:hover`, `:focus-visible`), and CSS variables.
-- Use `style={{ ... }}` for truly dynamic runtime values.
-- Avoid per-element JS hover/focus style mutation handlers.
-
-See `/docs/STYLING.md`.
-
-## Migration from `show()`
-
-Use the codemod:
-
-```bash
-npm run codemod:show
-```
-
-This migrates `show(condition, a, b)` to `condition ? a : b` and removes `show` imports.
-
-## Benchmark Guardrail
-
-Run the cleanup regression gate:
-
-```bash
-npm run bench:gate
-```
-
-This checks core benchmarks + DX microbenchmarks against committed baselines.
-If a run is noisy, the gate auto-retries once before failing.
-
-## Release & Deploy
-
-Canonical one-button release pipeline is GitHub Actions workflow:
-
-- `/.github/workflows/release-and-deploy.yml`
-
-It runs quality gates, can publish npm packages, and can deploy configured docs/web surfaces to Vercel.
-
-See `/docs/RELEASE.md` for setup and secrets.
+The compiler handles reactive expressions automatically — signal reads in JSX are auto-wrapped.
 
 ## Packages
 
-- `what-framework` — core signals, components, reactivity
-- `what-framework/router` — client-side routing with View Transitions
-- `what-framework/server` — SSR, islands architecture, static generation
-- `what-framework/testing` — test utilities
-- `what-react` — React compatibility layer (use React packages with signals)
+| Package | Description |
+|---|---|
+| `what-framework` | Core signals, components, reactivity, forms |
+| `what-framework/router` | Client-side routing with View Transitions |
+| `what-framework/server` | SSR, islands architecture, static generation |
+| `what-framework/testing` | Test utilities |
+| `what-compiler` | JSX transform and optimizing compiler |
+| `what-devtools` | MCP server for AI agent integration |
+| `what-react` | React compatibility layer (90+ React libraries) |
+| `create-what` | Project scaffolder |
 
-## React Compatibility
-
-Use 90+ React ecosystem libraries with zero code changes:
+## Manual Setup
 
 ```bash
-npm install what-react
+npm install what-framework what-compiler
+npm install -D vite
 ```
 
 ```js
 // vite.config.js
 import { defineConfig } from 'vite';
-import { reactCompat } from 'what-react/vite';
+import what from 'what-compiler/vite';
 
 export default defineConfig({
-  plugins: [reactCompat()],
+  plugins: [what()],
 });
 ```
 
-Zustand, React Hook Form, TanStack Query, Radix UI, Framer Motion, and many more — all work out of the box. `useState` becomes a signal, `useEffect` becomes an effect. Same API, faster runtime.
+Bun works too: `bun create what@latest` and `bun run dev`.
+
+## React Compatibility
+
+Use 90+ React ecosystem libraries with zero code changes via `what-react`:
+
+```bash
+npm install what-react
+```
+
+Zustand, React Hook Form, TanStack Query, Radix UI, Framer Motion, and more — all work out of the box. `useState` becomes a signal, `useEffect` becomes an effect. Same API, faster runtime.
 
 ## Docs
 
-- `/GETTING-STARTED.md`
-- `/docs/QUICKSTART.md`
-- `/docs/API.md`
-- `/docs/STYLING.md`
-- `/docs/GOTCHAS.md`
-- `/docs/DEVELOPMENT.md`
-- `/docs/RELEASE.md`
+- [Getting Started](/GETTING-STARTED.md)
+- [Quick Start](/docs/QUICKSTART.md)
+- [API Reference](/docs/API.md)
+- [Styling Guide](/docs/STYLING.md)
+- [Gotchas](/docs/GOTCHAS.md)
+- [Development](/docs/DEVELOPMENT.md)
+- [Release](/docs/RELEASE.md)
+
+## License
+
+MIT
