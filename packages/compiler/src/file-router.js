@@ -150,7 +150,8 @@ function fileNameToSegment(name) {
   const dynamic = name.match(/^\[(\w+)\]$/);
   if (dynamic) return ':' + dynamic[1];
 
-  return name;
+  // Lowercase page names for URL consistency (About.jsx → /about)
+  return name.toLowerCase();
 }
 
 /**

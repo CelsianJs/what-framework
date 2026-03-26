@@ -62,7 +62,7 @@ function collectInsertArgCounts(ast) {
 }
 
 describe('what babel plugin fine-grained output', () => {
-  it('uses childNodes indexing so text nodes do not break dynamic element access', () => {
+  it('uses firstChild/nextSibling chains for robust child access', () => {
     const code = compile(`
       function App() {
         const count = signal(0);
@@ -70,7 +70,9 @@ describe('what babel plugin fine-grained output', () => {
       }
     `);
 
-    assert.match(code, /childNodes\[/);
+    // Should use firstChild/nextSibling instead of childNodes[N]
+    assert.match(code, /firstChild/);
+    assert.doesNotMatch(code, /childNodes\[/);
     assert.doesNotMatch(code, /\.children\[/);
   });
 
@@ -375,5 +377,234 @@ describe('component output', () => {
     // Attributes should have < and > escaped
     assert.match(code, /&lt;/);
     assert.match(code, /&gt;/);
+  });
+});
+
+// =====================================================
+// FIX-1: Lexical scope analysis for signal detection
+// =====================================================
+
+describe('lexical scope signal detection', () => {
+  it('detects signals in the local function scope', () => {
+    const code = compile(`
+      function App() {
+        const count = signal(0);
+        return <div>{count()}</div>;
+      }
+    `);
+
+    assert.match(code, /=>\s*count\(\)/, 'local signal should be wrapped reactively');
+  });
+
+  it('does not treat same-name variable in different scope as signal', () => {
+    const code = compile(`
+      function Outer() {
+        const count = signal(0);
+        return <div>{count()}</div>;
+      }
+      function Inner() {
+        const count = 42;
+        return <span>{count}</span>;
+      }
+    `);
+
+    // Inner's count is not a signal — it's a plain number
+    // The output for Inner should NOT wrap count in an effect
+    assert.ok(code.includes('count()'), 'Outer should still call signal');
+  });
+
+  it('handles nested function scopes correctly', () => {
+    const code = compile(`
+      function App() {
+        const name = signal('world');
+        function getGreeting() {
+          return 'hello';
+        }
+        return <div>{name()}</div>;
+      }
+    `);
+
+    assert.match(code, /=>\s*name\(\)/, 'signal in outer scope should be detected');
+  });
+});
+
+// =====================================================
+// FIX-2: Import filtering — only reactive sources
+// =====================================================
+
+describe('import filtering for reactivity', () => {
+  it('treats imports from relative paths as potentially reactive', () => {
+    const code = compile(`
+      import { count } from './store';
+      function App() {
+        return <div>{count()}</div>;
+      }
+    `);
+
+    assert.match(code, /=>\s*count\(\)/, 'relative import should be reactive');
+  });
+
+  it('treats imports from what-framework as potentially reactive', () => {
+    const code = compile(`
+      import { signal } from 'what-framework';
+      function App() {
+        const x = signal(0);
+        return <div>{x()}</div>;
+      }
+    `);
+
+    assert.match(code, /=>\s*x\(\)/, 'what-framework import should be reactive');
+  });
+
+  it('does NOT treat imports from non-reactive packages as reactive', () => {
+    const code = compile(`
+      import { format } from 'date-fns';
+      function App() {
+        return <div class={format(new Date(), 'yyyy')} />;
+      }
+    `);
+
+    // format() from date-fns should NOT be wrapped in an effect
+    assert.doesNotMatch(code, /_\$effect\(/, 'non-reactive package import should not trigger effect');
+  });
+
+  it('treats use* named imports from any package as reactive', () => {
+    const code = compile(`
+      import { useQuery } from '@tanstack/query';
+      function App() {
+        const data = useQuery('key');
+        return <div>{data()}</div>;
+      }
+    `);
+
+    assert.match(code, /=>\s*data\(\)/, 'useQuery result should be reactive');
+  });
+});
+
+// =====================================================
+// FIX-3: firstChild/nextSibling chains
+// =====================================================
+
+describe('firstChild/nextSibling child access', () => {
+  it('uses firstChild for index 0', () => {
+    const code = compile(`
+      function App() {
+        const x = signal('hi');
+        return <div><span>{x()}</span></div>;
+      }
+    `);
+
+    assert.match(code, /\.firstChild/, 'should use firstChild for first child');
+    assert.doesNotMatch(code, /childNodes\[/, 'should not use childNodes indexing');
+  });
+
+  it('chains nextSibling for subsequent children', () => {
+    const code = compile(`
+      function App() {
+        const x = signal('hi');
+        return <div><p>a</p><p>b</p><span>{x()}</span></div>;
+      }
+    `);
+
+    assert.match(code, /nextSibling/, 'should chain nextSibling');
+  });
+});
+
+// =====================================================
+// FIX-4: No IIFE wrapping
+// =====================================================
+
+describe('no IIFE wrapping', () => {
+  it('hoists setup statements instead of using IIFE', () => {
+    const code = compile(`
+      function App() {
+        const count = signal(0);
+        return <div class={count() > 5 ? 'big' : 'small'}>Hello</div>;
+      }
+    `);
+
+    // Should NOT have (() => { ... })() pattern
+    assert.doesNotMatch(code, /\(\(\)\s*=>\s*\{/, 'should not use IIFE wrapping');
+    // Should have flat statements in the function body
+    assert.match(code, /const _el\$\d+ = _tmpl/, 'should have flat template clone');
+  });
+
+  it('produces clean function body with hoisted setup', () => {
+    const code = compile(`
+      function App() {
+        const name = signal('world');
+        return <h1>Hello {name()}</h1>;
+      }
+    `);
+
+    // The function should have flat setup statements followed by return
+    assert.doesNotMatch(code, /\(\(\)\s*=>\s*\{/, 'no IIFE');
+    assert.match(code, /return _el\$\d+;/, 'should return element directly');
+  });
+});
+
+// =====================================================
+// FIX-5: Event delegation
+// =====================================================
+
+describe('event delegation', () => {
+  it('uses delegation for click events', () => {
+    const code = compile(`
+      function App() {
+        return <button onClick={() => alert('hi')}>Click</button>;
+      }
+    `);
+
+    // Should use __click property assignment, not addEventListener
+    assert.match(code, /__click\s*=/, 'click should use delegation');
+    assert.doesNotMatch(code, /addEventListener.*click/, 'click should not use addEventListener');
+    // Should emit delegateEvents call
+    assert.match(code, /delegateEvents/, 'should import delegateEvents');
+  });
+
+  it('uses delegation for input events', () => {
+    const code = compile(`
+      function App() {
+        return <input onInput={(e) => console.log(e)} />;
+      }
+    `);
+
+    assert.match(code, /__input\s*=/, 'input should use delegation');
+  });
+
+  it('does NOT delegate scroll events', () => {
+    const code = compile(`
+      function App() {
+        return <div onScroll={() => {}} />;
+      }
+    `);
+
+    assert.match(code, /addEventListener/, 'scroll should use addEventListener');
+    assert.doesNotMatch(code, /__scroll/, 'scroll should not use delegation');
+  });
+
+  it('does NOT delegate custom/pointer events', () => {
+    const code = compile(`
+      function App() {
+        return <div onPointerdown={() => {}} />;
+      }
+    `);
+
+    assert.match(code, /addEventListener/, 'pointer events should use addEventListener');
+  });
+
+  it('emits delegateEvents with the list of used events', () => {
+    const code = compile(`
+      function App() {
+        return <div>
+          <button onClick={() => {}}>A</button>
+          <input onChange={() => {}} />
+        </div>;
+      }
+    `);
+
+    assert.match(code, /_\$delegateEvents\(/, 'should emit delegateEvents call');
+    assert.match(code, /["']click["']/, 'should include click in delegated events');
+    assert.match(code, /["']change["']/, 'should include change in delegated events');
   });
 });

@@ -8,17 +8,21 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "production": "./dist/index.min.js",
       "import": "./src/index.js"
     },
     "./islands": {
+      "production": "./dist/islands.min.js",
       "import": "./src/islands.js"
     },
     "./actions": {
+      "production": "./dist/actions.min.js",
       "import": "./src/actions.js"
     }
   },
   "files": [
     "src",
+    "dist",
     "index.d.ts"
   ],
   "sideEffects": false,

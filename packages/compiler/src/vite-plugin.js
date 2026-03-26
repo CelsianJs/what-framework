@@ -3,7 +3,9 @@
  *
  * 1. Transforms JSX via the What babel plugin
  * 2. Provides file-based routing via virtual:what-routes
- * 3. Watches pages directory for HMR
+ * 3. Watches pages directory for route changes
+ * 4. HMR support: component files get granular hot-module replacement,
+ *    signal/utility files trigger full reload
  */
 
 import path from 'path';
@@ -14,6 +16,11 @@ import { setupErrorOverlay } from './error-overlay.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
+
+// Pattern: exported function starting with uppercase = component
+const COMPONENT_EXPORT_RE = /export\s+(?:default\s+)?function\s+([A-Z]\w*)/;
+// Pattern: files that are likely signal/store/utility files
+const UTILITY_FILE_RE = /(?:store|signal|state|context|util|helper|lib|config)\b/i;
 
 export default function whatVitePlugin(options = {}) {
   const {
@@ -27,11 +34,14 @@ export default function whatVitePlugin(options = {}) {
     production = process.env.NODE_ENV === 'production',
     // Pages directory (relative to project root)
     pages = 'src/pages',
+    // HMR: enabled by default in dev, disabled in production
+    hot = !production,
   } = options;
 
   let rootDir = '';
   let pagesDir = '';
   let server = null;
+  let isDevMode = false;
 
   return {
     name: 'vite-plugin-what',
@@ -39,6 +49,7 @@ export default function whatVitePlugin(options = {}) {
     configResolved(config) {
       rootDir = config.root;
       pagesDir = path.resolve(rootDir, pages);
+      isDevMode = config.command === 'serve';
     },
 
     configureServer(devServer) {
@@ -106,8 +117,19 @@ export default function whatVitePlugin(options = {}) {
           return null;
         }
 
+        let outputCode = result.code;
+
+        // HMR: append hot boundary code for component files in dev mode
+        if (hot && isDevMode && !production) {
+          const isComponentFile = isComponentModule(code, id);
+
+          if (isComponentFile) {
+            outputCode += generateHMRBoundary(id);
+          }
+        }
+
         return {
-          code: result.code,
+          code: outputCode,
           map: result.map
         };
       } catch (error) {
@@ -122,11 +144,31 @@ export default function whatVitePlugin(options = {}) {
       }
     },
 
+    // HMR: detect component vs utility files and handle accordingly
+    handleHotUpdate({ file, server: devServer, modules }) {
+      if (!hot) return;
+
+      // Only handle files we process
+      if (!include.test(file)) return;
+      if (exclude && exclude.test(file)) return;
+
+      // Utility/signal/store files: trigger full reload
+      // These files may export signals used across multiple components
+      if (isUtilityFile(file)) {
+        devServer.ws.send({ type: 'full-reload' });
+        return [];
+      }
+
+      // Component files: let Vite handle HMR normally (our boundary code handles it)
+      // Return undefined to let Vite's default HMR proceed
+      return;
+    },
+
     // Configure for development
     config(config, { mode }) {
       return {
         esbuild: {
-          // Preserve JSX so our babel plugin handles it — don't let esbuild transform it
+          // Preserve JSX so our babel plugin handles it -- don't let esbuild transform it
           jsx: 'preserve',
         },
         optimizeDeps: {
@@ -136,6 +178,47 @@ export default function whatVitePlugin(options = {}) {
       };
     }
   };
+}
+
+/**
+ * Check if a file likely contains a component (has exported function starting with uppercase)
+ */
+function isComponentModule(source, filePath) {
+  // .jsx/.tsx files with component exports
+  if (COMPONENT_EXPORT_RE.test(source)) return true;
+  // Pages are always component files
+  if (filePath.includes('/pages/') || filePath.includes('\\pages\\')) return true;
+  return false;
+}
+
+/**
+ * Check if a file is a utility/signal/store file (should trigger full reload)
+ */
+function isUtilityFile(filePath) {
+  const basename = path.basename(filePath, path.extname(filePath));
+  return UTILITY_FILE_RE.test(basename);
+}
+
+/**
+ * Generate HMR boundary code for a component file.
+ * When the module is updated, Vite's HMR runtime calls import.meta.hot.accept(),
+ * which re-runs the module. The component re-renders in place.
+ */
+function generateHMRBoundary(filePath) {
+  return `
+
+// --- What Framework HMR Boundary ---
+if (import.meta.hot) {
+  import.meta.hot.accept((newModule) => {
+    if (newModule) {
+      // Signal to the What runtime that this module was hot-updated
+      if (window.__WHAT_HMR_ACCEPT__) {
+        window.__WHAT_HMR_ACCEPT__(${JSON.stringify(filePath)}, newModule);
+      }
+    }
+  });
+}
+`;
 }
 
 // Named export for compatibility

@@ -8,11 +8,13 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "production": "./dist/index.min.js",
       "import": "./src/index.js"
     }
   },
   "files": [
     "src",
+    "dist",
     "index.d.ts"
   ],
   "sideEffects": false,

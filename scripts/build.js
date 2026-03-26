@@ -1,82 +1,152 @@
 #!/usr/bin/env node
 
 // What Framework - Build Script
-// Bundles all packages into optimized single-file outputs.
+// Uses esbuild to produce proper ESM bundles per package.
+// Outputs both .js (ESM) and .min.js (minified) with source maps.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { build } from 'esbuild';
+import { readFileSync, mkdirSync, existsSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const root = resolve(__dirname, '..');
 
-console.log('\n  Building What Framework...\n');
+console.log('\n  Building What Framework with esbuild...\n');
 
-// --- Build core ---
-buildPackage('core', [
-  'reactive.js',
-  'h.js',
-  'dom.js',
-  'hooks.js',
-  'components.js',
-  'store.js',
-  'head.js',
-  'helpers.js',
-], 'index.js');
+// Package build configurations
+// Each entry: { name, entries: [{ input, outputBase }], external }
+const packages = [
+  {
+    name: 'core',
+    entries: [
+      { input: 'src/index.js', outputBase: 'index' },
+      { input: 'src/render.js', outputBase: 'render' },
+      { input: 'src/jsx-runtime.js', outputBase: 'jsx-runtime' },
+      { input: 'src/jsx-dev-runtime.js', outputBase: 'jsx-dev-runtime' },
+      { input: 'src/testing.js', outputBase: 'testing' },
+    ],
+    external: [],
+  },
+  {
+    name: 'router',
+    entries: [
+      { input: 'src/index.js', outputBase: 'index' },
+    ],
+    external: ['what-core'],
+  },
+  {
+    name: 'server',
+    entries: [
+      { input: 'src/index.js', outputBase: 'index' },
+      { input: 'src/islands.js', outputBase: 'islands' },
+      { input: 'src/actions.js', outputBase: 'actions' },
+    ],
+    external: ['what-core'],
+  },
+  {
+    name: 'what',
+    entries: [
+      { input: 'src/index.js', outputBase: 'index' },
+      { input: 'src/render.js', outputBase: 'render' },
+      { input: 'src/router.js', outputBase: 'router' },
+      { input: 'src/server.js', outputBase: 'server' },
+      { input: 'src/jsx-runtime.js', outputBase: 'jsx-runtime' },
+      { input: 'src/jsx-dev-runtime.js', outputBase: 'jsx-dev-runtime' },
+      { input: 'src/testing.js', outputBase: 'testing' },
+    ],
+    external: ['what-core', 'what-router', 'what-server', 'what-compiler'],
+  },
+  {
+    name: 'compiler',
+    entries: [
+      { input: 'src/index.js', outputBase: 'index' },
+      { input: 'src/babel-plugin.js', outputBase: 'babel-plugin' },
+      { input: 'src/vite-plugin.js', outputBase: 'vite-plugin' },
+      { input: 'src/runtime.js', outputBase: 'runtime' },
+      { input: 'src/file-router.js', outputBase: 'file-router' },
+    ],
+    external: ['@babel/core', 'what-core', 'fs', 'path', 'url'],
+  },
+];
 
-// --- Build router ---
-buildPackage('router', ['index.js']);
+let totalOriginal = 0;
+let totalMinified = 0;
 
-// --- Build server ---
-buildPackage('server', ['index.js', 'islands.js']);
-
-console.log('  Done!\n');
-
-function buildPackage(name, files, entryFile) {
-  const srcDir = join(root, 'packages', name, 'src');
-  const distDir = join(root, 'packages', name, 'dist');
+for (const pkg of packages) {
+  const pkgDir = join(root, 'packages', pkg.name);
+  const distDir = join(pkgDir, 'dist');
   mkdirSync(distDir, { recursive: true });
 
-  let totalOriginal = 0;
-  let totalMinified = 0;
+  let pkgOriginal = 0;
+  let pkgMinified = 0;
 
-  for (const file of files) {
-    const src = join(srcDir, file);
-    if (!existsSync(src)) continue;
+  for (const entry of pkg.entries) {
+    const entryPath = join(pkgDir, entry.input);
+    if (!existsSync(entryPath)) continue;
 
-    const code = readFileSync(src, 'utf-8');
-    const minified = minify(code);
+    const srcSize = statSync(entryPath).size;
 
-    totalOriginal += code.length;
-    totalMinified += minified.length;
+    try {
+      // ESM bundle (readable, with source map)
+      await build({
+        entryPoints: [entryPath],
+        outfile: join(distDir, `${entry.outputBase}.js`),
+        bundle: true,
+        format: 'esm',
+        platform: 'browser',
+        sourcemap: true,
+        treeShaking: true,
+        external: pkg.external,
+        // Keep readable for debugging
+        minify: false,
+        target: 'es2022',
+        logLevel: 'silent',
+      });
 
-    writeFileSync(join(distDir, file), minified);
+      // Minified bundle
+      await build({
+        entryPoints: [entryPath],
+        outfile: join(distDir, `${entry.outputBase}.min.js`),
+        bundle: true,
+        format: 'esm',
+        platform: 'browser',
+        sourcemap: true,
+        treeShaking: true,
+        external: pkg.external,
+        minify: true,
+        target: 'es2022',
+        logLevel: 'silent',
+      });
+
+      const minPath = join(distDir, `${entry.outputBase}.min.js`);
+      const minSize = existsSync(minPath) ? statSync(minPath).size : 0;
+
+      pkgOriginal += srcSize;
+      pkgMinified += minSize;
+    } catch (err) {
+      console.error(`  ERROR building ${pkg.name}/${entry.input}: ${err.message}`);
+    }
   }
 
-  // Generate entry re-export
-  if (entryFile && existsSync(join(srcDir, entryFile))) {
-    const entry = readFileSync(join(srcDir, entryFile), 'utf-8');
-    const minEntry = minify(entry);
-    writeFileSync(join(distDir, 'what.js'), minEntry);
-  }
+  totalOriginal += pkgOriginal;
+  totalMinified += pkgMinified;
 
-  const ratio = ((1 - totalMinified / totalOriginal) * 100).toFixed(0);
+  const ratio = pkgOriginal > 0
+    ? ((1 - pkgMinified / pkgOriginal) * 100).toFixed(0)
+    : 0;
   console.log(
-    `  @what/${name}  ${formatSize(totalOriginal)} → ${formatSize(totalMinified)} (${ratio}% reduction)`
+    `  @what/${pkg.name}  ${formatSize(pkgOriginal)} → ${formatSize(pkgMinified)} (${ratio}% reduction)`
   );
 }
 
-function minify(code) {
-  return code
-    // Remove block comments (but preserve /*! license */)
-    .replace(/\/\*(?!\!)[\s\S]*?\*\//g, '')
-    // Remove line comments
-    .replace(/(?<![:'"])\/\/[^\n]*/g, '')
-    // Collapse whitespace
-    .replace(/^\s+/gm, '')
-    .replace(/\n\s*\n/g, '\n')
-    .trim();
-}
+const totalRatio = totalOriginal > 0
+  ? ((1 - totalMinified / totalOriginal) * 100).toFixed(0)
+  : 0;
+console.log(
+  `\n  Total: ${formatSize(totalOriginal)} → ${formatSize(totalMinified)} (${totalRatio}% reduction)`
+);
+console.log('  Done!\n');
 
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';

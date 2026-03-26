@@ -9,20 +9,25 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "production": "./dist/index.min.js",
       "import": "./src/index.js"
     },
     "./jsx-runtime": {
+      "production": "./dist/jsx-runtime.min.js",
       "import": "./src/jsx-runtime.js"
     },
     "./jsx-dev-runtime": {
+      "production": "./dist/jsx-dev-runtime.min.js",
       "import": "./src/jsx-dev-runtime.js"
     },
     "./render": {
       "types": "./render.d.ts",
+      "production": "./dist/render.min.js",
       "import": "./src/render.js"
     },
     "./testing": {
       "types": "./testing.d.ts",
+      "production": "./dist/testing.min.js",
       "import": "./src/testing.js"
     }
   },

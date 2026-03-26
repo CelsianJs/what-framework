@@ -24,6 +24,14 @@ const VOID_HTML_ELEMENTS = new Set([
   'link', 'meta', 'param', 'source', 'track', 'wbr'
 ]);
 
+// Events that use document-level delegation for performance.
+// The compiler emits `el.__click = handler` instead of addEventListener.
+// A one-time document listener walks event.target upward to find the handler.
+const DELEGATED_EVENTS = new Set([
+  'click', 'input', 'change', 'keydown', 'keyup', 'submit',
+  'focusin', 'focusout', 'mousedown', 'mouseup',
+]);
+
 // Known non-reactive call expressions — these should NOT be wrapped in effects
 // unless their arguments contain signal reads.
 const SAFE_GLOBAL_CALLS = new Set([
@@ -166,72 +174,78 @@ export default function whatBabelPlugin({ types: t }) {
     return signalNames.has(name);
   }
 
-  // Collect signal identifiers from the component scope
-  function collectSignalNames(path) {
+  // Collect signal identifiers using Babel's scope analysis.
+  // Walks the scope chain from the given path upward, collecting signals
+  // defined in each lexical scope (function/block).
+  function collectSignalNamesFromScope(path) {
     const signalNames = new Set();
 
-    // Walk up to find the containing function
-    let fnPath = path.getFunctionParent();
-    if (!fnPath) return signalNames;
+    // Helper: extract signal names from a VariableDeclarator node
+    function extractFromDeclarator(decl) {
+      const init = decl.init;
+      if (!init || !t.isCallExpression(init)) return;
 
-    fnPath.traverse({
-      VariableDeclarator(declPath) {
-        const init = declPath.node.init;
-        if (!init || !t.isCallExpression(init)) return;
-
-        const callee = init.callee;
-        let calleeName = '';
-
-        if (t.isIdentifier(callee)) {
-          calleeName = callee.name;
-        } else if (t.isMemberExpression(callee) && t.isIdentifier(callee.property)) {
-          calleeName = callee.property.name;
-        }
-
-        if (SIGNAL_CREATORS.has(calleeName)) {
-          const id = declPath.node.id;
-          if (t.isIdentifier(id)) {
-            // signal() / useSignal() / computed()
-            signalNames.add(id.name);
-          } else if (t.isArrayPattern(id)) {
-            // const [value, setter] = useState()
-            for (const el of id.elements) {
-              if (t.isIdentifier(el)) {
-                signalNames.add(el.name);
-              }
-            }
-          } else if (t.isObjectPattern(id)) {
-            // const { data, error, isLoading } = useSWR()
-            for (const prop of id.properties) {
-              if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-                signalNames.add(prop.value.name);
-              }
-            }
-          }
-        }
+      const callee = init.callee;
+      let calleeName = '';
+      if (t.isIdentifier(callee)) {
+        calleeName = callee.name;
+      } else if (t.isMemberExpression(callee) && t.isIdentifier(callee.property)) {
+        calleeName = callee.property.name;
       }
-    });
 
-    // Also treat function parameters as potentially reactive
-    if (fnPath.node.params) {
-      for (const param of fnPath.node.params) {
-        if (t.isIdentifier(param)) {
-          // Component props param — props are reactive (accessed via getters)
-          // We don't add it directly since prop accesses look like `props.name`
-        } else if (t.isObjectPattern(param)) {
-          // Destructured props — these could be signal getters
-          for (const prop of param.properties) {
+      if (SIGNAL_CREATORS.has(calleeName)) {
+        const id = decl.id;
+        if (t.isIdentifier(id)) {
+          signalNames.add(id.name);
+        } else if (t.isArrayPattern(id)) {
+          for (const el of id.elements) {
+            if (t.isIdentifier(el)) signalNames.add(el.name);
+          }
+        } else if (t.isObjectPattern(id)) {
+          for (const prop of id.properties) {
             if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
               signalNames.add(prop.value.name);
-            } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
-              signalNames.add(prop.argument.name);
             }
           }
         }
       }
     }
 
+    // Walk up the scope chain using Babel's scope API
+    let scope = path.scope;
+    while (scope) {
+      // Check all bindings in this scope
+      for (const [name, binding] of Object.entries(scope.bindings)) {
+        if (binding.path.isVariableDeclarator()) {
+          extractFromDeclarator(binding.path.node);
+        }
+        // Also check function params (destructured props)
+        if (binding.path.isIdentifier() || binding.kind === 'param') {
+          const fnPath = binding.scope.path;
+          if (fnPath && fnPath.node && fnPath.node.params) {
+            for (const param of fnPath.node.params) {
+              if (t.isObjectPattern(param)) {
+                for (const prop of param.properties) {
+                  if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+                    signalNames.add(prop.value.name);
+                  } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
+                    signalNames.add(prop.argument.name);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      scope = scope.parent;
+    }
+
     return signalNames;
+  }
+
+  // Legacy wrapper for backward compat (used in collectSignalNames calls)
+  function collectSignalNames(path) {
+    return collectSignalNamesFromScope(path);
   }
 
   // Check if a call expression is a safe (non-reactive) global call
@@ -554,15 +568,11 @@ export default function whatBabelPlugin({ types: t }) {
     // Handle dynamic children
     applyDynamicChildren(statements, elId, children, node, state);
 
-    // Return the element
-    statements.push(t.returnStatement(t.identifier(elId)));
-
-    // Use a block-bodied arrow function (NOT an IIFE) — the parent scope is the component,
-    // which runs once. We return an arrow so the JSX expression evaluates to a DOM node.
-    return t.callExpression(
-      t.arrowFunctionExpression([], t.blockStatement(statements)),
-      []
-    );
+    // Instead of wrapping in an IIFE, store setup statements for hoisting.
+    // The JSXElement visitor will insert them before the enclosing statement.
+    if (!state._pendingSetup) state._pendingSetup = [];
+    state._pendingSetup.push(...statements);
+    return t.identifier(elId);
   }
 
   // Fallback: transform element using h() when template extraction fails
@@ -636,14 +646,34 @@ export default function whatBabelPlugin({ types: t }) {
       if (attrName.startsWith('on') && !attrName.includes('|')) {
         const event = attrName.slice(2).toLowerCase();
         const handler = getAttributeValue(attr.value);
-        statements.push(
-          t.expressionStatement(
-            t.callExpression(
-              t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
-              [t.stringLiteral(event), handler]
+
+        if (DELEGATED_EVENTS.has(event)) {
+          // Use event delegation: el.__click = handler
+          state.needsDelegation = true;
+          if (!state.delegatedEvents) state.delegatedEvents = new Set();
+          state.delegatedEvents.add(event);
+          statements.push(
+            t.expressionStatement(
+              t.assignmentExpression('=',
+                t.memberExpression(
+                  t.identifier(elId),
+                  t.identifier(`__${event}`)
+                ),
+                handler
+              )
             )
-          )
-        );
+          );
+        } else {
+          // Non-delegated: use per-element addEventListener
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(
+                t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
+                [t.stringLiteral(event), handler]
+              )
+            )
+          );
+        }
         continue;
       }
 
@@ -892,11 +922,17 @@ export default function whatBabelPlugin({ types: t }) {
   }
 
   function buildChildAccess(elId, index) {
-    return t.memberExpression(
-      t.memberExpression(t.identifier(elId), t.identifier('childNodes')),
-      t.numericLiteral(index),
-      true // computed
-    );
+    // Use firstChild/nextSibling chains instead of childNodes[N]
+    // This is more robust with whitespace text nodes
+    if (index === 0) {
+      return t.memberExpression(t.identifier(elId), t.identifier('firstChild'));
+    }
+    // Chain .nextSibling for subsequent indices
+    let expr = t.memberExpression(t.identifier(elId), t.identifier('firstChild'));
+    for (let i = 0; i < index; i++) {
+      expr = t.memberExpression(expr, t.identifier('nextSibling'));
+    }
+    return expr;
   }
 
   function transformComponentFineGrained(path, state) {
@@ -1185,30 +1221,51 @@ export default function whatBabelPlugin({ types: t }) {
           state.needsCreateComponent = false;
           state.needsFragment = false;
           state.needsIsland = false;
+          state.needsDelegation = false;
+          state.delegatedEvents = new Set();
           state.templates = [];
           state.templateMap = new Map(); // html → template id (deduplication)
           state.templateCount = 0;
           state._varCounter = 0;
+          state._pendingSetup = [];
           state.nextVarId = () => `_el$${state._varCounter++}`;
 
           // Collect signal names for smart reactivity detection
           state.signalNames = new Set();
 
           // --- Imported Signal Tracking ---
-          // Scan ImportDeclaration nodes. Any imported identifier that is later
-          // called as a zero-arg function in JSX (e.g., {count()}) is treated as
-          // potentially reactive, because it could be a signal from another module
-          // (e.g., `import { count } from './store'` where count = signal(0)).
+          // Only mark imports as potentially reactive if they come from known
+          // reactive sources: what-framework, what-framework/*, relative paths
+          // (user stores), or functions matching use*/create* naming conventions.
+          // This prevents over-wrapping of utility imports (lodash, etc.).
           state.importedIdentifiers = new Set();
           for (const node of path.node.body) {
             if (t.isImportDeclaration(node)) {
+              const source = node.source.value;
+              const isReactiveSource =
+                source === 'what-framework' ||
+                source.startsWith('what-framework/') ||
+                source === 'what-core' ||
+                source.startsWith('what-core/') ||
+                source.startsWith('./') ||
+                source.startsWith('../');
+
               for (const spec of node.specifiers) {
+                let localName = null;
                 if (t.isImportSpecifier(spec) && t.isIdentifier(spec.local)) {
-                  state.importedIdentifiers.add(spec.local.name);
+                  localName = spec.local.name;
                 } else if (t.isImportDefaultSpecifier(spec) && t.isIdentifier(spec.local)) {
-                  state.importedIdentifiers.add(spec.local.name);
+                  localName = spec.local.name;
                 } else if (t.isImportNamespaceSpecifier(spec) && t.isIdentifier(spec.local)) {
-                  state.importedIdentifiers.add(spec.local.name);
+                  localName = spec.local.name;
+                }
+
+                if (localName) {
+                  // Mark as reactive if from a reactive source, or if the name
+                  // matches use*/create* conventions (hooks/signal creators)
+                  if (isReactiveSource || /^(use|create)[A-Z]/.test(localName)) {
+                    state.importedIdentifiers.add(localName);
+                  }
                 }
               }
             }
@@ -1297,6 +1354,11 @@ export default function whatBabelPlugin({ types: t }) {
               t.importSpecifier(t.identifier('_$createComponent'), t.identifier('_$createComponent'))
             );
           }
+          if (state.needsDelegation) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$delegateEvents'), t.identifier('delegateEvents'))
+            );
+          }
 
           // Core imports (h/Fragment/Island for components)
           const coreSpecifiers = [];
@@ -1349,12 +1411,54 @@ export default function whatBabelPlugin({ types: t }) {
           if (coreSpecifiers.length > 0) {
             addCoreImports(path, t, coreSpecifiers);
           }
+
+          // Emit event delegation setup call if any delegated events were used
+          if (state.needsDelegation && state.delegatedEvents && state.delegatedEvents.size > 0) {
+            const eventArray = t.arrayExpression(
+              [...state.delegatedEvents].map(e => t.stringLiteral(e))
+            );
+            path.pushContainer('body',
+              t.expressionStatement(
+                t.callExpression(t.identifier('_$delegateEvents'), [eventArray])
+              )
+            );
+          }
         }
       },
 
       JSXElement(path, state) {
+        // FIX-1: Use scope-aware signal detection instead of file-global
+        state.signalNames = collectSignalNamesFromScope(path);
+        state._pendingSetup = [];
         const transformed = transformElementFineGrained(path, state);
-        path.replaceWith(transformed);
+        const pending = state._pendingSetup;
+        state._pendingSetup = [];
+
+        if (pending.length > 0) {
+          // Find the enclosing statement to hoist setup before it
+          let stmtPath = path;
+          while (stmtPath && !stmtPath.isStatement()) {
+            stmtPath = stmtPath.parentPath;
+          }
+          if (stmtPath && stmtPath.isStatement()) {
+            // Insert setup statements before the enclosing statement
+            for (const stmt of pending) {
+              stmtPath.insertBefore(stmt);
+            }
+            path.replaceWith(transformed);
+          } else {
+            // Fallback: if we can't find a statement parent, use IIFE
+            pending.push(t.returnStatement(transformed));
+            path.replaceWith(
+              t.callExpression(
+                t.arrowFunctionExpression([], t.blockStatement(pending)),
+                []
+              )
+            );
+          }
+        } else {
+          path.replaceWith(transformed);
+        }
       },
 
       JSXFragment(path, state) {

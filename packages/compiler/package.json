@@ -5,11 +5,26 @@
   "main": "src/index.js",
   "type": "module",
   "exports": {
-    ".": "./src/index.js",
-    "./babel": "./src/babel-plugin.js",
-    "./vite": "./src/vite-plugin.js",
-    "./runtime": "./src/runtime.js",
-    "./file-router": "./src/file-router.js"
+    ".": {
+      "production": "./dist/index.min.js",
+      "import": "./src/index.js"
+    },
+    "./babel": {
+      "production": "./dist/babel-plugin.min.js",
+      "import": "./src/babel-plugin.js"
+    },
+    "./vite": {
+      "production": "./dist/vite-plugin.min.js",
+      "import": "./src/vite-plugin.js"
+    },
+    "./runtime": {
+      "production": "./dist/runtime.min.js",
+      "import": "./src/runtime.js"
+    },
+    "./file-router": {
+      "production": "./dist/file-router.min.js",
+      "import": "./src/file-router.js"
+    }
   },
   "keywords": [
     "what",
@@ -26,7 +41,8 @@
     "what-core": "^0.5.3"
   },
   "files": [
-    "src"
+    "src",
+    "dist"
   ],
   "devDependencies": {
     "@babel/core": "^7.23.0",
