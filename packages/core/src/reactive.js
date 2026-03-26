@@ -5,6 +5,7 @@
 // - Topological ordering: computed/effects sorted by _level to prevent diamond glitches
 // - Iterative computed evaluation: no recursion, handles 10K+ depth chains
 // - Ownership tree: createRoot children auto-dispose when parent disposes
+// - Performance: cached levels, lazy sort, fast-path notify, minimal allocation
 
 // Dev-mode flag — build tools can dead-code-eliminate when false
 export const __DEV__ = typeof process !== 'undefined'
@@ -25,6 +26,7 @@ let currentRoot = null;
 let currentOwner = null;  // Ownership tree: tracks current owner context
 let batchDepth = 0;
 let pendingEffects = [];
+let pendingNeedSort = false;  // Track whether pendingEffects actually needs sorting
 
 // WeakMap: subscriber Set → owning computed's inner effect (null/absent for signals)
 // Used for topological level computation.
@@ -60,7 +62,7 @@ export function signal(initial, debugName) {
     if (Object.is(value, nextVal)) return;
     value = nextVal;
     if (__DEV__ && __devtools) __devtools.onSignalUpdate(sig);
-    notify(subs);
+    if (subs.size > 0) notify(subs);
   }
 
   sig.set = (next) => {
@@ -68,7 +70,7 @@ export function signal(initial, debugName) {
     if (Object.is(value, nextVal)) return;
     value = nextVal;
     if (__DEV__ && __devtools) __devtools.onSignalUpdate(sig);
-    notify(subs);
+    if (subs.size > 0) notify(subs);
   };
 
   sig.peek = () => value;
@@ -102,7 +104,7 @@ export function computed(fn) {
     dirty = false;
   }, true);
 
-  // Computed nodes start at level 1. Updated after each evaluation.
+  // Computed nodes start at level 1. Updated when graph structure changes.
   inner._level = 1;
   inner._computed = true;
   inner._computedSubs = subs;
@@ -126,7 +128,7 @@ export function computed(fn) {
   // When a dependency changes, mark dirty AND propagate to our subscribers.
   inner._onNotify = () => {
     dirty = true;
-    notify(subs);
+    if (subs.size > 0) notify(subs);
   };
 
   read._signal = true;
@@ -175,8 +177,12 @@ function _evaluateComputed(computedEffect) {
       }
 
       try {
+        const prevDepsLen = current.deps.length;
         _runEffect(current);
-        _updateLevel(current);
+        // Only recompute level when graph structure changes
+        if (current.deps.length !== prevDepsLen) {
+          _updateLevel(current);
+        }
         stack.pop(); // Successfully evaluated
       } catch (err) {
         if (err === NEEDS_UPSTREAM) {
@@ -194,13 +200,16 @@ function _evaluateComputed(computedEffect) {
   }
 }
 
-// Update the topological level of a computed based on its current dependencies.
+// Update the topological level of a computed/effect based on its current dependencies.
 function _updateLevel(e) {
   let maxDepLevel = 0;
-  for (let i = 0; i < e.deps.length; i++) {
-    const owner = subSetOwner.get(e.deps[i]);
-    const depLevel = owner ? owner._level : 0;
-    if (depLevel > maxDepLevel) maxDepLevel = depLevel;
+  const deps = e.deps;
+  for (let i = 0; i < deps.length; i++) {
+    const owner = subSetOwner.get(deps[i]);
+    if (owner) {
+      const depLevel = owner._level;
+      if (depLevel > maxDepLevel) maxDepLevel = depLevel;
+    }
   }
   e._level = maxDepLevel + 1;
 }
@@ -221,8 +230,8 @@ export function effect(fn, opts) {
   } finally {
     currentEffect = prev;
   }
-  // Update level based on actual dependencies after first run
-  _updateEffectLevel(e);
+  // Compute level after first run based on actual dependencies (cached).
+  _updateLevel(e);
   // Mark as stable after first run — subsequent re-runs skip cleanup/re-subscribe
   if (opts?.stable) e._stable = true;
   const dispose = () => _disposeEffect(e);
@@ -231,17 +240,6 @@ export function effect(fn, opts) {
     currentRoot.disposals.push(dispose);
   }
   return dispose;
-}
-
-// Update effect level from its deps
-function _updateEffectLevel(e) {
-  let maxDepLevel = 0;
-  for (let i = 0; i < e.deps.length; i++) {
-    const owner = subSetOwner.get(e.deps[i]);
-    const depLevel = owner ? owner._level : 0;
-    if (depLevel > maxDepLevel) maxDepLevel = depLevel;
-  }
-  e._level = maxDepLevel + 1;
 }
 
 // --- Batch ---
@@ -260,6 +258,8 @@ export function batch(fn) {
 // --- Internals ---
 
 function _createEffect(fn, lazy) {
+  // Minimal object shape — computed() adds extra properties after creation.
+  // Keeping the base object small helps V8 optimize for the common (effect) case.
   const e = {
     fn,
     deps: [],            // array of subscriber sets (cheaper than Set for typical 1-3 deps)
@@ -350,35 +350,30 @@ function cleanup(e) {
   deps.length = 0;
 }
 
-// Iterative notification queue to prevent stack overflow on deep computed chains.
-// When notify() encounters _onNotify callbacks (from computeds), instead of
-// calling them inline (which would recurse through notify → _onNotify → notify),
-// we collect all subscriber sets to process in a queue and drain iteratively.
-let notifyQueue = null;  // null when not draining; array when draining
+// --- Notification ---
+// Iterative notification to prevent stack overflow on deep computed chains.
+// Uses a reusable queue to avoid per-call array allocation.
+// When notify() encounters _onNotify callbacks (from computeds), those may
+// call notify() recursively. The queue drains iteratively in the outermost call.
+
+let notifyDepth = 0;        // Tracks recursive notify depth
+let notifyQueue = null;     // Reusable queue, allocated on first recursive call
+let notifyQueueLen = 0;     // Length of the queue
 
 function notify(subs) {
-  const isOutermost = notifyQueue === null;
-  if (isOutermost) notifyQueue = [];
-
-  // Queue this subscriber set for processing
-  notifyQueue.push(subs);
-
-  if (!isOutermost) return; // Inner call — the outer loop will process it
-
-  // Drain the queue iteratively — use index-based approach to avoid O(n) shift
-  let qi = 0;
-  try {
-    while (qi < notifyQueue.length) {
-      const currentSubs = notifyQueue[qi++];
-      for (const e of currentSubs) {
+  // Fast path: no recursive notifications in progress — iterate directly.
+  // This avoids array allocation for the common case (signal → effects).
+  if (notifyDepth === 0) {
+    notifyDepth = 1;
+    try {
+      for (const e of subs) {
         if (e.disposed) continue;
         if (e._onNotify) {
-          // This may push more subscriber sets onto notifyQueue (via computed's
-          // _onNotify which marks dirty and calls notify(subs)). That's fine —
-          // they'll be processed in subsequent iterations of the while loop.
+          // Computed subscriber: mark dirty and propagate.
+          // _onNotify may call notify() recursively — tracked by notifyDepth.
           e._onNotify();
         } else if (batchDepth === 0 && e._stable) {
-          // Inline execution for stable effects: skip queue + flush + _runEffect overhead.
+          // Inline execution for stable effects
           const prev = currentEffect;
           currentEffect = null;
           try {
@@ -395,14 +390,67 @@ function notify(subs) {
           }
         } else if (!e._pending) {
           e._pending = true;
+          const level = e._level;
+          const len = pendingEffects.length;
+          if (len > 0 && pendingEffects[len - 1]._level > level) {
+            pendingNeedSort = true;
+          }
           pendingEffects.push(e);
         }
       }
+      // Drain any queued subscriber sets from recursive notify calls
+      if (notifyQueueLen > 0) {
+        let qi = 0;
+        while (qi < notifyQueueLen) {
+          const queuedSubs = notifyQueue[qi];
+          notifyQueue[qi] = null; // Allow GC
+          qi++;
+          for (const e of queuedSubs) {
+            if (e.disposed) continue;
+            if (e._onNotify) {
+              e._onNotify();
+            } else if (batchDepth === 0 && e._stable) {
+              const prev = currentEffect;
+              currentEffect = null;
+              try {
+                const result = e.fn();
+                if (typeof result === 'function') {
+                  if (e._cleanup) try { e._cleanup(); } catch (err) {}
+                  e._cleanup = result;
+                }
+              } catch (err) {
+                if (__devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
+                if (__DEV__) console.warn('[what] Error in stable effect:', err);
+              } finally {
+                currentEffect = prev;
+              }
+            } else if (!e._pending) {
+              e._pending = true;
+              const level = e._level;
+              const len = pendingEffects.length;
+              if (len > 0 && pendingEffects[len - 1]._level > level) {
+                pendingNeedSort = true;
+              }
+              pendingEffects.push(e);
+            }
+          }
+        }
+        notifyQueueLen = 0;
+      }
+    } finally {
+      notifyDepth = 0;
     }
-  } finally {
-    notifyQueue = null;
+    if (batchDepth === 0 && pendingEffects.length > 0) scheduleMicrotask();
+  } else {
+    // Recursive call — queue the subscriber set for the outermost call to drain.
+    if (notifyQueue === null) notifyQueue = [];
+    if (notifyQueueLen >= notifyQueue.length) {
+      notifyQueue.push(subs);
+    } else {
+      notifyQueue[notifyQueueLen] = subs;
+    }
+    notifyQueueLen++;
   }
-  if (batchDepth === 0 && pendingEffects.length > 0) scheduleMicrotask();
 }
 
 let microtaskScheduled = false;
@@ -423,18 +471,25 @@ function flush() {
     pendingEffects = [];
 
     // Topological sort: execute effects in level order (lowest first).
-    // This ensures that effects depending on multiple computeds at different
-    // levels always see consistent, fully-updated values — preventing
-    // diamond dependency glitches.
-    batch.sort((a, b) => a._level - b._level);
+    // Fast paths:
+    // 1. Single effect — no sort needed (most common case for microtask flush)
+    // 2. Already sorted — skip sort (common when effects added in level order)
+    // 3. Multiple effects at different levels — sort required
+    if (batch.length > 1 && pendingNeedSort) {
+      batch.sort((a, b) => a._level - b._level);
+    }
+    pendingNeedSort = false;
 
     for (let i = 0; i < batch.length; i++) {
       const e = batch[i];
       e._pending = false;
       if (!e.disposed && !e._onNotify) {
+        const prevDepsLen = e.deps.length;
         _runEffect(e);
-        // Update level after re-run in case deps changed
-        if (!e._computed) _updateEffectLevel(e);
+        // Update level only if deps changed (graph structure change)
+        if (!e._computed && e.deps.length !== prevDepsLen) {
+          _updateLevel(e);
+        }
       }
     }
     iterations++;
@@ -474,7 +529,7 @@ export function memo(fn) {
   e._level = 1;
 
   _runEffect(e);
-  _updateEffectLevel(e);
+  _updateLevel(e);
 
   // Register subscriber set owner for level tracking
   subSetOwner.set(subs, e);
