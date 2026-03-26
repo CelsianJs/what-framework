@@ -5,6 +5,10 @@
  * and runtime signal errors with What Framework branding and helpful context.
  *
  * This is client-side code that Vite injects into the page during development.
+ *
+ * Architecture: The overlay HTML template and all helper functions are inlined as
+ * string literals into the custom element code. This avoids function-to-string
+ * serialization (which is fragile with minifiers and bundlers).
  */
 
 // CSS for the overlay — scoped to avoid style conflicts
@@ -49,6 +53,12 @@ const OVERLAY_STYLES = `
     gap: 0.75rem;
   }
 
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .logo {
     width: 28px;
     height: 28px;
@@ -84,7 +94,7 @@ const OVERLAY_STYLES = `
     color: #fbbf24;
   }
 
-  .close-btn {
+  .close-btn, .copy-btn {
     background: none;
     border: 1px solid #3a3a5a;
     color: #a0a0c0;
@@ -95,9 +105,14 @@ const OVERLAY_STYLES = `
     font-size: 12px;
   }
 
-  .close-btn:hover {
+  .close-btn:hover, .copy-btn:hover {
     background: #2a2a4a;
     color: #fff;
+  }
+
+  .copy-btn.copied {
+    border-color: #22c55e;
+    color: #22c55e;
   }
 
   .body {
@@ -186,132 +201,193 @@ const OVERLAY_STYLES = `
 `;
 
 /**
- * Build the overlay HTML for an error
- */
-function buildOverlayHTML(err) {
-  const isCompilerError = err._isCompilerError || err.plugin === 'vite-plugin-what';
-  const type = isCompilerError ? 'Compiler Error' : 'Runtime Error';
-  const tagClass = isCompilerError ? 'tag-error' : 'tag-warning';
-
-  let codeFrame = '';
-  if (err.frame || err._frame) {
-    const frame = err.frame || err._frame;
-    const lines = frame.split('\n');
-    codeFrame = `<div class="code-frame">${
-      lines.map(line => {
-        const isHighlight = line.trimStart().startsWith('>');
-        const cleaned = line.replace(/^\s*>\s?/, ' ').replace(/^\s{2}/, '');
-        const match = cleaned.match(/^(\s*\d+)\s*\|(.*)$/);
-        if (match) {
-          return `<div class="code-line${isHighlight ? ' highlight' : ''}"><span class="line-number">${match[1].trim()}</span><span class="line-content">${escapeHTML(match[2])}</span></div>`;
-        }
-        // Caret line (^^^)
-        if (cleaned.trim().startsWith('|')) {
-          return `<div class="code-line highlight"><span class="line-number"></span><span class="line-content" style="color:#f87171">${escapeHTML(cleaned.replace(/^\s*\|/, ''))}</span></div>`;
-        }
-        return '';
-      }).join('')
-    }</div>`;
-  }
-
-  const filePath = err.id || err.loc?.file || '';
-  const line = err.loc?.line ?? '';
-  const col = err.loc?.column ?? '';
-  const location = filePath
-    ? `<div class="file-path">${escapeHTML(filePath)}${line ? `:${line}` : ''}${col ? `:${col}` : ''}</div>`
-    : '';
-
-  const tip = getTip(err);
-  const tipHTML = tip ? `<div class="tip"><span class="tip-label">Tip: </span>${escapeHTML(tip)}</div>` : '';
-
-  const stack = err.stack && !isCompilerError
-    ? `<div class="stack">${escapeHTML(cleanStack(err.stack))}</div>`
-    : '';
-
-  return `
-    <div class="backdrop"></div>
-    <div class="panel">
-      <div class="header">
-        <div class="header-left">
-          <div class="logo">W</div>
-          <span class="brand">What Framework</span>
-          <span class="tag ${tagClass}">${type}</span>
-        </div>
-        <button class="close-btn">Dismiss (Esc)</button>
-      </div>
-      <div class="body">
-        <h2 class="error-title">${escapeHTML(err.name || 'Error')}</h2>
-        ${location}
-        <pre class="error-message">${escapeHTML(err.message || String(err))}</pre>
-        ${codeFrame}
-        ${tipHTML}
-        ${stack}
-      </div>
-    </div>
-  `;
-}
-
-/**
- * Context-aware tips for common What Framework errors
- */
-function getTip(err) {
-  const msg = (err.message || '').toLowerCase();
-
-  if (msg.includes('infinite') && msg.includes('effect')) {
-    return 'An effect is writing to a signal it also reads. Use untrack() to read without subscribing, or move the write to a different effect.';
-  }
-  if (msg.includes('jsx') && msg.includes('unexpected')) {
-    return 'Make sure your vite.config includes the What compiler plugin: import what from "what-compiler/vite"';
-  }
-  if (msg.includes('not a function') && msg.includes('signal')) {
-    return 'Signals are functions: call sig() to read, sig(value) to write. Check you\'re not destructuring a signal.';
-  }
-  if (msg.includes('hydrat')) {
-    return 'Hydration mismatches happen when SSR output differs from client render. Ensure server and client see the same initial state.';
-  }
-  return '';
-}
-
-function escapeHTML(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function cleanStack(stack) {
-  return stack
-    .split('\n')
-    .filter(line => !line.includes('node_modules'))
-    .slice(0, 10)
-    .join('\n');
-}
-
-/**
- * Client-side overlay component — injected as a custom element
- * to avoid style conflicts with the user's application.
+ * Client-side overlay component — injected as a custom element string literal.
+ * All helper functions are inlined directly to avoid function.toString() fragility.
  */
 const OVERLAY_ELEMENT = `
 class WhatErrorOverlay extends HTMLElement {
   constructor(err) {
     super();
     this.root = this.attachShadow({ mode: 'open' });
-    this.root.innerHTML = \`<style>${OVERLAY_STYLES}</style>\`;
+    this.root.innerHTML = '<style>${OVERLAY_STYLES}</style>';
+    this._err = err;
     this.show(err);
   }
 
+  // --- Inlined helper: escapeHTML ---
+  _escapeHTML(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // --- Inlined helper: cleanStack ---
+  _cleanStack(stack) {
+    return stack
+      .split('\\n')
+      .filter(function(line) { return line.indexOf('node_modules') === -1; })
+      .slice(0, 10)
+      .join('\\n');
+  }
+
+  // --- Inlined helper: getTip ---
+  _getTip(err) {
+    var msg = (err.message || '').toLowerCase();
+
+    if (msg.indexOf('infinite') !== -1 && msg.indexOf('effect') !== -1) {
+      return 'An effect is writing to a signal it also reads. Use untrack() to read without subscribing, or move the write to a different effect.';
+    }
+    if (msg.indexOf('jsx') !== -1 && msg.indexOf('unexpected') !== -1) {
+      return 'Make sure your vite.config includes the What compiler plugin: import what from "what-compiler/vite"';
+    }
+    if (msg.indexOf('not a function') !== -1 && msg.indexOf('signal') !== -1) {
+      return 'Signals are functions: call sig() to read, sig(value) to write. Check you are not destructuring a signal.';
+    }
+    if (msg.indexOf('hydrat') !== -1) {
+      return 'Hydration mismatches happen when SSR output differs from client render. Ensure server and client see the same initial state.';
+    }
+    // New tips for common mistakes
+    if (msg.indexOf('signal') !== -1 && msg.indexOf('without') !== -1 && msg.indexOf('call') !== -1) {
+      return 'Signals must be called to read their value. Use {count()} in JSX, not {count}. The parentheses trigger the reactive subscription.';
+    }
+    if (msg.indexOf('innerhtml') !== -1 && msg.indexOf('__html') !== -1) {
+      return 'Raw innerHTML is blocked for security. Use innerHTML={{ __html: trustedString }} or dangerouslySetInnerHTML={{ __html: trustedString }} instead.';
+    }
+    if ((msg.indexOf('innerhtml') !== -1 || msg.indexOf('xss') !== -1) && msg.indexOf('raw string') !== -1) {
+      return 'Raw innerHTML is a security risk (XSS). Wrap your HTML in an object: innerHTML={{ __html: yourString }}.';
+    }
+    if (msg.indexOf('cleanup') !== -1 && (msg.indexOf('effect') !== -1 || msg.indexOf('listener') !== -1)) {
+      return 'Effects that add event listeners or timers should return a cleanup function: effect(() => { el.addEventListener(...); return () => el.removeEventListener(...); })';
+    }
+    if (msg.indexOf('route') !== -1 && (msg.indexOf('not found') !== -1 || msg.indexOf('404') !== -1 || msg.indexOf('no match') !== -1)) {
+      return 'No route matched the current URL. Check that your route paths are correct and you have a catch-all or 404 route defined.';
+    }
+    if (msg.indexOf('key') !== -1 && (msg.indexOf('missing') !== -1 || msg.indexOf('list') !== -1 || msg.indexOf('each') !== -1)) {
+      return 'Lists need unique keys for efficient DOM updates. Add a key prop: items.map(item => <Item key={item.id} />)';
+    }
+    return '';
+  }
+
+  // --- Build overlay HTML ---
+  _buildHTML(err) {
+    var isCompilerError = err._isCompilerError || err.plugin === 'vite-plugin-what';
+    var type = isCompilerError ? 'Compiler Error' : 'Runtime Error';
+    var tagClass = isCompilerError ? 'tag-error' : 'tag-warning';
+
+    var codeFrame = '';
+    var rawFrame = err.frame || err._frame;
+    if (rawFrame) {
+      var lines = rawFrame.split('\\n');
+      var frameLines = '';
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var isHighlight = line.trimStart().startsWith('>');
+        var cleaned = line.replace(/^\\s*>\\s?/, ' ').replace(/^\\s{2}/, '');
+        var match = cleaned.match(/^(\\s*\\d+)\\s*\\|(.*)$/);
+        if (match) {
+          frameLines += '<div class="code-line' + (isHighlight ? ' highlight' : '') + '"><span class="line-number">' + match[1].trim() + '</span><span class="line-content">' + this._escapeHTML(match[2]) + '</span></div>';
+        } else if (cleaned.trim().startsWith('|')) {
+          frameLines += '<div class="code-line highlight"><span class="line-number"></span><span class="line-content" style="color:#f87171">' + this._escapeHTML(cleaned.replace(/^\\s*\\|/, '')) + '</span></div>';
+        }
+      }
+      if (frameLines) {
+        codeFrame = '<div class="code-frame">' + frameLines + '</div>';
+      }
+    }
+
+    var filePath = err.id || (err.loc && err.loc.file) || '';
+    var lineNum = (err.loc && err.loc.line != null) ? err.loc.line : '';
+    var col = (err.loc && err.loc.column != null) ? err.loc.column : '';
+    var location = filePath
+      ? '<div class="file-path">' + this._escapeHTML(filePath) + (lineNum ? ':' + lineNum : '') + (col ? ':' + col : '') + '</div>'
+      : '';
+
+    var tip = this._getTip(err);
+    var tipHTML = tip ? '<div class="tip"><span class="tip-label">Tip: </span>' + this._escapeHTML(tip) + '</div>' : '';
+
+    var stack = (err.stack && !isCompilerError)
+      ? '<div class="stack">' + this._escapeHTML(this._cleanStack(err.stack)) + '</div>'
+      : '';
+
+    return '<div class="backdrop"></div>'
+      + '<div class="panel">'
+      +   '<div class="header">'
+      +     '<div class="header-left">'
+      +       '<div class="logo">W</div>'
+      +       '<span class="brand">What Framework</span>'
+      +       '<span class="tag ' + tagClass + '">' + type + '</span>'
+      +     '</div>'
+      +     '<div class="header-right">'
+      +       '<button class="copy-btn">Copy Error</button>'
+      +       '<button class="close-btn">Dismiss (Esc)</button>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="body">'
+      +     '<h2 class="error-title">' + this._escapeHTML(err.name || 'Error') + '</h2>'
+      +     location
+      +     '<pre class="error-message">' + this._escapeHTML(err.message || String(err)) + '</pre>'
+      +     codeFrame
+      +     tipHTML
+      +     stack
+      +   '</div>'
+      + '</div>';
+  }
+
   show(err) {
-    const template = document.createElement('template');
-    template.innerHTML = (${buildOverlayHTML.toString()})(err);
+    var template = document.createElement('template');
+    template.innerHTML = this._buildHTML(err);
     this.root.appendChild(template.content.cloneNode(true));
 
     // Close handlers
-    this.root.querySelector('.close-btn')?.addEventListener('click', () => this.close());
-    this.root.querySelector('.backdrop')?.addEventListener('click', () => this.close());
-    document.addEventListener('keydown', this._onKey = (e) => {
-      if (e.key === 'Escape') this.close();
+    var self = this;
+    var closeBtn = this.root.querySelector('.close-btn');
+    if (closeBtn) closeBtn.addEventListener('click', function() { self.close(); });
+    var backdrop = this.root.querySelector('.backdrop');
+    if (backdrop) backdrop.addEventListener('click', function() { self.close(); });
+    document.addEventListener('keydown', this._onKey = function(e) {
+      if (e.key === 'Escape') self.close();
     });
+
+    // Copy Error button
+    var copyBtn = this.root.querySelector('.copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() {
+        self._copyError(copyBtn);
+      });
+    }
+  }
+
+  _copyError(btn) {
+    var err = this._err;
+    var data = {
+      name: err.name || 'Error',
+      message: err.message || String(err),
+      file: err.id || (err.loc && err.loc.file) || null,
+      line: (err.loc && err.loc.line != null) ? err.loc.line : null,
+      column: (err.loc && err.loc.column != null) ? err.loc.column : null,
+      stack: err.stack ? this._cleanStack(err.stack) : null,
+      framework: 'What Framework',
+      timestamp: new Date().toISOString()
+    };
+
+    var text = JSON.stringify(data, null, 2);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() {
+          btn.textContent = 'Copy Error';
+          btn.classList.remove('copied');
+        }, 2000);
+      }).catch(function() {
+        // Fallback: select text
+        prompt('Copy error details:', text);
+      });
+    } else {
+      prompt('Copy error details:', text);
+    }
   }
 
   close() {
@@ -319,11 +395,6 @@ class WhatErrorOverlay extends HTMLElement {
     this.remove();
   }
 }
-
-// Helper functions bundled into the overlay element
-${escapeHTML.toString()}
-${cleanStack.toString()}
-${getTip.toString()}
 
 if (!customElements.get('what-error-overlay')) {
   customElements.define('what-error-overlay', WhatErrorOverlay);

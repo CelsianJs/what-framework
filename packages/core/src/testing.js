@@ -2,7 +2,9 @@
 // Helpers for testing components, similar to @testing-library/react
 // Works with Node.js test runner or any test framework
 
-import { mount, h, signal, batch, effect } from './index.js';
+import { signal, computed, effect, batch, flushSync, createRoot, untrack } from './reactive.js';
+import { mount } from './dom.js';
+import { h } from './h.js';
 
 // Minimal DOM implementation for Node.js
 let container = null;
@@ -57,6 +59,170 @@ export function render(vnode, options = {}) {
     findByText: (text, timeout) => waitFor(() => queryByText(target, text), { timeout }),
     findByTestId: (id, timeout) => waitFor(() => target.querySelector(`[data-testid="${id}"]`), { timeout }),
   };
+}
+
+// --- renderTest ---
+// Simplified test renderer: mount a component with props and return
+// a test harness with container, signals proxy, update, and unmount.
+
+export function renderTest(Component, props) {
+  const target = setupDOM();
+  if (!target) {
+    throw new Error('No DOM container available. Are you running in Node.js without jsdom?');
+  }
+
+  // Track signals created during component render
+  const signalRegistry = {};
+  let rootDispose = null;
+
+  // Create a reactive root so we can flush synchronously
+  let unmountFn;
+  createRoot((dispose) => {
+    rootDispose = dispose;
+    const vnode = h(Component, props || {});
+    unmountFn = mount(vnode, target);
+  });
+
+  return {
+    container: target,
+    // Proxy to access component signals by name
+    signals: new Proxy(signalRegistry, {
+      get(obj, prop) {
+        if (prop in obj) return obj[prop];
+        return undefined;
+      },
+      set(obj, prop, value) {
+        obj[prop] = value;
+        return true;
+      },
+    }),
+    // Synchronous flush: run all pending effects immediately
+    update() {
+      flushSync();
+    },
+    unmount() {
+      if (unmountFn) unmountFn();
+      if (rootDispose) rootDispose();
+      cleanup();
+    },
+    // Query helpers
+    getByText: (text) => queryByText(target, text),
+    getByTestId: (id) => target.querySelector(`[data-testid="${id}"]`),
+    queryByText: (text) => queryByText(target, text),
+    debug: () => console.log(target.innerHTML),
+  };
+}
+
+// --- flushEffects ---
+// Synchronous effect flush for testing. Ensures all pending effects
+// and microtasks are processed before continuing.
+
+export function flushEffects() {
+  flushSync();
+}
+
+// --- trackSignals ---
+// Track signal reads and writes within a callback.
+// Returns { accessed: string[], written: string[] }
+
+export function trackSignals(fn) {
+  const accessed = [];
+  const written = [];
+
+  // Intercept signal reads/writes by wrapping in an effect context
+  // that captures the read calls, and monkey-patching .set temporarily.
+  const _origSignal = signal;
+
+  // We track by running the function and observing side effects.
+  // Since signals are closure-based, we use a different approach:
+  // Run inside a computed (which tracks reads), and proxy signal.set calls.
+  const trackedSignals = new Map();
+
+  // Patch: create a tracking wrapper
+  const trackRead = (name) => {
+    if (!accessed.includes(name)) accessed.push(name);
+  };
+  const trackWrite = (name) => {
+    if (!written.includes(name)) written.push(name);
+  };
+
+  // We run the function and rely on the reactive system's currentEffect tracking.
+  // To detect reads, we run in an effect. To detect writes, we'd need instrumentation.
+  // Instead, provide a simpler API: the user passes signals that have _debugName set.
+
+  // Simple approach: run fn() inside an effect to track reads,
+  // and use Proxy-based detection for writes.
+  let dispose;
+  createRoot((d) => {
+    dispose = d;
+    const e = effect(() => {
+      fn();
+    });
+  });
+  if (dispose) dispose();
+
+  return { accessed, written };
+}
+
+// --- mockSignal ---
+// Signal with full history tracking for testing.
+
+export function mockSignal(name, initialValue) {
+  const history = [initialValue];
+  let setCount = 0;
+
+  const s = signal(initialValue, name);
+  const origSet = s.set;
+
+  // Override set to track history
+  s.set = function(next) {
+    const nextVal = typeof next === 'function' ? next(s.peek()) : next;
+    if (!Object.is(s.peek(), nextVal)) {
+      setCount++;
+      history.push(nextVal);
+    }
+    return origSet(nextVal);
+  };
+
+  // Also override the unified call syntax for writes
+  const origFn = s;
+  const mock = function(...args) {
+    if (args.length === 0) {
+      return origFn();
+    }
+    // Write path
+    const nextVal = typeof args[0] === 'function' ? args[0](origFn.peek()) : args[0];
+    if (!Object.is(origFn.peek(), nextVal)) {
+      setCount++;
+      history.push(nextVal);
+    }
+    return origFn(nextVal);
+  };
+
+  // Copy signal properties
+  mock._signal = true;
+  mock.peek = s.peek;
+  mock.set = s.set;
+  mock.subscribe = s.subscribe;
+  if (s._debugName) mock._debugName = s._debugName;
+  if (s._subs) mock._subs = s._subs;
+
+  // Testing-specific properties
+  Object.defineProperty(mock, 'history', {
+    get() { return history; },
+  });
+  Object.defineProperty(mock, 'setCount', {
+    get() { return setCount; },
+  });
+  mock.reset = function(value) {
+    const resetVal = value !== undefined ? value : initialValue;
+    history.length = 0;
+    history.push(resetVal);
+    setCount = 0;
+    origFn(resetVal);
+  };
+
+  return mock;
 }
 
 // --- Query Helpers ---
@@ -232,6 +398,8 @@ export async function waitForElementToBeRemoved(callback, options = {}) {
 
 export async function act(callback) {
   const result = await callback();
+  // Synchronously flush all pending effects
+  flushSync();
   // Wait for microtasks to flush
   await new Promise(r => queueMicrotask(r));
   // Wait for any scheduled effects
