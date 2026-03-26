@@ -242,13 +242,18 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_snapshot',
-    'Get a full state snapshot (signals, effects, components, errors). Refreshes from browser.',
+    'Get a full state snapshot (signals, effects, components, errors). Refreshes from browser. Use diff=true to get only changes since last snapshot.',
     {
       maxSignals: z.number().optional().default(100).describe('Max signals to return (default: 100)'),
       maxEffects: z.number().optional().default(100).describe('Max effects to return (default: 100)'),
+      diff: z.boolean().optional().default(false).describe('If true, returns only changes since the last snapshot call (default: false)'),
     },
-    async ({ maxSignals, maxEffects }) => {
+    async ({ maxSignals, maxEffects, diff }) => {
       if (!bridge.isConnected()) return noConnection('what_snapshot');
+
+      // Store previous snapshot for diff mode
+      const previousSnapshot = diff ? bridge.getSnapshot() : null;
+
       const snapshot = await bridge.getOrRefreshSnapshot();
       if (!snapshot) return noSnapshot();
 
@@ -256,6 +261,76 @@ export function registerTools(server, bridge) {
       const allEffects = snapshot.effects || [];
       const allComponents = snapshot.components || [];
       const allErrors = bridge.getErrors();
+
+      // --- Diff mode ---
+      if (diff && previousSnapshot) {
+        const prevSignals = new Map((previousSnapshot.signals || []).map(s => [s.id, s]));
+        const prevEffects = new Map((previousSnapshot.effects || []).map(e => [e.id, e]));
+        const prevComps = new Set((previousSnapshot.components || []).map(c => c.id));
+
+        const signalsChanged = [];
+        const signalsAdded = [];
+        for (const sig of allSignals) {
+          const prev = prevSignals.get(sig.id);
+          if (!prev) {
+            signalsAdded.push(sig);
+          } else if (JSON.stringify(prev.value) !== JSON.stringify(sig.value)) {
+            signalsChanged.push({ ...sig, previousValue: prev.value });
+          }
+        }
+
+        const signalsRemoved = (previousSnapshot.signals || [])
+          .filter(s => !allSignals.find(cur => cur.id === s.id))
+          .map(s => ({ id: s.id, name: s.name }));
+
+        const effectsTriggered = allEffects
+          .filter(e => {
+            const prev = prevEffects.get(e.id);
+            return prev && (e.runCount || 0) > (prev.runCount || 0);
+          })
+          .map(e => ({
+            ...e,
+            delta: (e.runCount || 0) - (prevEffects.get(e.id)?.runCount || 0),
+          }));
+
+        const componentsAdded = allComponents.filter(c => !prevComps.has(c.id));
+        const componentsRemoved = (previousSnapshot.components || [])
+          .filter(c => !allComponents.find(cur => cur.id === c.id));
+
+        const totalChanges = signalsChanged.length + signalsAdded.length + signalsRemoved.length +
+          effectsTriggered.length + componentsAdded.length + componentsRemoved.length;
+
+        const parts = [];
+        if (signalsChanged.length) parts.push(`${signalsChanged.length} signal(s) changed`);
+        if (signalsAdded.length) parts.push(`${signalsAdded.length} signal(s) added`);
+        if (signalsRemoved.length) parts.push(`${signalsRemoved.length} signal(s) removed`);
+        if (effectsTriggered.length) parts.push(`${effectsTriggered.length} effect(s) re-ran`);
+        if (componentsAdded.length) parts.push(`${componentsAdded.length} component(s) mounted`);
+        if (componentsRemoved.length) parts.push(`${componentsRemoved.length} component(s) unmounted`);
+
+        const diffSummary = totalChanges === 0
+          ? 'No changes since last snapshot.'
+          : `${totalChanges} changes: ${parts.join(', ')}.`;
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              mode: 'diff',
+              summary: diffSummary,
+              totalChanges,
+              signalsChanged,
+              signalsAdded,
+              signalsRemoved,
+              effectsTriggered,
+              componentsAdded,
+              componentsRemoved,
+            }, null, 2),
+          }],
+        };
+      }
+
+      // --- Full snapshot mode ---
 
       // Detect hot effects
       const hotEffects = allEffects
@@ -277,6 +352,7 @@ export function registerTools(server, bridge) {
       const effects = truncatedEffects ? allEffects.slice(0, maxEffects) : allEffects;
 
       const result = {
+        mode: 'full',
         summary: summaryObj,
         signals,
         effects,
@@ -302,26 +378,83 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_errors',
-    'Get captured runtime errors with context. Filter by timestamp.',
+    'Get captured runtime errors with structured classification, severity, and actionable suggestions. Filter by timestamp or severity.',
     {
       since: z.number().optional().describe('Only errors after this Unix timestamp (ms)'),
+      severity: z.enum(['error', 'warning', 'all']).optional().default('all').describe('Filter by severity (default: all)'),
     },
-    async ({ since }) => {
+    async ({ since, severity }) => {
       if (!bridge.isConnected()) return noConnection('what_errors');
-      const errors = bridge.getErrors(since);
+      let errors = bridge.getErrors(since);
+
+      // Classify each error with structured codes and suggestions
+      const classified = errors.map((err, idx) => {
+        const msg = err.message || err.error || '';
+        let classification = {
+          id: `err_${idx}`,
+          severity: 'error',
+          code: 'ERR_RUNTIME',
+          message: msg,
+          timestamp: err.timestamp,
+          file: err.file || null,
+          line: err.line || null,
+          component: err.component || null,
+          suggestion: 'Check the stack trace and component context for more details.',
+          codeExample: null,
+        };
+
+        // Classify by pattern matching
+        if (msg.includes('infinite effect loop') || msg.includes('25 iterations')) {
+          classification.code = 'ERR_INFINITE_EFFECT';
+          classification.severity = 'error';
+          classification.suggestion = 'An effect reads and writes the same signal. Use untrack() for the read, or restructure into separate effects.';
+          classification.codeExample = 'effect(() => { count(untrack(count) + 1); });';
+        } else if (msg.includes('hydration') || msg.includes('Hydration')) {
+          classification.code = 'ERR_HYDRATION_MISMATCH';
+          classification.severity = 'error';
+          classification.suggestion = 'Server and client HTML differ. Avoid browser APIs in initial render. Use onMount() for client-only code.';
+        } else if (msg.includes('Signal.set() called inside a computed')) {
+          classification.code = 'ERR_SIGNAL_WRITE_IN_RENDER';
+          classification.severity = 'error';
+          classification.suggestion = 'Move signal writes into event handlers or effects. Component body should only read signals.';
+        } else if (msg.includes('not a function') || msg.includes('is not defined')) {
+          classification.code = 'ERR_IMPORT_ERROR';
+          classification.severity = 'error';
+          classification.suggestion = 'Check that the import name matches a valid what-framework export. Use what_fix for the full API list.';
+        }
+
+        // Copy extra fields from original error
+        if (err.effectName) classification.effect = err.effectName;
+        if (err.effect) classification.effect = classification.effect || err.effect;
+        if (err.stack) classification.stack = err.stack;
+
+        return classification;
+      });
+
+      // Filter by severity
+      let filtered = classified;
+      if (severity && severity !== 'all') {
+        filtered = classified.filter(e => e.severity === severity);
+      }
 
       // Build summary
       let summary;
-      if (errors.length === 0) {
+      if (filtered.length === 0) {
         summary = 'No errors captured.';
       } else {
-        const mostRecent = errors[errors.length - 1];
+        const mostRecent = filtered[filtered.length - 1];
         const ageMs = Date.now() - (mostRecent.timestamp || 0);
         const ageSec = Math.round(ageMs / 1000);
         const ageStr = ageSec < 60 ? `${ageSec}s ago` : `${Math.round(ageSec / 60)}m ago`;
-        const errorType = mostRecent.message ? mostRecent.message.split(':')[0] : 'Error';
-        const effectName = mostRecent.effectName || mostRecent.effect || 'unknown';
-        summary = `${errors.length} errors captured. Most recent: ${errorType} in effect '${effectName}' (${ageStr}).`;
+
+        // Group by code
+        const codeCounts = {};
+        for (const e of filtered) {
+          codeCounts[e.code] = (codeCounts[e.code] || 0) + 1;
+        }
+        const breakdown = Object.entries(codeCounts).map(([code, count]) => `${count} ${code}`).join(', ');
+
+        summary = `${filtered.length} errors captured. Breakdown: ${breakdown}. Most recent: ${mostRecent.code} (${ageStr}).`;
       }
 
       return {
@@ -329,12 +462,13 @@ export function registerTools(server, bridge) {
           type: 'text',
           text: JSON.stringify({
             summary,
-            count: errors.length,
-            errors,
+            count: filtered.length,
+            errors: filtered,
             nextSteps: [
-              'Use what_signals to check signal values referenced in the error stack traces',
+              'Use what_fix with the error code for detailed diagnosis and fix examples',
+              'Use what_signals to check signal values referenced in the error',
               'Use what_effects to inspect the failing effect\'s dependencies',
-              'Use what_watch to observe if the error recurs',
+              'Use what_lint to scan your code for common patterns that cause these errors',
             ],
           }, null, 2),
         }],
