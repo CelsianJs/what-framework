@@ -16,7 +16,7 @@
 //   'media'   - Hydrate when media query matches (e.g., mobile-only)
 //   'action'  - Hydrate on first user interaction (click, focus, hover)
 
-import { mount, signal, batch } from 'what-core';
+import { mount, hydrate, signal, batch } from 'what-core';
 
 const islandRegistry = new Map();
 const hydratedIslands = new Set();
@@ -234,7 +234,13 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
       storeProps[storeName] = useIslandStore(storeName);
     }
 
-    mount(Component({ ...props, ...storeProps }), el);
+    // Use hydrate() to reuse server-rendered DOM instead of destroying/recreating
+    const vnode = Component({ ...props, ...storeProps });
+    if (el.childNodes.length > 0) {
+      hydrate(vnode, el);
+    } else {
+      mount(vnode, el);
+    }
 
     // Clean up data attributes
     el.removeAttribute('data-island');
@@ -363,12 +369,22 @@ export function enhanceForms(selector = 'form[data-enhance]') {
       const action = form.action || location.href;
 
       try {
+        // Read CSRF token from meta tag
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]') ||
+                         document.querySelector('meta[name="what-csrf-token"]');
+        const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : null;
+
+        const headers = {
+          'X-Requested-With': 'XMLHttpRequest',
+        };
+        if (csrfToken) {
+          headers['X-CSRF-Token'] = csrfToken;
+        }
+
         const response = await fetch(action, {
           method,
           body: method === 'GET' ? undefined : formData,
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-          },
+          headers,
         });
 
         form.dispatchEvent(new CustomEvent('form:response', {

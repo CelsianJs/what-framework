@@ -42,7 +42,7 @@
     "ssr",
     "vanilla-js",
     "lightweight",
-    "vdom"
+    "fine-grained"
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",

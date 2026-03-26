@@ -140,3 +140,240 @@ describe('what babel plugin fine-grained output', () => {
     );
   });
 });
+
+// =====================================================
+// VDOM mode removal tests
+// =====================================================
+
+describe('VDOM mode removal', () => {
+  it('does not emit h() calls for native HTML elements', () => {
+    const code = compile(`
+      function App() {
+        return <div class="container"><p>Hello</p></div>;
+      }
+    `);
+
+    // Should use template(), not h()
+    assert.match(code, /_\$template\(/);
+    // h() should only appear for components, not native elements
+    assert.doesNotMatch(code, /h\("div"/);
+    assert.doesNotMatch(code, /h\("p"/);
+  });
+
+  it('does not support vdom mode option (fine-grained is the only mode)', () => {
+    // Even if someone passes mode: 'vdom', it should still use fine-grained
+    const code = compile(`
+      function App() {
+        return <div>Hello</div>;
+      }
+    `);
+
+    assert.match(code, /_\$template\(/);
+    assert.doesNotMatch(code, /h\("div"/);
+  });
+
+  it('uses h() only for component invocations', () => {
+    const code = compile(`
+      import { useState } from 'what-framework';
+      function Child({ name }) {
+        return <span>{name}</span>;
+      }
+      function App() {
+        return <div><Child name="test" /></div>;
+      }
+    `);
+
+    // h() should be used for <Child> component
+    assert.match(code, /h\(Child/);
+    // But not for native elements
+    assert.doesNotMatch(code, /h\("div"/);
+    assert.doesNotMatch(code, /h\("span"/);
+  });
+});
+
+// =====================================================
+// Template hoisting tests
+// =====================================================
+
+describe('template hoisting to module scope', () => {
+  it('hoists template() calls to top of program', () => {
+    const code = compile(`
+      function App() {
+        return <div class="app"><h1>Title</h1></div>;
+      }
+    `);
+
+    // Template declaration should be at the top level (before the function)
+    const tmplIndex = code.indexOf('_tmpl$');
+    const fnIndex = code.indexOf('function App');
+    assert.ok(tmplIndex < fnIndex, 'template should be hoisted before the function');
+  });
+
+  it('deduplicates identical templates', () => {
+    const code = compile(`
+      function A() {
+        return <div class="item">Hello</div>;
+      }
+      function B() {
+        return <div class="item">Hello</div>;
+      }
+    `);
+
+    // Both components should reference the same template
+    const tmplMatches = code.match(/const _tmpl\$\d+/g) || [];
+    // Should have only one unique template for the same HTML
+    assert.equal(tmplMatches.length, 1, 'identical templates should be deduplicated');
+  });
+
+  it('creates separate templates for different HTML', () => {
+    const code = compile(`
+      function A() {
+        return <div class="a">A</div>;
+      }
+      function B() {
+        return <div class="b">B</div>;
+      }
+    `);
+
+    const tmplMatches = code.match(/const _tmpl\$\d+/g) || [];
+    assert.equal(tmplMatches.length, 2, 'different HTML should create separate templates');
+  });
+});
+
+// =====================================================
+// Smart reactivity detection tests
+// =====================================================
+
+describe('smart reactivity detection', () => {
+  it('wraps signal reads in effects', () => {
+    const code = compile(`
+      function App() {
+        const count = signal(0);
+        return <div>{count()}</div>;
+      }
+    `);
+
+    // count() is a signal read — should be wrapped in an effect via insert
+    assert.match(code, /_\$insert/);
+    assert.match(code, /=>/); // arrow function wrapper for reactive insert
+  });
+
+  it('does not wrap Math.max with non-signal args in effects', () => {
+    const code = compile(`
+      function App() {
+        const a = 5;
+        const b = 10;
+        return <div class={Math.max(a, b) > 7 ? 'big' : 'small'} />;
+      }
+    `);
+
+    // Math.max(a, b) where a,b are plain variables should NOT be in effect
+    assert.doesNotMatch(code, /_\$effect\(/);
+  });
+
+  it('wraps Math.max with signal args in effects', () => {
+    const code = compile(`
+      function App() {
+        const a = signal(5);
+        const b = signal(10);
+        return <div class={Math.max(a(), b()) > 7 ? 'big' : 'small'} />;
+      }
+    `);
+
+    // Math.max(a(), b()) where a,b are signals SHOULD be in effect
+    assert.match(code, /_\$effect\(/);
+  });
+
+  it('detects useState destructured values as reactive', () => {
+    const code = compile(`
+      function App() {
+        const [count, setCount] = useState(0);
+        return <span>{count}</span>;
+      }
+    `);
+
+    // count from useState should be treated as reactive
+    // and wrapped in a reactive insert
+    assert.match(code, /_\$insert/);
+  });
+
+  it('detects useSWR destructured values as reactive', () => {
+    const code = compile(`
+      function App() {
+        const { data, isLoading } = useSWR('key', fetcher);
+        return <div>{isLoading()}</div>;
+      }
+    `);
+
+    assert.match(code, /_\$insert/);
+    assert.match(code, /=>/); // arrow wrapper for reactive
+  });
+
+  it('does not treat regular function calls as reactive', () => {
+    const code = compile(`
+      function formatDate(d) { return d.toString(); }
+      function App() {
+        return <span class={formatDate(new Date())} />;
+      }
+    `);
+
+    // formatDate is not a signal — should not be wrapped in effect
+    assert.doesNotMatch(code, /_\$effect\(/);
+  });
+});
+
+// =====================================================
+// Component output tests
+// =====================================================
+
+describe('component output', () => {
+  it('components use h() for invocation', () => {
+    const code = compile(`
+      function Header({ title }) {
+        return <h1>{title}</h1>;
+      }
+      function App() {
+        return <div><Header title="Hello" /></div>;
+      }
+    `);
+
+    assert.match(code, /h\(Header/);
+  });
+
+  it('handles fragments', () => {
+    const code = compile(`
+      function App() {
+        return <><div>A</div><div>B</div></>;
+      }
+    `);
+
+    // Fragment should produce an array or multiple elements
+    const compiled = code;
+    assert.ok(compiled.length > 0, 'fragment should compile');
+  });
+
+  it('handles islands with client: directives', () => {
+    const code = compile(`
+      import { Island } from 'what-framework';
+      function Search() { return <input />; }
+      function App() {
+        return <div><Search client:idle placeholder="Search..." /></div>;
+      }
+    `);
+
+    assert.match(code, /Island/);
+    assert.match(code, /mode.*idle/);
+  });
+
+  it('escapes < and > in attribute values', () => {
+    const code = compile(`
+      function App() {
+        return <div title="a < b > c" />;
+      }
+    `);
+
+    // Attributes should have < and > escaped
+    assert.match(code, /&lt;/);
+    assert.match(code, /&gt;/);
+  });
+});

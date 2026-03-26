@@ -4,6 +4,93 @@
 
 import { h } from 'what-core';
 
+// --- Hydration ID Generator ---
+let _hydrationIdCounter = 0;
+
+function resetHydrationId() {
+  _hydrationIdCounter = 0;
+}
+
+function nextHydrationId() {
+  return 'h' + (_hydrationIdCounter++);
+}
+
+// --- Render to Hydratable String ---
+// Renders with hydration markers (data-hk attributes, comment boundaries)
+// so the client can reuse the server-rendered DOM.
+
+export function renderToHydratableString(vnode) {
+  resetHydrationId();
+  return _renderHydratable(vnode);
+}
+
+function _renderHydratable(vnode) {
+  if (vnode == null || vnode === false || vnode === true) return '';
+
+  // Text
+  if (typeof vnode === 'string' || typeof vnode === 'number') {
+    return escapeHtml(String(vnode));
+  }
+
+  // Signal — unwrap
+  if (typeof vnode === 'function' && vnode._signal) {
+    return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
+  }
+
+  // Reactive function child — wrap in dynamic content markers
+  if (typeof vnode === 'function') {
+    try {
+      return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
+    } catch (e) {
+      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+        console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
+      }
+      return '<!--$--><!--/$-->';
+    }
+  }
+
+  // Array — wrap in list markers
+  if (Array.isArray(vnode)) {
+    return `<!--[]-->${vnode.map(_renderHydratable).join('')}<!--/[]-->`;
+  }
+
+  // Component — add hydration key to root element
+  if (typeof vnode.tag === 'function') {
+    const hkId = nextHydrationId();
+    const result = vnode.tag({ ...vnode.props, children: vnode.children });
+    const html = _renderHydratable(result);
+    // Inject data-hk into the first element tag if present
+    return injectHydrationKey(html, hkId);
+  }
+
+  // Element
+  const { tag, props, children } = vnode;
+  const attrs = renderAttrs(props || {});
+  const open = `<${tag}${attrs}>`;
+
+  // Void elements
+  if (VOID_ELEMENTS.has(tag)) return open;
+
+  const rawInner = props?.dangerouslySetInnerHTML?.__html
+    ?? props?.innerHTML?.__html
+    ?? props?.innerHTML;
+  const inner = rawInner != null ? String(rawInner) : children.map(_renderHydratable).join('');
+  return `${open}${inner}</${tag}>`;
+}
+
+// Inject data-hk="id" into the first HTML opening tag
+function injectHydrationKey(html, hkId) {
+  // Skip comment markers to find the first real element
+  const match = html.match(/^((?:<!--.*?-->)*)<([a-zA-Z][a-zA-Z0-9-]*)/);
+  if (match) {
+    const prefix = match[1];
+    const tagName = match[2];
+    const insertAt = prefix.length + 1 + tagName.length; // after '<tagName'
+    return html.slice(0, insertAt) + ` data-hk="${hkId}"` + html.slice(insertAt);
+  }
+  return html;
+}
+
 // --- Render to String ---
 // Renders a VNode tree to an HTML string. Used for SSR and static gen.
 
@@ -242,7 +329,8 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function camelToKebab(str) {

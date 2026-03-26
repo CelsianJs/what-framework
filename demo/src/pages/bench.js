@@ -1,4 +1,4 @@
-import { h, useState, useEffect, useRef, useMemo, signal, batch } from 'what-framework';
+import { useState, useEffect, useRef, useMemo, signal, batch } from 'what-framework';
 
 export function Bench() {
   const [results, setResults] = useState(null);
@@ -53,23 +53,16 @@ export function Bench() {
       }
     });
 
-    // 6. Props diffing simulation (VNode reconciler)
-    benchResults.propsDiff = bench('Reconciler: diff 1,000 prop objects', () => {
+    // 6. Fine-grained template cloning
+    benchResults.templateClone = bench('Clone 1,000 templates', () => {
+      const tmpl = document.createElement('template');
+      tmpl.innerHTML = '<div class="item"><span></span></div>';
       for (let i = 0; i < 1000; i++) {
-        const oldP = { class: 'a', id: `item-${i}`, 'data-index': i, style: 'color:red' };
-        const newP = { class: 'b', id: `item-${i}`, 'data-index': i, style: 'color:blue' };
-        diffProps(oldP, newP);
+        tmpl.content.firstChild.cloneNode(true);
       }
     });
 
-    // 7. VNode creation (compiler outputs h() calls)
-    benchResults.vnodeCreate = bench('Create 10,000 VNodes via h()', () => {
-      for (let i = 0; i < 10000; i++) {
-        h('div', { class: 'item', key: i }, h('span', null, `Item ${i}`));
-      }
-    });
-
-    // 8. Array reconciliation simulation
+    // 7. Array reconciliation simulation
     benchResults.listReorder = bench('Reorder 1,000-item list', () => {
       const arr = Array.from({ length: 1000 }, (_, i) => i);
       // Fisher-Yates shuffle
@@ -83,84 +76,82 @@ export function Bench() {
     setRunning(false);
   };
 
-  return h('div', { class: 'section' },
-    h('div', { class: 'features-header' },
-      h('p', { class: 'features-label' }, 'Performance'),
-      h('h1', { class: 'features-title' }, 'Benchmarks'),
-      h('p', { class: 'features-subtitle' },
-        'Real performance measurements of What framework primitives. Run in your browser.'
-      ),
-    ),
+  return (
+    <div class="section">
+      <div class="features-header">
+        <p class="features-label">Performance</p>
+        <h1 class="features-title">Benchmarks</h1>
+        <p class="features-subtitle">
+          Real performance measurements of What framework primitives. Run in your browser.
+        </p>
+      </div>
 
-    h('div', { class: 'text-center mb-8' },
-      h('button', {
-        class: 'btn btn-primary btn-lg',
-        onClick: runBenchmarks,
-        disabled: running,
-      }, running ? 'Running...' : 'Run Benchmarks'),
-    ),
+      <div class="text-center mb-8">
+        <button
+          class="btn btn-primary btn-lg"
+          onClick={runBenchmarks}
+          disabled={running}
+        >{() => running ? 'Running...' : 'Run Benchmarks'}</button>
+      </div>
 
-    results
-      ? h('div', { class: 'bench-results animate-fade-up' },
-          ...Object.entries(results).map(([key, r]) =>
-            h('div', { class: 'bench-row' },
-              h('div', null,
-                h('strong', null, r.name),
-                h('div', { class: 'text-muted text-sm' },
-                  `${r.opsPerSec.toLocaleString()} ops/sec | ${r.avgMs.toFixed(3)}ms avg`,
-                ),
-              ),
-              h('div', { style: 'width: 200px; margin-left: 1rem;' },
-                h('div', {
-                  class: 'bench-bar',
-                  style: `width: ${Math.min(100, r.score)}%`,
-                }),
-              ),
-            )
-          ),
-        )
-      : null,
+      {() => results ? (
+        <div class="bench-results animate-fade-up">
+          {() => Object.entries(results).map(([key, r]) =>
+            <div class="bench-row">
+              <div>
+                <strong>{r.name}</strong>
+                <div class="text-muted text-sm">
+                  {`${r.opsPerSec.toLocaleString()} ops/sec | ${r.avgMs.toFixed(3)}ms avg`}
+                </div>
+              </div>
+              <div style="width: 200px; margin-left: 1rem;">
+                <div class="bench-bar" style={`width: ${Math.min(100, r.score)}%`}></div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
 
-    h('div', { class: 'mt-12' },
-      h('h2', { class: 'section-title' }, 'What We Measure'),
-      h('div', { class: 'features stagger-children' },
-        feat('Signal Creation', 'How fast we can create reactive atoms. Impacts component mount time.'),
-        feat('Signal Read/Write', 'Cost of reading and updating state. This is the hot path.'),
-        feat('Batch Updates', 'Grouping multiple writes to avoid redundant effect runs.'),
-        feat('DOM Operations', 'Raw element creation speed — our ceiling.'),
-        feat('VNode Reconciler', 'How efficiently the reconciler detects what changed in component props.'),
-        feat('h() Call Output', 'The compiled h() call overhead. JSX compiles to h() through the babel plugin.'),
-        feat('List Reconciliation', 'Reordering lists efficiently through the VNode reconciler — a classic framework benchmark.'),
-      ),
-    ),
+      <div class="mt-12">
+        <h2 class="section-title">What We Measure</h2>
+        <div class="features stagger-children">
+          <BenchFeature title="Signal Creation" desc="How fast we can create reactive atoms. Impacts component mount time." />
+          <BenchFeature title="Signal Read/Write" desc="Cost of reading and updating state. This is the hot path." />
+          <BenchFeature title="Batch Updates" desc="Grouping multiple writes to avoid redundant effect runs." />
+          <BenchFeature title="DOM Operations" desc="Raw element creation speed — our ceiling." />
+          <BenchFeature title="Template Cloning" desc="How fast we can clone pre-parsed templates — the fine-grained rendering hot path." />
+          <BenchFeature title="List Reconciliation" desc="Reordering lists efficiently — a classic framework benchmark." />
+        </div>
+      </div>
 
-    h('div', { class: 'mt-12' },
-      h('h2', { class: 'section-title' }, 'Design Principles'),
-      h('div', { class: 'code-block' },
-        h('div', { class: 'code-header' },
-          h('div', { class: 'code-dots' },
-            h('span', { class: 'code-dot' }),
-            h('span', { class: 'code-dot' }),
-            h('span', { class: 'code-dot' }),
-          ),
-          h('span', { class: 'code-filename' }, 'philosophy.js'),
-        ),
-        h('div', { class: 'code-content' },
-          h('pre', null, h('code', null, `// What's performance philosophy:
+      <div class="mt-12">
+        <h2 class="section-title">Design Principles</h2>
+        <div class="code-block">
+          <div class="code-header">
+            <div class="code-dots">
+              <span class="code-dot"></span>
+              <span class="code-dot"></span>
+              <span class="code-dot"></span>
+            </div>
+            <span class="code-filename">philosophy.js</span>
+          </div>
+          <div class="code-content">
+            <pre><code>{`// What's performance philosophy:
 //
-// 1. Unified rendering: JSX -> babel plugin -> h() -> VNode -> reconciler -> DOM
+// 1. Fine-grained rendering: JSX -> compiler -> template() + effect() -> DOM
 // 2. Signals track exact subscribers — no tree walking
 // 3. Batch by default in event handlers
 // 4. Lazy computed values — only recompute when read
-// 5. Props diffed by identity (===), not deep equality
+// 5. Components run ONCE — only signal-bound DOM nodes update
 // 6. Event delegation where possible
 // 7. Text nodes updated in place, never recreated
-// 8. Component output memoized via memo()
+// 8. Template cloning via cloneNode(true) — faster than createElement chains
 // 9. Islands (in core): ship zero JS for static content
-// 10. Single VNode reconciler — no dual rendering paths`)),
-        ),
-      ),
-    ),
+// 10. No VDOM diffing — direct DOM manipulation`}</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -187,27 +178,15 @@ function bench(name, fn, iterations = 100) {
   return { name, avgMs, opsPerSec, score };
 }
 
-function diffProps(oldP, newP) {
-  const changes = {};
-  for (const key in newP) {
-    if (newP[key] !== oldP[key]) changes[key] = newP[key];
-  }
-  for (const key in oldP) {
-    if (!(key in newP)) changes[key] = undefined;
-  }
-  return changes;
-}
-
 function tick() {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-function feat(title, desc) {
-  return h('div', { class: 'feature' },
-    h('h3', { class: 'feature-title' }, title),
-    h('p', { class: 'feature-description' }, desc),
+function BenchFeature({ title, desc }) {
+  return (
+    <div class="feature">
+      <h3 class="feature-title">{title}</h3>
+      <p class="feature-description">{desc}</p>
+    </div>
   );
 }
-
-// Export needed for h() import in bench
-export { h } from 'what-framework';

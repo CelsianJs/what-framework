@@ -1,4 +1,4 @@
-import { h, useState, useMemo } from 'what-framework';
+import { useState, useMemo } from 'what-framework';
 
 const sections = [
   {
@@ -49,7 +49,7 @@ dispose();`,
   {
     id: 'components',
     title: 'Components & JSX',
-    content: `Components are plain functions that return JSX. The compiler transforms JSX into h() calls that produce VNodes, which are reconciled against the DOM through a single unified rendering path.`,
+    content: `Components are plain functions that return JSX. The compiler transforms JSX into fine-grained DOM operations — template cloning + signal-driven effects. Components run ONCE.`,
     code: `import { mount, useState, useEffect } from 'what-framework';
 
 // Simple component
@@ -141,7 +141,7 @@ dispatch({ type: 'inc' });`,
   {
     id: 'jsx-features',
     title: 'JSX Features',
-    content: `The What compiler extends JSX with powerful directives. bind:value compiles to value + onInput props. Event modifiers compile to normal props. No signal auto-wrapping — expressions are passed through as-is.`,
+    content: `The What compiler extends JSX with powerful directives. bind:value compiles to value + onInput props. Event modifiers compile to addEventListener options. Fine-grained: only signal-bound DOM nodes update.`,
     code: `import { useState } from 'what-framework';
 
 function LoginForm() {
@@ -156,21 +156,12 @@ function LoginForm() {
       <input bind:value={password} type="password" />
       <input bind:checked={remember} type="checkbox" />
 
-      {/* Event modifiers output as normal props */}
+      {/* Event modifiers output as addEventListener options */}
       <button onClick.once={trackFirstClick}>Track</button>
-      <div onScroll.throttle={handleScroll}>...</div>
-      <input onKeydown.enter={submit} />
 
       {/* Conditional rendering */}
       <div w:if={email}>Welcome, {email}</div>
       <div w:else>Please enter your email</div>
-
-      {/* List rendering */}
-      <ul>
-        <li w:for={item in items} w:key={item.id}>
-          {item.name}
-        </li>
-      </ul>
 
       <button type="submit">Log In</button>
     </form>
@@ -178,8 +169,8 @@ function LoginForm() {
 }
 
 // The compiler pipeline:
-// JSX -> babel plugin -> h() calls -> VNode -> reconciler -> DOM
-// No signal auto-wrapping, no dual rendering paths`,
+// JSX -> babel plugin -> template() + effect() -> DOM
+// Components run ONCE. Only signal-bound nodes update.`,
   },
   {
     id: 'routing',
@@ -322,9 +313,8 @@ export default {
 
   // JSX compiler options
   compiler: {
-    // Compiler outputs h() calls through VNode reconciler
-    // bind: directives compile to value + onInput props
-    // Event modifiers compile to normal props
+    // Fine-grained mode: JSX -> template() + effect()
+    // Components run ONCE, only signal-bound DOM nodes update
     bindings: true,
     eventModifiers: true,
   },
@@ -365,72 +355,73 @@ export function Docs() {
     [active]
   );
 
-  return h('div', { class: 'section' },
-    h('div', { class: 'features-header' },
-      h('p', { class: 'features-label' }, 'Learn'),
-      h('h1', { class: 'features-title' }, 'Documentation'),
-      h('p', { class: 'features-subtitle' },
-        'Everything you need to build with What.',
-      ),
-    ),
+  return (
+    <div class="section">
+      <div class="features-header">
+        <p class="features-label">Learn</p>
+        <h1 class="features-title">Documentation</h1>
+        <p class="features-subtitle">
+          Everything you need to build with What.
+        </p>
+      </div>
 
-    h('div', { style: 'display: flex; gap: 3rem; margin-top: 3rem;' },
-      // Sidebar
-      h('nav', {
-        style: {
+      <div style="display: flex; gap: 3rem; margin-top: 3rem;">
+        {/* Sidebar */}
+        <nav style={{
           minWidth: '200px',
           position: 'sticky',
           top: '6rem',
           alignSelf: 'flex-start',
-        },
-      },
-        ...sections.map(s =>
-          h('a', {
-            href: `#${s.id}`,
-            class: active === s.id ? 'nav-link active' : 'nav-link',
-            style: {
-              display: 'block',
-              padding: '0.5rem 1rem',
-              marginBottom: '0.25rem',
-              borderRadius: 'var(--radius-md)',
-              textDecoration: 'none',
-              fontSize: 'var(--text-sm)',
-              color: active === s.id ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-              background: active === s.id ? 'var(--color-accent-subtle)' : 'transparent',
-              fontWeight: active === s.id ? '600' : '400',
-              transition: 'all 0.15s ease',
-            },
-            onClick: (e) => { e.preventDefault(); setActive(s.id); },
-          }, s.title)
-        ),
-      ),
+        }}>
+          {() => sections.map(s =>
+            <a
+              href={`#${s.id}`}
+              class={active === s.id ? 'nav-link active' : 'nav-link'}
+              style={{
+                display: 'block',
+                padding: '0.5rem 1rem',
+                marginBottom: '0.25rem',
+                borderRadius: 'var(--radius-md)',
+                textDecoration: 'none',
+                fontSize: 'var(--text-sm)',
+                color: active === s.id ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                background: active === s.id ? 'var(--color-accent-subtle)' : 'transparent',
+                fontWeight: active === s.id ? '600' : '400',
+                transition: 'all 0.15s ease',
+              }}
+              onClick={(e) => { e.preventDefault(); setActive(s.id); }}
+            >{s.title}</a>
+          )}
+        </nav>
 
-      // Content
-      h('div', { style: 'flex: 1; min-width: 0;' },
-        h('div', { class: 'demo-card animate-fade-up', key: section.id },
-          h('h2', { style: { marginBottom: '0.5rem' } }, section.title),
-          h('p', { class: 'text-secondary', style: { marginBottom: '1.5rem' } }, section.content),
-          h('div', { class: 'code-block', style: { margin: 0, maxWidth: 'none' } },
-            h('div', { class: 'code-header' },
-              h('div', { class: 'code-dots' },
-                h('span', { class: 'code-dot' }),
-                h('span', { class: 'code-dot' }),
-                h('span', { class: 'code-dot' }),
-              ),
-              h('span', { class: 'code-filename' },
-                section.id === 'quickstart' || section.id === 'deploy'
-                  ? 'terminal'
-                  : section.id === 'config'
-                    ? 'what.config.js'
-                    : section.id + '.jsx'
-              ),
-            ),
-            h('div', { class: 'code-content' },
-              h('pre', null, h('code', null, section.code)),
-            ),
-          ),
-        ),
-      ),
-    ),
+        {/* Content */}
+        <div style="flex: 1; min-width: 0;">
+          <div class="demo-card animate-fade-up" key={section.id}>
+            <h2 style={{ marginBottom: '0.5rem' }}>{section.title}</h2>
+            <p class="text-secondary" style={{ marginBottom: '1.5rem' }}>{section.content}</p>
+            <div class="code-block" style={{ margin: 0, maxWidth: 'none' }}>
+              <div class="code-header">
+                <div class="code-dots">
+                  <span class="code-dot"></span>
+                  <span class="code-dot"></span>
+                  <span class="code-dot"></span>
+                </div>
+                <span class="code-filename">
+                  {() => section.id === 'quickstart' || section.id === 'deploy'
+                    ? 'terminal'
+                    : section.id === 'config'
+                      ? 'what.config.js'
+                      : section.id + '.jsx'
+                  }
+                </span>
+              </div>
+              <div class="code-content">
+                <pre><code>{section.code}</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -2,15 +2,15 @@
 // The closest framework to vanilla JS.
 
 // Reactive primitives
-export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot, __setDevToolsHooks } from './reactive.js';
+export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot, getOwner, runWithOwner, onCleanup as onRootCleanup, __setDevToolsHooks } from './reactive.js';
 
 // Fine-grained rendering primitives
-export { template, insert, mapArray, spread, setProp, delegateEvents, on, classList } from './render.js';
+export { template, _template, insert, mapArray, spread, setProp, delegateEvents, on, classList, hydrate, isHydrating } from './render.js';
 
-// Virtual DOM
+// JSX factory (used by jsx-runtime and components)
 export { h, Fragment, html } from './h.js';
 
-// DOM mounting & rendering
+// DOM mounting & rendering (fine-grained, no VDOM reconciler)
 export { mount } from './dom.js';
 
 // Hooks (React-compatible API)

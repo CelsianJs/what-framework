@@ -15,7 +15,9 @@ describe('h()', () => {
 
   it('should handle null props', () => {
     const vnode = h('span', null, 'text');
-    assert.deepEqual(vnode.props, {});
+    // EMPTY_OBJ uses Object.create(null) for prototype safety
+    assert.equal(Object.getPrototypeOf(vnode.props), null);
+    assert.equal(Object.keys(vnode.props).length, 0);
     assert.deepEqual(vnode.children, ['text']);
   });
 

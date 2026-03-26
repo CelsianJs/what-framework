@@ -5,7 +5,7 @@
 // h(Component, props, ...children) -> VNode
 // VNode = { tag, props, children, key }
 
-const EMPTY_OBJ = {};
+const EMPTY_OBJ = Object.create(null);
 const EMPTY_ARR = [];
 
 export function h(tag, props, ...children) {

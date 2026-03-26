@@ -1,51 +1,10 @@
-// What Framework - DOM Reconciler
-// Surgical DOM updates. Diff props, diff children, patch only what changed.
-// Components use <what-c> wrapper elements (display:contents) for clean reconciliation.
-// No virtual DOM tree kept in memory — we diff against the live DOM.
+// What Framework - Fine-Grained DOM Runtime
+// Components run ONCE. Signals create individual DOM effects.
+// No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
 import { effect, batch, untrack, signal, __DEV__, __devtools } from './reactive.js';
 import { reportError, _injectGetCurrentComponent, shallowEqual } from './components.js';
 import { _setComponentRef } from './helpers.js';
-
-// Register <what-c> custom element to prevent flash of unstyled content
-// Note: style is set in connectedCallback (not constructor) to comply with custom element spec
-if (typeof customElements !== 'undefined' && !customElements.get('what-c')) {
-  customElements.define('what-c', class extends HTMLElement {
-    connectedCallback() {
-      this.style.display = 'contents';
-    }
-    // display:contents elements don't generate a layout box — getBoundingClientRect()
-    // returns zeros, offsetWidth/Height return 0. React libraries (react-draggable,
-    // react-colorful, etc.) traverse parentNode and call getBoundingClientRect() on
-    // what they expect to be a layout container. Since <what-c> is layout-invisible,
-    // delegate to the nearest ancestor that has a real box.
-    _layoutParent() {
-      let el = this.parentElement;
-      while (el && el.tagName === 'WHAT-C') el = el.parentElement;
-      return el;
-    }
-    getBoundingClientRect() {
-      const p = this._layoutParent();
-      return p ? p.getBoundingClientRect() : super.getBoundingClientRect();
-    }
-    get offsetWidth() {
-      const p = this._layoutParent();
-      return p ? p.offsetWidth : 0;
-    }
-    get offsetHeight() {
-      const p = this._layoutParent();
-      return p ? p.offsetHeight : 0;
-    }
-    get clientWidth() {
-      const p = this._layoutParent();
-      return p ? p.clientWidth : 0;
-    }
-    get clientHeight() {
-      const p = this._layoutParent();
-      return p ? p.clientHeight : 0;
-    }
-  });
-}
 
 // SVG elements that need namespace
 const SVG_ELEMENTS = new Set([
@@ -78,24 +37,34 @@ function disposeComponent(ctx) {
   if (ctx.disposed) return;
   ctx.disposed = true;
 
-  // Run useEffect cleanup functions in reverse order (last effect first, matching React)
-  for (let i = ctx.hooks.length - 1; i >= 0; i--) {
-    const hook = ctx.hooks[i];
-    if (hook && typeof hook === 'object' && 'cleanup' in hook && hook.cleanup) {
-      try { hook.cleanup(); } catch (e) { console.error('[what] cleanup error:', e); }
+  // Run cleanup callbacks
+  if (ctx.cleanups) {
+    for (const cleanup of ctx.cleanups) {
+      try { cleanup(); } catch (e) { console.error('[what] cleanup error:', e); }
     }
   }
 
-  // Run onCleanup callbacks in reverse order (last registered first)
+  // Run effect disposals
+  if (ctx.effects) {
+    for (const dispose of ctx.effects) {
+      try { dispose(); } catch (e) { /* already disposed */ }
+    }
+  }
+
+  // Run hook cleanups (useEffect return values)
+  if (ctx.hooks) {
+    for (const hook of ctx.hooks) {
+      if (hook && typeof hook.cleanup === 'function') {
+        try { hook.cleanup(); } catch (e) { console.error('[what] hook cleanup error:', e); }
+      }
+    }
+  }
+
+  // Run onCleanup callbacks
   if (ctx._cleanupCallbacks) {
-    for (let i = ctx._cleanupCallbacks.length - 1; i >= 0; i--) {
-      try { ctx._cleanupCallbacks[i](); } catch (e) { console.error('[what] onCleanup error:', e); }
+    for (const fn of ctx._cleanupCallbacks) {
+      try { fn(); } catch (e) { console.error('[what] onCleanup error:', e); }
     }
-  }
-
-  // Dispose reactive effects
-  for (const dispose of ctx.effects) {
-    try { dispose(); } catch (e) { /* effect already disposed */ }
   }
 
   if (__DEV__ && __devtools?.onComponentUnmount) __devtools.onComponentUnmount(ctx);
@@ -153,37 +122,43 @@ export function createDOM(vnode, parent, isSvg) {
     return document.createTextNode(String(vnode));
   }
 
-  // DOM node passthrough (compiler-first components can return real nodes)
+  // DOM node passthrough (fine-grained components return real nodes)
   if (isDomNode(vnode)) {
     return vnode;
   }
 
-  // Reactive function child — creates a wrapper that updates fine-grained
-  // Handles both primitives ({() => count()}) and vnodes ({() => items().map(...)})
+  // Reactive function child — create a container that updates via effect
   if (typeof vnode === 'function') {
-    const wrapper = document.createElement('what-c');
-    let mounted = false;
+    const container = document.createDocumentFragment ? document.createElement('span') : document.createElement('span');
+    container.style.display = 'contents';
+    let currentNodes = [];
     const dispose = effect(() => {
       const val = vnode();
-      // Normalize: null/false/true → empty, primitives and vnodes → array
       const vnodes = (val == null || val === false || val === true)
         ? []
         : Array.isArray(val) ? val : [val];
-      if (!mounted) {
-        mounted = true;
-        for (const v of vnodes) {
-          const node = createDOM(v, wrapper, parent?._isSvg);
-          if (node) wrapper.appendChild(node);
+
+      // Remove old nodes
+      for (const old of currentNodes) {
+        disposeTree(old);
+        if (old.parentNode === container) container.removeChild(old);
+      }
+      currentNodes = [];
+
+      // Add new nodes
+      for (const v of vnodes) {
+        const node = createDOM(v, container, parent?._isSvg);
+        if (node) {
+          container.appendChild(node);
+          currentNodes.push(node);
         }
-      } else {
-        reconcileChildren(wrapper, vnodes);
       }
     });
-    wrapper._dispose = dispose;
-    return wrapper;
+    container._dispose = dispose;
+    return container;
   }
 
-  // Array (fragment)
+  // Array of vnodes
   if (Array.isArray(vnode)) {
     const frag = document.createDocumentFragment();
     for (const child of vnode) {
@@ -193,48 +168,22 @@ export function createDOM(vnode, parent, isSvg) {
     return frag;
   }
 
-  // Unknown object child fallback
-  if (!isVNode(vnode)) {
-    return document.createTextNode(String(vnode));
-  }
-
-  // Portal (string-tagged vnodes from helpers.js Portal or react-compat createPortal)
-  if (vnode.tag === '__portal') {
-    return createPortalDOM(vnode, parent);
-  }
-
-  // Component
-  if (typeof vnode.tag === 'function') {
+  // VNode with component tag — component runs ONCE
+  if (isVNode(vnode) && typeof vnode.tag === 'function') {
     return createComponent(vnode, parent, isSvg);
   }
 
-  // Detect SVG context: either we're already in SVG, or this tag is an SVG element
-  const svgContext = isSvg || vnode.tag === 'svg' || SVG_ELEMENTS.has(vnode.tag);
-
-  // HTML or SVG Element
-  const el = svgContext
-    ? document.createElementNS(SVG_NS, vnode.tag)
-    : document.createElement(vnode.tag);
-
-  applyProps(el, vnode.props, {}, svgContext);
-  const hasRawHtml = vnode.props && (
-    Object.prototype.hasOwnProperty.call(vnode.props, 'dangerouslySetInnerHTML') ||
-    Object.prototype.hasOwnProperty.call(vnode.props, 'innerHTML')
-  );
-
-  if (!hasRawHtml) {
-    for (const child of vnode.children) {
-      const node = createDOM(child, el, svgContext && vnode.tag !== 'foreignObject');
-      if (node) el.appendChild(node);
-    }
+  // VNode with string tag — create element
+  if (isVNode(vnode)) {
+    return createElementFromVNode(vnode, parent, isSvg);
   }
 
-  // Store vnode on element for diffing
-  el._vnode = vnode;
-  return el;
+  // Unknown — convert to text
+  return document.createTextNode(String(vnode));
 }
 
 // --- Component Rendering ---
+// Components run ONCE. Props are passed as a signal for reactive access.
 
 const componentStack = [];
 
@@ -253,9 +202,7 @@ export function getComponentStack() {
 function createComponent(vnode, parent, isSvg) {
   let { tag: Component, props, children } = vnode;
 
-  // Class component detection — ES6 classes can't be called without `new`.
-  // React compat layer wraps class components in createElement, but some
-  // library-internal components may bypass that path. Detect and wrap here.
+  // Class component detection
   if (typeof Component === 'function' &&
       (Component.prototype?.isReactComponent || Component.prototype?.render)) {
     const ClassComp = Component;
@@ -273,7 +220,7 @@ function createComponent(vnode, parent, isSvg) {
   if (Component === '__suspense' || vnode.tag === '__suspense') {
     return createSuspenseBoundary(vnode, parent);
   }
-  if (Component === '__portal' || vnode.tag === '__portal') { // Now also handled in createDOM directly
+  if (Component === '__portal' || vnode.tag === '__portal') {
     return createPortalDOM(vnode, parent);
   }
 
@@ -285,9 +232,8 @@ function createComponent(vnode, parent, isSvg) {
     cleanups: [],
     mounted: false,
     disposed: false,
-    Component, // Store for identity check in patchNode
+    Component,
     _parentCtx: componentStack[componentStack.length - 1] || null,
-    // Inherit error boundary from parent context chain
     _errorBoundary: (() => {
       let p = componentStack[componentStack.length - 1];
       while (p) {
@@ -298,82 +244,59 @@ function createComponent(vnode, parent, isSvg) {
     })()
   };
 
-  // Wrapper element: <what-c display:contents> for HTML, <g> for SVG
-  // Note: <what-c> custom element sets display:contents in its constructor
-  let wrapper;
-  if (isSvg) {
-    wrapper = document.createElementNS(SVG_NS, 'g');
-  } else {
-    wrapper = document.createElement('what-c');
-  }
-  wrapper._componentCtx = ctx;
-  wrapper._isSvg = !!isSvg;
-  ctx._wrapper = wrapper;
+  // Container element for the component's output
+  const container = document.createElement('span');
+  container.style.display = 'contents';
+  container._componentCtx = ctx;
+  container._isSvg = !!isSvg;
+  ctx._wrapper = container;
 
   // Track for disposal
   mountedComponents.add(ctx);
   if (__DEV__ && __devtools?.onComponentMount) __devtools.onComponentMount(ctx);
 
   // Props signal for reactive updates from parent
-  // Match React's children semantics: 0→undefined, 1→single child, N→array
   const propsChildren = children.length === 0 ? undefined : children.length === 1 ? children[0] : children;
   const propsSignal = signal({ ...props, children: propsChildren });
   ctx._propsSignal = propsSignal;
 
-  // Reactive render: re-renders when signals used inside change
-  const dispose = effect(() => {
-    if (ctx.disposed) return;
-    ctx.hookIndex = 0;
+  // Component runs ONCE — not inside an effect
+  componentStack.push(ctx);
 
-    componentStack.push(ctx);
-
-    let result;
-    try {
-      result = Component(propsSignal());
-    } catch (error) {
-      componentStack.pop();
-      if (!reportError(error, ctx)) {
-        console.error('[what] Uncaught error in component:', Component.name || 'Anonymous', error);
-        throw error;
-      }
-      return;
-    }
-
-    // Keep ctx on componentStack while creating/reconciling children
-    // so child components' _parentCtx correctly points to this component.
-    // This is essential for context propagation (useContext walks _parentCtx).
-
-    const vnodes = Array.isArray(result) ? result : [result];
-
-    if (!ctx.mounted) {
-      // Initial mount
-      ctx.mounted = true;
-
-      // Run onMount callbacks after DOM is ready
-      if (ctx._mountCallbacks) {
-        queueMicrotask(() => {
-          if (ctx.disposed) return;
-          for (const fn of ctx._mountCallbacks) {
-            try { fn(); } catch (e) { console.error('[what] onMount error:', e); }
-          }
-        });
-      }
-
-      for (const v of vnodes) {
-        const node = createDOM(v, wrapper, isSvg);
-        if (node) wrapper.appendChild(node);
-      }
-    } else {
-      // Update: reconcile children inside wrapper
-      reconcileChildren(wrapper, vnodes);
-    }
-
+  let result;
+  try {
+    result = Component(propsSignal());
+  } catch (error) {
     componentStack.pop();
-  });
+    if (!reportError(error, ctx)) {
+      console.error('[what] Uncaught error in component:', Component.name || 'Anonymous', error);
+      throw error;
+    }
+    return container;
+  }
 
-  ctx.effects.push(dispose);
-  wrapper._vnode = vnode; // Store vnode for keyed reconciliation
-  return wrapper;
+  componentStack.pop();
+  ctx.mounted = true;
+
+  // Run onMount callbacks after DOM is ready
+  if (ctx._mountCallbacks) {
+    queueMicrotask(() => {
+      if (ctx.disposed) return;
+      for (const fn of ctx._mountCallbacks) {
+        try { fn(); } catch (e) { console.error('[what] onMount error:', e); }
+      }
+    });
+  }
+
+  // Append result to container
+  const vnodes = Array.isArray(result) ? result : [result];
+  for (const v of vnodes) {
+    const node = createDOM(v, container, isSvg);
+    if (node) container.appendChild(node);
+  }
+
+  container._vnode = vnode;
+  return container;
 }
 
 // Error boundary component handler
@@ -381,10 +304,9 @@ function createErrorBoundary(vnode, parent) {
   const { errorState, handleError, fallback, reset } = vnode.props;
   const children = vnode.children;
 
-  const wrapper = document.createElement('what-c');
+  const wrapper = document.createElement('span');
   wrapper.style.display = 'contents';
 
-  // Create a boundary context so child components can find this boundary via _parentCtx chain
   const boundaryCtx = {
     hooks: [], hookIndex: 0, effects: [], cleanups: [],
     mounted: false, disposed: false,
@@ -396,8 +318,13 @@ function createErrorBoundary(vnode, parent) {
   const dispose = effect(() => {
     const error = errorState();
 
-    // Push boundary context so child components inherit _errorBoundary via _parentCtx
     componentStack.push(boundaryCtx);
+
+    // Remove old content
+    while (wrapper.firstChild) {
+      disposeTree(wrapper.firstChild);
+      wrapper.removeChild(wrapper.firstChild);
+    }
 
     let vnodes;
     if (error) {
@@ -408,13 +335,9 @@ function createErrorBoundary(vnode, parent) {
 
     vnodes = Array.isArray(vnodes) ? vnodes : [vnodes];
 
-    if (wrapper.childNodes.length === 0) {
-      for (const v of vnodes) {
-        const node = createDOM(v, wrapper);
-        if (node) wrapper.appendChild(node);
-      }
-    } else {
-      reconcileChildren(wrapper, vnodes);
+    for (const v of vnodes) {
+      const node = createDOM(v, wrapper);
+      if (node) wrapper.appendChild(node);
     }
 
     componentStack.pop();
@@ -429,10 +352,9 @@ function createSuspenseBoundary(vnode, parent) {
   const { boundary, fallback, loading } = vnode.props;
   const children = vnode.children;
 
-  const wrapper = document.createElement('what-c');
+  const wrapper = document.createElement('span');
   wrapper.style.display = 'contents';
 
-  // Create a boundary context to store the dispose function for cleanup
   const boundaryCtx = {
     hooks: [], hookIndex: 0, effects: [], cleanups: [],
     mounted: false, disposed: false,
@@ -447,13 +369,15 @@ function createSuspenseBoundary(vnode, parent) {
 
     componentStack.push(boundaryCtx);
 
-    if (wrapper.childNodes.length === 0) {
-      for (const v of normalized) {
-        const node = createDOM(v, wrapper);
-        if (node) wrapper.appendChild(node);
-      }
-    } else {
-      reconcileChildren(wrapper, normalized);
+    // Remove old content
+    while (wrapper.firstChild) {
+      disposeTree(wrapper.firstChild);
+      wrapper.removeChild(wrapper.firstChild);
+    }
+
+    for (const v of normalized) {
+      const node = createDOM(v, wrapper);
+      if (node) wrapper.appendChild(node);
     }
 
     componentStack.pop();
@@ -463,7 +387,7 @@ function createSuspenseBoundary(vnode, parent) {
   return wrapper;
 }
 
-// Portal component handler — renders children into a different DOM container
+// Portal component handler
 function createPortalDOM(vnode, parent) {
   const { container } = vnode.props;
   const children = vnode.children;
@@ -473,18 +397,15 @@ function createPortalDOM(vnode, parent) {
     return document.createComment('portal:empty');
   }
 
-  // Create a boundary context for cleanup
   const portalCtx = {
     hooks: [], hookIndex: 0, effects: [], cleanups: [],
     mounted: false, disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
   };
 
-  // Placeholder in the original tree for reconciliation
   const placeholder = document.createComment('portal');
   placeholder._componentCtx = portalCtx;
 
-  // Render children into the target container
   const portalNodes = [];
   for (const child of children) {
     const node = createDOM(child, container);
@@ -494,7 +415,6 @@ function createPortalDOM(vnode, parent) {
     }
   }
 
-  // Register cleanup to remove portal nodes when placeholder is disposed
   portalCtx._cleanupCallbacks = [() => {
     for (const node of portalNodes) {
       disposeTree(node);
@@ -505,525 +425,57 @@ function createPortalDOM(vnode, parent) {
   return placeholder;
 }
 
-// --- Reconciliation ---
-// Diff old DOM nodes against new VNodes, patch in place.
-// Uses keyed reconciliation with LIS (Longest Increasing Subsequence) for minimal DOM moves.
+// --- Create Element from VNode ---
+// For h()-based VNodes with string tags
 
-function reconcile(parent, oldNodes, newVNodes, beforeMarker) {
-  if (!parent) return;
+function createElementFromVNode(vnode, parent, isSvg) {
+  const { tag, props, children } = vnode;
 
-  const hasKeys = newVNodes.some(v => v && typeof v === 'object' && v.key != null);
+  const svgContext = isSvg || SVG_ELEMENTS.has(tag);
+  const el = svgContext
+    ? document.createElementNS(SVG_NS, tag)
+    : document.createElement(tag);
 
-  if (hasKeys) {
-    reconcileKeyed(parent, oldNodes, newVNodes, beforeMarker);
-  } else {
-    reconcileUnkeyed(parent, oldNodes, newVNodes, beforeMarker);
+  // Apply props
+  if (props) {
+    applyProps(el, props, {}, svgContext);
   }
+
+  // Append children
+  for (const child of children) {
+    const node = createDOM(child, el, svgContext && tag !== 'foreignObject');
+    if (node) el.appendChild(node);
+  }
+
+  el._vnode = vnode;
+  return el;
 }
 
-// Unkeyed reconciliation (index-based, fast for static lists)
-function reconcileUnkeyed(parent, oldNodes, newVNodes, beforeMarker) {
-  const maxLen = Math.max(oldNodes.length, newVNodes.length);
-  const newNodes = [];
-
-  for (let i = 0; i < maxLen; i++) {
-    const oldNode = oldNodes[i];
-    const newVNode = newVNodes[i];
-
-    if (i >= newVNodes.length) {
-      // Remove extra old nodes
-      if (oldNode && oldNode.parentNode) {
-        disposeTree(oldNode);
-        oldNode.parentNode.removeChild(oldNode);
-      }
-      continue;
-    }
-
-    if (i >= oldNodes.length) {
-      // Append new nodes
-      const node = createDOM(newVNode, parent);
-      if (node) {
-        const ref = getInsertionRef(oldNodes, beforeMarker);
-        safeInsertBefore(parent, node, ref);
-        newNodes.push(node);
-      }
-      continue;
-    }
-
-    // Patch existing node
-    const patched = patchNode(parent, oldNode, newVNode);
-    newNodes.push(patched);
-  }
-
-  // Update the reference array
-  oldNodes.length = 0;
-  oldNodes.push(...newNodes);
-}
-
-// Keyed reconciliation with LIS algorithm for O(n log n) minimal moves
-function reconcileKeyed(parent, oldNodes, newVNodes, beforeMarker) {
-  const newLen = newVNodes.length;
-  const oldLen = oldNodes.length;
-
-  // --- Fast path: same-position keys (covers "update N items in-place") ---
-  // If same length and all keys match at the same index, skip LIS entirely.
-  // Just patch each node in-place — O(n) with zero DOM moves.
-  if (newLen === oldLen && newLen > 0) {
-    let allMatch = true;
-    for (let i = 0; i < newLen; i++) {
-      const newKey = newVNodes[i]?.key;
-      const oldKey = oldNodes[i]?._vnode?.key;
-      if (newKey == null || newKey !== oldKey) {
-        allMatch = false;
-        break;
-      }
-    }
-    if (allMatch) {
-      for (let i = 0; i < newLen; i++) {
-        patchNode(parent, oldNodes[i], newVNodes[i]);
-      }
-      return;
-    }
-  }
-
-  // Build old key -> { node, index } map
-  const oldKeyMap = new Map();
-  for (let i = 0; i < oldLen; i++) {
-    const node = oldNodes[i];
-    const key = node._vnode?.key;
-    if (key != null) {
-      oldKeyMap.set(key, { node, index: i });
-    }
-  }
-
-  const newNodes = [];
-
-  // First pass: match keys and find reusable nodes
-  const sources = new Array(newLen).fill(-1); // Maps new index to old index
-  const reused = new Set();
-
-  for (let i = 0; i < newLen; i++) {
-    const vnode = newVNodes[i];
-    const key = vnode?.key;
-    if (key != null && oldKeyMap.has(key)) {
-      const { node: oldNode, index: oldIndex } = oldKeyMap.get(key);
-      sources[i] = oldIndex;
-      reused.add(oldIndex);
-    }
-  }
-
-  // Remove nodes that aren't reused
-  for (let i = 0; i < oldLen; i++) {
-    if (!reused.has(i) && oldNodes[i]?.parentNode) {
-      disposeTree(oldNodes[i]);
-      oldNodes[i].parentNode.removeChild(oldNodes[i]);
-    }
-  }
-
-  // Find LIS (Longest Increasing Subsequence) of old indices.
-  // The LIS tells us which reused nodes are already in correct relative order
-  // and don't need to be moved. Only nodes NOT in the LIS need DOM moves.
-  //
-  // Step 1: Filter out -1 entries (new nodes with no old counterpart).
-  // Step 2: Compute LIS on the filtered array. Result: indices into the filtered array.
-  // Step 3: Map filtered-array indices back to original sources[] indices (new-VNode indices).
-  //   For each LIS index `lis[i]`, we find the `lis[i]`-th non-negative entry in sources[]
-  //   and return its position in the original sources array.
-  // Build filteredToOriginal map in one O(n) pass instead of O(n²) nested loop
-  const filtered = [];
-  const filteredToOriginal = [];
-  for (let j = 0; j < sources.length; j++) {
-    if (sources[j] !== -1) {
-      filteredToOriginal.push(j);
-      filtered.push(sources[j]);
-    }
-  }
-  const lis = longestIncreasingSubsequence(filtered);
-  const lisSet = new Set(lis.map(i => filteredToOriginal[i]));
-
-  // Build new nodes array and move/create as needed
-  let lastInserted = beforeMarker?.nextSibling || null;
-
-  // Process in reverse order for correct insertion
-  for (let i = newLen - 1; i >= 0; i--) {
-    const vnode = newVNodes[i];
-    const key = vnode?.key;
-    const oldEntry = key != null ? oldKeyMap.get(key) : null;
-
-    if (oldEntry && sources[i] !== -1) {
-      // Reuse existing node
-      const oldNode = oldEntry.node;
-      // Patch props/children
-      const patched = patchNode(parent, oldNode, vnode);
-      newNodes[i] = patched;
-
-      // Move if not in LIS
-      if (!lisSet.has(i) && patched.parentNode) {
-        safeInsertBefore(parent, patched, lastInserted);
-      }
-      lastInserted = patched;
-    } else {
-      // Create new node
-      const node = createDOM(vnode, parent);
-      if (node) {
-        safeInsertBefore(parent, node, lastInserted);
-        lastInserted = node;
-      }
-      newNodes[i] = node;
-    }
-  }
-
-  // Update the reference array
-  oldNodes.length = 0;
-  oldNodes.push(...newNodes.filter(Boolean));
-}
-
-// Longest Increasing Subsequence - O(n log n)
-// Returns indices of elements that form the LIS
-function longestIncreasingSubsequence(arr) {
-  if (arr.length === 0) return [];
-
-  const n = arr.length;
-  const dp = new Array(n).fill(1);      // Length of LIS ending at i
-  const parent = new Array(n).fill(-1); // Parent index for reconstruction
-  const tails = [0];                     // Indices of smallest tail elements
-
-  for (let i = 1; i < n; i++) {
-    if (arr[i] > arr[tails[tails.length - 1]]) {
-      parent[i] = tails[tails.length - 1];
-      tails.push(i);
-    } else {
-      // Binary search for the smallest element >= arr[i]
-      let lo = 0, hi = tails.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (arr[tails[mid]] < arr[i]) lo = mid + 1;
-        else hi = mid;
-      }
-      if (arr[i] < arr[tails[lo]]) {
-        if (lo > 0) parent[i] = tails[lo - 1];
-        tails[lo] = i;
-      }
-    }
-  }
-
-  // Reconstruct LIS
-  const result = [];
-  let k = tails[tails.length - 1];
-  while (k !== -1) {
-    result.push(k);
-    k = parent[k];
-  }
-  return result.reverse();
-}
-
-function getInsertionRef(nodes, marker) {
-  if (nodes.length > 0) {
-    const last = nodes[nodes.length - 1];
-    return last.nextSibling;
-  }
-  return marker ? marker.nextSibling : null;
-}
-
-// Safe insertBefore: guards against stale reference nodes from nested reconciliation.
-// When patchNode triggers a child component re-render (via propsSignal.set), the child's
-// effect can run synchronously and mutate the DOM tree, leaving the parent's reference
-// node detached. This helper falls back to appendChild when the ref is stale.
-function safeInsertBefore(parent, node, ref) {
-  if (ref && ref.parentNode === parent) {
-    parent.insertBefore(node, ref);
-  } else {
-    parent.appendChild(node);
-  }
-}
-
-// Helper: clean up array marker range (startMarker .. endMarker) and return a clean replacement node
-function cleanupArrayMarkers(parent, startMarker) {
-  const endMarker = startMarker._arrayEnd;
-  if (!endMarker) return null;
-  // Remove all nodes between start and end markers
-  let node = startMarker.nextSibling;
-  while (node && node !== endMarker) {
-    const next = node.nextSibling;
-    disposeTree(node);
-    parent.removeChild(node);
-    node = next;
-  }
-  // Remove end marker
-  if (endMarker.parentNode) parent.removeChild(endMarker);
-  return startMarker;
-}
-
-function patchNode(parent, domNode, vnode) {
-  // Null/removed → keep placeholder or replace with one
-  if (vnode == null || vnode === false || vnode === true) {
-    // Handle array marker cleanup
-    if (domNode && domNode.nodeType === 8 && domNode._arrayEnd) {
-      cleanupArrayMarkers(parent, domNode);
-      const placeholder = document.createComment('');
-      parent.replaceChild(placeholder, domNode);
-      return placeholder;
-    }
-    if (domNode && domNode.nodeType === 8 && !domNode._componentCtx) {
-      return domNode; // already a placeholder comment
-    }
-    const placeholder = document.createComment('');
-    if (domNode && domNode.parentNode) {
-      disposeTree(domNode);
-      parent.replaceChild(placeholder, domNode);
-    }
-    return placeholder;
-  }
-
-  // Reactive function child — replace whatever's there with a reactive wrapper
-  if (typeof vnode === 'function') {
-    const wrapper = document.createElement('what-c');
-    let mounted = false;
-    const dispose = effect(() => {
-      const val = vnode();
-      const vnodes = (val == null || val === false || val === true)
-        ? []
-        : Array.isArray(val) ? val : [val];
-      if (!mounted) {
-        mounted = true;
-        for (const v of vnodes) {
-          const node = createDOM(v, wrapper);
-          if (node) wrapper.appendChild(node);
-        }
-      } else {
-        reconcileChildren(wrapper, vnodes);
-      }
-    });
-    wrapper._dispose = dispose;
-    if (domNode && domNode.parentNode) {
-      disposeTree(domNode);
-      parent.replaceChild(wrapper, domNode);
-    }
-    return wrapper;
-  }
-
-  // DOM node passthrough
-  if (isDomNode(vnode)) {
-    if (domNode === vnode) return domNode;
-    if (domNode && domNode.parentNode) {
-      disposeTree(domNode);
-      parent.replaceChild(vnode, domNode);
-    }
-    return vnode;
-  }
-
-  // Text
-  if (typeof vnode === 'string' || typeof vnode === 'number') {
-    const text = String(vnode);
-    // Clean up array markers if transitioning from array to text
-    if (domNode && domNode.nodeType === 8 && domNode._arrayEnd) {
-      cleanupArrayMarkers(parent, domNode);
-      const newNode = document.createTextNode(text);
-      parent.replaceChild(newNode, domNode);
-      return newNode;
-    }
-    if (domNode.nodeType === 3) {
-      if (domNode.textContent !== text) domNode.textContent = text;
-      return domNode;
-    }
-    const newNode = document.createTextNode(text);
-    disposeTree(domNode);
-    parent.replaceChild(newNode, domNode);
-    return newNode;
-  }
-
-  // Array — use marker comments to bracket the range (DocumentFragment empties on append)
-  if (Array.isArray(vnode)) {
-    // If domNode is already an array marker, reconcile contents in place
-    if (domNode && domNode.nodeType === 8 && domNode._arrayEnd) {
-      const endMarker = domNode._arrayEnd;
-      // Collect existing children between markers
-      const oldChildren = [];
-      let node = domNode.nextSibling;
-      while (node && node !== endMarker) {
-        oldChildren.push(node);
-        node = node.nextSibling;
-      }
-      // Reconcile the array contents
-      const maxLen = Math.max(oldChildren.length, vnode.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (i >= vnode.length) {
-          // Remove extra old nodes
-          if (oldChildren[i]?.parentNode) {
-            disposeTree(oldChildren[i]);
-            parent.removeChild(oldChildren[i]);
-          }
-        } else if (i >= oldChildren.length) {
-          // Append new nodes before end marker
-          const newNode = createDOM(vnode[i], parent);
-          if (newNode) parent.insertBefore(newNode, endMarker);
-        } else {
-          // Patch existing
-          patchNode(parent, oldChildren[i], vnode[i]);
-        }
-      }
-      return domNode;
-    }
-    // Fresh array: create markers
-    const startMarker = document.createComment('[');
-    const endMarker = document.createComment(']');
-    disposeTree(domNode);
-    parent.replaceChild(endMarker, domNode);
-    parent.insertBefore(startMarker, endMarker);
-    for (const v of vnode) {
-      const node = createDOM(v, parent);
-      if (node) parent.insertBefore(node, endMarker);
-    }
-    startMarker._arrayEnd = endMarker;
-    return startMarker;
-  }
-
-  // Unknown object child fallback
-  if (!isVNode(vnode)) {
-    const text = String(vnode);
-    if (domNode.nodeType === 3) {
-      if (domNode.textContent !== text) domNode.textContent = text;
-      return domNode;
-    }
-    const newNode = document.createTextNode(text);
-    disposeTree(domNode);
-    parent.replaceChild(newNode, domNode);
-    return newNode;
-  }
-
-  // Component
-  if (typeof vnode.tag === 'function') {
-    // Check if old node is a component wrapper for the same component
-    if (domNode._componentCtx && !domNode._componentCtx.disposed
-        && domNode._componentCtx.Component === vnode.tag) {
-      // Same component — update props reactively, let its effect re-render
-      const ch = vnode.children;
-      const patchChildren = ch.length === 0 ? undefined : ch.length === 1 ? ch[0] : ch;
-      const nextProps = { ...vnode.props, children: patchChildren };
-      // Skip signal update if props haven't changed (shallow compare)
-      const prevProps = domNode._componentCtx._propsSignal.peek();
-      if (!shallowEqual(prevProps, nextProps)) {
-        domNode._componentCtx._propsSignal.set(nextProps);
-      }
-      domNode._vnode = vnode; // Keep vnode current for keyed reconciliation
-      return domNode;
-    }
-    // Different component or not a component — dispose old, create new
-    disposeTree(domNode);
-    const node = createComponent(vnode, parent);
-    parent.replaceChild(node, domNode);
-    return node;
-  }
-
-  // Element: same tag? Patch props + children
-  if (domNode.nodeType === 1 && domNode.tagName.toLowerCase() === vnode.tag) {
-    const oldProps = domNode._vnode?.props || {};
-    const nextProps = vnode.props || {};
-    const hadRawHtml = Object.prototype.hasOwnProperty.call(oldProps, 'dangerouslySetInnerHTML')
-      || Object.prototype.hasOwnProperty.call(oldProps, 'innerHTML');
-    const hasRawHtml = Object.prototype.hasOwnProperty.call(nextProps, 'dangerouslySetInnerHTML')
-      || Object.prototype.hasOwnProperty.call(nextProps, 'innerHTML');
-
-    // If switching from normal children to raw HTML, dispose existing child effects first.
-    if (hasRawHtml && !hadRawHtml) {
-      for (const child of Array.from(domNode.childNodes)) {
-        disposeTree(child);
-      }
-    }
-
-    applyProps(domNode, nextProps, oldProps);
-
-    // Raw HTML props own the element's children. Skip vnode child reconciliation.
-    if (!hasRawHtml) {
-      reconcileChildren(domNode, vnode.children);
-    }
-
-    domNode._vnode = vnode;
-    return domNode;
-  }
-
-  // Different tag: replace entirely
-  const newNode = createDOM(vnode, parent);
-  disposeTree(domNode);
-  parent.replaceChild(newNode, domNode);
-  return newNode;
-}
-
-function reconcileChildren(parent, newChildVNodes) {
-  const oldChildren = Array.from(parent.childNodes);
-
-  // Check for keyed children
-  const hasKeys = newChildVNodes.some(v => v && typeof v === 'object' && v.key != null);
-
-  if (hasKeys) {
-    // Use keyed reconciliation
-    reconcileKeyed(parent, oldChildren, newChildVNodes, null);
-  } else {
-    // Unkeyed reconciliation
-    const maxLen = Math.max(oldChildren.length, newChildVNodes.length);
-
-    for (let i = 0; i < maxLen; i++) {
-      if (i >= newChildVNodes.length) {
-        // Remove extra
-        if (oldChildren[i]?.parentNode) {
-          disposeTree(oldChildren[i]);
-          parent.removeChild(oldChildren[i]);
-        }
-        continue;
-      }
-
-      if (i >= oldChildren.length) {
-        // Append new
-        const node = createDOM(newChildVNodes[i], parent);
-        if (node) parent.appendChild(node);
-        continue;
-      }
-
-      patchNode(parent, oldChildren[i], newChildVNodes[i]);
-    }
-  }
-}
-
-// --- Prop Diffing ---
-// Only touch DOM for props that actually changed.
+// --- Prop Application ---
+// Only applied once for fine-grained (no diffing). Reactive props use effects.
 
 function applyProps(el, newProps, oldProps, isSvg) {
   newProps = newProps || {};
   oldProps = oldProps || {};
 
-  // Remove old props not in new
-  for (const key in oldProps) {
-    if (key === 'key' || key === 'ref' || key === 'children') continue;
-    if (!(key in newProps)) {
-      removeProp(el, key, oldProps[key]);
-    }
-  }
-
-  // Set new/changed props
   for (const key in newProps) {
-    if (key === 'key' || key === 'ref' || key === 'children') continue;
-    if (newProps[key] !== oldProps[key]) {
-      setProp(el, key, newProps[key], isSvg);
-    }
-  }
+    if (key === 'key' || key === 'children') continue;
 
-  // Handle ref
-  if (newProps.ref && newProps.ref !== oldProps.ref) {
-    if (typeof newProps.ref === 'function') newProps.ref(el);
-    else newProps.ref.current = el;
+    // Handle ref
+    if (key === 'ref') {
+      if (typeof newProps.ref === 'function') newProps.ref(el);
+      else if (newProps.ref) newProps.ref.current = el;
+      continue;
+    }
+
+    setProp(el, key, newProps[key], isSvg);
   }
 }
 
 function setProp(el, key, value, isSvg) {
-  // Reactive function props — wrap in effect() for fine-grained updates.
-  // Applies to any non-event prop where the value is a function, e.g.:
-  //   h('input', { value: () => name(), class: () => active() ? 'on' : 'off' })
-  // The function is called inside an effect, so signal reads create subscriptions.
-  // When signals change, the prop is re-applied automatically.
+  // Reactive function props — wrap in effect for fine-grained updates
   if (typeof value === 'function' && !(key.startsWith('on') && key.length > 2) && key !== 'ref') {
-    // Store dispose functions on the element for cleanup
     if (!el._propEffects) el._propEffects = {};
-    // Dispose previous effect for this prop if re-applying
     if (el._propEffects[key]) {
       try { el._propEffects[key](); } catch (e) { /* already disposed */ }
     }
@@ -1034,38 +486,27 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // Event handlers: onClick -> click, onFocusCapture -> focus (capture phase)
-  // Wrap in untrack so signal reads in handlers don't create subscriptions
+  // Event handlers
   if (key.startsWith('on') && key.length > 2) {
     let eventName = key.slice(2);
-    // React-style capture phase: onClickCapture → click in capture phase
     let useCapture = false;
     if (eventName.endsWith('Capture')) {
       eventName = eventName.slice(0, -7);
       useCapture = true;
     }
     const event = eventName.toLowerCase();
-    // Use a combined key for storage so capture/bubble don't conflict
     const storageKey = useCapture ? event + '_capture' : event;
-    // Store handler for removal
     const old = el._events?.[storageKey];
-    // Skip re-wrapping if same handler function
     if (old && old._original === value) return;
     if (old) el.removeEventListener(event, old, useCapture);
-    // If handler is null/undefined, just remove the old one and bail
     if (value == null) return;
     if (!el._events) el._events = {};
-    // Wrap handler to untrack signal reads.
-    // Add nativeEvent for React compat — React synthetic events have
-    // e.nativeEvent pointing to the actual DOM event. Libraries like
-    // react-colorful, cmdk, and @floating-ui/react check this property.
     const wrappedHandler = (e) => {
       if (!e.nativeEvent) e.nativeEvent = e;
       return untrack(() => value(e));
     };
     wrappedHandler._original = value;
     el._events[storageKey] = wrappedHandler;
-    // Check for _eventOpts (once/capture/passive from compiler)
     const eventOpts = value._eventOpts;
     el.addEventListener(event, wrappedHandler, eventOpts || useCapture || undefined);
     return;
@@ -1081,13 +522,12 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // Style object — track previous style to remove stale properties
+  // Style
   if (key === 'style') {
     if (typeof value === 'string') {
       el.style.cssText = value;
       el._prevStyle = null;
     } else if (typeof value === 'object') {
-      // Remove old style properties not in new style
       const oldStyle = el._prevStyle || {};
       for (const prop in oldStyle) {
         if (!(prop in value)) el.style[prop] = '';
@@ -1106,7 +546,7 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // innerHTML convenience alias
+  // innerHTML
   if (key === 'innerHTML') {
     if (value && typeof value === 'object' && '__html' in value) {
       el.innerHTML = value.__html ?? '';
@@ -1123,13 +563,13 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // data-* and aria-* as attributes
+  // data-* and aria-*
   if (key.startsWith('data-') || key.startsWith('aria-')) {
     el.setAttribute(key, value);
     return;
   }
 
-  // SVG: always use setAttribute (SVG properties don't work as DOM properties)
+  // SVG
   if (isSvg) {
     if (value === false || value == null) {
       el.removeAttribute(key);
@@ -1139,46 +579,10 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // Default: set as property if it exists, otherwise attribute
+  // Default: property if exists, otherwise attribute
   if (key in el) {
     el[key] = value;
   } else {
     el.setAttribute(key, value);
   }
-}
-
-function removeProp(el, key, oldValue) {
-  if (key.startsWith('on') && key.length > 2) {
-    let eventName = key.slice(2);
-    let useCapture = false;
-    if (eventName.endsWith('Capture')) {
-      eventName = eventName.slice(0, -7);
-      useCapture = true;
-    }
-    const event = eventName.toLowerCase();
-    const storageKey = useCapture ? event + '_capture' : event;
-    if (el._events?.[storageKey]) {
-      el.removeEventListener(event, el._events[storageKey], useCapture);
-      delete el._events[storageKey];
-    }
-    return;
-  }
-
-  if (key === 'className' || key === 'class') {
-    el.className = '';
-    return;
-  }
-
-  if (key === 'style') {
-    el.style.cssText = '';
-    el._prevStyle = null;
-    return;
-  }
-
-  if (key === 'dangerouslySetInnerHTML' || key === 'innerHTML') {
-    el.innerHTML = '';
-    return;
-  }
-
-  el.removeAttribute(key);
 }

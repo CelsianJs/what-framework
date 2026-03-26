@@ -1,47 +1,47 @@
 /**
- * What Framework Babel Plugin
+ * What Framework Babel Plugin — Fine-Grained Only
  *
- * Two modes:
- * - 'vdom' (legacy): JSX → h() calls through VNode reconciler
- * - 'fine-grained' (default): JSX → template() + insert() + effect() calls
- *   Static HTML extracted to templates, dynamic expressions wrapped in effects.
+ * JSX → template() + insert() + effect() calls
+ * Static HTML extracted to module-level templates, dynamic expressions wrapped in effects.
+ * Components run ONCE. All reactivity is signal-driven.
  *
- * Fine-grained output:
- *   const _t$ = template('<div class="container"><h1>Title</h1><p></p></div>');
+ * Output:
+ *   const _tmpl$1 = template('<div class="container"><h1>Title</h1><p></p></div>');
  *   function App() {
- *     const _el$ = _t$();
- *     insert(_el$.children[1], () => desc());
+ *     const _el$ = _tmpl$1();
+ *     insert(_el$.childNodes[1], () => desc());
  *     return _el$;
  *   }
  *
- * VDOM output (legacy):
- *   h('div', { class: 'container' }, h('h1', null, 'Title'), h('p', null, desc()))
+ * Template calls are hoisted to module scope — each unique HTML string gets one
+ * top-level const. Component functions just clone: `const _el$ = _tmpl$1()`.
  */
 
 const EVENT_MODIFIERS = new Set(['preventDefault', 'stopPropagation', 'once', 'capture', 'passive', 'self']);
 const EVENT_OPTION_MODIFIERS = new Set(['once', 'capture', 'passive']);
 const VOID_HTML_ELEMENTS = new Set([
-  'area',
-  'base',
-  'br',
-  'col',
-  'embed',
-  'hr',
-  'img',
-  'input',
-  'link',
-  'meta',
-  'param',
-  'source',
-  'track',
-  'wbr'
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+  'link', 'meta', 'param', 'source', 'track', 'wbr'
+]);
+
+// Known non-reactive call expressions — these should NOT be wrapped in effects
+// unless their arguments contain signal reads.
+const SAFE_GLOBAL_CALLS = new Set([
+  'Math', 'Number', 'String', 'Boolean', 'parseInt', 'parseFloat',
+  'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent',
+  'encodeURI', 'decodeURI', 'JSON', 'Date', 'Array', 'Object',
+  'console', 'RegExp',
+]);
+
+// Known signal-creating functions
+const SIGNAL_CREATORS = new Set([
+  'useSignal', 'signal', 'computed', 'useComputed', 'useState', 'useReducer',
+  'createResource', 'useSWR', 'useQuery', 'useInfiniteQuery',
 ]);
 
 export default function whatBabelPlugin({ types: t }) {
-  const mode = 'fine-grained'; // Can be overridden via plugin options
-
   // =====================================================
-  // Shared utilities (used by both modes)
+  // Shared utilities
   // =====================================================
 
   function parseEventModifiers(name) {
@@ -78,6 +78,14 @@ export default function whatBabelPlugin({ types: t }) {
     if (attrName === 'className') return 'class';
     if (attrName === 'htmlFor') return 'for';
     return attrName;
+  }
+
+  // Safely extract attribute name, handling JSXNamespacedName (e.g., client:idle, bind:value)
+  function getAttrName(attr) {
+    if (t.isJSXNamespacedName(attr.name)) {
+      return `${attr.name.namespace.name}:${attr.name.name.name}`;
+    }
+    return typeof attr.name.name === 'string' ? attr.name.name : String(attr.name.name);
   }
 
   function createEventHandler(handler, modifiers) {
@@ -150,94 +158,768 @@ export default function whatBabelPlugin({ types: t }) {
   }
 
   // =====================================================
-  // VDOM Mode (legacy h() calls)
+  // Reactivity Detection — Signal-Aware
   // =====================================================
 
-  function transformChildrenVdom(children, state) {
-    const result = [];
-    for (const child of children) {
-      if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
-        if (text) result.push(t.stringLiteral(text));
-      } else if (t.isJSXExpressionContainer(child)) {
-        if (!t.isJSXEmptyExpression(child.expression)) {
-          result.push(child.expression);
-        }
-      } else if (t.isJSXElement(child)) {
-        result.push(transformElementVdom({ node: child }, state));
-      } else if (t.isJSXFragment(child)) {
-        result.push(transformFragmentVdom({ node: child }, state));
-      }
-    }
-    return result;
+  // Check if an identifier is known to be a signal (from useSignal/signal/computed/useState)
+  function isSignalIdentifier(name, signalNames) {
+    return signalNames.has(name);
   }
 
-  function transformElementVdom(path, state) {
+  // Collect signal identifiers from the component scope
+  function collectSignalNames(path) {
+    const signalNames = new Set();
+
+    // Walk up to find the containing function
+    let fnPath = path.getFunctionParent();
+    if (!fnPath) return signalNames;
+
+    fnPath.traverse({
+      VariableDeclarator(declPath) {
+        const init = declPath.node.init;
+        if (!init || !t.isCallExpression(init)) return;
+
+        const callee = init.callee;
+        let calleeName = '';
+
+        if (t.isIdentifier(callee)) {
+          calleeName = callee.name;
+        } else if (t.isMemberExpression(callee) && t.isIdentifier(callee.property)) {
+          calleeName = callee.property.name;
+        }
+
+        if (SIGNAL_CREATORS.has(calleeName)) {
+          const id = declPath.node.id;
+          if (t.isIdentifier(id)) {
+            // signal() / useSignal() / computed()
+            signalNames.add(id.name);
+          } else if (t.isArrayPattern(id)) {
+            // const [value, setter] = useState()
+            for (const el of id.elements) {
+              if (t.isIdentifier(el)) {
+                signalNames.add(el.name);
+              }
+            }
+          } else if (t.isObjectPattern(id)) {
+            // const { data, error, isLoading } = useSWR()
+            for (const prop of id.properties) {
+              if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+                signalNames.add(prop.value.name);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Also treat function parameters as potentially reactive
+    if (fnPath.node.params) {
+      for (const param of fnPath.node.params) {
+        if (t.isIdentifier(param)) {
+          // Component props param — props are reactive (accessed via getters)
+          // We don't add it directly since prop accesses look like `props.name`
+        } else if (t.isObjectPattern(param)) {
+          // Destructured props — these could be signal getters
+          for (const prop of param.properties) {
+            if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+              signalNames.add(prop.value.name);
+            } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
+              signalNames.add(prop.argument.name);
+            }
+          }
+        }
+      }
+    }
+
+    return signalNames;
+  }
+
+  // Check if a call expression is a safe (non-reactive) global call
+  function isSafeGlobalCall(expr) {
+    if (!t.isCallExpression(expr)) return false;
+    const callee = expr.callee;
+
+    // Math.max(), Number.parseInt(), etc.
+    if (t.isMemberExpression(callee) && t.isIdentifier(callee.object)) {
+      return SAFE_GLOBAL_CALLS.has(callee.object.name);
+    }
+
+    // parseInt(), isNaN(), etc.
+    if (t.isIdentifier(callee)) {
+      return SAFE_GLOBAL_CALLS.has(callee.name);
+    }
+
+    return false;
+  }
+
+  // Check if an expression is potentially reactive (reads a signal)
+  function isPotentiallyReactive(expr, signalNames) {
+    if (!signalNames) signalNames = new Set();
+
+    if (t.isCallExpression(expr)) {
+      // If callee is a known signal identifier being called (signal read), it's reactive
+      if (t.isIdentifier(expr.callee) && isSignalIdentifier(expr.callee.name, signalNames)) {
+        return true;
+      }
+      // member.call() — e.g., data(), isLoading()
+      if (t.isMemberExpression(expr.callee)) {
+        // Check if the object is a signal
+        if (t.isIdentifier(expr.callee.object) && isSignalIdentifier(expr.callee.object.name, signalNames)) {
+          return true;
+        }
+      }
+      // Safe global calls like Math.max — only reactive if their args are
+      if (isSafeGlobalCall(expr)) {
+        return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames));
+      }
+      // Unknown call — check if callee or args contain signal reads
+      if (t.isIdentifier(expr.callee)) {
+        // Could be a function that reads signals internally
+        // Be conservative: if it's not a known safe call and not a signal, still check args
+        return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames));
+      }
+      // For any other call expression, check recursively
+      return isPotentiallyReactive(expr.callee, signalNames) ||
+             expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames));
+    }
+
+    if (t.isIdentifier(expr)) {
+      return isSignalIdentifier(expr.name, signalNames);
+    }
+
+    if (t.isMemberExpression(expr)) {
+      return isPotentiallyReactive(expr.object, signalNames);
+    }
+
+    if (t.isConditionalExpression(expr)) {
+      return isPotentiallyReactive(expr.test, signalNames) ||
+             isPotentiallyReactive(expr.consequent, signalNames) ||
+             isPotentiallyReactive(expr.alternate, signalNames);
+    }
+
+    if (t.isBinaryExpression(expr) || t.isLogicalExpression(expr)) {
+      return isPotentiallyReactive(expr.left, signalNames) ||
+             isPotentiallyReactive(expr.right, signalNames);
+    }
+
+    if (t.isUnaryExpression(expr)) {
+      return isPotentiallyReactive(expr.argument, signalNames);
+    }
+
+    if (t.isTemplateLiteral(expr)) {
+      return expr.expressions.some(e => isPotentiallyReactive(e, signalNames));
+    }
+
+    if (t.isObjectExpression(expr)) {
+      return expr.properties.some(prop =>
+        t.isObjectProperty(prop) && isPotentiallyReactive(prop.value, signalNames)
+      );
+    }
+
+    if (t.isArrayExpression(expr)) {
+      return expr.elements.some(el => el && isPotentiallyReactive(el, signalNames));
+    }
+
+    if (t.isArrowFunctionExpression(expr) || t.isFunctionExpression(expr)) {
+      // Function expressions are not reactive themselves — they're callbacks
+      return false;
+    }
+
+    return false;
+  }
+
+  // =====================================================
+  // Fine-Grained Mode (template + insert + effect)
+  // =====================================================
+
+  // Check if a JSX child is static (no expressions)
+  function isStaticChild(child) {
+    if (t.isJSXText(child)) return true;
+    if (t.isJSXExpressionContainer(child)) return false;
+    if (t.isJSXElement(child)) {
+      const el = child.openingElement;
+      const tagName = el.name.name;
+      if (isComponent(tagName)) return false;
+      for (const attr of el.attributes) {
+        if (t.isJSXSpreadAttribute(attr)) return false;
+        const value = attr.value;
+        if (t.isJSXExpressionContainer(value)) return false;
+      }
+      return child.children.every(isStaticChild);
+    }
+    return false;
+  }
+
+  // Check if an attribute value is dynamic
+  function isDynamicAttr(attr) {
+    if (t.isJSXSpreadAttribute(attr)) return true;
+    if (!attr.value) return false;
+    return t.isJSXExpressionContainer(attr.value);
+  }
+
+  // Extract static HTML from JSX element for template()
+  function extractStaticHTML(node) {
+    if (t.isJSXText(node)) {
+      const text = node.value.replace(/\n\s+/g, ' ').trim();
+      return text ? escapeHTML(text) : '';
+    }
+
+    if (t.isJSXExpressionContainer(node)) {
+      if (t.isJSXEmptyExpression(node.expression)) return '';
+      return '<!--$-->';
+    }
+
+    if (!t.isJSXElement(node)) return '';
+
+    const el = node.openingElement;
+    const tagName = el.name.name;
+
+    if (isComponent(tagName)) return '';
+
+    let html = `<${tagName}`;
+
+    for (const attr of el.attributes) {
+      if (t.isJSXSpreadAttribute(attr)) continue;
+      const name = getAttrName(attr);
+      if (name.startsWith('on') || name.startsWith('bind:') || name.includes('|')) continue;
+
+      let domName = name;
+      if (name === 'className') domName = 'class';
+      if (name === 'htmlFor') domName = 'for';
+
+      if (!attr.value) {
+        html += ` ${domName}`;
+      } else if (t.isStringLiteral(attr.value)) {
+        html += ` ${domName}="${escapeAttr(attr.value.value)}"`;
+      } else if (t.isJSXExpressionContainer(attr.value)) {
+        continue; // Dynamic attr — set via effect
+      }
+    }
+
+    const selfClosing = node.openingElement.selfClosing;
+    if (selfClosing && isVoidHtmlElement(tagName)) {
+      html += '>';
+      return html;
+    }
+
+    if (selfClosing) {
+      html += `></${tagName}>`;
+      return html;
+    }
+
+    html += '>';
+
+    for (const child of node.children) {
+      if (t.isJSXText(child)) {
+        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        if (text) html += escapeHTML(text);
+      } else if (t.isJSXExpressionContainer(child)) {
+        if (!t.isJSXEmptyExpression(child.expression)) {
+          html += '<!--$-->';
+        }
+      } else if (t.isJSXElement(child)) {
+        if (isComponent(child.openingElement.name.name)) {
+          html += '<!--$-->';
+        } else {
+          html += extractStaticHTML(child);
+        }
+      }
+    }
+
+    html += `</${tagName}>`;
+    return html;
+  }
+
+  function escapeHTML(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function escapeAttr(str) {
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Analyze JSX tree and generate fine-grained output
+  function transformElementFineGrained(path, state) {
+    const { node } = path;
+    const openingElement = node.openingElement;
+    const tagName = openingElement.name.name;
+
+    if (isComponent(tagName)) {
+      return transformComponentFineGrained(path, state);
+    }
+
+    // Control flow components (lowercase but special)
+    if (tagName === 'For') {
+      return transformForFineGrained(path, state);
+    }
+    if (tagName === 'Show') {
+      return transformShowFineGrained(path, state);
+    }
+
+    const attributes = openingElement.attributes;
+    const children = node.children;
+
+    // Check if this entire subtree is purely static
+    const allChildrenStatic = children.every(isStaticChild);
+    const allAttrsStatic = attributes.every(attr => !isDynamicAttr(attr));
+    const noEvents = attributes.every(attr => {
+      if (t.isJSXSpreadAttribute(attr)) return false;
+      const name = getAttrName(attr);
+      return !name?.startsWith('on') && !name?.startsWith('bind:');
+    });
+
+    if (allChildrenStatic && allAttrsStatic && noEvents) {
+      // Fully static element — extract to template, return clone call
+      const html = extractStaticHTML(node);
+      if (html) {
+        const tmplId = getOrCreateTemplate(state, html);
+        state.needsTemplate = true;
+        return t.callExpression(t.identifier(tmplId), []);
+      }
+    }
+
+    // Mixed static/dynamic element — extract template, add effects for dynamic parts
+    const html = extractStaticHTML(node);
+    if (!html) {
+      // Template extraction failed — emit a compile warning and use h() as fallback
+      console.warn(`[what-compiler] Could not extract template for <${tagName}> element. Using h() fallback.`);
+      state.needsH = true;
+      return transformElementAsH(path, state);
+    }
+
+    const tmplId = getOrCreateTemplate(state, html);
+    state.needsTemplate = true;
+
+    const elId = state.nextVarId();
+
+    // Build statements: _el$ = _tmpl$1()
+    // NO IIFE wrapping — statements are inlined into the containing function
+    const statements = [
+      t.variableDeclaration('const', [
+        t.variableDeclarator(t.identifier(elId), t.callExpression(t.identifier(tmplId), []))
+      ])
+    ];
+
+    // Apply dynamic attributes and events
+    applyDynamicAttrs(statements, elId, attributes, state);
+
+    // Handle dynamic children
+    applyDynamicChildren(statements, elId, children, node, state);
+
+    // Return the element
+    statements.push(t.returnStatement(t.identifier(elId)));
+
+    // Use a block-bodied arrow function (NOT an IIFE) — the parent scope is the component,
+    // which runs once. We return an arrow so the JSX expression evaluates to a DOM node.
+    return t.callExpression(
+      t.arrowFunctionExpression([], t.blockStatement(statements)),
+      []
+    );
+  }
+
+  // Fallback: transform element using h() when template extraction fails
+  function transformElementAsH(path, state) {
     const { node } = path;
     const openingElement = node.openingElement;
     const tagName = openingElement.name.name;
     const attributes = openingElement.attributes;
     const children = node.children;
 
-    if (isComponent(tagName)) {
-      return transformComponentVdom(path, state);
+    const props = [];
+    for (const attr of attributes) {
+      if (t.isJSXSpreadAttribute(attr)) continue;
+      const attrName = getAttrName(attr);
+      const value = getAttributeValue(attr.value);
+      let domAttrName = normalizeAttrName(attrName);
+      props.push(
+        t.objectProperty(
+          /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(domAttrName)
+            ? t.identifier(domAttrName)
+            : t.stringLiteral(domAttrName),
+          value
+        )
+      );
     }
+
+    const transformedChildren = [];
+    for (const child of children) {
+      if (t.isJSXText(child)) {
+        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        if (text) transformedChildren.push(t.stringLiteral(text));
+      } else if (t.isJSXExpressionContainer(child)) {
+        if (!t.isJSXEmptyExpression(child.expression)) {
+          transformedChildren.push(child.expression);
+        }
+      } else if (t.isJSXElement(child)) {
+        transformedChildren.push(transformElementFineGrained({ node: child }, state));
+      } else if (t.isJSXFragment(child)) {
+        transformedChildren.push(transformFragmentFineGrained({ node: child }, state));
+      }
+    }
+
+    const propsExpr = props.length > 0 ? t.objectExpression(props) : t.nullLiteral();
+    return t.callExpression(t.identifier('h'), [t.stringLiteral(tagName), propsExpr, ...transformedChildren]);
+  }
+
+  function applyDynamicAttrs(statements, elId, attributes, state) {
+    function buildSetPropCall(propName, valueExpr) {
+      state.needsSetProp = true;
+      return t.callExpression(t.identifier('_$setProp'), [
+        t.identifier(elId),
+        t.stringLiteral(propName),
+        valueExpr
+      ]);
+    }
+
+    for (const attr of attributes) {
+      if (t.isJSXSpreadAttribute(attr)) {
+        state.needsSpread = true;
+        statements.push(
+          t.expressionStatement(
+            t.callExpression(t.identifier('_$spread'), [t.identifier(elId), attr.argument])
+          )
+        );
+        continue;
+      }
+
+      const attrName = getAttrName(attr);
+
+      // Event handlers
+      if (attrName.startsWith('on') && !attrName.includes('|')) {
+        const event = attrName.slice(2).toLowerCase();
+        const handler = getAttributeValue(attr.value);
+        statements.push(
+          t.expressionStatement(
+            t.callExpression(
+              t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
+              [t.stringLiteral(event), handler]
+            )
+          )
+        );
+        continue;
+      }
+
+      // Event with modifiers
+      if (attrName.startsWith('on') && attrName.includes('|')) {
+        const { eventName, modifiers } = parseEventModifiers(attrName);
+        const handler = getAttributeValue(attr.value);
+        const wrappedHandler = createEventHandler(handler, modifiers);
+        const event = eventName.slice(2).toLowerCase();
+
+        const optionMods = modifiers.filter(m => EVENT_OPTION_MODIFIERS.has(m));
+        const addEventArgs = [t.stringLiteral(event), wrappedHandler];
+        if (optionMods.length > 0) {
+          const optsProps = optionMods.map(m =>
+            t.objectProperty(t.identifier(m), t.booleanLiteral(true))
+          );
+          addEventArgs.push(t.objectExpression(optsProps));
+        }
+
+        statements.push(
+          t.expressionStatement(
+            t.callExpression(
+              t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
+              addEventArgs
+            )
+          )
+        );
+        continue;
+      }
+
+      // Binding
+      if (isBindingAttribute(attrName)) {
+        const bindProp = getBindingProperty(attrName);
+        const signalExpr = attr.value.expression;
+        state.needsEffect = true;
+
+        if (bindProp === 'value') {
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$effect'), [
+                t.arrowFunctionExpression([], t.assignmentExpression('=',
+                  t.memberExpression(t.identifier(elId), t.identifier('value')),
+                  t.callExpression(t.cloneNode(signalExpr), [])
+                ))
+              ])
+            )
+          );
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(
+                t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
+                [
+                  t.stringLiteral('input'),
+                  t.arrowFunctionExpression(
+                    [t.identifier('e')],
+                    t.callExpression(
+                      t.memberExpression(t.cloneNode(signalExpr), t.identifier('set')),
+                      [t.memberExpression(
+                        t.memberExpression(t.identifier('e'), t.identifier('target')),
+                        t.identifier('value')
+                      )]
+                    )
+                  )
+                ]
+              )
+            )
+          );
+        } else if (bindProp === 'checked') {
+          state.needsEffect = true;
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$effect'), [
+                t.arrowFunctionExpression([], t.assignmentExpression('=',
+                  t.memberExpression(t.identifier(elId), t.identifier('checked')),
+                  t.callExpression(t.cloneNode(signalExpr), [])
+                ))
+              ])
+            )
+          );
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(
+                t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
+                [
+                  t.stringLiteral('change'),
+                  t.arrowFunctionExpression(
+                    [t.identifier('e')],
+                    t.callExpression(
+                      t.memberExpression(t.cloneNode(signalExpr), t.identifier('set')),
+                      [t.memberExpression(
+                        t.memberExpression(t.identifier('e'), t.identifier('target')),
+                        t.identifier('checked')
+                      )]
+                    )
+                  )
+                ]
+              )
+            )
+          );
+        }
+        continue;
+      }
+
+      // Dynamic attribute (expression)
+      if (t.isJSXExpressionContainer(attr.value)) {
+        const expr = attr.value.expression;
+        const domName = normalizeAttrName(attrName);
+
+        if (isPotentiallyReactive(expr, state.signalNames)) {
+          state.needsEffect = true;
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$effect'), [
+                t.arrowFunctionExpression([], buildSetPropCall(domName, expr))
+              ])
+            )
+          );
+        } else {
+          // Static expression (no signal calls) — set once
+          statements.push(t.expressionStatement(buildSetPropCall(domName, expr)));
+        }
+      }
+    }
+  }
+
+  function applyDynamicChildren(statements, elId, children, parentNode, state) {
+    let childIndex = 0;
+
+    for (const child of children) {
+      if (t.isJSXText(child)) {
+        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        if (text) childIndex++;
+        continue;
+      }
+
+      if (t.isJSXExpressionContainer(child)) {
+        if (t.isJSXEmptyExpression(child.expression)) continue;
+
+        const expr = child.expression;
+        const marker = buildChildAccess(elId, childIndex);
+        state.needsInsert = true;
+
+        if (isPotentiallyReactive(expr, state.signalNames)) {
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                t.arrowFunctionExpression([], expr),
+                marker
+              ])
+            )
+          );
+        } else {
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                expr,
+                marker
+              ])
+            )
+          );
+        }
+        childIndex++;
+        continue;
+      }
+
+      if (t.isJSXElement(child)) {
+        const childTag = child.openingElement.name.name;
+        if (isComponent(childTag) || childTag === 'For' || childTag === 'Show') {
+          const transformed = transformElementFineGrained({ node: child }, state);
+          const marker = buildChildAccess(elId, childIndex);
+          state.needsInsert = true;
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                transformed,
+                marker
+              ])
+            )
+          );
+          childIndex++;
+        } else {
+          // Static child element — already in template
+          // But check if it has dynamic children/attrs that need effects
+          const hasAnythingDynamic = child.openingElement.attributes.some(isDynamicAttr) ||
+            child.openingElement.attributes.some(a => !t.isJSXSpreadAttribute(a) && getAttrName(a)?.startsWith('on')) ||
+            !child.children.every(isStaticChild);
+
+          if (hasAnythingDynamic) {
+            const childElId = state.nextVarId();
+            statements.push(
+              t.variableDeclaration('const', [
+                t.variableDeclarator(
+                  t.identifier(childElId),
+                  buildChildAccess(elId, childIndex)
+                )
+              ])
+            );
+            applyDynamicAttrs(statements, childElId, child.openingElement.attributes, state);
+            applyDynamicChildren(statements, childElId, child.children, child, state);
+          }
+          childIndex++;
+        }
+        continue;
+      }
+
+      if (t.isJSXFragment(child)) {
+        for (const fChild of child.children) {
+          if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
+            state.needsInsert = true;
+            const expr = fChild.expression;
+            if (isPotentiallyReactive(expr, state.signalNames)) {
+              statements.push(
+                t.expressionStatement(
+                  t.callExpression(t.identifier('_$insert'), [
+                    t.identifier(elId),
+                    t.arrowFunctionExpression([], expr)
+                  ])
+                )
+              );
+            } else {
+              statements.push(
+                t.expressionStatement(
+                  t.callExpression(t.identifier('_$insert'), [
+                    t.identifier(elId),
+                    expr
+                  ])
+                )
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function buildChildAccess(elId, index) {
+    return t.memberExpression(
+      t.memberExpression(t.identifier(elId), t.identifier('childNodes')),
+      t.numericLiteral(index),
+      true // computed
+    );
+  }
+
+  function transformComponentFineGrained(path, state) {
+    const { node } = path;
+    const openingElement = node.openingElement;
+    const componentName = openingElement.name.name;
+    const attributes = openingElement.attributes;
+    const children = node.children;
+
+    // Check for client: directive (islands)
+    let clientDirective = null;
+    const filteredAttrs = [];
+
+    for (const attr of attributes) {
+      if (t.isJSXAttribute(attr)) {
+        // Handle both simple names and namespaced names (client:idle)
+        let name;
+        if (t.isJSXNamespacedName(attr.name)) {
+          name = `${attr.name.namespace.name}:${attr.name.name.name}`;
+        } else {
+          name = attr.name.name;
+        }
+        if (name && typeof name === 'string' && name.startsWith('client:')) {
+          const mode = name.slice(7);
+          if (attr.value) {
+            clientDirective = { type: mode, value: attr.value.value };
+          } else {
+            clientDirective = { type: mode };
+          }
+          continue;
+        }
+      }
+      filteredAttrs.push(attr);
+    }
+
+    if (clientDirective) {
+      state.needsH = true;
+      state.needsIsland = true;
+
+      const islandProps = [
+        t.objectProperty(t.identifier('component'), t.identifier(componentName)),
+        t.objectProperty(t.identifier('mode'), t.stringLiteral(clientDirective.type)),
+      ];
+
+      if (clientDirective.value) {
+        islandProps.push(
+          t.objectProperty(t.identifier('mediaQuery'), t.stringLiteral(clientDirective.value))
+        );
+      }
+
+      for (const attr of filteredAttrs) {
+        if (t.isJSXSpreadAttribute(attr)) continue;
+        const attrName = getAttrName(attr);
+        const value = getAttributeValue(attr.value);
+        islandProps.push(t.objectProperty(t.identifier(attrName), value));
+      }
+
+      return t.callExpression(
+        t.identifier('h'),
+        [t.identifier('Island'), t.objectExpression(islandProps)]
+      );
+    }
+
+    // Regular component — use h() to create VNode, component runs once via createDOM
+    state.needsH = true;
 
     const props = [];
     let hasSpread = false;
     let spreadExpr = null;
 
-    for (const attr of attributes) {
+    for (const attr of filteredAttrs) {
       if (t.isJSXSpreadAttribute(attr)) {
         hasSpread = true;
         spreadExpr = attr.argument;
         continue;
       }
 
-      const attrName = typeof attr.name.name === 'string' ? attr.name.name : String(attr.name.name);
+      const attrName = getAttrName(attr);
 
-      if (attrName.startsWith('on') && attrName.includes('|')) {
-        const { eventName, modifiers } = parseEventModifiers(attrName);
-        const handler = getAttributeValue(attr.value);
-        const wrappedHandler = createEventHandler(handler, modifiers);
-
-        const optionMods = modifiers.filter(m => EVENT_OPTION_MODIFIERS.has(m));
-        if (optionMods.length > 0) {
-          const tempId = path.scope
-            ? path.scope.generateUidIdentifier('handler')
-            : t.identifier('_h' + Math.random().toString(36).slice(2, 6));
-
-          const optsProps = optionMods.map(m =>
-            t.objectProperty(t.identifier(m), t.booleanLiteral(true))
-          );
-
-          const iifeHandler = t.callExpression(
-            t.arrowFunctionExpression(
-              [],
-              t.blockStatement([
-                t.variableDeclaration('const', [
-                  t.variableDeclarator(tempId, wrappedHandler)
-                ]),
-                t.expressionStatement(
-                  t.assignmentExpression(
-                    '=',
-                    t.memberExpression(t.cloneNode(tempId), t.identifier('_eventOpts')),
-                    t.objectExpression(optsProps)
-                  )
-                ),
-                t.returnStatement(t.cloneNode(tempId))
-              ])
-            ),
-            []
-          );
-
-          props.push(t.objectProperty(t.identifier(eventName), iifeHandler));
-        } else {
-          props.push(t.objectProperty(t.identifier(eventName), wrappedHandler));
-        }
-        continue;
-      }
-
+      // Handle bind: attributes for components
       if (isBindingAttribute(attrName)) {
         const bindProp = getBindingProperty(attrName);
         const signalExpr = attr.value.expression;
@@ -284,110 +966,15 @@ export default function whatBabelPlugin({ types: t }) {
         continue;
       }
 
-      const value = getAttributeValue(attr.value);
-      let domAttrName = attrName;
-      if (attrName === 'className') domAttrName = 'class';
-      if (attrName === 'htmlFor') domAttrName = 'for';
-
-      props.push(
-        t.objectProperty(
-          /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(domAttrName)
-            ? t.identifier(domAttrName)
-            : t.stringLiteral(domAttrName),
-          value
-        )
-      );
-    }
-
-    const transformedChildren = transformChildrenVdom(children, state);
-
-    let propsExpr;
-    if (hasSpread) {
-      if (props.length > 0) {
-        propsExpr = t.callExpression(
-          t.memberExpression(t.identifier('Object'), t.identifier('assign')),
-          [t.objectExpression([]), spreadExpr, t.objectExpression(props)]
-        );
-      } else {
-        propsExpr = spreadExpr;
-      }
-    } else if (props.length > 0) {
-      propsExpr = t.objectExpression(props);
-    } else {
-      propsExpr = t.nullLiteral();
-    }
-
-    const args = [t.stringLiteral(tagName), propsExpr, ...transformedChildren];
-    state.needsH = true;
-    return t.callExpression(t.identifier('h'), args);
-  }
-
-  function transformComponentVdom(path, state) {
-    const { node } = path;
-    const openingElement = node.openingElement;
-    const componentName = openingElement.name.name;
-    const attributes = openingElement.attributes;
-    const children = node.children;
-
-    let clientDirective = null;
-    const filteredAttrs = [];
-
-    for (const attr of attributes) {
-      if (t.isJSXAttribute(attr)) {
-        const name = attr.name.name;
-        if (name && name.startsWith('client:')) {
-          const mode = name.slice(7);
-          if (attr.value) {
-            clientDirective = { type: mode, value: attr.value.value };
-          } else {
-            clientDirective = { type: mode };
-          }
-          continue;
-        }
-      }
-      filteredAttrs.push(attr);
-    }
-
-    if (clientDirective) {
-      state.needsH = true;
-      state.needsIsland = true;
-
-      const islandProps = [
-        t.objectProperty(t.identifier('component'), t.identifier(componentName)),
-        t.objectProperty(t.identifier('mode'), t.stringLiteral(clientDirective.type)),
-      ];
-
-      if (clientDirective.value) {
-        islandProps.push(
-          t.objectProperty(t.identifier('mediaQuery'), t.stringLiteral(clientDirective.value))
-        );
-      }
-
-      for (const attr of filteredAttrs) {
-        if (t.isJSXSpreadAttribute(attr)) continue;
-        const attrName = attr.name.name;
-        const value = getAttributeValue(attr.value);
-        islandProps.push(t.objectProperty(t.identifier(attrName), value));
-      }
-
-      return t.callExpression(
-        t.identifier('h'),
-        [t.identifier('Island'), t.objectExpression(islandProps)]
-      );
-    }
-
-    const props = [];
-    let hasSpread = false;
-    let spreadExpr = null;
-
-    for (const attr of filteredAttrs) {
-      if (t.isJSXSpreadAttribute(attr)) {
-        hasSpread = true;
-        spreadExpr = attr.argument;
+      // Handle event modifiers on components
+      if (attrName.startsWith('on') && attrName.includes('|')) {
+        const { eventName, modifiers } = parseEventModifiers(attrName);
+        const handler = getAttributeValue(attr.value);
+        const wrappedHandler = createEventHandler(handler, modifiers);
+        props.push(t.objectProperty(t.identifier(eventName), wrappedHandler));
         continue;
       }
 
-      const attrName = attr.name.name;
       const value = getAttributeValue(attr.value);
 
       props.push(
@@ -400,7 +987,22 @@ export default function whatBabelPlugin({ types: t }) {
       );
     }
 
-    const transformedChildren = transformChildrenVdom(children, state);
+    // Transform children
+    const transformedChildren = [];
+    for (const child of children) {
+      if (t.isJSXText(child)) {
+        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        if (text) transformedChildren.push(t.stringLiteral(text));
+      } else if (t.isJSXExpressionContainer(child)) {
+        if (!t.isJSXEmptyExpression(child.expression)) {
+          transformedChildren.push(child.expression);
+        }
+      } else if (t.isJSXElement(child)) {
+        transformedChildren.push(transformElementFineGrained({ node: child }, state));
+      } else if (t.isJSXFragment(child)) {
+        transformedChildren.push(transformFragmentFineGrained({ node: child }, state));
+      }
+    }
 
     let propsExpr;
     if (hasSpread) {
@@ -418,508 +1020,7 @@ export default function whatBabelPlugin({ types: t }) {
       propsExpr = t.nullLiteral();
     }
 
-    const args = [t.identifier(componentName), propsExpr, ...transformedChildren];
-    state.needsH = true;
-    return t.callExpression(t.identifier('h'), args);
-  }
-
-  function transformFragmentVdom(path, state) {
-    const { node } = path;
-    const transformedChildren = transformChildrenVdom(node.children, state);
-
-    state.needsH = true;
-    state.needsFragment = true;
-
-    return t.callExpression(
-      t.identifier('h'),
-      [t.identifier('Fragment'), t.nullLiteral(), ...transformedChildren]
-    );
-  }
-
-  // =====================================================
-  // Fine-Grained Mode (template + insert + effect)
-  // =====================================================
-
-  let templateCounter = 0;
-
-  // Check if a JSX child is static (no expressions)
-  function isStaticChild(child) {
-    if (t.isJSXText(child)) return true;
-    if (t.isJSXExpressionContainer(child)) return false;
-    if (t.isJSXElement(child)) {
-      const el = child.openingElement;
-      const tagName = el.name.name;
-      if (isComponent(tagName)) return false;
-      // Check if attributes are all static
-      for (const attr of el.attributes) {
-        if (t.isJSXSpreadAttribute(attr)) return false;
-        const value = attr.value;
-        if (t.isJSXExpressionContainer(value)) return false;
-      }
-      // Check children recursively
-      return child.children.every(isStaticChild);
-    }
-    return false;
-  }
-
-  // Check if an attribute value is dynamic (expression, not string literal)
-  function isDynamicAttr(attr) {
-    if (t.isJSXSpreadAttribute(attr)) return true;
-    if (!attr.value) return false; // boolean attr like `disabled`
-    return t.isJSXExpressionContainer(attr.value);
-  }
-
-  // Check if an expression is potentially reactive (contains function calls)
-  function isPotentiallyReactive(expr) {
-    if (t.isCallExpression(expr)) return true;
-    if (t.isMemberExpression(expr)) return isPotentiallyReactive(expr.object);
-    if (t.isConditionalExpression(expr)) {
-      return isPotentiallyReactive(expr.test) || isPotentiallyReactive(expr.consequent) || isPotentiallyReactive(expr.alternate);
-    }
-    if (t.isBinaryExpression(expr) || t.isLogicalExpression(expr)) {
-      return isPotentiallyReactive(expr.left) || isPotentiallyReactive(expr.right);
-    }
-    if (t.isTemplateLiteral(expr)) {
-      return expr.expressions.some(isPotentiallyReactive);
-    }
-    if (t.isObjectExpression(expr)) {
-      return expr.properties.some(prop =>
-        t.isObjectProperty(prop) && isPotentiallyReactive(prop.value)
-      );
-    }
-    if (t.isArrayExpression(expr)) {
-      return expr.elements.some(el => el && isPotentiallyReactive(el));
-    }
-    return false;
-  }
-
-  // Extract static HTML from JSX element for template()
-  function extractStaticHTML(node) {
-    if (t.isJSXText(node)) {
-      const text = node.value.replace(/\n\s+/g, ' ').trim();
-      return text ? escapeHTML(text) : '';
-    }
-
-    if (t.isJSXExpressionContainer(node)) {
-      // Dynamic child marker so insert() can preserve source ordering
-      if (t.isJSXEmptyExpression(node.expression)) return '';
-      return '<!--$-->';
-    }
-
-    if (!t.isJSXElement(node)) return '';
-
-    const el = node.openingElement;
-    const tagName = el.name.name;
-
-    if (isComponent(tagName)) return '';
-
-    let html = `<${tagName}`;
-
-    // Static attributes
-    for (const attr of el.attributes) {
-      if (t.isJSXSpreadAttribute(attr)) continue;
-      const name = attr.name.name;
-      if (name.startsWith('on') || name.startsWith('bind:') || name.includes('|')) continue;
-
-      let domName = name;
-      if (name === 'className') domName = 'class';
-      if (name === 'htmlFor') domName = 'for';
-
-      if (!attr.value) {
-        html += ` ${domName}`;
-      } else if (t.isStringLiteral(attr.value)) {
-        html += ` ${domName}="${escapeAttr(attr.value.value)}"`;
-      } else if (t.isJSXExpressionContainer(attr.value)) {
-        // Dynamic attr — skip from template, will be set via effect
-        continue;
-      }
-    }
-
-    const selfClosing = node.openingElement.selfClosing;
-    if (selfClosing && isVoidHtmlElement(tagName)) {
-      html += '>';
-      return html;
-    }
-
-    if (selfClosing) {
-      html += `></${tagName}>`;
-      return html;
-    }
-
-    html += '>';
-
-    // Children
-    for (const child of node.children) {
-      if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
-        if (text) html += escapeHTML(text);
-      } else if (t.isJSXExpressionContainer(child)) {
-        if (!t.isJSXEmptyExpression(child.expression)) {
-          html += '<!--$-->';
-        }
-      } else if (t.isJSXElement(child)) {
-        if (isComponent(child.openingElement.name.name)) {
-          html += '<!--$-->';
-        } else {
-          html += extractStaticHTML(child);
-        }
-      }
-    }
-
-    html += `</${tagName}>`;
-    return html;
-  }
-
-  function escapeHTML(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function escapeAttr(str) {
-    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  }
-
-  // Analyze JSX tree and generate fine-grained output
-  function transformElementFineGrained(path, state) {
-    const { node } = path;
-    const openingElement = node.openingElement;
-    const tagName = openingElement.name.name;
-
-    if (isComponent(tagName)) {
-      return transformComponentFineGrained(path, state);
-    }
-
-    // For <For> and <Show> control flow components
-    if (tagName === 'For') {
-      return transformForFineGrained(path, state);
-    }
-    if (tagName === 'Show') {
-      return transformShowFineGrained(path, state);
-    }
-
-    const attributes = openingElement.attributes;
-    const children = node.children;
-
-    // Check if this entire subtree is purely static
-    const allChildrenStatic = children.every(isStaticChild);
-    const allAttrsStatic = attributes.every(attr => !isDynamicAttr(attr));
-    const noEvents = attributes.every(attr => {
-      if (t.isJSXSpreadAttribute(attr)) return false;
-      const name = attr.name?.name;
-      return !name?.startsWith('on') && !name?.startsWith('bind:');
-    });
-
-    if (allChildrenStatic && allAttrsStatic && noEvents) {
-      // Fully static element — extract to template, return clone call
-      const html = extractStaticHTML(node);
-      if (html) {
-        const tmplId = generateTemplateId(state);
-        state.templates.push({ id: tmplId, html });
-        state.needsTemplate = true;
-        return t.callExpression(t.identifier(tmplId), []);
-      }
-    }
-
-    // Mixed static/dynamic element — extract template, add effects for dynamic parts
-    const html = extractStaticHTML(node);
-    if (!html) {
-      // Fallback to VDOM mode for degenerate cases
-      return transformElementVdom(path, state);
-    }
-
-    const tmplId = generateTemplateId(state);
-    state.templates.push({ id: tmplId, html });
-    state.needsTemplate = true;
-
-    const elId = state.nextVarId();
-
-    // _el$ = _t$()
-    const statements = [
-      t.variableDeclaration('const', [
-        t.variableDeclarator(t.identifier(elId), t.callExpression(t.identifier(tmplId), []))
-      ])
-    ];
-
-    // Apply dynamic attributes and events
-    applyDynamicAttrs(statements, elId, attributes, state);
-
-    // Handle dynamic children
-    applyDynamicChildren(statements, elId, children, node, state);
-
-    // Return the element — wrap in IIFE
-    statements.push(t.returnStatement(t.identifier(elId)));
-
-    return t.callExpression(
-      t.arrowFunctionExpression([], t.blockStatement(statements)),
-      []
-    );
-  }
-
-  function applyDynamicAttrs(statements, elId, attributes, state) {
-    function buildSetPropCall(propName, valueExpr) {
-      state.needsSetProp = true;
-      return t.callExpression(t.identifier('_$setProp'), [
-        t.identifier(elId),
-        t.stringLiteral(propName),
-        valueExpr
-      ]);
-    }
-
-    for (const attr of attributes) {
-      if (t.isJSXSpreadAttribute(attr)) {
-        // spread(el, props) — use runtime spread
-        state.needsSpread = true;
-        statements.push(
-          t.expressionStatement(
-            t.callExpression(t.identifier('_$spread'), [t.identifier(elId), attr.argument])
-          )
-        );
-        continue;
-      }
-
-      const attrName = attr.name.name;
-
-      // Event handlers
-      if (attrName.startsWith('on') && !attrName.includes('|')) {
-        const event = attrName.slice(2).toLowerCase();
-        const handler = getAttributeValue(attr.value);
-        // Direct addEventListener
-        statements.push(
-          t.expressionStatement(
-            t.callExpression(
-              t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
-              [t.stringLiteral(event), handler]
-            )
-          )
-        );
-        continue;
-      }
-
-      // Event with modifiers
-      if (attrName.startsWith('on') && attrName.includes('|')) {
-        const { eventName, modifiers } = parseEventModifiers(attrName);
-        const handler = getAttributeValue(attr.value);
-        const wrappedHandler = createEventHandler(handler, modifiers);
-        const event = eventName.slice(2).toLowerCase();
-
-        const optionMods = modifiers.filter(m => EVENT_OPTION_MODIFIERS.has(m));
-        const addEventArgs = [t.stringLiteral(event), wrappedHandler];
-        if (optionMods.length > 0) {
-          const optsProps = optionMods.map(m =>
-            t.objectProperty(t.identifier(m), t.booleanLiteral(true))
-          );
-          addEventArgs.push(t.objectExpression(optsProps));
-        }
-
-        statements.push(
-          t.expressionStatement(
-            t.callExpression(
-              t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
-              addEventArgs
-            )
-          )
-        );
-        continue;
-      }
-
-      // Binding
-      if (isBindingAttribute(attrName)) {
-        const bindProp = getBindingProperty(attrName);
-        const signalExpr = attr.value.expression;
-        state.needsEffect = true;
-
-        if (bindProp === 'value') {
-          // Reactive value binding
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$effect'), [
-                t.arrowFunctionExpression([], t.assignmentExpression('=',
-                  t.memberExpression(t.identifier(elId), t.identifier('value')),
-                  t.callExpression(t.cloneNode(signalExpr), [])
-                ))
-              ])
-            )
-          );
-          // Input listener
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(
-                t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
-                [
-                  t.stringLiteral('input'),
-                  t.arrowFunctionExpression(
-                    [t.identifier('e')],
-                    t.callExpression(
-                      t.memberExpression(t.cloneNode(signalExpr), t.identifier('set')),
-                      [t.memberExpression(
-                        t.memberExpression(t.identifier('e'), t.identifier('target')),
-                        t.identifier('value')
-                      )]
-                    )
-                  )
-                ]
-              )
-            )
-          );
-        }
-        continue;
-      }
-
-      // Dynamic attribute (expression)
-      if (t.isJSXExpressionContainer(attr.value)) {
-        const expr = attr.value.expression;
-        const domName = normalizeAttrName(attrName);
-
-        if (isPotentiallyReactive(expr)) {
-          // Reactive attribute — wrap in effect
-          state.needsEffect = true;
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$effect'), [
-                t.arrowFunctionExpression([], buildSetPropCall(domName, expr))
-              ])
-            )
-          );
-        } else {
-          // Static expression (no signal calls) — set once
-          statements.push(t.expressionStatement(buildSetPropCall(domName, expr)));
-        }
-      }
-      // Static string/boolean attributes already in template
-    }
-  }
-
-  function applyDynamicChildren(statements, elId, children, parentNode, state) {
-    // Build a child access path. We need to track position relative to template's children.
-    // Dynamic children (expressions and components) need insert() calls.
-    let childIndex = 0;
-
-    for (const child of children) {
-      if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
-        if (text) childIndex++;
-        continue;
-      }
-
-      if (t.isJSXExpressionContainer(child)) {
-        if (t.isJSXEmptyExpression(child.expression)) continue;
-
-        const expr = child.expression;
-        const marker = buildChildAccess(elId, childIndex);
-        state.needsInsert = true;
-
-        if (isPotentiallyReactive(expr)) {
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                t.arrowFunctionExpression([], expr),
-                marker
-              ])
-            )
-          );
-        } else {
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                expr,
-                marker
-              ])
-            )
-          );
-        }
-        childIndex++;
-        continue;
-      }
-
-      if (t.isJSXElement(child)) {
-        const childTag = child.openingElement.name.name;
-        if (isComponent(childTag) || childTag === 'For' || childTag === 'Show') {
-          // Component/control-flow — transform and insert
-          const transformed = transformElementFineGrained({ node: child }, state);
-          const marker = buildChildAccess(elId, childIndex);
-          state.needsInsert = true;
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                transformed,
-                marker
-              ])
-            )
-          );
-          childIndex++;
-        } else {
-          // Static child element — already in template
-          // But check if it has dynamic children/attrs that need effects
-          const hasAnythingDynamic = child.openingElement.attributes.some(isDynamicAttr) ||
-            child.openingElement.attributes.some(a => !t.isJSXSpreadAttribute(a) && a.name?.name?.startsWith('on')) ||
-            !child.children.every(isStaticChild);
-
-          if (hasAnythingDynamic) {
-            // Need to reference this child element and apply effects to it
-            const childElId = state.nextVarId();
-            statements.push(
-              t.variableDeclaration('const', [
-                t.variableDeclarator(
-                  t.identifier(childElId),
-                  buildChildAccess(elId, childIndex)
-                )
-              ])
-            );
-            applyDynamicAttrs(statements, childElId, child.openingElement.attributes, state);
-            applyDynamicChildren(statements, childElId, child.children, child, state);
-          }
-          childIndex++;
-        }
-        continue;
-      }
-
-      if (t.isJSXFragment(child)) {
-        // Inline fragment children
-        for (const fChild of child.children) {
-          if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
-            state.needsInsert = true;
-            const expr = fChild.expression;
-            if (isPotentiallyReactive(expr)) {
-              statements.push(
-                t.expressionStatement(
-                  t.callExpression(t.identifier('_$insert'), [
-                    t.identifier(elId),
-                    t.arrowFunctionExpression([], expr)
-                  ])
-                )
-              );
-            } else {
-              statements.push(
-                t.expressionStatement(
-                  t.callExpression(t.identifier('_$insert'), [
-                    t.identifier(elId),
-                    expr
-                  ])
-                )
-              );
-            }
-          }
-        }
-      }
-    }
-  }
-
-  function buildChildAccess(elId, index) {
-    // Use childNodes[n] (not children[n]) so indices remain stable when text/comment
-    // placeholders are present in the static template.
-    return t.memberExpression(
-      t.memberExpression(t.identifier(elId), t.identifier('childNodes')),
-      t.numericLiteral(index),
-      true // computed
-    );
-  }
-
-  function transformComponentFineGrained(path, state) {
-    // Components in fine-grained mode still use h() for now (backward compat)
-    // The component itself decides how to render (vdom or fine-grained)
-    return transformComponentVdom(path, state);
+    return t.callExpression(t.identifier('h'), [t.identifier(componentName), propsExpr, ...transformedChildren]);
   }
 
   function transformForFineGrained(path, state) {
@@ -931,17 +1032,17 @@ export default function whatBabelPlugin({ types: t }) {
     // → mapArray(data, (item) => ...)
     let eachExpr = null;
     for (const attr of attributes) {
-      if (t.isJSXAttribute(attr) && attr.name.name === 'each') {
+      if (t.isJSXAttribute(attr) && getAttrName(attr) === 'each') {
         eachExpr = getAttributeValue(attr.value);
       }
     }
 
     if (!eachExpr) {
-      // Fallback
-      return transformElementVdom(path, state);
+      console.warn('[what-compiler] <For> element missing "each" attribute.');
+      state.needsH = true;
+      return transformElementAsH(path, state);
     }
 
-    // Get the render function from children
     let renderFn = null;
     for (const child of children) {
       if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
@@ -951,7 +1052,9 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     if (!renderFn) {
-      return transformElementVdom(path, state);
+      console.warn('[what-compiler] <For> element missing render function child.');
+      state.needsH = true;
+      return transformElementAsH(path, state);
     }
 
     state.needsMapArray = true;
@@ -959,20 +1062,16 @@ export default function whatBabelPlugin({ types: t }) {
   }
 
   function transformShowFineGrained(path, state) {
-    const { node } = path;
-    const attributes = node.openingElement.attributes;
-    const children = node.children;
-
     // <Show when={cond}>{content}</Show>
-    // Still uses h(Show, ...) for now — Show is a runtime component
-    return transformElementVdom(path, state);
+    // Uses h(Show, ...) — Show is a runtime component
+    state.needsH = true;
+    return transformComponentFineGrained(path, state);
   }
 
   function transformFragmentFineGrained(path, state) {
     const { node } = path;
     const children = node.children;
 
-    // Fragments with fine-grained: just return children array or single child
     const transformed = [];
     for (const child of children) {
       if (t.isJSXText(child)) {
@@ -993,8 +1092,15 @@ export default function whatBabelPlugin({ types: t }) {
     return t.arrayExpression(transformed);
   }
 
-  function generateTemplateId(state) {
-    return `_t$${state.templateCount++}`;
+  // Template deduplication: same HTML string → same module-level const
+  function getOrCreateTemplate(state, html) {
+    if (state.templateMap.has(html)) {
+      return state.templateMap.get(html);
+    }
+    const id = `_tmpl$${state.templateCount++}`;
+    state.templateMap.set(html, id);
+    state.templates.push({ id, html });
+    return id;
   }
 
   // =====================================================
@@ -1007,15 +1113,6 @@ export default function whatBabelPlugin({ types: t }) {
     visitor: {
       Program: {
         enter(path, state) {
-          // Read mode from plugin options
-          const pluginMode = state.opts?.mode || mode;
-          state.mode = pluginMode;
-
-          // VDOM mode state
-          state.needsH = false;
-          state.needsFragment = false;
-          state.needsIsland = false;
-
           // Fine-grained mode state
           state.needsTemplate = false;
           state.needsInsert = false;
@@ -1023,147 +1120,157 @@ export default function whatBabelPlugin({ types: t }) {
           state.needsMapArray = false;
           state.needsSpread = false;
           state.needsSetProp = false;
+          state.needsH = false;
+          state.needsFragment = false;
+          state.needsIsland = false;
           state.templates = [];
+          state.templateMap = new Map(); // html → template id (deduplication)
           state.templateCount = 0;
           state._varCounter = 0;
           state.nextVarId = () => `_el$${state._varCounter++}`;
+
+          // Collect signal names for smart reactivity detection
+          state.signalNames = new Set();
+          path.traverse({
+            VariableDeclarator(declPath) {
+              const init = declPath.node.init;
+              if (!init || !t.isCallExpression(init)) return;
+
+              const callee = init.callee;
+              let calleeName = '';
+              if (t.isIdentifier(callee)) {
+                calleeName = callee.name;
+              } else if (t.isMemberExpression(callee) && t.isIdentifier(callee.property)) {
+                calleeName = callee.property.name;
+              }
+
+              if (SIGNAL_CREATORS.has(calleeName)) {
+                const id = declPath.node.id;
+                if (t.isIdentifier(id)) {
+                  state.signalNames.add(id.name);
+                } else if (t.isArrayPattern(id)) {
+                  for (const el of id.elements) {
+                    if (t.isIdentifier(el)) state.signalNames.add(el.name);
+                  }
+                } else if (t.isObjectPattern(id)) {
+                  for (const prop of id.properties) {
+                    if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+                      state.signalNames.add(prop.value.name);
+                    }
+                  }
+                }
+              }
+            }
+          });
         },
 
         exit(path, state) {
-          if (state.mode === 'fine-grained') {
-            // Insert template declarations at top of program
-            for (const tmpl of state.templates.reverse()) {
+          // Insert template declarations at top of program (hoisted to module scope)
+          for (const tmpl of state.templates.reverse()) {
+            path.unshiftContainer('body',
+              t.variableDeclaration('const', [
+                t.variableDeclarator(
+                  t.identifier(tmpl.id),
+                  t.callExpression(t.identifier('_$template'), [t.stringLiteral(tmpl.html)])
+                )
+              ])
+            );
+          }
+
+          // Build fine-grained imports
+          const fgSpecifiers = [];
+          if (state.needsTemplate) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$template'), t.identifier('template'))
+            );
+          }
+          if (state.needsInsert) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$insert'), t.identifier('insert'))
+            );
+          }
+          if (state.needsEffect) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$effect'), t.identifier('effect'))
+            );
+          }
+          if (state.needsMapArray) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$mapArray'), t.identifier('mapArray'))
+            );
+          }
+          if (state.needsSpread) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$spread'), t.identifier('spread'))
+            );
+          }
+          if (state.needsSetProp) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$setProp'), t.identifier('setProp'))
+            );
+          }
+
+          // Core imports (h/Fragment/Island for components)
+          const coreSpecifiers = [];
+          if (state.needsH) {
+            coreSpecifiers.push(
+              t.importSpecifier(t.identifier('h'), t.identifier('h'))
+            );
+          }
+          if (state.needsFragment) {
+            coreSpecifiers.push(
+              t.importSpecifier(t.identifier('Fragment'), t.identifier('Fragment'))
+            );
+          }
+          if (state.needsIsland) {
+            coreSpecifiers.push(
+              t.importSpecifier(t.identifier('Island'), t.identifier('Island'))
+            );
+          }
+
+          if (fgSpecifiers.length > 0) {
+            let existingRenderImport = null;
+            for (const node of path.node.body) {
+              if (t.isImportDeclaration(node) && (
+                node.source.value === 'what-framework/render' ||
+                node.source.value === 'what-core/render'
+              )) {
+                existingRenderImport = node;
+                break;
+              }
+            }
+
+            if (existingRenderImport) {
+              const existingNames = new Set(
+                existingRenderImport.specifiers
+                  .filter(s => t.isImportSpecifier(s))
+                  .map(s => s.imported.name)
+              );
+              for (const spec of fgSpecifiers) {
+                if (!existingNames.has(spec.imported.name)) {
+                  existingRenderImport.specifiers.push(spec);
+                }
+              }
+            } else {
               path.unshiftContainer('body',
-                t.variableDeclaration('const', [
-                  t.variableDeclarator(
-                    t.identifier(tmpl.id),
-                    t.callExpression(t.identifier('_$template'), [t.stringLiteral(tmpl.html)])
-                  )
-                ])
+                t.importDeclaration(fgSpecifiers, t.stringLiteral('what-framework/render'))
               );
             }
+          }
 
-            // Build imports
-            const fgSpecifiers = [];
-            if (state.needsTemplate) {
-              fgSpecifiers.push(
-                t.importSpecifier(t.identifier('_$template'), t.identifier('template'))
-              );
-            }
-            if (state.needsInsert) {
-              fgSpecifiers.push(
-                t.importSpecifier(t.identifier('_$insert'), t.identifier('insert'))
-              );
-            }
-            if (state.needsEffect) {
-              fgSpecifiers.push(
-                t.importSpecifier(t.identifier('_$effect'), t.identifier('effect'))
-              );
-            }
-            if (state.needsMapArray) {
-              fgSpecifiers.push(
-                t.importSpecifier(t.identifier('_$mapArray'), t.identifier('mapArray'))
-              );
-            }
-            if (state.needsSpread) {
-              fgSpecifiers.push(
-                t.importSpecifier(t.identifier('_$spread'), t.identifier('spread'))
-              );
-            }
-            if (state.needsSetProp) {
-              fgSpecifiers.push(
-                t.importSpecifier(t.identifier('_$setProp'), t.identifier('setProp'))
-              );
-            }
-
-            // Also include h/Fragment/Island if vdom mode used for components
-            const coreSpecifiers = [];
-            if (state.needsH) {
-              coreSpecifiers.push(
-                t.importSpecifier(t.identifier('h'), t.identifier('h'))
-              );
-            }
-            if (state.needsFragment) {
-              coreSpecifiers.push(
-                t.importSpecifier(t.identifier('Fragment'), t.identifier('Fragment'))
-              );
-            }
-            if (state.needsIsland) {
-              coreSpecifiers.push(
-                t.importSpecifier(t.identifier('Island'), t.identifier('Island'))
-              );
-            }
-
-            if (fgSpecifiers.length > 0) {
-              // Check for existing render import
-              let existingRenderImport = null;
-              for (const node of path.node.body) {
-                if (t.isImportDeclaration(node) && (
-                  node.source.value === 'what-framework/render' ||
-                  node.source.value === 'what-core/render'
-                )) {
-                  existingRenderImport = node;
-                  break;
-                }
-              }
-
-              if (existingRenderImport) {
-                const existingNames = new Set(
-                  existingRenderImport.specifiers
-                    .filter(s => t.isImportSpecifier(s))
-                    .map(s => s.imported.name)
-                );
-
-                for (const spec of fgSpecifiers) {
-                  if (!existingNames.has(spec.imported.name)) {
-                    existingRenderImport.specifiers.push(spec);
-                  }
-                }
-              } else {
-                path.unshiftContainer('body',
-                  t.importDeclaration(fgSpecifiers, t.stringLiteral('what-framework/render'))
-                );
-              }
-            }
-
-            if (coreSpecifiers.length > 0) {
-              addCoreImports(path, t, coreSpecifiers);
-            }
-
-          } else {
-            // VDOM mode
-            if (!state.needsH) return;
-
-            const coreSpecifiers = [
-              t.importSpecifier(t.identifier('h'), t.identifier('h')),
-            ];
-            if (state.needsFragment) {
-              coreSpecifiers.push(
-                t.importSpecifier(t.identifier('Fragment'), t.identifier('Fragment'))
-              );
-            }
-            if (state.needsIsland) {
-              coreSpecifiers.push(
-                t.importSpecifier(t.identifier('Island'), t.identifier('Island'))
-              );
-            }
-
+          if (coreSpecifiers.length > 0) {
             addCoreImports(path, t, coreSpecifiers);
           }
         }
       },
 
       JSXElement(path, state) {
-        const transformed = state.mode === 'fine-grained'
-          ? transformElementFineGrained(path, state)
-          : transformElementVdom(path, state);
+        const transformed = transformElementFineGrained(path, state);
         path.replaceWith(transformed);
       },
 
       JSXFragment(path, state) {
-        const transformed = state.mode === 'fine-grained'
-          ? transformFragmentFineGrained(path, state)
-          : transformFragmentVdom(path, state);
+        const transformed = transformFragmentFineGrained(path, state);
         path.replaceWith(transformed);
       }
     }
@@ -1187,7 +1294,6 @@ function addCoreImports(path, t, coreSpecifiers) {
         .filter(s => t.isImportSpecifier(s))
         .map(s => s.imported.name)
     );
-
     for (const spec of coreSpecifiers) {
       if (!existingNames.has(spec.imported.name)) {
         existingImport.specifiers.push(spec);

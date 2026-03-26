@@ -7,15 +7,33 @@ import { createDOM, disposeTree } from './dom.js';
 
 export { effect, untrack };
 
+// --- URL Sanitization for DOM attributes ---
+// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed).
+
+const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'formAction']);
+
+function isSafeUrl(url) {
+  if (typeof url !== 'string') return true; // non-string values are not URL-injection risks
+  const normalized = url.trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+  if (normalized.startsWith('javascript:')) return false;
+  if (normalized.startsWith('data:')) return false;
+  if (normalized.startsWith('vbscript:')) return false;
+  return true;
+}
+
 // --- template(html) ---
 // Pre-parse HTML string into a <template> element. Returns a factory function
 // that clones the DOM tree via cloneNode(true) — 2-5x faster than createElement chains.
+// INTERNAL: Used by the compiler. Not intended for direct use by application code.
+// Exported as both `template` (for compiler output) and `_template` (to signal internal use).
 
 export function template(html) {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
   return () => t.content.firstChild.cloneNode(true);
 }
+
+export { template as _template };
 
 // --- insert(parent, child, marker?) ---
 // Reactive child insertion. Handles all child types:
@@ -710,6 +728,16 @@ export function spread(el, props) {
 }
 
 export function setProp(el, key, value) {
+  // Sanitize URL attributes — reject dangerous protocols
+  if (URL_ATTRS.has(key) || URL_ATTRS.has(key.toLowerCase())) {
+    if (!isSafeUrl(value)) {
+      if (typeof console !== 'undefined') {
+        console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
+      }
+      return;
+    }
+  }
+
   if (key === 'class' || key === 'className') {
     el.className = value || '';
   } else if (key === 'dangerouslySetInnerHTML') {
@@ -718,7 +746,13 @@ export function setProp(el, key, value) {
     if (value && typeof value === 'object' && '__html' in value) {
       el.innerHTML = value.__html ?? '';
     } else {
-      el.innerHTML = value ?? '';
+      // Plain string innerHTML is rejected for security — use { __html: string } form
+      if (typeof console !== 'undefined' && value != null && value !== '') {
+        console.warn(
+          '[what] Plain string innerHTML is not allowed. Use { __html: "..." } or dangerouslySetInnerHTML={{ __html: "..." }} instead.'
+        );
+      }
+      // Ignored — do not set innerHTML from plain string
     }
   } else if (key === 'style') {
     if (typeof value === 'string') {
@@ -783,4 +817,237 @@ export function classList(el, classes) {
       el.classList.toggle(name, !!value);
     }
   });
+}
+
+// =========================================================================
+// DOM Hydration
+// =========================================================================
+// Reuses server-rendered DOM instead of creating new nodes.
+// After hydration is complete, switches to normal rendering for updates.
+
+let _isHydrating = false;
+let _hydrationCursor = null;
+
+export function isHydrating() {
+  return _isHydrating;
+}
+
+/**
+ * hydrate(vnode, container)
+ * Walk existing DOM nodes in `container`, match them against the vnode tree,
+ * attach reactive bindings, and skip cloneNode. Once done, switch to normal rendering.
+ */
+export function hydrate(vnode, container) {
+  _isHydrating = true;
+  _hydrationCursor = { parent: container, index: 0 };
+
+  try {
+    const result = hydrateNode(vnode, container);
+    return result;
+  } finally {
+    _isHydrating = false;
+    _hydrationCursor = null;
+  }
+}
+
+/**
+ * Claim the next DOM node from the hydration cursor.
+ * Returns the existing DOM node or null if none available.
+ */
+function claimNode(parent) {
+  const children = parent.childNodes;
+  while (_hydrationCursor.index < children.length) {
+    const node = children[_hydrationCursor.index];
+    // Skip hydration comment markers
+    if (node.nodeType === 8) { // Comment node
+      const text = node.textContent;
+      if (text === '$' || text === '/$' || text === '[]' || text === '/[]') {
+        _hydrationCursor.index++;
+        continue;
+      }
+    }
+    _hydrationCursor.index++;
+    return node;
+  }
+  return null;
+}
+
+function isDevMode() {
+  return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
+}
+
+function hydrateNode(vnode, parent) {
+  if (vnode == null || typeof vnode === 'boolean') {
+    return null;
+  }
+
+  // Text node
+  if (typeof vnode === 'string' || typeof vnode === 'number') {
+    const existing = claimNode(parent);
+    const text = String(vnode);
+
+    if (existing && existing.nodeType === 3) {
+      // Reuse text node — check for mismatch in dev
+      if (isDevMode() && existing.textContent !== text) {
+        console.warn(
+          `[what] Hydration mismatch: expected text "${text}", got "${existing.textContent}"`
+        );
+        existing.textContent = text;
+      }
+      return existing;
+    }
+
+    // Mismatch: expected text node, got element or nothing
+    if (isDevMode()) {
+      console.warn(
+        `[what] Hydration mismatch: expected text node "${text}", got ${existing ? existing.nodeName : 'nothing'}. Falling back to client render.`
+      );
+    }
+    const textNode = document.createTextNode(text);
+    if (existing) {
+      parent.replaceChild(textNode, existing);
+    } else {
+      parent.appendChild(textNode);
+    }
+    return textNode;
+  }
+
+  // Reactive function child — attach effect to existing node
+  if (typeof vnode === 'function') {
+    // Unwrap to get the initial value for hydration
+    const initialValue = vnode();
+    let current = hydrateNode(initialValue, parent);
+
+    // Set up reactive effect for future updates (normal rendering path)
+    effect(() => {
+      const value = vnode();
+      // After hydration, this runs as normal insert
+      if (!_isHydrating) {
+        current = reconcileInsert(parent, value, current, null);
+      }
+    });
+    return current;
+  }
+
+  // Array — hydrate each child
+  if (Array.isArray(vnode)) {
+    const nodes = [];
+    for (const child of vnode) {
+      const node = hydrateNode(child, parent);
+      if (node) nodes.push(node);
+    }
+    return nodes.length === 1 ? nodes[0] : nodes;
+  }
+
+  // VNode — component or element
+  if (typeof vnode === 'object' && vnode._vnode) {
+    // Component
+    if (typeof vnode.tag === 'function') {
+      const result = vnode.tag({ ...vnode.props, children: vnode.children });
+      return hydrateNode(result, parent);
+    }
+
+    // Element — claim existing DOM element
+    const existing = claimNode(parent);
+    const expectedTag = vnode.tag.toUpperCase();
+
+    if (existing && existing.nodeType === 1 && existing.nodeName === expectedTag) {
+      // Match! Reuse this element. Apply props/bindings.
+      hydrateElementProps(existing, vnode.props || {});
+
+      // Hydrate children
+      const savedCursor = _hydrationCursor;
+      _hydrationCursor = { parent: existing, index: 0 };
+
+      const rawInner = vnode.props?.dangerouslySetInnerHTML?.__html;
+      if (rawInner == null) {
+        for (const child of vnode.children) {
+          hydrateNode(child, existing);
+        }
+      }
+
+      _hydrationCursor = savedCursor;
+      return existing;
+    }
+
+    // Mismatch — fall back to client render for this subtree
+    if (isDevMode()) {
+      console.warn(
+        `[what] Hydration mismatch: expected <${vnode.tag}>, got ${existing ? existing.nodeName : 'nothing'}. Falling back to client render.`
+      );
+    }
+
+    // Create the element from scratch
+    const newEl = document.createElement(vnode.tag);
+    for (const key in vnode.props || {}) {
+      if (key === 'children' || key === 'key') continue;
+      setProp(newEl, key, vnode.props[key]);
+    }
+    for (const child of vnode.children) {
+      reconcileInsert(newEl, child, null, null);
+    }
+    if (existing) {
+      parent.replaceChild(newEl, existing);
+    } else {
+      parent.appendChild(newEl);
+    }
+    return newEl;
+  }
+
+  // DOM node — use directly
+  if (isDomNode(vnode)) {
+    return vnode;
+  }
+
+  // Fallback — create text node
+  const textNode = document.createTextNode(String(vnode));
+  parent.appendChild(textNode);
+  return textNode;
+}
+
+/**
+ * Apply props to an existing hydrated element.
+ * Attaches event handlers and reactive bindings without re-creating the element.
+ */
+function hydrateElementProps(el, props) {
+  for (const key in props) {
+    if (key === 'children' || key === 'key' || key === 'ref') continue;
+    if (key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
+
+    const value = props[key];
+
+    // Event handlers — always attach (they don't exist in SSR HTML)
+    if (key.startsWith('on') && key.length > 2) {
+      const event = key.slice(2).toLowerCase();
+      el.addEventListener(event, value);
+      continue;
+    }
+
+    // Delegated events ($$click etc.)
+    if (key.startsWith('$$')) {
+      el[key] = value;
+      continue;
+    }
+
+    // Reactive props — set up effects
+    if (typeof value === 'function' && !key.startsWith('on')) {
+      if (key === 'class' || key === 'className') {
+        effect(() => { el.className = value() || ''; });
+      } else if (key === 'style' && typeof value() === 'object') {
+        effect(() => {
+          const styles = value();
+          for (const prop in styles) {
+            el.style[prop] = styles[prop] ?? '';
+          }
+        });
+      } else {
+        effect(() => { setProp(el, key, value()); });
+      }
+      continue;
+    }
+
+    // Static props — skip attributes already set from SSR
+    // Only attach non-serializable props or ones that may differ
+    if (key === 'data-hk') continue;
+  }
 }

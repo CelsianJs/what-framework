@@ -4,6 +4,20 @@
 
 import { signal, effect, computed, batch, h, ErrorBoundary } from 'what-core';
 
+// --- URL Sanitization ---
+// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed).
+
+export function isSafeUrl(url) {
+  if (typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  // Check for dangerous protocols (case-insensitive, ignoring whitespace/control chars)
+  const normalized = trimmed.replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+  if (normalized.startsWith('javascript:')) return false;
+  if (normalized.startsWith('data:')) return false;
+  if (normalized.startsWith('vbscript:')) return false;
+  return true;
+}
+
 // --- Route State (global singleton) ---
 
 const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/');
@@ -30,6 +44,26 @@ export const route = {
 export async function navigate(to, opts = {}) {
   const { replace = false, state = null, transition = true, _fromPopstate = false } = opts;
 
+  // Reject unsafe URLs
+  if (!isSafeUrl(to)) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[what-router] Blocked navigation to unsafe URL: ${to}`);
+    }
+    return;
+  }
+
+  // Handle same-page hash links — use replaceState and scroll directly
+  if (typeof window !== 'undefined' && to.startsWith('#')) {
+    const currentUrl = _url();
+    const basePath = currentUrl.split('#')[0];
+    const newUrl = basePath + to;
+    history.replaceState(state, '', newUrl);
+    _url.set(newUrl);
+    const el = document.querySelector(to);
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+
   // Don't navigate if already on the same URL
   if (to === _url()) return;
 
@@ -42,6 +76,10 @@ export async function navigate(to, opts = {}) {
   const doNavigation = () => {
     // Skip history manipulation on popstate (browser already updated the URL)
     if (!_fromPopstate) {
+      // Save scroll position for current URL before navigating away
+      if (typeof window !== 'undefined') {
+        scrollPositions.set(_url(), { x: scrollX, y: scrollY });
+      }
       if (replace) {
         history.replaceState(state, '', to);
       } else {
@@ -67,9 +105,18 @@ export async function navigate(to, opts = {}) {
 // Back/forward support — route through navigate() so middleware runs
 if (typeof window !== 'undefined') {
   window.addEventListener('popstate', () => {
+    // Save scroll position for the URL we're leaving
+    scrollPositions.set(_url(), { x: scrollX, y: scrollY });
+
     const newUrl = location.pathname + location.search + location.hash;
     // Use _fromPopstate flag so navigate() skips pushState (browser already updated URL)
-    navigate(newUrl, { replace: true, _fromPopstate: true, transition: false });
+    navigate(newUrl, { replace: true, _fromPopstate: true, transition: false }).then(() => {
+      // Restore saved scroll position for the URL we're arriving at
+      const saved = scrollPositions.get(newUrl);
+      if (saved) {
+        requestAnimationFrame(() => window.scrollTo(saved.x, saved.y));
+      }
+    });
   });
 }
 
@@ -319,9 +366,15 @@ export function Link({
   transition = true,
   ...rest
 }) {
+  // Sanitize href — reject dangerous protocols
+  const safeHref = isSafeUrl(href) ? href : 'about:blank';
+  if (!isSafeUrl(href) && typeof console !== 'undefined') {
+    console.warn(`[what-router] Link blocked unsafe href: ${href}`);
+  }
+
   const currentPath = route.path;
   // Strip query string and hash from href for path comparison
-  const hrefPath = href.split('?')[0].split('#')[0];
+  const hrefPath = safeHref.split('?')[0].split('#')[0];
   // Segment-boundary matching: '/blog' matches '/blog/123' but not '/blog-archive'
   const isActive = hrefPath === '/'
     ? currentPath === '/'
@@ -335,15 +388,15 @@ export function Link({
   ].filter(Boolean).join(' ') || undefined;
 
   return h('a', {
-    href,
+    href: safeHref,
     class: classes,
     onclick: (e) => {
       // Only intercept left-clicks without modifiers
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
       e.preventDefault();
-      navigate(href, { replace: rep, transition });
+      navigate(safeHref, { replace: rep, transition });
     },
-    onmouseenter: shouldPrefetch ? () => prefetch(href) : undefined,
+    onmouseenter: shouldPrefetch ? () => prefetch(safeHref) : undefined,
     ...rest,
   }, ...(Array.isArray(children) ? children : [children]));
 }

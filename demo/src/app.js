@@ -1,5 +1,5 @@
 // What Framework Demo App
-import { h, mount, signal } from 'what-framework';
+import { mount } from 'what-framework';
 import { Router, Link, defineRoutes } from 'what-framework/router';
 import { Layout } from './layouts/main.js';
 import { Home } from './pages/home.js';
@@ -17,15 +17,17 @@ const routes = defineRoutes({
 });
 
 function NotFound() {
-  return h('div', { class: 'not-found' },
-    h('h1', null, '404'),
-    h('p', null, 'This page doesn\'t exist.'),
-    h(Link, { href: '/', class: 'btn btn-primary' }, 'Back to home'),
+  return (
+    <div class="not-found">
+      <h1>404</h1>
+      <p>This page doesn't exist.</p>
+      <Link href="/" class="btn btn-primary">Back to home</Link>
+    </div>
   );
 }
 
 function App() {
-  return h(Router, { routes, fallback: NotFound });
+  return <Router routes={routes} fallback={NotFound} />;
 }
 
-mount(h(App), '#app');
+mount(<App />, '#app');

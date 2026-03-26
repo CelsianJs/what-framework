@@ -1,5 +1,5 @@
 import {
-  h, useState, useSignal, useEffect, useRef, useMemo, useReducer,
+  useState, useSignal, useEffect, useRef, useMemo, useReducer,
   signal, computed, batch,
   // Animation
   spring, tween,
@@ -20,14 +20,16 @@ function Counter() {
   const [count, setCount] = useState(0);
   const doubled = useMemo(() => count * 2, [count]);
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Counter with Computed'),
-    h('div', { class: 'counter' },
-      h('button', { class: 'counter-btn', onClick: () => setCount(c => c - 1) }, '\u2212'),
-      h('span', { class: 'counter-value' }, count),
-      h('button', { class: 'counter-btn', onClick: () => setCount(c => c + 1) }, '+'),
-    ),
-    h('p', { class: 'text-muted text-center mt-4' }, 'Doubled: ', doubled),
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Counter with Computed</h3>
+      <div class="counter">
+        <button class="counter-btn" onClick={() => setCount(c => c - 1)}>{'\u2212'}</button>
+        <span class="counter-value">{count}</span>
+        <button class="counter-btn" onClick={() => setCount(c => c + 1)}>+</button>
+      </div>
+      <p class="text-muted text-center mt-4">Doubled: {doubled}</p>
+    </div>
   );
 }
 
@@ -56,30 +58,33 @@ function TodoList() {
     setTodos(prev => prev.filter(t => t.id !== id));
   };
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Todo List'),
-    h('div', { class: 'todo-input' },
-      h('input', {
-        ref: inputRef,
-        value: input,
-        placeholder: 'Add a todo...',
-        onInput: (e) => setInput(e.target.value),
-        onKeydown: (e) => e.key === 'Enter' && addTodo(),
-      }),
-      h('button', { onClick: addTodo }, 'Add'),
-    ),
-    h('ul', { class: 'todo-list' },
-      ...todos.map(todo =>
-        h('li', { key: todo.id, class: `todo-item${todo.done ? ' done' : ''}` },
-          h('div', { class: 'todo-checkbox', onClick: () => toggle(todo.id) }),
-          h('span', { onClick: () => toggle(todo.id) }, todo.text),
-          h('button', { onClick: () => remove(todo.id) }, '\u00d7'),
-        )
-      ),
-    ),
-    todos.length > 0
-      ? h('p', { class: 'todo-stats' }, `${remaining} remaining of ${todos.length} total`)
-      : h('p', { class: 'todo-stats' }, 'No todos yet. Add one above!'),
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Todo List</h3>
+      <div class="todo-input">
+        <input
+          ref={inputRef}
+          value={input}
+          placeholder="Add a todo..."
+          onInput={(e) => setInput(e.target.value)}
+          onKeydown={(e) => e.key === 'Enter' && addTodo()}
+        />
+        <button onClick={addTodo}>Add</button>
+      </div>
+      <ul class="todo-list">
+        {() => todos.map(todo =>
+          <li key={todo.id} class={`todo-item${todo.done ? ' done' : ''}`}>
+            <div class="todo-checkbox" onClick={() => toggle(todo.id)}></div>
+            <span onClick={() => toggle(todo.id)}>{todo.text}</span>
+            <button onClick={() => remove(todo.id)}>{'\u00d7'}</button>
+          </li>
+        )}
+      </ul>
+      {() => todos.length > 0
+        ? <p class="todo-stats">{`${remaining} remaining of ${todos.length} total`}</p>
+        : <p class="todo-stats">No todos yet. Add one above!</p>
+      }
+    </div>
   );
 }
 
@@ -108,19 +113,21 @@ function Timer() {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }, [seconds]);
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Timer'),
-    h('div', { class: 'text-center' },
-      h('span', { class: 'counter-value' }, formatted),
-    ),
-    h('div', { class: 'flex justify-center gap-4 mt-4' },
-      h('button', { class: 'btn btn-primary', onClick: () => setRunning(r => !r) },
-        running ? 'Pause' : 'Start',
-      ),
-      h('button', { class: 'btn btn-secondary', onClick: () => { setRunning(false); setSeconds(0); } },
-        'Reset',
-      ),
-    ),
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Timer</h3>
+      <div class="text-center">
+        <span class="counter-value">{formatted}</span>
+      </div>
+      <div class="flex justify-center gap-4 mt-4">
+        <button class="btn btn-primary" onClick={() => setRunning(r => !r)}>
+          {() => running ? 'Pause' : 'Start'}
+        </button>
+        <button class="btn btn-secondary" onClick={() => { setRunning(false); setSeconds(0); }}>
+          Reset
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -137,19 +144,18 @@ function ReducerDemo() {
 
   const [state, dispatch] = useReducer(reducer, { count: 0 });
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'useReducer'),
-    h('div', { class: 'counter' },
-      h('button', { class: 'counter-btn', onClick: () => dispatch({ type: 'decrement' }) }, '\u2212'),
-      h('span', { class: 'counter-value' }, state.count),
-      h('button', { class: 'counter-btn', onClick: () => dispatch({ type: 'increment' }) }, '+'),
-    ),
-    h('div', { class: 'text-center mt-4' },
-      h('button', {
-        class: 'btn btn-secondary',
-        onClick: () => dispatch({ type: 'reset' }),
-      }, 'Reset'),
-    ),
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">useReducer</h3>
+      <div class="counter">
+        <button class="counter-btn" onClick={() => dispatch({ type: 'decrement' })}>{'\u2212'}</button>
+        <span class="counter-value">{state.count}</span>
+        <button class="counter-btn" onClick={() => dispatch({ type: 'increment' })}>+</button>
+      </div>
+      <div class="text-center mt-4">
+        <button class="btn btn-secondary" onClick={() => dispatch({ type: 'reset' })}>Reset</button>
+      </div>
+    </div>
   );
 }
 
@@ -170,33 +176,33 @@ function SpringDemo() {
     scale.set(1);
   };
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Spring Animation'),
-    h('div', {
-      onMouseMove: handleMouseMove,
-      onMouseEnter: () => scale.set(1.1),
-      onMouseLeave: handleMouseLeave,
-      style: {
-        height: '120px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--color-bg-subtle)',
-        borderRadius: 'var(--radius-lg)',
-        cursor: 'pointer',
-      },
-    },
-      h('div', {
-        style: () => ({
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Spring Animation</h3>
+      <div
+        onMouseMove={handleMouseMove}
+        onMouseEnter={() => scale.set(1.1)}
+        onMouseLeave={handleMouseLeave}
+        style={{
+          height: '120px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--color-bg-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={() => ({
           width: '60px',
           height: '60px',
           background: 'linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-hover) 100%)',
           borderRadius: 'var(--radius-xl)',
           transform: `translateX(${x.current()}px) scale(${scale.current()})`,
-        }),
-      }),
-    ),
-    h('p', { class: 'text-muted text-center mt-4' }, 'Move mouse over the area'),
+        })}></div>
+      </div>
+      <p class="text-muted text-center mt-4">Move mouse over the area</p>
+    </div>
   );
 }
 
@@ -218,63 +224,63 @@ function FormDemo() {
     reset();
   };
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Form Validation'),
-    submitted ? (
-      h('div', {
-        style: {
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Form Validation</h3>
+      {() => submitted ? (
+        <div style={{
           padding: '1rem',
           background: 'var(--color-success)',
           color: 'white',
           borderRadius: 'var(--radius-lg)',
           marginBottom: '1rem',
-        },
-      }, '\u2713 Form submitted: ', () => submitted?.email)
-    ) : null,
-    h('form', { onSubmit: handleSubmit(onSubmit), style: { display: 'flex', flexDirection: 'column', gap: '1rem' } },
-      h('div', null,
-        h('input', {
-          ...register('email'),
-          placeholder: 'Email',
-          style: () => ({
-            width: '100%',
-            padding: '0.75rem 1rem',
-            border: formState.errors.email ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            fontSize: 'var(--text-sm)',
-          }),
-        }),
-        formState.errors.email ? (
-          h('span', { style: { color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: '0.25rem', display: 'block' } },
-            formState.errors.email?.message
-          )
-        ) : null,
-      ),
-      h('div', null,
-        h('input', {
-          ...register('password'),
-          type: 'password',
-          placeholder: 'Password',
-          style: () => ({
-            width: '100%',
-            padding: '0.75rem 1rem',
-            border: formState.errors.password ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            fontSize: 'var(--text-sm)',
-          }),
-        }),
-        formState.errors.password ? (
-          h('span', { style: { color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: '0.25rem', display: 'block' } },
-            formState.errors.password?.message
-          )
-        ) : null,
-      ),
-      h('button', {
-        type: 'submit',
-        class: 'btn btn-primary',
-        disabled: () => formState.isSubmitting(),
-      }, () => formState.isSubmitting() ? 'Submitting...' : 'Submit'),
-    ),
+        }}>{'\u2713'} Form submitted: {() => submitted?.email}</div>
+      ) : null}
+      <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div>
+          <input
+            {...register('email')}
+            placeholder="Email"
+            style={() => ({
+              width: '100%',
+              padding: '0.75rem 1rem',
+              border: formState.errors.email ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-lg)',
+              fontSize: 'var(--text-sm)',
+            })}
+          />
+          {() => formState.errors.email ? (
+            <span style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: '0.25rem', display: 'block' }}>
+              {formState.errors.email?.message}
+            </span>
+          ) : null}
+        </div>
+        <div>
+          <input
+            {...register('password')}
+            type="password"
+            placeholder="Password"
+            style={() => ({
+              width: '100%',
+              padding: '0.75rem 1rem',
+              border: formState.errors.password ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-lg)',
+              fontSize: 'var(--text-sm)',
+            })}
+          />
+          {() => formState.errors.password ? (
+            <span style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: '0.25rem', display: 'block' }}>
+              {formState.errors.password?.message}
+            </span>
+          ) : null}
+        </div>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          disabled={() => formState.isSubmitting()}
+        >{() => formState.isSubmitting() ? 'Submitting...' : 'Submit'}</button>
+      </form>
+    </div>
   );
 }
 
@@ -292,39 +298,38 @@ function DataDemo() {
 
   const { data, error, isLoading, mutate } = useSWR('demo-users', mockFetch);
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Data Fetching (SWR)'),
-    h('div', { class: 'mb-4' },
-      h('button', { class: 'btn btn-secondary', onClick: () => mutate() }, '\u21bb Refetch'),
-    ),
-    isLoading() ? (
-      h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.5rem' } },
-        h(Skeleton, { width: '100%', height: 48 }),
-        h(Skeleton, { width: '100%', height: 48 }),
-        h(Skeleton, { width: '100%', height: 48 }),
-      )
-    ) : null,
-    error() ? h('p', { style: { color: 'var(--color-error)' } }, 'Error loading data') : null,
-    data() && !isLoading() ? (
-      h('ul', { style: { listStyle: 'none', padding: 0 } },
-        () => (data() || []).map(user =>
-          h('li', {
-            key: user.id,
-            style: {
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Data Fetching (SWR)</h3>
+      <div class="mb-4">
+        <button class="btn btn-secondary" onClick={() => mutate()}>{'\u21bb'} Refetch</button>
+      </div>
+      {() => isLoading() ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <Skeleton width="100%" height={48} />
+          <Skeleton width="100%" height={48} />
+          <Skeleton width="100%" height={48} />
+        </div>
+      ) : null}
+      {() => error() ? <p style={{ color: 'var(--color-error)' }}>Error loading data</p> : null}
+      {() => data() && !isLoading() ? (
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {() => (data() || []).map(user =>
+            <li key={user.id} style={{
               padding: '0.75rem 1rem',
               background: 'var(--color-bg-subtle)',
               borderRadius: 'var(--radius-md)',
               marginBottom: '0.5rem',
               display: 'flex',
               justifyContent: 'space-between',
-            },
-          },
-            h('span', { class: 'font-medium' }, user.name),
-            h('span', { class: 'text-muted' }, user.role),
-          )
-        )
-      )
-    ) : null,
+            }}>
+              <span class="font-medium">{user.name}</span>
+              <span class="text-muted">{user.role}</span>
+            </li>
+          )}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -337,36 +342,36 @@ function SkeletonDemo() {
     return () => clearInterval(timer);
   }, []);
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Skeleton Loaders'),
-    h('p', { class: 'text-muted mb-4' },
-      'Auto-toggles every 2s: ', () => loading ? 'Loading...' : 'Loaded!'
-    ),
-    loading ? (
-      h('div', { style: { display: 'flex', gap: '1rem' } },
-        h(Skeleton, { width: 60, height: 60, style: { borderRadius: '50%' } }),
-        h('div', { style: { flex: 1 } },
-          h(Skeleton, { width: '60%', height: 20, style: { marginBottom: '0.5rem' } }),
-          h(SkeletonText, { lines: 2, style: { gap: '0.5rem' } }),
-        ),
-      )
-    ) : null,
-    !loading ? (
-      h('div', { style: { display: 'flex', gap: '1rem', alignItems: 'center' } },
-        h('div', {
-          style: {
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Skeleton Loaders</h3>
+      <p class="text-muted mb-4">
+        Auto-toggles every 2s: {() => loading ? 'Loading...' : 'Loaded!'}
+      </p>
+      {() => loading ? (
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <Skeleton width={60} height={60} style={{ borderRadius: '50%' }} />
+          <div style={{ flex: 1 }}>
+            <Skeleton width="60%" height={20} style={{ marginBottom: '0.5rem' }} />
+            <SkeletonText lines={2} style={{ gap: '0.5rem' }} />
+          </div>
+        </div>
+      ) : null}
+      {() => !loading ? (
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div style={{
             width: '60px',
             height: '60px',
             borderRadius: '50%',
             background: 'linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-hover) 100%)',
-          },
-        }),
-        h('div', null,
-          h('h4', { style: { margin: 0 } }, 'John Doe'),
-          h('p', { class: 'text-muted', style: { margin: 0 } }, 'Software Engineer at Acme Inc.'),
-        ),
-      )
-    ) : null,
+          }}></div>
+          <div>
+            <h4 style={{ margin: 0 }}>John Doe</h4>
+            <p class="text-muted" style={{ margin: 0 }}>Software Engineer at Acme Inc.</p>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -390,23 +395,23 @@ function A11yDemo() {
     setAnnounceText('Modal closed');
   };
 
-  return h('div', { class: 'demo-card' },
-    h('h3', { class: 'demo-title' }, 'Accessibility'),
-    h('div', { class: 'flex gap-4 mb-4' },
-      h('button', { class: 'btn btn-primary', onClick: openModal }, 'Open Modal'),
-      h('button', { class: 'btn btn-secondary', onClick: () => {
-        announce('Hello! This is a screen reader announcement.');
-        setAnnounceText('Announcement sent');
-      } }, 'Announce'),
-    ),
-    announceText ? (
-      h('p', { class: 'text-muted', style: { fontStyle: 'italic' } },
-        'Last action: ', announceText
-      )
-    ) : null,
-    modalOpen ? (
-      h('div', {
-        style: {
+  return (
+    <div class="demo-card">
+      <h3 class="demo-title">Accessibility</h3>
+      <div class="flex gap-4 mb-4">
+        <button class="btn btn-primary" onClick={openModal}>Open Modal</button>
+        <button class="btn btn-secondary" onClick={() => {
+          announce('Hello! This is a screen reader announcement.');
+          setAnnounceText('Announcement sent');
+        }}>Announce</button>
+      </div>
+      {() => announceText ? (
+        <p class="text-muted" style={{ fontStyle: 'italic' }}>
+          Last action: {announceText}
+        </p>
+      ) : null}
+      {() => modalOpen ? (
+        <div style={{
           position: 'fixed',
           inset: 0,
           background: 'rgba(0,0,0,0.5)',
@@ -414,75 +419,77 @@ function A11yDemo() {
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000,
-        },
-        onClick: (e) => e.target === e.currentTarget && closeModal(),
-      },
-        h('div', {
-          ref: modalRef,
-          role: 'dialog',
-          'aria-modal': 'true',
-          'aria-labelledby': 'modal-title',
-          class: 'animate-scale-in',
-          style: {
-            background: 'var(--color-surface)',
-            padding: '2rem',
-            borderRadius: 'var(--radius-xl)',
-            maxWidth: '400px',
-            width: '90%',
-            boxShadow: 'var(--shadow-xl)',
-          },
-          onKeyDown: (e) => e.key === Keys.Escape && closeModal(),
-        },
-          h('h4', { id: 'modal-title', style: { marginTop: 0, marginBottom: '1rem' } }, 'Accessible Modal'),
-          h('p', { class: 'text-secondary' }, 'Focus is trapped inside this modal. Tab through the buttons to see.'),
-          h('div', { class: 'flex gap-4 mt-8' },
-            h('button', { class: 'btn btn-secondary' }, 'Action 1'),
-            h('button', { class: 'btn btn-secondary' }, 'Action 2'),
-            h('button', { class: 'btn btn-primary', onClick: closeModal }, 'Close'),
-          ),
-        )
-      )
-    ) : null,
+        }} onClick={(e) => e.target === e.currentTarget && closeModal()}>
+          <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+            class="animate-scale-in"
+            style={{
+              background: 'var(--color-surface)',
+              padding: '2rem',
+              borderRadius: 'var(--radius-xl)',
+              maxWidth: '400px',
+              width: '90%',
+              boxShadow: 'var(--shadow-xl)',
+            }}
+            onKeyDown={(e) => e.key === Keys.Escape && closeModal()}
+          >
+            <h4 id="modal-title" style={{ marginTop: 0, marginBottom: '1rem' }}>Accessible Modal</h4>
+            <p class="text-secondary">Focus is trapped inside this modal. Tab through the buttons to see.</p>
+            <div class="flex gap-4 mt-8">
+              <button class="btn btn-secondary">Action 1</button>
+              <button class="btn btn-secondary">Action 2</button>
+              <button class="btn btn-primary" onClick={closeModal}>Close</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 // --- Main Demos Page ---
 export function Demos() {
-  return h('div', { class: 'section' },
-    h('div', { class: 'features-header' },
-      h('p', { class: 'features-label' }, 'Interactive'),
-      h('h1', { class: 'features-title' }, 'Live Demos'),
-      h('p', { class: 'features-subtitle' },
-        'Each demo showcases a different feature of the What framework. All state is local, all updates go through the unified VNode reconciler.'
-      ),
-    ),
+  return (
+    <div class="section">
+      <div class="features-header">
+        <p class="features-label">Interactive</p>
+        <h1 class="features-title">Live Demos</h1>
+        <p class="features-subtitle">
+          Each demo showcases a different feature of the What framework.
+          All state is local, all updates are fine-grained signal-driven.
+        </p>
+      </div>
 
-    h('div', { style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-6);' },
-      h(Counter),
-      h(Timer),
-      h(ReducerDemo),
-      h(SpringDemo),
-    ),
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-6);">
+        <Counter />
+        <Timer />
+        <ReducerDemo />
+        <SpringDemo />
+      </div>
 
-    h('div', { class: 'mt-12' },
-      h('h2', { class: 'section-title' }, 'Stateful Components'),
-      h(TodoList),
-    ),
+      <div class="mt-12">
+        <h2 class="section-title">Stateful Components</h2>
+        <TodoList />
+      </div>
 
-    h('div', { class: 'mt-12' },
-      h('h2', { class: 'section-title' }, 'Forms & Data'),
-      h('div', { style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-6);' },
-        h(FormDemo),
-        h(DataDemo),
-      ),
-    ),
+      <div class="mt-12">
+        <h2 class="section-title">Forms & Data</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-6);">
+          <FormDemo />
+          <DataDemo />
+        </div>
+      </div>
 
-    h('div', { class: 'mt-12' },
-      h('h2', { class: 'section-title' }, 'UI Utilities'),
-      h('div', { style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-6);' },
-        h(SkeletonDemo),
-        h(A11yDemo),
-      ),
-    ),
+      <div class="mt-12">
+        <h2 class="section-title">UI Utilities</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-6);">
+          <SkeletonDemo />
+          <A11yDemo />
+        </div>
+      </div>
+    </div>
   );
 }

@@ -45,8 +45,14 @@ export function generateCsrfToken() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  // Fallback for older Node
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  // Fallback for environments without crypto.randomUUID — use crypto.getRandomValues
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Last resort — should not be reached in modern environments
+  throw new Error('[what] No secure random source available for CSRF token generation');
 }
 
 // Server: validate CSRF token from request header against session token
