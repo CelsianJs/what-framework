@@ -71,9 +71,7 @@ function _renderHydratable(vnode) {
   // Void elements
   if (VOID_ELEMENTS.has(tag)) return open;
 
-  const rawInner = props?.dangerouslySetInnerHTML?.__html
-    ?? props?.innerHTML?.__html
-    ?? props?.innerHTML;
+  const rawInner = _resolveInnerHTML(props);
   const inner = rawInner != null ? String(rawInner) : children.map(_renderHydratable).join('');
   return `${open}${inner}</${tag}>`;
 }
@@ -138,9 +136,7 @@ export function renderToString(vnode) {
   // Void elements
   if (VOID_ELEMENTS.has(tag)) return open;
 
-  const rawInner = props?.dangerouslySetInnerHTML?.__html
-    ?? props?.innerHTML?.__html
-    ?? props?.innerHTML;
+  const rawInner = _resolveInnerHTML(props);
   const inner = rawInner != null ? String(rawInner) : children.map(renderToString).join('');
   return `${open}${inner}</${tag}>`;
 }
@@ -191,7 +187,9 @@ export async function* renderToStream(vnode) {
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering component in stream SSR:', e.message);
       }
-      yield `<!-- SSR Error: ${escapeHtml(e.message || 'Component error')} -->`;
+      yield _isDevMode
+        ? `<!-- SSR Error: ${escapeHtml(e.message || 'Component error')} -->`
+        : `<!-- SSR Error -->`;
     }
     return;
   }
@@ -201,9 +199,7 @@ export async function* renderToStream(vnode) {
   yield `<${tag}${attrs}>`;
 
   if (!VOID_ELEMENTS.has(tag)) {
-    const rawInner = props?.dangerouslySetInnerHTML?.__html
-      ?? props?.innerHTML?.__html
-      ?? props?.innerHTML;
+    const rawInner = _resolveInnerHTML(props);
     if (rawInner != null) {
       yield String(rawInner);
     } else {
@@ -247,7 +243,7 @@ export function generateStaticPage(page, data = {}) {
 
 function wrapDocument({ title, meta, body, islands, scripts, styles, mode }) {
   const metaTags = Object.entries(meta)
-    .map(([name, content]) => `<meta name="${name}" content="${escapeHtml(content)}">`)
+    .map(([name, content]) => `<meta name="${escapeHtml(name)}" content="${escapeHtml(content)}">`)
     .join('\n    ');
 
   const styleTags = styles
@@ -294,6 +290,42 @@ export function server(Component) {
 }
 
 // --- Helpers ---
+
+// Dev-mode flag for server
+const _isDevMode = typeof process !== 'undefined'
+  ? process.env?.NODE_ENV !== 'production'
+  : true;
+
+/**
+ * Resolve innerHTML / dangerouslySetInnerHTML from props.
+ * Requires { __html: ... } wrapper. Plain string innerHTML is rejected (XSS prevention).
+ */
+function _resolveInnerHTML(props) {
+  if (!props) return null;
+
+  // dangerouslySetInnerHTML always requires { __html }
+  if (props.dangerouslySetInnerHTML) {
+    return props.dangerouslySetInnerHTML.__html ?? null;
+  }
+
+  // innerHTML with { __html } wrapper — allowed
+  if (props.innerHTML && typeof props.innerHTML === 'object' && '__html' in props.innerHTML) {
+    return props.innerHTML.__html ?? null;
+  }
+
+  // innerHTML as plain string — reject with warning
+  if (props.innerHTML != null && typeof props.innerHTML === 'string') {
+    if (_isDevMode) {
+      console.warn(
+        '[what-server] innerHTML received a raw string. This is a security risk (XSS). ' +
+        'Use innerHTML={{ __html: trustedString }} or dangerouslySetInnerHTML={{ __html: trustedString }} instead.'
+      );
+    }
+    return null;
+  }
+
+  return null;
+}
 
 function renderAttrs(props) {
   let out = '';

@@ -22,6 +22,9 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // Track all mounted component contexts for disposal
 const mountedComponents = new Set();
 
+// WeakMap: comment node → component context (for comment-node boundaries)
+const _commentCtxMap = new WeakMap();
+
 function isDomNode(value) {
   if (!value || typeof value !== 'object') return false;
   if (typeof Node !== 'undefined' && value instanceof Node) return true;
@@ -76,6 +79,11 @@ export function disposeTree(node) {
   if (!node) return;
   if (node._componentCtx) {
     disposeComponent(node._componentCtx);
+  }
+  // Check comment node WeakMap for component context
+  const commentCtx = _commentCtxMap.get(node);
+  if (commentCtx) {
+    disposeComponent(commentCtx);
   }
   // Dispose reactive function child effects ({() => ...} wrappers)
   if (node._dispose) {
@@ -161,8 +169,16 @@ export function createDOM(vnode, parent, isSvg) {
       for (const v of vnodes) {
         const node = createDOM(v, realParent, parent?._isSvg);
         if (node) {
-          realParent.insertBefore(node, endMarker);
-          currentNodes.push(node);
+          // If createDOM returned a DocumentFragment, track individual children
+          // since fragment nodes get absorbed into the DOM on insertion.
+          if (node.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */) {
+            const children = Array.from(node.childNodes);
+            realParent.insertBefore(node, endMarker);
+            for (const child of children) currentNodes.push(child);
+          } else {
+            realParent.insertBefore(node, endMarker);
+            currentNodes.push(node);
+          }
         }
       }
     });
@@ -259,12 +275,18 @@ function createComponent(vnode, parent, isSvg) {
     })()
   };
 
-  // Container element for the component's output
-  const container = document.createElement('span');
-  container.style.display = 'contents';
+  // Component boundaries: use comment nodes instead of <span style="display:contents">
+  // to avoid DOM pollution, CSS selector breakage, and a11y issues.
+  const startComment = document.createComment('c:start');
+  const endComment = document.createComment('c:end');
+  _commentCtxMap.set(startComment, ctx);
+  ctx._startComment = startComment;
+  ctx._endComment = endComment;
+
+  // Fragment to hold comment boundaries + component output
+  const container = document.createDocumentFragment();
   container._componentCtx = ctx;
-  container._isSvg = !!isSvg;
-  ctx._wrapper = container;
+  ctx._wrapper = startComment; // Reference for context lookup
 
   // Track for disposal
   mountedComponents.add(ctx);
@@ -275,18 +297,48 @@ function createComponent(vnode, parent, isSvg) {
   const propsSignal = signal({ ...props, children: propsChildren });
   ctx._propsSignal = propsSignal;
 
+  // Create a reactive props proxy: reading any prop inside an effect
+  // will auto-track the dependency on the propsSignal. This makes prop
+  // access reactive across re-renders without requiring the component
+  // to be re-executed.
+  const reactiveProps = new Proxy({}, {
+    get(_, key) {
+      // Access the signal to create a reactive dependency
+      const current = propsSignal();
+      return current[key];
+    },
+    has(_, key) {
+      const current = propsSignal();
+      return key in current;
+    },
+    ownKeys() {
+      const current = propsSignal();
+      return Reflect.ownKeys(current);
+    },
+    getOwnPropertyDescriptor(_, key) {
+      const current = propsSignal();
+      if (key in current) {
+        return { value: current[key], writable: false, enumerable: true, configurable: true };
+      }
+      return undefined;
+    },
+  });
+
   // Component runs ONCE — not inside an effect
   componentStack.push(ctx);
 
   let result;
   try {
-    result = Component(propsSignal());
+    result = Component(reactiveProps);
   } catch (error) {
     componentStack.pop();
     if (!reportError(error, ctx)) {
       console.error('[what] Uncaught error in component:', Component.name || 'Anonymous', error);
       throw error;
     }
+    // Return fragment with just comment boundaries on error
+    container.appendChild(startComment);
+    container.appendChild(endComment);
     return container;
   }
 
@@ -303,14 +355,15 @@ function createComponent(vnode, parent, isSvg) {
     });
   }
 
-  // Append result to container
+  // Build fragment: <!-- c:start --> [component output] <!-- c:end -->
+  container.appendChild(startComment);
   const vnodes = Array.isArray(result) ? result : [result];
   for (const v of vnodes) {
     const node = createDOM(v, container, isSvg);
     if (node) container.appendChild(node);
   }
+  container.appendChild(endComment);
 
-  container._vnode = vnode;
   return container;
 }
 
@@ -561,12 +614,20 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // innerHTML
+  // innerHTML — require { __html: ... } wrapper to prevent XSS
   if (key === 'innerHTML') {
+    if (value == null) return; // null/undefined — do nothing
     if (value && typeof value === 'object' && '__html' in value) {
       el.innerHTML = value.__html ?? '';
     } else {
-      el.innerHTML = value ?? '';
+      if (__DEV__) {
+        console.warn(
+          '[what] innerHTML received a raw string. This is a security risk (XSS). ' +
+          'Use innerHTML={{ __html: trustedString }} or dangerouslySetInnerHTML={{ __html: trustedString }} instead.'
+        );
+      }
+      // Refuse to set raw string innerHTML — prevent XSS
+      return;
     }
     return;
   }

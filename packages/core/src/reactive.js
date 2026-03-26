@@ -197,6 +197,25 @@ function _evaluateComputed(computedEffect) {
         continue;
       }
 
+      // Pre-scan known deps: if any are dirty computeds, push them onto
+      // the stack first (bottom-up). This avoids the O(N^2) worst case
+      // where throw/catch restarts from the top on each dirty upstream.
+      let pushedUpstream = false;
+      const deps = current.deps;
+      for (let i = 0; i < deps.length; i++) {
+        const depOwner = subSetOwner.get(deps[i]);
+        if (depOwner && depOwner._computed && depOwner._isDirty && depOwner._isDirty()) {
+          stack.push(depOwner);
+          pushedUpstream = true;
+        }
+      }
+      if (pushedUpstream) {
+        // Process dirty upstreams first before re-evaluating current
+        continue;
+      }
+
+      // All known deps are clean — evaluate. throw/catch is fallback
+      // for newly-discovered deps only.
       try {
         const prevDepsLen = current.deps.length;
         _runEffect(current);
@@ -535,6 +554,9 @@ function flush() {
 
 // --- Memo ---
 // Eager computed that only propagates when the value actually changes.
+// Fix: Instead of calling notify(subs) inline (which bypasses topological sort
+// and causes diamond-dependency glitches), push memo subscribers into
+// pendingEffects and let them go through the sorted flush() path.
 export function memo(fn) {
   let value;
   const subs = new Set();
@@ -543,7 +565,23 @@ export function memo(fn) {
     const next = fn();
     if (!Object.is(value, next)) {
       value = next;
-      notify(subs);
+      // Push subscribers into pendingEffects for topological flush
+      // instead of inline notify() which can cause diamond glitches
+      for (const sub of subs) {
+        if (sub.disposed) continue;
+        if (sub._onNotify) {
+          // Computed subscriber: mark dirty and propagate
+          sub._onNotify();
+        } else if (!sub._pending) {
+          sub._pending = true;
+          const level = sub._level;
+          const len = pendingEffects.length;
+          if (len > 0 && pendingEffects[len - 1]._level > level) {
+            pendingNeedSort = true;
+          }
+          pendingEffects.push(sub);
+        }
+      }
     }
   });
 

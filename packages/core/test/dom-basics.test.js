@@ -340,18 +340,23 @@ describe('reactive function child disposal', () => {
 // =========================================================================
 
 describe('keyed component reconciliation', () => {
-  it('stores _vnode on component wrappers', async () => {
+  it('uses comment node boundaries for components', async () => {
     function Item({ label }) { return h('span', null, label); }
     const container = getContainer();
 
     mount(h('div', null, h(Item, { label: 'test' })), container);
     await flush();
 
-    // Component renders into a <span style="display:contents"> wrapper
-    const wrapper = container.querySelector('span[style*="contents"]');
-    assert.ok(wrapper, 'component wrapper exists');
-    assert.ok(wrapper._vnode, '_vnode is stored on component wrapper');
-    assert.equal(wrapper._vnode.tag, Item, '_vnode.tag is the component function');
+    // Component renders between <!-- c:start --> and <!-- c:end --> comment nodes
+    const div = container.querySelector('div');
+    const comments = [];
+    for (const child of div.childNodes) {
+      if (child.nodeType === 8 /* COMMENT_NODE */) comments.push(child);
+    }
+    assert.ok(comments.some(c => c.textContent === 'c:start'), 'start comment exists');
+    assert.ok(comments.some(c => c.textContent === 'c:end'), 'end comment exists');
+    // No span wrapper should exist
+    assert.equal(container.querySelectorAll('span[style*="contents"]').length, 0, 'no span wrapper');
   });
 
   it('preserves keyed component state during reorder', async () => {
@@ -499,11 +504,11 @@ describe('event casing compatibility', () => {
 // =========================================================================
 
 describe('innerHTML props', () => {
-  it('supports innerHTML as string and sets it directly', async () => {
+  it('supports innerHTML with __html wrapper and sets it directly', async () => {
     const container = getContainer();
 
     function App() {
-      return h('div', { id: 'target', innerHTML: '<strong>Hello</strong>' });
+      return h('div', { id: 'target', innerHTML: { __html: '<strong>Hello</strong>' } });
     }
 
     mount(h(App), container);
@@ -512,12 +517,12 @@ describe('innerHTML props', () => {
     assert.equal(container.querySelector('#target').innerHTML, '<strong>Hello</strong>');
   });
 
-  it('supports innerHTML as reactive function prop', async () => {
-    const html = signal('<strong>Hello</strong>');
+  it('supports innerHTML as reactive function prop with __html wrapper', async () => {
+    const htmlSig = signal({ __html: '<strong>Hello</strong>' });
     const container = getContainer();
 
     function App() {
-      return h('div', { id: 'target', innerHTML: () => html() });
+      return h('div', { id: 'target', innerHTML: () => htmlSig() });
     }
 
     mount(h(App), container);
@@ -525,7 +530,7 @@ describe('innerHTML props', () => {
 
     assert.equal(container.querySelector('#target').innerHTML, '<strong>Hello</strong>');
 
-    html('<em>Updated</em>');
+    htmlSig({ __html: '<em>Updated</em>' });
     await flush();
     assert.equal(container.querySelector('#target').innerHTML, '<em>Updated</em>');
   });
@@ -544,13 +549,13 @@ describe('innerHTML props', () => {
     assert.equal(target.innerHTML, '<span>Unsafe</span>');
   });
 
-  it('supports innerHTML on SVG elements', async () => {
+  it('supports innerHTML on SVG elements with __html wrapper', async () => {
     const container = getContainer();
 
     mount(
       h('svg', {
         id: 'svg-root',
-        innerHTML: '<circle cx="5" cy="5" r="5"></circle>',
+        innerHTML: { __html: '<circle cx="5" cy="5" r="5"></circle>' },
       }),
       container,
     );
@@ -559,5 +564,19 @@ describe('innerHTML props', () => {
     const svg = container.querySelector('#svg-root');
     const circle = svg.querySelector('circle');
     assert.ok(circle, 'circle should be inserted via innerHTML on svg');
+  });
+
+  it('rejects raw string innerHTML (security)', async () => {
+    const container = getContainer();
+
+    function App() {
+      return h('div', { id: 'target', innerHTML: '<script>alert(1)</script>' });
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    // Raw string innerHTML should be blocked
+    assert.equal(container.querySelector('#target').innerHTML, '');
   });
 });

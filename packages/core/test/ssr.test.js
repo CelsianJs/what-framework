@@ -81,12 +81,18 @@ describe('renderToString', () => {
     assert.equal(html, '<div><b>Bold</b></div>');
   });
 
-  it('should render innerHTML content (string and object)', () => {
-    const stringHtml = renderToString(h('div', { innerHTML: '<i>Italic</i>' }));
-    assert.equal(stringHtml, '<div><i>Italic</i></div>');
+  it('should render innerHTML content with __html wrapper', () => {
+    const wrappedHtml = renderToString(h('div', { innerHTML: { __html: '<i>Italic</i>' } }));
+    assert.equal(wrappedHtml, '<div><i>Italic</i></div>');
 
     const objectHtml = renderToString(h('div', { innerHTML: { __html: '<u>Underline</u>' } }));
     assert.equal(objectHtml, '<div><u>Underline</u></div>');
+  });
+
+  it('should reject raw string innerHTML in SSR (security)', () => {
+    const stringHtml = renderToString(h('div', { innerHTML: '<i>Italic</i>' }));
+    // Raw string innerHTML should be rejected — renders as empty div
+    assert.equal(stringHtml, '<div></div>');
   });
 
   it('should not emit innerHTML attributes in SSR output', () => {

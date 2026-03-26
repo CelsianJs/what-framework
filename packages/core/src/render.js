@@ -2,7 +2,7 @@
 // Solid-style rendering: components run once, signals create individual DOM effects.
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
-import { effect, untrack, createRoot, signal } from './reactive.js';
+import { effect, untrack, createRoot, signal, __DEV__ } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
 
 export { effect, untrack };
@@ -73,7 +73,8 @@ function getLeadingTag(html) {
   return m ? m[1] : '';
 }
 
-export function template(html) {
+// Internal implementation — no warnings. Used by compiler via _$template.
+function _$templateImpl(html) {
   const trimmed = html.trim();
   const tag = getLeadingTag(trimmed);
 
@@ -102,6 +103,24 @@ export function template(html) {
   return () => t.content.firstChild.cloneNode(true);
 }
 
+// Public export — warns in dev mode that this is a compiler internal.
+// Application code should use JSX, which the compiler transforms into _$template calls.
+let _templateWarned = false;
+export function template(html) {
+  if (__DEV__ && !_templateWarned) {
+    _templateWarned = true;
+    console.warn(
+      '[what] template() is a compiler internal. Use JSX instead. ' +
+      'Direct calls with user input can lead to XSS vulnerabilities.'
+    );
+  }
+  return _$templateImpl(html);
+}
+
+// Compiler-internal alias — preferred name for compiled output (no warning)
+export { _$templateImpl as _$template };
+
+// Legacy alias kept for backwards compat
 export { template as _template };
 
 // --- svgTemplate(html) ---

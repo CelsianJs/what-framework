@@ -374,6 +374,20 @@ export function enhanceForms(selector = 'form[data-enhance]') {
                          document.querySelector('meta[name="what-csrf-token"]');
         const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : null;
 
+        // If no CSRF token and form hasn't opted out, block submission
+        const noCsrf = form.getAttribute('data-no-csrf') === 'true';
+        if (!csrfToken && !noCsrf) {
+          console.warn(
+            '[what] Form submission blocked: no CSRF token found. ' +
+            'Add a <meta name="csrf-token"> tag or set data-no-csrf="true" on the form to opt out.'
+          );
+          form.dispatchEvent(new CustomEvent('form:error', {
+            bubbles: true,
+            detail: { error: new Error('Missing CSRF token') },
+          }));
+          return;
+        }
+
         const headers = {
           'X-Requested-With': 'XMLHttpRequest',
         };
