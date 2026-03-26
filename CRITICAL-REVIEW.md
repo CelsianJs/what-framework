@@ -1,5 +1,27 @@
 # WhatFramework Critical Review
 
+---
+
+**HISTORICAL DOCUMENT -- DO NOT USE AS CURRENT REFERENCE**
+
+This review was conducted against the codebase at a point when two rendering systems coexisted
+(VDOM reconciler in `dom.js` and fine-grained renderer in `render.js`). The architecture has
+since been consolidated to **fine-grained only**: components run once, signals drive individual
+DOM effects, and the VDOM reconciler is no longer the primary rendering path.
+
+**Key criticisms that no longer apply:**
+- "The framework can't decide what it is" (dual rendering) -- resolved, fine-grained is the sole model
+- "Components re-render fully on any signal change" -- resolved, components run once
+- "No topological ordering" -- resolved, topological sort is implemented
+- "Stack overflow at ~3,500 computed depth" -- resolved, iterative evaluation handles 10K+ chains
+
+**Sections that remain relevant:** Security findings (Section 3), some competitive position
+observations (Section 4), and the signal system / LIS reconciler praise (Section 5).
+
+For current architecture documentation, see `/docs/ARCHITECTURE.md`.
+
+---
+
 **Date:** 2026-03-26
 **Reviewers:** 4 parallel review agents (Architecture, Build/Test, Security, Competitive)
 **Codebase:** ~12K LOC across 13 packages, all JavaScript (no TypeScript source)

@@ -7,6 +7,20 @@ import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from '
 
 export { effect, untrack };
 
+// --- _$createComponent(Component, props, children) ---
+// Internal compiler target for component instantiation. The compiler emits calls
+// to this function instead of h() — keeping h() out of compiled output entirely.
+// Merges children into props and delegates to createDOM which calls createComponent.
+
+export function _$createComponent(Component, props, children) {
+  if (children && children.length > 0) {
+    const mergedChildren = children.length === 1 ? children[0] : children;
+    props = props ? { ...props, children: mergedChildren } : { children: mergedChildren };
+  }
+  // Build a VNode-like object and pass to createDOM which handles component execution
+  return createDOM({ tag: Component, props: props || {}, children: children || [], key: null, _vnode: true });
+}
+
 // --- URL Sanitization for DOM attributes ---
 // Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed).
 
@@ -27,13 +41,92 @@ function isSafeUrl(url) {
 // INTERNAL: Used by the compiler. Not intended for direct use by application code.
 // Exported as both `template` (for compiler output) and `_template` (to signal internal use).
 
+// Table child elements that need special parent wrapping for innerHTML parsing.
+// Browsers auto-correct bare <tr>, <td>, etc. when orphaned — wrapping prevents silent drops.
+const TABLE_WRAPPERS = {
+  tr:       { depth: 2, wrap: '<table><tbody>',        unwrap: '</tbody></table>' },
+  td:       { depth: 3, wrap: '<table><tbody><tr>',     unwrap: '</tr></tbody></table>' },
+  th:       { depth: 3, wrap: '<table><tbody><tr>',     unwrap: '</tr></tbody></table>' },
+  thead:    { depth: 1, wrap: '<table>',               unwrap: '</table>' },
+  tbody:    { depth: 1, wrap: '<table>',               unwrap: '</table>' },
+  tfoot:    { depth: 1, wrap: '<table>',               unwrap: '</table>' },
+  colgroup: { depth: 1, wrap: '<table>',               unwrap: '</table>' },
+  col:      { depth: 1, wrap: '<table>',               unwrap: '</table>' },
+  caption:  { depth: 1, wrap: '<table>',               unwrap: '</table>' },
+};
+
+// SVG element tags that must be created in an SVG namespace context.
+const SVG_ELEMENTS = new Set([
+  'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse',
+  'g', 'defs', 'use', 'text', 'tspan', 'foreignObject', 'clipPath', 'mask',
+  'pattern', 'linearGradient', 'radialGradient', 'stop', 'marker', 'symbol',
+  'image', 'animate', 'animateTransform', 'animateMotion', 'set',
+  'filter', 'feGaussianBlur', 'feOffset', 'feMerge', 'feMergeNode',
+  'feBlend', 'feColorMatrix', 'feComponentTransfer', 'feComposite',
+  'feConvolveMatrix', 'feDiffuseLighting', 'feDisplacementMap',
+  'feFlood', 'feImage', 'feMorphology', 'feSpecularLighting',
+  'feTile', 'feTurbulence', 'feDistantLight', 'fePointLight', 'feSpotLight',
+]);
+
+function getLeadingTag(html) {
+  const m = html.match(/^<([a-zA-Z][a-zA-Z0-9]*)/);
+  return m ? m[1] : '';
+}
+
 export function template(html) {
+  const trimmed = html.trim();
+  const tag = getLeadingTag(trimmed);
+
+  // SVG namespace: parse inside an SVG container then extract
+  if (SVG_ELEMENTS.has(tag)) {
+    return svgTemplate(trimmed);
+  }
+
+  // Table element wrapping: parse inside proper table parent then extract
+  const tableInfo = TABLE_WRAPPERS[tag];
+  if (tableInfo) {
+    const t = document.createElement('template');
+    t.innerHTML = tableInfo.wrap + trimmed + tableInfo.unwrap;
+    // Navigate down through the wrapper to reach the actual element
+    return () => {
+      let node = t.content.firstChild;
+      for (let i = 0; i < tableInfo.depth; i++) {
+        node = node.firstChild;
+      }
+      return node.cloneNode(true);
+    };
+  }
+
   const t = document.createElement('template');
-  t.innerHTML = html.trim();
+  t.innerHTML = trimmed;
   return () => t.content.firstChild.cloneNode(true);
 }
 
 export { template as _template };
+
+// --- svgTemplate(html) ---
+// Parse SVG content inside an SVG namespace container. Without this, innerHTML on a
+// <template> element creates HTML-namespace nodes, making SVG elements invisible.
+// If the HTML is a complete <svg> tag, it is parsed inside a temporary <div> so the
+// browser uses the correct SVG namespace. For inner SVG elements (path, circle, etc.),
+// they are wrapped in an <svg> container for parsing and then extracted.
+
+export function svgTemplate(html) {
+  const trimmed = html.trim();
+  const tag = getLeadingTag(trimmed);
+
+  if (tag === 'svg') {
+    // Complete <svg> element — parse in a div (browsers handle the namespace)
+    const t = document.createElement('template');
+    t.innerHTML = trimmed;
+    return () => t.content.firstChild.cloneNode(true);
+  }
+
+  // Inner SVG element (path, circle, g, etc.) — wrap in <svg> for namespace context
+  const t = document.createElement('template');
+  t.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg">${trimmed}</svg>`;
+  return () => t.content.firstChild.firstChild.cloneNode(true);
+}
 
 // --- insert(parent, child, marker?) ---
 // Reactive child insertion. Handles all child types:

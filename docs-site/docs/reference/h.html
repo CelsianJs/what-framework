@@ -42,9 +42,9 @@
         </ul>
       </div>
       <div class="sidebar-section">
-        <div class="sidebar-title">Components</div>
+        <div class="sidebar-title">Rendering</div>
         <ul class="sidebar-links">
-          <li><a href="./h.html" class="active">h()</a></li>
+          <li><a href="./h.html" class="active">h() (Advanced)</a></li>
           <li><a href="./mount.html">mount()</a></li>
           <li><a href="./Show.html">&lt;Show&gt;</a></li>
           <li><a href="./For.html">&lt;For&gt;</a></li>
@@ -55,10 +55,35 @@
     <main class="content">
       <div class="content-wrapper">
         <div class="content-inner">
-          <h1>h()</h1>
-          <p class="subtitle">Create virtual DOM nodes (VNodes). This is the function that JSX compiles to.</p>
+          <h1>h() <span style="font-size:0.5em;color:var(--text-muted);font-weight:500;">Advanced / Internal</span></h1>
 
-<pre><code><span class="keyword">const</span> vnode = <span class="function">h</span>(tag, props, ...children)</code></pre>
+          <div class="callout callout-warning" style="border-left:4px solid #f59e0b;background:rgba(245,158,11,0.08);padding:16px 20px;border-radius:8px;margin-bottom:24px;">
+            <p class="callout-title" style="color:#f59e0b;font-weight:700;margin-bottom:4px;">You should use JSX instead</p>
+            <p>The <code>h()</code> function is an internal API. In the fine-grained architecture, JSX is compiled by the What compiler into optimized <code>template()</code>, <code>insert()</code>, and <code>effect()</code> calls that produce direct DOM operations. You do not need to call <code>h()</code> yourself.</p>
+            <p style="margin-top:8px;">Write JSX and let the compiler handle the rest:</p>
+          </div>
+
+<pre><code><span class="comment">// Just write JSX — the compiler optimizes it for you</span>
+<span class="keyword">function</span> <span class="function">Greeting</span>({ name }) {
+  <span class="keyword">return</span> &lt;h1&gt;Hello, {name}!&lt;/h1&gt;;
+}
+
+<span class="comment">// The compiler transforms this into direct DOM operations:</span>
+<span class="comment">// template() + insert() + effect() — no intermediate representation</span></code></pre>
+
+          <h2 id="when-to-use">When Would You Use h()?</h2>
+          <p>The <code>h()</code> function exists for two edge cases:</p>
+          <ul>
+            <li><strong>No build step</strong> — If you are using What without a compiler (e.g., from a CDN), you can use <code>h()</code> to create elements manually.</li>
+            <li><strong>Dynamic tag names</strong> — When the element tag is determined at runtime and cannot be expressed as JSX.</li>
+          </ul>
+
+          <p>For all other cases, use JSX. The compiler produces significantly more optimized output than <code>h()</code> calls.</p>
+
+          <h2 id="signature">Signature</h2>
+<pre><code><span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> element = <span class="function">h</span>(tag, props, ...children)</code></pre>
 
           <h2 id="parameters">Parameters</h2>
           <table>
@@ -74,134 +99,70 @@
               <tr>
                 <td><code>props</code></td>
                 <td><code>object | null</code></td>
-                <td>Properties/attributes for the element, or <code>null</code> if none. The special <code>key</code> prop is extracted and stored on the VNode for reconciliation.</td>
+                <td>Properties/attributes for the element, or <code>null</code> if none.</td>
               </tr>
               <tr>
                 <td><code>...children</code></td>
                 <td><code>any[]</code></td>
-                <td>Child elements. Can be strings, numbers, other VNodes, functions (reactive children), arrays, or <code>null</code>/<code>boolean</code> (ignored).</td>
+                <td>Child elements. Can be strings, numbers, other elements, functions (reactive children), arrays, or <code>null</code>/<code>boolean</code> (ignored).</td>
               </tr>
             </tbody>
           </table>
 
-          <h2 id="returns">Returns</h2>
-          <p>A VNode object:</p>
+          <h2 id="example">Example (No Build Step)</h2>
+<pre><code><span class="keyword">import</span> { h, signal, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-          <table>
-            <thead>
-              <tr><th>Property</th><th>Type</th><th>Description</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>tag</code></td>
-                <td><code>string | Function</code></td>
-                <td>The tag name or component function</td>
-              </tr>
-              <tr>
-                <td><code>props</code></td>
-                <td><code>object</code></td>
-                <td>The properties (with <code>key</code> stripped)</td>
-              </tr>
-              <tr>
-                <td><code>children</code></td>
-                <td><code>Array</code></td>
-                <td>Flattened children (nulls and booleans removed, nested arrays flattened)</td>
-              </tr>
-              <tr>
-                <td><code>key</code></td>
-                <td><code>any | null</code></td>
-                <td>The key for keyed reconciliation</td>
-              </tr>
-              <tr>
-                <td><code>_vnode</code></td>
-                <td><code>true</code></td>
-                <td>Internal marker identifying this as a VNode</td>
-              </tr>
-            </tbody>
-          </table>
+<span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
 
-          <h2 id="usage">Usage</h2>
-
-          <h3>HTML Elements</h3>
-<pre><code><span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-
-<span class="comment">// Create a div with a class and text child</span>
-<span class="function">h</span>(<span class="string">'div'</span>, { className: <span class="string">'card'</span> }, <span class="string">'Hello'</span>);
-
-<span class="comment">// Equivalent JSX:</span>
-<span class="comment">// &lt;div className="card"&gt;Hello&lt;/div&gt;</span></code></pre>
-
-          <h3>Components</h3>
-<pre><code><span class="keyword">function</span> <span class="function">Greeting</span>({ name }) {
-  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'h1'</span>, <span class="keyword">null</span>, <span class="string">'Hello, '</span>, name);
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
+    <span class="function">h</span>(<span class="string">'button'</span>, { onClick: () =&gt; count.set(c =&gt; c + 1) },
+      () =&gt; <span class="string">'Count: '</span> + count()
+    )
+  );
 }
 
-<span class="comment">// Render a component</span>
-<span class="function">h</span>(Greeting, { name: <span class="string">'Alice'</span> });
+<span class="function">mount</span>(<span class="function">h</span>(Counter), <span class="string">'#app'</span>);</code></pre>
 
-<span class="comment">// Equivalent JSX:</span>
-<span class="comment">// &lt;Greeting name="Alice" /&gt;</span></code></pre>
+          <p>The equivalent JSX (preferred) is far more readable:</p>
 
-          <h3>Nested Elements</h3>
-<pre><code><span class="function">h</span>(<span class="string">'div'</span>, { className: <span class="string">'container'</span> },
-  <span class="function">h</span>(<span class="string">'h1'</span>, <span class="keyword">null</span>, <span class="string">'Title'</span>),
-  <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, <span class="string">'Paragraph'</span>),
-  <span class="function">h</span>(<span class="string">'button'</span>, { onClick: handleClick }, <span class="string">'Click'</span>)
-);
+<pre><code><span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
 
-<span class="comment">// Equivalent JSX:</span>
-<span class="comment">// &lt;div className="container"&gt;</span>
-<span class="comment">//   &lt;h1&gt;Title&lt;/h1&gt;</span>
-<span class="comment">//   &lt;p&gt;Paragraph&lt;/p&gt;</span>
-<span class="comment">//   &lt;button onClick={handleClick}&gt;Click&lt;/button&gt;</span>
-<span class="comment">// &lt;/div&gt;</span></code></pre>
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
+        Count: {count()}
+      &lt;/button&gt;
+    &lt;/div&gt;
+  );
+}
 
-          <h3>With Key (for lists)</h3>
-<pre><code><span class="keyword">const</span> items = [<span class="string">'A'</span>, <span class="string">'B'</span>, <span class="string">'C'</span>];
+<span class="function">mount</span>(&lt;Counter /&gt;, <span class="string">'#app'</span>);</code></pre>
 
-items.map(item =&gt;
-  <span class="function">h</span>(<span class="string">'li'</span>, { key: item }, item)
-);
+          <h2 id="jsx-pipeline">How JSX Actually Works</h2>
+          <p>The What compiler transforms JSX into optimized direct DOM operations. It does <strong>not</strong> compile to <code>h()</code> calls:</p>
 
-<span class="comment">// Equivalent JSX:</span>
-<span class="comment">// items.map(item =&gt; &lt;li key={item}&gt;{item}&lt;/li&gt;)</span></code></pre>
-
-          <h3>Reactive Function Children</h3>
-<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
-
-<span class="function">h</span>(<span class="string">'span'</span>, <span class="keyword">null</span>, () =&gt; count());
-
-<span class="comment">// Equivalent JSX:</span>
-<span class="comment">// &lt;span&gt;{() =&gt; count()}&lt;/span&gt;</span></code></pre>
-
-          <h2 id="jsx-compilation">JSX Compilation</h2>
-          <p>The What Babel plugin transforms all JSX into <code>h()</code> calls. This is the single, unified rendering path:</p>
-
-<pre><code><span class="comment">// JSX input</span>
+<pre><code><span class="comment">// Your JSX:</span>
 &lt;div className="card"&gt;
-  &lt;Counter initial={<span class="number">0</span>} /&gt;
+  &lt;p&gt;Count: {count()}&lt;/p&gt;
 &lt;/div&gt;
 
-<span class="comment">// Compiled output</span>
-<span class="function">h</span>(<span class="string">'div'</span>, { className: <span class="string">'card'</span> },
-  <span class="function">h</span>(Counter, { initial: <span class="number">0</span> })
-)</code></pre>
+<span class="comment">// Compiler output (simplified):</span>
+<span class="keyword">const</span> _tmpl = <span class="function">template</span>(<span class="string">'&lt;div class="card"&gt;&lt;p&gt;Count: &lt;/p&gt;&lt;/div&gt;'</span>);
 
-          <h2 id="children-handling">Children Handling</h2>
-          <p>Children are flattened and normalized:</p>
-          <ul>
-            <li><code>null</code>, <code>undefined</code>, <code>true</code>, <code>false</code> are removed</li>
-            <li>Nested arrays are flattened</li>
-            <li>Numbers are converted to strings</li>
-            <li>Functions are preserved as reactive children</li>
-            <li>VNode objects are passed through</li>
-          </ul>
+<span class="keyword">function</span> <span class="function">render</span>() {
+  <span class="keyword">const</span> _el = _tmpl.cloneNode(<span class="keyword">true</span>);
+  <span class="function">insert</span>(_el.firstChild, () =&gt; count());
+  <span class="keyword">return</span> _el;
+}
+
+<span class="comment">// Pipeline: JSX -> compiler -> template() + insert() + effect() -> DOM</span></code></pre>
 
           <h2 id="notes">Notes</h2>
           <ul>
-            <li>You rarely need to call <code>h()</code> directly. Use JSX syntax and let the Babel plugin handle compilation.</li>
-            <li>For usage without a build step, What also provides an <code>html</code> tagged template literal that parses HTML-like syntax at runtime.</li>
-            <li>The <code>key</code> prop is extracted from <code>props</code> and placed on the VNode directly. It is not passed to components.</li>
+            <li>When using a build step (recommended), <strong>always prefer JSX</strong>. The compiler output is faster than <code>h()</code> because it separates static HTML into cloneable templates.</li>
+            <li>For no-build-step usage, What also provides an <code>html</code> tagged template literal that is easier to read than nested <code>h()</code> calls.</li>
             <li>Component children are passed via <code>props.children</code> following React's semantics: 0 children = <code>undefined</code>, 1 child = the child directly, N children = an array.</li>
           </ul>
 

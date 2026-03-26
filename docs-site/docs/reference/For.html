@@ -42,9 +42,9 @@
         </ul>
       </div>
       <div class="sidebar-section">
-        <div class="sidebar-title">Components</div>
+        <div class="sidebar-title">Rendering</div>
         <ul class="sidebar-links">
-          <li><a href="./h.html">h()</a></li>
+          <li><a href="./h.html">h() (Advanced)</a></li>
           <li><a href="./mount.html">mount()</a></li>
           <li><a href="./Show.html">&lt;Show&gt;</a></li>
           <li><a href="./For.html" class="active">&lt;For&gt;</a></li>
@@ -56,7 +56,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>&lt;For&gt;</h1>
-          <p class="subtitle">Efficient list rendering with automatic key detection and keyed reconciliation.</p>
+          <p class="subtitle">Efficient list rendering with automatic key detection and fine-grained list updates via mapArray.</p>
 
 <pre><code>&lt;<span class="function">For</span> each={list} fallback={emptyState}&gt;
   {(item, index) =&gt; &lt;Item /&gt;}
@@ -75,19 +75,19 @@
               </tr>
               <tr>
                 <td><code>fallback</code></td>
-                <td><code>VNode | null</code></td>
+                <td><code>Element | null</code></td>
                 <td>Optional. What to render when the array is empty or <code>null</code>. Defaults to <code>null</code>.</td>
               </tr>
               <tr>
                 <td><code>children</code></td>
-                <td><code>(item: T, index: number) =&gt; VNode</code></td>
-                <td>A render function that receives each item and its index. Must return a VNode.</td>
+                <td><code>(item: T, index: number) =&gt; Element</code></td>
+                <td>A render function that receives each item and its index. Must return a DOM element.</td>
               </tr>
             </tbody>
           </table>
 
           <h2 id="returns">Returns</h2>
-          <p>An array of VNodes (one per item), or the <code>fallback</code> if the list is empty.</p>
+          <p>An array of DOM nodes (one per item), or the <code>fallback</code> if the list is empty.</p>
 
           <h2 id="usage">Usage</h2>
 
@@ -143,9 +143,9 @@ todos.set(t =&gt; t.filter(item =&gt; item.id !== targetId));
 <span class="comment">// For primitive items, the item value itself is used as the key</span></code></pre>
 
           <h2 id="auto-keys">Automatic Key Detection</h2>
-          <p><code>For</code> automatically detects keys to enable efficient keyed reconciliation:</p>
+          <p><code>For</code> automatically detects keys to enable efficient fine-grained list updates:</p>
           <ul>
-            <li>If the VNode returned by the render function already has a <code>key</code> prop, it is used as-is.</li>
+            <li>If the element returned by the render function already has a <code>key</code> prop, it is used as-is.</li>
             <li>If the item is an object with an <code>id</code> property, <code>item.id</code> is used as the key.</li>
             <li>If the item is an object with a <code>key</code> property, <code>item.key</code> is used.</li>
             <li>If the item is a string or number, the item value itself is used as the key.</li>
@@ -158,10 +158,10 @@ todos.set(t =&gt; t.filter(item =&gt; item.id !== targetId));
             <li>Reads the <code>each</code> prop (calling it if it is a signal)</li>
             <li>Returns <code>fallback</code> if the list is empty or null</li>
             <li>Maps each item through the render function (first child)</li>
-            <li>Attaches auto-detected keys to VNodes that lack explicit keys</li>
-            <li>Returns the array of VNodes for the reconciler to diff</li>
+            <li>Attaches auto-detected keys to elements that lack explicit keys</li>
+            <li>Returns the array of DOM nodes, performing fine-grained list reconciliation via mapArray</li>
           </ol>
-          <p>What's reconciler uses keyed reconciliation with a Longest Increasing Subsequence (LIS) algorithm for O(n log n) minimal DOM moves.</p>
+          <p>What uses a keyed list reconciliation algorithm with Longest Increasing Subsequence (LIS) for O(n log n) minimal DOM moves. Only the specific items that changed are updated — no full-list diffing.</p>
 
           <h2 id="notes">Notes</h2>
           <ul>

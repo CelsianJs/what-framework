@@ -24,6 +24,7 @@ export function __setDevToolsHooks(hooks) {
 let currentEffect = null;
 let currentRoot = null;
 let currentOwner = null;  // Ownership tree: tracks current owner context
+let insideComputed = false; // Track whether we're inside a computed() callback (dev-mode warning)
 let batchDepth = 0;
 let pendingEffects = [];
 let pendingNeedSort = false;  // Track whether pendingEffects actually needs sorting
@@ -58,6 +59,13 @@ export function signal(initial, debugName) {
       return value;
     }
     // Write
+    if (__DEV__ && insideComputed) {
+      console.warn(
+        '[what] Signal.set() called inside a computed function. ' +
+        'This may cause infinite loops. Use effect() instead.' +
+        (debugName ? ` (signal: ${debugName})` : '')
+      );
+    }
     const nextVal = typeof args[0] === 'function' ? args[0](value) : args[0];
     if (Object.is(value, nextVal)) return;
     value = nextVal;
@@ -66,6 +74,13 @@ export function signal(initial, debugName) {
   }
 
   sig.set = (next) => {
+    if (__DEV__ && insideComputed) {
+      console.warn(
+        '[what] Signal.set() called inside a computed function. ' +
+        'This may cause infinite loops. Use effect() instead.' +
+        (debugName ? ` (signal: ${debugName})` : '')
+      );
+    }
     const nextVal = typeof next === 'function' ? next(value) : next;
     if (Object.is(value, nextVal)) return;
     value = nextVal;
@@ -100,8 +115,14 @@ export function computed(fn) {
   const subs = new Set();
 
   const inner = _createEffect(() => {
-    value = fn();
-    dirty = false;
+    const prevInsideComputed = insideComputed;
+    if (__DEV__) insideComputed = true;
+    try {
+      value = fn();
+      dirty = false;
+    } finally {
+      if (__DEV__) insideComputed = prevInsideComputed;
+    }
   }, true);
 
   // Computed nodes start at level 1. Updated when graph structure changes.

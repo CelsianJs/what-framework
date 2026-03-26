@@ -172,7 +172,7 @@ describe('VDOM mode removal', () => {
     assert.doesNotMatch(code, /h\("div"/);
   });
 
-  it('uses h() only for component invocations', () => {
+  it('uses _$createComponent for component invocations', () => {
     const code = compile(`
       import { useState } from 'what-framework';
       function Child({ name }) {
@@ -183,8 +183,8 @@ describe('VDOM mode removal', () => {
       }
     `);
 
-    // h() should be used for <Child> component
-    assert.match(code, /h\(Child/);
+    // _$createComponent should be used for <Child> component
+    assert.match(code, /_\$createComponent\(Child|h\(Child/);
     // But not for native elements
     assert.doesNotMatch(code, /h\("div"/);
     assert.doesNotMatch(code, /h\("span"/);
@@ -327,7 +327,7 @@ describe('smart reactivity detection', () => {
 // =====================================================
 
 describe('component output', () => {
-  it('components use h() for invocation', () => {
+  it('components use _$createComponent for invocation', () => {
     const code = compile(`
       function Header({ title }) {
         return <h1>{title}</h1>;
@@ -337,7 +337,7 @@ describe('component output', () => {
       }
     `);
 
-    assert.match(code, /h\(Header/);
+    assert.match(code, /_\$createComponent\(Header|h\(Header/);
   });
 
   it('handles fragments', () => {

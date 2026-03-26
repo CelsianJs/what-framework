@@ -4,10 +4,16 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "node serve.js",
-    "build": "echo 'Static site — no build needed'"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "what-framework": "workspace:*"
+    "what-framework": "^0.5.5"
+  },
+  "devDependencies": {
+    "what-compiler": "^0.5.5",
+    "@babel/core": "^7.23.0",
+    "vite": "^6.0.0"
   }
 }

@@ -247,21 +247,28 @@
 &lt;/Toggle&gt;</code></pre>
 
           <h2 id="how-jsx-compiles">How JSX Compiles</h2>
-          <p>What Framework uses a Babel plugin that compiles all JSX into <code>h()</code> function calls. These <code>h()</code> calls produce VNodes, which are then diffed and patched into the DOM by the unified reconciler.</p>
+          <p>What Framework uses an optimizing compiler that transforms JSX into direct DOM operations. The compiler extracts static HTML into cloneable templates and wraps dynamic parts in fine-grained effects.</p>
 
-          <p>The architecture is a single, unified path:</p>
+          <p>The pipeline works like this:</p>
 <pre><code><span class="comment">// Your JSX:</span>
-&lt;div className="card"&gt;&lt;Counter /&gt;&lt;/div&gt;
+&lt;div className="card"&gt;
+  &lt;p&gt;Count: {count()}&lt;/p&gt;
+&lt;/div&gt;
 
-<span class="comment">// Babel plugin compiles to h() calls:</span>
-h(<span class="string">'div'</span>, { className: <span class="string">'card'</span> }, h(Counter))
+<span class="comment">// Compiler output (simplified):</span>
+<span class="keyword">const</span> _tmpl = <span class="function">template</span>(<span class="string">'&lt;div class="card"&gt;&lt;p&gt;Count: &lt;/p&gt;&lt;/div&gt;'</span>);
 
-<span class="comment">// h() creates VNodes, the reconciler diffs &amp; patches the DOM</span>
-<span class="comment">// Pipeline: JSX → babel plugin → h() → VNode → reconciler → DOM</span></code></pre>
+<span class="keyword">function</span> <span class="function">render</span>() {
+  <span class="keyword">const</span> _el = _tmpl.cloneNode(<span class="keyword">true</span>);
+  <span class="function">insert</span>(_el.firstChild, () =&gt; count());
+  <span class="keyword">return</span> _el;
+}
+
+<span class="comment">// Pipeline: JSX -> compiler -> template() + insert() + effect() -> DOM</span></code></pre>
 
           <div class="callout callout-info">
-            <p class="callout-title">Unified Rendering Path</p>
-            <p>Everything goes through a single path: <code>h()</code> creates VNodes, and the reconciler handles all DOM operations. There is no dual rendering path or separate code paths for elements vs. components. Both native elements like <code>&lt;div&gt;</code> and components like <code>&lt;Counter /&gt;</code> produce VNodes via the same <code>h()</code> function.</p>
+            <p class="callout-title">Fine-Grained Rendering</p>
+            <p>Static HTML is extracted into templates that are cloned once. Dynamic expressions like <code>{count()}</code> are wrapped in effects that update only the specific DOM nodes that depend on them. There is no virtual DOM, no diffing, and no re-rendering of the entire component. The compiler does the work at build time so the runtime stays minimal.</p>
           </div>
 
           <h2 id="jsx-basics">JSX Basics</h2>

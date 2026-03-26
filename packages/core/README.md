@@ -64,15 +64,17 @@ useEffect(() => {
 
 ## Components
 
-```js
-import { h, mount, Fragment, memo, lazy, Suspense, ErrorBoundary, Show, For } from 'what-core';
+```jsx
+import { mount, signal } from 'what-core';
 
 function Counter() {
   const count = signal(0);
-  return h('button', { onclick: () => count.set(c => c + 1) }, () => count());
+  return (
+    <button onClick={() => count.set(c => c + 1)}>{count()}</button>
+  );
 }
 
-mount(h(Counter), '#app');
+mount(<Counter />, '#app');
 ```
 
 ## Additional Modules
@@ -88,7 +90,7 @@ mount(h(Counter), '#app');
 
 **Reactivity** -- `signal`, `computed`, `effect`, `batch`, `untrack`, `flushSync`, `createRoot`
 
-**Rendering** -- `h`, `Fragment`, `html`, `mount`, `template`, `insert`, `spread`, `delegateEvents`
+**Rendering** -- `Fragment`, `html`, `mount`, `template`, `insert`, `spread`, `delegateEvents`
 
 **Hooks** -- `useState`, `useSignal`, `useComputed`, `useEffect`, `useMemo`, `useCallback`, `useRef`, `useContext`, `useReducer`, `createContext`, `onMount`, `onCleanup`, `createResource`
 

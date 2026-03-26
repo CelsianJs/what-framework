@@ -6,12 +6,13 @@
 import { signal, computed, effect, batch, untrack, createRoot, __DEV__ } from './reactive.js';
 import { getCurrentComponent } from './dom.js';
 
-function getCtx() {
+function getCtx(hookName) {
   const ctx = getCurrentComponent();
   if (!ctx) {
     throw new Error(
-      '[what] Hooks must be called inside a component function. ' +
-      'If you need reactive state outside a component, use signal() directly.'
+      `[what] ${hookName || 'Hook'}() can only be called inside a component function. ` +
+      `Did you call it outside of a component or in an async callback? ` +
+      `If you need reactive state outside a component, use signal() directly.`
     );
   }
   return ctx;
@@ -29,7 +30,7 @@ function getHook(ctx) {
 // This matches Solid's API and works with the run-once component model.
 
 export function useState(initial) {
-  const ctx = getCtx();
+  const ctx = getCtx('useState');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
@@ -46,7 +47,7 @@ export function useState(initial) {
 // Avoids array destructuring overhead.
 
 export function useSignal(initial) {
-  const ctx = getCtx();
+  const ctx = getCtx('useSignal');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
@@ -60,7 +61,7 @@ export function useSignal(initial) {
 // Derived value. Only recomputes when signal deps change.
 
 export function useComputed(fn) {
-  const ctx = getCtx();
+  const ctx = getCtx('useComputed');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
@@ -79,11 +80,24 @@ export function useComputed(fn) {
 //   to establish tracking), then runs the callback when any dep changes
 
 export function useEffect(fn, deps) {
-  const ctx = getCtx();
+  const ctx = getCtx('useEffect');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
     ctx.hooks[index] = { cleanup: null, dispose: null };
+  }
+
+  // Dev-mode: warn when deps array contains non-function values that look like signals
+  if (__DEV__ && Array.isArray(deps) && deps.length > 0) {
+    for (let i = 0; i < deps.length; i++) {
+      const dep = deps[i];
+      if (dep != null && typeof dep !== 'function') {
+        console.warn(
+          `[what] useEffect dep at index ${i} is not a function. ` +
+          `Did you mean to pass a signal? Use count instead of count()`
+        );
+      }
+    }
   }
 
   const hook = ctx.hooks[index];
@@ -155,7 +169,7 @@ export function useEffect(fn, deps) {
 // Returns a computed signal function (call it to read the value).
 
 export function useMemo(fn, deps) {
-  const ctx = getCtx();
+  const ctx = getCtx('useMemo');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
@@ -171,7 +185,7 @@ export function useMemo(fn, deps) {
 // Simply store and return the function on first call.
 
 export function useCallback(fn, deps) {
-  const ctx = getCtx();
+  const ctx = getCtx('useCallback');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
@@ -186,7 +200,7 @@ export function useCallback(fn, deps) {
 // Works correctly in run-once model — the ref persists for the component lifetime.
 
 export function useRef(initial) {
-  const ctx = getCtx();
+  const ctx = getCtx('useRef');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
@@ -232,7 +246,7 @@ export function createContext(defaultValue) {
   const context = {
     _defaultValue: defaultValue,
     Provider: ({ value, children }) => {
-      const ctx = getCtx();
+      const ctx = getCtx('Context.Provider');
       if (!ctx._contextValues) ctx._contextValues = new Map();
       if (!ctx._contextSignals) ctx._contextSignals = new Map();
 
@@ -260,7 +274,7 @@ export function createContext(defaultValue) {
 // Returns [signalAccessor, dispatch] — accessor is a signal function.
 
 export function useReducer(reducer, initialState, init) {
-  const ctx = getCtx();
+  const ctx = getCtx('useReducer');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
@@ -280,7 +294,7 @@ export function useReducer(reducer, initialState, init) {
 // Run callback once when component mounts. SolidJS-style lifecycle.
 
 export function onMount(fn) {
-  const ctx = getCtx();
+  const ctx = getCtx('onMount');
   if (!ctx.mounted) {
     ctx._mountCallbacks = ctx._mountCallbacks || [];
     ctx._mountCallbacks.push(fn);
@@ -291,7 +305,7 @@ export function onMount(fn) {
 // Register cleanup function to run when component unmounts.
 
 export function onCleanup(fn) {
-  const ctx = getCtx();
+  const ctx = getCtx('onCleanup');
   ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
   ctx._cleanupCallbacks.push(fn);
 }

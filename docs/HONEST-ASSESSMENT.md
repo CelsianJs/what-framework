@@ -1,14 +1,27 @@
 # What Framework -- Honest Technical Assessment
 
-An unsparing analysis of the What Framework compared to React, Solid, Svelte, Vue, and Preact. Written after reading every source file in the core, router, server, and compiler packages.
+---
 
-> **Historical note (March 2026):** This document was written when What Framework used a VDOM
-> reconciler with components re-running inside effects. The architecture has since been overhauled
-> to a **run-once, fine-grained model**: components execute once, signals create individual DOM
-> effects, and there is no virtual DOM diffing. Many criticisms below (re-running components,
-> VDOM overhead, wrapper elements) no longer apply to the current codebase. This document is
-> preserved for historical reference. Canonical current guidance lives in `/README.md`,
-> `/GETTING-STARTED.md`, `/docs/QUICKSTART.md`, `/docs/API.md`, and `/docs/GOTCHAS.md`.
+**HISTORICAL DOCUMENT -- DO NOT USE AS CURRENT REFERENCE**
+
+This document was written when What Framework used a VDOM reconciler with components
+re-running inside effects. The architecture has since been overhauled to a **run-once,
+fine-grained model**: components execute once, signals create individual DOM effects,
+and there is no virtual DOM diffing.
+
+**Many criticisms below no longer apply to the current codebase**, including: re-running
+components, VDOM overhead, wrapper elements (`<what-c>`), and the hybrid React/Solid
+identity criticism.
+
+For current architecture documentation, see:
+- `/docs/ARCHITECTURE.md` -- current rendering pipeline and signal system
+- `/docs/EFFECT-TIMING.md` -- how effects work in the fine-grained model
+- `/docs/GOTCHAS.md` -- current known pitfalls
+- `/docs/MIGRATION-FROM-REACT.md` -- React comparison with current API
+
+---
+
+An unsparing analysis of the What Framework compared to React, Solid, Svelte, Vue, and Preact. Written after reading every source file in the core, router, server, and compiler packages.
 
 ---
 

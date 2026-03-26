@@ -62,7 +62,7 @@ export function Bench() {
       }
     });
 
-    // 7. Array reconciliation simulation
+    // 7. Array list-update simulation
     benchResults.listReorder = bench('Reorder 1,000-item list', () => {
       const arr = Array.from({ length: 1000 }, (_, i) => i);
       // Fisher-Yates shuffle
@@ -120,7 +120,7 @@ export function Bench() {
           <BenchFeature title="Batch Updates" desc="Grouping multiple writes to avoid redundant effect runs." />
           <BenchFeature title="DOM Operations" desc="Raw element creation speed — our ceiling." />
           <BenchFeature title="Template Cloning" desc="How fast we can clone pre-parsed templates — the fine-grained rendering hot path." />
-          <BenchFeature title="List Reconciliation" desc="Reordering lists efficiently — a classic framework benchmark." />
+          <BenchFeature title="List Updates" desc="Reordering lists efficiently — a classic framework benchmark." />
         </div>
       </div>
 
@@ -147,7 +147,7 @@ export function Bench() {
 // 7. Text nodes updated in place, never recreated
 // 8. Template cloning via cloneNode(true) — faster than createElement chains
 // 9. Islands (in core): ship zero JS for static content
-// 10. No VDOM diffing — direct DOM manipulation`}</code></pre>
+// 10. No diffing — direct DOM manipulation via fine-grained effects`}</code></pre>
           </div>
         </div>
       </div>

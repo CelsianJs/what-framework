@@ -645,8 +645,8 @@
   <section class="hero">
     <div class="hero-inner">
       <div class="hero-text">
-        <h1 class="animate-in">Build with signals,<br>ship less code.</h1>
-        <p class="subtitle animate-in delay-1">A signals-based web framework with fine-grained reactivity, surgical DOM updates, and islands architecture. Everything you need at ~4kB gzipped.</p>
+        <h1 class="animate-in">No Virtual DOM.<br>No re-renders.</h1>
+        <p class="subtitle animate-in delay-1">A fine-grained reactive framework where components run once. Signals update the exact DOM nodes that need changing. Compiler-optimized JSX compiles to direct DOM operations. React-compatible. ~4kB gzipped.</p>
 
         <div class="hero-buttons animate-in delay-2">
           <a href="/docs/learn/" class="btn btn-primary">Get Started</a>
@@ -735,7 +735,7 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.24 12.24a6 6 0 00-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
           </div>
           <h3>~4kB Core</h3>
-          <p>The full reactive runtime, reconciler, and component system in under 4kB gzipped. Zero dependencies. Tree-shakeable.</p>
+          <p>The full reactive runtime and component system in under 4kB gzipped. No virtual DOM overhead. Zero dependencies. Tree-shakeable.</p>
           <div class="feature-code">
 <pre><span class="comment">// Import only what you use:</span>
 <span class="keyword">import</span> { signal, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>
@@ -944,7 +944,7 @@
     <div class="footer-inner">
       <div class="footer-brand">
         <div class="footer-logo">What Framework</div>
-        <div class="footer-desc">A signals-based web framework with fine-grained reactivity and islands architecture.</div>
+        <div class="footer-desc">A fine-grained reactive framework with React compatibility. Components run once. Signals drive DOM updates directly.</div>
         <div class="footer-meta">v0.5.4 &middot; MIT License</div>
       </div>
       <div class="footer-col">

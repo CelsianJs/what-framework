@@ -394,7 +394,7 @@ Keys.End        <span class="comment">// 'End'</span>
   const sections = [
     { title: 'What are signals?', content: 'Signals are reactive primitives that hold a value and notify subscribers when it changes. They are the foundation of What Framework\'s reactivity system.' },
     { title: 'How do effects work?', content: 'Effects automatically track which signals they read. When any of those signals change, the effect re-runs. Effects can return cleanup functions.' },
-    { title: 'What about performance?', content: 'What Framework uses fine-grained reactivity \u2014 only the specific DOM nodes that depend on a changed signal update. No virtual DOM diffing needed.' }
+    { title: 'What about performance?', content: 'What Framework uses fine-grained reactivity \u2014 only the specific DOM nodes that depend on a changed signal update. Direct DOM manipulation, no diffing needed.' }
   ];
   const openIndex = signal(-1);
 

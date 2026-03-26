@@ -43,12 +43,11 @@ count.peek();          // untracked read
 
 | Export | Notes |
 |---|---|
-| `h(tag, props, ...children)` | Vnode API (compiler target — not typically called directly) |
 | `Fragment` | Group children without wrapper (compiler target) |
 | `html\`...\`` | Tagged template vnode API |
 | `mount(vnode, container)` | Mount root vnode |
 
-> `h()` and `Fragment` are exported because the compiler emits calls to them. You don't need to import or call them directly — write JSX and the compiler handles it.
+> JSX is the only supported authoring format. The compiler transforms JSX into optimized DOM operations. There is no public `h()` function — component instantiation is handled internally by the compiler and runtime.
 
 ### Fine-grained primitives
 

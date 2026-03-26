@@ -7,7 +7,7 @@ The closest framework to vanilla JS, with a React-familiar authoring experience.
 - Fine-grained reactivity (signals)
 - No virtual DOM diff tree
 - Compiler-powered JSX (automatic reactivity)
-- `h()` and `Fragment` available as low-level APIs (used internally by the compiler)
+- JSX is the only supported authoring format -- the compiler transforms it into optimized DOM operations
 
 ## Install
 

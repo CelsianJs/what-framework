@@ -252,14 +252,55 @@ export default function whatBabelPlugin({ types: t }) {
     return false;
   }
 
+  // Check if an expression's reactivity is uncertain — e.g., a non-signal function call
+  // whose arguments happen to contain signal reads. The function itself may not produce
+  // a reactive result, so the compiler wraps it conservatively.
+  function isUncertainReactive(expr, signalNames, importedIds) {
+    if (!signalNames) return false;
+    if (t.isCallExpression(expr)) {
+      // Callee is a known signal — definitely reactive, not uncertain
+      if (t.isIdentifier(expr.callee) && isSignalIdentifier(expr.callee.name, signalNames)) {
+        return false;
+      }
+      // Imported identifier called as function — definitely reactive (not uncertain)
+      if (importedIds && t.isIdentifier(expr.callee) && importedIds.has(expr.callee.name) &&
+          !SAFE_GLOBAL_CALLS.has(expr.callee.name)) {
+        return false;
+      }
+      // Callee is a member of a known signal — definitely reactive
+      if (t.isMemberExpression(expr.callee) && t.isIdentifier(expr.callee.object) &&
+          isSignalIdentifier(expr.callee.object.name, signalNames)) {
+        return false;
+      }
+      // Safe global call (Math.max, etc.) with reactive args — still deterministic, not uncertain
+      if (isSafeGlobalCall(expr)) return false;
+      // Unknown function call — if args are reactive, the wrapping is uncertain
+      if (expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Check if an expression is potentially reactive (reads a signal)
-  function isPotentiallyReactive(expr, signalNames) {
+  // importedIds: Set of identifiers imported from other modules — any imported
+  // function call is conservatively treated as potentially reactive since the
+  // imported binding could be a signal from another file.
+  function isPotentiallyReactive(expr, signalNames, importedIds) {
     if (!signalNames) signalNames = new Set();
 
     if (t.isCallExpression(expr)) {
       // If callee is a known signal identifier being called (signal read), it's reactive
       if (t.isIdentifier(expr.callee) && isSignalIdentifier(expr.callee.name, signalNames)) {
         return true;
+      }
+      // Imported identifier called as a function — conservatively reactive.
+      // Handles: import { count } from './store'; ... {count()} in JSX
+      if (importedIds && t.isIdentifier(expr.callee) && importedIds.has(expr.callee.name)) {
+        // Exclude known safe globals that happen to also be imported
+        if (!SAFE_GLOBAL_CALLS.has(expr.callee.name)) {
+          return true;
+        }
       }
       // member.call() — e.g., data(), isLoading()
       if (t.isMemberExpression(expr.callee)) {
@@ -270,17 +311,17 @@ export default function whatBabelPlugin({ types: t }) {
       }
       // Safe global calls like Math.max — only reactive if their args are
       if (isSafeGlobalCall(expr)) {
-        return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames));
+        return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
       }
       // Unknown call — check if callee or args contain signal reads
       if (t.isIdentifier(expr.callee)) {
         // Could be a function that reads signals internally
         // Be conservative: if it's not a known safe call and not a signal, still check args
-        return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames));
+        return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
       }
       // For any other call expression, check recursively
-      return isPotentiallyReactive(expr.callee, signalNames) ||
-             expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames));
+      return isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
+             expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
     }
 
     if (t.isIdentifier(expr)) {
@@ -288,36 +329,36 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     if (t.isMemberExpression(expr)) {
-      return isPotentiallyReactive(expr.object, signalNames);
+      return isPotentiallyReactive(expr.object, signalNames, importedIds);
     }
 
     if (t.isConditionalExpression(expr)) {
-      return isPotentiallyReactive(expr.test, signalNames) ||
-             isPotentiallyReactive(expr.consequent, signalNames) ||
-             isPotentiallyReactive(expr.alternate, signalNames);
+      return isPotentiallyReactive(expr.test, signalNames, importedIds) ||
+             isPotentiallyReactive(expr.consequent, signalNames, importedIds) ||
+             isPotentiallyReactive(expr.alternate, signalNames, importedIds);
     }
 
     if (t.isBinaryExpression(expr) || t.isLogicalExpression(expr)) {
-      return isPotentiallyReactive(expr.left, signalNames) ||
-             isPotentiallyReactive(expr.right, signalNames);
+      return isPotentiallyReactive(expr.left, signalNames, importedIds) ||
+             isPotentiallyReactive(expr.right, signalNames, importedIds);
     }
 
     if (t.isUnaryExpression(expr)) {
-      return isPotentiallyReactive(expr.argument, signalNames);
+      return isPotentiallyReactive(expr.argument, signalNames, importedIds);
     }
 
     if (t.isTemplateLiteral(expr)) {
-      return expr.expressions.some(e => isPotentiallyReactive(e, signalNames));
+      return expr.expressions.some(e => isPotentiallyReactive(e, signalNames, importedIds));
     }
 
     if (t.isObjectExpression(expr)) {
       return expr.properties.some(prop =>
-        t.isObjectProperty(prop) && isPotentiallyReactive(prop.value, signalNames)
+        t.isObjectProperty(prop) && isPotentiallyReactive(prop.value, signalNames, importedIds)
       );
     }
 
     if (t.isArrayExpression(expr)) {
-      return expr.elements.some(el => el && isPotentiallyReactive(el, signalNames));
+      return expr.elements.some(el => el && isPotentiallyReactive(el, signalNames, importedIds));
     }
 
     if (t.isArrowFunctionExpression(expr) || t.isFunctionExpression(expr)) {
@@ -481,8 +522,15 @@ export default function whatBabelPlugin({ types: t }) {
     // Mixed static/dynamic element — extract template, add effects for dynamic parts
     const html = extractStaticHTML(node);
     if (!html) {
-      // Template extraction failed — emit a compile warning and use h() as fallback
-      console.warn(`[what-compiler] Could not extract template for <${tagName}> element. Using h() fallback.`);
+      // Template extraction failed — emit a detailed compile warning and use h() as fallback
+      const loc = node.loc;
+      const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+      const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+      console.warn(
+        `[what-compiler] Could not extract template for <${tagName}> at ${fileName}${lineInfo}. ` +
+        `Falling back to h() for this element. ` +
+        `This element could not be statically analyzed. Consider simplifying the JSX.`
+      );
       state.needsH = true;
       return transformElementAsH(path, state);
     }
@@ -704,15 +752,20 @@ export default function whatBabelPlugin({ types: t }) {
         const expr = attr.value.expression;
         const domName = normalizeAttrName(attrName);
 
-        if (isPotentiallyReactive(expr, state.signalNames)) {
+        if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
           state.needsEffect = true;
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$effect'), [
-                t.arrowFunctionExpression([], buildSetPropCall(domName, expr))
-              ])
-            )
-          );
+          const effectCall = t.callExpression(t.identifier('_$effect'), [
+            t.arrowFunctionExpression([], buildSetPropCall(domName, expr))
+          ]);
+          // In dev mode, add a leading comment when the effect wrapping is uncertain
+          // (non-signal function call whose args happen to contain signal reads)
+          if (isUncertainReactive(expr, state.signalNames, state.importedIdentifiers)) {
+            t.addComment(effectCall, 'leading',
+              ' @what-dev: effect wrapping may be unnecessary — expression contains a non-signal function call with reactive args ',
+              false
+            );
+          }
+          statements.push(t.expressionStatement(effectCall));
         } else {
           // Static expression (no signal calls) — set once
           statements.push(t.expressionStatement(buildSetPropCall(domName, expr)));
@@ -738,16 +791,20 @@ export default function whatBabelPlugin({ types: t }) {
         const marker = buildChildAccess(elId, childIndex);
         state.needsInsert = true;
 
-        if (isPotentiallyReactive(expr, state.signalNames)) {
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                t.arrowFunctionExpression([], expr),
-                marker
-              ])
-            )
-          );
+        if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+          const insertCall = t.callExpression(t.identifier('_$insert'), [
+            t.identifier(elId),
+            t.arrowFunctionExpression([], expr),
+            marker
+          ]);
+          // In dev mode, add a leading comment when the reactive wrapping is uncertain
+          if (isUncertainReactive(expr, state.signalNames, state.importedIdentifiers)) {
+            t.addComment(insertCall, 'leading',
+              ' @what-dev: reactive wrapping may be unnecessary — expression contains a non-signal function call with reactive args ',
+              false
+            );
+          }
+          statements.push(t.expressionStatement(insertCall));
         } else {
           statements.push(
             t.expressionStatement(
@@ -809,7 +866,7 @@ export default function whatBabelPlugin({ types: t }) {
           if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
             state.needsInsert = true;
             const expr = fChild.expression;
-            if (isPotentiallyReactive(expr, state.signalNames)) {
+            if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
               statements.push(
                 t.expressionStatement(
                   t.callExpression(t.identifier('_$insert'), [
@@ -876,7 +933,7 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     if (clientDirective) {
-      state.needsH = true;
+      state.needsCreateComponent = true;
       state.needsIsland = true;
 
       const islandProps = [
@@ -898,13 +955,13 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       return t.callExpression(
-        t.identifier('h'),
-        [t.identifier('Island'), t.objectExpression(islandProps)]
+        t.identifier('_$createComponent'),
+        [t.identifier('Island'), t.objectExpression(islandProps), t.arrayExpression([])]
       );
     }
 
-    // Regular component — use h() to create VNode, component runs once via createDOM
-    state.needsH = true;
+    // Regular component — use _$createComponent to instantiate, component runs once
+    state.needsCreateComponent = true;
 
     const props = [];
     let hasSpread = false;
@@ -1020,7 +1077,11 @@ export default function whatBabelPlugin({ types: t }) {
       propsExpr = t.nullLiteral();
     }
 
-    return t.callExpression(t.identifier('h'), [t.identifier(componentName), propsExpr, ...transformedChildren]);
+    const childrenArray = transformedChildren.length > 0
+      ? t.arrayExpression(transformedChildren)
+      : t.arrayExpression([]);
+
+    return t.callExpression(t.identifier('_$createComponent'), [t.identifier(componentName), propsExpr, childrenArray]);
   }
 
   function transformForFineGrained(path, state) {
@@ -1063,8 +1124,8 @@ export default function whatBabelPlugin({ types: t }) {
 
   function transformShowFineGrained(path, state) {
     // <Show when={cond}>{content}</Show>
-    // Uses h(Show, ...) — Show is a runtime component
-    state.needsH = true;
+    // Uses _$createComponent(Show, ...) — Show is a runtime component
+    state.needsCreateComponent = true;
     return transformComponentFineGrained(path, state);
   }
 
@@ -1121,6 +1182,7 @@ export default function whatBabelPlugin({ types: t }) {
           state.needsSpread = false;
           state.needsSetProp = false;
           state.needsH = false;
+          state.needsCreateComponent = false;
           state.needsFragment = false;
           state.needsIsland = false;
           state.templates = [];
@@ -1131,6 +1193,27 @@ export default function whatBabelPlugin({ types: t }) {
 
           // Collect signal names for smart reactivity detection
           state.signalNames = new Set();
+
+          // --- Imported Signal Tracking ---
+          // Scan ImportDeclaration nodes. Any imported identifier that is later
+          // called as a zero-arg function in JSX (e.g., {count()}) is treated as
+          // potentially reactive, because it could be a signal from another module
+          // (e.g., `import { count } from './store'` where count = signal(0)).
+          state.importedIdentifiers = new Set();
+          for (const node of path.node.body) {
+            if (t.isImportDeclaration(node)) {
+              for (const spec of node.specifiers) {
+                if (t.isImportSpecifier(spec) && t.isIdentifier(spec.local)) {
+                  state.importedIdentifiers.add(spec.local.name);
+                } else if (t.isImportDefaultSpecifier(spec) && t.isIdentifier(spec.local)) {
+                  state.importedIdentifiers.add(spec.local.name);
+                } else if (t.isImportNamespaceSpecifier(spec) && t.isIdentifier(spec.local)) {
+                  state.importedIdentifiers.add(spec.local.name);
+                }
+              }
+            }
+          }
+
           path.traverse({
             VariableDeclarator(declPath) {
               const init = declPath.node.init;
@@ -1207,6 +1290,11 @@ export default function whatBabelPlugin({ types: t }) {
           if (state.needsSetProp) {
             fgSpecifiers.push(
               t.importSpecifier(t.identifier('_$setProp'), t.identifier('setProp'))
+            );
+          }
+          if (state.needsCreateComponent) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$createComponent'), t.identifier('_$createComponent'))
             );
           }
 

@@ -87,34 +87,94 @@ Use `flushSync()` when you need to read DOM state that depends on a signal chang
   });
   ```
 
-## Effect Ordering
+## Effect Ordering: Topological Sort
 
-Effects run in the order they were notified. Pending effects are stored in a `Set`, which deduplicates: if the same effect is notified multiple times (e.g., it reads two signals that both change), it only runs once per flush pass.
+Effects are executed in topological order based on their dependency depth:
 
-If effect A writes to a signal that effect B depends on, B will run in the next iteration of the flush loop:
+- **Level 0:** Source signals (not executed, just the origin)
+- **Level 1:** Effects/computeds that read only source signals
+- **Level 2:** Effects/computeds that read level-1 computeds
+- And so on
+
+When multiple effects are pending in the same flush, they are sorted by level (lowest first). This ensures that computeds closer to the signal source update before effects that depend on them.
 
 ```js
 const a = signal(1);
-const b = signal(0);
+const b = computed(() => a() * 2);    // level 1
+const c = computed(() => b() + 1);    // level 2
 
 effect(() => {
-  b.set(a() * 2); // Effect A: writes to b when a changes
-});
-
-effect(() => {
-  console.log('b is', b()); // Effect B: reads b
+  console.log('c is', c());           // level 3 — runs last
 });
 
 a.set(5);
-// Flush pass 1: Effect A runs, sets b to 10
-// Flush pass 2: Effect B runs, logs "b is 10"
+// Flush: b recomputes (level 1) → c recomputes (level 2) → effect runs (level 3)
+// Effect sees consistent state: c = (5 * 2) + 1 = 11
 ```
 
-The flush loop runs up to 100 iterations. If effects continuously trigger each other beyond 100 iterations, a warning is logged with the names of the looping effects.
+Deduplication: pending effects are stored with a `_pending` flag. If the same effect is notified multiple times (e.g., it reads two signals that both change), it only runs once per flush pass.
+
+The flush loop runs up to 25 iterations. If effects continuously trigger each other beyond 25 iterations, execution stops to prevent infinite loops.
+
+## Fine-Grained Effects: Per-Binding, Not Per-Component
+
+In WhatFW, effects are created **per dynamic binding**, not per component. The compiler extracts each dynamic expression into its own `insert()` call, which internally wraps the expression in an individual `effect()`.
+
+```jsx
+function UserCard() {
+  const name = useSignal('Alice');
+  const age = useSignal(30);
+  const bio = useSignal('Developer');
+
+  return (
+    <div class="card">
+      <h2>{() => name()}</h2>       {/* effect #1: updates <h2> text only */}
+      <span>{() => age()}</span>     {/* effect #2: updates <span> text only */}
+      <p>{() => bio()}</p>           {/* effect #3: updates <p> text only */}
+    </div>
+  );
+}
+```
+
+After compilation, there are three independent effects:
+1. Effect #1 tracks `name` and updates only the `<h2>` text node
+2. Effect #2 tracks `age` and updates only the `<span>` text node
+3. Effect #3 tracks `bio` and updates only the `<p>` text node
+
+When `name.set('Bob')` is called:
+- Only effect #1 fires
+- Only the `<h2>` text content changes
+- The component function does NOT re-run
+- Effects #2 and #3 are not touched
+- No diffing, no reconciliation
+
+This is the fundamental difference from React's model (re-run entire component, diff entire subtree) and the source of WhatFW's performance advantage for updates.
+
+### Signal write → DOM update timeline
+
+```
+signal.set(newValue)
+  │
+  ├── Synchronous: notify subscribers, mark computeds dirty
+  │   └── For each subscriber effect: set _pending = true, push to pendingEffects
+  │
+  ├── Schedule: queueMicrotask(flush) if not already scheduled
+  │
+  └── Microtask boundary ─────────────────────────────────
+      │
+      flush()
+        ├── Sort pendingEffects by topological level
+        ├── For each effect (lowest level first):
+        │   ├── Run cleanup from previous execution (if any)
+        │   ├── Re-run the effect function
+        │   ├── Track new signal reads (dynamic dependency tracking)
+        │   └── Effect updates its one DOM node
+        └── If new effects were scheduled during flush, loop (up to 25 iterations)
+```
 
 ## computed() Timing
 
-Computeds are lazy: they only recompute when read AND a dependency has changed. They do not participate in the microtask flush. Instead, they are marked dirty when a dependency changes and recompute on the next read.
+Computeds are lazy: they only recompute when read AND a dependency has changed. They do not participate in the microtask flush directly. Instead, they are marked dirty when a dependency changes and recompute on the next read.
 
 ```js
 const count = signal(0);
@@ -124,6 +184,8 @@ count.set(5);
 // doubled is marked dirty but NOT recomputed yet
 console.log(doubled()); // Recomputes NOW, returns 10
 ```
+
+When a computed is read inside an effect during flush, it recomputes on demand before the effect uses its value. This lazy evaluation avoids unnecessary computation for computeds that are conditionally read.
 
 ## untrack()
 
@@ -136,38 +198,24 @@ effect(() => {
 });
 ```
 
-## Signal Subscriptions and Component Re-renders
-
-In What Framework, components are wrapped in effects. When a component reads a signal, it subscribes to that signal. When the signal changes, the component re-renders.
-
-```js
-function Counter() {
-  const count = useSignal(0);
-  // Reading count() inside the component creates a subscription
-  return h('div', null, `Count: ${count()}`);
-  // When count changes, this component re-renders
-}
-```
-
-Signals provide fine-grained reactivity at the component level: only components that READ a signal re-render when it changes. Parent components that don't read the signal are unaffected.
-
 ## Effects and Component Lifecycle
 
-Inside components, use `effect()` directly for local reactive computations. Effects created during a component render should be cleaned up when the component unmounts. The framework provides `scopedEffect` (internal) which automatically ties the effect's lifecycle to the component:
+Components run once. Effects created during the component's single execution are registered with the component's context and automatically disposed when the component unmounts:
 
 ```js
-// Internal pattern used by data hooks:
-function scopedEffect(fn) {
-  const ctx = getCurrentComponent?.();
-  const dispose = effect(fn);
-  if (ctx) ctx.effects.push(dispose);
-  return dispose;
+function Timer() {
+  const elapsed = useSignal(0);
+
+  useEffect(() => {
+    const id = setInterval(() => elapsed.set(e => e + 1), 1000);
+    return () => clearInterval(id);  // Cleanup runs on unmount
+  }, []);
+
+  return <span>{() => elapsed()}</span>;
 }
 ```
 
-When building custom hooks that use `effect()`, ensure the effect is disposed on component unmount by either:
-1. Returning the dispose function from your hook (the consumer disposes it)
-2. Pushing the dispose function to the component's `effects` array
+When `Timer` is removed from the DOM, `disposeTree` walks the subtree, finds the component context, and disposes all registered effects -- including the `insert()` effect for the `<span>` text and the `useEffect` with the interval cleanup.
 
 Effects that return a function get automatic cleanup: the returned function runs before each re-execution and on final disposal:
 

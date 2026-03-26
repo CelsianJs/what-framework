@@ -15,6 +15,9 @@ import noSignalWriteInRender from './rules/no-signal-write-in-render.js';
 import noCamelcaseEvents from './rules/no-camelcase-events.js';
 import preferSet from './rules/prefer-set.js';
 import noUncalledSignals from './rules/no-uncalled-signals.js';
+import noHInUserCode from './rules/no-h-in-user-code.js';
+import signalCallInJsx from './rules/signal-call-in-jsx.js';
+import noSetInComputed from './rules/no-set-in-computed.js';
 
 const plugin = {
   meta: {
@@ -29,6 +32,9 @@ const plugin = {
     'no-camelcase-events': noCamelcaseEvents,
     'prefer-set': preferSet,
     'no-uncalled-signals': noUncalledSignals,
+    'no-h-in-user-code': noHInUserCode,
+    'signal-call-in-jsx': signalCallInJsx,
+    'no-set-in-computed': noSetInComputed,
   },
 
   configs: {},
@@ -45,6 +51,9 @@ plugin.configs.recommended = {
     'what/no-camelcase-events': 'warn',
     'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
+    'what/no-h-in-user-code': 'warn',
+    'what/signal-call-in-jsx': 'warn',
+    'what/no-set-in-computed': 'error',
   },
 };
 
@@ -58,6 +67,9 @@ plugin.configs.strict = {
     'what/no-camelcase-events': 'error',
     'what/no-uncalled-signals': 'error',
     'what/prefer-set': 'warn',
+    'what/no-h-in-user-code': 'error',
+    'what/signal-call-in-jsx': 'error',
+    'what/no-set-in-computed': 'error',
   },
 };
 
@@ -71,6 +83,9 @@ plugin.configs.compiler = {
     'what/no-camelcase-events': 'off',          // compiler normalizes events
     'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
+    'what/no-h-in-user-code': 'warn',
+    'what/signal-call-in-jsx': 'off',          // compiler handles signal wrapping in JSX
+    'what/no-set-in-computed': 'error',
   },
 };
 

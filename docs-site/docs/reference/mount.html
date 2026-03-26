@@ -42,9 +42,9 @@
         </ul>
       </div>
       <div class="sidebar-section">
-        <div class="sidebar-title">Components</div>
+        <div class="sidebar-title">Rendering</div>
         <ul class="sidebar-links">
-          <li><a href="./h.html">h()</a></li>
+          <li><a href="./h.html">h() (Advanced)</a></li>
           <li><a href="./mount.html" class="active">mount()</a></li>
           <li><a href="./Show.html">&lt;Show&gt;</a></li>
           <li><a href="./For.html">&lt;For&gt;</a></li>
@@ -58,7 +58,7 @@
           <h1>mount()</h1>
           <p class="subtitle">Mount a component tree into a DOM container.</p>
 
-<pre><code><span class="keyword">const</span> unmount = <span class="function">mount</span>(vnode, container)</code></pre>
+<pre><code><span class="keyword">const</span> unmount = <span class="function">mount</span>(element, container)</code></pre>
 
           <h2 id="parameters">Parameters</h2>
           <table>
@@ -67,9 +67,9 @@
             </thead>
             <tbody>
               <tr>
-                <td><code>vnode</code></td>
-                <td><code>VNode</code></td>
-                <td>A virtual DOM node, typically created by JSX or <a href="./h.html">h()</a>.</td>
+                <td><code>element</code></td>
+                <td><code>JSX.Element</code></td>
+                <td>A component element, typically created by JSX. For advanced use, can also be created via <a href="./h.html">h()</a>.</td>
               </tr>
               <tr>
                 <td><code>container</code></td>
@@ -135,7 +135,7 @@ unmount();</code></pre>
           <ol>
             <li>Disposes any existing component tree in the container (via <code>disposeTree</code>)</li>
             <li>Clears the container's content</li>
-            <li>Converts the VNode into real DOM nodes (via <code>createDOM</code>)</li>
+            <li>Converts the element tree into real DOM nodes (via <code>createDOM</code>)</li>
             <li>Appends the resulting DOM to the container</li>
           </ol>
           <p>The returned <code>unmount</code> function reverses this: it walks the container's subtree, disposes all reactive effects and cleanup callbacks, then empties the container.</p>
@@ -152,7 +152,7 @@ unmount();</code></pre>
           <div class="page-nav">
             <a href="./h.html">
               <span class="label">Previous</span>
-              <span class="title">h()</span>
+              <span class="title">h() (Advanced)</span>
             </a>
             <a href="./Show.html" class="next">
               <span class="label">Next</span>

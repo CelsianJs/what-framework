@@ -1,132 +1,244 @@
-# What Framework — Architecture
+# What Framework -- Architecture
 
-## Design Philosophy
+## Overview
 
-1. **Vanilla JS first.** No compiler, no transpiler, no build step required. Everything works with plain `.js` files and native ES modules.
+WhatFW is a fine-grained reactive framework. Components run once. Signals drive individual DOM updates. There is no virtual DOM, no tree diffing, and no reconciler for static content.
 
-2. **Ship less.** Zero JS by default for static content. Islands opt-in to client JS. Only the signals that change trigger updates — no tree diffing.
-
-3. **Familiar.** React-like hooks API so developers can be productive immediately. But signals underneath so performance is better by default.
-
-4. **Simple.** One way to do each thing. Small API surface. Clear mental model. If you know vanilla JS, you know What.
-
-## Architecture Overview
+The core mental model: your component function executes a single time and returns real DOM nodes. Every dynamic expression (text content, attribute value, class name, style) becomes an individual `effect()` bound to the exact DOM node it updates. When a signal changes, only the effects that read that signal re-run, and each effect updates only the one DOM node it owns.
 
 ```
-┌─────────────────────────────────────────────────┐
-│                   Your App                       │
-│  Components · Pages · Layouts · Islands          │
-├─────────────────────────────────────────────────┤
-│                                                  │
-│  ┌─────────┐  ┌────────┐  ┌──────────────────┐ │
-│  │  Hooks   │  │ Router │  │  Store / Context  │ │
-│  │ useState │  │ routes │  │  createStore()   │ │
-│  │ useEffect│  │ Link   │  │  atom()          │ │
-│  └────┬─────┘  └───┬────┘  └────────┬─────────┘ │
-│       │            │                │            │
-│  ┌────┴────────────┴────────────────┴──────────┐ │
-│  │           Reactive Core (Signals)            │ │
-│  │  signal() · computed() · effect() · batch()  │ │
-│  └────────────────────┬────────────────────────┘ │
-│                       │                          │
-│  ┌────────────────────┴────────────────────────┐ │
-│  │            Rendering Layer                   │ │
-│  │  h() → VNode → DOM Reconciler (client)       │ │
-│  │  h() → VNode → renderToString (server)       │ │
-│  └─────────────────────────────────────────────┘ │
-│                                                  │
-│  ┌─────────────────────────────────────────────┐ │
-│  │           Islands Architecture               │ │
-│  │  Static HTML + selective hydration            │ │
-│  │  load · idle · visible · action · media      │ │
-│  └─────────────────────────────────────────────┘ │
-│                                                  │
-├─────────────────────────────────────────────────┤
-│  CLI: dev · build · preview · generate           │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                   Your App                           │
+│  Components · Pages · Layouts · Islands              │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│  ┌─────────┐  ┌────────┐  ┌──────────────────────┐ │
+│  │  Hooks   │  │ Router │  │  Store / Context      │ │
+│  │ useState │  │ routes │  │  createStore()        │ │
+│  │ useEffect│  │ Link   │  │  atom()               │ │
+│  └────┬─────┘  └───┬────┘  └────────┬─────────────┘ │
+│       │            │                │                │
+│  ┌────┴────────────┴────────────────┴──────────────┐ │
+│  │           Reactive Core (Signals)                │ │
+│  │  signal() · computed() · effect() · batch()      │ │
+│  └────────────────────┬────────────────────────────┘ │
+│                       │                              │
+│  ┌────────────────────┴────────────────────────────┐ │
+│  │      Fine-Grained Rendering Pipeline             │ │
+│  │  template() → cloneNode → insert() + effect()   │ │
+│  │  mapArray() → LIS-based keyed reconciliation     │ │
+│  └─────────────────────────────────────────────────┘ │
+│                                                      │
+│  ┌─────────────────────────────────────────────────┐ │
+│  │           Islands Architecture                   │ │
+│  │  Static HTML + selective hydration               │ │
+│  │  load · idle · visible · action · media          │ │
+│  └─────────────────────────────────────────────────┘ │
+│                                                      │
+├─────────────────────────────────────────────────────┤
+│  CLI: dev · build · preview · generate               │
+└─────────────────────────────────────────────────────┘
 ```
-
-## Reactive Core
-
-The reactive system is the foundation. Everything builds on three primitives:
-
-### Signal
-A reactive value container. O(1) read, O(subscribers) write.
-
-```
-signal(0)
-  ├── read()     → returns value, tracks current effect
-  ├── set(v)     → updates value, notifies subscribers
-  ├── peek()     → returns value without tracking
-  └── subscribe  → shorthand for creating an effect
-```
-
-### Computed
-A derived signal. Lazy evaluation — only computes when read after deps change.
-
-```
-computed(() => a() + b())
-  ├── Uses an internal effect to track deps
-  ├── Marked dirty when deps change (not recomputed)
-  └── Recomputed on next read
-```
-
-### Effect
-A function that re-runs when its signal dependencies change.
-
-```
-effect(() => console.log(count()))
-  ├── Runs immediately
-  ├── Tracks which signals were read
-  ├── Re-runs when those signals change
-  ├── Cleans up old subscriptions on re-run (dynamic deps)
-  └── Returns a dispose function
-```
-
-### Why Signals > Virtual DOM Diffing
-
-| Virtual DOM (React)                  | Signals (What)                        |
-|--------------------------------------|---------------------------------------|
-| Re-render entire component tree      | Update only affected DOM nodes        |
-| Diff old vs new tree (O(n))          | Direct subscriber notification (O(1)) |
-| Need memo/useMemo to optimize        | Fine-grained by default               |
-| Closures capture stale state         | Always read latest value              |
 
 ## Rendering Pipeline
 
-### Client (Browser)
+### How JSX Becomes DOM
 
 ```
-h('div', props, children)     Create VNode (plain object)
-         │
-    mount(vnode, '#app')      Initial render
-         │
-    createDOM(vnode)          VNode → real DOM element
-         │
-    effect(() => Component()) Auto-track signal reads
-         │
-    signal.set(newValue)      State change
-         │
-    notify(subscribers)       Only affected effects re-run
-         │
-    reconcile(old, new)       Minimal DOM patches
+JSX source code
+      │
+  Babel compiler (babel-plugin.js)
+      │
+      ├─── Static HTML → template() calls (module-level constants)
+      │         │
+      │    cloneNode(true) — zero-cost DOM duplication
+      │
+      ├─── Dynamic expressions → insert() + effect() calls
+      │         │
+      │    Each expression gets its own effect bound to one DOM node
+      │
+      └─── Dynamic props → spread() / setProp() + effect() calls
+                │
+           Each reactive prop gets its own micro-effect
 ```
 
-### Server (SSR)
+### Compiler Output Example
+
+Given this JSX:
+
+```jsx
+function Counter() {
+  const count = useSignal(0);
+  return (
+    <div class="counter">
+      <h1>Counter</h1>
+      <p>{() => count()}</p>
+      <button onClick={() => count.set(c => c + 1)}>+1</button>
+    </div>
+  );
+}
+```
+
+The compiler produces:
+
+```js
+import { template, insert } from 'what-core';
+
+// Static HTML extracted to module scope — created once, cloned per instance
+const _tmpl$1 = template('<div class="counter"><h1>Counter</h1><p></p><button>+1</button></div>');
+
+function Counter() {
+  const count = useSignal(0);
+  const _el$ = _tmpl$1();                              // cloneNode — instant
+  insert(_el$.childNodes[1], () => count());            // effect on <p> text
+  _el$.childNodes[2].$$click = () => count.set(c => c + 1);  // delegated event
+  return _el$;                                          // real DOM node, not a vnode
+}
+```
+
+Key points:
+
+- **Template extraction.** The compiler identifies static HTML subtrees and hoists them into `template()` calls at module scope. Each call creates a `<template>` element and parses the HTML once. Every component instance calls `cloneNode(true)` to get its DOM -- no createElement chains, no string parsing at runtime.
+
+- **Per-binding effects.** Dynamic expressions (`{() => count()}`) become `insert()` calls. Inside `insert()`, the function is wrapped in an `effect()` that reads the signal, creating a subscription to exactly that signal. When `count` changes, only this one text node updates.
+
+- **No virtual DOM, no diffing.** The compiler output returns real DOM nodes. There is no VNode creation, no tree diff, no patch phase. Static content has zero runtime overhead after the initial clone.
+
+- **Event delegation.** Event handlers are stored as `el.$$eventName` properties. A single document-level listener per event type dispatches to the correct handler by walking up from `e.target`.
+
+### List Reconciliation (mapArray)
+
+Lists are the one place where reconciliation is needed. `mapArray` provides keyed list rendering with LIS (Longest Increasing Subsequence) optimization:
+
+```jsx
+const items = useSignal([{ id: 1, name: 'A' }, { id: 2, name: 'B' }]);
+
+<For each={items} key={item => item.id}>
+  {(item, index) => <li>{() => item().name}</li>}
+</For>
+```
+
+The reconciler:
+1. Skips common prefix/suffix (items that haven't moved)
+2. Builds a key map for the middle section
+3. Computes the LIS of old indices to find the maximum set of items that don't need to move
+4. Only moves items not in the LIS; creates/destroys items as needed
+5. Each list item gets its own `createRoot` scope for automatic cleanup on removal
+
+This runs in O(n log n) time for the general case, with O(n) fast paths for append, prepend, clear, and identity (no change).
+
+## Signal System
+
+### Primitives
 
 ```
-h('div', props, children)     Create VNode
-         │
-    renderToString(vnode)     VNode → HTML string
-         │
-    <div>...</div>            Pure HTML, no JS
-         │
-    hydrateIslands()          Client: hydrate only islands
+signal(initialValue)
+  ├── Read:  sig() — returns value, auto-tracks in current effect
+  ├── Write: sig.set(value) or sig.set(prev => next)
+  ├── Peek:  sig.peek() — read without tracking
+  └── Subscribe: sig.subscribe(fn) — shorthand for effect(() => fn(sig()))
+
+computed(fn)
+  ├── Lazy: only recomputes when read AND a dependency has changed
+  ├── Auto-tracks: fn() is run inside an internal effect
+  ├── Propagates: marks downstream dependents dirty when deps change
+  └── Read:  c() — returns cached value or recomputes if dirty
+
+effect(fn)
+  ├── Runs immediately on creation
+  ├── Auto-tracks: records which signals are read during fn()
+  ├── Re-runs: when any tracked signal changes (via microtask flush)
+  ├── Cleanup: if fn() returns a function, it runs before each re-execution
+  └── Dispose: returns a function that unsubscribes and runs final cleanup
 ```
 
-## Islands Architecture
+### Topological Ordering
 
-The page is divided into static HTML and interactive islands:
+Effects and computeds are assigned topological levels:
+- Source signals: level 0
+- Computed/effect depending on signals: level 1
+- Computed/effect depending on level-1 computeds: level 2
+- And so on
+
+During flush, pending effects are sorted by level (lowest first). This guarantees that in a diamond dependency pattern (A depends on B and C, both depend on D), B and C execute before A. Without this ordering, A could see an inconsistent state where one dependency is updated but the other isn't.
+
+```
+signal D (level 0)
+  ├── computed B (level 1)
+  └── computed C (level 1)
+       └── effect A (level 2) — reads B() and C()
+
+When D changes:
+  1. B and C marked dirty (level 1)
+  2. A scheduled (level 2)
+  3. Flush: B recomputes, C recomputes, then A runs — sees consistent state
+```
+
+### Iterative Computed Evaluation
+
+Long chains of computeds (C1 depends on C2 depends on C3 ... depends on CN) are evaluated iteratively using a throw/catch trampoline. When a computed's function reads another dirty computed, it throws a `NEEDS_UPSTREAM` sentinel. The outermost evaluation loop catches it, pushes the upstream computed onto a stack, and processes from the bottom up. This handles chains of 10,000+ computeds without stack overflow.
+
+## Ownership and Disposal
+
+### createRoot Scopes
+
+Every reactive scope has an owner. Effects created inside a `createRoot` callback are registered with that root and automatically disposed when the root is disposed:
+
+```js
+const dispose = createRoot(dispose => {
+  const count = signal(0);
+  effect(() => console.log(count()));  // auto-registered with this root
+  return dispose;
+});
+
+// Later:
+dispose();  // cleans up the effect and all nested roots
+```
+
+### Component Lifecycle
+
+Components maintain a context object with:
+- `hooks[]` — persisted hook state (signals, refs, etc.)
+- `effects[]` — effect dispose functions for cleanup
+- `cleanups[]` — explicit cleanup callbacks from `onCleanup`
+- `disposed` — flag to prevent double-disposal
+
+When a component's DOM is removed (via `disposeTree`), the framework walks the subtree and disposes every component context and reactive effect attached to each node.
+
+## SSR and Hydration
+
+### Server Rendering
+
+`renderToString` and `renderToHydratableString` produce HTML on the server:
+
+```js
+import { renderToHydratableString } from 'what-server';
+
+const html = renderToHydratableString(<App />);
+// Produces HTML with hydration markers:
+// <!--$-->dynamic content<!--/$-->  (reactive expressions)
+// <!--[]-->list items<!--/[]-->     (arrays)
+// data-hk="h0"                      (component boundaries)
+```
+
+### Client Hydration
+
+`hydrate()` reuses the server-rendered DOM instead of destroying and recreating it:
+
+```js
+import { hydrate } from 'what-core';
+
+hydrate(<App />, document.getElementById('root'));
+// Claims existing DOM nodes via a cursor
+// Attaches signal effects to the existing nodes
+// No flash of empty content
+```
+
+The hydration cursor walks the server-rendered DOM tree, claiming nodes as components mount. Dynamic expressions get their effects attached to the existing text nodes/elements rather than creating new ones.
+
+### Islands Architecture
+
+Pages are divided into static HTML and interactive islands:
 
 ```html
 <body>
@@ -135,7 +247,7 @@ The page is divided into static HTML and interactive islands:
 
   <!-- Island: hydrates on idle -->
   <div data-island="search" data-island-mode="idle">
-    <!-- Server-rendered HTML here -->
+    <!-- Server-rendered HTML -->
   </div>
 
   <!-- Static: zero JS -->
@@ -143,58 +255,64 @@ The page is divided into static HTML and interactive islands:
 
   <!-- Island: hydrates on first interaction -->
   <div data-island="cart" data-island-mode="action">
-    <!-- Server-rendered HTML here -->
+    <!-- Server-rendered HTML -->
   </div>
-
-  <!-- Static: zero JS -->
-  <footer>...</footer>
 </body>
 ```
 
-Each island:
-1. Loads its own JS module independently
-2. Hydrates at the right time (idle, visible, action, etc.)
-3. Manages its own state
-4. Has no effect on other islands or static content
+Six hydration modes control when each island activates:
+| Mode | Triggers when |
+|------|---------------|
+| `load` | Page loads (immediate) |
+| `idle` | Browser is idle (`requestIdleCallback`) |
+| `visible` | Island enters viewport (`IntersectionObserver`) |
+| `action` | User interacts (click, focus, hover) |
+| `media` | Media query matches |
+| `static` | Never hydrates (server-only) |
 
 ## File Structure
 
 ```
 packages/
-├── core/           Reactive system, hooks, VDom, helpers
+├── core/               Reactive system, rendering, hooks, components
 │   └── src/
-│       ├── reactive.js    Signals, computed, effects, batch
-│       ├── h.js           VNode creation (h, Fragment, html)
-│       ├── dom.js         DOM mounting and reconciliation
-│       ├── hooks.js       React-compatible hooks
-│       ├── components.js  memo, lazy, Suspense, ErrorBoundary
-│       ├── store.js       Global state management
-│       ├── head.js        Document head management
-│       ├── helpers.js     Utilities (cls, each, etc.)
-│       └── index.js       Public API
-├── router/         Client-side routing
-│   └── src/
-│       └── index.js       Router, Link, navigate, guards
-├── server/         SSR, SSG, islands
-│   └── src/
-│       ├── index.js       renderToString, renderToStream, SSG
-│       └── islands.js     Island registration and hydration
-├── cli/            Development tools
-│   └── src/
-│       └── cli.js         dev, build, preview, generate
-└── create-what/    Project scaffolding
-    └── index.js           npx create-what my-app
+│       ├── reactive.js     Signals, computed, effects, batch, ownership
+│       ├── render.js       Fine-grained rendering: template, insert, mapArray, spread
+│       ├── dom.js          DOM mounting, component creation, disposeTree
+│       ├── h.js            JSX factory (h, Fragment, html tagged template)
+│       ├── hooks.js        React-compatible hooks backed by signals
+│       ├── components.js   memo, lazy, Suspense, ErrorBoundary, Show, For
+│       ├── store.js        Global state management (createStore, atom)
+│       ├── data.js         Data fetching (useSWR, useQuery, useFetch)
+│       ├── form.js         Form utilities (useForm, validation)
+│       ├── animation.js    spring, tween, transitions
+│       ├── a11y.js         Accessibility utilities
+│       ├── scheduler.js    DOM read/write batching, resize/intersection observers
+│       ├── head.js         Document head management
+│       ├── helpers.js      Utilities (cls, Portal, transition)
+│       └── index.js        Public API re-exports
+├── compiler/           Babel plugin: JSX → template() + insert() + effect()
+├── router/             Client-side routing (Router, Link, navigate, guards)
+├── server/             SSR, SSG, islands hydration, server actions
+├── react-compat/       React compatibility layer (49 packages confirmed working)
+├── devtools/           Browser DevTools extension
+├── devtools-mcp/       MCP-based AI debugging bridge
+├── eslint-plugin/      Lint rules for What Framework patterns
+├── mcp-server/         MCP server for AI-assisted development
+├── cli/                Development tools (dev, build, preview, generate)
+└── create-what/        Project scaffolding (npx create-what my-app)
 ```
 
 ## Performance Characteristics
 
-| Operation                  | Complexity | Notes                          |
-|----------------------------|------------|--------------------------------|
-| Signal read                | O(1)       | Direct value access            |
-| Signal write               | O(k)       | k = number of subscribers      |
-| Effect subscribe           | O(1)       | Set.add                        |
-| Effect cleanup             | O(d)       | d = number of dependencies     |
-| Batch flush                | O(e)       | e = unique effects to run      |
-| VNode creation             | O(c)       | c = children count             |
-| Props diff                 | O(p)       | p = prop count                 |
-| SSR render                 | O(n)       | n = total nodes                |
+| Operation | Complexity | Notes |
+|-----------|------------|-------|
+| Signal read | O(1) | Direct value access + set.add for tracking |
+| Signal write | O(k) | k = number of subscribers |
+| Effect subscribe | O(1) | Set.add |
+| Effect cleanup | O(d) | d = number of dependencies |
+| Batch flush | O(e log e) | Sort by level, then execute e effects |
+| Template clone | O(n) | n = DOM nodes in template (browser-optimized) |
+| insert() | O(1) | Single text node or element update |
+| mapArray reconcile | O(n log n) | LIS-based; O(n) for common cases |
+| SSR render | O(n) | n = total nodes |

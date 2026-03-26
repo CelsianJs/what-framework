@@ -12,4 +12,5 @@ export {
   classList,
   effect,
   untrack,
+  _$createComponent,
 } from 'what-core/render';

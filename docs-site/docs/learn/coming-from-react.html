@@ -83,11 +83,18 @@
 
           <h2 id="the-big-difference">The Big Difference: No Re-Renders</h2>
 
-          <p>In React, when state changes, the <strong>entire component function re-runs</strong>. Every variable is recalculated, every expression is re-evaluated, and React diffs a virtual DOM to figure out what changed.</p>
+          <p>In React, when state changes, the <strong>entire component function re-runs</strong>. Every variable is recalculated, every expression is re-evaluated, and React diffs a tree of objects to figure out what changed in the DOM.</p>
 
-          <p>In What, component functions run <strong>once</strong>. Signals update the specific DOM nodes that depend on them — no virtual DOM, no diffing, no re-running the whole function.</p>
+          <p>In What, component functions run <strong>once</strong>. Signals update the specific DOM nodes that depend on them — no intermediate representation, no diffing, no re-running the whole function. The compiler transforms JSX into direct DOM operations at build time.</p>
 
           <p>This is faster, but it means some React patterns don't translate directly.</p>
+
+          <div class="callout callout-info">
+            <p class="callout-title">How JSX Compiles</p>
+            <p>In React, JSX compiles to <code>React.createElement()</code> calls that build an object tree, which React diffs against the previous tree. In What, the compiler extracts static HTML into cloneable templates and wraps dynamic expressions in fine-grained effects:</p>
+            <p style="margin-top:8px;"><code>JSX -> compiler -> template() + insert() + effect() -> DOM</code></p>
+            <p style="margin-top:8px;">Static parts are never recreated. Only the specific text nodes or attributes that depend on a signal are updated when that signal changes.</p>
+          </div>
 
           <h2 id="state">State: useState vs useSignal</h2>
 

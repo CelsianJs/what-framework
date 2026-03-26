@@ -22,7 +22,7 @@ export default function About() {
       <ul class="feature-list">
         <li><strong>what-framework</strong> — signals, stores, components</li>
         <li><strong>what-framework/router</strong> — client-side routing with Link</li>
-        <li><strong>what-compiler</strong> — JSX to h() via Vite plugin</li>
+        <li><strong>what-compiler</strong> — JSX compilation via Vite plugin</li>
       </ul>
 
       <h3 class="section-title">Patterns Used</h3>

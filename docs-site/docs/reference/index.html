@@ -106,7 +106,7 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>h(tag, props, ...children)</code></td><td>Create a VNode. JSX compiles to h() calls via Babel plugin</td></tr>
+              <tr><td><code>h(tag, props, ...children)</code></td><td>Create an element (advanced/internal). JSX is compiled by the optimizer into direct DOM operations</td></tr>
               <tr><td><code>mount(element, container)</code></td><td>Render an element tree into the DOM. Returns unmount function</td></tr>
               <tr><td><code>Fragment({ children })</code></td><td>Group children without a wrapper element</td></tr>
               <tr><td><code>html`...`</code></td><td>Tagged template literal for HTML. No build step required</td></tr>
@@ -324,8 +324,8 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>renderToString(vnode)</code></td><td>Synchronous render to HTML string</td></tr>
-              <tr><td><code>renderToStream(vnode)</code></td><td>Async generator for streaming SSR</td></tr>
+              <tr><td><code>renderToString(element)</code></td><td>Synchronous render to HTML string</td></tr>
+              <tr><td><code>renderToStream(element)</code></td><td>Async generator for streaming SSR</td></tr>
               <tr><td><code>definePage(config)</code></td><td>Page config: mode (static/server/client/hybrid), title, meta, islands</td></tr>
               <tr><td><code>server(Component)</code></td><td>Mark component as server-only (no JS shipped)</td></tr>
             </tbody>
