@@ -8,40 +8,16 @@ import { signal, effect, untrack, __DEV__ } from './reactive.js';
 // is now the only mechanism. See reportError() below.
 
 // --- memo ---
-// Skip re-render when parent re-renders with unchanged props.
-// Signal-safe: when an internal signal changes, the component always re-renders
-// (memo never blocks signal-triggered updates).
-//
-// How it works:
-// - In our architecture, Component(propsSignal()) is called inside an effect.
-// - When parent re-renders: propsSignal is set to a new object → props is a NEW reference
-// - When an internal signal changes: propsSignal unchanged → props is the SAME reference
-// - memo only skips when: props is a new reference AND structurally equal to previous
+// In the run-once model, components execute exactly once and never re-render.
+// Signals update the DOM directly via fine-grained effects. Therefore, memo()
+// is a no-op identity wrapper — there is no re-render to skip.
+// Kept for API compatibility with React-style code.
 
-export function memo(Component, areEqual) {
-  const compare = areEqual || shallowEqual;
-
-  function MemoWrapper(props) {
-    const ctx = _getCurrentComponent?.();
-    if (ctx && ctx._memoResult !== undefined) {
-      if (props === ctx._memoPropsRef) {
-        // Same reference → signal-triggered re-render → must re-run
-        // to pick up new signal values (do NOT skip)
-      } else if (compare(ctx._memoProps, props)) {
-        // New reference but structurally equal → parent-triggered, safe to skip
-        ctx._memoPropsRef = props;
-        return ctx._memoResult;
-      }
-    }
-    if (ctx) {
-      ctx._memoPropsRef = props;
-      ctx._memoProps = { ...props };
-    }
-    const result = Component(props);
-    if (ctx) ctx._memoResult = result;
-    return result;
-  }
-
+export function memo(Component, _areEqual) {
+  // No-op in run-once model — just return the component as-is
+  const MemoWrapper = function MemoWrapper(props) {
+    return Component(props);
+  };
   MemoWrapper.displayName = `Memo(${Component.name || 'Anonymous'})`;
   return MemoWrapper;
 }

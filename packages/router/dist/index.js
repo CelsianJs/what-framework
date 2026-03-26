@@ -1,4 +1,13 @@
 import { signal, effect, computed, batch, h, ErrorBoundary } from 'what-core';
+export function isSafeUrl(url) {
+if (typeof url !== 'string') return false;
+const trimmed = url.trim();
+const normalized = trimmed.replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+if (normalized.startsWith('javascript:')) return false;
+if (normalized.startsWith('data:')) return false;
+if (normalized.startsWith('vbscript:')) return false;
+return true;
+}
 const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/');
 const _params = signal({});
 const _query = signal({});
@@ -17,15 +26,37 @@ get isNavigating() { return _isNavigating(); },
 get error() { return _navigationError(); },
 };
 export async function navigate(to, opts = {}) {
-const { replace = false, state = null, transition = true } = opts;
+const { replace = false, state = null, transition = true, _fromPopstate = false } = opts;
+if (!isSafeUrl(to)) {
+if (typeof console !== 'undefined') {
+console.warn(`[what-router] Blocked navigation to unsafe URL: ${to}`);
+}
+return;
+}
+if (typeof window !== 'undefined' && to.startsWith('#')) {
+const currentUrl = _url();
+const basePath = currentUrl.split('#')[0];
+const newUrl = basePath + to;
+history.replaceState(state, '', newUrl);
+_url.set(newUrl);
+const el = document.querySelector(to);
+if (el) el.scrollIntoView({ behavior: 'smooth' });
+return;
+}
 if (to === _url()) return;
+if (_isNavigating.peek()) return;
 _isNavigating.set(true);
 _navigationError.set(null);
 const doNavigation = () => {
+if (!_fromPopstate) {
+if (typeof window !== 'undefined') {
+scrollPositions.set(_url(), { x: scrollX, y: scrollY });
+}
 if (replace) {
 history.replaceState(state, '', to);
 } else {
 history.pushState(state, '', to);
+}
 }
 _url.set(to);
 _isNavigating.set(false);
@@ -41,7 +72,14 @@ doNavigation();
 }
 if (typeof window !== 'undefined') {
 window.addEventListener('popstate', () => {
-_url.set(location.pathname + location.search + location.hash);
+scrollPositions.set(_url(), { x: scrollX, y: scrollY });
+const newUrl = location.pathname + location.search + location.hash;
+navigate(newUrl, { replace: true, _fromPopstate: true, transition: false }).then(() => {
+const saved = scrollPositions.get(newUrl);
+if (saved) {
+requestAnimationFrame(() => window.scrollTo(saved.x, saved.y));
+}
+});
 });
 }
 function compilePath(path) {
@@ -100,7 +138,18 @@ if (!search) return params;
 const qs = search.startsWith('?') ? search.slice(1) : search;
 for (const pair of qs.split('&')) {
 const [key, val] = pair.split('=');
-if (key) params[decodeURIComponent(key)] = val ? decodeURIComponent(val) : '';
+if (!key) continue;
+const decodedKey = decodeURIComponent(key);
+const decodedVal = val ? decodeURIComponent(val) : '';
+if (decodedKey in params) {
+if (Array.isArray(params[decodedKey])) {
+params[decodedKey].push(decodedVal);
+} else {
+params[decodedKey] = [params[decodedKey], decodedVal];
+}
+} else {
+params[decodedKey] = decodedVal;
+}
 }
 return params;
 }
@@ -123,6 +172,8 @@ layouts.push(route.layout);
 }
 return layouts;
 }
+const _redirectHistory = [];
+const MAX_REDIRECTS = 10;
 export function Router({ routes, fallback, globalLayout }) {
 const currentUrl = _url();
 const path = currentUrl.split('?')[0].split('#')[0];
@@ -144,11 +195,39 @@ if (fallback) return h(fallback, {});
 return h('div', { class: 'what-403' }, h('h1', null, '403'), h('p', null, 'Access denied'));
 }
 if (typeof result === 'string') {
+_redirectHistory.push(result);
+if (_redirectHistory.length > MAX_REDIRECTS) {
+const cycle = _redirectHistory.slice(-5).join(' → ');
+_redirectHistory.length = 0;
+console.error(`[what-router] Redirect loop detected: ${cycle}`);
+_isNavigating.set(false);
+return h('div', { class: 'what-redirect-loop' },
+h('h1', null, 'Redirect Loop'),
+h('p', null, 'Too many redirects. Check your middleware configuration.')
+);
+}
+const seen = new Set();
+let hasCycle = false;
+for (const url of _redirectHistory) {
+if (seen.has(url)) { hasCycle = true; break; }
+seen.add(url);
+}
+if (hasCycle) {
+const cycle = _redirectHistory.join(' → ');
+_redirectHistory.length = 0;
+console.error(`[what-router] Redirect cycle detected: ${cycle}`);
+_isNavigating.set(false);
+return h('div', { class: 'what-redirect-loop' },
+h('h1', null, 'Redirect Loop'),
+h('p', null, 'Circular redirect detected. Check your middleware configuration.')
+);
+}
 navigate(result, { replace: true });
 return null;
 }
 }
 }
+_redirectHistory.length = 0;
 let element;
 if (r.loading && isNavigating) {
 element = h(r.loading, {});
@@ -189,25 +268,30 @@ exactActiveClass = 'exact-active',
 transition = true,
 ...rest
 }) {
+const safeHref = isSafeUrl(href) ? href : 'about:blank';
+if (!isSafeUrl(href) && typeof console !== 'undefined') {
+console.warn(`[what-router] Link blocked unsafe href: ${href}`);
+}
 const currentPath = route.path;
-const isActive = href === '/'
+const hrefPath = safeHref.split('?')[0].split('#')[0];
+const isActive = hrefPath === '/'
 ? currentPath === '/'
-: currentPath === href || currentPath.startsWith(href + '/');
-const isExactActive = currentPath === href;
+: currentPath === hrefPath || currentPath.startsWith(hrefPath + '/');
+const isExactActive = currentPath === hrefPath;
 const classes = [
 cls || className,
 isActive && activeClass,
 isExactActive && exactActiveClass,
 ].filter(Boolean).join(' ') || undefined;
 return h('a', {
-href,
+href: safeHref,
 class: classes,
 onclick: (e) => {
 if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
 e.preventDefault();
-navigate(href, { replace: rep, transition });
+navigate(safeHref, { replace: rep, transition });
 },
-onmouseenter: shouldPrefetch ? () => prefetch(href) : undefined,
+onmouseenter: shouldPrefetch ? () => prefetch(safeHref) : undefined,
 ...rest,
 }, ...(Array.isArray(children) ? children : [children]));
 }
@@ -269,13 +353,19 @@ return (Component) => {
 return function AsyncGuardedRoute(props) {
 const status = signal('pending');
 const checkResult = signal(null);
+let cancelled = false;
 effect(() => {
+cancelled = false;
 Promise.resolve(check(props))
 .then(result => {
+if (cancelled) return;
 checkResult.set(result);
 status.set(result ? 'allowed' : 'denied');
 })
-.catch(() => status.set('denied'));
+.catch(() => {
+if (!cancelled) status.set('denied');
+});
+return () => { cancelled = true; };
 });
 const currentStatus = status();
 if (currentStatus === 'pending') {

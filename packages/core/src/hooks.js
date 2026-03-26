@@ -1,7 +1,9 @@
 // What Framework - Hooks
-// React-familiar hooks backed by signals. Zero overhead when deps don't change.
+// React-familiar hooks backed by signals for run-once component model.
+// Components run ONCE. Hooks return signal accessors (functions) so the
+// fine-grained runtime handles reactive updates automatically via effects.
 
-import { signal, computed, effect, batch, untrack, __DEV__ } from './reactive.js';
+import { signal, computed, effect, batch, untrack, createRoot, __DEV__ } from './reactive.js';
 import { getCurrentComponent } from './dom.js';
 
 function getCtx() {
@@ -20,10 +22,11 @@ function getHook(ctx) {
   return { index, exists: index < ctx.hooks.length };
 }
 
-let _useMemoNoDepsWarned = false;
-
 // --- useState ---
-// Returns [value, setter]. Setter triggers re-render of this component only.
+// Returns [signalAccessor, setter]. The accessor is a function — call it to read.
+// In JSX, {count} (where count is the signal function) auto-binds reactively
+// via insert()'s effect wrapper. For interpolation, use count() explicitly.
+// This matches Solid's API and works with the run-once component model.
 
 export function useState(initial) {
   const ctx = getCtx();
@@ -35,7 +38,7 @@ export function useState(initial) {
   }
 
   const s = ctx.hooks[index];
-  return [s(), s.set];
+  return [s, s.set];
 }
 
 // --- useSignal ---
@@ -68,69 +71,119 @@ export function useComputed(fn) {
 }
 
 // --- useEffect ---
-// Side effect that runs after render. Cleanup function returned by fn is called
-// before re-running and on unmount.
+// Side effect that runs after mount. In the run-once model, deps-based
+// re-running only works if deps are signal accessors. The implementation:
+// - No deps (undefined): wrap in effect() that auto-tracks signals
+// - Empty deps []: run once on mount, cleanup on unmount
+// - Deps [a, b]: create effect() that reads each dep (calling signal functions
+//   to establish tracking), then runs the callback when any dep changes
 
 export function useEffect(fn, deps) {
   const ctx = getCtx();
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    ctx.hooks[index] = { deps: undefined, cleanup: null };
+    ctx.hooks[index] = { cleanup: null, dispose: null };
   }
 
   const hook = ctx.hooks[index];
 
-  if (depsChanged(hook.deps, deps)) {
-    // Schedule after current render
+  // Only set up once — component runs once
+  if (hook.dispose) return;
+
+  if (deps === undefined) {
+    // No deps array: wrap in effect() that auto-tracks signal reads inside fn
     queueMicrotask(() => {
       if (ctx.disposed) return;
-      if (hook.cleanup) hook.cleanup();
-      hook.cleanup = fn() || null;
+      hook.dispose = effect(() => {
+        if (hook.cleanup) {
+          try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+          hook.cleanup = null;
+        }
+        const result = fn();
+        if (typeof result === 'function') hook.cleanup = result;
+      });
+      // Register disposal with component lifecycle
+      ctx.effects = ctx.effects || [];
+      ctx.effects.push(hook.dispose);
     });
-    hook.deps = deps;
+  } else if (deps.length === 0) {
+    // Empty deps []: run once on mount, cleanup on unmount
+    queueMicrotask(() => {
+      if (ctx.disposed) return;
+      const result = fn();
+      if (typeof result === 'function') hook.cleanup = result;
+    });
+    // Mark as set up so we don't re-run
+    hook.dispose = true;
+  } else {
+    // Deps array with values: create a reactive effect that reads each dep.
+    // If a dep is a signal function, calling it establishes tracking.
+    // When any tracked signal changes, the effect re-runs the callback.
+    queueMicrotask(() => {
+      if (ctx.disposed) return;
+      hook.dispose = effect(() => {
+        // Read all deps to establish signal tracking
+        for (let i = 0; i < deps.length; i++) {
+          const dep = deps[i];
+          if (typeof dep === 'function' && dep._signal) {
+            dep(); // Read signal to track it
+          }
+        }
+
+        // Run cleanup from previous execution
+        if (hook.cleanup) {
+          try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+          hook.cleanup = null;
+        }
+
+        // Run the effect callback
+        const result = untrack(() => fn());
+        if (typeof result === 'function') hook.cleanup = result;
+      });
+      // Register disposal with component lifecycle
+      ctx.effects = ctx.effects || [];
+      ctx.effects.push(hook.dispose);
+    });
   }
 }
 
 // --- useMemo ---
-// Memoized value. Only recomputes when deps change.
+// Memoized computed value. Uses computed() for automatic signal tracking.
+// The deps array is accepted for API compatibility but ignored internally —
+// computed() auto-tracks signal dependencies.
+// Returns a computed signal function (call it to read the value).
 
 export function useMemo(fn, deps) {
   const ctx = getCtx();
   const { index, exists } = getHook(ctx);
 
-  if (__DEV__ && deps === undefined && !_useMemoNoDepsWarned) {
-    _useMemoNoDepsWarned = true;
-    console.warn(
-      '[what] useMemo() called without a deps array. ' +
-      'This recomputes every render. Use useComputed() for signal-derived values, ' +
-      'or pass deps to useMemo().'
-    );
-  }
-
   if (!exists) {
-    ctx.hooks[index] = { value: undefined, deps: undefined };
+    ctx.hooks[index] = { computed: computed(fn) };
   }
 
-  const hook = ctx.hooks[index];
-
-  if (depsChanged(hook.deps, deps)) {
-    hook.value = fn();
-    hook.deps = deps;
-  }
-
-  return hook.value;
+  return ctx.hooks[index].computed;
 }
 
 // --- useCallback ---
-// Memoized callback. Identity-stable when deps don't change.
+// Memoized callback. In the run-once model, the component function only
+// executes once, so the callback reference is inherently stable.
+// Simply store and return the function on first call.
 
 export function useCallback(fn, deps) {
-  return useMemo(() => fn, deps);
+  const ctx = getCtx();
+  const { index, exists } = getHook(ctx);
+
+  if (!exists) {
+    ctx.hooks[index] = { callback: fn };
+  }
+
+  return ctx.hooks[index].callback;
 }
 
 // --- useRef ---
 // Mutable ref object. Does NOT trigger re-renders.
+// Works correctly in run-once model — the ref persists for the component lifetime.
 
 export function useRef(initial) {
   const ctx = getCtx();
@@ -146,7 +199,8 @@ export function useRef(initial) {
 // --- useContext ---
 // Read from the nearest Provider in the component tree, or the default value.
 // Uses _parentCtx chain (persistent tree) instead of componentStack (runtime stack)
-// so context works correctly in re-renders, effects, and event handlers.
+// so context works correctly in effects and event handlers.
+// Returns the signal itself (not its value) so that consumers get reactive updates.
 
 export function useContext(context) {
   // Walk up the _parentCtx chain to find the nearest provider
@@ -202,7 +256,8 @@ export function createContext(defaultValue) {
 }
 
 // --- useReducer ---
-// State management with a reducer function (like React).
+// State management with a reducer function.
+// Returns [signalAccessor, dispatch] — accessor is a signal function.
 
 export function useReducer(reducer, initialState, init) {
   const ctx = getCtx();
@@ -218,7 +273,7 @@ export function useReducer(reducer, initialState, init) {
   }
 
   const hook = ctx.hooks[index];
-  return [hook.signal(), hook.dispatch];
+  return [hook.signal, hook.dispatch];
 }
 
 // --- onMount ---
@@ -302,7 +357,7 @@ export function createResource(fetcher, options = {}) {
   return [data, { loading, error, refetch, mutate }];
 }
 
-// --- Dep comparison ---
+// --- Dep comparison (kept for potential external use) ---
 
 function depsChanged(oldDeps, newDeps) {
   if (oldDeps === undefined) return true;

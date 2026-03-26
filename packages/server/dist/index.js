@@ -1,8 +1,79 @@
 import { h } from 'what-core';
+let _hydrationIdCounter = 0;
+function resetHydrationId() {
+_hydrationIdCounter = 0;
+}
+function nextHydrationId() {
+return 'h' + (_hydrationIdCounter++);
+}
+export function renderToHydratableString(vnode) {
+resetHydrationId();
+return _renderHydratable(vnode);
+}
+function _renderHydratable(vnode) {
+if (vnode == null || vnode === false || vnode === true) return '';
+if (typeof vnode === 'string' || typeof vnode === 'number') {
+return escapeHtml(String(vnode));
+}
+if (typeof vnode === 'function' && vnode._signal) {
+return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
+}
+if (typeof vnode === 'function') {
+try {
+return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
+} catch (e) {
+if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
+}
+return '<!--$--><!--/$-->';
+}
+}
+if (Array.isArray(vnode)) {
+return `<!--[]-->${vnode.map(_renderHydratable).join('')}<!--/[]-->`;
+}
+if (typeof vnode.tag === 'function') {
+const hkId = nextHydrationId();
+const result = vnode.tag({ ...vnode.props, children: vnode.children });
+const html = _renderHydratable(result);
+return injectHydrationKey(html, hkId);
+}
+const { tag, props, children } = vnode;
+const attrs = renderAttrs(props || {});
+const open = `<${tag}${attrs}>`;
+if (VOID_ELEMENTS.has(tag)) return open;
+const rawInner = props?.dangerouslySetInnerHTML?.__html
+?? props?.innerHTML?.__html
+?? props?.innerHTML;
+const inner = rawInner != null ? String(rawInner) : children.map(_renderHydratable).join('');
+return `${open}${inner}</${tag}>`;
+}
+function injectHydrationKey(html, hkId) {
+const match = html.match(/^((?:<!--.*?-->)*)<([a-zA-Z][a-zA-Z0-9-]*)/);
+if (match) {
+const prefix = match[1];
+const tagName = match[2];
+const insertAt = prefix.length + 1 + tagName.length; 
+return html.slice(0, insertAt) + ` data-hk="${hkId}"` + html.slice(insertAt);
+}
+return html;
+}
 export function renderToString(vnode) {
 if (vnode == null || vnode === false || vnode === true) return '';
 if (typeof vnode === 'string' || typeof vnode === 'number') {
 return escapeHtml(String(vnode));
+}
+if (typeof vnode === 'function' && vnode._signal) {
+return renderToString(vnode());
+}
+if (typeof vnode === 'function') {
+try {
+return renderToString(vnode());
+} catch (e) {
+if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
+}
+return '';
+}
 }
 if (Array.isArray(vnode)) {
 return vnode.map(renderToString).join('');
@@ -27,6 +98,20 @@ if (typeof vnode === 'string' || typeof vnode === 'number') {
 yield escapeHtml(String(vnode));
 return;
 }
+if (typeof vnode === 'function' && vnode._signal) {
+yield* renderToStream(vnode());
+return;
+}
+if (typeof vnode === 'function') {
+try {
+yield* renderToStream(vnode());
+} catch (e) {
+if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+console.warn('[what-server] Error rendering reactive function in stream SSR:', e.message);
+}
+}
+return;
+}
 if (Array.isArray(vnode)) {
 for (const child of vnode) {
 yield* renderToStream(child);
@@ -34,9 +119,16 @@ yield* renderToStream(child);
 return;
 }
 if (typeof vnode.tag === 'function') {
+try {
 const result = vnode.tag({ ...vnode.props, children: vnode.children });
 const resolved = result instanceof Promise ? await result : result;
 yield* renderToStream(resolved);
+} catch (e) {
+if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+console.warn('[what-server] Error rendering component in stream SSR:', e.message);
+}
+yield `<!-- SSR Error: ${escapeHtml(e.message || 'Component error')} -->`;
+}
 return;
 }
 const { tag, props, children } = vnode;
@@ -128,7 +220,11 @@ const css = Object.entries(val)
 .join(';');
 out += ` style="${escapeHtml(css)}"`;
 } else if (val === true) {
+if (key.startsWith('aria-') || key === 'role') {
+out += ` ${key}="true"`;
+} else {
 out += ` ${key}`;
+}
 } else {
 out += ` ${key}="${escapeHtml(String(val))}"`;
 }
@@ -140,9 +236,11 @@ return str
 .replace(/&/g, '&amp;')
 .replace(/</g, '&lt;')
 .replace(/>/g, '&gt;')
-.replace(/"/g, '&quot;');
+.replace(/"/g, '&quot;')
+.replace(/'/g, '&#39;');
 }
 function camelToKebab(str) {
+if (str.startsWith('--')) return str; 
 return str.replace(/([A-Z])/g, '-$1').toLowerCase();
 }
 const VOID_ELEMENTS = new Set([
@@ -160,4 +258,7 @@ onRevalidate,
 invalidatePath,
 handleActionRequest,
 getRegisteredActions,
+generateCsrfToken,
+validateCsrfToken,
+csrfMetaTag,
 } from './actions.js';

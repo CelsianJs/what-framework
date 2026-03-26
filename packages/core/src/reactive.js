@@ -365,10 +365,11 @@ function notify(subs) {
 
   if (!isOutermost) return; // Inner call — the outer loop will process it
 
-  // Drain the queue iteratively
+  // Drain the queue iteratively — use index-based approach to avoid O(n) shift
+  let qi = 0;
   try {
-    while (notifyQueue.length > 0) {
-      const currentSubs = notifyQueue.shift();
+    while (qi < notifyQueue.length) {
+      const currentSubs = notifyQueue[qi++];
       for (const e of currentSubs) {
         if (e.disposed) continue;
         if (e._onNotify) {

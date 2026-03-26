@@ -123,6 +123,10 @@ ctx._contextSignals.get(context).set(value);
 }
 return children;
 },
+Consumer: ({ children }) => {
+const value = useContext(context);
+return typeof children === 'function' ? children(value) : children;
+},
 };
 return context;
 }

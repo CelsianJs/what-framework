@@ -7,7 +7,7 @@
 
 Preact already proved this is possible. Preact is a 3KB alternative to React that ships `preact/compat` — a module that implements React's entire public API using Preact's internals. You alias `react` → `preact/compat` in your bundler, and most React libraries just work. Radix, Framer Motion, React Query, React Hook Form — all functional in Preact via this shim.
 
-We can do the same thing, but potentially better. Preact reimplements React's virtual DOM with a slightly different VDOM. We'd reimplement React's API with **signals underneath** — which means React libraries running inside What would get fine-grained reactivity for free, without the library authors knowing.
+We can do the same thing, but potentially better. Preact reimplements React's virtual DOM with a slightly different virtual DOM. We'd reimplement React's API with **signals underneath** — which means React libraries running inside What would get fine-grained reactivity for free, without the library authors knowing.
 
 ## How It Works (High Level)
 
@@ -56,7 +56,7 @@ React's public surface is smaller than people think. Here's everything a library
 - `useDebugValue(value)` → DevTools label
 
 **Component utilities:**
-- `createElement(type, props, ...children)` → create VDOM node
+- `createElement(type, props, ...children)` → create element descriptor
 - `createContext(defaultValue)` → context provider/consumer
 - `forwardRef(Component)` → ref forwarding
 - `memo(Component, areEqual)` → skip re-render on same props
@@ -286,7 +286,7 @@ resolve: {
 
 ## What Makes This Different From Preact/compat
 
-Preact's compat reimplements React's VDOM diffing with a slightly different VDOM. It's still a VDOM framework.
+Preact's compat reimplements React's virtual DOM diffing with a slightly different virtual DOM. It's still a virtual DOM framework.
 
 What's compat would be the first **signals-based React compatibility layer**. React libraries would unknowingly get fine-grained reactivity. A `useState` inside a React library becomes a signal — meaning only the specific DOM nodes that read that state update, not the entire component subtree. React libraries would actually perform *better* inside What than inside React.
 

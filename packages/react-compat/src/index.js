@@ -355,17 +355,68 @@ export function isValidElement(object) {
 }
 
 // ---- useLayoutEffect ----
+// Must run synchronously after DOM mutations but before paint.
+// We use queueMicrotask for layout-level timing (runs before next rAF).
 
 export function useLayoutEffect(fn, deps) {
-  return whatUseEffect(fn, deps);
+  const hookRef = whatUseRef({ deps: undefined, cleanup: null });
+
+  const hook = hookRef.current;
+
+  if (_depsChanged(hook.deps, deps)) {
+    // Run synchronously via microtask — before next paint but after DOM mutations
+    queueMicrotask(() => {
+      if (hook.cleanup) {
+        try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+        hook.cleanup = null;
+      }
+      const result = fn();
+      if (typeof result === 'function') {
+        hook.cleanup = result;
+      }
+    });
+    hook.deps = deps;
+  }
+
+  // Register cleanup on unmount
+  onCleanup(() => {
+    if (hook.cleanup) {
+      try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+      hook.cleanup = null;
+    }
+  });
 }
 
 // ---- useInsertionEffect ----
 // React 18 hook for CSS-in-JS libraries. Runs synchronously before layout effects.
-// We map it to useEffect since What doesn't have multi-phase commit.
+// We run it immediately (synchronously) during render to ensure it runs before
+// useLayoutEffect's microtask and useEffect's async scheduling.
 
 export function useInsertionEffect(fn, deps) {
-  return whatUseEffect(fn, deps);
+  const hookRef = whatUseRef({ deps: undefined, cleanup: null });
+
+  const hook = hookRef.current;
+
+  if (_depsChanged(hook.deps, deps)) {
+    // Run synchronously — before layout effects
+    if (hook.cleanup) {
+      try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+      hook.cleanup = null;
+    }
+    const result = fn();
+    if (typeof result === 'function') {
+      hook.cleanup = result;
+    }
+    hook.deps = deps;
+  }
+
+  // Register cleanup on unmount
+  onCleanup(() => {
+    if (hook.cleanup) {
+      try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+      hook.cleanup = null;
+    }
+  });
 }
 
 // ---- useImperativeHandle ----
@@ -398,24 +449,40 @@ export function useId() {
 export function useDebugValue() {}
 
 // ---- useSyncExternalStore ----
+// Uses a signal internally so that consumers get reactive updates.
+// The signal is initialized with getSnapshot(), and updated via the store's
+// subscribe callback. The returned signal function integrates with What's
+// fine-grained reactivity — reading it inside an effect auto-tracks the dependency.
 
 export function useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot) {
-  const [value, setValue] = whatUseState(() => getSnapshot());
-  const snapshotRef = whatUseRef(getSnapshot());
+  // Create a signal initialized with the current snapshot
+  const storeSignal = whatUseRef(null);
+  if (storeSignal.current === null) {
+    storeSignal.current = signal(getSnapshot());
+  }
 
+  const sig = storeSignal.current;
+
+  // Subscribe to the store, updating the signal when the store changes.
+  // onCleanup handles unsubscription on unmount.
   whatUseEffect(() => {
     const handleChange = () => {
       const next = getSnapshot();
-      if (!Object.is(snapshotRef.current, next)) {
-        snapshotRef.current = next;
-        setValue(next);
+      const prev = sig.peek();
+      if (!Object.is(prev, next)) {
+        sig.set(next);
       }
     };
+    // Sync in case store changed between render and effect
     handleChange();
-    return subscribe(handleChange);
+    const unsubscribe = subscribe(handleChange);
+    return unsubscribe;
   }, [subscribe, getSnapshot]);
 
-  return value;
+  // Return the signal function itself. In the run-once model, returning sig()
+  // would capture a snapshot that never updates. Returning the signal function
+  // lets the fine-grained runtime track it reactively when used in JSX.
+  return sig;
 }
 
 // ---- useTransition ----
@@ -518,6 +585,16 @@ PureComponent.prototype.shouldComponentUpdate = function(nextProps, nextState) {
 };
 
 // ---- Internal helpers ----
+
+function _depsChanged(oldDeps, newDeps) {
+  if (oldDeps === undefined) return true;
+  if (!oldDeps || !newDeps) return true;
+  if (oldDeps.length !== newDeps.length) return true;
+  for (let i = 0; i < oldDeps.length; i++) {
+    if (!Object.is(oldDeps[i], newDeps[i])) return true;
+  }
+  return false;
+}
 
 function shallowEqual(a, b) {
   if (Object.is(a, b)) return true;

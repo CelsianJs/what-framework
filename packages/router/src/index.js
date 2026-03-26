@@ -248,108 +248,113 @@ const MAX_REDIRECTS = 10;
 // --- Router Component ---
 
 export function Router({ routes, fallback, globalLayout }) {
-  const currentUrl = _url();
-  const path = currentUrl.split('?')[0].split('#')[0];
-  const search = currentUrl.split('?')[1]?.split('#')[0] || '';
-  const isNavigating = _isNavigating();
+  // Return a reactive function child. The Router component runs ONCE,
+  // but the returned function re-evaluates whenever _url changes,
+  // and the fine-grained runtime updates the DOM accordingly.
+  return () => {
+    const currentUrl = _url();
+    const path = currentUrl.split('?')[0].split('#')[0];
+    const search = currentUrl.split('?')[1]?.split('#')[0] || '';
+    const isNavigating = _isNavigating();
 
-  const matched = matchRoute(path, routes);
+    const matched = matchRoute(path, routes);
 
-  if (matched) {
-    batch(() => {
-      _params.set(matched.params);
-      _query.set(parseQuery(search));
-    });
+    if (matched) {
+      batch(() => {
+        _params.set(matched.params);
+        _query.set(parseQuery(search));
+      });
 
-    const { route: r, params } = matched;
-    const queryObj = parseQuery(search);
+      const { route: r, params } = matched;
+      const queryObj = parseQuery(search);
 
-    // Run middleware (sync only — async middleware should use asyncGuard)
-    if (r.middleware && r.middleware.length > 0) {
-      for (const mw of r.middleware) {
-        const result = mw({ path, params, query: queryObj, route: r });
-        if (result === false) {
-          // Middleware rejected — show fallback
-          if (fallback) return h(fallback, {});
-          return h('div', { class: 'what-403' }, h('h1', null, '403'), h('p', null, 'Access denied'));
-        }
-        if (typeof result === 'string') {
-          // Redirect loop detection
-          _redirectHistory.push(result);
-          if (_redirectHistory.length > MAX_REDIRECTS) {
-            const cycle = _redirectHistory.slice(-5).join(' → ');
-            _redirectHistory.length = 0;
-            console.error(`[what-router] Redirect loop detected: ${cycle}`);
-            _isNavigating.set(false);
-            return h('div', { class: 'what-redirect-loop' },
-              h('h1', null, 'Redirect Loop'),
-              h('p', null, 'Too many redirects. Check your middleware configuration.')
-            );
+      // Run middleware (sync only — async middleware should use asyncGuard)
+      if (r.middleware && r.middleware.length > 0) {
+        for (const mw of r.middleware) {
+          const result = mw({ path, params, query: queryObj, route: r });
+          if (result === false) {
+            // Middleware rejected — show fallback
+            if (fallback) return h(fallback, {});
+            return h('div', { class: 'what-403' }, h('h1', null, '403'), h('p', null, 'Access denied'));
           }
-          // Check for direct cycle (A → B → A)
-          const seen = new Set();
-          let hasCycle = false;
-          for (const url of _redirectHistory) {
-            if (seen.has(url)) { hasCycle = true; break; }
-            seen.add(url);
+          if (typeof result === 'string') {
+            // Redirect loop detection
+            _redirectHistory.push(result);
+            if (_redirectHistory.length > MAX_REDIRECTS) {
+              const cycle = _redirectHistory.slice(-5).join(' → ');
+              _redirectHistory.length = 0;
+              console.error(`[what-router] Redirect loop detected: ${cycle}`);
+              _isNavigating.set(false);
+              return h('div', { class: 'what-redirect-loop' },
+                h('h1', null, 'Redirect Loop'),
+                h('p', null, 'Too many redirects. Check your middleware configuration.')
+              );
+            }
+            // Check for direct cycle (A → B → A)
+            const seen = new Set();
+            let hasCycle = false;
+            for (const url of _redirectHistory) {
+              if (seen.has(url)) { hasCycle = true; break; }
+              seen.add(url);
+            }
+            if (hasCycle) {
+              const cycle = _redirectHistory.join(' → ');
+              _redirectHistory.length = 0;
+              console.error(`[what-router] Redirect cycle detected: ${cycle}`);
+              _isNavigating.set(false);
+              return h('div', { class: 'what-redirect-loop' },
+                h('h1', null, 'Redirect Loop'),
+                h('p', null, 'Circular redirect detected. Check your middleware configuration.')
+              );
+            }
+            // Middleware returned a redirect path
+            navigate(result, { replace: true });
+            return null;
           }
-          if (hasCycle) {
-            const cycle = _redirectHistory.join(' → ');
-            _redirectHistory.length = 0;
-            console.error(`[what-router] Redirect cycle detected: ${cycle}`);
-            _isNavigating.set(false);
-            return h('div', { class: 'what-redirect-loop' },
-              h('h1', null, 'Redirect Loop'),
-              h('p', null, 'Circular redirect detected. Check your middleware configuration.')
-            );
-          }
-          // Middleware returned a redirect path
-          navigate(result, { replace: true });
-          return null;
         }
       }
+      // Successful render — clear redirect history
+      _redirectHistory.length = 0;
+
+      // Build element with loading state support
+      let element;
+
+      if (r.loading && isNavigating) {
+        element = h(r.loading, {});
+      } else {
+        element = h(r.component, {
+          params,
+          query: queryObj,
+          route: r,
+        });
+      }
+
+      // Wrap with per-route error boundary if specified
+      if (r.error) {
+        element = h(ErrorBoundary, { fallback: r.error }, element);
+      }
+
+      // Wrap with nested layouts (innermost to outermost)
+      const layouts = buildLayoutChain(r, routes);
+      for (const Layout of layouts.reverse()) {
+        element = h(Layout, { params, query: queryObj }, element);
+      }
+
+      // Global layout wrapper
+      if (globalLayout) {
+        element = h(globalLayout, {}, element);
+      }
+
+      return element;
     }
-    // Successful render — clear redirect history
-    _redirectHistory.length = 0;
 
-    // Build element with loading state support
-    let element;
-
-    if (r.loading && isNavigating) {
-      element = h(r.loading, {});
-    } else {
-      element = h(r.component, {
-        params,
-        query: queryObj,
-        route: r,
-      });
-    }
-
-    // Wrap with per-route error boundary if specified
-    if (r.error) {
-      element = h(ErrorBoundary, { fallback: r.error }, element);
-    }
-
-    // Wrap with nested layouts (innermost to outermost)
-    const layouts = buildLayoutChain(r, routes);
-    for (const Layout of layouts.reverse()) {
-      element = h(Layout, { params, query: queryObj }, element);
-    }
-
-    // Global layout wrapper
-    if (globalLayout) {
-      element = h(globalLayout, {}, element);
-    }
-
-    return element;
-  }
-
-  // 404
-  if (fallback) return h(fallback, {});
-  return h('div', { class: 'what-404' },
-    h('h1', null, '404'),
-    h('p', null, 'Page not found')
-  );
+    // 404
+    if (fallback) return h(fallback, {});
+    return h('div', { class: 'what-404' },
+      h('h1', null, '404'),
+      h('p', null, 'Page not found')
+    );
+  };
 }
 
 // --- Link Component ---
@@ -372,24 +377,28 @@ export function Link({
     console.warn(`[what-router] Link blocked unsafe href: ${href}`);
   }
 
-  const currentPath = route.path;
   // Strip query string and hash from href for path comparison
   const hrefPath = safeHref.split('?')[0].split('#')[0];
-  // Segment-boundary matching: '/blog' matches '/blog/123' but not '/blog-archive'
-  const isActive = hrefPath === '/'
-    ? currentPath === '/'
-    : currentPath === hrefPath || currentPath.startsWith(hrefPath + '/');
-  const isExactActive = currentPath === hrefPath;
 
-  const classes = [
-    cls || className,
-    isActive && activeClass,
-    isExactActive && exactActiveClass,
-  ].filter(Boolean).join(' ') || undefined;
+  // Use a reactive function for class so active states update on navigation.
+  // In the run-once model, reading route.path directly would snapshot it.
+  const reactiveClass = () => {
+    const currentPath = route.path;
+    const isActive = hrefPath === '/'
+      ? currentPath === '/'
+      : currentPath === hrefPath || currentPath.startsWith(hrefPath + '/');
+    const isExactActive = currentPath === hrefPath;
+
+    return [
+      cls || className,
+      isActive && activeClass,
+      isExactActive && exactActiveClass,
+    ].filter(Boolean).join(' ') || undefined;
+  };
 
   return h('a', {
     href: safeHref,
-    class: classes,
+    class: reactiveClass,
     onclick: (e) => {
       // Only intercept left-clicks without modifiers
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -505,21 +514,26 @@ export function asyncGuard(check, options = {}) {
         return () => { cancelled = true; };
       });
 
-      const currentStatus = status();
+      // Return a reactive function child so status changes update the DOM.
+      // Components run once, so reading status() outside a reactive wrapper
+      // would snapshot the value and never update.
+      return () => {
+        const currentStatus = status();
 
-      if (currentStatus === 'pending') {
-        return loading ? h(loading, {}) : null;
-      }
+        if (currentStatus === 'pending') {
+          return loading ? h(loading, {}) : null;
+        }
 
-      if (currentStatus === 'allowed') {
-        return h(Component, props);
-      }
+        if (currentStatus === 'allowed') {
+          return h(Component, props);
+        }
 
-      if (typeof fallback === 'string') {
-        navigate(fallback, { replace: true });
-        return null;
-      }
-      return h(fallback, props);
+        if (typeof fallback === 'string') {
+          navigate(fallback, { replace: true });
+          return null;
+        }
+        return h(fallback, props);
+      };
     };
   };
 }
@@ -625,6 +639,7 @@ export function FileRouter({
     _mode: r.mode || 'client',
   }));
 
+  // Router already returns a reactive function child — just delegate
   return Router({
     routes: routerRoutes,
     globalLayout,

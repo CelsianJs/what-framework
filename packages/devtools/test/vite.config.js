@@ -18,7 +18,7 @@ function whatJsx() {
       const result = transformSync(code, {
         filename: id,
         sourceMaps: true,
-        plugins: [[whatBabelPlugin, { production: false, mode: 'vdom' }]],
+        plugins: [[whatBabelPlugin, { production: false }]],
         parserOpts: { plugins: ['jsx'] },
       });
       return result ? { code: result.code, map: result.map } : null;

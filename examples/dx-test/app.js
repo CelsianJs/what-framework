@@ -1,54 +1,54 @@
-// DX Test App — exercises core What Framework h() VDOM API patterns
-// Tests: useState, useMemo, lists, conditionals, store, useEffect, useSignal, batch
+// DX Test App — exercises core What Framework h() API patterns
+// Tests: useSignal, useComputed, lists, conditionals, store, useEffect, batch
 
 import {
   h, mount,
   batch,
   createStore, derived,
-  useState, useSignal, useEffect, useRef, useMemo,
+  useSignal, useEffect, useRef, useComputed,
 } from '../../packages/core/src/index.js';
 
 // ==========================================
-// Test 1: useState & useMemo
+// Test 1: useSignal & useComputed
 // ==========================================
-// useState returns [value, setter] — plain values, not signals.
-// The component re-renders via effect when state changes.
+// useSignal returns a signal. Read with sig(), write with sig.set().
+// Components run ONCE — use reactive function children for dynamic content.
 function TestState() {
-  const [count, setCount] = useState(0);
-  const doubled = useMemo(() => count * 2, [count]);
-  const message = count > 5 ? 'High!' : 'Low';
+  const count = useSignal(0);
+  const doubled = useComputed(() => count() * 2);
 
   return h('section', null,
-    h('h2', null, 'Test 1: useState & useMemo'),
-    h('p', null, 'Count: ', count),
-    h('p', null, 'Doubled: ', doubled),
-    h('p', null, 'Status: ', message),
-    h('button', { onClick: () => setCount(c => c + 1) }, 'Increment'),
-    h('button', { onClick: () => setCount(0) }, 'Reset'),
+    h('h2', null, 'Test 1: useSignal & useComputed'),
+    h('p', null, 'Count: ', () => count()),
+    h('p', null, 'Doubled: ', () => doubled()),
+    h('p', null, 'Status: ', () => count() > 5 ? 'High!' : 'Low'),
+    h('button', { onClick: () => count.set(c => c + 1) }, 'Increment'),
+    h('button', { onClick: () => count.set(0) }, 'Reset'),
   );
 }
 
 // ==========================================
 // Test 2: List Rendering
 // ==========================================
-// Use .map() for lists — the reconciler handles keyed updates.
+// Use reactive function children with .map() for lists.
 function TestList() {
-  const [items, setItems] = useState([
+  const items = useSignal([
     { id: 1, text: 'Learn What Framework' },
     { id: 2, text: 'Build something cool' },
     { id: 3, text: 'Ship it' },
   ]);
-  const [newItem, setNewItem] = useState('');
+  const newItem = useSignal('');
   const nextIdRef = useRef(4);
 
   const addItem = () => {
-    if (!newItem.trim()) return;
-    setItems(prev => [...prev, { id: nextIdRef.current++, text: newItem }]);
-    setNewItem('');
+    const text = newItem.peek();
+    if (!text.trim()) return;
+    items.set(prev => [...prev, { id: nextIdRef.current++, text }]);
+    newItem.set('');
   };
 
   const removeItem = (id) => {
-    setItems(prev => prev.filter(item => item.id !== id));
+    items.set(prev => prev.filter(item => item.id !== id));
   };
 
   return h('section', null,
@@ -57,14 +57,14 @@ function TestList() {
       h('input', {
         type: 'text',
         placeholder: 'New item...',
-        value: newItem,
-        onInput: (e) => setNewItem(e.target.value),
+        value: () => newItem(),
+        onInput: (e) => newItem.set(e.target.value),
         onKeydown: (e) => e.key === 'Enter' && addItem(),
       }),
       h('button', { onClick: addItem }, 'Add'),
     ),
-    h('p', null, 'Items: ', items.length),
-    ...items.map(item => h('div', {
+    h('p', null, 'Items: ', () => items().length),
+    () => items().map(item => h('div', {
       key: item.id,
       style: 'display:flex;gap:8px;align-items:center;padding:4px 0',
     },
@@ -80,23 +80,23 @@ function TestList() {
 // ==========================================
 // Test 3: Conditional Rendering
 // ==========================================
-// Plain ternaries work — component re-renders produce new vnodes.
+// Use reactive function children for conditionals in run-once model.
 function TestConditional() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
+  const isLoggedIn = useSignal(false);
+  const showDetails = useSignal(false);
 
   return h('section', null,
     h('h2', null, 'Test 3: Conditional Rendering'),
     h('button', {
-      onClick: () => setIsLoggedIn(v => !v),
-    }, isLoggedIn ? 'Log Out' : 'Log In'),
-    isLoggedIn
+      onClick: () => isLoggedIn.set(v => !v),
+    }, () => isLoggedIn() ? 'Log Out' : 'Log In'),
+    () => isLoggedIn()
       ? h('div', null,
           h('p', null, 'Welcome back!'),
           h('button', {
-            onClick: () => setShowDetails(v => !v),
-          }, showDetails ? 'Hide Details' : 'Show Details'),
-          showDetails
+            onClick: () => showDetails.set(v => !v),
+          }, () => showDetails() ? 'Hide Details' : 'Show Details'),
+          () => showDetails()
             ? h('p', { style: 'color:green' }, 'Here are your secret details...')
             : null,
         )
@@ -129,13 +129,13 @@ function TestStore() {
 
   return h('section', null,
     h('h2', null, 'Test 4: Store (Global State)'),
-    h('p', null, 'Theme: ', store.theme),
-    h('p', null, 'Is Dark: ', String(store.isDark)),
-    h('p', null, 'Notifications: ', store.notifications.length),
+    h('p', null, 'Theme: ', () => store.theme),
+    h('p', null, 'Is Dark: ', () => String(store.isDark)),
+    h('p', null, 'Notifications: ', () => store.notifications.length),
     h('button', { onClick: () => store.toggleTheme() }, 'Toggle Theme'),
     h('button', { onClick: () => store.addNotification('Hello at ' + new Date().toLocaleTimeString()) }, 'Add Notification'),
     h('button', { onClick: () => store.clearNotifications() }, 'Clear'),
-    ...store.notifications.map(n =>
+    () => store.notifications.map(n =>
       h('div', { style: 'padding:2px 0;font-size:13px' }, n.message)
     ),
   );
@@ -144,51 +144,42 @@ function TestStore() {
 // ==========================================
 // Test 5: useEffect & useRef (Timer)
 // ==========================================
-// useState values are plain — no () to call them.
-// useEffect deps are plain values — comparison works naturally.
+// useSignal returns a signal. useEffect runs side effects.
 function TestHooks() {
-  const [timer, setTimer] = useState(0);
-  const [running, setRunning] = useState(false);
+  const timer = useSignal(0);
+  const running = useSignal(false);
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    if (running) {
+    if (running()) {
       intervalRef.current = setInterval(() => {
-        setTimer(t => t + 1);
+        timer.set(t => t + 1);
       }, 100);
     } else {
       clearInterval(intervalRef.current);
     }
     return () => clearInterval(intervalRef.current);
-  }, [running]);
+  }, [running()]);
 
   return h('section', null,
     h('h2', null, 'Test 5: useEffect & useRef'),
-    h('p', null, 'Timer: ', (timer / 10).toFixed(1), 's'),
-    h('button', { onClick: () => setRunning(r => !r) }, running ? 'Stop' : 'Start'),
-    h('button', { onClick: () => { setTimer(0); setRunning(false); } }, 'Reset'),
+    h('p', null, 'Timer: ', () => (timer() / 10).toFixed(1) + 's'),
+    h('button', { onClick: () => running.set(r => !r) }, () => running() ? 'Stop' : 'Start'),
+    h('button', { onClick: () => { timer.set(0); running.set(false); } }, 'Reset'),
   );
 }
 
 // ==========================================
 // Test 6: useSignal & Batch
 // ==========================================
-// useSignal returns a raw signal (persists across re-renders).
 // Read with sig(), write with sig.set(). batch() groups writes.
 function TestBatch() {
   const a = useSignal(0);
   const b = useSignal(0);
-  const renderCountRef = useRef(0);
-  renderCountRef.current++;
-
-  const aVal = a();
-  const bVal = b();
-  const sum = aVal + bVal;
 
   return h('section', null,
     h('h2', null, 'Test 6: useSignal & Batch'),
-    h('p', null, 'A: ', aVal, ' + B: ', bVal, ' = ', sum),
-    h('p', { style: 'font-size:13px;color:gray' }, 'Render count: ', renderCountRef.current),
+    h('p', null, () => `A: ${a()} + B: ${b()} = ${a() + b()}`),
     h('button', {
       onClick: () => {
         a.set(v => v + 1);
@@ -212,7 +203,7 @@ function TestBatch() {
 function App() {
   return h('div', { style: 'max-width:600px;margin:0 auto;padding:20px;font-family:system-ui' },
     h('h1', null, 'What Framework DX Test'),
-    h('p', { style: 'color:gray' }, 'Testing core patterns with the h() VDOM API'),
+    h('p', { style: 'color:gray' }, 'Testing core patterns with the h() API'),
     h('hr', null),
     h(TestState),
     h('hr', null),

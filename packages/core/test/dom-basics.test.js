@@ -309,7 +309,7 @@ describe('reactive function child disposal', () => {
     assert.equal(effectRuns, runsBeforeCleanup, 'effect did not run after disposal');
   });
 
-  it('_dispose is stored on reactive wrapper elements', async () => {
+  it('_dispose is stored on reactive function comment markers', async () => {
     const items = signal(['a']);
     const container = getContainer();
 
@@ -319,10 +319,19 @@ describe('reactive function child disposal', () => {
     );
     await flush();
 
-    // Find the reactive wrapper element (span with display:contents)
-    const wrapper = container.querySelector('span[style*="contents"]');
-    assert.ok(wrapper, 'reactive wrapper exists');
-    assert.ok(typeof wrapper._dispose === 'function', '_dispose is stored on wrapper');
+    // Find the reactive function comment markers (<!--fn--> and <!--/fn-->)
+    const div = container.querySelector('div');
+    let startMarker = null;
+    let endMarker = null;
+    for (const node of div.childNodes) {
+      if (node.nodeType === 8) { // Comment node
+        if (node.textContent === 'fn') startMarker = node;
+        if (node.textContent === '/fn') endMarker = node;
+      }
+    }
+    assert.ok(startMarker, 'start comment marker exists');
+    assert.ok(endMarker, 'end comment marker exists');
+    assert.ok(typeof startMarker._dispose === 'function', '_dispose is stored on start marker');
   });
 });
 

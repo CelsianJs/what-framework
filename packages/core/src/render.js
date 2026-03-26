@@ -3,7 +3,7 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, signal } from './reactive.js';
-import { createDOM, disposeTree } from './dom.js';
+import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
 
 export { effect, untrack };
 
@@ -208,11 +208,15 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
   const oldLen = oldItems.length;
 
   if (newLen === 0) {
-    // Fast path: clear all
+    // Fast path: clear all — remove only this list's nodes, not all parent content
     if (oldLen > 0) {
-      for (let i = 0; i < oldLen; i++) disposeFns[i]?.();
-      parent.textContent = '';
-      parent.appendChild(endMarker);
+      for (let i = 0; i < oldLen; i++) {
+        disposeFns[i]?.();
+        if (mappedNodes[i]?.parentNode === parent) {
+          disposeTree(mappedNodes[i]);
+          parent.removeChild(mappedNodes[i]);
+        }
+      }
       mappedNodes.length = 0;
       disposeFns.length = 0;
     }
@@ -445,11 +449,15 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   // --- Fast path: clear all ---
   if (newLen === 0) {
     if (oldLen > 0) {
-      // Skip individual disposal: per-row effects only subscribe to their item signal,
-      // which is also being discarded. Both become unreachable → GC collects them.
-      // Bulk DOM removal: clear parent, re-add marker.
-      parent.textContent = '';
-      parent.appendChild(endMarker);
+      // Call dispose functions to run cleanup callbacks (onCleanup, effect cleanups).
+      // Without this, cleanup callbacks leak.
+      for (let i = 0; i < oldLen; i++) {
+        disposeFns[i]?.();
+        if (mappedNodes[i]?.parentNode === parent) {
+          disposeTree(mappedNodes[i]);
+          parent.removeChild(mappedNodes[i]);
+        }
+      }
       mappedNodes.length = 0;
       disposeFns.length = 0;
       if (keyedState) keyedState.clear();
@@ -941,9 +949,53 @@ function hydrateNode(vnode, parent) {
 
   // VNode — component or element
   if (typeof vnode === 'object' && vnode._vnode) {
-    // Component
+    // Component — route through component context so hooks work during hydration
     if (typeof vnode.tag === 'function') {
-      const result = vnode.tag({ ...vnode.props, children: vnode.children });
+      const componentStack = getComponentStack();
+      const Component = vnode.tag;
+      const props = vnode.props || {};
+      const children = vnode.children || [];
+
+      // Set up component context (mirrors createComponent in dom.js)
+      const ctx = {
+        hooks: [],
+        hookIndex: 0,
+        effects: [],
+        cleanups: [],
+        mounted: false,
+        disposed: false,
+        Component,
+        _parentCtx: componentStack[componentStack.length - 1] || null,
+        _errorBoundary: null,
+      };
+
+      // Push context so hooks can access it
+      componentStack.push(ctx);
+
+      let result;
+      try {
+        const propsChildren = children.length === 0 ? undefined
+          : children.length === 1 ? children[0] : children;
+        result = Component({ ...props, children: propsChildren });
+      } catch (error) {
+        componentStack.pop();
+        console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', error);
+        return null;
+      }
+
+      componentStack.pop();
+      ctx.mounted = true;
+
+      // Run onMount callbacks after hydration
+      if (ctx._mountCallbacks) {
+        queueMicrotask(() => {
+          if (ctx.disposed) return;
+          for (const fn of ctx._mountCallbacks) {
+            try { fn(); } catch (e) { console.error('[what] onMount error:', e); }
+          }
+        });
+      }
+
       return hydrateNode(result, parent);
     }
 

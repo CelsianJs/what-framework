@@ -1,4 +1,4 @@
-const EMPTY_OBJ = {};
+const EMPTY_OBJ = Object.create(null);
 const EMPTY_ARR = [];
 export function h(tag, props, ...children) {
 props = props || EMPTY_OBJ;

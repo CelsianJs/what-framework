@@ -2,8 +2,13 @@
 
 An unsparing analysis of the What Framework compared to React, Solid, Svelte, Vue, and Preact. Written after reading every source file in the core, router, server, and compiler packages.
 
-> Historical note: This document captures pre-cleanup findings and terminology.
-> Canonical current guidance lives in `/README.md`, `/GETTING-STARTED.md`, `/docs/QUICKSTART.md`, `/docs/API.md`, and `/docs/GOTCHAS.md`.
+> **Historical note (March 2026):** This document was written when What Framework used a VDOM
+> reconciler with components re-running inside effects. The architecture has since been overhauled
+> to a **run-once, fine-grained model**: components execute once, signals create individual DOM
+> effects, and there is no virtual DOM diffing. Many criticisms below (re-running components,
+> VDOM overhead, wrapper elements) no longer apply to the current codebase. This document is
+> preserved for historical reference. Canonical current guidance lives in `/README.md`,
+> `/GETTING-STARTED.md`, `/docs/QUICKSTART.md`, `/docs/API.md`, and `/docs/GOTCHAS.md`.
 
 ---
 

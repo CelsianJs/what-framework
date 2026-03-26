@@ -1,5 +1,5 @@
-export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot } from './reactive.js';
-export { template, insert, mapArray, spread, delegateEvents, on, classList } from './render.js';
+export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot, getOwner, runWithOwner, onCleanup as onRootCleanup, __setDevToolsHooks } from './reactive.js';
+export { template, _template, insert, mapArray, spread, setProp, delegateEvents, on, classList, hydrate, isHydrating } from './render.js';
 export { h, Fragment, html } from './h.js';
 export { mount } from './dom.js';
 export {
@@ -99,6 +99,7 @@ prefetchQuery,
 setQueryData,
 getQueryData,
 clearCache,
+__getCacheSnapshot,
 } from './data.js';
 export {
 useForm,

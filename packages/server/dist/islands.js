@@ -1,4 +1,4 @@
-import { mount, signal, batch } from 'what-core';
+import { mount, hydrate, signal, batch } from 'what-core';
 const islandRegistry = new Map();
 const hydratedIslands = new Set();
 const hydrationQueue = [];
@@ -161,7 +161,12 @@ const storeProps = {};
 for (const storeName of stores) {
 storeProps[storeName] = useIslandStore(storeName);
 }
-mount(Component({ ...props, ...storeProps }), el);
+const vnode = Component({ ...props, ...storeProps });
+if (el.childNodes.length > 0) {
+hydrate(vnode, el);
+} else {
+mount(vnode, el);
+}
 el.removeAttribute('data-island');
 el.removeAttribute('data-island-mode');
 el.removeAttribute('data-island-props');
@@ -262,12 +267,19 @@ const formData = new FormData(form);
 const method = form.method.toUpperCase() || 'POST';
 const action = form.action || location.href;
 try {
+const csrfMeta = document.querySelector('meta[name="csrf-token"]') ||
+document.querySelector('meta[name="what-csrf-token"]');
+const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : null;
+const headers = {
+'X-Requested-With': 'XMLHttpRequest',
+};
+if (csrfToken) {
+headers['X-CSRF-Token'] = csrfToken;
+}
 const response = await fetch(action, {
 method,
 body: method === 'GET' ? undefined : formData,
-headers: {
-'X-Requested-With': 'XMLHttpRequest',
-},
+headers,
 });
 form.dispatchEvent(new CustomEvent('form:response', {
 bubbles: true,

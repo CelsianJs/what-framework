@@ -1,5 +1,5 @@
-// What Framework - Hyperscript / VDOM
-// Minimal virtual DOM nodes. No classes, no fibers, just plain objects.
+// What Framework - Element Descriptors
+// Minimal element descriptor objects. No classes, no fibers, just plain objects.
 
 // h(tag, props, ...children) -> VNode
 // h(Component, props, ...children) -> VNode

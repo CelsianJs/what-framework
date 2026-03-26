@@ -127,35 +127,50 @@ export function createDOM(vnode, parent, isSvg) {
     return vnode;
   }
 
-  // Reactive function child — create a container that updates via effect
+  // Reactive function child — use comment markers (no wrapper element)
+  // to avoid polluting the DOM and breaking CSS selectors like :first-child.
   if (typeof vnode === 'function') {
-    const container = document.createDocumentFragment ? document.createElement('span') : document.createElement('span');
-    container.style.display = 'contents';
+    const startMarker = document.createComment('fn');
+    const endMarker = document.createComment('/fn');
     let currentNodes = [];
+    // We need a parent to insert between markers. The caller (createElementFromVNode
+    // or createComponent) will appendChild both markers and the content. We return
+    // a document fragment containing start marker, then the effect will manage nodes
+    // between start and end markers once they're in the real DOM.
+    const frag = document.createDocumentFragment();
+    frag.appendChild(startMarker);
+    frag.appendChild(endMarker);
+
     const dispose = effect(() => {
       const val = vnode();
       const vnodes = (val == null || val === false || val === true)
         ? []
         : Array.isArray(val) ? val : [val];
 
-      // Remove old nodes
+      const realParent = endMarker.parentNode;
+      if (!realParent) return; // not mounted yet — first run handled below
+
+      // Remove old nodes between markers
       for (const old of currentNodes) {
         disposeTree(old);
-        if (old.parentNode === container) container.removeChild(old);
+        if (old.parentNode === realParent) realParent.removeChild(old);
       }
       currentNodes = [];
 
-      // Add new nodes
+      // Add new nodes before endMarker
       for (const v of vnodes) {
-        const node = createDOM(v, container, parent?._isSvg);
+        const node = createDOM(v, realParent, parent?._isSvg);
         if (node) {
-          container.appendChild(node);
+          realParent.insertBefore(node, endMarker);
           currentNodes.push(node);
         }
       }
     });
-    container._dispose = dispose;
-    return container;
+
+    startMarker._dispose = dispose;
+    // Also store dispose on endMarker so disposeTree can find it from either marker
+    endMarker._dispose = dispose;
+    return frag;
   }
 
   // Array of vnodes
