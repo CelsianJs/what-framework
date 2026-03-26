@@ -1,5 +1,7 @@
 # WhatFramework Critical Review
 
+**All findings addressed in v0.6.0 (2026-03-26).** See git log for fix commits.
+
 ---
 
 **HISTORICAL DOCUMENT -- DO NOT USE AS CURRENT REFERENCE**

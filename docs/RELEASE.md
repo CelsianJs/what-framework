@@ -79,3 +79,6 @@ Current default targets in `scripts/deploy-vercel.mjs`:
 1. `sites/benchmarks`
 2. `docs-site`
 3. `docs-site/docs`
+4. `sites/react-compat`
+
+See also: `docs/RELEASE-CHECKLIST.md` for the full post-release verification checklist.
