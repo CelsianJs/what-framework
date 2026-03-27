@@ -123,17 +123,17 @@ async function gatherOptions() {
 
 function generatePackageJson(projectName, { reactCompat, cssApproach }) {
   const deps = {
-    'what-framework': '^0.5.4',
+    'what-framework': '^0.6.0',
   };
   const devDeps = {
     vite: '^6.0.0',
-    'what-compiler': '^0.5.4',
+    'what-compiler': '^0.6.0',
     '@babel/core': '^7.23.0',
   };
 
   if (reactCompat) {
     deps['what-react'] = '^0.1.0';
-    deps['what-core'] = '^0.5.4';
+    deps['what-core'] = '^0.6.0';
     // Include zustand as a demo React library
     deps['zustand'] = '^5.0.0';
   }

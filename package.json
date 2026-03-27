@@ -1,7 +1,7 @@
 {
   "name": "what-fw",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "The closest framework to vanilla JS",
   "workspaces": [

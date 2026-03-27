@@ -13,12 +13,14 @@ const PACKAGE_ORDER = [
   'packages/router',
   'packages/server',
   'packages/compiler',
-  'packages/what',
-  'packages/create-what',
-  'packages/cli',
-  'packages/eslint-plugin',
   'packages/devtools',
+  'packages/mcp-server',
+  'packages/devtools-mcp',
+  'packages/eslint-plugin',
   'packages/react-compat',
+  'packages/what',
+  'packages/cli',
+  'packages/create-what',
 ];
 
 const options = parseArgs(process.argv.slice(2));

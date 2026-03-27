@@ -1,6 +1,6 @@
 {
   "name": "what-devtools-mcp",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MCP server bridging AI agents to live What Framework app state via WebSocket",
   "type": "module",
   "bin": {
@@ -20,7 +20,7 @@
     "zod": "^3.25.0"
   },
   "peerDependencies": {
-    "what-devtools": ">=0.5.0"
+    "what-devtools": ">=0.6.0"
   },
   "keywords": [
     "what-framework",

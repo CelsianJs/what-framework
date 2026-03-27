@@ -1,6 +1,6 @@
 {
   "name": "what-core",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "description": "What Framework - The closest framework to vanilla JS",
   "type": "module",
   "main": "src/index.js",

@@ -9,12 +9,12 @@
     "preview": "vite preview --port 5605 --strictPort"
   },
   "dependencies": {
-    "what-framework": "^0.5.5",
-    "what-react": "^0.1.2",
+    "what-framework": "^0.6.0",
+    "what-react": "^0.6.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
     "vite": "^6.0.0",
-    "what-compiler": "^0.5.5"
+    "what-compiler": "^0.6.0"
   }
 }

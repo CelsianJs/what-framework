@@ -22,7 +22,7 @@ import noSetInComputed from './rules/no-set-in-computed.js';
 const plugin = {
   meta: {
     name: 'eslint-plugin-what',
-    version: '0.5.6',
+    version: '0.6.0',
   },
 
   rules: {

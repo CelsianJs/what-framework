@@ -1,6 +1,6 @@
 {
   "name": "what-mcp",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MCP Server for What Framework documentation and assistance",
   "type": "module",
   "main": "src/index.js",

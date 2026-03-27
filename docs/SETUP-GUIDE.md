@@ -27,7 +27,7 @@ Open **http://localhost:5173** — you should see a counter app with increment/d
 >
 > Still getting errors? Clear the npx cache and retry:
 > ```bash
-> npx --yes create-what@0.5.6 my-app
+> npx --yes create-what@latest my-app
 > ```
 
 The scaffolder will ask you:

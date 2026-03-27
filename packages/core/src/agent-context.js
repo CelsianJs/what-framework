@@ -7,7 +7,7 @@ import { getCollectedErrors } from './errors.js';
 
 // --- Version ---
 // Read from package.json at build time; fallback to runtime constant.
-const VERSION = '0.5.6';
+const VERSION = '0.6.0';
 
 // --- Component Registry ---
 // Tracks mounted components for agent inspection.
