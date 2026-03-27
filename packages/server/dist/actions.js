@@ -38,8 +38,9 @@ function csrfMetaTag(token) {
   const escaped = String(token).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return `<meta name="what-csrf-token" content="${escaped}">`;
 }
+var _actionCounter = 0;
 function generateActionId() {
-  const rand = typeof crypto !== "undefined" && crypto.getRandomValues ? Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("") : Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const rand = typeof crypto !== "undefined" && crypto.getRandomValues ? Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("") : `c${(++_actionCounter).toString(36)}_${Date.now().toString(36)}`;
   return `a_${rand}`;
 }
 function action(fn, options = {}) {

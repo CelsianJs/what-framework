@@ -70,7 +70,7 @@ const packages = [
   },
 ];
 
-let totalOriginal = 0;
+let totalBundle = 0;
 let totalMinified = 0;
 
 for (const pkg of packages) {
@@ -78,14 +78,12 @@ for (const pkg of packages) {
   const distDir = join(pkgDir, 'dist');
   mkdirSync(distDir, { recursive: true });
 
-  let pkgOriginal = 0;
+  let pkgBundle = 0;
   let pkgMinified = 0;
 
   for (const entry of pkg.entries) {
     const entryPath = join(pkgDir, entry.input);
     if (!existsSync(entryPath)) continue;
-
-    const srcSize = statSync(entryPath).size;
 
     try {
       // ESM bundle (readable, with source map)
@@ -119,32 +117,34 @@ for (const pkg of packages) {
         logLevel: 'silent',
       });
 
+      const bundlePath = join(distDir, `${entry.outputBase}.js`);
       const minPath = join(distDir, `${entry.outputBase}.min.js`);
+      const bundleSize = existsSync(bundlePath) ? statSync(bundlePath).size : 0;
       const minSize = existsSync(minPath) ? statSync(minPath).size : 0;
 
-      pkgOriginal += srcSize;
+      pkgBundle += bundleSize;
       pkgMinified += minSize;
     } catch (err) {
       console.error(`  ERROR building ${pkg.name}/${entry.input}: ${err.message}`);
     }
   }
 
-  totalOriginal += pkgOriginal;
+  totalBundle += pkgBundle;
   totalMinified += pkgMinified;
 
-  const ratio = pkgOriginal > 0
-    ? ((1 - pkgMinified / pkgOriginal) * 100).toFixed(0)
+  const ratio = pkgBundle > 0
+    ? ((1 - pkgMinified / pkgBundle) * 100).toFixed(0)
     : 0;
   console.log(
-    `  @what/${pkg.name}  ${formatSize(pkgOriginal)} → ${formatSize(pkgMinified)} (${ratio}% reduction)`
+    `  @what/${pkg.name}  bundle ${formatSize(pkgBundle)}  min ${formatSize(pkgMinified)}  (${ratio}% minification)`
   );
 }
 
-const totalRatio = totalOriginal > 0
-  ? ((1 - totalMinified / totalOriginal) * 100).toFixed(0)
+const totalRatio = totalBundle > 0
+  ? ((1 - totalMinified / totalBundle) * 100).toFixed(0)
   : 0;
 console.log(
-  `\n  Total: ${formatSize(totalOriginal)} → ${formatSize(totalMinified)} (${totalRatio}% reduction)`
+  `\n  Total:  bundle ${formatSize(totalBundle)}  min ${formatSize(totalMinified)}  (${totalRatio}% minification)`
 );
 console.log('  Done!\n');
 

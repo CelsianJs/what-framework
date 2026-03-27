@@ -76,11 +76,15 @@ export function csrfMetaTag(token) {
 
 // --- Define a server action ---
 
+let _actionCounter = 0;
+
 function generateActionId() {
-  // Generate a random ID that's not easily enumerable
+  // Generate a deterministic ID — prefer crypto.getRandomValues, fall back to a
+  // monotonic counter (never Math.random, which is not cryptographically safe and
+  // produces predictable IDs in some runtimes).
   const rand = typeof crypto !== 'undefined' && crypto.getRandomValues
     ? Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('')
-    : Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    : `c${(++_actionCounter).toString(36)}_${Date.now().toString(36)}`;
   return `a_${rand}`;
 }
 

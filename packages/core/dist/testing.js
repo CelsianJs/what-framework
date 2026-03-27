@@ -762,8 +762,8 @@ function createComponent(vnode, parent, isSvg) {
 function createErrorBoundary(vnode, parent) {
   const { errorState, handleError, fallback, reset } = vnode.props;
   const children = vnode.children;
-  const wrapper = document.createElement("span");
-  wrapper.style.display = "contents";
+  const startComment = document.createComment("eb:start");
+  const endComment = document.createComment("eb:end");
   const boundaryCtx = {
     hooks: [],
     hookIndex: 0,
@@ -772,15 +772,24 @@ function createErrorBoundary(vnode, parent) {
     mounted: false,
     disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
-    _errorBoundary: handleError
+    _errorBoundary: handleError,
+    _startComment: startComment,
+    _endComment: endComment
   };
-  wrapper._componentCtx = boundaryCtx;
+  _commentCtxMap.set(startComment, boundaryCtx);
+  const container2 = document.createDocumentFragment();
+  container2._componentCtx = boundaryCtx;
+  container2.appendChild(startComment);
+  container2.appendChild(endComment);
   const dispose = effect(() => {
     const error = errorState();
     componentStack.push(boundaryCtx);
-    while (wrapper.firstChild) {
-      disposeTree(wrapper.firstChild);
-      wrapper.removeChild(wrapper.firstChild);
+    if (startComment.parentNode) {
+      while (startComment.nextSibling && startComment.nextSibling !== endComment) {
+        const old = startComment.nextSibling;
+        disposeTree(old);
+        old.parentNode.removeChild(old);
+      }
     }
     let vnodes;
     if (error) {
@@ -790,19 +799,25 @@ function createErrorBoundary(vnode, parent) {
     }
     vnodes = Array.isArray(vnodes) ? vnodes : [vnodes];
     for (const v of vnodes) {
-      const node = createDOM(v, wrapper);
-      if (node) wrapper.appendChild(node);
+      const node = createDOM(v, parent);
+      if (node) {
+        if (endComment.parentNode) {
+          endComment.parentNode.insertBefore(node, endComment);
+        } else {
+          container2.insertBefore(node, endComment);
+        }
+      }
     }
     componentStack.pop();
   });
   boundaryCtx.effects.push(dispose);
-  return wrapper;
+  return container2;
 }
 function createSuspenseBoundary(vnode, parent) {
   const { boundary, fallback, loading } = vnode.props;
   const children = vnode.children;
-  const wrapper = document.createElement("span");
-  wrapper.style.display = "contents";
+  const startComment = document.createComment("sb:start");
+  const endComment = document.createComment("sb:end");
   const boundaryCtx = {
     hooks: [],
     hookIndex: 0,
@@ -810,26 +825,41 @@ function createSuspenseBoundary(vnode, parent) {
     cleanups: [],
     mounted: false,
     disposed: false,
-    _parentCtx: componentStack[componentStack.length - 1] || null
+    _parentCtx: componentStack[componentStack.length - 1] || null,
+    _startComment: startComment,
+    _endComment: endComment
   };
-  wrapper._componentCtx = boundaryCtx;
+  _commentCtxMap.set(startComment, boundaryCtx);
+  const container2 = document.createDocumentFragment();
+  container2._componentCtx = boundaryCtx;
+  container2.appendChild(startComment);
+  container2.appendChild(endComment);
   const dispose = effect(() => {
     const isLoading = loading();
     const vnodes = isLoading ? [fallback] : children;
     const normalized = Array.isArray(vnodes) ? vnodes : [vnodes];
     componentStack.push(boundaryCtx);
-    while (wrapper.firstChild) {
-      disposeTree(wrapper.firstChild);
-      wrapper.removeChild(wrapper.firstChild);
+    if (startComment.parentNode) {
+      while (startComment.nextSibling && startComment.nextSibling !== endComment) {
+        const old = startComment.nextSibling;
+        disposeTree(old);
+        old.parentNode.removeChild(old);
+      }
     }
     for (const v of normalized) {
-      const node = createDOM(v, wrapper);
-      if (node) wrapper.appendChild(node);
+      const node = createDOM(v, parent);
+      if (node) {
+        if (endComment.parentNode) {
+          endComment.parentNode.insertBefore(node, endComment);
+        } else {
+          container2.insertBefore(node, endComment);
+        }
+      }
     }
     componentStack.pop();
   });
   boundaryCtx.effects.push(dispose);
-  return wrapper;
+  return container2;
 }
 function createPortalDOM(vnode, parent) {
   const { container: container2 } = vnode.props;

@@ -538,13 +538,18 @@ Agent: what_diff_snapshot { action: "diff" }
 
 ## Error Code Reference
 
-<!-- TODO: AX agent -- populate this section with the full error code table from the runtime. -->
-<!-- Format: WF-XXXX | Category | Message | Fix -->
+Error codes follow the pattern `ERR_*`. When an error is thrown, it includes the code, the affected signal/effect/component ID (when applicable), and a suggested fix.
 
-Error codes follow the pattern `WF-XXXX`. When an error is thrown, it includes:
-- The error code
-- The affected signal/effect/component ID (when applicable)
-- A suggested fix
+| Code | Severity | Message | Fix |
+|------|----------|---------|-----|
+| `ERR_INFINITE_EFFECT` | error | Effect exceeded 25 flush iterations — likely an infinite loop | Use `untrack()` to read a signal without subscribing, or split the read and write into separate effects |
+| `ERR_MISSING_SIGNAL_READ` | warning | Signal used without calling `()` — renders as `[Function]` | Call signals to read: `count()` not `count`. In JSX: `{count()}` not `{count}` |
+| `ERR_HYDRATION_MISMATCH` | error | Server HTML and client render do not match | Ensure identical initial HTML; avoid browser-only APIs during render; use `onMount()` for client-only logic |
+| `ERR_ORPHAN_EFFECT` | warning | Effect created outside a reactive root — will never be cleaned up | Wrap in `createRoot()` or create effects inside component functions |
+| `ERR_SIGNAL_WRITE_IN_RENDER` | error | Signal written during component render, triggering re-execution | Move signal writes into event handlers, effects, or `onMount()` |
+| `ERR_MISSING_CLEANUP` | warning | Effect sets up a resource but returns no cleanup function | Return a cleanup function from effects that add listeners, timers, or connections |
+| `ERR_UNSAFE_INNERHTML` | warning | `innerHTML` set without the `{ __html }` safety marker | Use `{ __html: content }` or the `html` tagged template literal |
+| `ERR_MISSING_KEY` | warning | List rendered without a `key` prop — items may re-order incorrectly | Add a unique, stable `key` prop (use an ID, not the array index) |
 
 Use `what_errors` via MCP to retrieve structured error data from a running app.
 

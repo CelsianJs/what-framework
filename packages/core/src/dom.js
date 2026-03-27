@@ -372,26 +372,38 @@ function createErrorBoundary(vnode, parent) {
   const { errorState, handleError, fallback, reset } = vnode.props;
   const children = vnode.children;
 
-  const wrapper = document.createElement('span');
-  wrapper.style.display = 'contents';
+  // Use comment node boundaries instead of <span style="display:contents">
+  // to avoid DOM pollution, CSS selector breakage, and a11y issues.
+  const startComment = document.createComment('eb:start');
+  const endComment = document.createComment('eb:end');
 
   const boundaryCtx = {
     hooks: [], hookIndex: 0, effects: [], cleanups: [],
     mounted: false, disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
     _errorBoundary: handleError,
+    _startComment: startComment,
+    _endComment: endComment,
   };
-  wrapper._componentCtx = boundaryCtx;
+  _commentCtxMap.set(startComment, boundaryCtx);
+
+  const container = document.createDocumentFragment();
+  container._componentCtx = boundaryCtx;
+  container.appendChild(startComment);
+  container.appendChild(endComment);
 
   const dispose = effect(() => {
     const error = errorState();
 
     componentStack.push(boundaryCtx);
 
-    // Remove old content
-    while (wrapper.firstChild) {
-      disposeTree(wrapper.firstChild);
-      wrapper.removeChild(wrapper.firstChild);
+    // Remove old content between comment boundaries
+    if (startComment.parentNode) {
+      while (startComment.nextSibling && startComment.nextSibling !== endComment) {
+        const old = startComment.nextSibling;
+        disposeTree(old);
+        old.parentNode.removeChild(old);
+      }
     }
 
     let vnodes;
@@ -404,15 +416,23 @@ function createErrorBoundary(vnode, parent) {
     vnodes = Array.isArray(vnodes) ? vnodes : [vnodes];
 
     for (const v of vnodes) {
-      const node = createDOM(v, wrapper);
-      if (node) wrapper.appendChild(node);
+      const node = createDOM(v, parent);
+      if (node) {
+        // Insert before endComment
+        if (endComment.parentNode) {
+          endComment.parentNode.insertBefore(node, endComment);
+        } else {
+          // Still in fragment before first mount
+          container.insertBefore(node, endComment);
+        }
+      }
     }
 
     componentStack.pop();
   });
 
   boundaryCtx.effects.push(dispose);
-  return wrapper;
+  return container;
 }
 
 // Suspense boundary component handler
@@ -420,15 +440,24 @@ function createSuspenseBoundary(vnode, parent) {
   const { boundary, fallback, loading } = vnode.props;
   const children = vnode.children;
 
-  const wrapper = document.createElement('span');
-  wrapper.style.display = 'contents';
+  // Use comment node boundaries instead of <span style="display:contents">
+  // to avoid DOM pollution, CSS selector breakage, and a11y issues.
+  const startComment = document.createComment('sb:start');
+  const endComment = document.createComment('sb:end');
 
   const boundaryCtx = {
     hooks: [], hookIndex: 0, effects: [], cleanups: [],
     mounted: false, disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
+    _startComment: startComment,
+    _endComment: endComment,
   };
-  wrapper._componentCtx = boundaryCtx;
+  _commentCtxMap.set(startComment, boundaryCtx);
+
+  const container = document.createDocumentFragment();
+  container._componentCtx = boundaryCtx;
+  container.appendChild(startComment);
+  container.appendChild(endComment);
 
   const dispose = effect(() => {
     const isLoading = loading();
@@ -437,22 +466,33 @@ function createSuspenseBoundary(vnode, parent) {
 
     componentStack.push(boundaryCtx);
 
-    // Remove old content
-    while (wrapper.firstChild) {
-      disposeTree(wrapper.firstChild);
-      wrapper.removeChild(wrapper.firstChild);
+    // Remove old content between comment boundaries
+    if (startComment.parentNode) {
+      while (startComment.nextSibling && startComment.nextSibling !== endComment) {
+        const old = startComment.nextSibling;
+        disposeTree(old);
+        old.parentNode.removeChild(old);
+      }
     }
 
     for (const v of normalized) {
-      const node = createDOM(v, wrapper);
-      if (node) wrapper.appendChild(node);
+      const node = createDOM(v, parent);
+      if (node) {
+        // Insert before endComment
+        if (endComment.parentNode) {
+          endComment.parentNode.insertBefore(node, endComment);
+        } else {
+          // Still in fragment before first mount
+          container.insertBefore(node, endComment);
+        }
+      }
     }
 
     componentStack.pop();
   });
 
   boundaryCtx.effects.push(dispose);
-  return wrapper;
+  return container;
 }
 
 // Portal component handler
