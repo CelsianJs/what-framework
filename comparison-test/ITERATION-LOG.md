@@ -640,3 +640,48 @@ The CLAUDE.md has reached maturity for the current tool set. Further improvement
 5. **what_component_tree broken** noted (prefer what_components)
 
 **Cumulative: 16 test agents, 8 rounds active, 9 commits, R1→R11**
+
+---
+
+## Round 12 — Onboarding + Code Review Workflows (2026-03-28)
+
+**Goal:** Test two untested use cases: new developer onboarding and code review via MCP only.
+
+### Agent 12A: New Developer Guided Walkthrough (8-call budget)
+
+- **Task:** Follow CLAUDE.md step by step as a brand-new developer to understand the app
+- **Result:** SUCCESS — 6 calls, produced accurate 3-sentence app summary from MCP data alone
+- **Tokens:** ~35K (9 tool uses)
+- **CLAUDE.md ordering assessment:** "Yes, mostly natural. Would move diagnose to position 2 (right after connection_status)."
+- **New gaps:**
+  - No "Quick Start" section for new developers (5-minute onboarding path)
+  - Should note that container components (App) show 0 signals — start with leaf components
+  - Signal value truncation not documented
+
+### Agent 12B: Code Review via MCP Only (10-call budget)
+
+- **Task:** Full code review covering reactivity, performance, accessibility, dead code, architecture
+- **Result:** SUCCESS — 6 calls, 12 findings (2 critical, 4 warning, 6 info)
+- **Tokens:** ~33K (8 tool uses)
+- **Findings:**
+  - CRITICAL: 8 unlabeled checkboxes, 65 orphan effects (possible leak)
+  - WARNING: theme/viewMode signals disconnected (0 subscribers), monolithic filter+sort effect, garbled select label
+  - INFO: clean dependency graph (star topology from tasks), healthy performance (39KB, 0 hot effects)
+- **Verdict:** "Code Review via MCP is viable. Worth adding to CLAUDE.md."
+- **Recommended workflow:** diagnose + page_map + signals(named_only) + perf + dependency_graph = first-pass code review in 5-6 calls
+
+### Fixes Applied After Round 12
+1. **Quick Start section** added to CLAUDE.md and create-what template (5-step onboarding path)
+2. **Diagnose moved to position 2** in recommended flow (after connection_status, before page_map)
+3. **"Code Review via MCP" workflow** added to Workflows section
+4. **Leaf component tip** added (start with TaskItem, not App)
+5. **Both root CLAUDE.md and create-what template updated**
+
+### Tool Fix Status (from pre-R12 work)
+All 4 tool fixes committed and pushed but need MCP server restart to take effect:
+- what_component_tree: infer hierarchy from mount order
+- what_eval: safe read-only expressions without --unsafe-eval
+- what_signal_trace: auto-initialize event tracking (not lazy)
+- what_watch: flush events immediately after set_signal
+
+**Cumulative: 18 test agents, 9 rounds active, R1→R12. CLAUDE.md: 20 sections, 12 workflows.**

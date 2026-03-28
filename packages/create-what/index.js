@@ -883,7 +883,13 @@ Components run ONCE. Use \`signal()\` for state, \`() =>\` in JSX for reactive t
 
 This project includes MCP devtools that connect to the running app in the browser.
 
-**First call:** \`what_connection_status\` — returns app info, counts, tool catalog, and next steps. Always start here.
+### Quick Start (First 5 Minutes)
+
+1. \`what_connection_status\` — am I connected? how big is the app?
+2. \`what_diagnose\` — any errors or issues?
+3. \`what_page_map\` — what's on the page?
+4. \`what_components\` -> \`what_explain\` on a leaf component — deep dive
+5. \`what_signals({filter: "name", named_only: true})\` — check key state
 
 ### Decision Tree
 

@@ -52,9 +52,16 @@ mount(h(Counter, {}), '#app');
 
 This project has a live debugging MCP server (`what-devtools-mcp`). When the app is running in a browser, you can inspect it in real time.
 
-### First Call
+### Quick Start (First 5 Minutes)
 
-`what_connection_status` — returns app info, signal/effect/component counts, full tool catalog, and recommended next steps. **Always start here.**
+New to this app? Run these in order:
+1. `what_connection_status` — orient (am I connected? how big is the app?)
+2. `what_diagnose` — health check (any errors or issues?)
+3. `what_page_map` — visual structure (what's on the page?)
+4. `what_components` -> `what_explain` on the main component — deep dive
+5. `what_signals({filter: "task|theme|view", named_only: true})` — check key state
+
+Tip: Start `what_explain` on a **leaf component** (like TaskItem), not a container (like App). Containers often show 0 signals because state is module-scoped.
 
 ### Decision Tree
 
@@ -150,6 +157,9 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 
 **Multi-signal interaction debugging (order-of-operations bugs):**
 `what_diff_snapshot({action: "save"})` -> `what_set_signal` (signal A) -> `what_diff_snapshot({action: "diff"})` -> save again -> `what_set_signal` (signal B) -> diff again. Compare the two cascades: if signal B's diff shows 0 effects triggered, the reactive chain is broken.
+
+**Code review via MCP (no source files needed):**
+`what_diagnose` + `what_page_map` + `what_signals({named_only: true})` + `what_perf` + `what_dependency_graph` on the main signal. Catches reactivity anti-patterns, accessibility gaps, dead signals, and architecture issues in ~6 calls. Follow up with source-level review only for findings that need disambiguation.
 
 **Build & test new features:**
 `what_look` on existing components to match styling -> `what_scaffold` for structure -> write code -> `what_lint` to validate -> `what_diff_snapshot({action: "save"})` -> `what_set_signal` to simulate the feature's trigger -> `what_diff_snapshot({action: "diff"})` to verify the reactive cascade works end-to-end.
