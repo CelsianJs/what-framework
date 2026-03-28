@@ -249,7 +249,12 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
         try {
           const { handleExtendedCommand } = await import('./client-commands.js');
           extResult = await handleExtendedCommand(command, args, devtools);
-        } catch {}
+        } catch (importErr) {
+          // Don't silently swallow — report the real error so it's not
+          // misdiagnosed as "Unknown command"
+          extResult = { error: `Command handler failed: ${importErr.message}` };
+          log('AI →', BADGE_WARN, `Extended command "${command}" threw:`, importErr);
+        }
 
         if (extResult !== null) {
           result = extResult;

@@ -52,7 +52,7 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_connection_status',
-    'Check if a What Framework app is connected via WebSocket',
+    'Bootstrap endpoint: check connection, get app info, see available tools and recommended workflow',
     {},
     async () => {
       const connected = bridge.isConnected();
@@ -61,31 +61,77 @@ export function registerTools(server, bridge) {
       const effectCount = snapshot?.effects?.length || 0;
       const componentCount = snapshot?.components?.length || 0;
 
+      // Try to get app metadata from the browser
+      let appInfo = null;
+      if (connected) {
+        try {
+          appInfo = await bridge.sendCommand('get-app-info');
+          // If the client doesn't support this command, appInfo may be null or have an error
+          if (appInfo?.error) appInfo = null;
+        } catch {
+          // Old client without get-app-info support — skip gracefully
+          appInfo = null;
+        }
+      }
+
       let summary;
       if (!connected) {
         summary = 'No browser connected. Start your app with the what-devtools-mcp Vite plugin and refresh the page.';
       } else if (!snapshot) {
         summary = 'Browser connected but no snapshot received yet. Try refreshing the page.';
       } else {
-        summary = `Connected. App has ${signalCount} signals, ${effectCount} effects, ${componentCount} components.`;
+        summary = `Connected to ${appInfo?.title || 'app'} at ${appInfo?.url || 'unknown URL'}. ${signalCount} signals, ${effectCount} effects, ${componentCount} components.`;
       }
 
       const result = {
         summary,
         connected,
         hasSnapshot: snapshot !== null,
+        // App info (from browser)
+        app: appInfo ? {
+          url: appInfo.url,
+          title: appInfo.title,
+          viewport: appInfo.viewport,
+          version: appInfo.version,
+          entryPoint: appInfo.entryPoint,
+        } : null,
+        // Counts
         signalCount,
         effectCount,
         componentCount,
-      };
-
-      if (!connected) {
-        result.nextSteps = [
+        // Framework primer for agents that don't know WhatFW
+        framework: 'What Framework: signal-based reactivity. Components run ONCE (not like React). signal(val) for state — read with sig(), write with sig(newVal). effect() for side effects. computed() for derived values. Import from "what-framework".',
+        // Recommended next steps
+        workflow: connected ? [
+          'what_components — see component tree and IDs',
+          'what_signals {filter: "yourSignalName"} — check specific state (always filter!)',
+          'what_diagnose — one-call health check',
+          'what_look {componentId: N} — visual info without screenshot',
+          'what_errors — check for runtime errors',
+        ] : [
           'Make sure your app is running with the what-devtools-mcp Vite plugin',
-          'Check that the MCP bridge server is running (npx what-devtools-mcp)',
-          'Try refreshing the browser page',
-        ];
-      }
+          'Or manually call connectDevToolsMCP() in your browser console',
+        ],
+        // Tool catalog so agents know what's available
+        tools: [
+          { name: 'what_components', desc: 'List mounted components with IDs' },
+          { name: 'what_signals', desc: 'List signals with values (use filter!)' },
+          { name: 'what_effects', desc: 'List effects with deps and run counts' },
+          { name: 'what_explain', desc: 'Everything about one component (signals + effects + DOM + errors)' },
+          { name: 'what_look', desc: 'Visual info without image: styles, layout, dimensions' },
+          { name: 'what_screenshot', desc: 'Cropped component screenshot (5-20KB)' },
+          { name: 'what_page_map', desc: 'Full page layout skeleton' },
+          { name: 'what_diagnose', desc: 'One-call health check (errors + perf + reactivity)' },
+          { name: 'what_errors', desc: 'Runtime errors with fix suggestions' },
+          { name: 'what_signal_trace', desc: 'Why did a signal change? Causal chain.' },
+          { name: 'what_dependency_graph', desc: 'Reactive dependency graph' },
+          { name: 'what_watch', desc: 'Observe events over a time window' },
+          { name: 'what_set_signal', desc: 'Change a signal value in the live app' },
+          { name: 'what_lint', desc: 'Static analysis for code (no browser needed)' },
+          { name: 'what_scaffold', desc: 'Generate boilerplate (no browser needed)' },
+          { name: 'what_fix', desc: 'Error diagnosis with code examples (no browser needed)' },
+        ],
+      };
 
       return {
         content: [{
@@ -98,12 +144,14 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_signals',
-    'List all reactive signals with current values. Filter by name regex or ID.',
+    'List all reactive signals with current values. Filter by name regex or ID. Named signals are sorted first for relevance.',
     {
       filter: z.string().optional().describe('Regex to filter signal names (ignored if id is set)'),
       id: z.number().optional().describe('Get a specific signal by ID (takes precedence over filter)'),
+      limit: z.number().optional().default(20).describe('Max signals to return (default: 20, max: 100)'),
+      named_only: z.boolean().optional().default(false).describe('If true, only return signals with debug names (filters out anonymous internal signals)'),
     },
-    async ({ filter, id }) => {
+    async ({ filter, id, limit, named_only }) => {
       if (!bridge.isConnected()) {
         return noConnection('what_signals');
       }
@@ -124,6 +172,40 @@ export function registerTools(server, bridge) {
         }
       }
 
+      // Sort: named signals first (more useful), then by ID
+      signals.sort((a, b) => {
+        const aHasName = a.name && !a.name.startsWith('signal_');
+        const bHasName = b.name && !b.name.startsWith('signal_');
+        if (aHasName && !bHasName) return -1;
+        if (!aHasName && bHasName) return 1;
+        return a.id - b.id;
+      });
+
+      // Filter to named-only if requested
+      if (named_only) {
+        signals = signals.filter(s => s.name && !s.name.startsWith('signal_') && !s.name.startsWith('effect_'));
+      }
+
+      // Clean up circular references in values
+      signals = signals.map(s => {
+        const val = s.value;
+        if (val === '[Circular]' || (typeof val === 'string' && val.includes('[Circular]'))) {
+          return { ...s, value: '[ref]', _circular: true };
+        }
+        // Truncate large array/object values
+        if (typeof val === 'object' && val !== null) {
+          const str = JSON.stringify(val);
+          if (str && str.length > 200) {
+            return { ...s, value: str.substring(0, 197) + '...', _truncated: true };
+          }
+        }
+        return s;
+      });
+
+      // Apply limit AFTER sorting and filtering
+      const totalBeforeLimit = signals.length;
+      signals = signals.slice(0, Math.min(limit || 20, 100));
+
       // Build summary
       const valuePreviews = signals.slice(0, 5).map(s => {
         const val = typeof s.value === 'string' ? `'${s.value}'` : JSON.stringify(s.value);
@@ -133,7 +215,8 @@ export function registerTools(server, bridge) {
       const filterNote = id != null ? ` 1 matched id=${id}.` : filter ? ` ${signals.length} match filter '${filter}'.` : '';
       const valuesNote = valuePreviews.length > 0 ? ` Values: ${valuePreviews.join(', ')}` : '';
       const moreNote = signals.length > 5 ? `, ... (${signals.length - 5} more)` : '';
-      const summary = `${totalCount} signals total.${filterNote}${valuesNote}${moreNote}`;
+      const limitNote = totalBeforeLimit > signals.length ? ` Showing ${signals.length} of ${totalBeforeLimit} (use limit param for more).` : '';
+      const summary = `${totalCount} signals total.${filterNote}${valuesNote}${moreNote}${limitNote}`;
 
       return {
         content: [{
@@ -225,7 +308,12 @@ export function registerTools(server, bridge) {
 
       // Build tree summary
       const { tree, depth } = buildComponentTreeSummary(components);
-      const summary = `${totalCount} components mounted. Tree depth: ${depth}. Root: ${tree}`;
+
+      // Add source file hint based on component names
+      const sourceHint = 'Component source files are typically in the same directory as the app entry point. Use file search to find: ' +
+        components.slice(0, 5).map(c => c.name).filter(Boolean).join(', ');
+
+      const summary = `${totalCount} components mounted. Tree depth: ${depth}. Root: ${tree}. ${sourceHint}`;
 
       return {
         content: [{
@@ -233,6 +321,7 @@ export function registerTools(server, bridge) {
           text: JSON.stringify({
             summary,
             count: components.length,
+            sourceHint,
             components,
           }, null, 2),
         }],

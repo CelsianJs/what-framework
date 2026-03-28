@@ -1,6 +1,6 @@
 /**
  * Extended command handlers for the browser client.
- * Handles: eval, dom-inspect, get-route, navigate, visual-inspect, page-map, get-signal-writers, component-screenshot
+ * Handles: eval, dom-inspect, get-route, navigate, get-app-info, visual-inspect, page-map, get-signal-writers, component-screenshot
  *
  * Usage in client.js:
  *   import { handleExtendedCommand } from './client-commands.js';
@@ -9,6 +9,38 @@
  *   const extResult = await handleExtendedCommand(command, args, devtools);
  *   if (extResult !== null) { result = extResult; break; }
  */
+
+// ---------------------------------------------------------------------------
+// Helper: resolve the actual DOM Element for a component registry entry.
+//
+// The devtools stores `ctx._wrapper` which is a comment node (boundary marker,
+// nodeType 8). Comment nodes don't have getBoundingClientRect, innerHTML,
+// children, or any Element-level API. This helper walks from the stored node
+// to find the nearest real Element.
+// ---------------------------------------------------------------------------
+function getComponentElement(entry) {
+  let el = entry.element;
+  if (!el) return null;
+
+  // Already a real Element — use it directly
+  if (el.nodeType === 1 && typeof el.getBoundingClientRect === 'function') return el;
+
+  // Comment node (component boundary marker) — find the next sibling element
+  if (el.nodeType === 8) {
+    let sibling = el.nextSibling;
+    while (sibling) {
+      if (sibling.nodeType === 1) return sibling;
+      sibling = sibling.nextSibling;
+    }
+    // No sibling element found — try parent
+    if (el.parentElement) return el.parentElement;
+  }
+
+  // Text node — use parent
+  if (el.nodeType === 3 && el.parentElement) return el.parentElement;
+
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Module-level ring buffer for correlating signal writes with effect runs.
@@ -142,7 +174,7 @@ export async function handleExtendedCommand(command, args, devtools) {
         return { error: `Component ${componentId} not found` };
       }
 
-      const el = entry.element;
+      const el = getComponentElement(entry);
       if (!el) {
         return { error: `Component "${entry.name}" (id: ${componentId}) has no DOM element` };
       }
@@ -387,6 +419,22 @@ export async function handleExtendedCommand(command, args, devtools) {
     }
 
     // -------------------------------------------------------------------------
+    // get-app-info — Return app metadata for bootstrap
+    // -------------------------------------------------------------------------
+    case 'get-app-info': {
+      return {
+        url: window.location.href,
+        title: document.title,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        // Try to detect framework version
+        version: window.__WHAT_CORE__?.version || window.__WHAT_DEVTOOLS__?.version || 'unknown',
+        // Get the entry point from Vite's module graph if available
+        entryPoint: document.querySelector('script[type="module"][src]')?.getAttribute('src') ||
+                    document.querySelector('script[type="module"]')?.textContent?.match(/from ['"]([^'"]+)['"]/)?.[1] || 'unknown',
+      };
+    }
+
+    // -------------------------------------------------------------------------
     // visual-inspect — Computed visual info about a component (no image)
     // -------------------------------------------------------------------------
     case 'visual-inspect': {
@@ -397,7 +445,7 @@ export async function handleExtendedCommand(command, args, devtools) {
       const entry = registries.components.get(componentId);
       if (!entry) return { error: `Component ${componentId} not found` };
 
-      const el = entry.element;
+      const el = getComponentElement(entry);
       if (!el) return { error: `Component "${entry.name}" has no DOM element` };
 
       const rect = el.getBoundingClientRect();
@@ -539,8 +587,9 @@ export async function handleExtendedCommand(command, args, devtools) {
       if (registries?.components) {
         for (const [id, entry] of registries.components) {
           if (count >= maxElements) break;
-          if (!entry.element) continue;
-          const rect = entry.element.getBoundingClientRect();
+          const compEl = getComponentElement(entry);
+          if (!compEl) continue;
+          const rect = compEl.getBoundingClientRect();
           if (rect.width === 0 && rect.height === 0) continue;
           components.push({
             id,
@@ -611,7 +660,7 @@ export async function handleExtendedCommand(command, args, devtools) {
       const entry = registries.components.get(componentId);
       if (!entry) return { error: `Component ${componentId} not found` };
 
-      const el = entry.element;
+      const el = getComponentElement(entry);
       if (!el) return { error: `Component "${entry.name}" has no DOM element` };
 
       try {

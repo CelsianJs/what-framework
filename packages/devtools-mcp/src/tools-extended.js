@@ -857,14 +857,19 @@ export function registerExtendedTools(server, bridge) {
       }).join(', ');
       const effPreview = effects.slice(0, 3).map(e => `${e.name || 'effect_' + e.id} (ran ${e.runCount || 0}x)`).join(', ');
 
+      // Add source file hint based on component name
+      const sourceHint = `Component source files are typically in the same directory as the app entry point. Use file search to find: ${comp.name}`;
+
       const summary = `${comp.name}: ${signals.length} signals (${sigPreview || 'none'}), ` +
         `${effects.length} effects (${effPreview || 'none'})` +
         (errors.length ? `, ${errors.length} errors` : '') +
-        (dom ? `, DOM: ${(dom.html || '').substring(0, 80)}...` : '');
+        (dom ? `, DOM: ${(dom.html || '').substring(0, 80)}...` : '') +
+        `. ${sourceHint}`;
 
       return ok({
         summary,
         component: { id: comp.id, name: comp.name, parentId: comp.parentId },
+        sourceHint,
         signals,
         effects,
         dom,

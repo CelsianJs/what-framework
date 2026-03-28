@@ -103,6 +103,12 @@ try {
 }
 
 // ============================================================
+// Board View State
+// ============================================================
+const viewMode = signal('list', 'viewMode'); // 'list' | 'board'
+const dragState = signal(null, 'dragState'); // { taskId, sourcePriority }
+
+// ============================================================
 // Actions
 // ============================================================
 function addTask(title, priority = 3, dueDate = null) {
@@ -130,15 +136,40 @@ function deleteTask(id) {
   tasks(prev => prev.filter(t => t.id !== id));
 }
 
+function setPriority(id, priority) {
+  tasks(prev => prev.map(t => t.id === id ? { ...t, priority } : t));
+}
+
+function reorderTask(taskId, targetPriority, targetIndex) {
+  tasks(prev => {
+    const task = prev.find(t => t.id === taskId);
+    if (!task) return prev;
+    const updated = { ...task, priority: targetPriority };
+    const without = prev.filter(t => t.id !== taskId);
+    // Find insertion point among tasks with same priority
+    const samePriority = without.filter(t => t.priority === targetPriority);
+    const others = without.filter(t => t.priority !== targetPriority);
+    const clampedIdx = Math.min(targetIndex, samePriority.length);
+    samePriority.splice(clampedIdx, 0, updated);
+    return [...others, ...samePriority].sort((a, b) => {
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      return 0; // preserve insertion order within same priority
+    });
+  });
+}
+
 // ============================================================
 // Components
 // ============================================================
 
 function Header() {
   return h('header', { style: 'display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border);' },
-    h('div', {},
-      h('h1', { style: 'margin:0;font-size:24px;' }, 'TaskBoard'),
-      h('p', { style: 'margin:4px 0 0;opacity:0.6;font-size:14px;' }, () => `${stats().active} active tasks`),
+    h('div', { style: 'display:flex;align-items:center;gap:16px;' },
+      h('div', {},
+        h('h1', { style: 'margin:0;font-size:24px;' }, 'TaskBoard'),
+        h('p', { style: 'margin:4px 0 0;opacity:0.6;font-size:14px;' }, () => `${stats().active} active tasks`),
+      ),
+      h(ViewToggle, {}),
     ),
     h('div', { style: 'display:flex;gap:12px;align-items:center;' },
       h('input', {
@@ -203,6 +234,34 @@ function FilterBar() {
   );
 }
 
+// ============================================================
+// Star Rating Component (interactive)
+// ============================================================
+function StarRating({ taskId, priority, size = 14 }) {
+  const hoverIdx = signal(-1, `starHover_${taskId}`);
+
+  return h('div', {
+    style: `display:inline-flex;gap:1px;cursor:pointer;`,
+    onmouseleave: () => hoverIdx(-1),
+  },
+    ...[1, 2, 3, 4, 5].map(star =>
+      h('span', {
+        onmouseenter: () => hoverIdx(star),
+        onclick: (e) => {
+          e.stopPropagation();
+          setPriority(taskId, star);
+        },
+        style: () => {
+          const hover = hoverIdx();
+          const filled = hover >= 0 ? star <= hover : star <= priority;
+          return `font-size:${size}px;transition:transform 0.1s,color 0.1s;color:${filled ? '#f59e0b' : 'var(--border)'};transform:scale(${hover === star ? 1.3 : 1});user-select:none;`;
+        },
+        'aria-label': `Set priority ${star}`,
+      }, '\u2605'),
+    ),
+  );
+}
+
 function TaskItem({ task }) {
   const isOverdue = !task.completed && task.dueDate && new Date(task.dueDate) < new Date();
 
@@ -217,10 +276,10 @@ function TaskItem({ task }) {
     }),
     h('div', { style: 'flex:1;' },
       h('div', { style: `font-weight:500;${task.completed ? 'text-decoration:line-through;' : ''}` }, task.title),
-      h('div', { style: 'font-size:12px;opacity:0.5;margin-top:2px;' },
-        `Priority: ${'\u2605'.repeat(task.priority)}${'\u2606'.repeat(5 - task.priority)}`,
-        task.dueDate ? ` \u00B7 Due: ${task.dueDate}` : '',
-        isOverdue ? ' \u00B7 OVERDUE' : '',
+      h('div', { style: 'display:flex;align-items:center;gap:6px;margin-top:4px;' },
+        h(StarRating, { taskId: task.id, priority: task.priority }),
+        task.dueDate ? h('span', { style: 'font-size:12px;opacity:0.5;' }, ` \u00B7 Due: ${task.dueDate}`) : null,
+        isOverdue ? h('span', { style: 'font-size:12px;color:#ef4444;font-weight:600;' }, ' \u00B7 OVERDUE') : null,
       ),
     ),
     h('button', {
@@ -242,6 +301,252 @@ function TaskList() {
         ...items.map(task => h(TaskItem, { task, key: task.id })),
       );
     },
+  );
+}
+
+// ============================================================
+// Board View — Kanban by Priority with Drag & Drop
+// ============================================================
+
+const PRIORITY_LABELS = {
+  5: { label: 'Critical', color: '#ef4444', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.2)' },
+  4: { label: 'High', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)' },
+  3: { label: 'Medium', color: '#3b82f6', bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.2)' },
+  2: { label: 'Low', color: '#22c55e', bg: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.2)' },
+  1: { label: 'Trivial', color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)', border: 'rgba(139,92,246,0.2)' },
+};
+
+function BoardCard({ task, columnPriority }) {
+  const isOverdue = !task.completed && task.dueDate && new Date(task.dueDate) < new Date();
+  const dragging = signal(false, `cardDrag_${task.id}`);
+
+  return h('div', {
+    draggable: 'true',
+    ondragstart: (e) => {
+      dragging(true);
+      dragState({ taskId: task.id, sourcePriority: columnPriority });
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(task.id));
+    },
+    ondragend: () => {
+      dragging(false);
+      dragState(null);
+    },
+    style: () => `
+      padding:10px 12px;
+      background:var(--bg);
+      border:1px solid ${dragging() ? 'var(--accent)' : 'var(--border)'};
+      border-radius:8px;
+      cursor:grab;
+      transition:transform 0.15s,box-shadow 0.15s,border-color 0.15s,opacity 0.15s;
+      ${dragging() ? 'opacity:0.4;transform:scale(0.95);' : ''}
+      ${task.completed ? 'opacity:0.5;' : ''}
+    `,
+    onmouseenter: (e) => { if (!dragging()) e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; },
+    onmouseleave: (e) => { e.currentTarget.style.boxShadow = 'none'; },
+  },
+    // Top row: checkbox + title + delete
+    h('div', { style: 'display:flex;align-items:flex-start;gap:8px;' },
+      h('input', {
+        type: 'checkbox',
+        checked: task.completed,
+        onchange: (e) => { e.stopPropagation(); toggleTask(task.id); },
+        style: 'margin-top:2px;cursor:pointer;width:16px;height:16px;flex-shrink:0;',
+      }),
+      h('div', { style: 'flex:1;min-width:0;' },
+        h('div', {
+          style: `font-size:13px;font-weight:500;word-break:break-word;${task.completed ? 'text-decoration:line-through;color:var(--text);opacity:0.6;' : ''}`,
+        }, task.title),
+      ),
+      h('button', {
+        onclick: (e) => { e.stopPropagation(); deleteTask(task.id); },
+        style: 'padding:0;border:none;background:transparent;color:#ef4444;cursor:pointer;font-size:14px;opacity:0;transition:opacity 0.1s;flex-shrink:0;line-height:1;',
+        onmouseenter: (e) => { e.currentTarget.style.opacity = '1'; },
+        onmouseleave: (e) => { e.currentTarget.style.opacity = '0'; },
+        'aria-label': `Delete ${task.title}`,
+      }, '\u00D7'),
+    ),
+    // Bottom row: stars + due date
+    h('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-top:8px;' },
+      h(StarRating, { taskId: task.id, priority: task.priority, size: 12 }),
+      h('div', { style: 'display:flex;gap:4px;align-items:center;' },
+        task.dueDate ? h('span', {
+          style: `font-size:11px;padding:2px 6px;border-radius:4px;${
+            isOverdue ? 'background:rgba(239,68,68,0.1);color:#ef4444;font-weight:600;' : 'background:var(--bg-card);color:var(--text);opacity:0.5;'
+          }`,
+        }, isOverdue ? `\u26A0 ${task.dueDate}` : task.dueDate) : null,
+      ),
+    ),
+  );
+}
+
+function BoardColumn({ priority }) {
+  const meta = PRIORITY_LABELS[priority];
+  const dropOver = signal(false, `dropOver_${priority}`);
+  const dropIdx = signal(-1, `dropIdx_${priority}`);
+
+  const columnTasks = computed(() => {
+    let list = tasks().filter(t => t.priority === priority);
+    const query = searchQuery().toLowerCase();
+    const status = filterStatus();
+    if (query) list = list.filter(t => t.title.toLowerCase().includes(query));
+    if (status === 'active') list = list.filter(t => !t.completed);
+    else if (status === 'completed') list = list.filter(t => t.completed);
+    return list;
+  }, `boardCol_${priority}`);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    dropOver(true);
+    // Calculate drop index from mouse Y relative to card positions
+    const container = e.currentTarget.querySelector('[data-cards]');
+    if (!container) return;
+    const cards = [...container.children];
+    let idx = cards.length;
+    for (let i = 0; i < cards.length; i++) {
+      const rect = cards[i].getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        idx = i;
+        break;
+      }
+    }
+    dropIdx(idx);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    dropOver(false);
+    const state = dragState();
+    if (!state) return;
+    const idx = dropIdx();
+    reorderTask(state.taskId, priority, idx >= 0 ? idx : columnTasks().length);
+    dragState(null);
+    dropIdx(-1);
+  };
+
+  const handleDragLeave = (e) => {
+    // Only trigger if leaving the column entirely
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      dropOver(false);
+      dropIdx(-1);
+    }
+  };
+
+  return h('div', {
+    ondragover: handleDragOver,
+    ondrop: handleDrop,
+    ondragleave: handleDragLeave,
+    style: () => `
+      flex:1;
+      min-width:200px;
+      max-width:280px;
+      display:flex;
+      flex-direction:column;
+      border-radius:12px;
+      background:${meta.bg};
+      border:2px solid ${dropOver() ? meta.color : meta.border};
+      transition:border-color 0.2s,box-shadow 0.2s;
+      ${dropOver() ? `box-shadow:0 0 0 3px ${meta.border};` : ''}
+      overflow:hidden;
+    `,
+  },
+    // Column header
+    h('div', {
+      style: `
+        padding:12px 14px;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        border-bottom:1px solid ${meta.border};
+      `,
+    },
+      h('div', { style: 'display:flex;align-items:center;gap:8px;' },
+        h('div', {
+          style: `width:8px;height:8px;border-radius:50%;background:${meta.color};`,
+        }),
+        h('span', { style: 'font-size:13px;font-weight:600;' }, meta.label),
+        h('span', {
+          style: `font-size:11px;opacity:0.5;`,
+        }, () => `${'\u2605'.repeat(priority)}`),
+      ),
+      h('span', {
+        style: `
+          font-size:11px;font-weight:600;
+          padding:2px 8px;border-radius:10px;
+          background:${meta.color};color:white;
+          min-width:22px;text-align:center;
+        `,
+      }, () => `${columnTasks().length}`),
+    ),
+    // Cards area
+    h('div', {
+      'data-cards': true,
+      style: `
+        padding:8px;
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+        min-height:60px;
+        flex:1;
+        overflow-y:auto;
+        max-height:calc(100vh - 340px);
+      `,
+    },
+      () => {
+        const items = columnTasks();
+        if (items.length === 0) {
+          return h('div', {
+            style: 'padding:16px 8px;text-align:center;font-size:12px;opacity:0.4;font-style:italic;',
+          }, 'Drop tasks here');
+        }
+        return items.map(task => h(BoardCard, { task, columnPriority: priority, key: task.id }));
+      },
+    ),
+  );
+}
+
+function BoardView() {
+  return h('div', {
+    style: `
+      display:flex;
+      gap:12px;
+      padding:16px 24px;
+      overflow-x:auto;
+      align-items:flex-start;
+    `,
+  },
+    ...[5, 4, 3, 2, 1].map(p => h(BoardColumn, { priority: p, key: p })),
+  );
+}
+
+// ============================================================
+// View Toggle
+// ============================================================
+function ViewToggle() {
+  return h('div', {
+    style: 'display:flex;gap:2px;padding:2px;background:var(--bg-card);border-radius:8px;border:1px solid var(--border);',
+  },
+    h('button', {
+      onclick: () => viewMode('list'),
+      style: () => `
+        padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;
+        transition:all 0.15s;
+        ${viewMode() === 'list'
+          ? 'background:var(--accent);color:white;'
+          : 'background:transparent;color:var(--text);opacity:0.6;'}
+      `,
+    }, '\u2630 List'),
+    h('button', {
+      onclick: () => viewMode('board'),
+      style: () => `
+        padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;
+        transition:all 0.15s;
+        ${viewMode() === 'board'
+          ? 'background:var(--accent);color:white;'
+          : 'background:transparent;color:var(--text);opacity:0.6;'}
+      `,
+    }, '\u25A6 Board'),
   );
 }
 
@@ -275,13 +580,15 @@ function TaskForm() {
 function App() {
   return h('div', {
     id: 'app-root',
-    style: 'max-width:720px;margin:0 auto;min-height:100vh;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;',
+    style: () => `${viewMode() === 'board' ? 'max-width:1400px;' : 'max-width:720px;'}margin:0 auto;min-height:100vh;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;transition:max-width 0.3s;`,
   },
     h(Header, {}),
     h(Stats, {}),
     h(TaskForm, {}),
     h(FilterBar, {}),
-    h(TaskList, {}),
+    () => viewMode() === 'board'
+      ? h(BoardView, {})
+      : h(TaskList, {}),
   );
 }
 
