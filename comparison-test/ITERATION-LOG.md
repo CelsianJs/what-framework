@@ -755,3 +755,76 @@ All 4 tool fixes committed and pushed but need MCP server restart to take effect
 Usage: `WHAT_MCP_TOKEN=dev123 WHAT_MCP_PORT=9555 node comparison-test/run-mcp-test.js --scenario all`
 
 **Cumulative: 20 test agents, 11 rounds, 13 commits. Test runner now self-validates CLAUDE.md workflows.**
+
+---
+
+## Round 15 — Documentation Consistency Review (2026-03-29)
+
+**Goal:** Browser disconnected (late night). Review all shipped docs for internal consistency.
+
+### Review Results
+
+| Doc | Lines | Sections | Status |
+|---|---|---|---|
+| **CLAUDE.md** (root) | 263 | 10 MCP sections + framework basics | Complete, battle-tested |
+| **AGENTS.md** (root) | 798 | Framework API + 28-tool MCP guide + 10 patterns + error codes | Complete, updated in R9-R10 |
+| **create-what CLAUDE.md** | ~120 (template) | 8 condensed sections | Consistent with root |
+| **create-what AGENTS.md** | ~60 (template) | Condensed framework + MCP recipes | Consistent with root |
+| **ITERATION-LOG.md** | 757 | 12 rounds documented | Complete |
+
+### Consistency Check
+- Root CLAUDE.md sections: Quick Start, Decision Tree, Tool Categories, Workflows (12), Diagnostics, Parameters, Parallel-Safe, Diff Cascade, Principles (10), Troubleshooting (6 entries)
+- Create-what CLAUDE.md: Quick Start, Decision Tree, Workflows, Diagnostics, Parameters, Efficiency, Principles, Troubleshooting — condensed but consistent
+- AGENTS.md MCP section: Updated in R9 with 28-tool decision tree, 7 recipes, parameter types, pitfalls, diagnostics — consistent with CLAUDE.md
+- All three docs scaffold via create-what alongside .mcp.json and .cursor/mcp.json
+
+### No Changes Needed
+All docs are internally consistent. The iteration loop has reached steady state.
+
+---
+
+## Final Summary — 12 Rounds of Iteration (R4-R15)
+
+### What Was Built
+The scaffolded CLAUDE.md that ships with every `npx create-what` project went from a 15-line stub to a 263-line comprehensive agent guide through 12 rounds of iterative testing with 20 AI agents.
+
+### The Numbers
+| Metric | R1 (baseline) | R13 (final test) | Improvement |
+|---|---|---|---|
+| MCP calls per task | 0 (couldn't use tools) | 6-8 | Functional |
+| Non-MCP escapes | 30+ (grep/read/playwright) | 0 | 100% elimination |
+| Parameter errors | N/A | 0 | All types documented |
+| Tokens per task | 61K | 25-34K | 44-59% reduction |
+| Task success | 0% | 100% | Complete |
+| CLAUDE.md sections used | 0 | 6-8 per agent | Agents use everything |
+
+### What the CLAUDE.md Contains (20 sections)
+1. Framework basics (Writing Code, Signal Scope, Key Differences from React)
+2. Quick Start (6-step onboarding for new developers)
+3. Decision Tree (22 tool entries)
+4. Tool Categories (28 tools organized by purpose)
+5. 12 Workflows (find, debug, before/after, perf, visual, health, disconnected, multi-signal, stale subscription, build & test, code review, reactive waste)
+6. Understanding Diagnostics (7 entries)
+7. Parameter Reference (12 tool/param combinations with types)
+8. Parallel-Safe Tools list
+9. Diff Cascade Metrics explanation
+10. 10 Principles
+11. 6 Troubleshooting entries (connection, stale IDs, screenshot, eval, lint FPs, error masking)
+12. Scaffold honest assessment
+
+### What Got Fixed (Server-Side)
+- what_dependency_graph: value truncation (saves ~200 tokens/call)
+- what_diff_snapshot: large list capping (saves ~1500 tokens on view switches)
+- what_component_tree: inferred hierarchy from mount order
+- what_eval: safe read-only expressions without --unsafe-eval
+- what_signal_trace: auto-initialize event tracking
+- what_watch: flush events after programmatic set_signal
+
+### Files Shipped by `npx create-what`
+- `CLAUDE.md` — Claude Code agent guide
+- `AGENTS.md` — Model-agnostic agent guide (OpenCode, Codex, Gemini, Cursor)
+- `.mcp.json` — MCP server config
+- `.cursor/mcp.json` — Cursor IDE MCP config
+
+### Tested Scenarios (All Passing)
+Debugging, performance profiling, feature building, code review, new developer onboarding, adversarial bug reports, minimal-context operation, stress testing, error handling, tool quality audit, multi-model format validation.
