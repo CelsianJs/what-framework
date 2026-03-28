@@ -9,9 +9,9 @@ import { signal, effect, computed, batch, onMount, h, mount } from 'what-framewo
 
 // State: signal(initialValue, 'debugName')
 const count = signal(0, 'count');
-count()           // read → 0
-count(5)          // write → sets to 5
-count(c => c + 1) // updater → increments
+count()           // read -> 0
+count(5)          // write -> sets to 5
+count(c => c + 1) // updater -> increments
 
 // Derived state
 const doubled = computed(() => count() * 2);
@@ -47,33 +47,67 @@ mount(h(Counter, {}), '#app');
 This project has a live debugging MCP server (`what-devtools-mcp`). When the app is running in a browser, you can inspect it in real time.
 
 ### First Call
-`what_connection_status` — returns app info, signal/effect/component counts, full tool catalog, and recommended next steps. Always start here.
 
-### Tool Overview
+`what_connection_status` — returns app info, signal/effect/component counts, full tool catalog, and recommended next steps. **Always start here.**
 
-**Inspect (no image, cheap):**
+### Decision Tree
+
+| I want to... | Use this |
+|---|---|
+| Get oriented / check connection | `what_connection_status` |
+| Health check (errors + perf + reactivity) | `what_diagnose` |
+| Find a component by name | `what_components {filter}` |
+| Understand one component deeply | `what_explain {componentId}` |
+| See the component hierarchy | `what_component_tree` |
+| Check a signal's current value | `what_signals {filter, named_only: true}` |
+| See all effects and their run counts | `what_effects {minRunCount}` |
+| Understand why a signal changed | `what_signal_trace {signalId}` |
+| See what depends on a signal | `what_dependency_graph {signalId, direction: "downstream"}` |
+| See what an effect depends on | `what_dependency_graph {effectId, direction: "upstream"}` |
+| Find runtime errors | `what_errors` |
+| Get component layout/styles (no image) | `what_look {componentId}` |
+| Get full page structure | `what_page_map` |
+| Get a visual screenshot | `what_screenshot {componentId}` (use after what_look) |
+| Inspect raw DOM | `what_dom_inspect {componentId, depth}` |
+| Find performance issues | `what_perf {threshold}` |
+| Compare before/after state | `what_diff_snapshot {action: "save"}` then `{action: "diff"}` |
+| Change a signal live | `what_set_signal {signalId, value}` |
+| Navigate to a route | `what_navigate {path}` |
+| Validate code before saving | `what_lint {code}` |
+| Generate boilerplate | `what_scaffold {type, name}` |
+| Diagnose an error code | `what_fix {errorCode}` |
+| Monitor reactive events live | `what_watch` |
+| Get all state at once | `what_snapshot` (full dump) or `what_snapshot {diff: true}` (changes only) |
+
+### Tool Categories
+
+**Inspect (text, cheap):**
+- `what_connection_status` — bootstrap: app info, counts, tool catalog
 - `what_diagnose` — one-call health check: errors, perf, reactivity issues
-- `what_components {filter}` — list components (gateway to getting componentId)
+- `what_components {filter}` — list components and get IDs (gateway to everything)
+- `what_component_tree {depth, filter}` — hierarchy with signal/effect counts per node
 - `what_explain {componentId}` — everything about one component: signals, effects, DOM, errors
+- `what_signals {filter, named_only}` — signal values (**always filter, never dump all**)
+- `what_effects {minRunCount, depSignalId}` — effects with dep counts, run counts, timing
 - `what_look {componentId}` — computed styles, layout, dimensions (~400 tokens)
-- `what_signals {filter, named_only}` — signal values (always filter, never dump all)
-- `what_page_map` — full page layout skeleton: landmarks, buttons, headings
+- `what_page_map` — full page layout skeleton: landmarks, buttons, headings, interactive elements
+- `what_dom_inspect {componentId, depth}` — raw DOM tree and HTML
 
 **Debug:**
 - `what_signal_trace {signalId}` — why did this signal change? causal chain
-- `what_dependency_graph {signalId}` — reactive flow: signal → effects → downstream
+- `what_dependency_graph {signalId|effectId, direction}` — reactive flow graph (topology, not values)
 - `what_errors` — runtime errors with fix suggestions
-- `what_watch` — observe reactive events over time
-- `what_diff_snapshot` — save/diff reactive state snapshots
+- `what_watch` — observe reactive events over a time window
+- `what_diff_snapshot {action}` — save/diff reactive state snapshots
 
 **Performance:**
-- `what_perf` — signal count, effect count, hot effects, largest subscriber counts, memory estimate
+- `what_perf {threshold}` — hot effects, subscriber counts, memory estimate
 
 **Visual (use after text tools):**
 - `what_screenshot {componentId}` — cropped component image (5-20KB, not full page)
 
 **Act:**
-- `what_set_signal {signalId, value}` — change a signal in the live app
+- `what_set_signal {signalId, value}` — change a signal value in the live app
 - `what_navigate {path}` — navigate to a route
 
 **Code quality (no browser needed):**
@@ -81,24 +115,88 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 - `what_scaffold {type, name}` — generate component/page/form/store boilerplate
 - `what_fix {errorCode}` — error diagnosis with code examples
 
-### Common Workflows
+### Workflows
 
-**Find a component:**
-`what_components({filter:"Stats"})` → get ID → `what_explain({componentId: 4})`
+**Find and inspect a component:**
+`what_components({filter:"Stats"})` -> get componentId -> `what_explain({componentId: 4})`
 
-**Debug a signal:**
-`what_signals({filter:"count"})` → get ID → `what_dependency_graph({signalId: 1})`
+**Debug a signal's reactive graph:**
+`what_signals({filter:"count"})` -> get signalId -> `what_dependency_graph({signalId: 1, direction: "downstream"})`
 
 **Before/after comparison:**
-`what_diff_snapshot({action:"save"})` → make change → `what_diff_snapshot({action:"diff"})`
+`what_diff_snapshot({action:"save"})` -> make change -> `what_diff_snapshot({action:"diff"})`
 
-### Connection Note
+**Performance audit:**
+`what_perf({threshold: 3})` -> `what_effects({minRunCount: 2})` -> `what_dependency_graph({effectId: N})` on hot effects
 
-If `connected: false`, refresh the browser tab or check that the MCP bridge is running.
+**Visual/layout audit:**
+`what_page_map` -> `what_look({componentId: N})` on key components -> `what_screenshot` only if text isn't enough
+
+**Health check:**
+`what_diagnose` -> investigate flagged items with `what_signals` or `what_effects` -> trace with `what_dependency_graph`
+
+**Disconnected reactivity (two UI parts should update together but don't):**
+`what_dependency_graph({signalId: N, direction: "downstream"})` -> check that ALL expected effects appear as downstream edges. Missing edges = that component won't react to the signal. Compare with `what_explain` on both components to see their effect `depSignalIds`.
+
+**Find reactive waste:**
+`what_effects({minRunCount: 1})` -> look for effects with high run counts relative to user interactions -> `what_dependency_graph({effectId: N, direction: "upstream"})` to find which signals trigger them
+
+### Understanding Diagnostic Output
+
+**"N signals with no subscribers"** — Normal in What Framework. Signals read inside `() => ...` reactive text bindings (marked as `<!--fn-->` in DOM) update the DOM directly without going through tracked effects. These signals ARE reactive, just not through the effect system the devtools tracks. Only investigate if a signal should be triggering an effect but isn't.
+
+**"N effects with no signal dependencies"** — Normal. These are one-shot setup effects that run once during component creation (DOM manipulation, event listeners, initialization). They have runCount=0 or 1 and never re-fire. Expected in What Framework's "components run once" model.
+
+**Components showing signalCount=0, effectCount=0** — Signals and effects are attributed to the scope where they were *created*, not where they're *consumed*. Module-scope signals (shared stores) won't appear on any component. Use `what_signals` and `what_effects` directly instead of relying on per-component counts.
+
+**`parentId: null` on all components (flat tree)** — The component tree reports creation-time parent relationships. If the framework doesn't track parentage (or uses a flat mounting model), all components appear at root level. Use `what_page_map` for the actual visual hierarchy.
+
+**`<!--fn-->` in DOM output** — These comment markers indicate reactive text bindings: inline functions that re-evaluate when their signal dependencies change. They're the primary reactivity mechanism in templates — more common than tracked effects.
+
+### Parameter Reference
+
+| Tool | Param | Type | Notes |
+|---|---|---|---|
+| `what_signals` | `filter` | string | Regex pattern. Always use this. |
+| `what_signals` | `named_only` | boolean | `true` or `false`, not a string |
+| `what_effects` | `minRunCount` | number | Filter to effects that ran >= N times |
+| `what_effects` | `depSignalId` | number | Filter to effects depending on this signal |
+| `what_dependency_graph` | `direction` | `"upstream"` `"downstream"` `"both"` | Default: `"both"` |
+| `what_look` | `componentId` | number | Required |
+| `what_screenshot` | `componentId` | number | Optional (omit for full page) |
+| `what_dom_inspect` | `depth` | number | How deep to traverse (default: 3) |
+| `what_diff_snapshot` | `action` | `"save"` or `"diff"` | Save first, then diff |
+| `what_perf` | `threshold` | number | Flag effects with >= N subscribers |
+| `what_scaffold` | `type` | `"component"` `"page"` `"form"` `"store"` `"island"` | What to generate |
+| `what_scaffold` | `props` | string[] | Prop names the component accepts |
+| `what_scaffold` | `signals` | string[] | Signal names to declare |
 
 ### Principles
-- `what_look` before `what_screenshot` (10x cheaper)
-- `what_explain` instead of calling signals + effects + dom separately
-- `what_signals` with `filter` and `named_only: true` — never dump unfiltered
-- `what_lint` before saving generated code
-- `what_diagnose` as your health check
+
+1. **`what_connection_status` first** — always orient before diving in
+2. **`what_diagnose` for health** — one call catches errors, perf, and reactivity issues
+3. **`what_explain` over individual calls** — replaces separate signals + effects + DOM lookups
+4. **`what_look` before `what_screenshot`** — 10x cheaper, usually sufficient
+5. **`what_signals` with `filter` and `named_only: true`** — never dump all signals unfiltered
+6. **`what_lint` before saving** — catch framework-specific mistakes before they ship
+7. **`what_dependency_graph` for topology** — values are truncated; use `what_signals` for full values
+8. **Text tools before visual tools** — orient with data, then confirm visually if needed
+9. **Re-fetch component IDs after state changes** — IDs are ephemeral. After `what_set_signal` changes that cause mount/unmount, always re-query with `what_components`
+10. **`what_set_signal` can cascade** — setting one signal may trigger effects that change other signals. Use `what_diff_snapshot` to see the full impact
+
+### Troubleshooting
+
+**"No browser connected" / `connected: false`:**
+Open the app URL in a browser (or refresh with Cmd+Shift+R), wait 2-3 seconds, then retry. The devtools client auto-connects on page load. Most tools require a live browser — exceptions: `what_lint`, `what_scaffold`, `what_fix` work offline.
+
+**"Component N not found":**
+Component IDs are ephemeral — they change when components mount/unmount (e.g., view switches, filter changes). Always re-fetch IDs with `what_components({filter})` after any `what_set_signal` call that alters the component tree.
+
+**`what_screenshot` tainted canvas error:**
+Some pages block canvas export due to cross-origin resources. Use `what_look` instead — it returns computed styles, layout, dimensions, and child structure. Usually sufficient without a screenshot.
+
+**`what_set_signal` shows `previous: undefined`:**
+Known display quirk. Use `what_diff_snapshot` (save before, diff after) for accurate before/after comparison.
+
+**`what_lint` false positive on `signal-write-in-render`:**
+Handler functions defined inside the component body are flagged because the function definition runs at "render" time. If the signal write is only called from an event handler (onclick, oninput, etc.), it's safe to ignore. What Framework components run once, so defining handlers in the body is the normal pattern.

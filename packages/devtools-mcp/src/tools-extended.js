@@ -329,7 +329,17 @@ export function registerExtendedTools(server, bridge) {
         const id = Number(idStr);
         if (type === 'signal') {
           const s = signalMap.get(id);
-          nodes.push({ type: 'signal', id, name: s?.name || `signal_${id}`, value: s?.value });
+          // Truncate values to avoid token waste — graph topology is what matters
+          const raw = s?.value;
+          let value;
+          if (raw == null) value = raw;
+          else if (typeof raw === 'string') value = raw.length > 80 ? raw.slice(0, 80) + '…' : raw;
+          else if (Array.isArray(raw)) value = `Array(${raw.length})`;
+          else if (typeof raw === 'object') {
+            const json = JSON.stringify(raw);
+            value = json.length > 80 ? json.slice(0, 80) + '…' : raw;
+          } else value = raw;
+          nodes.push({ type: 'signal', id, name: s?.name || `signal_${id}`, value });
         } else {
           const e = effectMap.get(id);
           nodes.push({ type: 'effect', id, name: e?.name || `effect_${id}`, runCount: e?.runCount });
@@ -754,16 +764,23 @@ export function registerExtendedTools(server, bridge) {
         ? 'No changes detected since baseline.'
         : parts.join(', ') + '.';
 
+      // Cap large lists to save tokens — show count + sample
+      const cap = (arr, limit = 10) => arr.length <= limit ? arr : {
+        count: arr.length,
+        sample: arr.slice(0, limit),
+        truncated: arr.length - limit,
+      };
+
       return ok({
         action: 'diff',
         signalsChanged,
-        signalsAdded,
-        signalsRemoved,
+        signalsAdded: cap(signalsAdded),
+        signalsRemoved: cap(signalsRemoved),
         effectsTriggered,
-        effectsAdded,
-        effectsRemoved,
-        componentsAdded,
-        componentsRemoved,
+        effectsAdded: cap(effectsAdded),
+        effectsRemoved: cap(effectsRemoved),
+        componentsAdded: cap(componentsAdded),
+        componentsRemoved: cap(componentsRemoved),
         errorsNew: errorsNew.length,
         totalChanges,
         summary,

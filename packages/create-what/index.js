@@ -881,21 +881,86 @@ Components run ONCE. Use \`signal()\` for state, \`() =>\` in JSX for reactive t
 
 This project includes MCP devtools that connect to the running app in the browser.
 
-**First call:** \`what_connection_status\` — returns app info, counts, tool list, and next steps.
+**First call:** \`what_connection_status\` — returns app info, counts, tool catalog, and next steps. Always start here.
 
-**Key tools:**
-- \`what_diagnose\` — health check (errors, perf, reactivity)
-- \`what_components {filter}\` — find components and get IDs
-- \`what_explain {componentId}\` — signals + effects + DOM for one component
-- \`what_look {componentId}\` — visual info without screenshot (~400 tokens)
-- \`what_signals {filter, named_only}\` — check signal values (always filter!)
-- \`what_lint {code}\` — static analysis before saving code
-- \`what_screenshot {componentId}\` — cropped component image (use after what_look)
+### Decision Tree
 
-**Workflows:**
-- Find component: \`what_components({filter:"Name"})\` → \`what_explain({componentId: N})\`
-- Debug signal: \`what_signals({filter:"name"})\` → \`what_dependency_graph({signalId: N})\`
-- Before/after: \`what_diff_snapshot({action:"save"})\` → change → \`what_diff_snapshot({action:"diff"})\`
+| I want to... | Use this |
+|---|---|
+| Get oriented / check connection | \`what_connection_status\` |
+| Health check (errors + perf + reactivity) | \`what_diagnose\` |
+| Find a component by name | \`what_components {filter}\` |
+| Understand one component deeply | \`what_explain {componentId}\` |
+| See the component hierarchy | \`what_component_tree\` |
+| Check a signal's current value | \`what_signals {filter, named_only: true}\` |
+| See all effects and their run counts | \`what_effects {minRunCount}\` |
+| Understand why a signal changed | \`what_signal_trace {signalId}\` |
+| See what depends on a signal | \`what_dependency_graph {signalId, direction: "downstream"}\` |
+| See what an effect depends on | \`what_dependency_graph {effectId, direction: "upstream"}\` |
+| Find runtime errors | \`what_errors\` |
+| Get component layout/styles (no image) | \`what_look {componentId}\` |
+| Get full page structure | \`what_page_map\` |
+| Get a visual screenshot | \`what_screenshot {componentId}\` (use after what_look) |
+| Inspect raw DOM | \`what_dom_inspect {componentId, depth}\` |
+| Find performance issues | \`what_perf {threshold}\` |
+| Compare before/after state | \`what_diff_snapshot {action: "save"}\` then \`{action: "diff"}\` |
+| Change a signal live | \`what_set_signal {signalId, value}\` |
+| Validate code before saving | \`what_lint {code}\` |
+| Generate boilerplate | \`what_scaffold {type, name}\` |
+| Diagnose an error code | \`what_fix {errorCode}\` |
+
+### Workflows
+
+**Find and inspect a component:**
+\`what_components({filter:"Stats"})\` -> get ID -> \`what_explain({componentId: 4})\`
+
+**Debug a signal's reactive graph:**
+\`what_signals({filter:"count"})\` -> get ID -> \`what_dependency_graph({signalId: 1, direction: "downstream"})\`
+
+**Before/after comparison:**
+\`what_diff_snapshot({action:"save"})\` -> make change -> \`what_diff_snapshot({action:"diff"})\`
+
+**Performance audit:**
+\`what_perf({threshold: 3})\` -> \`what_effects({minRunCount: 2})\` -> \`what_dependency_graph({effectId: N})\`
+
+**Visual/layout audit:**
+\`what_page_map\` -> \`what_look({componentId: N})\` on key components -> \`what_screenshot\` only if needed
+
+**Disconnected reactivity (UI parts that should update together but don't):**
+\`what_dependency_graph({signalId: N, direction: "downstream"})\` -> check ALL expected effects appear. Missing edges = component won't react to that signal.
+
+### Understanding Diagnostics
+
+- **"N signals with no subscribers"** — Normal. Signals in \`() => ...\` reactive text bindings (\`<!--fn-->\` in DOM) update the DOM directly, bypassing tracked effects. Only investigate if a signal should trigger an effect but isn't.
+- **"N effects with no signal dependencies"** — Normal. One-shot setup effects that run once during component creation (DOM init, event listeners). Expected in "components run once" model.
+- **Components with signalCount=0** — Module-scope signals (shared stores) don't appear on any component. Use \`what_signals\` directly.
+- **\`<!--fn-->\` in DOM** — Reactive text binding markers. The primary reactivity mechanism in templates.
+
+### Key Parameters
+
+| Param | Type | Notes |
+|---|---|---|
+| \`what_signals\` \`named_only\` | boolean | \`true\`/\`false\`, not a string |
+| \`what_effects\` \`minRunCount\` | number | Filter effects that ran >= N times |
+| \`what_dependency_graph\` \`direction\` | \`"upstream"\` \`"downstream"\` \`"both"\` | Default: both |
+| \`what_dom_inspect\` \`depth\` | number | DOM traversal depth (default: 3) |
+| \`what_perf\` \`threshold\` | number | Flag effects with >= N subscribers |
+
+### Principles
+1. \`what_connection_status\` first — always orient before diving in
+2. \`what_explain\` over individual calls — replaces separate signals + effects + DOM lookups
+3. \`what_look\` before \`what_screenshot\` — 10x cheaper, usually sufficient
+4. \`what_signals\` with \`filter\` and \`named_only: true\` — never dump unfiltered
+5. \`what_lint\` before saving generated code
+6. Text tools before visual tools — orient with data, then confirm visually
+7. Re-fetch component IDs after state changes — IDs are ephemeral after mount/unmount cycles
+8. \`what_set_signal\` can cascade — use \`what_diff_snapshot\` to see full impact
+
+### Troubleshooting
+- **Not connected:** Open the app in a browser, wait 2-3s, retry. \`what_lint\`/\`what_scaffold\`/\`what_fix\` work offline.
+- **"Component N not found":** Re-fetch IDs with \`what_components\` after signal changes that alter the component tree.
+- **Screenshot fails:** Use \`what_look\` instead (usually sufficient without an image).
+- **\`what_lint\` false positive on \`signal-write-in-render\`:** Handler functions defined in the component body are safe — they run from events, not during render.
 `);
 
   // Also generate a .cursor/mcp.json for Cursor users
