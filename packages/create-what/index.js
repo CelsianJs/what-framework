@@ -877,6 +877,8 @@ effect(() => console.log(count()));           // side effect
 
 Components run ONCE. Use \`signal()\` for state, \`() =>\` in JSX for reactive text.
 
+**Signal scope:** \`signal()\` works anywhere — module scope (shared state), component scope (local state). Components run once, so signal declarations execute exactly once.
+
 ## MCP DevTools
 
 This project includes MCP devtools that connect to the running app in the browser.
@@ -931,6 +933,9 @@ This project includes MCP devtools that connect to the running app in the browse
 
 **Multi-signal interaction (order-of-operations bugs):**
 \`what_diff_snapshot(save)\` -> set signal A -> \`diff\` -> save -> set signal B -> \`diff\`. Compare cascades.
+
+**Build & test new features:**
+\`what_look\` to match styling -> \`what_scaffold\` for structure -> write code -> \`what_lint\` -> \`what_diff_snapshot(save)\` -> \`what_set_signal\` to simulate trigger -> \`what_diff_snapshot(diff)\` to verify cascade.
 
 **Stale subscription (effect should fire but doesn't):**
 If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscription during a remount. Fix: move effect to module scope or use \`computed()\`.

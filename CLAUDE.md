@@ -42,6 +42,12 @@ mount(h(Counter, {}), '#app');
 - `computed()` not `useMemo()` — lazy, cached
 - Import from `'what-framework'`
 
+### Signal Scope
+- **`signal()`** — use anywhere: module scope, inside components, in stores. This is the standard API.
+- **Module-scope signals** — shared across components (like a global store). Define outside any function.
+- **Component-scope signals** — local to one component. Define inside the component function.
+- Components run once, so signal declarations in the body execute exactly once (not per-render like React hooks).
+
 ## MCP DevTools
 
 This project has a live debugging MCP server (`what-devtools-mcp`). When the app is running in a browser, you can inspect it in real time.
@@ -112,7 +118,7 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 
 **Code quality (no browser needed):**
 - `what_lint {code}` — static analysis, 7 rules
-- `what_scaffold {type, name}` — generate component/page/form/store boilerplate
+- `what_scaffold {type, name}` — generate boilerplate structure (imports, function shape, signal declarations). Note: produces a skeleton, not production code — expect ~10% survival for real integration. Best used to confirm idiomatic patterns.
 - `what_fix {errorCode}` — error diagnosis with code examples
 
 ### Workflows
@@ -143,6 +149,9 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 
 **Multi-signal interaction debugging (order-of-operations bugs):**
 `what_diff_snapshot({action: "save"})` -> `what_set_signal` (signal A) -> `what_diff_snapshot({action: "diff"})` -> save again -> `what_set_signal` (signal B) -> diff again. Compare the two cascades: if signal B's diff shows 0 effects triggered, the reactive chain is broken.
+
+**Build & test new features:**
+`what_look` on existing components to match styling -> `what_scaffold` for structure -> write code -> `what_lint` to validate -> `what_diff_snapshot({action: "save"})` -> `what_set_signal` to simulate the feature's trigger -> `what_diff_snapshot({action: "diff"})` to verify the reactive cascade works end-to-end.
 
 **Effect should have fired but didn't (stale subscription):**
 If `what_dependency_graph` shows an edge from signal to effect, but `what_diff_snapshot` after changing that signal shows the effect didn't re-run, the subscription may be stale. This happens when a component that owns the effect is unmounted and remounted (e.g., view switches). Check effect `runCount` before and after — if unchanged despite the signal changing, the effect lost its subscription during a remount cycle. Fix: move the effect to module scope or use `computed()` instead.

@@ -389,3 +389,87 @@ The 5K target may be unrealistic for complex multi-step tasks — 20-30K may be 
 - Server-side: Further output compression (compact mode for diff, summary-only mode for dep graphs)
 - CLAUDE.md: Consider adding task-type templates ("debugging template", "code gen template") that prescribe exact 5-8 call sequences
 - Testing: Try completely novel tasks (e.g., "build a router plugin", "add animation to transitions") that aren't covered by existing workflows
+
+---
+
+## Round 8 — Creative Building Tasks (2026-03-28)
+
+**Goal:** Test BUILD tasks (not just debug). Can the CLAUDE.md guide agents through designing + implementing + validating new features?
+
+### Agent 8A: Build Notification Toast System (8-call budget)
+
+- **Task:** Build notifications signal, NotificationToast component, NotificationContainer, integrate with task complete/delete
+- **Result:** SUCCESS — complete notification system built and lint-validated
+- **Tokens:** ~53K total (33 tool uses — higher because agent also read/wrote source)
+- **MCP calls:** 8
+- **Non-MCP escapes:** 0 (but did read source files to understand existing patterns)
+- **Code output:** ~100 LOC notification system with auto-dismiss, color-coded types, CSS animation
+- **what_scaffold assessment:** "Low survival rate (~10%). Only import pattern and function shape used."
+- **New gaps:**
+  - No signal() scope guidance (agent initially used wrong API)
+  - No "existing code patterns" tool — agents need to understand app structure before building
+  - Scaffold store template pushed toward unnecessary createStore abstraction
+
+### Agent 8B: Build Keyboard Shortcuts System (10-call budget)
+
+- **Task:** Build KeyboardShortcuts + ShortcutHelp overlay, test with set_signal/diff
+- **Result:** SUCCESS — complete keyboard system with integration test
+- **Tokens:** ~34K total (14 tool uses — excellent efficiency)
+- **MCP calls:** 10 (exact budget)
+- **Integration test:** save -> set_signal(theme + viewMode) -> diff proved shortcuts would trigger correct cascades
+- **what_scaffold assessment:** "Starting point, not production code. Useful to confirm idiomatic patterns."
+- **New gaps:**
+  - No "test your changes" workflow for build tasks
+  - No CSS scaffolding — UI components need CSS but scaffold only produces JS
+  - Missing guidance on integrating generated code into existing app
+
+### Round 8 Summary
+
+| Metric | R6 | R7 | R8 | Notes |
+|--------|----|----|-----|-------|
+| Avg MCP calls | 12 | 9 | **9** | Maintained |
+| Avg tokens | 41K | 34K | **44K** | Up (BUILD tasks require source reads) |
+| Non-MCP escapes | 0 | 0 | **0** | Maintained |
+| Param errors | 0 | 0 | **0** | Maintained |
+| Task success | 100% | 100% | **100%** | Maintained |
+
+### Key R8 Finding: BUILD vs DEBUG
+
+BUILD tasks have fundamentally different needs than DEBUG tasks:
+- **DEBUG:** Agent inspects live app, traces reactive chains, identifies root causes. MCP tools are the ONLY interface needed.
+- **BUILD:** Agent needs (1) existing code patterns (reading source), (2) scaffold for structure, (3) lint for validation, (4) diff for integration testing. MCP tools complement source reading, don't replace it.
+
+The CLAUDE.md already guides BUILD tasks well for steps 2-4, but agents still need to read source to understand existing patterns. This is fine — the MCP tools aren't meant to replace source reading for builds.
+
+### Fixes Applied After Round 8
+1. **Signal scope section** added to Writing Code (module-scope vs component-scope)
+2. **"Build & Test" workflow** added to Workflows section
+3. **Scaffold honest limitations** documented ("~10% survival rate, skeleton not production code")
+4. **Both root CLAUDE.md and create-what template updated**
+
+---
+
+## Cumulative Progress (R1 -> R8)
+
+| Metric | R1 | R4 | R5 | R6 | R7 | R8 |
+|--------|----|----|----|----|-----|-----|
+| Avg MCP calls | 0 | 25 | 32 | 12 | 9 | 9 |
+| Non-MCP escapes | 30+ | 0 | 1 | 0 | 0 | 0 |
+| Param errors | N/A | 2 | 0-1 | 0 | 0 | 0 |
+| Avg tokens | 61K | 46K | 56K | 41K | 34K | 44K |
+| Task success | 0% | 100% | 100% | 100% | 100% | 100% |
+| CLAUDE.md sections | 2 | 8 | 10 | 12 | 13 | 15 |
+
+**CLAUDE.md now contains:**
+- 22-entry decision tree
+- 10 workflows (find, debug, before/after, perf, visual, health, disconnected, multi-signal, stale subscription, build & test)
+- Understanding Diagnostics (5 entries)
+- Parameter reference (12 entries)
+- Parallel-safe tool list
+- Diff cascade metrics
+- Signal scope guidance
+- 10 principles
+- 5 troubleshooting entries
+- Scaffold honest assessment
+
+The CLAUDE.md has reached maturity for the current tool set. Further improvements are incremental — the agent-first developer experience is fundamentally improved.
