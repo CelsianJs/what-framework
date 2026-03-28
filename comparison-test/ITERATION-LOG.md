@@ -552,3 +552,47 @@ The CLAUDE.md has reached maturity for the current tool set. Further improvement
 **Total commits:** 6
 **CLAUDE.md sections:** 17 (decision tree, 11 workflows, diagnostics, params, parallel-safe, diff metrics, signal scope, principles, troubleshooting, scaffold note, error handling)
 **Files shipped by create-what:** CLAUDE.md, AGENTS.md, .mcp.json, .cursor/mcp.json
+
+---
+
+## Round 10 — AGENTS.md Validation + Rapid-Fire Efficiency (2026-03-28)
+
+**Goal:** Test the AGENTS.md recipe format (simulating non-Claude models) and push efficiency limits.
+
+### Agent 10A: AGENTS.md Format Test (Simulating Non-Claude Model)
+
+- **Task:** Debug Stats not updating with filter changes, using ONLY AGENTS.md as guide
+- **Result:** SUCCESS — found root cause in 7 calls
+- **Tokens:** ~27K (8 tool uses)
+- **MCP calls:** 7 (1 retry from named_only type error)
+- **Root cause:** Stats has 0 signals/0 effects — completely disconnected from filterStatus reactive graph
+- **AGENTS.md assessment:**
+  - Recipes worked well for the standard find-component and debug-signal workflows
+  - Parameter type table prevented most mistakes but named_only still tripped once (string vs boolean)
+  - Missing: "reactivity gap" recipe (why doesn't component X react to signal Y?)
+  - Missing: guidance on interpreting 0-signal/0-effect components (means disconnected)
+  - Suggestion: add concrete examples like `what_signals({filter: "name", named_only: true})` in recipes
+
+### Agent 10B: Rapid-Fire 5 Micro-Tasks (15-call budget)
+
+- **Task:** Theme check, component count, hottest signal, perf check, write+lint computed
+- **Result:** ALL 5 TASKS COMPLETE — **5 calls (budget was 15, 67% under)**
+- **Tokens:** ~24K (7 tool uses)
+- **MCP calls:** 5 total (1 per task avg, 2 shared between tasks)
+- **Key technique:** Batched 3 parallel calls in round 1 (connection_status + perf + signals), 2 in round 2 (dep_graph + lint). Tasks 2 and 4 were free (answered from other calls' data).
+- **Results:** theme=light, 13 components, tasks signal (3 downstream effects), no perf issues (0 hot effects), computed overdueCount lint-validated
+
+### Round 10 Summary
+
+| Metric | R9 | R10 | Notes |
+|--------|----|----|-------|
+| Task success | 33%* | **100%** | Browser reconnected |
+| Avg MCP calls | 6 | **6** | R10B achieved 1 call/task |
+| Avg tokens | 31K | **26K** | Best yet |
+| Parameter errors | 0 | **1** | named_only in AGENTS.md test |
+
+### Fixes Applied After Round 10
+1. **"Reactivity gap" recipe** added to AGENTS.md (why component X doesn't react to signal Y)
+2. Pushed all commits to remote
+
+**Total across all rounds:** 14 test agents, 7 rounds active, 7 commits, 3 files scaffolded by create-what (CLAUDE.md, AGENTS.md, .mcp.json)
