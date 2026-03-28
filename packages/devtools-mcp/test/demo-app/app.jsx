@@ -16,7 +16,7 @@ connectDevToolsMCP({ port: typeof __BRIDGE_PORT__ !== 'undefined' ? __BRIDGE_POR
 const tasks = signal([], 'tasks');
 const searchQuery = signal('', 'searchQuery');
 const filterStatus = signal('all', 'filterStatus'); // all, active, completed
-const sortBy = signal('date', 'sortBy'); // date, priority, status
+const sortBy = signal('date', 'sortBy'); // date, priority, status, name
 const theme = signal('light', 'theme');
 const formError = signal('', 'formError');
 
@@ -42,6 +42,8 @@ const filteredTasks = computed(() => {
     list = [...list].sort((a, b) => b.priority - a.priority);
   } else if (sort === 'status') {
     list = [...list].sort((a, b) => a.completed - b.completed);
+  } else if (sort === 'name') {
+    list = [...list].sort((a, b) => a.title.localeCompare(b.title));
   } else {
     list = [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }
@@ -229,6 +231,7 @@ function FilterBar() {
         h('option', { value: 'date' }, 'Sort by Date'),
         h('option', { value: 'priority' }, 'Sort by Priority'),
         h('option', { value: 'status' }, 'Sort by Status'),
+        h('option', { value: 'name' }, 'Sort by Name'),
       ),
     ),
   );

@@ -53,6 +53,7 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 
 **Inspect (no image, cheap):**
 - `what_diagnose` — one-call health check: errors, perf, reactivity issues
+- `what_components {filter}` — list components (gateway to getting componentId)
 - `what_explain {componentId}` — everything about one component: signals, effects, DOM, errors
 - `what_look {componentId}` — computed styles, layout, dimensions (~400 tokens)
 - `what_signals {filter, named_only}` — signal values (always filter, never dump all)
@@ -63,6 +64,10 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 - `what_dependency_graph {signalId}` — reactive flow: signal → effects → downstream
 - `what_errors` — runtime errors with fix suggestions
 - `what_watch` — observe reactive events over time
+- `what_diff_snapshot` — save/diff reactive state snapshots
+
+**Performance:**
+- `what_perf` — signal count, effect count, hot effects, largest subscriber counts, memory estimate
 
 **Visual (use after text tools):**
 - `what_screenshot {componentId}` — cropped component image (5-20KB, not full page)
@@ -75,6 +80,21 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 - `what_lint {code}` — static analysis, 7 rules
 - `what_scaffold {type, name}` — generate component/page/form/store boilerplate
 - `what_fix {errorCode}` — error diagnosis with code examples
+
+### Common Workflows
+
+**Find a component:**
+`what_components({filter:"Stats"})` → get ID → `what_explain({componentId: 4})`
+
+**Debug a signal:**
+`what_signals({filter:"count"})` → get ID → `what_dependency_graph({signalId: 1})`
+
+**Before/after comparison:**
+`what_diff_snapshot({action:"save"})` → make change → `what_diff_snapshot({action:"diff"})`
+
+### Connection Note
+
+If `connected: false`, refresh the browser tab or check that the MCP bridge is running.
 
 ### Principles
 - `what_look` before `what_screenshot` (10x cheaper)

@@ -378,15 +378,47 @@ const LINT_RULES = [
       const signalDecls = [...code.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(?:signal|useSignal)\s*\(/g)];
       const signalNames = new Set(signalDecls.map(m => m[1]));
 
-      // Find effects whose body is just a single signal write
-      // Pattern: effect(() => { signalName(expression); })
-      // or: effect(() => signalName(expression))
-      const effectPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*(?:\{\s*(\w+)\s*\([^)]+\)\s*;?\s*\}|(\w+)\s*\([^)]+\))\s*\)/g;
+      // Extract effect bodies using the same nested-brace approach as effect-writes-read-signal
+      const effectPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g;
       let match;
       while ((match = effectPattern.exec(code)) !== null) {
-        const writtenSignal = match[1] || match[2];
-        if (writtenSignal && signalNames.has(writtenSignal)) {
-          const line = code.slice(0, match.index).split('\n').length;
+        const body = match[1].trim();
+        // Check if body is a single signal write statement: signalName(expression);
+        const singleWrite = body.match(/^(\w+)\s*\([\s\S]+\)\s*;?\s*$/);
+        if (singleWrite) {
+          const writtenSignal = singleWrite[1];
+          if (writtenSignal && signalNames.has(writtenSignal)) {
+            const line = code.slice(0, match.index).split('\n').length;
+            issues.push({
+              severity: 'info',
+              code: 'HINT_PREFER_COMPUTED',
+              message: `Effect only writes to signal "${writtenSignal}". Consider using computed() instead for lazy evaluation.`,
+              line,
+              suggestedFix: `Replace with: const ${writtenSignal} = computed(() => /* your expression */);`,
+            });
+          }
+        }
+      }
+
+      // Also match arrow-expression form: effect(() => signalName(expression))
+      // Use a manual scan to handle nested parens
+      const arrowPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*(\w+)\s*\(/g;
+      let arrowMatch;
+      while ((arrowMatch = arrowPattern.exec(code)) !== null) {
+        const writtenSignal = arrowMatch[1];
+        if (!signalNames.has(writtenSignal)) continue;
+        // Find the matching closing paren for the signal call, then for the effect call
+        const signalCallStart = arrowMatch.index + arrowMatch[0].length - 1; // position of '('
+        let depth = 1;
+        let i = signalCallStart + 1;
+        for (; i < code.length && depth > 0; i++) {
+          if (code[i] === '(') depth++;
+          if (code[i] === ')') depth--;
+        }
+        // After signal call closing paren, next char should be ')' (closing effect)
+        const afterSignalCall = code.slice(i).match(/^\s*\)/);
+        if (afterSignalCall) {
+          const line = code.slice(0, arrowMatch.index).split('\n').length;
           issues.push({
             severity: 'info',
             code: 'HINT_PREFER_COMPUTED',
@@ -460,6 +492,13 @@ export default ${name};
     const fields = signals.length > 0 ? signals : ['email', 'password'];
     const fieldDecls = fields.map(f => `    ${f}: { initial: '', rules: [rules.required('${f} is required')] },`).join('\n');
 
+    function inferInputType(fieldName) {
+      const lower = fieldName.toLowerCase();
+      if (lower === 'password' || lower === 'pass') return 'password';
+      if (lower === 'email') return 'email';
+      return 'text';
+    }
+
     return `import { signal } from 'what-framework';
 import { useForm, Input, ErrorMessage, rules } from 'what-framework';
 
@@ -477,7 +516,7 @@ ${fieldDecls}
     <form onsubmit={handleSubmit}>
 ${fields.map(f => `      <div>
         <label for="${f}">${f.charAt(0).toUpperCase() + f.slice(1)}</label>
-        <Input field={fields.${f}} id="${f}" type="text" />
+        <Input field={fields.${f}} id="${f}" type="${inferInputType(f)}" />
         <ErrorMessage field={fields.${f}} />
       </div>`).join('\n')}
       <button type="submit" disabled={isSubmitting()}>
