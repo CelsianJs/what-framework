@@ -1,54 +1,16 @@
-# What Framework — AI Agent Instructions
+# Project Instructions
 
-## MCP DevTools Available
+## MCP DevTools
 
-This project has a registered MCP server (`what-devtools-mcp`) that connects to a live WhatFW app running in the browser. When the browser app is running, you can inspect it in real-time.
+This project has an MCP server (`what-devtools-mcp`) that connects to the running app in the browser. When connected, you can inspect live state, debug reactivity, check visual layout, and modify signals — all without screenshots.
 
-### First Steps
-1. Call `what_connection_status` to check if a browser app is connected
-2. If connected: call `what_diagnose` for a health check
-3. If not connected: the user needs to run their app with the WhatFW devtools Vite plugin
+### Getting Started
+1. Call `what_connection_status` — it returns everything: app info, component/signal/effect counts, framework primer, available tools, and recommended workflow
+2. Follow the `workflow` field in the response — it tells you what to call next
 
-### Key Tools
-
-**Inspection (no image needed):**
-- `what_diagnose` — One-call health check (errors, perf, reactivity)
-- `what_explain` {componentId} — Full component detail (signals, effects, DOM, errors)
-- `what_look` {componentId} — Computed styles, layout, dimensions, accessibility
-- `what_signals` — All signal values
-- `what_page_map` — Full page layout skeleton
-
-**Debugging:**
-- `what_signal_trace` {signalId} — Why did this signal change?
-- `what_dependency_graph` {signalId} — Reactive dependency graph
-- `what_watch` — Observe events over time
-- `what_errors` — Runtime errors with fix suggestions
-
-**Visual:**
-- `what_look` — Text-based visual info (USE FIRST, ~400 tokens)
-- `what_page_map` — Page layout (~800 tokens)
-- `what_screenshot` {componentId} — Cropped component image (USE LAST, 5-20KB)
-
-**Actions:**
-- `what_set_signal` {signalId, value} — Change a signal value live
-- `what_navigate` {path} — Navigate the app
-
-**Code Quality:**
-- `what_lint` {code} — Static analysis (7 rules)
-- `what_scaffold` {type, name} — Generate boilerplate
-- `what_fix` {errorCode} — Error diagnosis with code examples
-
-### Framework Basics
-- Components run ONCE (not on every render like React)
-- `signal(value, 'debugName')` for state
-- Read: `sig()` — Write: `sig(newValue)` or `sig(prev => next)`
-- `effect(() => { ... })` for side effects (auto-tracks signal reads)
-- `computed(() => ...)` for derived values (lazy, cached)
-- Import from `'what-framework'`
-- Use `batch(() => { ... })` to group multiple signal writes
-
-### Anti-Patterns
-- Don't screenshot first — use `what_look` (10x cheaper)
-- Don't call signals + effects + dom_inspect separately — use `what_explain`
-- Don't use `what_eval` for inspection — use the structured tools
-- Always call `what_lint` before saving generated code
+### Key Principles
+- Use `what_look` for visual info (text, ~400 tokens) before `what_screenshot` (image, ~15KB)
+- Use `what_signals` with `filter` and `named_only: true` — never dump all signals unfiltered
+- Use `what_explain` for one component instead of calling signals + effects + dom separately
+- Use `what_lint` before saving any code changes
+- Use `what_diagnose` as your one-call health check
