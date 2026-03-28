@@ -44,7 +44,7 @@ function getComponentElement(entry) {
 
 // ---------------------------------------------------------------------------
 // Module-level ring buffer for correlating signal writes with effect runs.
-// Lazily initialized on first `get-signal-writers` call via ensureEventTracking().
+// Auto-initialized when initEventTracking() is called (early, not lazy).
 // ---------------------------------------------------------------------------
 
 const MAX_WRITE_LOG = 200;
@@ -54,14 +54,12 @@ let _trackingInitialized = false;
 let _unsubTracker = null;
 
 /**
- * Subscribe to devtools events once and populate the write log.
- * Safe to call multiple times — only subscribes once.
+ * Initialize event tracking early so signal writes are always captured.
+ * Called from client.js on connection, not lazily on first tool call.
  */
-function ensureEventTracking(devtools) {
+export function initEventTracking(devtools) {
   if (_trackingInitialized || !devtools?.subscribe) return;
   _trackingInitialized = true;
-
-  const registries = devtools._registries;
 
   _unsubTracker = devtools.subscribe((event, data) => {
     if (event === 'effect:run') {
@@ -132,9 +130,19 @@ export async function handleExtendedCommand(command, args, devtools) {
       const evalEnabled = typeof window !== 'undefined' &&
         (window.__WHAT_UNSAFE_EVAL__ === true ||
          devtools?._unsafeEvalEnabled === true);
-      if (!evalEnabled) {
+
+      // Allow safe read-only expressions without the unsafe flag
+      const code = (args.code || '').trim();
+      const isSafeRead = /^[\w.[\]'"]+$/.test(code) || // property access: document.title, window.innerWidth
+        /^typeof\s+\w+/.test(code) || // typeof checks
+        /^document\.(title|URL|readyState|visibilityState|characterSet|contentType)$/.test(code) ||
+        /^window\.(innerWidth|innerHeight|devicePixelRatio|screen\.\w+)$/.test(code) ||
+        /^navigator\.\w+$/.test(code) ||
+        /^location\.\w+$/.test(code);
+
+      if (!evalEnabled && !isSafeRead) {
         return {
-          error: 'Eval is disabled. Set window.__WHAT_UNSAFE_EVAL__ = true or enable --unsafe-eval on the MCP server.',
+          error: 'Eval is disabled for arbitrary code. Safe read-only expressions (document.title, window.innerWidth, etc.) work without the flag. For full eval, set window.__WHAT_UNSAFE_EVAL__ = true or enable --unsafe-eval on the MCP server.',
         };
       }
 
@@ -612,7 +620,7 @@ export async function handleExtendedCommand(command, args, devtools) {
 
     // -------------------------------------------------------------------------
     // get-signal-writers — Correlate signal writes with effect runs
-    // Uses the module-level ring buffer populated by ensureEventTracking().
+    // Uses the module-level ring buffer populated by initEventTracking().
     // -------------------------------------------------------------------------
     case 'get-signal-writers': {
       const { signalId } = args || {};
@@ -628,7 +636,7 @@ export async function handleExtendedCommand(command, args, devtools) {
       }
 
       // Lazily initialize event tracking on first call
-      ensureEventTracking(devtools);
+      initEventTracking(devtools);
 
       // Filter the write log for this signal
       const writes = _signalWriteLog

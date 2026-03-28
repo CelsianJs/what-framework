@@ -42,6 +42,7 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
   let hasLoggedDisconnect = false;
   let reconnectAttempts = 0;
   let unsubscribeFn = null;
+  let flushEventBatch = null; // Hoisted — set during subscription, called by set-signal
   let discoveredToken = token;
   let discoveredPort = port;
 
@@ -117,18 +118,18 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
         let eventBatch = [];
         let batchTimer = null;
 
-        function flushEventBatch() {
+        // Hoisted so set-signal can call it to flush after programmatic writes
+        flushEventBatch = function() {
           if (eventBatch.length === 0) return;
           if (eventBatch.length === 1) {
-            // Single event — send normally for compatibility
             const item = eventBatch[0];
             send({ type: 'event', event: item.event, data: item.data });
           } else {
             send({ type: 'events', batch: eventBatch });
           }
           eventBatch = [];
-          batchTimer = null;
-        }
+          if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+        };
 
         unsubscribeFn = devtools.subscribe((event, data) => {
           eventCount++;
@@ -213,6 +214,8 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
           if (entry) {
             const prev = entry.ref.peek();
             entry.ref(value);
+            // Flush event batch immediately so what_watch captures programmatic writes
+            if (flushEventBatch) setTimeout(flushEventBatch, 0);
             result = { previous: devtools.safeSerialize(prev), current: devtools.safeSerialize(value) };
             log('AI →', BADGE_CMD, `${label} — signal #${signalId} "${entry.name}": ${JSON.stringify(prev)} → ${JSON.stringify(value)}`);
           } else {
@@ -247,7 +250,10 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
         // Try extended command handlers
         let extResult = null;
         try {
-          const { handleExtendedCommand } = await import('./client-commands.js');
+          const { handleExtendedCommand, initEventTracking } = await import('./client-commands.js');
+          // Auto-initialize event tracking on first extended command so
+          // what_signal_trace always has write history (not just after what_watch)
+          initEventTracking(devtools);
           extResult = await handleExtendedCommand(command, args, devtools);
         } catch (importErr) {
           // Don't silently swallow — report the real error so it's not

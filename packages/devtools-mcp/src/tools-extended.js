@@ -115,6 +115,21 @@ export function registerExtendedTools(server, bridge) {
         byId.set(c.id, { ...c, children: [] });
       }
 
+      // Check if parentIds are available (framework may not track them)
+      const hasParentInfo = components.some(c => c.parentId != null);
+
+      if (!hasParentInfo && components.length > 1) {
+        // Framework doesn't track parent-child relationships.
+        // Infer: lowest-ID component is the root, all others are its children.
+        // This gives a 1-level tree which is better than a flat list.
+        const sorted = [...byId.values()].sort((a, b) => a.id - b.id);
+        const root = sorted[0];
+        for (let i = 1; i < sorted.length; i++) {
+          sorted[i].parentId = root.id;
+          root.children.push(sorted[i]);
+        }
+      }
+
       // Build parent-child links
       const roots = [];
       for (const node of byId.values()) {
@@ -123,6 +138,15 @@ export function registerExtendedTools(server, bridge) {
         } else {
           roots.push(node);
         }
+      }
+      // Deduplicate children (inferred path may have already added them)
+      for (const node of byId.values()) {
+        const seen = new Set();
+        node.children = node.children.filter(c => {
+          if (seen.has(c.id)) return false;
+          seen.add(c.id);
+          return true;
+        });
       }
 
       // Attach signal/effect counts per component
@@ -377,14 +401,21 @@ export function registerExtendedTools(server, bridge) {
       timeout: z.number().optional().default(5000).describe('Max execution time in ms (default: 5000, max: 30000)'),
     },
     async ({ code, timeout }) => {
-      if (!unsafeEvalEnabled) {
+      // Allow safe read-only property access without the unsafe flag
+      const trimmed = (code || '').trim();
+      const isSafeRead = /^[\w.[\]'"]+$/.test(trimmed) && !trimmed.includes('=') ||
+        /^document\.(title|URL|readyState|visibilityState|characterSet|contentType)$/.test(trimmed) ||
+        /^window\.(innerWidth|innerHeight|devicePixelRatio|outerWidth|outerHeight)$/.test(trimmed) ||
+        /^navigator\.(userAgent|language|platform|onLine|hardwareConcurrency)$/.test(trimmed) ||
+        /^location\.(href|hostname|pathname|protocol|port|origin)$/.test(trimmed) ||
+        /^screen\.(width|height|availWidth|availHeight|colorDepth)$/.test(trimmed);
+
+      if (!unsafeEvalEnabled && !isSafeRead) {
         return errorResponse(
-          'what_eval is disabled by default for security. It executes arbitrary JavaScript in the browser context.',
+          'what_eval is disabled for arbitrary code. Safe read-only expressions (document.title, window.innerWidth, etc.) work without the flag.',
           [
-            'To enable, start the MCP server with the --unsafe-eval flag:',
-            '  what-devtools-mcp --unsafe-eval',
-            'Or set the environment variable WHAT_UNSAFE_EVAL=1',
-            'Only enable this in trusted development environments.',
+            'Safe expressions: document.title, window.innerWidth, navigator.userAgent, location.href, screen.width',
+            'For full eval, start the MCP server with --unsafe-eval or WHAT_UNSAFE_EVAL=1',
           ]
         );
       }
