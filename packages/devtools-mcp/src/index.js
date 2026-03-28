@@ -1020,5 +1020,68 @@ try {
   // Agent tools not yet available — that's fine
 }
 
+// --- MCP Prompts: agent guidance ---
+
+server.prompt(
+  'what-devtools-guide',
+  'How to use WhatFW MCP DevTools effectively. Read this first.',
+  {},
+  async () => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `# WhatFW MCP DevTools — Quick Reference
+
+You have access to 28 MCP tools for inspecting and debugging a live What Framework app running in the browser.
+
+## Connection Check
+Always start with: \`what_connection_status\` — confirms the browser is connected and shows signal/effect/component counts.
+
+## Top 5 Tools (use these most)
+
+1. **what_diagnose** — One-call health check. Finds errors, performance issues, and reactivity problems.
+2. **what_explain** {componentId} — Everything about one component: its signals, effects, DOM, and errors.
+3. **what_look** {componentId} — Visual inspection WITHOUT a screenshot: computed styles, dimensions, layout classification, child elements, accessibility.
+4. **what_signals** — List all reactive signals with current values. Filter by name.
+5. **what_lint** {code} — Static analysis before saving code. Catches 7 common mistakes.
+
+## Visual Tools (cheapest first)
+- \`what_look\` — Text description of styles/layout (~400 tokens). Use FIRST.
+- \`what_page_map\` — Full page skeleton with landmarks, buttons, headings (~800 tokens).
+- \`what_screenshot\` {componentId} — Cropped image of ONE component (5-20KB). Use only if text isn't enough.
+
+## State Debugging
+- \`what_signals\` — See all signal values
+- \`what_signal_trace\` {signalId} — "Why did this signal change?" Shows which effects wrote to it.
+- \`what_dependency_graph\` {signalId} — Full reactive graph: signal → effects → downstream.
+- \`what_watch\` — Observe reactive events over a time window.
+
+## Actions
+- \`what_set_signal\` {signalId, value} — Directly change a signal value in the live app.
+- \`what_navigate\` {path} — Navigate to a different route.
+
+## Code Quality
+- \`what_lint\` — Check code for signal-read-without-(), effect cycles, missing cleanup, etc.
+- \`what_scaffold\` {type, name} — Generate idiomatic component/page/form/store boilerplate.
+- \`what_fix\` {errorCode} — Get diagnosis + fix + code example for any WhatFW error.
+
+## Anti-Patterns
+- DON'T screenshot first — use what_look (10x cheaper)
+- DON'T call what_signals + what_effects + what_dom_inspect separately — use what_explain
+- DON'T use what_eval for state inspection — use the structured tools
+
+## What Framework Basics
+- Components run ONCE (not on every render like React)
+- \`signal(value, 'name')\` for state — read with \`sig()\`, write with \`sig(newValue)\`
+- \`effect(() => { ... })\` for side effects — auto-tracks signal reads
+- \`computed(() => ...)\` for derived values — lazy, cached
+- Import from \`'what-framework'\`
+`,
+      },
+    }],
+  })
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
