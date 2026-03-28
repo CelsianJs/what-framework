@@ -23,6 +23,11 @@ function waitForMessage(ws) {
   });
 }
 
+/** Connect with the bridge's auth token */
+function connectWithToken(bridge, port) {
+  return new WebSocket(`ws://127.0.0.1:${port}?token=${bridge.authToken}`);
+}
+
 describe('WebSocket Bridge', () => {
   let bridge;
   let client;
@@ -34,20 +39,49 @@ describe('WebSocket Bridge', () => {
     await new Promise(r => setTimeout(r, 100));
   });
 
-  it('accepts browser connections', async () => {
+  it('accepts browser connections with valid token', async () => {
     bridge = createBridge({ port: TEST_PORT });
     assert.equal(bridge.isConnected(), false);
 
-    client = new WebSocket(`ws://localhost:${TEST_PORT}`);
+    client = connectWithToken(bridge, TEST_PORT);
     await waitForOpen(client);
     // Small delay for the server to register
     await new Promise(r => setTimeout(r, 50));
     assert.equal(bridge.isConnected(), true);
   });
 
+  it('rejects connections without a token', async () => {
+    bridge = createBridge({ port: TEST_PORT });
+
+    client = new WebSocket(`ws://127.0.0.1:${TEST_PORT}`);
+    await assert.rejects(
+      () => waitForOpen(client),
+      (err) => {
+        // Connection should be rejected (unexpected server response)
+        return true;
+      }
+    );
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(bridge.isConnected(), false);
+  });
+
+  it('rejects connections with an invalid token', async () => {
+    bridge = createBridge({ port: TEST_PORT });
+
+    client = new WebSocket(`ws://127.0.0.1:${TEST_PORT}?token=wrong-token`);
+    await assert.rejects(
+      () => waitForOpen(client),
+      (err) => {
+        return true;
+      }
+    );
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(bridge.isConnected(), false);
+  });
+
   it('stores snapshot from browser', async () => {
     bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://localhost:${TEST_PORT}`);
+    client = connectWithToken(bridge, TEST_PORT);
     await waitForOpen(client);
 
     const snapshot = { signals: [{ id: 1, name: 'test', value: 42 }], effects: [], components: [] };
@@ -60,7 +94,7 @@ describe('WebSocket Bridge', () => {
 
   it('logs events from browser', async () => {
     bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://localhost:${TEST_PORT}`);
+    client = connectWithToken(bridge, TEST_PORT);
     await waitForOpen(client);
 
     client.send(JSON.stringify({
@@ -77,7 +111,7 @@ describe('WebSocket Bridge', () => {
 
   it('tracks errors separately', async () => {
     bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://localhost:${TEST_PORT}`);
+    client = connectWithToken(bridge, TEST_PORT);
     await waitForOpen(client);
 
     client.send(JSON.stringify({
@@ -94,7 +128,7 @@ describe('WebSocket Bridge', () => {
 
   it('sendCommand sends and receives response via correlationId', async () => {
     bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://localhost:${TEST_PORT}`);
+    client = connectWithToken(bridge, TEST_PORT);
     await waitForOpen(client);
     await new Promise(r => setTimeout(r, 50));
 
@@ -116,7 +150,7 @@ describe('WebSocket Bridge', () => {
 
   it('sendCommand times out when no response', async () => {
     bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://localhost:${TEST_PORT}`);
+    client = connectWithToken(bridge, TEST_PORT);
     await waitForOpen(client);
     await new Promise(r => setTimeout(r, 50));
 
@@ -137,7 +171,7 @@ describe('WebSocket Bridge', () => {
 
   it('handles browser disconnection', async () => {
     bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://localhost:${TEST_PORT}`);
+    client = connectWithToken(bridge, TEST_PORT);
     await waitForOpen(client);
     await new Promise(r => setTimeout(r, 50));
     assert.equal(bridge.isConnected(), true);
@@ -145,5 +179,12 @@ describe('WebSocket Bridge', () => {
     client.close();
     await new Promise(r => setTimeout(r, 100));
     assert.equal(bridge.isConnected(), false);
+  });
+
+  it('exposes authToken for client connections', () => {
+    bridge = createBridge({ port: TEST_PORT });
+    assert.ok(bridge.authToken, 'authToken should be defined');
+    assert.equal(typeof bridge.authToken, 'string');
+    assert.ok(bridge.authToken.length >= 32, 'authToken should be at least 32 chars');
   });
 });

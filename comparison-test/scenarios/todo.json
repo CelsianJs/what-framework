@@ -1,0 +1,18 @@
+{
+  "name": "todo",
+  "difficulty": 2,
+  "timeoutMs": 300000,
+  "description": "Build a todo list app with CRUD, filtering, and local storage.",
+  "prompt": "Build a todo list application with the following features:\n1. Add new todos with a text input and submit button\n2. Display all todos in a list\n3. Each todo has a checkbox to mark it complete/incomplete\n4. Each todo has a delete button\n5. Filter tabs: All, Active, Completed\n6. Show count of remaining active items\n7. A 'Clear completed' button that removes all completed todos\n8. Persist todos in localStorage so they survive page refresh\n9. Style it cleanly\n\nMake it work correctly with proper state management.",
+  "acceptanceCriteria": [
+    "Can add a new todo by typing and pressing enter or clicking add",
+    "Todos appear in a list",
+    "Checking a todo marks it as completed (visually distinct)",
+    "Delete button removes a todo",
+    "Filter tabs work: All shows all, Active shows incomplete, Completed shows done",
+    "Counter shows correct number of active items",
+    "Clear completed removes all completed todos",
+    "Todos persist after page refresh"
+  ],
+  "playwrightTests": "test('todo app works', async ({ page }) => {\n  // Add todo\n  await page.getByPlaceholder(/add|new|todo/i).fill('Buy groceries');\n  await page.keyboard.press('Enter');\n  await expect(page.getByText('Buy groceries')).toBeVisible();\n  \n  // Add another\n  await page.getByPlaceholder(/add|new|todo/i).fill('Walk the dog');\n  await page.keyboard.press('Enter');\n  await expect(page.getByText('Walk the dog')).toBeVisible();\n  \n  // Complete first todo\n  const firstCheckbox = page.locator('input[type=checkbox]').first();\n  await firstCheckbox.check();\n  \n  // Filter to active\n  await page.getByRole('button', { name: /active/i }).click();\n  await expect(page.getByText('Walk the dog')).toBeVisible();\n  \n  // Filter to completed\n  await page.getByRole('button', { name: /completed/i }).click();\n  await expect(page.getByText('Buy groceries')).toBeVisible();\n  \n  // Delete\n  await page.getByText('Buy groceries').hover();\n  const deleteBtn = page.locator('button').filter({ hasText: /delete|remove|×|✕/ }).first();\n  if (await deleteBtn.isVisible()) await deleteBtn.click();\n});"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "whatfw-mcp",
+  "model": "kimi-k2",
+  "framework": "whatfw",
+  "mcpEnabled": true,
+  "provider": "moonshot",
+  "apiKeyEnv": "MOONSHOT_API_KEY",
+  "temperature": 0,
+  "systemPrompt": "You are building a web application using What Framework (WhatFW). WhatFW uses signal-based reactivity where components run ONCE (not on every render like React). Use signal() for state, effect() for side effects, computed() for derived values. Import from 'what-framework'. You have MCP tools available for live debugging — use what_look to inspect visual layout, what_signals to check state, what_diagnose for health checks.",
+  "mcpTools": [
+    "what_connection_status", "what_signals", "what_effects", "what_components",
+    "what_snapshot", "what_errors", "what_cache", "what_set_signal",
+    "what_watch", "what_component_tree", "what_dependency_graph",
+    "what_dom_inspect", "what_route", "what_diagnose", "what_diff_snapshot",
+    "what_explain", "what_signal_trace", "what_look", "what_screenshot",
+    "what_page_map", "what_lint", "what_scaffold", "what_validate",
+    "what_perf", "what_fix"
+  ]
+}

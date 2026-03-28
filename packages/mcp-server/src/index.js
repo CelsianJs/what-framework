@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 
+console.warn(
+  '[what-mcp] DEPRECATED: This package is superseded by what-devtools-mcp, ' +
+  'which includes all documentation plus live devtools. ' +
+  'Install what-devtools-mcp and remove what-mcp from your MCP config.'
+);
+
 /**
  * What Framework MCP Server
+ *
+ * @deprecated Use what-devtools-mcp instead. This package is superseded by the unified MCP server.
  *
  * Provides documentation and assistance for the What Framework.
  * Exposes tools for getting API reference, examples, and guidance.

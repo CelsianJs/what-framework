@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerTools } from '../src/tools.js';
+import { registerExtendedTools } from '../src/tools-extended.js';
 
 function createMockBridge(opts = {}) {
   const snapshot = opts.snapshot || {
@@ -53,6 +54,64 @@ function createMockBridge(opts = {}) {
         return { previous: prev, current: args.value };
       }
       if (command === 'invalidate-cache') return { success: true, key: args.key };
+      if (command === 'visual-inspect') {
+        const cid = args.componentId;
+        const comp = snapshot.components.find(c => c.id === cid);
+        if (!comp) return { error: `Component ${cid} not found` };
+        return {
+          componentName: comp.name,
+          componentId: cid,
+          boundingRect: { x: 100, y: 50, width: 300, height: 200 },
+          styles: {
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: 'rgb(255, 255, 255)',
+            color: 'rgb(0, 0, 0)',
+            fontSize: '16px',
+            padding: '16px',
+          },
+          textContent: 'Count: 5 Increment Decrement',
+          childElements: { button: 2 },
+          totalChildren: 3,
+          accessibility: { role: 'group' },
+          layout: 'flex column with 3 children',
+          viewport: { width: 1280, height: 720 },
+        };
+      }
+      if (command === 'component-screenshot') {
+        const cid = args.componentId;
+        const comp = snapshot.components.find(c => c.id === cid);
+        if (!comp) return { error: `Component ${cid} not found` };
+        return {
+          base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          format: args.format || 'jpeg',
+          mimeType: args.format === 'png' ? 'image/png' : 'image/jpeg',
+          width: 300,
+          height: 200,
+          sizeBytes: 1234,
+          componentName: comp.name,
+        };
+      }
+      if (command === 'page-map') {
+        return {
+          viewport: { width: 1280, height: 720 },
+          landmarks: [
+            { tag: 'header', text: 'My App', rect: { x: 0, y: 0, w: 1280, h: 60 } },
+            { tag: 'main', role: 'main', text: 'Counter', rect: { x: 0, y: 60, w: 1280, h: 660 } },
+          ],
+          interactives: [
+            { tag: 'button', label: 'Increment', rect: { x: 100, y: 100, w: 80, h: 32 } },
+            { tag: 'button', label: 'Decrement', rect: { x: 200, y: 100, w: 80, h: 32 } },
+          ],
+          headings: [
+            { level: 1, text: 'My App' },
+          ],
+          components: [
+            { id: 1, name: 'Counter', rect: { x: 100, y: 50, w: 300, h: 200 } },
+          ],
+          totalElements: 6,
+        };
+      }
       return { error: `Unknown command: ${command}` };
     },
     close: () => {},
@@ -64,6 +123,7 @@ async function setupMcp(bridgeOpts) {
   const bridge = createMockBridge(bridgeOpts);
   const server = new McpServer({ name: 'test', version: '0.1.0' });
   registerTools(server, bridge);
+  registerExtendedTools(server, bridge);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -230,6 +290,133 @@ describe('what-devtools-mcp tools', () => {
       const { parsed } = await callTool(client, 'what_components');
       assert.equal(parsed.count, 2);
       assert.equal(parsed.components[0].name, 'App');
+    });
+  });
+
+  // =========================================================================
+  // Visual "Sight" tools — what_look, what_screenshot, what_page_map
+  // =========================================================================
+
+  describe('what_look', () => {
+    it('returns component visual info with bounding rect, styles, layout', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_look', { componentId: 2 });
+      assert.equal(parsed.component, 'Counter');
+      assert.ok(parsed.boundingRect, 'should include boundingRect');
+      assert.equal(parsed.boundingRect.width, 300);
+      assert.equal(parsed.boundingRect.height, 200);
+      assert.ok(parsed.styles, 'should include styles');
+      assert.equal(parsed.styles.display, 'flex');
+      assert.equal(parsed.styles.fontSize, '16px');
+    });
+
+    it('summary includes component name and dimensions', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_look', { componentId: 1 });
+      assert.ok(parsed.summary, 'should include summary');
+      assert.ok(parsed.summary.includes('App'), 'summary should mention component name');
+      assert.ok(parsed.summary.includes('300'), 'summary should mention width');
+      assert.ok(parsed.summary.includes('200'), 'summary should mention height');
+    });
+
+    it('layout classification is present', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_look', { componentId: 2 });
+      assert.ok(parsed.layout, 'should include layout');
+      assert.ok(parsed.layout.includes('flex'), 'layout should describe flex');
+    });
+
+    it('returns error for invalid componentId', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_look', { componentId: 999 });
+      assert.ok(parsed.error, 'should return error for missing component');
+    });
+
+    it('returns noConnection error when bridge disconnected', async () => {
+      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      const { parsed } = await callTool(client, 'what_look', { componentId: 1 });
+      assert.equal(parsed.error, 'No browser connected');
+    });
+  });
+
+  describe('what_screenshot', () => {
+    it('returns image content type with base64 data', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 2 } });
+      // what_screenshot returns two content blocks: image + text
+      assert.ok(result.content.length >= 2, 'should have at least 2 content blocks');
+      const imageBlock = result.content.find(c => c.type === 'image');
+      const textBlock = result.content.find(c => c.type === 'text');
+      assert.ok(imageBlock, 'should have an image content block');
+      assert.ok(textBlock, 'should have a text content block');
+      assert.ok(imageBlock.data, 'image block should have base64 data');
+      assert.ok(imageBlock.mimeType.startsWith('image/'), 'mimeType should start with image/');
+    });
+
+    it('metadata includes width, height, sizeKB', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 2 } });
+      const textBlock = result.content.find(c => c.type === 'text');
+      const meta = JSON.parse(textBlock.text);
+      assert.ok(meta.width > 0, 'width should be positive');
+      assert.ok(meta.height > 0, 'height should be positive');
+      assert.ok(typeof meta.sizeKB === 'number', 'sizeKB should be a number');
+      assert.ok(meta.componentName === 'Counter', 'should include component name');
+    });
+
+    it('returns error for invalid componentId', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 999 } });
+      const text = result.content[0]?.text;
+      const parsed = JSON.parse(text);
+      assert.ok(parsed.error, 'should return error for missing component');
+    });
+
+    it('returns noConnection error when bridge disconnected', async () => {
+      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 1 } });
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.error, 'No browser connected');
+    });
+  });
+
+  describe('what_page_map', () => {
+    it('returns page layout with landmarks, interactives, headings, components', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_page_map');
+      assert.ok(parsed.landmarks, 'should include landmarks');
+      assert.equal(parsed.landmarks.length, 2);
+      assert.ok(parsed.interactives, 'should include interactives');
+      assert.equal(parsed.interactives.length, 2);
+      assert.ok(parsed.headings, 'should include headings');
+      assert.equal(parsed.headings.length, 1);
+      assert.ok(parsed.components, 'should include components');
+      assert.equal(parsed.components.length, 1);
+      assert.equal(parsed.components[0].name, 'Counter');
+    });
+
+    it('summary includes counts', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_page_map');
+      assert.ok(parsed.summary, 'should include summary');
+      assert.ok(parsed.summary.includes('2 landmarks'), 'summary should count landmarks');
+      assert.ok(parsed.summary.includes('2 interactive'), 'summary should count interactives');
+      assert.ok(parsed.summary.includes('1 heading'), 'summary should count headings');
+      assert.ok(parsed.summary.includes('1 WhatFW component'), 'summary should count components');
+    });
+
+    it('viewport dimensions are returned', async () => {
+      ({ client, server, bridge } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_page_map');
+      assert.ok(parsed.viewport, 'should include viewport');
+      assert.equal(parsed.viewport.width, 1280);
+      assert.equal(parsed.viewport.height, 720);
+    });
+
+    it('returns noConnection error when bridge disconnected', async () => {
+      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      const { parsed } = await callTool(client, 'what_page_map');
+      assert.equal(parsed.error, 'No browser connected');
     });
   });
 });

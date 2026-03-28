@@ -120,6 +120,18 @@ effect(() => {
 // Good — stable key:
 <For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
   },
+  HINT_PREFER_COMPUTED: {
+    code: 'HINT_PREFER_COMPUTED',
+    severity: 'info',
+    diagnosis: 'An effect is only used to derive a value from other signals. This is better expressed as a computed() signal, which is lazy and more efficient.',
+    suggestedFix: 'Replace the effect + signal pair with a single computed() signal.',
+    codeExample: `// Before — effect + signal (runs eagerly, more memory):
+const doubled = signal(0);
+effect(() => { doubled(count() * 2); });
+
+// After — computed (lazy, efficient):
+const doubled = computed(() => count() * 2);`,
+  },
 };
 
 // --- Lint Patterns ---
@@ -251,6 +263,136 @@ const LINT_RULES = [
             message: `Effect sets up ${resource} but does not return a cleanup function — memory leak risk.`,
             line,
             suggestedFix: `Return a cleanup function: return () => remove${resource === 'event listener' ? 'EventListener(...)' : resource === 'interval' ? 'clearInterval(id)' : 'clearTimeout(id)'}`,
+          });
+        }
+      }
+      return issues;
+    },
+  },
+  {
+    id: 'signal-write-in-render',
+    code: 'ERR_SIGNAL_WRITE_IN_RENDER',
+    severity: 'error',
+    test(code) {
+      const issues = [];
+      // Find signal declarations
+      const signalDecls = [...code.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(?:signal|useSignal)\s*\(/g)];
+      const signalNames = signalDecls.map(m => m[1]);
+
+      // Find component functions (PascalCase function declarations)
+      const componentPattern = /function\s+([A-Z]\w*)\s*\([^)]*\)\s*\{/g;
+      let compMatch;
+      while ((compMatch = componentPattern.exec(code)) !== null) {
+        // Get the component body (rough extraction)
+        const startIdx = compMatch.index + compMatch[0].length;
+        let braceDepth = 1;
+        let bodyEnd = startIdx;
+        for (let i = startIdx; i < code.length && braceDepth > 0; i++) {
+          if (code[i] === '{') braceDepth++;
+          if (code[i] === '}') braceDepth--;
+          bodyEnd = i;
+        }
+        const body = code.slice(startIdx, bodyEnd);
+
+        // For each signal, check if it's written at the TOP LEVEL of the component body
+        // (not inside effect(), onMount(), setTimeout, event handlers, arrow functions)
+        for (const name of signalNames) {
+          // Look for signal writes: name(someValue) where someValue is not empty
+          const writePattern = new RegExp(`(?<!\\w)${name}\\s*\\((?!\\s*\\))(?!.*=>)`, 'g');
+          let writeMatch;
+          while ((writeMatch = writePattern.exec(body)) !== null) {
+            // Check if this write is inside a nested function/callback
+            const beforeWrite = body.slice(0, writeMatch.index);
+            const nestedDepth = (beforeWrite.match(/(?:effect|onMount|setTimeout|setInterval|addEventListener|=>)\s*(?:\([^)]*\)\s*)?\{/g) || []).length;
+            const closingBraces = (beforeWrite.match(/\}/g) || []).length;
+
+            // If we're at top level of the component (not inside a nested callback)
+            if (nestedDepth <= closingBraces) {
+              // Check it's not a signal READ (no args or the call is just `name()`)
+              const fullCall = body.slice(writeMatch.index, writeMatch.index + writeMatch[0].length + 50);
+              if (!fullCall.match(new RegExp(`^${name}\\s*\\(\\s*\\)`))) {
+                const line = code.slice(0, compMatch.index + compMatch[0].length + writeMatch.index).split('\n').length;
+                issues.push({
+                  severity: 'error',
+                  code: 'ERR_SIGNAL_WRITE_IN_RENDER',
+                  message: `Signal "${name}" written during render in ${compMatch[1]}. Move signal writes into event handlers, effects, or onMount().`,
+                  line,
+                  suggestedFix: `Move ${name}(...) into an effect() or event handler.`,
+                });
+              }
+            }
+          }
+        }
+      }
+      return issues;
+    },
+  },
+  {
+    id: 'missing-key-in-for',
+    code: 'ERR_MISSING_KEY',
+    severity: 'warning',
+    test(code) {
+      const issues = [];
+      // Match <For each={...}> without a key prop
+      const forPattern = /<For\s+each=\{[^}]+\}\s*>/g;
+      let match;
+      while ((match = forPattern.exec(code)) !== null) {
+        // Check if there's NO key= anywhere in the For tag
+        // Get the full tag (up to the closing >)
+        const tagStr = match[0];
+        if (!tagStr.includes('key=') && !tagStr.includes('key ')) {
+          const line = code.slice(0, match.index).split('\n').length;
+          issues.push({
+            severity: 'warning',
+            code: 'ERR_MISSING_KEY',
+            message: '<For> list rendered without a key prop. Add key={item => item.id} for efficient reordering.',
+            line,
+            suggestedFix: 'Add a key prop: <For each={items()} key={item => item.id}>',
+          });
+        }
+      }
+
+      // Also check mapArray without a key function (3rd arg)
+      const mapPattern = /mapArray\s*\(\s*[^,]+,\s*[^,)]+\s*\)/g;
+      while ((match = mapPattern.exec(code)) !== null) {
+        // mapArray(source, mapFn) — missing the 3rd arg (keyFn)
+        const line = code.slice(0, match.index).split('\n').length;
+        issues.push({
+          severity: 'warning',
+          code: 'ERR_MISSING_KEY',
+          message: 'mapArray() called without a key function (3rd argument). Add a key function for efficient list updates.',
+          line,
+          suggestedFix: 'Add a key function: mapArray(items, mapFn, item => item.id)',
+        });
+      }
+      return issues;
+    },
+  },
+  {
+    id: 'prefer-computed-over-effect',
+    code: 'HINT_PREFER_COMPUTED',
+    severity: 'info',
+    test(code) {
+      const issues = [];
+      // Find signal declarations
+      const signalDecls = [...code.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(?:signal|useSignal)\s*\(/g)];
+      const signalNames = new Set(signalDecls.map(m => m[1]));
+
+      // Find effects whose body is just a single signal write
+      // Pattern: effect(() => { signalName(expression); })
+      // or: effect(() => signalName(expression))
+      const effectPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*(?:\{\s*(\w+)\s*\([^)]+\)\s*;?\s*\}|(\w+)\s*\([^)]+\))\s*\)/g;
+      let match;
+      while ((match = effectPattern.exec(code)) !== null) {
+        const writtenSignal = match[1] || match[2];
+        if (writtenSignal && signalNames.has(writtenSignal)) {
+          const line = code.slice(0, match.index).split('\n').length;
+          issues.push({
+            severity: 'info',
+            code: 'HINT_PREFER_COMPUTED',
+            message: `Effect only writes to signal "${writtenSignal}". Consider using computed() instead for lazy evaluation.`,
+            line,
+            suggestedFix: `Replace with: const ${writtenSignal} = computed(() => /* your expression */);`,
           });
         }
       }
@@ -460,7 +602,7 @@ export function registerAgentTools(server, bridge) {
     'Static analysis for What Framework code. Pass a code snippet, get back structured issues with fix suggestions. Works offline — no browser connection needed.',
     {
       code: z.string().describe('The What Framework code snippet to analyze'),
-      rules: z.array(z.string()).optional().describe('Specific rule IDs to run (default: all). Options: missing-signal-read, innerhtml-without-html, effect-writes-read-signal, missing-cleanup'),
+      rules: z.array(z.string()).optional().describe('Specific rule IDs to run (default: all). Options: missing-signal-read, innerhtml-without-html, effect-writes-read-signal, missing-cleanup, signal-write-in-render, missing-key-in-for, prefer-computed-over-effect'),
     },
     async ({ code, rules: ruleFilter }) => {
       let rulesToRun = LINT_RULES;

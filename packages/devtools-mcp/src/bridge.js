@@ -5,11 +5,15 @@
  */
 
 import { WebSocketServer } from 'ws';
+import { randomBytes } from 'crypto';
+import { createServer } from 'http';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 const MAX_EVENT_LOG = 1000;
 const MAX_ERROR_LOG = 100;
 
-export function createBridge({ port = 9229 } = {}) {
+export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
   let latestSnapshot = null;
   const eventLog = [];
   const errorLog = [];
@@ -25,7 +29,64 @@ export function createBridge({ port = 9229 } = {}) {
   // Baseline snapshot for diff tool
   let baselineSnapshot = null;
 
-  const wss = new WebSocketServer({ port });
+  // Use a fixed token from env if provided, otherwise generate a random one.
+  // Set WHAT_MCP_TOKEN to share the same token between bridge and Vite plugin.
+  const authToken = process.env.WHAT_MCP_TOKEN || randomBytes(24).toString('hex');
+
+  const wss = new WebSocketServer({ host, port, verifyClient: ({ req }) => {
+    // Require a valid token query parameter to connect
+    try {
+      const url = new URL(req.url, `http://${host}:${port}`);
+      return url.searchParams.get('token') === authToken;
+    } catch {
+      return false;
+    }
+  }});
+
+  // --- Token Discovery ---
+  // Two mechanisms so the browser client can find the token automatically:
+  //
+  // 1. HTTP endpoint: GET http://localhost:{port+1}/__what_mcp_token returns the token
+  //    The client fetches this on startup before connecting the WebSocket.
+  //
+  // 2. File: writes token to node_modules/.cache/what-devtools-mcp/token
+  //    The Vite plugin reads this at transform time.
+
+  const discoveryPort = port + 1;
+  const httpServer = createServer((req, res) => {
+    // CORS headers so the browser can fetch from any origin
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Cache-Control', 'no-store');
+
+    if (req.url === '/__what_mcp_token') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ token: authToken, wsPort: port }));
+    } else {
+      res.writeHead(404);
+      res.end('Not found');
+    }
+  });
+
+  httpServer.listen(discoveryPort, host, () => {
+    console.error(`[what-devtools-mcp] Token discovery on http://${host}:${discoveryPort}/__what_mcp_token`);
+  });
+  httpServer.on('error', () => {
+    // Discovery port unavailable — not critical, file-based fallback still works
+    console.error(`[what-devtools-mcp] Token discovery port ${discoveryPort} unavailable (non-fatal)`);
+  });
+
+  // Write token to a well-known file path for Vite plugin to read
+  try {
+    const cacheDir = join(process.cwd(), 'node_modules', '.cache', 'what-devtools-mcp');
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, 'token'), JSON.stringify({ token: authToken, port, discoveryPort }));
+  } catch {
+    // Non-fatal — HTTP discovery is the primary mechanism
+  }
+
+  console.error(`[what-devtools-mcp] Bridge listening on ws://${host}:${port}`);
+  console.error(`[what-devtools-mcp] Auth token: ${authToken}`);
 
   wss.on('connection', (ws) => {
     browserSocket = ws;
@@ -130,6 +191,7 @@ export function createBridge({ port = 9229 } = {}) {
 
   function saveBaseline() {
     baselineSnapshot = latestSnapshot ? JSON.parse(JSON.stringify(latestSnapshot)) : null;
+    if (baselineSnapshot) baselineSnapshot._savedAt = Date.now();
     return !!baselineSnapshot;
   }
 
@@ -153,6 +215,7 @@ export function createBridge({ port = 9229 } = {}) {
       pendingCommands.delete(id);
     }
     wss.close();
+    httpServer.close();
   }
 
   return {
@@ -167,5 +230,6 @@ export function createBridge({ port = 9229 } = {}) {
     saveBaseline,
     getBaseline,
     close,
+    authToken,
   };
 }

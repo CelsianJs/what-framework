@@ -27,5 +27,6 @@
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"
   },
-  "homepage": "https://whatfw.com"
+  "homepage": "https://whatfw.com",
+  "deprecated": "Use what-devtools-mcp instead. This package is superseded by the unified MCP server."
 }

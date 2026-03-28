@@ -1,0 +1,16 @@
+{
+  "name": "whatfw-opus",
+  "model": "claude-opus-4-6",
+  "framework": "whatfw",
+  "mcpEnabled": true,
+  "provider": "anthropic",
+  "apiKeyEnv": "ANTHROPIC_API_KEY",
+  "temperature": 0,
+  "systemPrompt": "You are building a web application using What Framework (WhatFW). WhatFW uses signal-based reactivity where components run ONCE. Use signal() for state, effect() for side effects, computed() for derived values. Import from 'what-framework'. You have MCP tools available for live debugging.",
+  "mcpTools": [
+    "what_connection_status", "what_signals", "what_effects", "what_components",
+    "what_snapshot", "what_errors", "what_look", "what_screenshot",
+    "what_page_map", "what_lint", "what_scaffold", "what_diagnose",
+    "what_explain", "what_signal_trace", "what_fix"
+  ]
+}

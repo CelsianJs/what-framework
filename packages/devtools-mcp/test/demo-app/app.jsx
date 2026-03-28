@@ -1,321 +1,289 @@
 import * as core from 'what-core';
-import { signal, effect, derived, mount, h, batch, useSWR } from 'what-core';
+import { signal, effect, computed, batch, onMount, h, mount } from 'what-core';
 import { installDevTools } from 'what-devtools';
 import { connectDevToolsMCP } from '../../src/client.js';
 
-// ── DevTools Setup ──
+// Install devtools first — pass core module for synchronous hook wiring
 installDevTools(core);
-connectDevToolsMCP({ port: 9499 });
 
-// ── Mock Data ──
-const INITIAL_TASKS = [
-  { id: 1, title: 'Set up CI/CD pipeline', description: 'Configure GitHub Actions for automated testing and deployment', status: 'done', priority: 'high', assignee: 'Alice', createdAt: '2026-02-15' },
-  { id: 2, title: 'Design component library', description: 'Create reusable UI components with Storybook documentation', status: 'in-progress', priority: 'high', assignee: 'Bob', createdAt: '2026-02-16' },
-  { id: 3, title: 'Implement auth flow', description: 'Add OAuth2 login with Google and GitHub providers', status: 'in-progress', priority: 'high', assignee: 'Alice', createdAt: '2026-02-17' },
-  { id: 4, title: 'Write API documentation', description: 'Document all REST endpoints with OpenAPI spec', status: 'todo', priority: 'medium', assignee: 'Charlie', createdAt: '2026-02-18' },
-  { id: 5, title: 'Add dark mode support', description: 'Implement theme switching with CSS variables', status: 'todo', priority: 'low', assignee: 'Bob', createdAt: '2026-02-18' },
-  { id: 6, title: 'Performance audit', description: 'Run Lighthouse, fix Critical render path, lazy-load images', status: 'todo', priority: 'medium', assignee: 'Alice', createdAt: '2026-02-19' },
-  { id: 7, title: 'Database migration', description: 'Migrate from SQLite to PostgreSQL for production', status: 'in-progress', priority: 'high', assignee: 'Charlie', createdAt: '2026-02-19' },
-  { id: 8, title: 'Accessibility review', description: 'WCAG 2.1 AA compliance check on all pages', status: 'todo', priority: 'medium', assignee: 'Bob', createdAt: '2026-02-20' },
-  { id: 9, title: 'Set up monitoring', description: 'Add Sentry error tracking and Datadog APM', status: 'todo', priority: 'low', assignee: 'Charlie', createdAt: '2026-02-20' },
-  { id: 10, title: 'Mobile responsive fix', description: 'Fix sidebar collapse and touch targets on mobile', status: 'in-progress', priority: 'medium', assignee: 'Alice', createdAt: '2026-02-20' },
+// Connect to MCP bridge with auth token (injected by Vite define in e2e tests)
+const bridgeToken = typeof __BRIDGE_AUTH_TOKEN__ !== 'undefined' ? __BRIDGE_AUTH_TOKEN__ : '';
+connectDevToolsMCP({ port: typeof __BRIDGE_PORT__ !== 'undefined' ? __BRIDGE_PORT__ : 9229, token: bridgeToken });
+
+// ============================================================
+// Shared State (signals)
+// ============================================================
+const tasks = signal([], 'tasks');
+const searchQuery = signal('', 'searchQuery');
+const filterStatus = signal('all', 'filterStatus'); // all, active, completed
+const sortBy = signal('date', 'sortBy'); // date, priority, status
+const theme = signal('light', 'theme');
+const formError = signal('', 'formError');
+
+// ============================================================
+// Derived State (computed)
+// ============================================================
+const filteredTasks = computed(() => {
+  let list = tasks();
+  const query = searchQuery().toLowerCase();
+  const status = filterStatus();
+
+  if (query) {
+    list = list.filter(t => t.title.toLowerCase().includes(query));
+  }
+  if (status === 'active') {
+    list = list.filter(t => !t.completed);
+  } else if (status === 'completed') {
+    list = list.filter(t => t.completed);
+  }
+
+  const sort = sortBy();
+  if (sort === 'priority') {
+    list = [...list].sort((a, b) => b.priority - a.priority);
+  } else if (sort === 'status') {
+    list = [...list].sort((a, b) => a.completed - b.completed);
+  } else {
+    list = [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  return list;
+}, 'filteredTasks');
+
+const stats = computed(() => {
+  const all = tasks();
+  const active = all.filter(t => !t.completed).length;
+  const completed = all.filter(t => t.completed).length;
+  const overdue = all.filter(t => {
+    if (t.completed) return false;
+    if (!t.dueDate) return false;
+    return new Date(t.dueDate) < new Date();
+  }).length;
+  return { total: all.length, active, completed, overdue };
+}, 'stats');
+
+// ============================================================
+// Effects
+// ============================================================
+
+// Persist to localStorage
+effect(() => {
+  const current = tasks();
+  if (current.length > 0) {
+    try { localStorage.setItem('taskboard-tasks', JSON.stringify(current)); } catch {}
+  }
+}, 'persistTasks');
+
+// Apply theme to document
+effect(() => {
+  const t = theme();
+  document.documentElement.setAttribute('data-theme', t);
+}, 'applyTheme');
+
+// ============================================================
+// Seed Data
+// ============================================================
+const seedData = [
+  { id: 1, title: 'Design landing page', completed: false, priority: 3, createdAt: '2026-03-25', dueDate: '2026-03-28' },
+  { id: 2, title: 'Write API documentation', completed: true, priority: 2, createdAt: '2026-03-24', dueDate: '2026-03-26' },
+  { id: 3, title: 'Fix login bug', completed: false, priority: 5, createdAt: '2026-03-26', dueDate: '2026-03-27' },
+  { id: 4, title: 'Deploy to production', completed: false, priority: 4, createdAt: '2026-03-26', dueDate: '2026-03-30' },
+  { id: 5, title: 'Add dark mode support', completed: true, priority: 1, createdAt: '2026-03-23', dueDate: null },
+  { id: 6, title: 'Review pull requests', completed: false, priority: 3, createdAt: '2026-03-27', dueDate: '2026-03-28' },
+  { id: 7, title: 'Update dependencies', completed: false, priority: 2, createdAt: '2026-03-27', dueDate: null },
+  { id: 8, title: 'Write unit tests', completed: false, priority: 4, createdAt: '2026-03-26', dueDate: '2026-03-29' },
 ];
 
-// ── Reactive State ──
-const tasks = signal([...INITIAL_TASKS]);
-const filter = signal('all');          // 'all' | 'todo' | 'in-progress' | 'done'
-const searchQuery = signal('');
-const sortBy = signal('newest');       // 'newest' | 'priority' | 'title'
-const selectedTaskId = signal(null);
-const notification = signal('');
-let nextId = 11;
+// Initialize with localStorage or seed data
+try {
+  const stored = localStorage.getItem('taskboard-tasks');
+  if (stored) tasks(JSON.parse(stored));
+  else tasks(seedData);
+} catch {
+  tasks(seedData);
+}
 
-// ── BUG 1: Stale derived — this reads tasks but doesn't react properly ──
-// The `derived` uses tasks() inside, which should auto-track, but
-// the filter + search + sort pipeline has a subtle issue you can find with what_effects
-const filteredTasks = derived(() => {
-  let result = tasks();
-
-  // Filter by status
-  const f = filter();
-  if (f !== 'all') {
-    result = result.filter(t => t.status === f);
+// ============================================================
+// Actions
+// ============================================================
+function addTask(title, priority = 3, dueDate = null) {
+  if (!title.trim()) {
+    formError('Task title cannot be empty');
+    return;
   }
-
-  // Search
-  const q = searchQuery().toLowerCase();
-  if (q) {
-    result = result.filter(t =>
-      t.title.toLowerCase().includes(q) ||
-      t.description.toLowerCase().includes(q) ||
-      t.assignee.toLowerCase().includes(q)
-    );
-  }
-
-  // Sort
-  const s = sortBy();
-  if (s === 'newest') result = [...result].sort((a, b) => b.id - a.id);
-  else if (s === 'priority') {
-    const order = { high: 0, medium: 1, low: 2 };
-    result = [...result].sort((a, b) => order[a.priority] - order[b.priority]);
-  }
-  else if (s === 'title') result = [...result].sort((a, b) => a.title.localeCompare(b.title));
-
-  return result;
-});
-
-// Stats derived from tasks
-const stats = derived(() => {
-  const all = tasks();
-  return {
-    total: all.length,
-    todo: all.filter(t => t.status === 'todo').length,
-    inProgress: all.filter(t => t.status === 'in-progress').length,
-    done: all.filter(t => t.status === 'done').length,
+  formError('');
+  const newTask = {
+    id: Date.now(),
+    title: title.trim(),
+    completed: false,
+    priority,
+    createdAt: new Date().toISOString().split('T')[0],
+    dueDate,
   };
-});
-
-// Selected task derived
-const selectedTask = derived(() => {
-  const id = selectedTaskId();
-  if (id == null) return null;
-  return tasks().find(t => t.id === id) || null;
-});
-
-// ── BUG 2: Auto-save effect that fires too often ──
-// This effect is supposed to "save" when a task is edited,
-// but it runs every time ANY signal in the dependency tree changes
-let saveCount = 0;
-const autoSaveCount = signal(0);
-effect(() => {
-  // Reads tasks AND selectedTask — triggers on EVERY task list change
-  const t = selectedTask();
-  const all = tasks();
-  if (t) {
-    saveCount++;
-    autoSaveCount(saveCount);
-    // "Auto-save" side effect
-  }
-});
-
-// ── BUG 3: Notification timer leak ──
-// showNotification sets the signal but the timer that clears it
-// creates a new timer each time without clearing the old one
-let notifTimer = null;
-function showNotification(msg) {
-  notification(msg);
-  // BUG: doesn't clear previous timer — if called rapidly, messages flash
-  notifTimer = setTimeout(() => notification(''), 2000);
+  tasks(prev => [...prev, newTask]);
 }
 
-// ── Actions ──
-function addTask() {
-  const id = nextId++;
-  batch(() => {
-    tasks([...tasks(), {
-      id,
-      title: `New task #${id}`,
-      description: 'Click to edit description',
-      status: 'todo',
-      priority: 'medium',
-      assignee: 'Unassigned',
-      createdAt: new Date().toISOString().split('T')[0],
-    }]);
-    selectedTaskId(id);
-  });
-  showNotification(`Task #${id} created`);
-}
-
-function updateTask(id, updates) {
-  tasks(tasks().map(t => t.id === id ? { ...t, ...updates } : t));
+function toggleTask(id) {
+  tasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
 }
 
 function deleteTask(id) {
-  batch(() => {
-    tasks(tasks().filter(t => t.id !== id));
-    if (selectedTaskId() === id) selectedTaskId(null);
-  });
-  showNotification(`Task deleted`);
+  tasks(prev => prev.filter(t => t.id !== id));
 }
 
-// ── Components ──
+// ============================================================
+// Components
+// ============================================================
 
-function Sidebar() {
-  const FILTERS = [
-    { key: 'all', label: 'All Tasks' },
-    { key: 'todo', label: 'To Do' },
-    { key: 'in-progress', label: 'In Progress' },
-    { key: 'done', label: 'Done' },
-  ];
+function Header() {
+  return h('header', { style: 'display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border);' },
+    h('div', {},
+      h('h1', { style: 'margin:0;font-size:24px;' }, 'TaskBoard'),
+      h('p', { style: 'margin:4px 0 0;opacity:0.6;font-size:14px;' }, () => `${stats().active} active tasks`),
+    ),
+    h('div', { style: 'display:flex;gap:12px;align-items:center;' },
+      h('input', {
+        type: 'search',
+        placeholder: 'Search tasks...',
+        value: () => searchQuery(),
+        oninput: (e) => searchQuery(e.target.value),
+        style: 'padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text);',
+      }),
+      h('button', {
+        onclick: () => theme(t => t === 'light' ? 'dark' : 'light'),
+        style: 'padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text);cursor:pointer;',
+        'aria-label': 'Toggle theme',
+      }, () => theme() === 'light' ? '\u{1F319}' : '\u{2600}\u{FE0F}'),
+    ),
+  );
+}
 
-  return h('div', { class: 'sidebar' },
-    h('h1', {}, h('span', {}, '⚡'), ' TaskFlow'),
+function Stats() {
+  return h('div', { style: 'display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 24px;' },
+    h('div', { style: 'padding:16px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);' },
+      h('div', { style: 'font-size:24px;font-weight:700;' }, () => `${stats().total}`),
+      h('div', { style: 'font-size:12px;opacity:0.6;' }, 'Total'),
+    ),
+    h('div', { style: 'padding:16px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);' },
+      h('div', { style: 'font-size:24px;font-weight:700;color:#3b82f6;' }, () => `${stats().active}`),
+      h('div', { style: 'font-size:12px;opacity:0.6;' }, 'Active'),
+    ),
+    h('div', { style: 'padding:16px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);' },
+      h('div', { style: 'font-size:24px;font-weight:700;color:#22c55e;' }, () => `${stats().completed}`),
+      h('div', { style: 'font-size:12px;opacity:0.6;' }, 'Completed'),
+    ),
+    h('div', { style: 'padding:16px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);' },
+      h('div', { style: 'font-size:24px;font-weight:700;color:#ef4444;' }, () => `${stats().overdue}`),
+      h('div', { style: 'font-size:12px;opacity:0.6;' }, 'Overdue'),
+    ),
+  );
+}
 
-    h('div', { class: 'filter-group' },
-      h('label', {}, 'Status'),
-      ...FILTERS.map(f =>
+function FilterBar() {
+  return h('div', { style: 'display:flex;gap:8px;padding:0 24px;align-items:center;' },
+    h('div', { style: 'display:flex;gap:4px;' },
+      ...['all', 'active', 'completed'].map(status =>
         h('button', {
-          class: () => `filter-btn ${filter() === f.key ? 'active' : ''}`,
-          onclick: () => filter(f.key),
-        }, f.label)
+          onclick: () => filterStatus(status),
+          style: () => `padding:6px 14px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:13px;${
+            filterStatus() === status ? 'background:var(--accent);color:white;border-color:var(--accent);' : 'background:var(--bg-input);color:var(--text);'
+          }`,
+        }, status.charAt(0).toUpperCase() + status.slice(1)),
       ),
     ),
-
-    h('div', { class: 'filter-group' },
-      h('label', {}, 'Assignees'),
-      ...['Alice', 'Bob', 'Charlie'].map(name =>
-        h('button', {
-          class: 'filter-btn',
-          onclick: () => searchQuery(name),
-        }, name)
-      ),
-    ),
-
-    h('div', { class: 'stats' },
-      h('div', { class: 'stat' },
-        h('span', {}, 'Total'),
-        h('span', { class: 'val' }, () => `${stats().total}`),
-      ),
-      h('div', { class: 'stat' },
-        h('span', {}, 'To Do'),
-        h('span', { class: 'val' }, () => `${stats().todo}`),
-      ),
-      h('div', { class: 'stat' },
-        h('span', {}, 'In Progress'),
-        h('span', { class: 'val' }, () => `${stats().inProgress}`),
-      ),
-      h('div', { class: 'stat' },
-        h('span', {}, 'Done'),
-        h('span', { class: 'val' }, () => `${stats().done}`),
-      ),
-      h('div', { class: 'stat', style: 'margin-top: 0.5rem; border-top: 1px solid #1e1e2e; padding-top: 0.5rem' },
-        h('span', {}, 'Auto-saves'),
-        h('span', { class: 'val', id: 'save-count' }, () => `${autoSaveCount()}`),
+    h('div', { style: 'margin-left:auto;' },
+      h('select', {
+        onchange: (e) => sortBy(e.target.value),
+        style: 'padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text);',
+      },
+        h('option', { value: 'date' }, 'Sort by Date'),
+        h('option', { value: 'priority' }, 'Sort by Priority'),
+        h('option', { value: 'status' }, 'Sort by Status'),
       ),
     ),
   );
 }
 
-function TaskCard({ task }) {
+function TaskItem({ task }) {
+  const isOverdue = !task.completed && task.dueDate && new Date(task.dueDate) < new Date();
+
   return h('div', {
-    class: () => `task-card ${selectedTaskId() === task.id ? 'selected' : ''}`,
-    onclick: () => selectedTaskId(task.id),
+    style: () => `display:flex;align-items:center;padding:12px 24px;border-bottom:1px solid var(--border);${task.completed ? 'opacity:0.5;' : ''}`,
   },
-    h('div', { class: 'title' }, task.title),
-    h('div', { class: 'meta' },
-      h('span', { class: `priority ${task.priority}` }, task.priority),
-      h('span', {}, task.assignee),
-      h('span', {}, task.status),
-      h('span', {}, task.createdAt),
+    h('input', {
+      type: 'checkbox',
+      checked: task.completed,
+      onchange: () => toggleTask(task.id),
+      style: 'margin-right:12px;cursor:pointer;width:18px;height:18px;',
+    }),
+    h('div', { style: 'flex:1;' },
+      h('div', { style: `font-weight:500;${task.completed ? 'text-decoration:line-through;' : ''}` }, task.title),
+      h('div', { style: 'font-size:12px;opacity:0.5;margin-top:2px;' },
+        `Priority: ${'\u2605'.repeat(task.priority)}${'\u2606'.repeat(5 - task.priority)}`,
+        task.dueDate ? ` \u00B7 Due: ${task.dueDate}` : '',
+        isOverdue ? ' \u00B7 OVERDUE' : '',
+      ),
     ),
+    h('button', {
+      onclick: () => deleteTask(task.id),
+      style: 'padding:4px 8px;border:none;background:transparent;color:#ef4444;cursor:pointer;font-size:16px;',
+      'aria-label': `Delete ${task.title}`,
+    }, '\u00D7'),
   );
 }
 
 function TaskList() {
-  return h('div', { class: 'main' },
-    h('div', { class: 'toolbar' },
-      h('input', {
-        class: 'search-input',
-        placeholder: 'Search tasks...',
-        oninput: (e) => searchQuery(e.target.value),
-      }),
-      h('select', {
-        class: 'sort-select',
-        onchange: (e) => sortBy(e.target.value),
-      },
-        h('option', { value: 'newest' }, 'Newest First'),
-        h('option', { value: 'priority' }, 'By Priority'),
-        h('option', { value: 'title' }, 'By Title'),
-      ),
-      h('button', { class: 'add-btn', onclick: addTask }, '+ Add Task'),
-    ),
-
-    h('div', { class: 'task-list' },
-      () => {
-        const list = filteredTasks();
-        if (list.length === 0) {
-          return h('div', { class: 'empty-state' }, 'No tasks match your filters');
-        }
-        return list.map(task =>
-          h(TaskCard, { key: task.id, task })
-        );
-      }
-    ),
-  );
-}
-
-function DetailPanel() {
-  return h('div', { class: 'detail' },
-    h('h2', {}, 'Task Details'),
+  return h('div', { style: 'margin-top:12px;' },
     () => {
-      const task = selectedTask();
-      if (!task) {
-        return h('div', { class: 'detail-empty' }, 'Select a task to view details');
+      const items = filteredTasks();
+      if (items.length === 0) {
+        return h('div', { style: 'padding:40px;text-align:center;opacity:0.5;' }, 'No tasks found');
       }
-
       return h('div', {},
-        h('div', { class: 'field' },
-          h('label', {}, 'Title'),
-          h('div', { class: 'field-value' }, task.title),
-        ),
-        h('div', { class: 'field' },
-          h('label', {}, 'Description'),
-          h('textarea', {
-            value: task.description,
-            oninput: (e) => updateTask(task.id, { description: e.target.value }),
-          }),
-        ),
-        h('div', { class: 'field' },
-          h('label', {}, 'Priority'),
-          h('div', { class: 'field-value' },
-            h('span', { class: `priority ${task.priority}` }, task.priority),
-          ),
-        ),
-        h('div', { class: 'field' },
-          h('label', {}, 'Assignee'),
-          h('div', { class: 'field-value' }, task.assignee),
-        ),
-        h('div', { class: 'field' },
-          h('label', {}, 'Status'),
-          h('div', { class: 'status-toggle' },
-            ...['todo', 'in-progress', 'done'].map(s =>
-              h('button', {
-                class: () => `status-btn ${task.status === s ? 'active' : ''}`,
-                onclick: () => {
-                  updateTask(task.id, { status: s });
-                  showNotification(`Status → ${s}`);
-                },
-              }, s)
-            ),
-          ),
-        ),
-        h('div', { style: 'margin-top: 1.5rem' },
-          h('button', {
-            style: 'background: #ef4444; border: none; border-radius: 6px; padding: 0.5rem 1rem; color: #fff; cursor: pointer; font-size: 0.85rem',
-            onclick: () => deleteTask(task.id),
-          }, 'Delete Task'),
-        ),
+        ...items.map(task => h(TaskItem, { task, key: task.id })),
       );
-    }
+    },
   );
 }
 
-function NotificationToast() {
-  return h('div', {
-    class: () => `notification ${notification() ? 'show' : ''}`,
-  }, () => notification());
+function TaskForm() {
+  const inputRef = signal(null, 'formInputRef');
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const input = inputRef();
+    if (input) {
+      addTask(input.value);
+      input.value = '';
+    }
+  }
+
+  return h('form', { onsubmit: handleSubmit, style: 'display:flex;gap:8px;padding:16px 24px;' },
+    h('input', {
+      type: 'text',
+      placeholder: 'Add a new task...',
+      ref: (el) => inputRef(el),
+      style: 'flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-input);color:var(--text);font-size:14px;',
+    }),
+    h('button', {
+      type: 'submit',
+      style: 'padding:10px 20px;background:var(--accent);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600;',
+    }, 'Add Task'),
+    () => formError() ? h('div', { style: 'color:#ef4444;font-size:13px;padding:4px 0;' }, formError()) : null,
+  );
 }
 
 function App() {
-  return h('div', { class: 'app' },
-    h(Sidebar, {}),
+  return h('div', {
+    id: 'app-root',
+    style: 'max-width:720px;margin:0 auto;min-height:100vh;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;',
+  },
+    h(Header, {}),
+    h(Stats, {}),
+    h(TaskForm, {}),
+    h(FilterBar, {}),
     h(TaskList, {}),
-    h(DetailPanel, {}),
-    h(NotificationToast, {}),
   );
 }
 
+// Mount
 mount(h(App, {}), '#app');
-
-// Expose for debugging
-window.__WHAT_CORE__ = core;

@@ -184,7 +184,7 @@ commands[command]();
 async function dev() {
   const port = getFlag('--port', 3000);
   const host = getFlag('--host', 'localhost');
-  const config = loadConfig();
+  const config = await loadConfigAsync();
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://${host}:${port}`);
@@ -347,7 +347,7 @@ async function dev() {
 // --- Build ---
 
 async function build() {
-  const config = loadConfig();
+  const config = await loadConfigAsync();
   const outDir = join(cwd, config.outDir || 'dist');
   const useHash = config.hash !== false;
   const hashManifest = {};
@@ -443,8 +443,8 @@ async function build() {
 
 // --- Preview ---
 
-function preview() {
-  const config = loadConfig();
+async function preview() {
+  const config = await loadConfigAsync();
   const outDir = join(cwd, config.outDir || 'dist');
   const port = getFlag('--port', 4000);
 
@@ -482,7 +482,7 @@ function preview() {
 // --- Static Generation ---
 
 async function generate() {
-  const config = loadConfig();
+  const config = await loadConfigAsync();
   const outDir = join(cwd, config.outDir || 'dist');
 
   console.log('\n  what generate (SSG)\n');
@@ -556,16 +556,45 @@ function getFlag(name, defaultValue) {
   return typeof defaultValue === 'number' ? Number(val) : val;
 }
 
-function loadConfig() {
+// Async config loader — uses dynamic import() instead of unsafe new Function()
+let _configCache = null;
+async function loadConfigAsync() {
+  if (_configCache) return _configCache;
   const configPath = join(cwd, 'what.config.js');
-  // Simple sync config load (no dynamic import in this context)
   if (existsSync(configPath)) {
     try {
-      // Read and extract basic config
+      // Use file:// URL for cross-platform ESM import compatibility
+      const fileUrl = new URL(`file://${configPath}`);
+      const mod = await import(fileUrl.href);
+      _configCache = mod.default || mod;
+      return _configCache;
+    } catch (e) { /* use defaults */ }
+  }
+  _configCache = { mode: 'hybrid', pagesDir: 'src/pages', outDir: 'dist' };
+  return _configCache;
+}
+
+// Synchronous wrapper for backward compatibility — returns defaults,
+// then callers that need the real config should use loadConfigAsync()
+function loadConfig() {
+  // If we already loaded async, return cached
+  if (_configCache) return _configCache;
+  // Fallback: try JSON.parse for simple object configs (no code execution)
+  const configPath = join(cwd, 'what.config.js');
+  if (existsSync(configPath)) {
+    try {
       const src = readFileSync(configPath, 'utf-8');
       const match = src.match(/export default\s*(\{[\s\S]*?\})/);
       if (match) {
-        return new Function(`return ${match[1]}`)();
+        // Only parse if the content is valid JSON (safe subset)
+        // Convert JS object literal to JSON: add quotes to keys
+        const jsonLike = match[1]
+          .replace(/\/\/[^\n]*/g, '')           // strip line comments
+          .replace(/\/\*[\s\S]*?\*\//g, '')     // strip block comments
+          .replace(/,\s*([}\]])/g, '$1')        // strip trailing commas
+          .replace(/(['"])?(\w+)(['"])?\s*:/g, '"$2":')  // quote keys
+          .replace(/:\s*'([^']*)'/g, ': "$1"'); // single quotes to double
+        return JSON.parse(jsonLike);
       }
     } catch (e) { /* use defaults */ }
   }

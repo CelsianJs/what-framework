@@ -1,0 +1,10 @@
+{
+  "name": "react-baseline",
+  "model": "claude-opus-4-6",
+  "framework": "react",
+  "mcpEnabled": false,
+  "provider": "anthropic",
+  "apiKeyEnv": "ANTHROPIC_API_KEY",
+  "temperature": 0,
+  "systemPrompt": "You are building a web application using React. Use useState for state, useEffect for side effects, useMemo for derived values. Create a Vite + React project. Write clean, idiomatic React code."
+}

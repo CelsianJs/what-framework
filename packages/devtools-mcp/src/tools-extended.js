@@ -1,7 +1,8 @@
 /**
  * Extended MCP tool definitions for what-devtools-mcp.
- * 8 tools: component tree, dependency graph, eval, DOM inspect,
- * route info, diagnostics, diff snapshot, navigate.
+ * 13 tools: component tree, dependency graph, eval, DOM inspect,
+ * route info, diagnostics, diff snapshot, navigate, explain, signal trace,
+ * visual inspect (what_look), page map (what_page_map), screenshot (what_screenshot).
  *
  * These supplement the 10 base tools in tools.js.
  */
@@ -352,14 +353,32 @@ export function registerExtendedTools(server, bridge) {
   // Tool 3 — what_eval
   // ---------------------------------------------------------------------------
 
+  // Guard: eval only works when explicitly enabled via --unsafe-eval flag or
+  // WHAT_UNSAFE_EVAL=1 environment variable. Disabled by default.
+  const unsafeEvalEnabled = process.argv.includes('--unsafe-eval') ||
+    process.env.WHAT_UNSAFE_EVAL === '1' ||
+    process.env.WHAT_UNSAFE_EVAL === 'true';
+
   server.tool(
     'what_eval',
-    'Execute JavaScript in the browser context. Has access to window, document, __WHAT_DEVTOOLS__, and __WHAT_CORE__. Use for debugging scenarios not covered by other tools. Dev-only.',
+    'WARNING: Executes ARBITRARY JavaScript in the browser context. This is a security-sensitive tool that can run any code with full access to window, document, __WHAT_DEVTOOLS__, and __WHAT_CORE__. Disabled by default — must be explicitly enabled with --unsafe-eval flag or WHAT_UNSAFE_EVAL=1 env var. Use for debugging scenarios not covered by other tools. Dev-only.',
     {
       code: z.string().describe('JavaScript code to execute in the browser. Return a value to see it in the response.'),
       timeout: z.number().optional().default(5000).describe('Max execution time in ms (default: 5000, max: 30000)'),
     },
     async ({ code, timeout }) => {
+      if (!unsafeEvalEnabled) {
+        return errorResponse(
+          'what_eval is disabled by default for security. It executes arbitrary JavaScript in the browser context.',
+          [
+            'To enable, start the MCP server with the --unsafe-eval flag:',
+            '  what-devtools-mcp --unsafe-eval',
+            'Or set the environment variable WHAT_UNSAFE_EVAL=1',
+            'Only enable this in trusted development environments.',
+          ]
+        );
+      }
+
       if (!bridge.isConnected()) return noConnection('what_eval');
 
       const clampedTimeout = Math.min(Math.max(timeout || 5000, 100), 30000);
@@ -782,6 +801,332 @@ export function registerExtendedTools(server, bridge) {
         return errorResponse(e.message, [
           'The browser may have disconnected.',
           'Try what_connection_status to check connectivity.',
+        ]);
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool 9 — what_explain
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'what_explain',
+    'Get a complete picture of a component: its signals with values, effects with deps and run counts, rendered DOM, and any errors. The "tell me everything about this component" tool.',
+    {
+      componentId: z.number().describe('Component ID to explain (from what_components)'),
+      includeDOM: z.boolean().optional().default(true).describe('Include rendered DOM output (default: true)'),
+      domDepth: z.number().optional().default(2).describe('Max DOM depth if includeDOM is true (default: 2)'),
+    },
+    async ({ componentId, includeDOM, domDepth }) => {
+      const { snapshot, err } = await freshSnapshot('what_explain');
+      if (err) return err;
+
+      const components = snapshot.components || [];
+      const comp = components.find(c => c.id === componentId);
+      if (!comp) {
+        return errorResponse(`Component ${componentId} not found.`, ['Use what_components to list available IDs.']);
+      }
+
+      // Signals belonging to this component
+      const signals = (snapshot.signals || []).filter(s => s.componentId === componentId);
+
+      // Effects belonging to this component
+      const signalMap = new Map((snapshot.signals || []).map(s => [s.id, s]));
+      const effects = (snapshot.effects || []).filter(e => e.componentId === componentId).map(e => ({
+        ...e,
+        depSignalNames: (e.depSignalIds || []).map(sid => signalMap.get(sid)?.name || `signal_${sid}`),
+      }));
+
+      // DOM output (if requested and bridge connected)
+      let dom = null;
+      if (includeDOM) {
+        try {
+          const domResult = await bridge.sendCommand('dom-inspect', { componentId, depth: domDepth || 2 });
+          if (!domResult.error) dom = { html: (domResult.html || '').substring(0, 2000), structure: domResult.structure };
+        } catch {}
+      }
+
+      // Errors associated with this component
+      const errors = bridge.getErrors().filter(e => e.componentId === componentId || e.component === comp.name);
+
+      // Build summary
+      const sigPreview = signals.slice(0, 5).map(s => {
+        const val = JSON.stringify(s.value);
+        return `${s.name}=${val && val.length > 30 ? val.slice(0, 27) + '...' : val}`;
+      }).join(', ');
+      const effPreview = effects.slice(0, 3).map(e => `${e.name || 'effect_' + e.id} (ran ${e.runCount || 0}x)`).join(', ');
+
+      const summary = `${comp.name}: ${signals.length} signals (${sigPreview || 'none'}), ` +
+        `${effects.length} effects (${effPreview || 'none'})` +
+        (errors.length ? `, ${errors.length} errors` : '') +
+        (dom ? `, DOM: ${(dom.html || '').substring(0, 80)}...` : '');
+
+      return ok({
+        summary,
+        component: { id: comp.id, name: comp.name, parentId: comp.parentId },
+        signals,
+        effects,
+        dom,
+        errors: errors.length > 0 ? errors : [],
+        counts: { signals: signals.length, effects: effects.length, errors: errors.length },
+      });
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool 10 — what_signal_trace
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'what_signal_trace',
+    'Trace why a signal changed. Shows which effects wrote to this signal and the causal chain of signal dependencies. The debugging question every developer asks: "why did this value change?"',
+    {
+      signalId: z.number().describe('Signal ID to trace (from what_signals)'),
+      depth: z.number().optional().default(2).describe('Causal chain depth — how many levels of effect->signal->effect to trace (default: 2)'),
+    },
+    async ({ signalId, depth }) => {
+      const { snapshot, err } = await freshSnapshot('what_signal_trace');
+      if (err) return err;
+
+      const signals = snapshot.signals || [];
+      const effects = snapshot.effects || [];
+      const signalMap = new Map(signals.map(s => [s.id, s]));
+      const effectMap = new Map(effects.map(e => [e.id, e]));
+
+      const sig = signalMap.get(signalId);
+      if (!sig) {
+        return errorResponse(`Signal ${signalId} not found.`, ['Use what_signals to list available signal IDs.']);
+      }
+
+      // Get writer info from browser
+      let writers = { recentWrites: [], totalWrites: 0 };
+      try {
+        writers = await bridge.sendCommand('get-signal-writers', { signalId }, 5000);
+        if (writers.error) writers = { recentWrites: [], totalWrites: 0, note: writers.error };
+      } catch {}
+
+      // Build causal chain
+      // For each writer effect, find what signals it depends on
+      const chain = [];
+      const visited = new Set();
+
+      function traceEffect(effectId, currentDepth) {
+        if (currentDepth > (depth || 2) || visited.has(`effect:${effectId}`)) return null;
+        visited.add(`effect:${effectId}`);
+
+        const eff = effectMap.get(effectId);
+        if (!eff) return null;
+
+        const deps = (eff.depSignalIds || []).map(sid => {
+          const depSig = signalMap.get(sid);
+          return { id: sid, name: depSig?.name || `signal_${sid}`, value: depSig?.value };
+        });
+
+        return {
+          effectId: eff.id,
+          effectName: eff.name || `effect_${eff.id}`,
+          runCount: eff.runCount,
+          dependsOn: deps,
+        };
+      }
+
+      // Trace from recent writes
+      for (const write of (writers.recentWrites || []).slice(-5)) {
+        const entry = {
+          timestamp: write.timestamp,
+          previousValue: write.previousValue,
+          newValue: write.newValue,
+        };
+        if (write.writerEffect) {
+          entry.causedBy = traceEffect(write.writerEffect.id, 1);
+        }
+        chain.push(entry);
+      }
+
+      // Also show which effects READ this signal (downstream)
+      const downstream = effects
+        .filter(e => (e.depSignalIds || []).includes(signalId))
+        .map(e => ({ id: e.id, name: e.name || `effect_${e.id}`, runCount: e.runCount }));
+
+      // Build summary
+      const writerNames = chain
+        .filter(c => c.causedBy)
+        .map(c => c.causedBy.effectName)
+        .filter((v, i, a) => a.indexOf(v) === i); // unique
+
+      const summary = writerNames.length > 0
+        ? `Signal "${sig.name}" (current: ${JSON.stringify(sig.value)}) was written by: ${writerNames.join(', ')}. ` +
+          `${downstream.length} effect${downstream.length !== 1 ? 's' : ''} read this signal.`
+        : `Signal "${sig.name}" (current: ${JSON.stringify(sig.value)}). No recent write events captured. ` +
+          `${downstream.length} effect${downstream.length !== 1 ? 's' : ''} read this signal.`;
+
+      return ok({
+        summary,
+        signalId,
+        signalName: sig.name,
+        currentValue: sig.value,
+        recentWrites: chain,
+        downstream,
+        totalWritesCaptured: writers.totalWrites || 0,
+        nextSteps: [
+          chain.length === 0 ? 'Use what_watch to capture events, then call what_signal_trace again.' : null,
+          downstream.length > 0 ? `Use what_dependency_graph with signalId=${signalId} to see the full reactive graph.` : null,
+          'Use what_set_signal to test what happens when this signal changes.',
+        ].filter(Boolean),
+      });
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool 11 — what_look (visual inspection without image)
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'what_look',
+    'Get computed visual info about a component WITHOUT an image: bounding rect, key CSS styles, text content, child element types, accessibility info, and layout classification. Much cheaper than a screenshot (~300-500 tokens). Use this first before what_screenshot.',
+    {
+      componentId: z.number().describe('Component ID (from what_components)'),
+    },
+    async ({ componentId }) => {
+      if (!bridge.isConnected()) return noConnection('what_look');
+
+      try {
+        const result = await bridge.sendCommand('visual-inspect', { componentId }, 5000);
+        if (result.error) {
+          return errorResponse(result.error, ['Use what_components to list available IDs.']);
+        }
+
+        const { componentName, boundingRect, styles, textContent, childElements, totalChildren, layout, viewport, accessibility } = result;
+
+        const styleDesc = Object.entries(styles || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
+        const childDesc = Object.entries(childElements || {}).map(([k, v]) => `${v} ${k}${v > 1 ? 's' : ''}`).join(', ');
+
+        const summary = `${componentName}: ${boundingRect.width}×${boundingRect.height}px at (${boundingRect.x},${boundingRect.y}). ` +
+          `Layout: ${layout}. ` +
+          (childDesc ? `Contains: ${childDesc}. ` : '') +
+          (textContent && textContent !== '(empty)' ? `Text: "${textContent.substring(0, 80)}${textContent.length > 80 ? '...' : ''}"` : 'No text content.');
+
+        return ok({
+          summary,
+          component: componentName,
+          boundingRect,
+          layout,
+          styles,
+          textContent,
+          childElements,
+          totalChildren,
+          accessibility,
+          viewport,
+        });
+      } catch (e) {
+        return errorResponse(`Failed: ${e.message}`, ['Check what_connection_status']);
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool 12 — what_page_map (full page layout skeleton)
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'what_page_map',
+    'Get a structured map of the entire visible page: landmarks, interactive elements, headings, and WhatFW component boundaries with positions. No image — pure structured text (~500-1000 tokens). Use this to understand the full page layout.',
+    {
+      maxElements: z.number().optional().default(200).describe('Max elements to include (default: 200)'),
+    },
+    async ({ maxElements }) => {
+      if (!bridge.isConnected()) return noConnection('what_page_map');
+
+      try {
+        const result = await bridge.sendCommand('page-map', { maxElements: maxElements || 200 }, 5000);
+        if (result.error) {
+          return errorResponse(result.error);
+        }
+
+        const { viewport, landmarks, interactives, headings, components, totalElements } = result;
+
+        const summary = `Page map: ${viewport.width}×${viewport.height} viewport. ` +
+          `${landmarks?.length || 0} landmarks, ` +
+          `${interactives?.length || 0} interactive elements, ` +
+          `${headings?.length || 0} headings, ` +
+          `${components?.length || 0} WhatFW components. ` +
+          `${totalElements} total elements mapped.`;
+
+        return ok({
+          summary,
+          viewport,
+          landmarks: landmarks || [],
+          interactives: interactives || [],
+          headings: headings || [],
+          components: components || [],
+          totalElements,
+        });
+      } catch (e) {
+        return errorResponse(`Failed: ${e.message}`, ['Check what_connection_status']);
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool 13 — what_screenshot (component-level screenshot via foreignObject SVG)
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'what_screenshot',
+    'Capture a component-level screenshot. Returns a base64-encoded image cropped to JUST the component bounding box (5-20KB, not a full page screenshot). Use what_look first for cheaper text-based inspection.',
+    {
+      componentId: z.number().describe('Component ID (from what_components)'),
+      maxWidth: z.number().optional().default(400).describe('Max image width in px — smaller = faster + cheaper (default: 400)'),
+      quality: z.number().optional().default(0.7).describe('JPEG quality 0.1-1.0 (default: 0.7)'),
+      format: z.enum(['jpeg', 'png']).optional().default('jpeg').describe('Image format — jpeg is smaller (default: jpeg)'),
+    },
+    async ({ componentId, maxWidth, quality, format }) => {
+      if (!bridge.isConnected()) return noConnection('what_screenshot');
+
+      try {
+        const result = await bridge.sendCommand('component-screenshot', {
+          componentId,
+          maxWidth: maxWidth || 400,
+          quality: quality || 0.7,
+          format: format || 'jpeg',
+        }, 10000); // 10s timeout for rendering
+
+        if (result.error) {
+          return errorResponse(result.error, [
+            result.fallback || 'Use what_look for text-based visual info.',
+            'Use what_dom_inspect for HTML structure.',
+          ]);
+        }
+
+        const sizeKB = Math.round(result.sizeBytes / 1024);
+        const summary = `Screenshot of "${result.componentName}": ${result.width}x${result.height}px, ${sizeKB}KB ${result.format.toUpperCase()}`;
+
+        // Return MCP image content block + metadata text
+        return {
+          content: [
+            {
+              type: 'image',
+              data: result.base64,
+              mimeType: result.mimeType || (result.format === 'png' ? 'image/png' : 'image/jpeg'),
+            },
+            {
+              type: 'text',
+              text: JSON.stringify({
+                summary,
+                componentName: result.componentName,
+                width: result.width,
+                height: result.height,
+                sizeKB,
+                format: result.format,
+              }, null, 2),
+            },
+          ],
+        };
+      } catch (e) {
+        return errorResponse(`Screenshot failed: ${e.message}`, [
+          'Use what_look for text-based visual info without an image.',
+          'Use what_dom_inspect for HTML structure.',
         ]);
       }
     }

@@ -21,7 +21,7 @@ function logGrouped(badge, badgeStyle, title, data) {
   console.groupEnd();
 }
 
-export function connectDevToolsMCP({ port = 9229 } = {}) {
+export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
   // Never connect in production
   if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') {
     return { disconnect() {}, isConnected: false, eventCount: 0 };
@@ -42,19 +42,45 @@ export function connectDevToolsMCP({ port = 9229 } = {}) {
   let hasLoggedDisconnect = false;
   let reconnectAttempts = 0;
   let unsubscribeFn = null;
+  let discoveredToken = token;
+  let discoveredPort = port;
 
   // Startup banner
   console.log(
-    '%c⚡ What DevTools MCP %c Client v0.1.0',
+    '%c⚡ What DevTools MCP %c Client v0.2.0',
     'background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;padding:4px 10px;border-radius:4px;font-weight:bold;font-size:13px',
     'color:#a855f7;font-weight:bold'
   );
+
+  // --- Token Auto-Discovery ---
+  // If no token is provided, try to discover it from the bridge's HTTP endpoint.
+  // The bridge serves GET http://localhost:{port+1}/__what_mcp_token
+  async function discoverToken() {
+    if (discoveredToken) return true; // Already have a token
+
+    const discoveryPort = port + 1;
+    try {
+      const res = await fetch(`http://localhost:${discoveryPort}/__what_mcp_token`);
+      if (res.ok) {
+        const data = await res.json();
+        discoveredToken = data.token;
+        discoveredPort = data.wsPort || port;
+        log('MCP', BADGE, `Token discovered automatically from bridge`);
+        return true;
+      }
+    } catch {
+      // Discovery endpoint not available — bridge may not be running yet
+    }
+    return false;
+  }
+
   log('MCP', BADGE, `Connecting to bridge on ws://localhost:${port}`);
 
   function connect() {
     reconnectAttempts++;
     try {
-      ws = new WebSocket(`ws://localhost:${port}`);
+      const tokenParam = discoveredToken ? `?token=${encodeURIComponent(discoveredToken)}` : '';
+      ws = new WebSocket(`ws://localhost:${discoveredPort}${tokenParam}`);
     } catch {
       if (reconnectAttempts <= 1) {
         log('MCP', BADGE_WARN, 'Bridge not available — retrying silently in background');
@@ -222,7 +248,7 @@ export function connectDevToolsMCP({ port = 9229 } = {}) {
         let extResult = null;
         try {
           const { handleExtendedCommand } = await import('./client-commands.js');
-          extResult = handleExtendedCommand(command, args, devtools);
+          extResult = await handleExtendedCommand(command, args, devtools);
         } catch {}
 
         if (extResult !== null) {
@@ -248,9 +274,12 @@ export function connectDevToolsMCP({ port = 9229 } = {}) {
       hasLoggedDisconnect = true;
     }
     const delay = reconnectAttempts >= 5 ? MAX_RECONNECT_DELAY : reconnectDelay;
-    reconnectTimer = setTimeout(() => {
+    reconnectTimer = setTimeout(async () => {
       reconnectTimer = null;
       reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+      // Try to discover token before each reconnect attempt
+      // (bridge may have started since last attempt)
+      await discoverToken();
       connect();
     }, delay);
   }
@@ -273,7 +302,8 @@ export function connectDevToolsMCP({ port = 9229 } = {}) {
     log('MCP', BADGE, 'Disconnected');
   }
 
-  connect();
+  // Initial connect — try token discovery first, then connect
+  discoverToken().then(() => connect());
 
   return {
     disconnect,

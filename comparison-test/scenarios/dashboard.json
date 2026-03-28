@@ -1,0 +1,18 @@
+{
+  "name": "dashboard",
+  "difficulty": 3,
+  "timeoutMs": 600000,
+  "description": "Build a multi-component dashboard with data fetching, charts, and responsive layout.",
+  "prompt": "Build a dashboard application with the following features:\n1. A header with the app title and a dark/light mode toggle\n2. A sidebar with navigation links (Dashboard, Analytics, Settings)\n3. A main content area with:\n   a. A stats row showing 4 metric cards (Total Users, Revenue, Orders, Conversion Rate) with fake data\n   b. A line chart showing monthly revenue data (use canvas or SVG, no external chart library)\n   c. A table showing recent orders (5-10 rows) with columns: Order ID, Customer, Amount, Status, Date\n   d. Status badges (Completed=green, Pending=yellow, Cancelled=red)\n4. Responsive layout: sidebar collapses on mobile\n5. The dark/light mode toggle should actually switch themes\n6. Data should be loaded from a mock data source (can be inline JSON)\n\nBuild this as a multi-component application with good component decomposition.",
+  "acceptanceCriteria": [
+    "Header renders with title and theme toggle",
+    "Sidebar shows navigation links",
+    "4 stat cards display with numbers",
+    "A chart/graph is visible",
+    "Orders table shows rows with data",
+    "Status badges have appropriate colors",
+    "Theme toggle switches between light and dark modes",
+    "Layout is responsive (sidebar behavior changes at mobile widths)"
+  ],
+  "playwrightTests": "test('dashboard app works', async ({ page }) => {\n  // Header exists\n  await expect(page.locator('header, [role=banner], nav').first()).toBeVisible();\n  \n  // Stat cards\n  const cards = page.locator('[class*=card], [class*=stat], [class*=metric]');\n  await expect(cards.first()).toBeVisible();\n  \n  // Table with data\n  const table = page.locator('table');\n  await expect(table).toBeVisible();\n  const rows = table.locator('tbody tr');\n  expect(await rows.count()).toBeGreaterThanOrEqual(3);\n  \n  // Theme toggle\n  const toggle = page.getByRole('button', { name: /theme|dark|light|mode/i });\n  if (await toggle.isVisible()) {\n    await toggle.click();\n    // Verify some visual change happened\n    const html = page.locator('html');\n    const classAfter = await html.getAttribute('class');\n    // Either class changed or data-theme changed\n  }\n});"
+}

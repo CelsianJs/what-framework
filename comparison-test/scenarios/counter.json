@@ -1,0 +1,15 @@
+{
+  "name": "counter",
+  "difficulty": 1,
+  "timeoutMs": 120000,
+  "description": "Build a simple counter app with increment, decrement, and reset.",
+  "prompt": "Build a counter application with the following features:\n1. Display the current count (starting at 0)\n2. An increment button that adds 1\n3. A decrement button that subtracts 1\n4. A reset button that sets count back to 0\n5. The count should be displayed prominently\n6. Style it nicely with CSS\n\nThe app should be a single component that works correctly.",
+  "acceptanceCriteria": [
+    "Page renders with count showing 0",
+    "Clicking increment increases count by 1",
+    "Clicking decrement decreases count by 1",
+    "Clicking reset returns count to 0",
+    "Count can go negative"
+  ],
+  "playwrightTests": "test('counter app works', async ({ page }) => {\n  // Initial state\n  await expect(page.getByText('0')).toBeVisible();\n  \n  // Increment\n  await page.getByRole('button', { name: /increment/i }).click();\n  await expect(page.getByText('1')).toBeVisible();\n  \n  // Increment again\n  await page.getByRole('button', { name: /increment/i }).click();\n  await expect(page.getByText('2')).toBeVisible();\n  \n  // Decrement\n  await page.getByRole('button', { name: /decrement/i }).click();\n  await expect(page.getByText('1')).toBeVisible();\n  \n  // Reset\n  await page.getByRole('button', { name: /reset/i }).click();\n  await expect(page.getByText('0')).toBeVisible();\n});"
+}

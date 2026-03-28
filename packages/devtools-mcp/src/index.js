@@ -138,6 +138,8 @@ server.resource(
       mimeType: 'text/markdown',
       text: `# What Framework API Reference
 
+> **Signal style note:** WhatFW signals support both \`sig(newValue)\` and \`sig.set(newValue)\`. The idiomatic pattern is the function-call style: \`sig(newValue)\` to write, \`sig()\` to read.
+
 ## Reactive Primitives
 - \`signal(initial, debugName?)\` — create reactive value. Read: \`sig()\`. Write: \`sig(newVal)\` or \`sig(prev => next)\`.
 - \`computed(fn)\` — derived value (lazy, only recomputes when deps change AND it's read)
@@ -615,6 +617,391 @@ function UserProfile({ userId }) {
 `,
     }],
   })
+);
+
+// --- Routing Resource (ported from mcp-server) ---
+server.resource(
+  'routing-guide',
+  'what://docs/routing',
+  { description: 'File-based and programmatic routing in What Framework: routes, params, nested layouts, navigation' },
+  async () => ({
+    contents: [{
+      uri: 'what://docs/routing',
+      mimeType: 'text/markdown',
+      text: `# What Framework Routing
+
+## Declaring Routes
+
+\`\`\`js
+import { Router, Link, navigate, route } from 'what-framework/router';
+
+h(Router, {
+  routes: [
+    { path: '/', component: Home },
+    { path: '/about', component: About },
+    { path: '/users/:id', component: User },
+    { path: '/blog/*', component: BlogLayout },
+  ],
+  fallback: h(NotFound),
+});
+\`\`\`
+
+## Navigation
+
+\`\`\`js
+// Declarative link
+h(Link, { href: '/about' }, 'About');
+
+// Programmatic navigation
+navigate('/dashboard');
+navigate('/login', { replace: true });
+\`\`\`
+
+## Reactive Route State
+
+\`\`\`js
+route.path();    // current path (signal — call to read)
+route.params();  // { id: '123' }
+route.query();   // { page: '1' }
+\`\`\`
+
+## Nested Layouts
+
+\`\`\`js
+{
+  path: '/dashboard',
+  component: DashboardLayout,
+  children: [
+    { path: '', component: DashboardHome },
+    { path: 'settings', component: Settings },
+  ],
+}
+\`\`\`
+
+## File-Based Routing
+
+Drop files in \`src/pages/\` and routes are generated automatically:
+
+| File | Route |
+|------|-------|
+| \`src/pages/index.jsx\` | \`/\` |
+| \`src/pages/about.jsx\` | \`/about\` |
+| \`src/pages/users/[id].jsx\` | \`/users/:id\` |
+| \`src/pages/blog/[...slug].jsx\` | \`/blog/*\` |
+
+## Route Guards
+
+\`\`\`js
+{
+  path: '/admin',
+  component: AdminPanel,
+  beforeEnter: (to, from) => {
+    if (!isAuthenticated()) return '/login';
+  },
+}
+\`\`\`
+`,
+    }],
+  })
+);
+
+// --- SSR/SSG Resource (ported from mcp-server) ---
+server.resource(
+  'ssr-ssg-guide',
+  'what://docs/ssr-ssg',
+  { description: 'Server-side rendering, static site generation, and hybrid rendering in What Framework' },
+  async () => ({
+    contents: [{
+      uri: 'what://docs/ssr-ssg',
+      mimeType: 'text/markdown',
+      text: `# What Framework SSR / SSG
+
+## Render Modes
+
+| Mode | Description |
+|------|-------------|
+| \`'static'\` | Pre-rendered at build time (SSG) |
+| \`'server'\` | Rendered on each request (SSR) |
+| \`'client'\` | Client-only rendering (SPA) |
+| \`'hybrid'\` | Static shell + client hydration |
+
+## Render to String (SSR)
+
+\`\`\`js
+import { renderToString } from 'what-framework/server';
+
+const html = await renderToString(h(App));
+\`\`\`
+
+## Stream Rendering
+
+\`\`\`js
+import { renderToStream } from 'what-framework/server';
+
+for await (const chunk of renderToStream(h(App))) {
+  response.write(chunk);
+}
+\`\`\`
+
+## Per-Page Configuration
+
+\`\`\`js
+import { definePage } from 'what-framework/server';
+
+export const page = definePage({
+  mode: 'static',  // 'static' | 'server' | 'client' | 'hybrid'
+});
+\`\`\`
+
+## Server-Only Components
+
+\`\`\`js
+import { server } from 'what-framework/server';
+
+const Header = server(({ title }) => h('header', null, title));
+// This component never ships JS to the client
+\`\`\`
+
+## Islands + SSR
+
+Combine SSR with islands for zero-JS-by-default pages that hydrate interactive parts on demand:
+
+\`\`\`js
+import { island, Island } from 'what-framework/server';
+
+island('cart', () => import('./islands/cart.js'), {
+  mode: 'action',  // Hydrate on first interaction
+});
+
+function Page() {
+  return h('div', null,
+    h('nav', null, 'Static nav — no JS'),
+    h(Island, { name: 'cart' }),
+    h('footer', null, 'Static footer — no JS'),
+  );
+}
+\`\`\`
+
+### Hydration Modes
+- \`'idle'\`: Hydrate when browser is idle
+- \`'visible'\`: Hydrate when visible (IntersectionObserver)
+- \`'action'\`: Hydrate on first click/focus
+- \`'media'\`: Hydrate when media query matches
+- \`'load'\`: Hydrate immediately
+- \`'static'\`: Never hydrate (server only)
+`,
+    }],
+  })
+);
+
+// --- CLI Resource (ported from mcp-server) ---
+server.resource(
+  'cli-guide',
+  'what://docs/cli',
+  { description: 'What Framework CLI commands and project configuration' },
+  async () => ({
+    contents: [{
+      uri: 'what://docs/cli',
+      mimeType: 'text/markdown',
+      text: `# What Framework CLI
+
+## Commands
+
+\`\`\`bash
+what dev        # Dev server with HMR
+what build      # Production build
+what preview    # Preview production build
+what generate   # Static site generation
+\`\`\`
+
+## Configuration
+
+\`\`\`js
+// what.config.js
+export default {
+  mode: 'hybrid',       // 'static' | 'server' | 'client' | 'hybrid'
+  pagesDir: 'src/pages',
+  outDir: 'dist',
+  islands: true,
+  port: 3000,
+};
+\`\`\`
+
+## Environment Variables
+
+- \`WHAT_MCP_PORT\` — Port for the devtools MCP bridge (default: 9229)
+- \`NODE_ENV\` — \`'development'\` enables devtools instrumentation and error collection
+`,
+    }],
+  })
+);
+
+// --- Testing Resource ---
+server.resource(
+  'testing-guide',
+  'what://docs/testing',
+  { description: 'How to test What Framework components, signals, and effects' },
+  async () => ({
+    contents: [{
+      uri: 'what://docs/testing',
+      mimeType: 'text/markdown',
+      text: `# Testing What Framework Apps
+
+## Unit Testing Signals
+
+\`\`\`js
+import { signal, computed, effect, flushSync } from 'what-framework';
+import { describe, it, assert } from 'node:test';
+
+describe('Counter signal', () => {
+  it('increments', () => {
+    const count = signal(0);
+    count(1);
+    assert.strictEqual(count(), 1);
+  });
+
+  it('computed derives correctly', () => {
+    const count = signal(2);
+    const doubled = computed(() => count() * 2);
+    assert.strictEqual(doubled(), 4);
+    count(5);
+    assert.strictEqual(doubled(), 10);
+  });
+});
+\`\`\`
+
+## Testing Effects
+
+Effects flush asynchronously via microtask. Use \`flushSync()\` to force synchronous execution in tests:
+
+\`\`\`js
+import { signal, effect, flushSync } from 'what-framework';
+
+it('effect tracks signal changes', () => {
+  const name = signal('Alice');
+  let captured = '';
+  effect(() => { captured = name(); });
+  flushSync();
+  assert.strictEqual(captured, 'Alice');
+
+  name('Bob');
+  flushSync();
+  assert.strictEqual(captured, 'Bob');
+});
+\`\`\`
+
+## Testing Components
+
+\`\`\`js
+import { mount } from 'what-framework';
+
+it('renders component', () => {
+  const container = document.createElement('div');
+  mount(<Counter />, container);
+  assert.ok(container.querySelector('button'));
+  assert.strictEqual(container.textContent.includes('0'), true);
+});
+\`\`\`
+
+## Testing with MCP Devtools
+
+Use the MCP tools for integration-level debugging:
+1. \`what_lint { code: "..." }\` — static analysis on code before running
+2. \`what_validate { code: "..." }\` — compile check + lint in one call
+3. \`what_snapshot { diff: true }\` — verify state changes after an action
+`,
+    }],
+  })
+);
+
+// --- Project Structure Resource ---
+server.resource(
+  'project-structure',
+  'what://docs/project-structure',
+  { description: 'Recommended project structure and file conventions for What Framework apps' },
+  async () => ({
+    contents: [{
+      uri: 'what://docs/project-structure',
+      mimeType: 'text/markdown',
+      text: `# What Framework Project Structure
+
+## Recommended Layout
+
+\`\`\`
+my-app/
+  what.config.js          # Framework configuration
+  src/
+    pages/                # File-based routes (auto-discovered)
+      index.jsx           # /
+      about.jsx           # /about
+      users/
+        [id].jsx          # /users/:id
+        index.jsx         # /users
+    components/           # Shared components
+      Header.jsx
+      Footer.jsx
+    islands/              # Interactive islands (hydrated on demand)
+      Cart.jsx
+      SearchBar.jsx
+    stores/               # Global stores and shared state
+      auth.js
+      cart.js
+    lib/                  # Utilities, API clients, helpers
+      api.js
+      format.js
+    styles/               # Global styles
+      global.css
+  public/                 # Static assets (copied as-is)
+    favicon.ico
+  dist/                   # Build output (generated)
+\`\`\`
+
+## Naming Conventions
+
+- **Components**: PascalCase (\`MyComponent.jsx\`)
+- **Pages**: lowercase or kebab-case (\`about.jsx\`, \`blog-post.jsx\`)
+- **Islands**: PascalCase, in \`islands/\` directory, export \`.island = true\`
+- **Stores**: camelCase (\`authStore.js\`)
+- **Signals**: camelCase variable names with optional debug name: \`signal(0, 'count')\`
+
+## Import Conventions
+
+Always import from \`'what-framework'\`, not \`'what'\`:
+
+\`\`\`js
+import { signal, effect, computed, onMount } from 'what-framework';
+import { Router, Link, navigate } from 'what-framework/router';
+import { renderToString, definePage } from 'what-framework/server';
+\`\`\`
+`,
+    }],
+  })
+);
+
+// --- Tool Pipeline Guide Resource ---
+server.resource(
+  'tool-pipelines',
+  'what://docs/tool-pipelines',
+  { description: 'How to call MCP tools efficiently: recommended pipelines, token costs, anti-patterns, cascade rules' },
+  async () => {
+    // Load from the markdown file at build time
+    let text;
+    try {
+      const { readFileSync } = await import('node:fs');
+      const { fileURLToPath } = await import('node:url');
+      const path = fileURLToPath(new URL('../TOOL-PIPELINES.md', import.meta.url));
+      text = readFileSync(path, 'utf-8');
+    } catch {
+      text = '# Tool Pipeline Guide\n\nFailed to load TOOL-PIPELINES.md. Check the package installation.';
+    }
+    return {
+      contents: [{
+        uri: 'what://docs/tool-pipelines',
+        mimeType: 'text/markdown',
+        text,
+      }],
+    };
+  }
 );
 
 // Import and register extended tools if available

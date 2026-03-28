@@ -1,61 +1,28 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="UTF-8">
-  <title>TaskFlow — What DevTools MCP Demo</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TaskBoard — WhatFW Demo</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0a0a12; color: #e0e0e8; }
-    .app { display: grid; grid-template-columns: 260px 1fr 300px; min-height: 100vh; }
-
-    /* Sidebar */
-    .sidebar { background: #0f0f1a; border-right: 1px solid #1e1e2e; padding: 1.5rem; }
-    .sidebar h1 { font-size: 1.25rem; margin-bottom: 1.5rem; color: #a78bfa; }
-    .sidebar h1 span { color: #6366f1; }
-    .filter-group { margin-bottom: 1.5rem; }
-    .filter-group label { display: block; font-size: 0.75rem; color: #808090; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
-    .filter-btn { display: block; width: 100%; text-align: left; background: none; border: none; color: #c0c0d0; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; margin-bottom: 2px; }
-    .filter-btn:hover { background: #1a1a2a; }
-    .filter-btn.active { background: #6366f1; color: #fff; }
-    .stats { margin-top: auto; padding-top: 1.5rem; border-top: 1px solid #1e1e2e; }
-    .stat { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.8rem; color: #808090; }
-    .stat .val { color: #c0c0d0; font-weight: 600; }
-
-    /* Main */
-    .main { padding: 1.5rem 2rem; overflow-y: auto; }
-    .toolbar { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; align-items: center; }
-    .search-input { flex: 1; background: #12121a; border: 1px solid #1e1e2e; border-radius: 8px; padding: 0.6rem 1rem; color: #e0e0e8; font-size: 0.9rem; outline: none; }
-    .search-input:focus { border-color: #6366f1; }
-    .sort-select { background: #12121a; border: 1px solid #1e1e2e; border-radius: 8px; padding: 0.6rem 0.75rem; color: #e0e0e8; font-size: 0.85rem; outline: none; }
-    .add-btn { background: #6366f1; border: none; border-radius: 8px; padding: 0.6rem 1.25rem; color: #fff; font-weight: 600; cursor: pointer; white-space: nowrap; }
-    .add-btn:hover { background: #5558e6; }
-
-    .task-list { display: flex; flex-direction: column; gap: 0.75rem; }
-    .task-card { background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; padding: 1rem 1.25rem; cursor: pointer; transition: border-color 0.15s; }
-    .task-card:hover { border-color: #2e2e4e; }
-    .task-card.selected { border-color: #6366f1; }
-    .task-card .title { font-weight: 600; margin-bottom: 0.35rem; }
-    .task-card .meta { display: flex; gap: 0.75rem; font-size: 0.75rem; color: #808090; }
-    .task-card .priority { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
-    .priority.high { background: #dc262620; color: #ef4444; }
-    .priority.medium { background: #f9731620; color: #f97316; }
-    .priority.low { background: #22c55e20; color: #22c55e; }
-    .empty-state { text-align: center; padding: 4rem; color: #606070; }
-
-    /* Detail Panel */
-    .detail { background: #0f0f1a; border-left: 1px solid #1e1e2e; padding: 1.5rem; }
-    .detail h2 { font-size: 1rem; margin-bottom: 1rem; color: #a0a0b0; }
-    .detail-empty { color: #606070; text-align: center; padding: 3rem 1rem; }
-    .detail .field { margin-bottom: 1rem; }
-    .detail .field label { display: block; font-size: 0.7rem; color: #808090; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.35rem; }
-    .detail .field-value { font-size: 0.9rem; color: #c0c0d0; }
-    .detail textarea { width: 100%; background: #12121a; border: 1px solid #1e1e2e; border-radius: 6px; padding: 0.5rem; color: #e0e0e8; font-size: 0.85rem; min-height: 80px; resize: vertical; outline: none; }
-    .detail textarea:focus { border-color: #6366f1; }
-    .detail .status-toggle { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-    .detail .status-btn { padding: 0.35rem 0.75rem; border-radius: 6px; border: 1px solid #1e1e2e; background: none; color: #808090; cursor: pointer; font-size: 0.8rem; }
-    .detail .status-btn.active { border-color: #6366f1; color: #6366f1; background: #6366f110; }
-    .notification { position: fixed; bottom: 1.5rem; right: 1.5rem; background: #22c55e; color: #fff; padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.85rem; font-weight: 600; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
-    .notification.show { opacity: 1; }
+    :root, [data-theme="light"] {
+      --bg: #ffffff;
+      --bg-card: #f8f9fa;
+      --bg-input: #ffffff;
+      --text: #1a1a1a;
+      --border: #e5e7eb;
+      --accent: #3b82f6;
+    }
+    [data-theme="dark"] {
+      --bg: #0f0f0f;
+      --bg-card: #1a1a1a;
+      --bg-input: #262626;
+      --text: #e5e5e5;
+      --border: #333;
+      --accent: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); transition: background 0.2s, color 0.2s; }
   </style>
 </head>
 <body>
