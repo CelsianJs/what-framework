@@ -685,3 +685,46 @@ All 4 tool fixes committed and pushed but need MCP server restart to take effect
 - what_watch: flush events immediately after set_signal
 
 **Cumulative: 18 test agents, 9 rounds active, R1→R12. CLAUDE.md: 20 sections, 12 workflows.**
+
+---
+
+## Round 13 — Final Quality Gate: Minimal Context + Adversarial (2026-03-28)
+
+**Goal:** Stress-test the CLAUDE.md under extreme conditions — can it work with only the Quick Start? Can it resist misleading user reports?
+
+### Agent 13A: Quick Start Only — Minimal Context (6-call budget)
+
+- **Task:** Follow Quick Start (5 steps only, no other docs) to assess if app is production-ready
+- **Result:** SUCCESS — found 3 real issues in exactly 6 calls
+- **Tokens:** ~28K (8 tool uses)
+- **Top 3 issues found:**
+  1. 36/40 signals (90%) have 0 subscribers — reactive graph largely inert
+  2. 65/68 effects (96%) have 0 signal dependencies — disconnected or dead
+  3. All 8 checkboxes unlabeled, StarRating not keyboard-accessible
+- **Quick Start assessment:** "Sufficient for rapid triage." Missing: what_errors step, what_dependency_graph step, visual verification mention.
+
+### Agent 13B: Adversarial — Deliberately Misleading User Report (8-call budget)
+
+- **Task:** User claims "app crashes with ERR_INFINITE_EFFECT on theme toggle" — verify or debunk
+- **Result:** SUCCESS — correctly identified claim as FALSE in 8 calls
+- **Evidence chain:**
+  1. what_errors → 0 errors captured
+  2. what_fix(ERR_INFINITE_EFFECT) → learned the structural prerequisite (effect reads+writes same signal)
+  3. what_dependency_graph(theme) → 0 edges, no effect reads theme, infinite cycle impossible
+  4. what_set_signal(theme, "dark") + diff → toggle succeeded, 1 signal changed, 2 effects fired once each, 0 errors
+- **CLAUDE.md assessment:** "Evidence-first diagnostic workflow prevented blind acceptance of the claim."
+
+### Round 13 Summary
+
+| Metric | R12 | R13 |
+|--------|-----|-----|
+| Task success | 100% | **100%** |
+| Avg MCP calls | 6 | **7** |
+| Avg tokens | 34K | **25K** |
+| False claims detected | N/A | **1/1 (100%)** |
+
+### Fixes Applied After Round 13
+1. Quick Start expanded: added what_dependency_graph step (#6) and what_errors tip for bug verification
+2. Added "verify before assuming" tip to Quick Start
+
+**FINAL STATUS: 20 test agents, 10 active rounds (R4-R13), 12 commits. CLAUDE.md is battle-tested across: debugging, performance, building, code review, onboarding, adversarial, minimal-context scenarios. All passing.**

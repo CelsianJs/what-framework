@@ -57,11 +57,14 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 New to this app? Run these in order:
 1. `what_connection_status` — orient (am I connected? how big is the app?)
 2. `what_diagnose` — health check (any errors or issues?)
-3. `what_page_map` — visual structure (what's on the page?)
-4. `what_components` -> `what_explain` on the main component — deep dive
+3. `what_page_map` — visual structure + accessibility (what's on the page?)
+4. `what_components` -> `what_explain` on a leaf component — deep dive
 5. `what_signals({filter: "task|theme|view", named_only: true})` — check key state
+6. `what_dependency_graph({signalId: N, direction: "downstream"})` — trace reactivity of the main signal
 
-Tip: Start `what_explain` on a **leaf component** (like TaskItem), not a container (like App). Containers often show 0 signals because state is module-scoped.
+Tips:
+- Start `what_explain` on a **leaf component** (like TaskItem), not a container (like App). Containers often show 0 signals because state is module-scoped.
+- If a user reports a bug, verify with `what_errors` before assuming it exists — claims may be false.
 
 ### Decision Tree
 
