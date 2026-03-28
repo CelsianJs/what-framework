@@ -596,3 +596,47 @@ The CLAUDE.md has reached maturity for the current tool set. Further improvement
 2. Pushed all commits to remote
 
 **Total across all rounds:** 14 test agents, 7 rounds active, 7 commits, 3 files scaffolded by create-what (CLAUDE.md, AGENTS.md, .mcp.json)
+
+---
+
+## Round 11 — Tool Audit + Stress Test (2026-03-28)
+
+**Goal:** Test lesser-used tools and stress-test rapid mutations.
+
+### Agent 11A: Untested Tools Audit (12-call budget)
+
+- **Task:** Test what_watch, what_signal_trace, what_fix, what_validate, what_eval, what_dom_inspect, what_component_tree
+- **Result:** SUCCESS — comprehensive quality audit of 7 tools
+- **Tokens:** ~29K (13 tool uses)
+- **MCP calls:** 12
+- **Tool rankings:**
+  | Tool | Quality | CLAUDE.md Priority |
+  |---|---|---|
+  | **what_fix** | Excellent (diagnosis + fix + code example, offline, ~160 tokens) | HIGH — hidden gem |
+  | **what_dom_inspect** | Very useful (raw DOM, structured tree, ~300 tokens) | MEDIUM |
+  | **what_watch** | Partial (captures user events, misses programmatic set_signal) | MEDIUM |
+  | **what_signal_trace** | Partial (needs what_watch running first for write history) | MEDIUM |
+  | **what_validate** | Shallow (pass/fail syntax only, ~100 tokens) | LOW |
+  | **what_eval** | Blocked (disabled by default, correct security posture) | LOW |
+  | **what_component_tree** | Broken (parentId always null, hierarchy non-functional) | LOW |
+
+### Agent 11B: Stress Test — Rapid Sequential Mutations (10-call budget)
+
+- **Task:** 6 rapid signal mutations (3 forward + 3 reverse), verify clean round-trip
+- **Result:** PASS — 0 errors, 0 stale data, clean round-trip in exactly 10 calls
+- **Tokens:** ~26K (13 tool uses)
+- **Key findings:**
+  - All 6 mutations registered correctly with accurate prev/current values
+  - Reactive cascading worked: filterStatus="active" correctly unmounted 6 components, reversal remounted them
+  - Signal count grew from 25 to 49 during session (new component instances created signals)
+  - 184 events in 60s labeled "normal" — no runaway effects
+  - 0 runtime errors from rapid mutations
+
+### Fixes Applied After Round 11
+1. **what_fix promoted** to prominent CLAUDE.md position (labeled "hidden gem")
+2. **what_validate** added to code quality tools
+3. **what_signal_trace prerequisite** documented (needs what_watch running first)
+4. **what_eval disabled** documented in diagnostics
+5. **what_component_tree broken** noted (prefer what_components)
+
+**Cumulative: 16 test agents, 8 rounds active, 9 commits, R1→R11**

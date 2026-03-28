@@ -119,7 +119,8 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 **Code quality (no browser needed):**
 - `what_lint {code}` — static analysis, 7 rules
 - `what_scaffold {type, name}` — generate boilerplate structure (imports, function shape, signal declarations). Note: produces a skeleton, not production code — expect ~10% survival for real integration. Best used to confirm idiomatic patterns.
-- `what_fix {errorCode}` — error diagnosis with code examples
+- `what_fix {errorCode}` — **hidden gem**: diagnosis + fix + code example for any error code. Cheap (~160 tokens), offline, accurate. Use as FIRST tool when you encounter a What Framework error.
+- `what_validate {code}` — quick syntax/parse check (pass/fail). Shallower than what_lint.
 
 ### Workflows
 
@@ -164,9 +165,13 @@ If `what_dependency_graph` shows an edge from signal to effect, but `what_diff_s
 
 **Components showing signalCount=0, effectCount=0** — Signals and effects are attributed to the scope where they were *created*, not where they're *consumed*. Module-scope signals (shared stores) won't appear on any component. Use `what_signals` and `what_effects` directly instead of relying on per-component counts.
 
-**`parentId: null` on all components (flat tree)** — The component tree reports creation-time parent relationships. If the framework doesn't track parentage (or uses a flat mounting model), all components appear at root level. Use `what_page_map` for the actual visual hierarchy.
+**`parentId: null` on all components (flat tree)** — The component tree reports creation-time parent relationships. If the framework doesn't track parentage (or uses a flat mounting model), all components appear at root level. Use `what_page_map` for the actual visual hierarchy. Prefer `what_components` over `what_component_tree` — the hierarchy feature is not yet functional.
 
 **`<!--fn-->` in DOM output** — These comment markers indicate reactive text bindings: inline functions that re-evaluate when their signal dependencies change. They're the primary reactivity mechanism in templates — more common than tracked effects.
+
+**`what_signal_trace` shows empty `recentWrites`** — The write trace requires `what_watch` to have been running first to capture events. Without a prior watch session, `recentWrites` will always be empty. Run `what_watch` for a few seconds, trigger the write, then call `what_signal_trace`.
+
+**`what_eval` returns "disabled"** — Disabled by default for security. Only available when the MCP server starts with `--unsafe-eval` or `WHAT_UNSAFE_EVAL=1`. Use `what_signals`, `what_dom_inspect`, or `what_look` instead.
 
 ### Parameter Reference
 
