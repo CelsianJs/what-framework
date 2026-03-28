@@ -952,6 +952,12 @@ If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscri
 | \`what_dom_inspect\` \`depth\` | number | DOM traversal depth (default: 3) |
 | \`what_perf\` \`threshold\` | number | Flag effects with >= N subscribers |
 
+### Efficiency
+
+**Parallel-safe (batch these):** \`what_perf\`, \`what_effects\`, \`what_signals\`, \`what_components\`, \`what_dependency_graph\`, \`what_explain\`, \`what_look\`, \`what_page_map\`, \`what_diagnose\`, \`what_lint\`, \`what_scaffold\`. NOT safe to parallelize: \`what_set_signal\` calls on signals that share effects.
+
+**Diff output:** \`effectsTriggered\` = re-ran. \`effectsAdded\` = new mounts. \`effectsRemoved\` = unmounts. \`what_perf\` includes \`largestSubscribers\` — skip \`what_signals\` if you only need hot signals.
+
 ### Principles
 1. \`what_connection_status\` first — always orient before diving in
 2. \`what_explain\` over individual calls — replaces separate signals + effects + DOM lookups

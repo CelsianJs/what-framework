@@ -177,6 +177,28 @@ If `what_dependency_graph` shows an edge from signal to effect, but `what_diff_s
 | `what_scaffold` | `props` | string[] | Prop names the component accepts |
 | `what_scaffold` | `signals` | string[] | Signal names to declare |
 
+### Parallel-Safe Tools
+
+These tools are read-only and safe to call in parallel (batch them to save round-trips):
+- `what_perf`, `what_effects`, `what_signals`, `what_components`, `what_component_tree`
+- `what_dependency_graph`, `what_explain`, `what_look`, `what_page_map`, `what_dom_inspect`
+- `what_diagnose`, `what_errors`, `what_snapshot`
+- `what_diff_snapshot({action: "save"})` (saving is read-only — it stores a copy)
+- `what_lint`, `what_scaffold`, `what_fix` (offline tools, always safe)
+
+**NOT safe to parallelize:** `what_set_signal` calls that share downstream effects (order matters). `what_set_signal` on independent signals IS safe to batch.
+
+### Diff Cascade Metrics
+
+When `what_diff_snapshot({action: "diff"})` returns, understand the output:
+- `effectsTriggered` — effects that already existed and re-ran (re-evaluated their dependencies)
+- `effectsAdded` — new effects created (component mounts, new subscriptions)
+- `effectsRemoved` — effects torn down (component unmounts)
+- `signalsChanged` — signals whose values differ from baseline (includes cascading changes)
+- `componentsAdded/Removed` — mount/unmount cycles
+
+Tip: `what_perf` already includes `largestSubscribers` with signal IDs and names — skip `what_signals` if you only need to know which signals are hottest.
+
 ### Principles
 
 1. **`what_connection_status` first** — always orient before diving in
