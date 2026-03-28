@@ -26,7 +26,8 @@ console.log(`\n🧪 MCP Tool Test: ${scenario}\n${'='.repeat(50)}\n`);
 
 // --- Setup: create bridge + MCP server + client ---
 
-const bridge = createBridge({ port: 9229, host: '127.0.0.1' });
+const bridgePort = parseInt(process.env.WHAT_MCP_PORT || '9229', 10);
+const bridge = createBridge({ port: bridgePort, host: '127.0.0.1' });
 
 const server = new McpServer({ name: 'what-devtools-mcp', version: '0.6.0' });
 registerTools(server, bridge);
@@ -182,20 +183,94 @@ async function runPerformance() {
   console.log(`   Issues: ${diagnose.issues?.length || 0}`);
 }
 
+async function runOffline() {
+  console.log('\n📋 Scenario: Offline Tools (no browser needed)\n');
+
+  // what_lint — validate good code
+  const lintGood = await callTool('what_lint', {
+    code: `import { signal, effect, h } from 'what-framework';\nconst count = signal(0, 'count');\neffect(() => console.log(count()));`,
+  });
+  console.log(`   Lint (good code): ${lintGood.issues?.length || 0} issues`);
+
+  // what_lint — catch bad code
+  const lintBad = await callTool('what_lint', {
+    code: `import { signal } from 'what-framework';\nfunction Bad() {\n  const x = signal(0);\n  x(5); // write in render\n  return h('div', {}, x());\n}`,
+  });
+  console.log(`   Lint (bad code): ${lintBad.issues?.length || 0} issues`);
+
+  // what_fix — error code diagnosis
+  const fix = await callTool('what_fix', { error: 'ERR_INFINITE_EFFECT' });
+  console.log(`   Fix ERR_INFINITE_EFFECT: ${fix.diagnosis ? 'OK' : 'FAILED'}`);
+
+  // what_scaffold — generate component
+  const scaffold = await callTool('what_scaffold', { type: 'component', name: 'TestWidget' });
+  console.log(`   Scaffold component: ${scaffold.code ? 'OK' : 'FAILED'}`);
+}
+
+async function runClaudemdValidation() {
+  console.log('\n📋 Scenario: CLAUDE.md Workflow Validation\n');
+
+  // Quick Start workflow: connection -> diagnose -> page_map -> components -> explain -> signals
+  const status = await callTool('what_connection_status');
+  if (!status.connected) {
+    console.log('   ⚠️  Browser not connected — skipping live tool tests');
+    console.log('   Running offline validation only...');
+    await runOffline();
+    return;
+  }
+
+  const diagnose = await callTool('what_diagnose');
+  console.log(`   Quick Start Step 2 (diagnose): ${diagnose.severity || 'ok'}`);
+
+  const pageMap = await callTool('what_page_map');
+  console.log(`   Quick Start Step 3 (page_map): ${pageMap.landmarks?.length || 0} landmarks, ${pageMap.interactives?.length || 0} interactives`);
+
+  const components = await callTool('what_components');
+  console.log(`   Quick Start Step 4a (components): ${components.count} mounted`);
+
+  // Find a leaf component (not App)
+  const leaf = components.components?.find(c => c.name !== 'App') || components.components?.[0];
+  if (leaf) {
+    const explain = await callTool('what_explain', { componentId: leaf.id });
+    console.log(`   Quick Start Step 4b (explain ${leaf.name}): signals=${explain.counts?.signals}, effects=${explain.counts?.effects}`);
+  }
+
+  const signals = await callTool('what_signals', { filter: 'task|theme', named_only: true });
+  console.log(`   Quick Start Step 5 (signals): ${signals.count} named signals`);
+
+  // Code Review workflow: diagnose + page_map + signals + perf + dependency_graph
+  const perf = await callTool('what_perf');
+  console.log(`   Code Review (perf): memory=${perf.memoryEstimate}, hot=${perf.hotEffects?.length || 0}`);
+
+  // Find the main signal and trace it
+  const mainSignal = signals.signals?.find(s => s.name === 'tasks');
+  if (mainSignal) {
+    const graph = await callTool('what_dependency_graph', { signalId: mainSignal.id, direction: 'downstream' });
+    console.log(`   Code Review (dep graph): ${graph.nodes?.length} nodes, ${graph.edges?.length} edges`);
+  }
+
+  // Before/after workflow
+  await callTool('what_diff_snapshot', { action: 'save' });
+  console.log(`   Before/after (save): OK`);
+}
+
 // Run the selected scenario
 switch (scenario) {
   case 'orientation': await runOrientation(); break;
   case 'visual': await runVisual(); break;
   case 'state': await runState(); break;
   case 'performance': await runPerformance(); break;
+  case 'offline': await runOffline(); break;
+  case 'claudemd': await runClaudemdValidation(); break;
   case 'all':
     await runOrientation();
     await runVisual();
     await runState();
     await runPerformance();
+    await runOffline();
     break;
   default:
-    console.log(`Unknown scenario: ${scenario}. Use: orientation, visual, state, performance, all`);
+    console.log(`Unknown scenario: ${scenario}. Use: orientation, visual, state, performance, offline, claudemd, all`);
 }
 
 // --- Report ---

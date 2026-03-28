@@ -728,3 +728,30 @@ All 4 tool fixes committed and pushed but need MCP server restart to take effect
 2. Added "verify before assuming" tip to Quick Start
 
 **FINAL STATUS: 20 test agents, 10 active rounds (R4-R13), 12 commits. CLAUDE.md is battle-tested across: debugging, performance, building, code review, onboarding, adversarial, minimal-context scenarios. All passing.**
+
+---
+
+## Round 14 — Test Harness + Offline Validation (2026-03-28)
+
+**Goal:** With browser disconnected, focus on building self-sustaining test infrastructure.
+
+### Work Done
+- **Test runner expanded** with 2 new scenarios:
+  - `offline` — validates what_lint, what_fix, what_scaffold, what_validate (no browser needed)
+  - `claudemd` — validates CLAUDE.md Quick Start and Code Review workflows end-to-end
+- **Port made configurable** via `WHAT_MCP_PORT` env var (was hardcoded to 9229)
+- **Offline scenario verified:** 4/4 tools pass, 558 tokens total, 10ms execution
+
+### Test Runner Scenarios (6 total)
+| Scenario | Needs Browser | Tests |
+|---|---|---|
+| `orientation` | Yes | connection, components, signals, diagnose |
+| `visual` | Yes | component explain, look, signals for Stats |
+| `state` | Yes | filter manipulation, diff_snapshot, dependency_graph |
+| `performance` | Yes | perf, diagnose |
+| `offline` | **No** | lint (good+bad code), fix, scaffold |
+| `claudemd` | Yes (falls back to offline) | Quick Start workflow, Code Review workflow |
+
+Usage: `WHAT_MCP_TOKEN=dev123 WHAT_MCP_PORT=9555 node comparison-test/run-mcp-test.js --scenario all`
+
+**Cumulative: 20 test agents, 11 rounds, 13 commits. Test runner now self-validates CLAUDE.md workflows.**
