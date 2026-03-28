@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "what-devtools-mcp": {
+      "command": "node",
+      "args": ["packages/devtools-mcp/src/index.js"],
+      "env": {
+        "WHAT_MCP_TOKEN": "dev123"
+      }
+    }
+  }
+}
