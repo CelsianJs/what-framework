@@ -262,16 +262,78 @@ All 4 agents **failed to use any MCP tools**. The `what-devtools-mcp` server was
 
 ---
 
-## Round 6 — Harder Scenarios (Next)
+## Round 6 — Multi-Signal Interactions + Code Generation (2026-03-28)
 
-**Goal:** Push into territory AI agents are typically bad at: animations, responsive layout, loading states, complex multi-signal interactions.
+**Goal:** Push into harder territory: multi-signal cascade debugging and accessibility-first code generation with lint validation.
+
+### Agent 6A: Multi-Signal Cascade Debugging
+
+- **Task:** Debug order-of-operations bug where search->sort loses results but sort->search works
+- **Result:** SUCCESS — identified root cause in 12 MCP calls
+- **Tokens:** ~45K total (18 tool uses)
+- **MCP calls:** 12 (!!!)
+- **Non-MCP escapes:** 0
+- **Parameter errors:** 0
+- **Root cause found:** sortBy has only 1 downstream effect while searchQuery has 12. effect_1 (the main filter/sort effect) appears to lose its sortBy subscription during component remount cycles triggered by search. Board column effects don't subscribe to sortBy at all.
+- **Most valuable tools:** what_diff_snapshot (save/diff/save/diff pattern was "smoking gun"), what_dependency_graph (revealed asymmetric subscriptions)
+- **CLAUDE.md assessment:**
+  - Decision Tree: "Used heavily to pick the right tool at each step. Accurate for every choice."
+  - Disconnected reactivity workflow: "Exactly the right mental model"
+  - New gaps: No multi-signal interaction debugging workflow; no "effect should have fired but didn't" pattern; no runCount interpretation guidance
+
+### Agent 6B: Accessibility-First Code Generation
+
+- **Task:** Audit accessibility issues, use what_scaffold + what_lint to write accessible components
+- **Result:** SUCCESS — wrote 2 complete components, both lint-validated
+- **Tokens:** ~37K total (17 tool uses) — BEST efficiency yet
+- **MCP calls:** 12
+- **Non-MCP escapes:** 0
+- **Parameter errors:** 0
+- **Components built:**
+  - AccessibleTaskItem: labeled checkbox with aria-label, role="listitem", reactive styling
+  - AccessibleFilterBar: role="group" with aria-label, aria-pressed on buttons, visually-hidden label for select
+- **Lint results:** TaskItem passed all 7 rules. FilterBar had 2 expected false positives on signal-write-in-render (inline handlers). Confirmed by re-running with rule excluded.
+- **What_scaffold assessment:** "Boilerplate was too generic to save meaningful effort for a targeted rewrite." Suggested: `accessible: true` option, `based_on: componentId` to scaffold from existing DOM.
+- **CLAUDE.md assessment:**
+  - Decision Tree: "guided tool selection perfectly"
+  - False positive docs: "critical — without it I would have wasted time restructuring correct code"
+  - New gaps: No accessibility patterns; inline arrow handlers should be mentioned alongside named handlers in lint FP docs
+
+### Round 6 Summary
+
+| Metric | Target | R1 | R4 | R5 | R6 | Trend |
+|--------|--------|----|----|----|----|-------|
+| Avg MCP calls | <=10 | 0 | 25 | 32 | **12** | Improving fast |
+| Non-MCP escapes | 0 | 30+ | 0 | 1 | **0** | Fixed |
+| Parameter errors | 0 | N/A | 2 | 0-1 | **0** | Fixed |
+| Avg tokens | <=5K | 61K | 46K | 56K | **41K** | 33% better than R4 |
+| CLAUDE.md sections cited | N/A | 0 | 3 | 5-6 | **6-8** | Agents using everything |
+| Task success | 100% | 0% | 100% | 100% | **100%** | Maintained |
+
+### Key R6 Findings
+1. **12 MCP calls per agent** — the CLAUDE.md is now guiding efficient tool selection. Agents aren't flailing.
+2. **what_diff_snapshot save/diff/save/diff** pattern is the killer debugging workflow. Both rounds proved it.
+3. **what_lint with rule exclusion** for false positive confirmation is a validated pattern.
+4. **what_scaffold is too generic** for specialized tasks — feature idea for `accessible: true` option.
+
+### Fixes Applied After Round 6
+1. **Multi-signal interaction workflow** added to CLAUDE.md and create-what template
+2. **Stale subscription debugging pattern** added (effect should fire but doesn't)
+3. **Lint false positive clarification** — inline arrow handlers added alongside named handlers
+4. **Both root CLAUDE.md and create-what template updated**
+
+---
+
+## Round 7 — Edge Cases + Token Efficiency (Next)
+
+**Goal:** Push for <10 MCP calls and <30K tokens per task. Test truly hard scenarios.
 
 **Test scenarios:**
-- 6A: Multi-signal cascade debugging — "I added a feature where completing all tasks in a priority column should collapse it. It's not working." Agent must trace multiple signals through effects to find the disconnect.
-- 6B: Responsive layout audit — "The app looks broken on mobile." Agent must use what_look with the viewport to understand layout issues, then suggest CSS fixes and validate with what_lint.
+- 7A: Live state manipulation — Agent must orchestrate a complex sequence: toggle theme, add a task via what_set_signal, switch to board view, verify the new task appears in the correct priority column, then undo everything. Tests multi-step state management with snapshot verification.
+- 7B: Performance regression hunting — "The app suddenly got slow after we added 50 tasks." Agent must use what_perf, what_effects, what_dependency_graph to profile the bottleneck and suggest an optimization (signal granularity, computed caching, etc.)
 
-**Metrics to beat:**
-- 0 non-MCP escapes (fix "not connected" with troubleshooting docs)
+**Metrics to beat from R6:**
+- <= 10 MCP calls per task
+- 0 non-MCP escapes
 - 0 parameter errors
-- <= 40K tokens per task
-- Agent finds the troubleshooting section before falling back to Playwright
+- <= 35K tokens per task

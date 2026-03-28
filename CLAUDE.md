@@ -141,6 +141,12 @@ This project has a live debugging MCP server (`what-devtools-mcp`). When the app
 **Find reactive waste:**
 `what_effects({minRunCount: 1})` -> look for effects with high run counts relative to user interactions -> `what_dependency_graph({effectId: N, direction: "upstream"})` to find which signals trigger them
 
+**Multi-signal interaction debugging (order-of-operations bugs):**
+`what_diff_snapshot({action: "save"})` -> `what_set_signal` (signal A) -> `what_diff_snapshot({action: "diff"})` -> save again -> `what_set_signal` (signal B) -> diff again. Compare the two cascades: if signal B's diff shows 0 effects triggered, the reactive chain is broken.
+
+**Effect should have fired but didn't (stale subscription):**
+If `what_dependency_graph` shows an edge from signal to effect, but `what_diff_snapshot` after changing that signal shows the effect didn't re-run, the subscription may be stale. This happens when a component that owns the effect is unmounted and remounted (e.g., view switches). Check effect `runCount` before and after — if unchanged despite the signal changing, the effect lost its subscription during a remount cycle. Fix: move the effect to module scope or use `computed()` instead.
+
 ### Understanding Diagnostic Output
 
 **"N signals with no subscribers"** — Normal in What Framework. Signals read inside `() => ...` reactive text bindings (marked as `<!--fn-->` in DOM) update the DOM directly without going through tracked effects. These signals ARE reactive, just not through the effect system the devtools tracks. Only investigate if a signal should be triggering an effect but isn't.
@@ -199,4 +205,4 @@ Some pages block canvas export due to cross-origin resources. Use `what_look` in
 Known display quirk. Use `what_diff_snapshot` (save before, diff after) for accurate before/after comparison.
 
 **`what_lint` false positive on `signal-write-in-render`:**
-Handler functions defined inside the component body are flagged because the function definition runs at "render" time. If the signal write is only called from an event handler (onclick, oninput, etc.), it's safe to ignore. What Framework components run once, so defining handlers in the body is the normal pattern.
+Handler functions defined inside the component body are flagged because the function definition runs at "render" time. This includes both named handlers (`function handleClick() { sig(val) }`) and **inline arrow handlers in JSX** (`onClick={() => sig(val)}`). If the signal write is only called from an event handler (onclick, oninput, etc.), it's safe to ignore. What Framework components run once, so defining handlers in the body is the normal pattern. To confirm it's a false positive, re-run `what_lint` with `rules` excluding `"signal-write-in-render"` — if 0 issues remain, the code is correct.

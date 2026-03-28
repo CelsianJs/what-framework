@@ -929,6 +929,12 @@ This project includes MCP devtools that connect to the running app in the browse
 **Disconnected reactivity (UI parts that should update together but don't):**
 \`what_dependency_graph({signalId: N, direction: "downstream"})\` -> check ALL expected effects appear. Missing edges = component won't react to that signal.
 
+**Multi-signal interaction (order-of-operations bugs):**
+\`what_diff_snapshot(save)\` -> set signal A -> \`diff\` -> save -> set signal B -> \`diff\`. Compare cascades.
+
+**Stale subscription (effect should fire but doesn't):**
+If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscription during a remount. Fix: move effect to module scope or use \`computed()\`.
+
 ### Understanding Diagnostics
 
 - **"N signals with no subscribers"** — Normal. Signals in \`() => ...\` reactive text bindings (\`<!--fn-->\` in DOM) update the DOM directly, bypassing tracked effects. Only investigate if a signal should trigger an effect but isn't.
@@ -960,7 +966,7 @@ This project includes MCP devtools that connect to the running app in the browse
 - **Not connected:** Open the app in a browser, wait 2-3s, retry. \`what_lint\`/\`what_scaffold\`/\`what_fix\` work offline.
 - **"Component N not found":** Re-fetch IDs with \`what_components\` after signal changes that alter the component tree.
 - **Screenshot fails:** Use \`what_look\` instead (usually sufficient without an image).
-- **\`what_lint\` false positive on \`signal-write-in-render\`:** Handler functions defined in the component body are safe — they run from events, not during render.
+- **\`what_lint\` false positive on \`signal-write-in-render\`:** Both named handlers and inline \`onClick={() => sig(val)}\` trigger this. Safe to ignore if signal write is inside an event handler. Re-run with \`rules\` excluding that rule to confirm.
 `);
 
   // Also generate a .cursor/mcp.json for Cursor users
