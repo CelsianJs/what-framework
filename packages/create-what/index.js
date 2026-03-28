@@ -128,6 +128,7 @@ function generatePackageJson(projectName, { reactCompat, cssApproach }) {
   const devDeps = {
     vite: '^6.0.0',
     'what-compiler': '^0.6.0',
+    'what-devtools-mcp': '^0.6.0',
     '@babel/core': '^7.23.0',
   };
 
@@ -180,6 +181,10 @@ function generateViteConfig({ reactCompat, cssApproach }) {
     imports.push(`import what from 'what-compiler/vite';`);
     plugins.push('what()');
   }
+
+  // MCP DevTools — auto-injects devtools client in dev mode for AI agent debugging
+  imports.push(`import whatDevTools from 'what-devtools-mcp/vite-plugin';`);
+  plugins.push('whatDevTools()');
 
   if (cssApproach === 'tailwind') {
     imports.push(`import tailwindcss from '@tailwindcss/vite';`);
@@ -841,9 +846,68 @@ async function main() {
 
   mkdirSync(join(root, 'src'), { recursive: true });
   mkdirSync(join(root, 'public'), { recursive: true });
-  // MCP config dirs — created but left empty until what-devtools-mcp is published
-  // mkdirSync(join(root, '.claude'), { recursive: true });
-  // mkdirSync(join(root, '.cursor'), { recursive: true });
+  // MCP DevTools config — lets AI agents (Claude Code, Cursor, etc.) connect to the running app
+  writeFileSync(join(root, '.mcp.json'), JSON.stringify({
+    mcpServers: {
+      'what-devtools-mcp': {
+        command: 'npx',
+        args: ['what-devtools-mcp'],
+      },
+    },
+  }, null, 2) + '\n');
+
+  // CLAUDE.md — agent instructions for Claude Code (also useful for other AI tools)
+  writeFileSync(join(root, 'CLAUDE.md'), `# ${projectName}
+
+Built with What Framework — signal-based reactivity, components run once.
+
+## Writing Code
+
+\`\`\`js
+import { signal, effect, computed, batch, onMount, h, mount } from 'what-framework';
+
+const count = signal(0, 'count');  // state
+count()           // read
+count(5)          // write
+count(c => c + 1) // update
+
+const doubled = computed(() => count() * 2);  // derived
+effect(() => console.log(count()));           // side effect
+\`\`\`
+
+Components run ONCE. Use \`signal()\` for state, \`() =>\` in JSX for reactive text.
+
+## MCP DevTools
+
+This project includes MCP devtools that connect to the running app in the browser.
+
+**First call:** \`what_connection_status\` — returns app info, counts, tool list, and next steps.
+
+**Key tools:**
+- \`what_diagnose\` — health check (errors, perf, reactivity)
+- \`what_components {filter}\` — find components and get IDs
+- \`what_explain {componentId}\` — signals + effects + DOM for one component
+- \`what_look {componentId}\` — visual info without screenshot (~400 tokens)
+- \`what_signals {filter, named_only}\` — check signal values (always filter!)
+- \`what_lint {code}\` — static analysis before saving code
+- \`what_screenshot {componentId}\` — cropped component image (use after what_look)
+
+**Workflows:**
+- Find component: \`what_components({filter:"Name"})\` → \`what_explain({componentId: N})\`
+- Debug signal: \`what_signals({filter:"name"})\` → \`what_dependency_graph({signalId: N})\`
+- Before/after: \`what_diff_snapshot({action:"save"})\` → change → \`what_diff_snapshot({action:"diff"})\`
+`);
+
+  // Also generate a .cursor/mcp.json for Cursor users
+  mkdirSync(join(root, '.cursor'), { recursive: true });
+  writeFileSync(join(root, '.cursor', 'mcp.json'), JSON.stringify({
+    mcpServers: {
+      'what-devtools-mcp': {
+        command: 'npx',
+        args: ['what-devtools-mcp'],
+      },
+    },
+  }, null, 2) + '\n');
 
   // .gitignore
   writeFileSync(join(root, '.gitignore'), `node_modules\ndist\n.DS_Store\n`);
