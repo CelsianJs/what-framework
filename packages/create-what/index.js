@@ -980,6 +980,70 @@ If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscri
 - **\`what_lint\` false positive on \`signal-write-in-render\`:** Both named handlers and inline \`onClick={() => sig(val)}\` trigger this. Safe to ignore if signal write is inside an event handler. Re-run with \`rules\` excluding that rule to confirm.
 `);
 
+  // AGENTS.md — model-agnostic instructions for OpenCode, Codex, Gemini, Cursor, etc.
+  writeFileSync(join(root, 'AGENTS.md'), `# ${projectName} — Agent Instructions
+
+> Model-agnostic guide for AI agents using MCP DevTools with What Framework.
+
+## Framework Basics
+
+Signal-based reactivity. Components run **once**. \`signal()\` for state, \`() =>\` in JSX for reactive text.
+
+\`\`\`js
+import { signal, effect, computed, h, mount } from 'what-framework';
+const count = signal(0, 'count');
+count()           // read
+count(5)          // write
+count(c => c + 1) // update
+\`\`\`
+
+## MCP DevTools
+
+**Always start:** \`what_connection_status\` — returns app info, tool list, next steps.
+
+### Pick the Right Tool
+
+| Goal | Tool | Key params |
+|------|------|------------|
+| Orient / check connection | \`what_connection_status\` | none |
+| Health check | \`what_diagnose\` | none |
+| Find a component | \`what_components\` | \`filter\` (regex string) |
+| Deep-dive one component | \`what_explain\` | \`componentId\` (number) |
+| Check signal values | \`what_signals\` | \`filter\` (string), \`named_only\` (boolean) |
+| See effect run counts | \`what_effects\` | \`minRunCount\` (number) |
+| Signal dependency graph | \`what_dependency_graph\` | \`signalId\`/\`effectId\` (number), \`direction\` |
+| Page layout | \`what_page_map\` | none |
+| Component styling | \`what_look\` | \`componentId\` (number) |
+| Performance issues | \`what_perf\` | \`threshold\` (number) |
+| Before/after state | \`what_diff_snapshot\` | \`action\`: \`"save"\` then \`"diff"\` |
+| Change a signal | \`what_set_signal\` | \`signalId\` (number), \`value\` (any) |
+| Validate code | \`what_lint\` | \`code\` (string) |
+| Generate boilerplate | \`what_scaffold\` | \`type\`, \`name\` (strings) |
+
+### Recipes
+
+**Find component:** \`what_components({filter:"Name"})\` -> \`what_explain({componentId: N})\`
+**Debug signal:** \`what_signals({filter:"name"})\` -> \`what_dependency_graph({signalId: N, direction: "downstream"})\`
+**Before/after:** \`what_diff_snapshot({action:"save"})\` -> change -> \`what_diff_snapshot({action:"diff"})\`
+**Build feature:** \`what_look\` (match styling) -> \`what_scaffold\` -> write code -> \`what_lint\` -> \`what_diff_snapshot\` (save/set/diff)
+
+### Parameter Types (common mistakes)
+
+| Param | Correct | Wrong |
+|-------|---------|-------|
+| \`named_only\` | \`true\` (boolean) | \`"true"\` (string) |
+| \`componentId\` | \`4\` (number) | \`"4"\` (string) |
+| \`direction\` | \`"downstream"\` | \`downstream\` |
+
+### Pitfalls
+
+- **Not connected:** Open app in browser, wait 3s, retry
+- **Component IDs change** after signal mutations — re-fetch with \`what_components\`
+- **\`what_lint\` FP on \`signal-write-in-render\`:** Handlers in event callbacks are safe
+- **\`what_set_signal\` cascades:** Use \`what_diff_snapshot\` to see full impact
+- **"N signals with no subscribers":** Normal — reactive text bindings bypass tracked effects
+`);
+
   // Also generate a .cursor/mcp.json for Cursor users
   mkdirSync(join(root, '.cursor'), { recursive: true });
   writeFileSync(join(root, '.cursor', 'mcp.json'), JSON.stringify({

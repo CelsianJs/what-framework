@@ -235,5 +235,11 @@ Some pages block canvas export due to cross-origin resources. Use `what_look` in
 **`what_set_signal` shows `previous: undefined`:**
 Known display quirk. Use `what_diff_snapshot` (save before, diff after) for accurate before/after comparison.
 
+**Connection errors gate everything:**
+If any tool returns "No browser connected", don't retry the same call. Fix the connection first (open/refresh the browser). Connection errors mask input validation — even if your signalId is wrong, you'll only see the connection error. Fix the connection, then re-test.
+
+**Offline tools always work (even without a browser):**
+`what_lint`, `what_scaffold`, `what_fix`, `what_connection_status` — these never need a browser. Use them when the connection is down.
+
 **`what_lint` false positive on `signal-write-in-render`:**
 Handler functions defined inside the component body are flagged because the function definition runs at "render" time. This includes both named handlers (`function handleClick() { sig(val) }`) and **inline arrow handlers in JSX** (`onClick={() => sig(val)}`). If the signal write is only called from an event handler (onclick, oninput, etc.), it's safe to ignore. What Framework components run once, so defining handlers in the body is the normal pattern. To confirm it's a false positive, re-run `what_lint` with `rules` excluding `"signal-write-in-render"` — if 0 issues remain, the code is correct.

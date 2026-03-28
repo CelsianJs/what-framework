@@ -473,3 +473,82 @@ The CLAUDE.md already guides BUILD tasks well for steps 2-4, but agents still ne
 - Scaffold honest assessment
 
 The CLAUDE.md has reached maturity for the current tool set. Further improvements are incremental — the agent-first developer experience is fundamentally improved.
+
+---
+
+## Round 9 — Max Variety + Multi-Model (2026-03-28)
+
+**Goal:** 3 agents with maximum variety: trivial task, full architecture map, error handling edge cases. Also created AGENTS.md for model-agnostic use.
+
+### Agent 9A: Trivial 3-Call Task
+
+- **Task:** What's the current theme and how many tasks are completed?
+- **Result:** BLOCKED — browser disconnected between rounds (all 3 calls failed with "No browser connected")
+- **Tokens:** ~21K (5 tool uses)
+- **MCP calls:** 3 (all connection errors)
+- **Finding:** Browser WebSocket connection drops when tab closes/computer sleeps. The troubleshooting section told the agent what to do but it couldn't fix it (can't open a browser).
+
+### Agent 9B: Full Architecture Map (12-call budget)
+
+- **Task:** Map all components, signals, effects, reactive graph, layout, issues
+- **Result:** PARTIAL — 7/9 MCP calls blocked by disconnection, but agent pivoted to source reading and produced an excellent architecture map
+- **Tokens:** ~48K (22 tool uses)
+- **MCP calls:** 9 (only 2 worked: connection_status + lint)
+- **Valuable findings:**
+  - what_lint found a real bug: `value={text}` missing signal read (should be `value={text()}`)
+  - Discovered examples/task-manager doesn't have devtools plugin configured
+  - Agent compensated by reading source — proves MCP tools complement, don't replace source reading
+  - Found unused `batch` import (dead code)
+
+### Agent 9C: Error Handling Edge Cases (8-call budget)
+
+- **Task:** Test error responses for invalid IDs, empty filters, broken code
+- **Result:** SUCCESS — comprehensive error quality audit in 6 calls
+- **Tokens:** ~24K (8 tool uses)
+- **Key findings on error quality:**
+  - Connection errors mask input validation (signalId 999 returns "No browser connected" not "Signal not found")
+  - Inconsistent error shapes: some use `{summary, nextSteps}`, others `{hint, tool, nextSteps}`
+  - what_lint caught 2/4 intentional bugs (signal-write-in-render + missing-cleanup)
+  - Every error includes `nextSteps` — always actionable
+  - Missing error codes on connection errors (lint has `ERR_*` codes, connection errors are just strings)
+- **Recommended addition:** Error handling section for CLAUDE.md
+
+### Round 9 Summary
+
+| Metric | R8 | R9 | Notes |
+|--------|----|----|-------|
+| Task success | 100% | 33% (1 full, 1 partial, 1 blocked) | Browser disconnection |
+| Avg tokens | 44K | 31K | Lower because connection errors returned fast |
+| New issues found | 0 | 4 (error shapes, lint coverage, connection masking, dead code) | |
+
+### Fixes Applied After Round 9
+1. **AGENTS.md updated** — MCP section rewritten with battle-tested 28-tool decision tree, recipes, parameter types, pitfalls, efficiency tips (was outdated with 18 tools)
+2. **create-what now scaffolds AGENTS.md** alongside CLAUDE.md and .mcp.json
+3. **Error handling guidance added** to CLAUDE.md Troubleshooting section (connection errors mask validation, offline tools always work)
+4. **Browser reconnected** — opened app in browser to restore WebSocket bridge
+
+### Multi-Model Strategy (New)
+- `CLAUDE.md` — Claude Code (mature, iterated through R1-R9)
+- `AGENTS.md` — Model-agnostic (OpenCode, Codex, Gemini, Cursor, any MCP agent). Recipe-based, prescriptive format.
+- `.mcp.json` — MCP server config (works with any MCP-capable tool)
+- `.cursor/mcp.json` — Cursor-specific MCP config
+- **Next:** Test with Kimi K2, DeepSeek V3 via OpenCode. Test with Codex CLI. Compare performance across models.
+
+---
+
+## Cumulative Progress (R1 -> R9)
+
+| Metric | R1 | R4 | R5 | R6 | R7 | R8 | R9 |
+|--------|----|----|----|----|-----|-----|-----|
+| Avg MCP calls | 0 | 25 | 32 | 12 | 9 | 9 | 6 |
+| Non-MCP escapes | 30+ | 0 | 1 | 0 | 0 | 0 | 0 |
+| Param errors | N/A | 2 | 0-1 | 0 | 0 | 0 | 0 |
+| Avg tokens | 61K | 46K | 56K | 41K | 34K | 44K | 31K |
+| Task success | 0% | 100% | 100% | 100% | 100% | 100% | 33%* |
+
+*R9 success rate lowered by browser disconnection, not CLAUDE.md quality.
+
+**Total test agents dispatched:** 12 (across 6 rounds)
+**Total commits:** 6
+**CLAUDE.md sections:** 17 (decision tree, 11 workflows, diagnostics, params, parallel-safe, diff metrics, signal scope, principles, troubleshooting, scaffold note, error handling)
+**Files shipped by create-what:** CLAUDE.md, AGENTS.md, .mcp.json, .cursor/mcp.json
