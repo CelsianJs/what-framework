@@ -1,0 +1,38 @@
+.session-counter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-counter__dots {
+  display: flex;
+  gap: 6px;
+}
+
+.session-counter__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-work);
+  opacity: 0.8;
+  animation: dotAppear 0.3s ease-out;
+}
+
+@keyframes dotAppear {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+}
+
+.session-counter__label {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
