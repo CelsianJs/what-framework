@@ -152,7 +152,9 @@ For verification, use the MCP DevTools (what_* tools) to:
 - \`what_lint\` to validate code quality
 - \`what_signals\` to inspect state values
 
-These MCP tools give you structured data about the running app — use them instead of screenshots.`;
+These MCP tools give you structured data about the running app — use them instead of screenshots.
+
+IMPORTANT: Do NOT use Playwright or browser automation tools. Use ONLY MCP DevTools (what_* tools) for verification. This is the test — can MCP-based development replace browser-based verification?`;
     }
 
     case 'react': {
