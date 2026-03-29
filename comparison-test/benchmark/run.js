@@ -193,20 +193,28 @@ async function runBenchmark(framework) {
   const start = Date.now();
 
   try {
-    // Dispatch the agent
-    const agentCmd = buildAgentCommand(framework, buildPrompt, appDir);
-    console.log(`   Command: ${agentCmd.cmd} ${agentCmd.args.slice(0, 3).join(' ')}...`);
+    // Save prompt to file — avoids shell escaping issues with long prompts
+    const promptFile = join(appDir, 'BENCHMARK_PROMPT.txt');
+    writeFileSync(promptFile, buildPrompt);
 
-    const result = execSync(
-      `${agentCmd.cmd} ${agentCmd.args.join(' ')}`,
-      {
-        cwd: appDir,
-        timeout: 300000, // 5 min max
-        encoding: 'utf8',
-        env: { ...process.env, HOME: process.env.HOME, PATH: process.env.PATH },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }
-    );
+    // Build the shell command using the prompt file
+    const shellCmd = buildShellCommand(framework, promptFile, appDir);
+    console.log(`   Command: ${shellCmd.slice(0, 120)}...`);
+
+    const result = execSync(shellCmd, {
+      cwd: appDir,
+      timeout: 600000, // 10 min max
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: process.env.HOME,
+        PATH: process.env.PATH,
+        OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: 10 * 1024 * 1024, // 10MB
+      shell: true,
+    });
 
     const duration = Date.now() - start;
 
@@ -251,41 +259,22 @@ async function runBenchmark(framework) {
   }
 }
 
-function buildAgentCommand(framework, prompt, appDir) {
-  const escapedPrompt = prompt.replace(/'/g, "'\\''");
+function buildShellCommand(framework, promptFile, appDir) {
+  const pf = JSON.stringify(promptFile); // safely quote the path
 
   switch (modelConfig.agent) {
-    case 'claude-code':
-      return {
-        cmd: 'claude',
-        args: [
-          '-p', escapedPrompt,
-          '--output-format', 'json',
-          '--max-turns', '50',
-          ...(modelConfig.model.includes('sonnet') ? ['--model', 'sonnet'] : []),
-        ],
-      };
+    case 'claude-code': {
+      const modelFlag = modelConfig.model.includes('sonnet') ? '--model sonnet' : '';
+      return `claude -p "$(cat ${pf})" --output-format json --max-turns 50 --allowedTools Edit,Write,Bash,Read,Glob,Grep ${modelFlag}`;
+    }
 
     case 'codex':
-      return {
-        cmd: 'codex',
-        args: [
-          '--quiet',
-          '--full-auto',
-          `'${escapedPrompt}'`,
-        ],
-      };
+      return `codex --quiet --full-auto "$(cat ${pf})"`;
 
-    case 'opencode':
-      return {
-        cmd: 'opencode',
-        args: [
-          'chat',
-          '--message', `'${escapedPrompt}'`,
-          '--provider', modelConfig.model === 'kimi-k2' ? 'openrouter' : 'openrouter',
-          '--model', modelConfig.model === 'kimi-k2' ? 'moonshotai/kimi-k2' : 'deepseek/deepseek-chat',
-        ],
-      };
+    case 'opencode': {
+      const orModel = modelConfig.model === 'kimi-k2' ? 'moonshotai/kimi-k2' : 'deepseek/deepseek-chat';
+      return `opencode chat --message "$(cat ${pf})" --provider openrouter --model ${orModel}`;
+    }
 
     default:
       throw new Error(`Unknown agent: ${modelConfig.agent}`);
