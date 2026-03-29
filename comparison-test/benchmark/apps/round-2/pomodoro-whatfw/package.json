@@ -1,7 +1,0 @@
-{
-  "name": "pomodoro-whatfw",
-  "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build" },
-  "dependencies": { "what-framework": "latest", "what-compiler": "latest" },
-  "devDependencies": { "vite": "latest" }
-}
