@@ -23,6 +23,13 @@ dist/
 *.jpeg
 *.jpg
 
+# Benchmark artifacts (generated apps, DB, lockfiles)
+comparison-test/benchmark/apps/
+comparison-test/benchmark/results/
+comparison-test/benchmark/node_modules/
+comparison-test/benchmark/package-lock.json
+comparison-test/benchmark/.env
+
 # Lockfiles (keep root only)
 examples/*/package-lock.json
 examples/npm-app-suite/*/package-lock.json
