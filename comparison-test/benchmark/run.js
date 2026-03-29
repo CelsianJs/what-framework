@@ -114,51 +114,80 @@ console.log(`   Apps dir: ${APPS_DIR}\n`);
 function getFrameworkPrompt(framework, appPrompt) {
   const base = `${appPrompt.description}\n\nRequirements:\n- Single-page app, no backend needed\n- Use Vite as the build tool\n- All state managed client-side\n- Clean, modern UI with CSS (no UI library)\n- Dark mode support\n- Responsive design\n- Put all code in the current directory`;
 
+  // Read the framework-specific build context
+  const contextDir = join(__dirname, 'prompts');
+  function readContext(filename) {
+    try { return readFileSync(join(contextDir, filename), 'utf8'); } catch { return ''; }
+  }
+
+  const iterateInstructions = `
+
+CRITICAL WORKFLOW — You MUST verify your work:
+1. Write all the code first
+2. Run \`npm install\`
+3. Start the dev server: \`npm run dev\` (in background)
+4. VERIFY the app works using the tools described below
+5. Fix any issues you find
+6. Verify again until clean
+7. Stop the dev server when done
+
+Do NOT skip the verification step. The goal is a working, polished app — not just code that compiles.`;
+
   switch (framework) {
     case 'whatfw': {
-      // Read the CLAUDE.md for WhatFW context
-      let claudeMd = '';
-      try {
-        claudeMd = readFileSync(join(WHATFW_ROOT, 'CLAUDE.md'), 'utf8');
-      } catch {}
+      const context = readContext('whatfw-build-context.md');
       return `You are building a ${appPrompt.title} app using What Framework (WhatFW).
 
-What Framework is a signal-based reactive framework where components run ONCE. Here is the complete framework guide:
-
----
-${claudeMd}
----
+${context}
 
 ${base}
+${iterateInstructions}
 
-Use \`what-framework\` for imports. Use \`signal()\` for state, \`computed()\` for derived values, \`effect()\` for side effects. Components return \`h()\` calls or JSX.
+For verification, use the MCP DevTools (what_* tools) to:
+- \`what_connection_status\` to confirm browser is connected
+- \`what_diagnose\` to check for errors and issues
+- \`what_page_map\` to verify page structure
+- \`what_look\` on key components to verify layout and styling
+- \`what_errors\` to find runtime errors
+- \`what_lint\` to validate code quality
+- \`what_signals\` to inspect state values
 
-Initialize the project:
-\`\`\`
-npm init -y
-npm install what-framework what-compiler vite
-\`\`\`
-
-Create a vite.config.js with the what-compiler/vite plugin.`;
+These MCP tools give you structured data about the running app — use them instead of screenshots.`;
     }
 
-    case 'react':
+    case 'react': {
+      const context = readContext('react-build-context.md');
       return `You are building a ${appPrompt.title} app using React.
 
+${context}
+
 ${base}
+${iterateInstructions}
 
-Use React 19+ with hooks (useState, useEffect, useMemo, useCallback). Use Vite as the bundler.
+For verification, use Playwright browser automation to:
+- Navigate to the dev server URL
+- Take screenshots to verify visual output
+- Check the browser console for errors
+- Test interactive features (click buttons, fill inputs, drag items)
+- Verify responsive layout at different viewport sizes`;
+    }
 
-Initialize: \`npm create vite@latest . -- --template react\` then \`npm install\``;
-
-    case 'svelte':
+    case 'svelte': {
+      const context = readContext('svelte-build-context.md');
       return `You are building a ${appPrompt.title} app using Svelte 5.
 
+${context}
+
 ${base}
+${iterateInstructions}
 
-Use Svelte 5 with runes ($state, $derived, $effect). Use Vite + @sveltejs/vite-plugin-svelte.
-
-Initialize: \`npm create vite@latest . -- --template svelte\` then \`npm install\``;
+For verification, use Playwright browser automation to:
+- Navigate to the dev server URL
+- Take screenshots to verify visual output
+- Check the browser console for errors
+- Test interactive features (click buttons, fill inputs, drag items)
+- Verify responsive layout at different viewport sizes`;
+    }
 
     default:
       throw new Error(`Unknown framework: ${framework}`);

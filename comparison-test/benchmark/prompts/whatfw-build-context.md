@@ -74,11 +74,40 @@ import what from 'what-compiler/vite';
 export default defineConfig({ plugins: [what()] });
 ```
 
-## vs React
-| React | What Framework |
-|---|---|
-| `useState(0)` | `signal(0)` |
-| `useEffect(() => {}, [deps])` | `effect(() => {})` (auto-tracks) |
-| `useMemo(() => {}, [deps])` | `computed(() => {})` (auto-tracks) |
-| Re-renders entire component | Component runs once, signals update DOM directly |
-| `<div>{count}</div>` | `h('div', {}, () => count())` |
+## CSS Patterns
+
+Use CSS custom properties for theming:
+```css
+:root, [data-theme="light"] {
+  --bg: #ffffff; --text: #1a1a1a; --border: #e5e7eb;
+  --accent: #3b82f6; --card: #f8f9fa;
+}
+[data-theme="dark"] {
+  --bg: #0f0f0f; --text: #e5e5e5; --border: #2a2a2a;
+  --accent: #60a5fa; --card: #1a1a1a;
+}
+```
+
+## Accessibility
+- Add `aria-label` to icon buttons
+- Use `role="group"` with `aria-label` for button groups
+- Add `aria-pressed` to toggle buttons
+- Use `<label>` elements for form inputs
+- Respect `prefers-reduced-motion` for animations
+- Use `prefers-color-scheme` as dark mode default
+
+## Development Workflow — MCP DevTools
+
+After writing code, start the dev server with `npm run dev` and open the app in a browser. Then use the MCP DevTools to inspect and iterate:
+
+1. `what_connection_status` — verify browser is connected, get signal/component counts
+2. `what_diagnose` — health check for errors, perf issues, reactivity problems
+3. `what_page_map` — verify the full page structure and interactive elements
+4. `what_look {componentId}` — check component layout, styles, dimensions without screenshots
+5. `what_errors` — find runtime errors with fix suggestions
+6. `what_lint {code}` — validate code before saving (works without browser)
+7. `what_signals {filter}` — inspect signal values to debug state
+8. `what_dependency_graph {signalId}` — trace reactive dependencies
+9. `what_set_signal` + `what_diff_snapshot` — test changes and verify cascading effects
+
+Use MCP tools instead of browser screenshots for inspecting the app — they're faster, cheaper, and return structured data.
