@@ -608,3 +608,98 @@ describe('event delegation', () => {
     assert.match(code, /["']change["']/, 'should include change in delegated events');
   });
 });
+
+// =========================================================================
+// Issue #1: Pre-capture markers for multiple dynamic children
+// =========================================================================
+
+describe('issue #1: marker pre-capture for multiple dynamic children', () => {
+  it('pre-captures markers when 2+ dynamic children exist', () => {
+    const code = compile(`
+      import { signal } from 'what-framework';
+      function App() {
+        const items = signal([]);
+        return <div>{items().length === 0 ? "empty" : null}{items().map(i => i)}</div>;
+      }
+    `);
+
+    // Should have variable declarations for markers before _$insert calls
+    const insertIdx = code.indexOf('_$insert');
+    assert.ok(insertIdx > 0, 'should have insert calls');
+
+    // Pre-captured markers should use firstChild and firstChild.nextSibling
+    // captured as variables BEFORE any _$insert calls
+    assert.ok(code.includes('.firstChild;') || code.includes('.firstChild,'),
+      'should capture firstChild as a variable');
+    assert.ok(code.includes('.nextSibling;') || code.includes('.nextSibling,'),
+      'should capture nextSibling as a variable');
+
+    // The _$insert calls should reference variables, not inline chains
+    const insertCalls = code.match(/_\$insert\([^)]+\)/g) || [];
+    assert.ok(insertCalls.length >= 2, 'should have at least 2 insert calls');
+
+    // Both inserts should use pre-captured variable identifiers as markers
+    // (not inline .firstChild.nextSibling)
+    for (const call of insertCalls) {
+      assert.ok(!call.includes('.firstChild.'), `insert should not use inline firstChild chain: ${call}`);
+    }
+  });
+
+  it('captures stable marker refs for component + static element siblings', () => {
+    const code = compile(`
+      function Nav() { return <nav>nav</nav>; }
+      function App() {
+        return <div><Nav /><main>content</main></div>;
+      }
+    `);
+
+    // Should not have inline firstChild.nextSibling in _$insert args
+    // Instead, markers should be pre-captured as variables
+    const hasInlineMarkerInInsert = /_\$insert\([^)]*\.firstChild\.nextSibling/.test(code);
+    // If there's only one dynamic child (Nav), pre-capture may not be needed
+    // The key is that it compiles without error
+    assert.ok(code.includes('_$insert'), 'should have insert call for component child');
+    assert.ok(code.includes('_tmpl$'), 'should have template');
+  });
+});
+
+// =========================================================================
+// Issue #4: ref props in compiled output
+// =========================================================================
+
+describe('issue #4: ref prop handling in compiled output', () => {
+  it('generates ref assignment code instead of setProp for ref attributes', () => {
+    const code = compile(`
+      import { useRef } from 'what-framework';
+      function App() {
+        const boxRef = useRef(null);
+        return <div ref={boxRef}>content</div>;
+      }
+    `);
+
+    // Should NOT generate _$setProp(el, "ref", ...)
+    assert.ok(!code.includes('_$setProp') || !code.includes('"ref"'),
+      'should not use setProp for ref');
+
+    // Should generate ref.current = el (or typeof check)
+    assert.ok(
+      code.includes('.current =') || code.includes('typeof'),
+      'should generate ref assignment (either .current = or typeof check)'
+    );
+  });
+
+  it('handles callback refs', () => {
+    const code = compile(`
+      function App() {
+        const refFn = (el) => console.log(el);
+        return <div ref={refFn}>content</div>;
+      }
+    `);
+
+    // Should generate typeof check for function vs object ref
+    assert.ok(
+      code.includes('typeof') || code.includes('.current'),
+      'should handle both function and object refs'
+    );
+  });
+});

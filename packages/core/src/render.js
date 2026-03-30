@@ -225,6 +225,16 @@ function sameNodeArray(a, b) {
 }
 
 function reconcileInsert(parent, value, current, marker) {
+  // Guard: parent must be a node that supports child operations.
+  // This catches cases where a stale DOM reference (e.g., a comment node from
+  // shifted childNodes indices) is mistakenly passed as the parent.
+  if (!parent || typeof parent.insertBefore !== 'function') {
+    if (__DEV__) {
+      console.warn('[what] reconcileInsert called with invalid parent:', parent);
+    }
+    return current;
+  }
+
   const targetMarker = marker || null;
 
   if (value == null || typeof value === 'boolean') {
@@ -848,6 +858,13 @@ export function spread(el, props) {
 }
 
 export function setProp(el, key, value) {
+  // Ref handling — assign element to ref object/callback (defense in depth)
+  if (key === 'ref') {
+    if (typeof value === 'function') value(el);
+    else if (value && typeof value === 'object') value.current = el;
+    return;
+  }
+
   // Sanitize URL attributes — reject dangerous protocols
   if (URL_ATTRS.has(key) || URL_ATTRS.has(key.toLowerCase())) {
     if (!isSafeUrl(value)) {

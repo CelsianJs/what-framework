@@ -504,51 +504,65 @@ function scheduleMicrotask() {
   }
 }
 
+let isFlushing = false;
+
 function flush() {
-  let iterations = 0;
-  while (pendingEffects.length > 0 && iterations < 25) {
-    const batch = pendingEffects;
-    pendingEffects = [];
+  // Re-entrancy guard: if flush() is called during an active flush (e.g., via
+  // flushSync() inside a component render or effect), skip to prevent infinite
+  // recursion. Pending effects will be picked up by the outer flush's while-loop.
+  if (isFlushing) return;
+  isFlushing = true;
 
-    // Topological sort: execute effects in level order (lowest first).
-    // Fast paths:
-    // 1. Single effect — no sort needed (most common case for microtask flush)
-    // 2. Already sorted — skip sort (common when effects added in level order)
-    // 3. Multiple effects at different levels — sort required
-    if (batch.length > 1 && pendingNeedSort) {
-      batch.sort((a, b) => a._level - b._level);
-    }
-    pendingNeedSort = false;
+  try {
+    let iterations = 0;
+    while (pendingEffects.length > 0 && iterations < 25) {
+      const batch = pendingEffects;
+      pendingEffects = [];
 
-    for (let i = 0; i < batch.length; i++) {
-      const e = batch[i];
-      e._pending = false;
-      if (!e.disposed && !e._onNotify) {
-        const prevDepsLen = e.deps.length;
-        _runEffect(e);
-        // Update level only if deps changed (graph structure change)
-        if (!e._computed && e.deps.length !== prevDepsLen) {
-          _updateLevel(e);
+      // Topological sort: execute effects in level order (lowest first).
+      // Fast paths:
+      // 1. Single effect — no sort needed (most common case for microtask flush)
+      // 2. Already sorted — skip sort (common when effects added in level order)
+      // 3. Multiple effects at different levels — sort required
+      if (batch.length > 1 && pendingNeedSort) {
+        batch.sort((a, b) => a._level - b._level);
+      }
+      pendingNeedSort = false;
+
+      for (let i = 0; i < batch.length; i++) {
+        const e = batch[i];
+        e._pending = false;
+        if (!e.disposed && !e._onNotify) {
+          const prevDepsLen = e.deps.length;
+          _runEffect(e);
+          // Update level only if deps changed (graph structure change)
+          if (!e._computed && e.deps.length !== prevDepsLen) {
+            _updateLevel(e);
+          }
         }
       }
+      iterations++;
     }
-    iterations++;
-  }
-  if (iterations >= 25) {
-    if (__DEV__) {
-      const remaining = pendingEffects.slice(0, 3);
-      const effectNames = remaining.map(e => e.fn?.name || e.fn?.toString().slice(0, 60) || '(anonymous)');
-      console.warn(
-        `[what] Possible infinite effect loop detected (25 iterations). ` +
-        `Likely cause: an effect writes to a signal it also reads, creating a cycle. ` +
-        `Use untrack() to read signals without subscribing. ` +
-        `Looping effects: ${effectNames.join(', ')}`
-      );
-    } else {
-      console.warn('[what] Possible infinite effect loop detected');
+    if (iterations >= 25) {
+      // Clear pending effects to prevent further damage
+      for (let i = 0; i < pendingEffects.length; i++) pendingEffects[i]._pending = false;
+      pendingEffects.length = 0;
+
+      if (__DEV__) {
+        const remaining = pendingEffects.slice(0, 3);
+        const effectNames = remaining.map(e => e.fn?.name || e.fn?.toString().slice(0, 60) || '(anonymous)');
+        console.warn(
+          `[what] Possible infinite effect loop detected (25 iterations). ` +
+          `Likely cause: an effect writes to a signal it also reads, creating a cycle. ` +
+          `Use untrack() to read signals without subscribing. ` +
+          `Looping effects: ${effectNames.join(', ')}`
+        );
+      } else {
+        console.warn('[what] Possible infinite effect loop detected');
+      }
     }
-    for (let i = 0; i < pendingEffects.length; i++) pendingEffects[i]._pending = false;
-    pendingEffects.length = 0;
+  } finally {
+    isFlushing = false;
   }
 }
 
@@ -613,7 +627,31 @@ export function memo(fn) {
 
 // --- flushSync ---
 // Force all pending effects to run synchronously. Use sparingly.
+// Calling during render or effect execution is a no-op (prevents infinite loops).
 export function flushSync() {
+  if (isFlushing) {
+    // Re-entrant call — silently skip (Solid approach).
+    // This prevents infinite loops when flushSync() is called during component
+    // render or effect execution. Pending effects will be picked up by the
+    // outer flush's while-loop.
+    if (__DEV__) {
+      console.warn(
+        '[what] flushSync() called during an active flush (e.g., inside a component render or effect). ' +
+        'This is a no-op to prevent infinite loops. Move flushSync() to an event handler or onMount callback.'
+      );
+    }
+    return;
+  }
+  if (currentEffect) {
+    // Called inside an effect/render — skip with warning
+    if (__DEV__) {
+      console.warn(
+        '[what] flushSync() called during effect execution. ' +
+        'This is a no-op to prevent infinite loops. Move flushSync() to an event handler or onMount callback.'
+      );
+    }
+    return;
+  }
   microtaskScheduled = false;
   flush();
 }

@@ -642,6 +642,28 @@ export default function whatBabelPlugin({ types: t }) {
 
       const attrName = getAttrName(attr);
 
+      // Ref handling — assign element to ref object/callback
+      if (attrName === 'ref') {
+        const refExpr = getAttributeValue(attr.value);
+        // Generate: typeof ref === 'function' ? ref(el) : ref.current = el
+        statements.push(
+          t.expressionStatement(
+            t.conditionalExpression(
+              t.binaryExpression('===',
+                t.unaryExpression('typeof', refExpr),
+                t.stringLiteral('function')
+              ),
+              t.callExpression(t.cloneNode(refExpr), [t.identifier(elId)]),
+              t.assignmentExpression('=',
+                t.memberExpression(t.cloneNode(refExpr), t.identifier('current')),
+                t.identifier(elId)
+              )
+            )
+          )
+        );
+        continue;
+      }
+
       // Event handlers
       if (attrName.startsWith('on') && !attrName.includes('|')) {
         const event = attrName.slice(2).toLowerCase();
@@ -805,6 +827,12 @@ export default function whatBabelPlugin({ types: t }) {
   }
 
   function applyDynamicChildren(statements, elId, children, parentNode, state) {
+    // Two-pass approach: first collect all children needing DOM references,
+    // then pre-capture markers before any _$insert() calls shift indices.
+    // This fixes issue #1: childNodes index shifting with multiple dynamic children.
+
+    // --- Pass 1: Scan children and collect entries ---
+    const entries = [];
     let childIndex = 0;
 
     for (const child of children) {
@@ -816,9 +844,73 @@ export default function whatBabelPlugin({ types: t }) {
 
       if (t.isJSXExpressionContainer(child)) {
         if (t.isJSXEmptyExpression(child.expression)) continue;
+        entries.push({ type: 'expression', child, childIndex });
+        childIndex++;
+        continue;
+      }
 
-        const expr = child.expression;
-        const marker = buildChildAccess(elId, childIndex);
+      if (t.isJSXElement(child)) {
+        const childTag = child.openingElement.name.name;
+        if (isComponent(childTag) || childTag === 'For' || childTag === 'Show') {
+          entries.push({ type: 'component', child, childIndex });
+          childIndex++;
+        } else {
+          const hasAnythingDynamic = child.openingElement.attributes.some(isDynamicAttr) ||
+            child.openingElement.attributes.some(a => !t.isJSXSpreadAttribute(a) && getAttrName(a)?.startsWith('on')) ||
+            !child.children.every(isStaticChild);
+
+          entries.push({ type: 'static', child, childIndex, hasAnythingDynamic });
+          childIndex++;
+        }
+        continue;
+      }
+
+      if (t.isJSXFragment(child)) {
+        entries.push({ type: 'fragment', child });
+      }
+    }
+
+    // --- Pre-capture marker references if needed ---
+    // When there are multiple entries needing DOM refs and at least one _$insert(),
+    // capture all markers upfront to avoid index shifting after DOM mutations.
+    const entriesNeedingRef = entries.filter(e =>
+      e.type === 'expression' || e.type === 'component' ||
+      (e.type === 'static' && e.hasAnythingDynamic)
+    );
+    const hasDynamicInsert = entries.some(e => e.type === 'expression' || e.type === 'component');
+    const needsPreCapture = entriesNeedingRef.length >= 2 && hasDynamicInsert;
+
+    const markerVars = new Map(); // childIndex → variable name
+    if (needsPreCapture) {
+      for (const entry of entriesNeedingRef) {
+        const varName = `_m$${entry.childIndex}`;
+        // Use a unique name to avoid collisions with element vars
+        const markerVar = state.nextVarId();
+        markerVars.set(entry.childIndex, markerVar);
+        statements.push(
+          t.variableDeclaration('const', [
+            t.variableDeclarator(
+              t.identifier(markerVar),
+              buildChildAccess(elId, entry.childIndex)
+            )
+          ])
+        );
+      }
+    }
+
+    // Helper: get a marker reference (pre-captured var or inline access)
+    function getMarker(idx) {
+      if (markerVars.has(idx)) {
+        return t.identifier(markerVars.get(idx));
+      }
+      return buildChildAccess(elId, idx);
+    }
+
+    // --- Pass 2: Generate code using stable references ---
+    for (const entry of entries) {
+      if (entry.type === 'expression') {
+        const expr = entry.child.expression;
+        const marker = getMarker(entry.childIndex);
         state.needsInsert = true;
 
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
@@ -827,7 +919,6 @@ export default function whatBabelPlugin({ types: t }) {
             t.arrowFunctionExpression([], expr),
             marker
           ]);
-          // In dev mode, add a leading comment when the reactive wrapping is uncertain
           if (isUncertainReactive(expr, state.signalNames, state.importedIdentifiers)) {
             t.addComment(insertCall, 'leading',
               ' @what-dev: reactive wrapping may be unnecessary — expression contains a non-signal function call with reactive args ',
@@ -846,53 +937,48 @@ export default function whatBabelPlugin({ types: t }) {
             )
           );
         }
-        childIndex++;
         continue;
       }
 
-      if (t.isJSXElement(child)) {
-        const childTag = child.openingElement.name.name;
-        if (isComponent(childTag) || childTag === 'For' || childTag === 'Show') {
-          const transformed = transformElementFineGrained({ node: child }, state);
-          const marker = buildChildAccess(elId, childIndex);
-          state.needsInsert = true;
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                transformed,
-                marker
-              ])
-            )
-          );
-          childIndex++;
+      if (entry.type === 'component') {
+        const transformed = transformElementFineGrained({ node: entry.child }, state);
+        const marker = getMarker(entry.childIndex);
+        state.needsInsert = true;
+        statements.push(
+          t.expressionStatement(
+            t.callExpression(t.identifier('_$insert'), [
+              t.identifier(elId),
+              transformed,
+              marker
+            ])
+          )
+        );
+        continue;
+      }
+
+      if (entry.type === 'static' && entry.hasAnythingDynamic) {
+        // Static child with dynamic content — get element reference
+        let childElRef;
+        if (markerVars.has(entry.childIndex)) {
+          childElRef = markerVars.get(entry.childIndex);
         } else {
-          // Static child element — already in template
-          // But check if it has dynamic children/attrs that need effects
-          const hasAnythingDynamic = child.openingElement.attributes.some(isDynamicAttr) ||
-            child.openingElement.attributes.some(a => !t.isJSXSpreadAttribute(a) && getAttrName(a)?.startsWith('on')) ||
-            !child.children.every(isStaticChild);
-
-          if (hasAnythingDynamic) {
-            const childElId = state.nextVarId();
-            statements.push(
-              t.variableDeclaration('const', [
-                t.variableDeclarator(
-                  t.identifier(childElId),
-                  buildChildAccess(elId, childIndex)
-                )
-              ])
-            );
-            applyDynamicAttrs(statements, childElId, child.openingElement.attributes, state);
-            applyDynamicChildren(statements, childElId, child.children, child, state);
-          }
-          childIndex++;
+          childElRef = state.nextVarId();
+          statements.push(
+            t.variableDeclaration('const', [
+              t.variableDeclarator(
+                t.identifier(childElRef),
+                buildChildAccess(elId, entry.childIndex)
+              )
+            ])
+          );
         }
+        applyDynamicAttrs(statements, childElRef, entry.child.openingElement.attributes, state);
+        applyDynamicChildren(statements, childElRef, entry.child.children, entry.child, state);
         continue;
       }
 
-      if (t.isJSXFragment(child)) {
-        for (const fChild of child.children) {
+      if (entry.type === 'fragment') {
+        for (const fChild of entry.child.children) {
           if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
             state.needsInsert = true;
             const expr = fChild.expression;
