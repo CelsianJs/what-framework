@@ -436,6 +436,7 @@ export default function whatBabelPlugin({ types: t }) {
     for (const attr of el.attributes) {
       if (t.isJSXSpreadAttribute(attr)) continue;
       const name = getAttrName(attr);
+      if (name === 'key') continue;
       if (name.startsWith('on') || name.startsWith('bind:') || name.includes('|')) continue;
 
       let domName = name;
@@ -641,6 +642,9 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       const attrName = getAttrName(attr);
+
+      // Strip key prop — WhatFW has no virtual DOM, so key is meaningless (issue #6)
+      if (attrName === 'key') continue;
 
       // Ref handling — assign element to ref object/callback
       if (attrName === 'ref') {
@@ -1097,6 +1101,9 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       const attrName = getAttrName(attr);
+
+      // Strip key prop — WhatFW has no virtual DOM, so key is meaningless (issue #6)
+      if (attrName === 'key') continue;
 
       // Handle bind: attributes for components
       if (isBindingAttribute(attrName)) {

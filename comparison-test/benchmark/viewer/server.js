@@ -76,6 +76,7 @@ function serveDashboard(res) {
             <span>${r.total_tokens ? Math.round(r.total_tokens / 1000) + 'K tokens' : ''}</span>
             <span>${r.duration_ms ? Math.round(r.duration_ms / 1000) + 's' : ''}</span>
             <span>${r.build_success ? 'Build OK' : 'Build FAIL'}</span>
+            <span>${r.bundle_size_bytes ? Math.round(r.bundle_size_bytes / 1024) + ' KB bundle' : ''}</span>
           </div>
           ${r.review_notes ? `<div style="font-size:12px;color:#666;margin-bottom:12px;line-height:1.4">${r.review_notes}</div>` : ''}
           <div style="display:flex;gap:8px">
@@ -105,7 +106,7 @@ function serveDashboard(res) {
       <thead>
         <tr style="border-bottom:2px solid var(--border);text-align:left">
           <th style="padding:8px">Framework</th><th>Model</th><th>Runs</th>
-          <th>Overall</th><th>Style</th><th>Perf</th><th>Quality</th><th>Func</th><th>Avg Tokens</th>
+          <th>Overall</th><th>Style</th><th>Perf</th><th>Quality</th><th>Func</th><th>Avg Tokens</th><th>Bundle</th>
         </tr>
       </thead>
       <tbody>
@@ -118,6 +119,7 @@ function serveDashboard(res) {
             <td>${r.avg_styling}</td><td>${r.avg_performance}</td>
             <td>${r.avg_code_quality}</td><td>${r.avg_functionality}</td>
             <td style="color:#888">${Math.round(r.avg_tokens / 1000)}K</td>
+            <td style="color:#888">${r.avg_bundle_bytes ? Math.round(r.avg_bundle_bytes / 1024) + ' KB' : 'N/A'}</td>
           </tr>`).join('')}
       </tbody>
     </table>` : '<p style="color:#888">No reviewed runs yet.</p>';

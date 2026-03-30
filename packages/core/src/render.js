@@ -865,6 +865,9 @@ export function setProp(el, key, value) {
     return;
   }
 
+  // Key prop — no-op, WhatFW has no virtual DOM (defense in depth, issue #6)
+  if (key === 'key') return;
+
   // Sanitize URL attributes — reject dangerous protocols
   if (URL_ATTRS.has(key) || URL_ATTRS.has(key.toLowerCase())) {
     if (!isSafeUrl(value)) {

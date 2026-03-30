@@ -50,6 +50,7 @@ db.exec(`
     app_port INTEGER,                    -- dev server port (if running)
     build_success INTEGER DEFAULT 0,     -- 1 = builds, 0 = fails
     dev_server_works INTEGER DEFAULT 0,  -- 1 = serves, 0 = fails
+    bundle_size_bytes INTEGER,           -- production bundle size (dist/ total)
 
     -- Review scores (0-10 each, set by review agent)
     score_styling REAL,
@@ -74,6 +75,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_runs_model ON runs(model);
   CREATE INDEX IF NOT EXISTS idx_runs_round ON runs(round);
 `);
+
+// Migrate: add bundle_size_bytes column if it doesn't exist yet
+try {
+  db.exec(`ALTER TABLE runs ADD COLUMN bundle_size_bytes INTEGER`);
+} catch {
+  // Column already exists — ignore
+}
 
 // --- API ---
 
@@ -107,6 +115,7 @@ export function updateRun(id, updates) {
   const allowed = [
     'input_tokens', 'output_tokens', 'total_tokens', 'duration_ms',
     'app_path', 'app_port', 'build_success', 'dev_server_works',
+    'bundle_size_bytes',
     'score_styling', 'score_performance', 'score_lighthouse',
     'score_code_quality', 'score_functionality', 'score_overall',
     'review_notes', 'review_agent', 'status', 'error', 'completed_at',
@@ -162,7 +171,8 @@ export function getScoreboard() {
       ROUND(AVG(score_code_quality), 1) as avg_code_quality,
       ROUND(AVG(score_functionality), 1) as avg_functionality,
       ROUND(AVG(total_tokens), 0) as avg_tokens,
-      ROUND(AVG(duration_ms), 0) as avg_duration_ms
+      ROUND(AVG(duration_ms), 0) as avg_duration_ms,
+      ROUND(AVG(bundle_size_bytes), 0) as avg_bundle_bytes
     FROM runs
     WHERE status = 'reviewed' AND score_overall IS NOT NULL
     GROUP BY framework, model

@@ -26,7 +26,7 @@
  */
 
 import { execSync, spawn } from 'child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { addPrompt, createRun, updateRun, getRun, getScoreboard, getNextRound } from './db.js';
@@ -59,14 +59,15 @@ if (hasFlag('scoreboard')) {
     console.log('No reviewed runs yet. Run some benchmarks first.');
   } else {
     console.log('\n📊 SCOREBOARD\n');
-    console.log('Framework  | Model          | Runs | Overall | Style | Perf  | Quality | Func  | Avg Tokens');
-    console.log('-'.repeat(100));
+    console.log('Framework  | Model          | Runs | Overall | Style | Perf  | Quality | Func  | Avg Tokens | Bundle');
+    console.log('-'.repeat(112));
     for (const row of board) {
+      const bundleStr = row.avg_bundle_bytes ? `${(row.avg_bundle_bytes / 1024).toFixed(0)} KB` : 'N/A';
       console.log(
         `${row.framework.padEnd(10)} | ${row.model.padEnd(14)} | ${String(row.runs).padStart(4)} | ` +
         `${String(row.avg_overall).padStart(7)} | ${String(row.avg_styling).padStart(5)} | ` +
         `${String(row.avg_performance).padStart(5)} | ${String(row.avg_code_quality).padStart(7)} | ` +
-        `${String(row.avg_functionality).padStart(5)} | ${String(row.avg_tokens).padStart(10)}`
+        `${String(row.avg_functionality).padStart(5)} | ${String(row.avg_tokens).padStart(10)} | ${bundleStr.padStart(6)}`
       );
     }
   }
@@ -196,6 +197,59 @@ For verification, use Playwright browser automation to:
   }
 }
 
+// --- Cleanup: kill orphaned dev servers between runs ---
+
+function killOrphanedDevServers() {
+  try {
+    // Kill any Vite dev servers left running by previous agent runs.
+    // Agents are instructed to start `npm run dev` in the background for verification,
+    // but execSync won't clean up those child processes when it returns.
+    // This prevents OOM kills (exit 137) from accumulating dev servers.
+    const result = execSync(
+      "ps aux | grep -E '(vite|node.*dev)' | grep -v grep | grep -v 'benchmark/run.js' | awk '{print $2}'",
+      { encoding: 'utf8', timeout: 5000 }
+    ).trim();
+
+    if (result) {
+      const pids = result.split('\n').filter(Boolean);
+      for (const pid of pids) {
+        try {
+          process.kill(parseInt(pid), 'SIGTERM');
+        } catch {} // already dead, ignore
+      }
+      console.log(`   Cleaned up ${pids.length} orphaned dev server process(es)`);
+    }
+  } catch {} // no matching processes, that's fine
+}
+
+// --- Measure production bundle size from dist/ ---
+
+function measureBundleSize(appDir) {
+  const distDir = join(appDir, 'dist');
+  if (!existsSync(distDir)) return null;
+
+  let totalBytes = 0;
+  function walkDir(dir) {
+    const entries = readdirSync(dir);
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      const st = statSync(fullPath);
+      if (st.isDirectory()) {
+        walkDir(fullPath);
+      } else {
+        totalBytes += st.size;
+      }
+    }
+  }
+
+  try {
+    walkDir(distDir);
+    return totalBytes;
+  } catch {
+    return null;
+  }
+}
+
 // --- Run a single benchmark ---
 
 async function runBenchmark(framework) {
@@ -217,6 +271,9 @@ async function runBenchmark(framework) {
   writeFileSync(join(appDir, 'BENCHMARK_PROMPT.md'), buildPrompt);
 
   updateRun(runId, { status: 'running', app_path: appDir });
+
+  // Kill any leftover dev servers from previous runs to prevent OOM (exit 137)
+  killOrphanedDevServers();
 
   console.log(`\n🔨 Building ${prompt.title} with ${framework} (${modelConfig.model})...`);
   console.log(`   Dir: ${appDir}`);
@@ -253,23 +310,34 @@ async function runBenchmark(framework) {
     const tokenMatch = result.match(/total_tokens:\s*(\d+)/i) || result.match(/tokens?.*?(\d{3,})/i);
     const totalTokens = tokenMatch ? parseInt(tokenMatch[1]) : null;
 
-    // Check if build works
+    // Check if production build works (vite build = production mode)
     let buildSuccess = false;
+    let bundleSizeBytes = null;
     try {
       if (existsSync(join(appDir, 'package.json'))) {
         execSync('npm install 2>&1', { cwd: appDir, timeout: 60000 });
         execSync('npx vite build 2>&1', { cwd: appDir, timeout: 60000 });
         buildSuccess = true;
+
+        // Measure production bundle size from dist/
+        bundleSizeBytes = measureBundleSize(appDir);
+        if (bundleSizeBytes != null) {
+          console.log(`   Bundle size: ${(bundleSizeBytes / 1024).toFixed(1)} KB`);
+        }
       }
     } catch (buildErr) {
       console.log(`   ⚠️  Build failed: ${buildErr.message?.slice(0, 100)}`);
     }
+
+    // Kill any dev servers the agent may have left running
+    killOrphanedDevServers();
 
     updateRun(runId, {
       status: 'completed',
       duration_ms: duration,
       total_tokens: totalTokens,
       build_success: buildSuccess ? 1 : 0,
+      bundle_size_bytes: bundleSizeBytes,
       completed_at: new Date().toISOString(),
     });
 
@@ -279,6 +347,10 @@ async function runBenchmark(framework) {
     return runId;
   } catch (err) {
     const duration = Date.now() - start;
+
+    // Kill any dev servers the agent may have left running
+    killOrphanedDevServers();
+
     updateRun(runId, {
       status: 'failed',
       error: err.message?.slice(0, 500),

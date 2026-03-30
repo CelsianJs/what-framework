@@ -1,6 +1,6 @@
 {
   "name": "what-framework",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "The closest framework to vanilla JS — signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",

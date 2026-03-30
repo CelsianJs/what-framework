@@ -1,6 +1,6 @@
 {
   "name": "what-compiler",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "JSX compiler for What Framework - transforms JSX to optimized DOM operations",
   "main": "src/index.js",
   "type": "module",

@@ -285,43 +285,66 @@ function scheduleMicrotask() {
     });
   }
 }
+var isFlushing = false;
 function flush() {
-  let iterations = 0;
-  while (pendingEffects.length > 0 && iterations < 25) {
-    const batch2 = pendingEffects;
-    pendingEffects = [];
-    if (batch2.length > 1 && pendingNeedSort) {
-      batch2.sort((a, b) => a._level - b._level);
-    }
-    pendingNeedSort = false;
-    for (let i = 0; i < batch2.length; i++) {
-      const e = batch2[i];
-      e._pending = false;
-      if (!e.disposed && !e._onNotify) {
-        const prevDepsLen = e.deps.length;
-        _runEffect(e);
-        if (!e._computed && e.deps.length !== prevDepsLen) {
-          _updateLevel(e);
+  if (isFlushing) return;
+  isFlushing = true;
+  try {
+    let iterations = 0;
+    while (pendingEffects.length > 0 && iterations < 25) {
+      const batch2 = pendingEffects;
+      pendingEffects = [];
+      if (batch2.length > 1 && pendingNeedSort) {
+        batch2.sort((a, b) => a._level - b._level);
+      }
+      pendingNeedSort = false;
+      for (let i = 0; i < batch2.length; i++) {
+        const e = batch2[i];
+        e._pending = false;
+        if (!e.disposed && !e._onNotify) {
+          const prevDepsLen = e.deps.length;
+          _runEffect(e);
+          if (!e._computed && e.deps.length !== prevDepsLen) {
+            _updateLevel(e);
+          }
         }
       }
+      iterations++;
     }
-    iterations++;
-  }
-  if (iterations >= 25) {
-    if (__DEV__) {
-      const remaining = pendingEffects.slice(0, 3);
-      const effectNames = remaining.map((e) => e.fn?.name || e.fn?.toString().slice(0, 60) || "(anonymous)");
-      console.warn(
-        `[what] Possible infinite effect loop detected (25 iterations). Likely cause: an effect writes to a signal it also reads, creating a cycle. Use untrack() to read signals without subscribing. Looping effects: ${effectNames.join(", ")}`
-      );
-    } else {
-      console.warn("[what] Possible infinite effect loop detected");
+    if (iterations >= 25) {
+      for (let i = 0; i < pendingEffects.length; i++) pendingEffects[i]._pending = false;
+      pendingEffects.length = 0;
+      if (__DEV__) {
+        const remaining = pendingEffects.slice(0, 3);
+        const effectNames = remaining.map((e) => e.fn?.name || e.fn?.toString().slice(0, 60) || "(anonymous)");
+        console.warn(
+          `[what] Possible infinite effect loop detected (25 iterations). Likely cause: an effect writes to a signal it also reads, creating a cycle. Use untrack() to read signals without subscribing. Looping effects: ${effectNames.join(", ")}`
+        );
+      } else {
+        console.warn("[what] Possible infinite effect loop detected");
+      }
     }
-    for (let i = 0; i < pendingEffects.length; i++) pendingEffects[i]._pending = false;
-    pendingEffects.length = 0;
+  } finally {
+    isFlushing = false;
   }
 }
 function flushSync() {
+  if (isFlushing) {
+    if (__DEV__) {
+      console.warn(
+        "[what] flushSync() called during an active flush (e.g., inside a component render or effect). This is a no-op to prevent infinite loops. Move flushSync() to an event handler or onMount callback."
+      );
+    }
+    return;
+  }
+  if (currentEffect) {
+    if (__DEV__) {
+      console.warn(
+        "[what] flushSync() called during effect execution. This is a no-op to prevent infinite loops. Move flushSync() to an event handler or onMount callback."
+      );
+    }
+    return;
+  }
   microtaskScheduled = false;
   flush();
 }
