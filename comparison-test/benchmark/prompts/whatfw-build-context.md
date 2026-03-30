@@ -41,6 +41,7 @@ mount(h(Counter, {}), '#app');
 - Components run once — the function body never re-executes
 - Use `() => expression` in JSX/h() for reactive text and attributes
 - `signal()` works at module scope (shared store) or inside components (local)
+- `key` props are NOT needed — WhatFW has no virtual DOM diffing. The compiler strips them. Use `.map()` directly without keys.
 - Import everything from `'what-framework'`
 - Use `h(tag, props, ...children)` for elements or JSX with the compiler
 
@@ -50,10 +51,20 @@ mount(h(Counter, {}), '#app');
 **Reactive class:** `h('div', { class: () => active() ? 'on' : 'off' })`
 **Reactive style:** `h('div', { style: () => ({ color: dark() ? '#fff' : '#000' }) })`
 **Conditional render:** `() => show() ? h(Component, {}) : null`
-**List render:** `() => items().map(item => h(Item, { key: item.id, item }))`
+**List render:** `() => items().map(item => h(Item, { item }))`
 **Event handler:** `h('button', { onclick: () => count(c => c + 1) }, 'Click')`
 **Cleanup in effect:** `effect(() => { const id = setInterval(fn, 1000); return () => clearInterval(id); })`
 **localStorage persistence:** `effect(() => localStorage.setItem('key', JSON.stringify(value())))`
+**Theme with localStorage:**
+```js
+const theme = signal(localStorage.getItem('theme') ||
+  (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'), 'theme');
+
+effect(() => {
+  localStorage.setItem('theme', theme());
+  document.documentElement.setAttribute('data-theme', theme());
+});
+```
 **onMount:** `onMount(() => { /* runs once after DOM ready */ return () => { /* cleanup */ } })`
 
 ## Project Setup
@@ -71,8 +82,11 @@ mount(h(Counter, {}), '#app');
 // vite.config.js
 import { defineConfig } from 'vite';
 import what from 'what-compiler/vite';
-export default defineConfig({ plugins: [what()] });
+import whatDevTools from 'what-devtools-mcp/vite';
+export default defineConfig({ plugins: [what(), whatDevTools()] });
 ```
+
+DevTools auto-connect in dev mode via the Vite plugin. No setup code needed in main.jsx.
 
 ## CSS Patterns
 
@@ -89,10 +103,17 @@ Use CSS custom properties for theming:
 ```
 
 ## Accessibility
-- Add `aria-label` to icon buttons
-- Use `role="group"` with `aria-label` for button groups
-- Add `aria-pressed` to toggle buttons
-- Use `<label>` elements for form inputs
+
+Use ARIA attributes with signal-reactive values for dynamic accessibility:
+
+- `aria-label` on icon buttons: `h('button', { 'aria-label': 'Toggle theme', onclick: toggle })`
+- `aria-pressed` on toggle buttons: `h('button', { 'aria-pressed': () => isActive() }, 'Bold')`
+- `aria-selected` on options: `h('li', { role: 'option', 'aria-selected': () => selected() === item.id })`
+- `aria-invalid` on inputs: `h('input', { 'aria-invalid': () => hasError(), 'aria-describedby': 'err-msg' })`
+- `aria-live` on dynamic regions: `h('div', { role: 'log', 'aria-live': 'polite', 'aria-label': 'Messages' })`
+- `aria-expanded` on collapsibles: `h('button', { 'aria-expanded': () => open(), 'aria-controls': 'panel' })`
+- `role="status"` for live updates: `h('div', { role: 'status', 'aria-live': 'polite' }, () => statusText())`
+- Use `<label>` elements for all form inputs
 - Respect `prefers-reduced-motion` for animations
 - Use `prefers-color-scheme` as dark mode default
 

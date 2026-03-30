@@ -703,3 +703,27 @@ describe('issue #4: ref prop handling in compiled output', () => {
     );
   });
 });
+
+describe('issue #6: key prop stripping', () => {
+  it('strips key prop from component in .map()', () => {
+    const code = compile(`
+      function Item({ item }) { return <div>{item.name}</div>; }
+      function App() {
+        const items = signal([{id: 1, name: 'a'}]);
+        return <ul>{items().map(item => <Item key={item.id} item={item} />)}</ul>;
+      }
+    `);
+    // key should NOT appear in the compiled output
+    assert.ok(!code.includes('"key"') && !code.includes("'key'"), 'key prop should be stripped');
+  });
+
+  it('strips key prop from native element', () => {
+    const code = compile(`
+      function App() {
+        const items = signal([{id: 1, text: 'a'}]);
+        return <ul>{items().map(item => <li key={item.id}>{item.text}</li>)}</ul>;
+      }
+    `);
+    assert.ok(!code.includes('"key"') && !code.includes("'key'"), 'key prop should be stripped from native elements');
+  });
+});
