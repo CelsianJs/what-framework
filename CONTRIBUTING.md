@@ -8,7 +8,7 @@ Thanks for your interest in contributing! Here's how to get started.
 git clone https://github.com/CelsianJs/what-framework.git
 cd whatfw
 npm install
-npm test  # 257 tests should pass
+npm test  # 653+ tests should pass
 ```
 
 The repo is a monorepo with packages in `packages/`:
@@ -36,13 +36,60 @@ npm test          # Run all tests
 
 Tests use Node's built-in test runner. No external test framework needed.
 
-## Making Changes
+## Git & PR Workflow
 
-1. Fork the repo and create a branch from `main`
-2. Make your changes
-3. Add tests if you're adding new functionality
-4. Run `npm test` to make sure everything passes
-5. Open a PR with a clear description of what you changed and why
+### Branches
+
+- `main` is the production branch. **Never push directly to main.**
+- Create branches from `main` with descriptive names:
+  - `fix/issue-N-short-description` — bug fixes (reference the issue number)
+  - `feat/short-description` — new features
+  - `chore/short-description` — maintenance, refactoring, docs
+
+### Commits
+
+Use [conventional commits](https://www.conventionalcommits.org/):
+- `fix(compiler): description` — bug fix
+- `feat(core): description` — new feature
+- `chore(benchmark): description` — maintenance
+- `docs: description` — documentation only
+
+Scope is the package name: `compiler`, `core`, `router`, `server`, `devtools`, `benchmark`, etc.
+
+### Pull Requests
+
+Every change goes through a PR. The process:
+
+1. Create a branch from `main`
+2. Make changes, add tests for new functionality
+3. Run `npm test` — all tests must pass
+4. Push the branch and open a PR
+5. PR title uses the same conventional commit format
+6. PR body must include:
+   - **Summary** — what changed and why (bullet points)
+   - **Test plan** — how the changes were verified (checkboxes)
+7. **Connect to issues** — use `Closes #N` or `Fixes #N` in the PR body to auto-close issues on merge
+8. Squash merge into `main`
+9. Delete the branch after merge
+
+### Issues
+
+- File bugs with reproduction steps, expected vs actual behavior, and environment info
+- Reference related issues when they share root causes
+- Close issues via PR merge (`Closes #N`), not manually
+- If multiple issues share a root cause, one PR can close all of them
+
+### Publishing to npm
+
+After merging:
+
+1. Bump versions in affected `package.json` files (core, compiler, what-framework are usually coupled)
+2. `npm run build` — rebuild dist
+3. `npm test` — verify all tests still pass
+4. `node scripts/publish-packages.mjs --dry-run` — verify what will be published
+5. `node scripts/publish-packages.mjs --otp <code>` — publish with 2FA code
+
+The publish script handles dependency ordering and skips already-published versions.
 
 ## Code Style
 
