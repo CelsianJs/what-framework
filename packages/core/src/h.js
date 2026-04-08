@@ -8,9 +8,25 @@
 const EMPTY_OBJ = Object.create(null);
 const EMPTY_ARR = [];
 
-export function h(tag, props, ...children) {
+export function h(tag, props) {
   props = props || EMPTY_OBJ;
-  const flat = flattenChildren(children);
+  // Collect children from arguments[2..n] without rest args — avoids array allocation
+  // when there are 0-1 children (common case: leaf elements, text nodes).
+  const argLen = arguments.length;
+  let flat;
+  if (argLen <= 2) {
+    flat = EMPTY_ARR;
+  } else if (argLen === 3) {
+    flat = _flattenSingle(arguments[2]);
+  } else {
+    // Multiple children: flatten all arguments from position 2 onward
+    const out = [];
+    for (let i = 2; i < argLen; i++) {
+      _flattenInto(arguments[i], out);
+    }
+    flat = out;
+  }
+
   const key = props.key ?? null;
 
   // Strip key from props passed to component/element
@@ -27,24 +43,33 @@ export function Fragment({ children }) {
   return children;
 }
 
-function flattenChildren(children) {
-  const out = [];
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i];
-    if (child == null || child === false || child === true) continue;
-    if (Array.isArray(child)) {
-      out.push(...flattenChildren(child));
-    } else if (typeof child === 'object' && child._vnode) {
-      out.push(child);
-    } else if (typeof child === 'function') {
-      // Reactive child — preserve function for fine-grained DOM updates
-      out.push(child);
-    } else {
-      // Text node
-      out.push(String(child));
-    }
+// Fast path for single child (most common case)
+function _flattenSingle(child) {
+  if (child == null || child === false || child === true) return EMPTY_ARR;
+  if (Array.isArray(child)) {
+    const out = [];
+    _flattenInto(child, out);
+    return out;
   }
-  return out;
+  if (typeof child === 'object' && child._vnode) return [child];
+  if (typeof child === 'function') return [child];
+  return [String(child)];
+}
+
+// Flatten a child (or array of children) into the output array
+function _flattenInto(child, out) {
+  if (child == null || child === false || child === true) return;
+  if (Array.isArray(child)) {
+    for (let i = 0; i < child.length; i++) {
+      _flattenInto(child[i], out);
+    }
+  } else if (typeof child === 'object' && child._vnode) {
+    out.push(child);
+  } else if (typeof child === 'function') {
+    out.push(child);
+  } else {
+    out.push(String(child));
+  }
 }
 
 // JSX-like tagged template alternative (no build step needed)
