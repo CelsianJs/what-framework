@@ -74,16 +74,20 @@ function disposeComponent(ctx) {
   mountedComponents.delete(ctx);
 }
 
-// Dispose all components and reactive effects attached to a DOM subtree
+// Dispose all components and reactive effects attached to a DOM subtree.
+// Performance: checks _componentCtx / _dispose / _propEffects before walking
+// children, and only checks _commentCtxMap for comment nodes (nodeType 8).
 export function disposeTree(node) {
   if (!node) return;
   if (node._componentCtx) {
     disposeComponent(node._componentCtx);
   }
-  // Check comment node WeakMap for component context
-  const commentCtx = _commentCtxMap.get(node);
-  if (commentCtx) {
-    disposeComponent(commentCtx);
+  // Check comment node WeakMap for component context — only for comment nodes
+  if (node.nodeType === 8) {
+    const commentCtx = _commentCtxMap.get(node);
+    if (commentCtx) {
+      disposeComponent(commentCtx);
+    }
   }
   // Dispose reactive function child effects ({() => ...} wrappers)
   if (node._dispose) {
@@ -95,9 +99,11 @@ export function disposeTree(node) {
       try { node._propEffects[key](); } catch (e) { /* already disposed */ }
     }
   }
-  if (node.childNodes) {
-    for (const child of node.childNodes) {
-      disposeTree(child);
+  // Recursively dispose children
+  const children = node.childNodes;
+  if (children && children.length > 0) {
+    for (let i = 0; i < children.length; i++) {
+      disposeTree(children[i]);
     }
   }
 }
@@ -216,6 +222,31 @@ export function createDOM(vnode, parent, isSvg) {
 // --- Component Rendering ---
 // Components run ONCE. Props are passed as a signal for reactive access.
 
+// Shared Proxy handler for reactive props — defined once, reused by all components.
+// The Proxy target must be a plain object (not a function) so that ownKeys
+// invariants are satisfied. The propsSignal is stored as target._sig.
+const _propsProxyHandler = {
+  get(target, key) {
+    if (key === '_sig') return undefined; // hide internal property
+    return target._sig()[key];
+  },
+  has(target, key) {
+    if (key === '_sig') return false;
+    return key in target._sig();
+  },
+  ownKeys(target) {
+    return Reflect.ownKeys(target._sig());
+  },
+  getOwnPropertyDescriptor(target, key) {
+    if (key === '_sig') return undefined;
+    const current = target._sig();
+    if (key in current) {
+      return { value: current[key], writable: false, enumerable: true, configurable: true };
+    }
+    return undefined;
+  },
+};
+
 const componentStack = [];
 
 export function getCurrentComponent() {
@@ -256,6 +287,20 @@ function createComponent(vnode, parent, isSvg) {
   }
 
   // Component context for hooks
+  // Error boundary lookup: walk the parent chain once, cache the result.
+  const parentCtx = componentStack[componentStack.length - 1] || null;
+  let errorBoundary = null;
+  if (parentCtx) {
+    // Fast path: if parent has an error boundary, use it directly
+    errorBoundary = parentCtx._errorBoundary || null;
+    if (!errorBoundary) {
+      let p = parentCtx._parentCtx;
+      while (p) {
+        if (p._errorBoundary) { errorBoundary = p._errorBoundary; break; }
+        p = p._parentCtx;
+      }
+    }
+  }
   const ctx = {
     hooks: [],
     hookIndex: 0,
@@ -264,15 +309,8 @@ function createComponent(vnode, parent, isSvg) {
     mounted: false,
     disposed: false,
     Component,
-    _parentCtx: componentStack[componentStack.length - 1] || null,
-    _errorBoundary: (() => {
-      let p = componentStack[componentStack.length - 1];
-      while (p) {
-        if (p._errorBoundary) return p._errorBoundary;
-        p = p._parentCtx;
-      }
-      return null;
-    })()
+    _parentCtx: parentCtx,
+    _errorBoundary: errorBoundary,
   };
 
   // Component boundaries: use comment nodes instead of <span style="display:contents">
@@ -294,35 +332,24 @@ function createComponent(vnode, parent, isSvg) {
 
   // Props signal for reactive updates from parent
   const propsChildren = children.length === 0 ? undefined : children.length === 1 ? children[0] : children;
-  const propsSignal = signal({ ...props, children: propsChildren });
+  // Merge children into props without spreading when possible
+  let mergedProps;
+  if (propsChildren !== undefined) {
+    mergedProps = props ? Object.assign({}, props, { children: propsChildren }) : { children: propsChildren };
+  } else {
+    mergedProps = props ? Object.assign({}, props) : {};
+  }
+  const propsSignal = signal(mergedProps);
   ctx._propsSignal = propsSignal;
 
   // Create a reactive props proxy: reading any prop inside an effect
   // will auto-track the dependency on the propsSignal. This makes prop
   // access reactive across re-renders without requiring the component
   // to be re-executed.
-  const reactiveProps = new Proxy({}, {
-    get(_, key) {
-      // Access the signal to create a reactive dependency
-      const current = propsSignal();
-      return current[key];
-    },
-    has(_, key) {
-      const current = propsSignal();
-      return key in current;
-    },
-    ownKeys() {
-      const current = propsSignal();
-      return Reflect.ownKeys(current);
-    },
-    getOwnPropertyDescriptor(_, key) {
-      const current = propsSignal();
-      if (key in current) {
-        return { value: current[key], writable: false, enumerable: true, configurable: true };
-      }
-      return undefined;
-    },
-  });
+  // Reuse shared trap handlers to minimize per-component allocation.
+  // Store propsSignal on a plain object target (Proxy invariant: ownKeys must
+  // match non-configurable own properties of target; functions have 'prototype').
+  const reactiveProps = new Proxy({ _sig: propsSignal }, _propsProxyHandler);
 
   // Component runs ONCE — not inside an effect
   componentStack.push(ctx);
@@ -550,8 +577,9 @@ function createElementFromVNode(vnode, parent, isSvg) {
   }
 
   // Append children
-  for (const child of children) {
-    const node = createDOM(child, el, svgContext && tag !== 'foreignObject');
+  const isSvgChildren = svgContext && tag !== 'foreignObject';
+  for (let i = 0; i < children.length; i++) {
+    const node = createDOM(children[i], el, isSvgChildren);
     if (node) el.appendChild(node);
   }
 
@@ -563,16 +591,16 @@ function createElementFromVNode(vnode, parent, isSvg) {
 // Only applied once for fine-grained (no diffing). Reactive props use effects.
 
 function applyProps(el, newProps, oldProps, isSvg) {
-  newProps = newProps || {};
-  oldProps = oldProps || {};
+  if (!newProps) return;
 
   for (const key in newProps) {
     if (key === 'key' || key === 'children') continue;
 
     // Handle ref
     if (key === 'ref') {
-      if (typeof newProps.ref === 'function') newProps.ref(el);
-      else if (newProps.ref) newProps.ref.current = el;
+      const ref = newProps.ref;
+      if (typeof ref === 'function') ref(el);
+      else if (ref) ref.current = el;
       continue;
     }
 
@@ -609,10 +637,13 @@ function setProp(el, key, value, isSvg) {
     if (old) el.removeEventListener(event, old, useCapture);
     if (value == null) return;
     if (!el._events) el._events = {};
+    // Single closure per event listener. Uses untrack to prevent accidental
+    // signal subscriptions inside event handlers.
     const wrappedHandler = (e) => {
       if (!e.nativeEvent) e.nativeEvent = e;
-      return untrack(() => value(e));
+      return untrack(() => wrappedHandler._handler(e));
     };
+    wrappedHandler._handler = value;
     wrappedHandler._original = value;
     el._events[storageKey] = wrappedHandler;
     const eventOpts = value._eventOpts;

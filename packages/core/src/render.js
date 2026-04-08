@@ -2,7 +2,7 @@
 // Solid-style rendering: components run once, signals create individual DOM effects.
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
-import { effect, untrack, createRoot, signal, __DEV__ } from './reactive.js';
+import { effect, untrack, createRoot, _createItemScope, signal, __DEV__ } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
 
 export { effect, untrack };
@@ -15,7 +15,13 @@ export { effect, untrack };
 export function _$createComponent(Component, props, children) {
   if (children && children.length > 0) {
     const mergedChildren = children.length === 1 ? children[0] : children;
-    props = props ? { ...props, children: mergedChildren } : { children: mergedChildren };
+    // Mutate props in place when possible to avoid object spread allocation.
+    // Compiled output creates a fresh props object per call, so mutation is safe.
+    if (props) {
+      props.children = mergedChildren;
+    } else {
+      props = { children: mergedChildren };
+    }
   }
   // Build a VNode-like object and pass to createDOM which handles component execution
   return createDOM({ tag: Component, props: props || {}, children: children || [], key: null, _vnode: true });
@@ -88,14 +94,10 @@ function _$templateImpl(html) {
   if (tableInfo) {
     const t = document.createElement('template');
     t.innerHTML = tableInfo.wrap + trimmed + tableInfo.unwrap;
-    // Navigate down through the wrapper to reach the actual element
-    return () => {
-      let node = t.content.firstChild;
-      for (let i = 0; i < tableInfo.depth; i++) {
-        node = node.firstChild;
-      }
-      return node.cloneNode(true);
-    };
+    // Pre-navigate to the target element once — avoids per-clone traversal.
+    let target = t.content.firstChild;
+    for (let i = 0; i < tableInfo.depth; i++) target = target.firstChild;
+    return () => target.cloneNode(true);
   }
 
   const t = document.createElement('template');
@@ -156,11 +158,54 @@ export function svgTemplate(html) {
 
 export function insert(parent, child, marker) {
   if (typeof child === 'function') {
-    let current = null;
+    // Fast path: if the first evaluation returns a string/number, optimistically
+    // create a text node for direct updates. If the value type changes later
+    // (e.g., text -> vnode), fall back to full reconcileInsert.
+    const first = child();
+    const t = typeof first;
+    if (t === 'string' || t === 'number') {
+      const textNode = document.createTextNode(String(first));
+      const m = marker || null;
+      if (m) parent.insertBefore(textNode, m);
+      else parent.appendChild(textNode);
+      let current = textNode;
+      let isTextFastPath = true;
+      effect(() => {
+        const val = child();
+        const vt = typeof val;
+        if (isTextFastPath && (vt === 'string' || vt === 'number')) {
+          // Fast path: still text — update data directly (no allocations)
+          const str = String(val);
+          if (textNode.data !== str) textNode.data = str;
+        } else {
+          // Type changed — fall back to full reconcile
+          isTextFastPath = false;
+          current = reconcileInsert(parent, val, current, m);
+        }
+      });
+      return textNode;
+    }
+    // General path for non-text reactive children (first value was null/vnode/array)
+    let current = first != null ? reconcileInsert(parent, first, null, marker || null) : null;
     effect(() => {
       current = reconcileInsert(parent, child(), current, marker || null);
     });
     return current;
+  }
+
+  // Static text: create text node directly, skip reconcileInsert overhead
+  if (typeof child === 'string' || typeof child === 'number') {
+    const textNode = document.createTextNode(String(child));
+    if (marker) parent.insertBefore(textNode, marker);
+    else parent.appendChild(textNode);
+    return textNode;
+  }
+
+  // Static DOM node: insert directly, skip reconcileInsert overhead
+  if (child != null && typeof child === 'object' && child.nodeType > 0) {
+    if (marker) parent.insertBefore(child, marker);
+    else parent.appendChild(child);
+    return child;
   }
 
   return reconcileInsert(parent, child, null, marker || null);
@@ -176,10 +221,12 @@ function isVNode(value) {
   return !!value && typeof value === 'object' && (value._vnode === true || 'tag' in value);
 }
 
+// Check if parent is an SVG element. Cached typeof check avoids repeated lookups.
+const _hasSVGElement = typeof SVGElement !== 'undefined';
 function isSvgParent(parent) {
-  return typeof SVGElement !== 'undefined'
+  return _hasSVGElement
     && parent instanceof SVGElement
-    && parent.tagName.toLowerCase() !== 'foreignobject';
+    && parent.tagName !== 'foreignObject';
 }
 
 function asNodeArray(value) {
@@ -252,8 +299,24 @@ function reconcileInsert(parent, value, current, marker) {
   if ((typeof value === 'string' || typeof value === 'number')
       && current && !Array.isArray(current) && current.nodeType === 3) {
     const text = String(value);
-    if (current.textContent !== text) current.textContent = text;
+    if (current.data !== text) current.data = text;
     return current;
+  }
+
+  // Fast path: single DOM node value with single current node — skip array allocations
+  if (typeof value === 'object' && value !== null && value.nodeType > 0 && !Array.isArray(value)) {
+    if (value === current) return current;
+    if (current && !Array.isArray(current) && current.nodeType > 0) {
+      // Replace single node with single node
+      if (current.parentNode === parent) {
+        disposeTree(current);
+        parent.replaceChild(value, current);
+      } else {
+        if (targetMarker) parent.insertBefore(value, targetMarker);
+        else parent.appendChild(value);
+      }
+      return value;
+    }
   }
 
   const newNodes = valuesToNodes(value, parent, []);
@@ -263,10 +326,17 @@ function reconcileInsert(parent, value, current, marker) {
     return current;
   }
 
-  const keep = new Set(newNodes);
+  // Remove old nodes not in the new set. For small arrays (typical case),
+  // linear scan is faster than Set allocation + hashing.
+  const newLen = newNodes.length;
   for (let i = 0; i < oldNodes.length; i++) {
     const oldNode = oldNodes[i];
-    if (!keep.has(oldNode) && oldNode.parentNode === parent) {
+    if (oldNode.parentNode !== parent) continue;
+    let found = false;
+    for (let j = 0; j < newLen; j++) {
+      if (newNodes[j] === oldNode) { found = true; break; }
+    }
+    if (!found) {
       disposeTree(oldNode);
       parent.removeChild(oldNode);
     }
@@ -318,7 +388,9 @@ export function mapArray(source, mapFn, options) {
       } else {
         reconcileList(parent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn);
       }
-      items = newItems.slice();
+      // Save a snapshot of items for next diff. Use slice() to defend against
+      // in-place mutation, but skip for empty arrays (common clear case).
+      items = newItems.length > 0 ? newItems.slice() : newItems;
     });
 
     return endMarker;
@@ -330,13 +402,21 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
   const oldLen = oldItems.length;
 
   if (newLen === 0) {
-    // Fast path: clear all — remove only this list's nodes, not all parent content
+    // Fast path: clear all — dispose reactive scopes first (handles effects/cleanups),
+    // then remove DOM nodes. createRoot disposal handles all tracked effects; we only
+    // need disposeTree for nodes with additional reactive bindings outside createRoot.
     if (oldLen > 0) {
       for (let i = 0; i < oldLen; i++) {
-        disposeFns[i]?.();
-        if (mappedNodes[i]?.parentNode === parent) {
-          disposeTree(mappedNodes[i]);
-          parent.removeChild(mappedNodes[i]);
+        if (disposeFns[i]) disposeFns[i]();
+      }
+      for (let i = oldLen - 1; i >= 0; i--) {
+        const node = mappedNodes[i];
+        if (node) {
+          // Only walk subtree if the node has reactive state not tracked by createRoot
+          if (node._componentCtx || node._dispose || node._propEffects) {
+            disposeTree(node);
+          }
+          if (node.parentNode === parent) parent.removeChild(node);
         }
       }
       mappedNodes.length = 0;
@@ -350,7 +430,7 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
     const frag = document.createDocumentFragment();
     for (let i = 0; i < newLen; i++) {
       const item = newItems[i];
-      const node = createRoot(dispose => {
+      const node = _createItemScope(dispose => {
         disposeFns[i] = dispose;
         return mapFn(item, i);
       });
@@ -407,7 +487,7 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
     for (let i = start; i <= newEnd; i++) {
       const item = newItems[i];
       const idx = i;
-      newMapped[i] = createRoot(dispose => {
+      newMapped[i] = _createItemScope(dispose => {
         newDispose[idx] = dispose;
         return mapFn(item, idx);
       });
@@ -492,7 +572,7 @@ function _reconcileMiddle(parent, endMarker, oldItems, newItems, mappedNodes, di
     if (!newMapped[i]) {
       const item = newItems[i];
       const idx = i;
-      newMapped[i] = createRoot(dispose => {
+      newMapped[i] = _createItemScope(dispose => {
         newDispose[idx] = dispose;
         return mapFn(item, idx);
       });
@@ -571,13 +651,17 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   // --- Fast path: clear all ---
   if (newLen === 0) {
     if (oldLen > 0) {
-      // Call dispose functions to run cleanup callbacks (onCleanup, effect cleanups).
-      // Without this, cleanup callbacks leak.
+      // Dispose reactive scopes first, then remove DOM nodes.
       for (let i = 0; i < oldLen; i++) {
-        disposeFns[i]?.();
-        if (mappedNodes[i]?.parentNode === parent) {
-          disposeTree(mappedNodes[i]);
-          parent.removeChild(mappedNodes[i]);
+        if (disposeFns[i]) disposeFns[i]();
+      }
+      for (let i = oldLen - 1; i >= 0; i--) {
+        const node = mappedNodes[i];
+        if (node) {
+          if (node._componentCtx || node._dispose || node._propEffects) {
+            disposeTree(node);
+          }
+          if (node.parentNode === parent) parent.removeChild(node);
         }
       }
       mappedNodes.length = 0;
@@ -602,7 +686,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       } else {
         accessor = item; // raw mode: pass item directly
       }
-      const node = createRoot(dispose => {
+      const node = _createItemScope(dispose => {
         disposeFns[idx] = dispose;
         return mapFn(accessor, idx);
       });
@@ -678,7 +762,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       } else {
         accessor = item;
       }
-      newMapped[i] = createRoot(dispose => {
+      newMapped[i] = _createItemScope(dispose => {
         newDispose[idx] = dispose;
         return mapFn(accessor, idx);
       });
@@ -747,7 +831,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       } else {
         accessor = item;
       }
-      newMapped[i] = createRoot(dispose => {
+      newMapped[i] = _createItemScope(dispose => {
         newDispose[idx] = dispose;
         return mapFn(accessor, idx);
       });

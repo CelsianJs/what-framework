@@ -4,6 +4,8 @@
 
 [whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
 
+> **[Try What Framework in the Playground →](https://playground-lilac-five.vercel.app)**
+
 ---
 
 ## Why What?
