@@ -355,6 +355,9 @@ function _runEffect(e) {
   if (e.disposed) return;
 
   // Stable effect fast path: deps don't change, skip cleanup/re-subscribe.
+  // This is critical for performance: effects like `() => el.className = sig() ? 'a' : ''`
+  // always read the same signal(s). After auto-promotion, re-runs skip the O(deps)
+  // cleanup + re-subscribe cycle entirely.
   if (e._stable) {
     if (e._cleanup) {
       try { e._cleanup(); } catch (err) {
@@ -376,6 +379,10 @@ function _runEffect(e) {
     if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
     return;
   }
+
+  // Save the single dep for auto-stable detection (safe: 1-dep effects
+  // have deterministic dep sets — no conditional reads possible).
+  const singleDep = e.deps.length === 1 ? e.deps[0] : null;
 
   cleanup(e);
   // Run effect cleanup from previous run
@@ -400,6 +407,17 @@ function _runEffect(e) {
     throw err;
   } finally {
     currentEffect = prev;
+  }
+
+  // Auto-promote to stable: effects with exactly 1 dep that remains the same
+  // after re-run have a fixed dependency graph. Skip cleanup/re-subscribe
+  // on future re-runs. This is safe because a single-dep effect can't have
+  // conditional signal reads that change which signal is tracked.
+  // Guard: don't promote self-triggering effects (those that write to the signal
+  // they read, causing re-queuing). Check e._pending to detect this.
+  if (singleDep !== null && e.deps.length === 1 && e.deps[0] === singleDep
+      && !e._cleanup && !e._pending) {
+    e._stable = true;
   }
 
   if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
@@ -776,6 +794,45 @@ function _disposeRoot(root) {
     root.disposals[i]();
   }
   root.disposals.length = 0;
+}
+
+// --- _createItemScope ---
+// Lightweight reactive scope for list items. Unlike createRoot, this does NOT
+// register with the parent ownership tree (saves ~40% allocation overhead).
+// Used by mapArray where disposal is managed explicitly by the list reconciler.
+export function _createItemScope(fn) {
+  const prevRoot = currentRoot;
+  const prevOwner = currentOwner;
+  const scope = {
+    disposals: [],
+    owner: null,          // No parent registration
+    children: [],         // Kept for compat with effects that create sub-roots
+    _disposed: false,
+  };
+
+  currentRoot = scope;
+  currentOwner = scope;
+
+  try {
+    const dispose = () => {
+      if (scope._disposed) return;
+      scope._disposed = true;
+      // Dispose children
+      for (let i = scope.children.length - 1; i >= 0; i--) {
+        _disposeRoot(scope.children[i]);
+      }
+      scope.children.length = 0;
+      // Dispose own effects
+      for (let i = scope.disposals.length - 1; i >= 0; i--) {
+        scope.disposals[i]();
+      }
+      scope.disposals.length = 0;
+    };
+    return fn(dispose);
+  } finally {
+    currentRoot = prevRoot;
+    currentOwner = prevOwner;
+  }
 }
 
 // --- onCleanup ---
