@@ -267,6 +267,7 @@ button {
   height: 32px;
   border-radius: var(--radius);
   color: var(--text-muted);
+  text-decoration: none;
   transition: all 0.15s var(--ease);
 }
 
