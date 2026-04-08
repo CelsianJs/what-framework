@@ -3,7 +3,7 @@
 // useMemo, h(), mount, batch, For, Show, spring animation, localStorage
 
 import {
-  h, mount, batch,
+  h, mount, batch, signal,
   createStore, derived,
   useState, useSignal, useEffect, useRef, useMemo,
   spring,
@@ -44,14 +44,22 @@ const useTaskStore = createStore({
     this._save();
   },
   toggleTask(id) {
+    const task = this.tasks.find(t => t.id === id);
     this.tasks = this.tasks.map(t =>
       t.id === id ? { ...t, done: !t.done } : t
     );
     this._save();
+    if (task && !task.done) {
+      addNotification(`Completed: ${task.text}`, 'success');
+    }
   },
   removeTask(id) {
+    const task = this.tasks.find(t => t.id === id);
     this.tasks = this.tasks.filter(t => t.id !== id);
     this._save();
+    if (task) {
+      addNotification(`Deleted: ${task.text}`, 'warning');
+    }
   },
   editTask(id, text) {
     this.tasks = this.tasks.map(t =>
@@ -70,6 +78,52 @@ const useTaskStore = createStore({
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.tasks)); } catch {}
   },
 });
+
+// ─── Notifications ───────────────────────────────────────────
+// Toast notification system: signal-based store with auto-dismiss
+
+let _nextNotifId = 1;
+const notifications$ = signal([], 'notifications');
+
+function addNotification(message, type = 'info') {
+  const id = _nextNotifId++;
+  const entry = { id, message, type, timestamp: Date.now() };
+  notifications$(prev => [...prev, entry]);
+  setTimeout(() => removeNotification(id), 4000);
+  return id;
+}
+
+function removeNotification(id) {
+  notifications$(prev => prev.filter(n => n.id !== id));
+}
+
+function NotificationToast({ notification, onDismiss }) {
+  const typeConfig = {
+    success: { bg: 'var(--success)', icon: '\u2713' },
+    warning: { bg: '#ff9500', icon: '\u26A0' },
+    error:   { bg: 'var(--danger)', icon: '\u2716' },
+    info:    { bg: 'var(--primary)', icon: '\u2139' },
+  };
+  const cfg = typeConfig[notification.type] || typeConfig.info;
+
+  return h('div', { class: 'toast-item', style: `border-left-color: ${cfg.bg}` },
+    h('span', { class: 'toast-icon', style: `color: ${cfg.bg}` }, cfg.icon),
+    h('span', { class: 'toast-message' }, notification.message),
+    h('button', {
+      class: 'toast-close',
+      onClick: () => onDismiss(notification.id),
+      'aria-label': 'Dismiss notification',
+    }, '\u00D7'),
+  );
+}
+
+function NotificationContainer() {
+  return h('div', { class: 'toast-container' },
+    () => notifications$().map(n =>
+      h(NotificationToast, { key: n.id, notification: n, onDismiss: removeNotification }),
+    ),
+  );
+}
 
 // ─── Theme Toggle ─────────────────────────────────────────────
 
@@ -263,6 +317,9 @@ function App() {
   const store = useTaskStore();
 
   return h('div', { class: 'app' },
+    // Toast notifications
+    h(NotificationContainer),
+
     // Header
     h('header', { class: 'app-header' },
       h('div', null,
@@ -409,6 +466,34 @@ styleEl.textContent = `
   }
   .app-footer a { color: var(--primary); text-decoration: none; }
   .app-footer a:hover { text-decoration: underline; }
+
+  /* Toast notifications */
+  @keyframes toastSlideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+  }
+  .toast-container {
+    position: fixed; top: 16px; right: 16px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none; max-width: 360px;
+  }
+  .toast-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; background: var(--surface);
+    border: 1px solid var(--border); border-left: 4px solid var(--primary);
+    border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    font-size: 13px; color: var(--text); pointer-events: auto;
+    animation: toastSlideIn 0.3s ease-out;
+    word-break: break-word;
+  }
+  .toast-icon { font-size: 16px; flex-shrink: 0; }
+  .toast-message { flex: 1; line-height: 1.4; }
+  .toast-close {
+    background: none; border: none; cursor: pointer; font-size: 16px;
+    color: var(--text-muted); padding: 0 2px; flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .toast-close:hover { color: var(--danger); }
 `;
 document.head.appendChild(styleEl);
 

@@ -443,77 +443,139 @@ export default defineConfig({
 });
 ```
 
-### DevTools MCP Tools (18 total)
+### DevTools MCP Tools (28 total)
 
-#### Read Tools (9)
+**Always start with:** `what_connection_status` — returns app info, signal/effect/component counts, tool catalog, and recommended next steps.
 
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `what_connection_status` | Check if a browser app is connected | -- |
-| `what_signals` | List signals with current values | `filter` (regex), `id` (number) |
-| `what_effects` | List effects with deps and run counts | `minRunCount`, `filter`, `depSignalId` |
-| `what_components` | List mounted components | `filter` (regex) |
-| `what_snapshot` | Full state snapshot | `maxSignals`, `maxEffects` |
-| `what_errors` | Captured runtime errors | `since` (timestamp) |
-| `what_cache` | SWR/useQuery cache entries | `key` (substring) |
-| `what_component_tree` | Component hierarchy with signal/effect counts | `rootId`, `depth`, `filter` |
-| `what_dependency_graph` | Signal-to-effect dependency graph | `signalId`, `effectId`, `direction` |
+#### Decision Tree — Pick the Right Tool
 
-#### Write Tools (2)
+| I want to... | Tool | Key params |
+|---|---|---|
+| Get oriented / check connection | `what_connection_status` | none |
+| Health check (errors + perf + reactivity) | `what_diagnose` | none |
+| Find a component by name | `what_components` | `filter` (regex string) |
+| Understand one component deeply | `what_explain` | `componentId` (number) |
+| See the component hierarchy | `what_component_tree` | `depth`, `filter` |
+| Check a signal's current value | `what_signals` | `filter` (string), `named_only` (boolean: true/false) |
+| See effect run counts | `what_effects` | `minRunCount` (number), `depSignalId` (number) |
+| See what depends on a signal | `what_dependency_graph` | `signalId` (number), `direction`: `"downstream"` |
+| See what an effect reads | `what_dependency_graph` | `effectId` (number), `direction`: `"upstream"` |
+| Why did a signal change? | `what_signal_trace` | `signalId` (number) |
+| Find runtime errors | `what_errors` | none |
+| Get component layout (no image) | `what_look` | `componentId` (number) |
+| Get full page structure | `what_page_map` | none |
+| Get a visual screenshot | `what_screenshot` | `componentId` (number, optional) |
+| Inspect raw DOM | `what_dom_inspect` | `componentId` (number), `depth` (number) |
+| Find performance issues | `what_perf` | `threshold` (number) |
+| Compare before/after state | `what_diff_snapshot` | `action`: `"save"` then `"diff"` |
+| Change a signal live | `what_set_signal` | `signalId` (number), `value` (any) |
+| Navigate to a route | `what_navigate` | `path` (string) |
+| Validate code | `what_lint` | `code` (string) |
+| Generate boilerplate | `what_scaffold` | `type` (`"component"`, `"page"`, `"form"`, `"store"`), `name` (string) |
+| Diagnose an error code | `what_fix` | `error` (string) |
+| Monitor reactive events | `what_watch` | none |
+| Get all state at once | `what_snapshot` | none |
+| Check SWR/query cache | `what_cache` | `key` (string) |
+| Force-refresh cache | `what_invalidate_cache` | `key` (string) |
+| Execute JS in browser | `what_eval` | `code` (string) |
+| Get current route | `what_route` | none |
 
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `what_set_signal` | Set a signal value in the running app | `signalId`, `value` |
-| `what_invalidate_cache` | Force-refresh a cache key | `key` |
+#### Important Parameter Types
 
-#### Observe Tools (1)
+Common mistakes — get these right:
 
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `what_watch` | Collect reactive events over a time window | `duration` (ms), `filter` (regex) |
+| Parameter | Correct | Wrong |
+|-----------|---------|-------|
+| `named_only` | `true` (boolean) | `"true"` (string) |
+| `componentId` | `4` (number) | `"4"` (string) |
+| `signalId` | `1` (number) | `"1"` (string) |
+| `direction` | `"downstream"` (string) | `downstream` (unquoted) |
 
-#### Inspection Tools (3)
+#### Recipes (Battle-Tested Workflows)
 
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `what_eval` | Execute JS in the browser context | `code`, `timeout` |
-| `what_dom_inspect` | Get rendered DOM of a component | `componentId`, `depth` |
-| `what_diagnose` | Comprehensive health check | `focus` (errors/performance/reactivity/all) |
-
-#### Navigation Tools (2)
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `what_route` | Get current route info | -- |
-| `what_navigate` | Navigate to a path | `path`, `replace` |
-
-#### Diff Tool (1)
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `what_diff_snapshot` | Compare state between two points | `action` (save/diff) |
-
-### Example MCP Workflow
-
+**Recipe: Find and inspect a component**
 ```
-Agent: what_connection_status
-  -> "Connected. App has 12 signals, 8 effects, 5 components."
-
-Agent: what_diagnose { focus: "all" }
-  -> "2 issues found (warning). 1 effect with runCount > 50..."
-
-Agent: what_effects { minRunCount: 50 }
-  -> "effect_3 (runCount: 247, deps: [count, filter])"
-
-Agent: what_dependency_graph { effectId: 3 }
-  -> "signal count -> effect_3, signal filter -> effect_3"
-
-Agent: what_diff_snapshot { action: "save" }
-  -> "Baseline saved."
-  ... user interacts ...
-Agent: what_diff_snapshot { action: "diff" }
-  -> "3 signals changed, 2 effects re-ran."
+1. what_components({filter: "ComponentName"})  → get componentId
+2. what_explain({componentId: N})              → signals, effects, DOM
 ```
+
+**Recipe: Debug a signal**
+```
+1. what_signals({filter: "signalName", named_only: true})  → get signalId
+2. what_dependency_graph({signalId: N, direction: "downstream"})  → who depends on it
+```
+
+**Recipe: Compare before and after**
+```
+1. what_diff_snapshot({action: "save"})
+2. what_set_signal({signalId: N, value: X})
+3. what_diff_snapshot({action: "diff"})  → see what changed
+```
+
+**Recipe: Performance audit**
+```
+1. what_perf({threshold: 3})              → hot signals/effects
+2. what_effects({minRunCount: 2})         → frequently-running effects
+3. what_dependency_graph({effectId: N})    → trace triggers
+```
+
+**Recipe: Visual audit**
+```
+1. what_page_map()                        → page structure + interactive elements
+2. what_look({componentId: N})            → styles, layout, dimensions
+3. what_screenshot({componentId: N})      → only if what_look isn't enough
+```
+
+**Recipe: Build and test a feature**
+```
+1. what_look on existing components       → match styling
+2. what_scaffold({type: "component", name: "X"})  → get skeleton
+3. Write your code
+4. what_lint({code: "..."})               → validate
+5. what_diff_snapshot({action: "save"})   → save state
+6. what_set_signal to trigger your feature
+7. what_diff_snapshot({action: "diff"})   → verify cascade
+```
+
+**Recipe: Why doesn't component X react to signal Y? (Reactivity gap)**
+```
+1. what_explain({componentId: N})           → check if it has signals/effects (0 = not subscribed)
+2. what_dependency_graph({signalId: M, direction: "downstream"})  → see if component's effects appear
+3. If component has 0 effects for that signal → it's disconnected. Need to add a dependency.
+```
+
+**Recipe: Multi-signal interaction debugging**
+```
+1. what_diff_snapshot({action: "save"})
+2. what_set_signal signal A → diff
+3. what_diff_snapshot({action: "save"})
+4. what_set_signal signal B → diff
+5. Compare cascades — if signal B shows 0 effects triggered, chain is broken
+```
+
+#### Efficiency Tips
+
+- `what_explain` replaces calling signals + effects + DOM separately
+- `what_look` before `what_screenshot` — 10x cheaper, usually sufficient
+- Always filter `what_signals` — never dump all signals
+- `what_perf` includes subscriber counts — skip `what_signals` if you just need hot signals
+- These tools are read-only and safe to call in parallel: `what_perf`, `what_effects`, `what_signals`, `what_components`, `what_dependency_graph`, `what_explain`, `what_look`, `what_page_map`, `what_diagnose`, `what_lint`, `what_scaffold`
+
+#### Common Pitfalls
+
+1. **Component IDs change** after signal mutations that cause mount/unmount. Always re-fetch with `what_components`.
+2. **"No browser connected"** — Most tools need a live browser. Only `what_lint`, `what_scaffold`, `what_fix` work offline.
+3. **`what_lint` false positive** on `signal-write-in-render` — If a signal write is inside an event handler, it's safe. Re-run excluding that rule to confirm.
+4. **`what_set_signal` can cascade** — Changing one signal may trigger effects that change others. Use `what_diff_snapshot` to see full impact.
+5. **"N signals with no subscribers"** in diagnostics — Normal. Signals used in reactive text bindings bypass tracked effects.
+6. **Screenshot fails** — Use `what_look` instead (text description of styles/layout).
+
+#### Understanding Diagnostic Output
+
+- **"N signals with no subscribers"** — Normal. Reactive text bindings (`() => count()`) update DOM directly without tracked effects.
+- **"N effects with no dependencies"** — Normal. One-shot setup effects that run once during component creation.
+- **Components with signalCount=0** — Module-scope signals don't appear on any component. Use `what_signals` directly.
+- **`<!--fn-->` in DOM** — Reactive text binding markers. The primary reactivity mechanism.
 
 ### Documentation MCP Tools (13)
 
