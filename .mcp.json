@@ -4,7 +4,7 @@
       "command": "node",
       "args": ["packages/devtools-mcp/src/index.js"],
       "env": {
-        "WHAT_MCP_TOKEN": "dev123"
+        "WHAT_MCP_TOKEN": "${WHAT_MCP_TOKEN}"
       }
     }
   }
