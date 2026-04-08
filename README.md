@@ -2,9 +2,9 @@
 
 **The web framework built for AI agents.**
 
-[whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
+[whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [Playground](https://playground.whatfw.com) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
 
-> **[Try What Framework in the Playground →](https://playground-lilac-five.vercel.app)**
+> **[Try What Framework in the Playground →](https://playground.whatfw.com)**
 
 ---
 

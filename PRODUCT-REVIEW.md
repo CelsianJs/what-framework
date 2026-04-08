@@ -23,14 +23,14 @@ What Framework is a signal-based reactive web framework written in JavaScript (w
 - **Router** — file-based + programmatic, nested layouts, View Transitions API, scroll restoration, URL sanitization.
 - **SSR** — streaming, islands architecture with 6 hydration modes (load, idle, visible, action, media, static), server actions with CSRF protection.
 - **React compat** — confirmed working with 49+ libraries (zustand, framer-motion, radix-ui, react-query, cmdk, emotion, styled-components, etc.).
-- **Interactive playground** — CodeMirror 6 editor, live iframe preview, 10 examples, console capture, URL sharing, dark/light themes. Professional quality.
+- **Interactive playground** — CodeMirror 6 editor, live iframe preview, 10 examples, console capture, URL sharing, dark/light themes. Hosted at [playground.whatfw.com](https://playground.whatfw.com). Professional quality.
 - **CLI** — `npm create what@latest` scaffolder, `what dev` with HMR.
 - **ESLint plugin** — 9 signal-specific lint rules.
 - **14 example apps** — task manager, TodoMVC, dashboard, real-world suite.
 
 **What's not yet built:**
 
-- **Hosted playground** — playground exists locally but isn't deployed or linked from README
+- ~~**Hosted playground**~~ — now deployed at [playground.whatfw.com](https://playground.whatfw.com) and linked from README
 - **True progressive hydration** — some SSR paths destroy server HTML and re-render fresh
 - **Production profiling** — devtools are dev-mode only
 - **Component library ecosystem** — zero third-party packages
@@ -159,7 +159,7 @@ The security posture is **strong for a pre-1.0 framework** — above average for
 - **No linting or formatting in CI.** No ESLint enforcement, no Prettier checks, no pre-commit hooks.
 - **SSR hydration gap.** Some paths destroy server HTML and re-render fresh. Defeats SSR performance benefits.
 - **`useLayoutEffect` semantic mismatch in react-compat.** Maps to async effect. Libraries that depend on synchronous layout reads before paint will break.
-- **Playground not discoverable.** Not linked from README, not hosted publicly.
+- ~~**Playground not discoverable.**~~ Now hosted at [playground.whatfw.com](https://playground.whatfw.com) and linked from README, docs nav, and footer.
 
 ---
 
@@ -183,7 +183,7 @@ The security posture is **strong for a pre-1.0 framework** — above average for
 | **Built-in animations** | **Yes (spring/tween)** | No | Yes | Partial | No | No |
 | **Built-in a11y utils** | **Yes (focus/ARIA)** | No | No | No | No | No |
 | **React compat** | Yes (49+ libs) | No | No | No | Inherent | Yes |
-| **Interactive playground** | Local only | Yes | Yes | Yes | Yes | Yes |
+| **Interactive playground** | **Yes** ([playground.whatfw.com](https://playground.whatfw.com)) | Yes | Yes | Yes | Yes | Yes |
 | **Component libraries** | None | Growing | Large | Massive | React (aliased) | Limited |
 | **Maturity** | v0.6 (6 weeks) | v1.9+ (4 years) | v5 (stable) | v3.5+ (5+ years) | v10+ (8+ years) | v2.0 (3+ years) |
 
@@ -195,9 +195,9 @@ The security posture is **strong for a pre-1.0 framework** — above average for
 
 ### Before anyone sees this
 
-1. **Link the playground from README.** Add a prominent "Try Online" button. The playground exists and is polished — but nobody will find it. This is the highest-ROI single change.
+1. ~~**Link the playground from README.**~~ Done. Prominent "Try Online" link added to README, docs site nav, docs hero, and footer.
 
-2. **Host the playground on Vercel.** `playground.whatfw.com` or embedded on the homepage. Every competitor has a hosted playground. Evaluators who can't try it in-browser will bounce.
+2. ~~**Host the playground on Vercel.**~~ Done. Deployed at [playground.whatfw.com](https://playground.whatfw.com) and added to default deploy targets.
 
 3. **Host example apps.** Deploy task-manager, TodoMVC, and dashboard to Vercel. Link from README.
 
@@ -249,11 +249,11 @@ The security posture is **strong for a pre-1.0 framework** — above average for
 
 **The "AI agents" pitch is ahead of the market.** Most developers don't yet use AI agents to debug applications. The MCP devtools are impressive engineering, but the target audience (developers who want a new framework AND use AI coding agents) may be narrow today. This is a bet on the future.
 
-**Playground and examples are invisible.** The playground is polished but not linked from README or hosted publicly. The 14 examples require local setup. Evaluators who don't clone the repo will never see the framework's strongest assets.
+~~**Playground and examples are invisible.**~~ The playground is now hosted at [playground.whatfw.com](https://playground.whatfw.com) and linked from README, docs, and the homepage. The 14 examples still require local setup — deploying a few key examples (task-manager, TodoMVC, dashboard) would further improve discoverability.
 
 ### Strategic advice (Launch Strategy)
 
-1. **Deploy the playground and link it everywhere.** Host on Vercel as `playground.whatfw.com`. Add a "Try Online" button to the top of README and the homepage. This is the single highest-ROI task. Every framework evaluation starts in the browser.
+1. ~~**Deploy the playground and link it everywhere.**~~ Done. Hosted at [playground.whatfw.com](https://playground.whatfw.com). Linked from README, homepage nav/hero, docs nav/hero, and footer.
 
 2. **Create a killer AI-agent demo video.** Record a 3-minute screen recording of Claude Code debugging a complex reactive bug using MCP devtools: `what_diagnose` → `what_dependency_graph` → `what_set_signal` → bug found and fixed, all without opening the browser. Post to r/webdev, r/javascript, Hacker News, and X. The "framework for AI agents" story only lands if people can *see* an agent using it.
 

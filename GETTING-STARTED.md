@@ -2,6 +2,8 @@
 
 The first framework built for AI agents. Small API, MCP DevTools, structured errors, compiler guardrails.
 
+> **Try it now** -- no install required: [playground.whatfw.com](https://playground.whatfw.com)
+
 ## For AI Agents (Claude Code, Cursor, etc.)
 
 ### Step 1: Add MCP Servers

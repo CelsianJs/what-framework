@@ -13,6 +13,7 @@ const DEFAULT_TARGETS = [
   'docs-site',
   'docs-site/docs',
   'sites/react-compat',
+  'sites/playground',
 ];
 
 const options = parseArgs(process.argv.slice(2));

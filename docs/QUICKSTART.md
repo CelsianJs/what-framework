@@ -2,6 +2,8 @@
 
 Get a WhatFW app running in under 2 minutes. This guide covers both human developers and AI agents.
 
+> **Want to skip setup?** [Try What Framework in the online playground →](https://playground.whatfw.com)
+
 ## 1. Scaffold and Run
 
 ```bash
