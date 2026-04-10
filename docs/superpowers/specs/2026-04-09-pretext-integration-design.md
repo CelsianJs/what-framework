@@ -22,7 +22,7 @@ Both systems share one internal adapter and are **fully optional**. Pretext is a
 
 ## Goals
 
-- **Truly native feel** — `configure({ text: { measure: true } })` is a first-class framework option, not a third-party patch
+- **Truly native feel** — `configureText({ measure: true })` is a first-class framework option, not a third-party patch
 - **Near-zero cost when off** — if the flag isn't set and the alpha components aren't imported, the 15KB Pretext library is never loaded. The adapter adds ~1KB of gating code to core (honestly acknowledged, not hidden). One negligible branch in `insert()`. Verified per-bundler in CI.
 - **Optional dependency** — Pretext is a peer dep. Missing it fails loudly with clear install instructions, never silently
 - **No core DX disruption** — the public API of the compiler, `template()`, `h()`, `insert()`, JSX syntax, and devtools (`what_lint`, `what_scaffold`, `what_fix`) is unchanged. `insert()` gains one config-gated branch in its body, but its signature and observable behavior (when the flag is off) are identical.
@@ -64,7 +64,7 @@ Two independent systems sharing one internal adapter:
 
 ### Independence guarantees
 
-- Alpha components work **with or without** `configure({ text: { measure: true } })`. They always use Pretext directly when rendered.
+- Alpha components work **with or without** `configureText({ measure: true })`. They always use Pretext directly when rendered.
 - The global measure hook works **without** importing any alpha component. It's a pure performance optimization — no markup changes required.
 - Both share the `measureCache` — if `TextFlow` is used on one paragraph and the global hook measures a nearby text node, they reuse prepared segments when possible.
 
@@ -193,7 +193,7 @@ function measureText(text, font, containerWidth, lineHeight) {
 
 ### Cache invalidation strategy
 
-- Entries are evicted LRU-style when the cache exceeds `MAX_CACHE_ENTRIES` (default 1000, configurable via `configure({ text: { measure: true, cacheSize: 2000 } })`)
+- Entries are evicted LRU-style when the cache exceeds `MAX_CACHE_ENTRIES` (default 1000, configurable via `configureText({ measure: true, cacheSize: 2000 })`)
 - Signal-driven text that changes content invalidates its specific cache entry; same text at a new width reuses the prepared segments
 - On font changes (rare) the cache can be cleared via an internal API
 
@@ -350,6 +350,28 @@ Located at `packages/core/benchmarks/text-engine.bench.js`. Compares:
 
 ---
 
+## Rollback Plan
+
+If Pretext becomes incompatible, abandoned, or fails to deliver measurable value, we need a clean exit path.
+
+**The adapter boundary is the rollback boundary.** All Pretext-specific code lives in `packages/core/src/text-engine.js` and `packages/core/src/text/`. Nothing else imports `@chenglou/pretext` directly.
+
+**To remove Pretext entirely:**
+1. Delete `packages/core/src/text-engine.js`
+2. Delete `packages/core/src/text/` and the `/text` subpath export
+3. Remove the `insert()` hook branch (single-line revert)
+4. Remove the `configureText()` export and the peer dep declaration
+5. Mark the feature removed in CHANGELOG and update docs
+
+**To replace Pretext with an alternative:**
+1. Rewrite `text-engine.js` to call the new library's `prepare`/`layout` equivalents
+2. No changes to `insert()`, `configureText()`, or the alpha components' public APIs
+3. Update peer dep in `package.json`
+
+**Time estimate for clean rollback:** under an hour, because the isolation is explicit and enforced.
+
+---
+
 ## Delivery Plan
 
 ### Branch strategy
@@ -379,28 +401,6 @@ Located at `packages/core/benchmarks/text-engine.bench.js`. Compares:
 - `what_diagnose` must show no new reactive anti-patterns
 - Existing tests must pass without modification
 - New tests added for: adapter caching, insert hook gating, each alpha component's reactive behavior
-
----
-
-## Rollback Plan
-
-If Pretext becomes incompatible, abandoned, or fails to deliver measurable value, we need a clean exit path.
-
-**The adapter boundary is the rollback boundary.** All Pretext-specific code lives in `packages/core/src/text-engine.js` and `packages/core/src/text/`. Nothing else imports `@chenglou/pretext` directly.
-
-**To remove Pretext entirely:**
-1. Delete `packages/core/src/text-engine.js`
-2. Delete `packages/core/src/text/` and the `/text` subpath export
-3. Remove the `insert()` hook branch (single-line revert)
-4. Remove the `configureText()` export and the peer dep declaration
-5. Mark the feature removed in CHANGELOG and update docs
-
-**To replace Pretext with an alternative:**
-1. Rewrite `text-engine.js` to call the new library's `prepare`/`layout` equivalents
-2. No changes to `insert()`, `configureText()`, or the alpha components' public APIs
-3. Update peer dep in `package.json`
-
-**Time estimate for clean rollback:** under an hour, because the isolation is explicit and enforced.
 
 ---
 
