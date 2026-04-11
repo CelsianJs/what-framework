@@ -10,6 +10,8 @@ const {
   getTextConfig,
   _resetTextEngineForTests,
   _markMounted,
+  ensurePretext,
+  _setPretextForTests,
 } = await import('../src/text-engine.js');
 
 // ─────────────────────────────────────────────
@@ -100,5 +102,56 @@ describe('text-engine timing contract', () => {
     } finally {
       console.warn = original;
     }
+  });
+});
+
+// ─────────────────────────────────────────────
+// Task 3: Lazy Pretext loader
+// ─────────────────────────────────────────────
+
+describe('ensurePretext', () => {
+  beforeEach(() => {
+    _resetTextEngineForTests();
+  });
+
+  it('rejects with clear error when @chenglou/pretext is not installed', async () => {
+    await assert.rejects(
+      () => ensurePretext(),
+      (err) => {
+        assert.ok(
+          err.message.includes('@chenglou/pretext'),
+          `Error should mention '@chenglou/pretext', got: ${err.message}`
+        );
+        return true;
+      }
+    );
+  });
+
+  it('allows retry after failure (pretextLoadPromise reset to null)', async () => {
+    // First call fails
+    try { await ensurePretext(); } catch (_) {}
+    // Second call also tries (doesn't hang on a rejected cached promise)
+    await assert.rejects(
+      () => ensurePretext(),
+      (err) => {
+        assert.ok(err.message.includes('@chenglou/pretext'));
+        return true;
+      }
+    );
+  });
+
+  it('returns the cached module on success when using _setPretextForTests', async () => {
+    const fake = { prepare: () => {}, layout: () => {} };
+    _setPretextForTests(fake);
+    const result = await ensurePretext();
+    assert.equal(result, fake);
+  });
+
+  it('returns the same module on repeated calls (caching)', async () => {
+    const fake = { prepare: () => {}, layout: () => {} };
+    _setPretextForTests(fake);
+    const a = await ensurePretext();
+    const b = await ensurePretext();
+    assert.equal(a, b);
   });
 });
