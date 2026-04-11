@@ -5,6 +5,7 @@
 import { effect, batch, untrack, signal, __DEV__, __devtools } from './reactive.js';
 import { reportError, _injectGetCurrentComponent, shallowEqual } from './components.js';
 import { _setComponentRef } from './helpers.js';
+import { _markMounted as _markTextMounted } from './text-engine.js';
 
 // SVG elements that need namespace
 const SVG_ELEMENTS = new Set([
@@ -110,6 +111,7 @@ export function disposeTree(node) {
 
 // Mount a component tree into a DOM container
 export function mount(vnode, container) {
+  _markTextMounted();
   if (typeof container === 'string') {
     container = document.querySelector(container);
   }
