@@ -53,3 +53,23 @@ describe('insert() measure hook', () => {
     assert.equal(parent.textContent, 'count: 0');
   });
 });
+
+describe('insert() measure hook: hydration skip', () => {
+  beforeEach(() => {
+    _resetTextEngineForTests();
+    _resetMeasureHookInvocation();
+    _setPretextForTests({ prepare: () => ({}), layout: () => ({}) });
+  });
+
+  it('skips measurement during hydration', async () => {
+    const { _setHydratingForTests } = await import('../src/text-engine.js');
+    configureText({ measure: true });
+    _setHydratingForTests(true);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const count = signal(0);
+    insert(parent, () => `count: ${count()}`);
+    assert.equal(_wasMeasureHookInvoked(), false, 'hook should not fire during hydration');
+    _setHydratingForTests(false);
+  });
+});

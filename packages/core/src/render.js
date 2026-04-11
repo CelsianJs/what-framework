@@ -4,7 +4,7 @@
 
 import { effect, untrack, createRoot, _createItemScope, signal, __DEV__ } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
-import { measureTextIfEnabled } from './text-engine.js';
+import { measureTextIfEnabled, _setIsHydratingImpl } from './text-engine.js';
 
 export { effect, untrack };
 
@@ -1058,6 +1058,8 @@ let _hydrationCursor = null;
 export function isHydrating() {
   return _isHydrating;
 }
+
+_setIsHydratingImpl(isHydrating);
 
 /**
  * hydrate(vnode, container)

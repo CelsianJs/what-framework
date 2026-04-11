@@ -160,12 +160,31 @@ export function ensureFontsReady() {
   return fontsReadyPromise;
 }
 
+// --- Hydration detection ---
+// During hydration the server already wrote text nodes; we skip measurement.
+let _testHydratingOverride = null;
+let _isHydratingRef = () => false;
+
+export function _setIsHydratingImpl(fn) {
+  _isHydratingRef = typeof fn === 'function' ? fn : (() => false);
+}
+
+function isHydratingNow() {
+  if (_testHydratingOverride !== null) return _testHydratingOverride;
+  return _isHydratingRef();
+}
+
+export function _setHydratingForTests(value) {
+  _testHydratingOverride = value;
+}
+
 // --- Measure hook ---
 
 let _hookInvocationCount = 0;
 
 export function measureTextIfEnabled(parent, text) {
   if (!textConfig.measure) return;
+  if (isHydratingNow()) return;  // skip measurement during hydration
   _hookInvocationCount++;
   queueMicrotask(() => {
     if (!parent || !parent.ownerDocument) return;
@@ -197,4 +216,5 @@ export function _resetTextEngineForTests() {
   measureCache.clear();
   fontsReadyPromise = null;
   _hookInvocationCount = 0;
+  _testHydratingOverride = null;
 }
