@@ -86,6 +86,7 @@ function cacheSet(key, value) {
 }
 
 export async function measureText(text, font, containerWidth, lineHeight) {
+  await ensureFontsReady();
   const pretext = await ensurePretext();
 
   const cacheKey = `${font}|${text}`;
@@ -130,6 +131,29 @@ export function fontInfoToString(info) {
   return `${info.fontStyle} ${info.fontWeight} ${info.fontSize} ${info.fontFamily}`;
 }
 
+// --- Font-ready gate ---
+
+let fontsReadyPromise = null;
+
+export function ensureFontsReady() {
+  if (fontsReadyPromise) return fontsReadyPromise;
+
+  if (typeof document === 'undefined' || !document.fonts || !document.fonts.ready) {
+    // SSR / Node — resolve immediately
+    fontsReadyPromise = Promise.resolve();
+    return fontsReadyPromise;
+  }
+
+  fontsReadyPromise = document.fonts.ready.then(() => {
+    // Clear measure cache whenever fonts finish loading
+    document.fonts.addEventListener('loadingdone', () => {
+      clearMeasureCache();
+    });
+  });
+
+  return fontsReadyPromise;
+}
+
 // --- Test helpers ---
 
 export function _resetTextEngineForTests() {
@@ -138,4 +162,5 @@ export function _resetTextEngineForTests() {
   pretextModule = null;
   pretextLoadPromise = null;
   measureCache.clear();
+  fontsReadyPromise = null;
 }

@@ -1,5 +1,6 @@
 /**
  * Tests for text-engine.js — the internal adapter for @chenglou/pretext.
+ * Covers: config, timing contract, lazy loader, LRU cache, font resolution, font-ready gate.
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -16,6 +17,7 @@ const {
   clearMeasureCache,
   resolveFontInfo,
   fontInfoToString,
+  ensureFontsReady,
 } = await import('../src/text-engine.js');
 
 // ─────────────────────────────────────────────
@@ -165,6 +167,13 @@ describe('ensurePretext', () => {
 describe('measureText LRU cache', () => {
   beforeEach(() => {
     _resetTextEngineForTests();
+    // Stub document.fonts so ensureFontsReady resolves immediately
+    global.document = {
+      fonts: {
+        ready: Promise.resolve(),
+        addEventListener: () => {},
+      },
+    };
   });
 
   function makeFakePretext() {
@@ -301,6 +310,88 @@ describe('resolveFontInfo and fontInfoToString', () => {
       assert.equal(info.fontStyle, 'normal');
     } finally {
       global.getComputedStyle = savedGetCS;
+    }
+  });
+});
+
+// ─────────────────────────────────────────────
+// Task 6: Font-ready gate
+// ─────────────────────────────────────────────
+
+describe('ensureFontsReady font-ready gate', () => {
+  beforeEach(() => {
+    _resetTextEngineForTests();
+  });
+
+  it('measureText blocks until fonts.ready resolves', async () => {
+    let resolveFonts;
+    const fontsReadyPromise = new Promise((resolve) => { resolveFonts = resolve; });
+
+    global.document = {
+      fonts: {
+        ready: fontsReadyPromise,
+        addEventListener: () => {},
+      },
+    };
+
+    const fake = {
+      prepare(text, font) { return { text, font }; },
+      layout(prepared, width, lineHeight) { return { prepared, width, lineHeight }; },
+    };
+    _setPretextForTests(fake);
+
+    let measured = false;
+    const measurePromise = measureText('hello', 'Arial 16px', 100, 1.5).then((r) => {
+      measured = true;
+      return r;
+    });
+
+    // Allow microtasks to run — measurement should not have completed yet
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(measured, false, 'measureText should not complete before fonts are ready');
+
+    // Resolve fonts
+    resolveFonts();
+    const result = await measurePromise;
+    assert.equal(measured, true);
+    assert.ok(result);
+  });
+
+  it('subsequent measurements are not re-gated (instant after first resolve)', async () => {
+    let callCount = 0;
+    global.document = {
+      fonts: {
+        ready: Promise.resolve(),
+        addEventListener: () => {},
+      },
+    };
+
+    const fake = {
+      prepare(text, font) { return { text, font }; },
+      layout(prepared, width, lineHeight) { return { prepared, width, lineHeight, count: ++callCount }; },
+    };
+    _setPretextForTests(fake);
+
+    // Resolve the gate once
+    await ensureFontsReady();
+
+    // Now measureText should use cached fontsReadyPromise
+    const r1 = await measureText('hello', 'Arial 16px', 100, 1.5);
+    const r2 = await measureText('world', 'Arial 16px', 100, 1.5);
+    assert.equal(r1.count, 1);
+    assert.equal(r2.count, 2);
+  });
+
+  it('resolves immediately in SSR/Node (no document.fonts)', async () => {
+    const savedDoc = global.document;
+    delete global.document;
+    try {
+      const p = ensureFontsReady();
+      assert.ok(p instanceof Promise);
+      await assert.doesNotReject(() => p);
+    } finally {
+      global.document = savedDoc;
     }
   });
 });
