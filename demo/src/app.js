@@ -7,6 +7,7 @@ import { Docs } from './pages/docs.js';
 import { Demos } from './pages/demos.js';
 import { Bench } from './pages/bench.js';
 import { Islands } from './pages/islands.js';
+import { PretextDemo } from './pages/pretext.js';
 
 const routes = defineRoutes({
   '/': { component: Home, layout: Layout },
@@ -14,6 +15,7 @@ const routes = defineRoutes({
   '/demos': { component: Demos, layout: Layout },
   '/bench': { component: Bench, layout: Layout },
   '/islands': { component: Islands, layout: Layout },
+  '/pretext': { component: PretextDemo, layout: Layout },
 });
 
 function NotFound() {

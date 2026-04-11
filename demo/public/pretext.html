@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pretext Integration — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+    .page { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+    .subtitle { color: #888; font-size: 15px; margin-bottom: 4px; }
+    .subtitle a { color: #60a5fa; text-decoration: none; }
+    .subtitle a:hover { text-decoration: underline; }
+    .badge { display: inline-block; background: #1e3a5f; color: #60a5fa; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; }
+    .tag-line { color: #555; font-size: 13px; margin-top: 6px; }
+    .header { margin-bottom: 36px; }
+
+    /* Controls */
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .control label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
+    .control input[type="range"] { width: 100%; accent-color: #2563eb; }
+
+    /* Custom text */
+    .text-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #888; cursor: pointer; margin-bottom: 8px; }
+    .text-toggle input { accent-color: #2563eb; }
+    .custom-textarea { width: 100%; min-height: 80px; padding: 12px; font-size: 14px; border: 1px solid #282828; border-radius: 8px; background: #111; color: #e0e0e0; resize: vertical; font-family: inherit; }
+    .text-input-area { margin-bottom: 24px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid #222; margin-bottom: 24px; }
+    .tab { padding: 10px 20px; border: none; background: none; color: #555; cursor: pointer; font-size: 14px; font-family: inherit; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; }
+    .tab:hover { color: #999; }
+    .tab.active { color: #e0e0e0; border-bottom-color: #2563eb; }
+
+    /* Demo areas */
+    .demo-panel { border: 1px solid #222; border-radius: 10px; background: #0d0d0d; overflow: hidden; }
+    .demo-content { padding: 20px; }
+    .demo-stats { padding: 10px 20px; font: 12px 'JetBrains Mono', monospace; color: #555; border-top: 1px solid #1a1a1a; background: #080808; }
+    canvas, svg { display: block; width: 100%; }
+
+    /* Reflow demo */
+    .reflow-text { line-height: 1.5; color: #ccc; font-family: 'Inter', system-ui, sans-serif; transition: width 0.15s ease; }
+
+    /* Perf demo */
+    .perf-btn { padding: 12px 24px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-family: inherit; font-weight: 500; transition: background 0.15s; }
+    .perf-btn:hover { background: #1d4ed8; }
+    .perf-btn:active { background: #1e40af; }
+    .perf-result { margin-top: 16px; font: 13px/1.7 'JetBrains Mono', monospace; color: #ccc; background: #080808; padding: 20px; border-radius: 8px; border: 1px solid #222; white-space: pre-wrap; }
+    .perf-speedup { color: #34d399; font-weight: 600; }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <h1>Pretext Integration</h1>
+      <p class="subtitle">DOM-free text measurement powered by <a href="https://github.com/chenglou/pretext" target="_blank">@chenglou/pretext</a></p>
+      <p class="tag-line"><span class="badge">ALPHA</span> Text layout without browser reflow — pure arithmetic after initial font probing</p>
+    </div>
+
+    <div class="controls" id="controls"></div>
+    <div class="text-input-area" id="text-input"></div>
+    <div class="tabs" id="tabs"></div>
+    <div id="demo-area"></div>
+  </div>
+
+  <script type="module">
+    import { signal, effect } from '/framework/core/src/index.js';
+    import { prepareWithSegments, layoutWithLines } from '/vendor/pretext/dist/layout.js';
+
+    const SAMPLE = `Typography is the art and technique of arranging type to make written language legible, readable, and appealing when displayed. The arrangement of type involves selecting typefaces, point sizes, line lengths, line-spacing, and letter-spacing, as well as adjusting the space between pairs of letters. Type design is a closely related craft, sometimes considered part of typography.`;
+
+    const LONG = `In the beginning was the Word, and the Word was with the typesetter, and the Word was set in Garamond. And the typesetter saw the letterforms, and they were good. The descenders descended gracefully, and the ascenders reached toward the heavens with quiet dignity. Each glyph was placed with intention, each space calculated to guide the eye across the line, from margin to margin, from thought to thought. The rivers of white space flowed naturally between the words, never pooling, never stagnating, always carrying the reader forward. And so the text was set, and it was readable, and the readers were pleased.`;
+
+    // --- State ---
+    const width = signal(600, 'width');
+    const lh = signal(26, 'lineHeight');
+    const fs = signal(16, 'fontSize');
+    const cols = signal(1, 'columns');
+    const useCustom = signal(false);
+    const customText = signal('');
+    const activeTab = signal('reflow');
+
+    const content = () => (useCustom() && customText()) ? customText() : SAMPLE;
+    const fontStr = () => `${fs()}px Inter, system-ui, sans-serif`;
+
+    // --- Controls ---
+    function addSlider(parent, label, sig, min, max, step) {
+      const div = document.createElement('div');
+      div.className = 'control';
+      const lbl = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'range'; input.min = min; input.max = max; input.step = step || '1';
+      input.value = sig();
+      effect(() => { lbl.textContent = `${label}: ${sig()}`; });
+      input.oninput = () => sig(Number(input.value));
+      div.appendChild(lbl);
+      div.appendChild(input);
+      parent.appendChild(div);
+    }
+
+    const controlsEl = document.getElementById('controls');
+    addSlider(controlsEl, 'WIDTH', width, 200, 780, 5);
+    addSlider(controlsEl, 'LINE HEIGHT', lh, 16, 48, 1);
+    addSlider(controlsEl, 'FONT SIZE', fs, 10, 36, 1);
+    addSlider(controlsEl, 'COLUMNS', cols, 1, 4, 1);
+
+    // --- Custom text toggle ---
+    const textInputEl = document.getElementById('text-input');
+    const toggle = document.createElement('label');
+    toggle.className = 'text-toggle';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.onchange = () => useCustom(cb.checked);
+    toggle.appendChild(cb);
+    toggle.appendChild(document.createTextNode('Use custom text'));
+    textInputEl.appendChild(toggle);
+
+    const ta = document.createElement('textarea');
+    ta.className = 'custom-textarea';
+    ta.placeholder = 'Paste or type your own text...';
+    ta.oninput = () => customText(ta.value);
+    effect(() => { ta.style.display = useCustom() ? 'block' : 'none'; });
+    textInputEl.appendChild(ta);
+
+    // --- Tabs ---
+    const tabDefs = [
+      { id: 'reflow', label: 'Live Reflow' },
+      { id: 'canvas', label: 'Canvas' },
+      { id: 'svg', label: 'SVG' },
+      { id: 'perf', label: 'Performance' },
+    ];
+    const tabsEl = document.getElementById('tabs');
+    for (const t of tabDefs) {
+      const btn = document.createElement('button');
+      btn.className = 'tab';
+      btn.textContent = t.label;
+      btn.onclick = () => activeTab(t.id);
+      effect(() => { btn.classList.toggle('active', activeTab() === t.id); });
+      tabsEl.appendChild(btn);
+    }
+
+    const demoArea = document.getElementById('demo-area');
+
+    // ======= REFLOW DEMO =======
+    const reflowPanel = document.createElement('div');
+    reflowPanel.className = 'demo-panel';
+    const reflowContent = document.createElement('div');
+    reflowContent.className = 'demo-content';
+    const reflowText = document.createElement('div');
+    reflowText.className = 'reflow-text';
+    reflowContent.appendChild(reflowText);
+    const reflowStats = document.createElement('div');
+    reflowStats.className = 'demo-stats';
+    reflowPanel.appendChild(reflowContent);
+    reflowPanel.appendChild(reflowStats);
+    demoArea.appendChild(reflowPanel);
+
+    effect(() => {
+      const w = width(), lineH = lh(), fontSize = fs(), c = cols(), txt = content(), font = fontStr();
+      reflowText.style.width = `${w}px`;
+      reflowText.style.fontSize = `${fontSize}px`;
+      reflowText.style.lineHeight = `${lineH}px`;
+      reflowText.style.columnCount = String(c);
+      reflowText.style.columnGap = '24px';
+      reflowText.textContent = txt;
+
+      const t0 = performance.now();
+      const prepared = prepareWithSegments(txt, font);
+      const colW = c > 1 ? (w - (c - 1) * 24) / c : w;
+      const result = layoutWithLines(prepared, colW, lineH);
+      const elapsed = performance.now() - t0;
+
+      reflowStats.textContent = `pretext: ${result.lineCount} lines x ${c} col${c > 1 ? 's' : ''} | ${result.height.toFixed(0)}px | ${elapsed.toFixed(2)}ms (no reflow)`;
+    });
+
+    // ======= CANVAS DEMO =======
+    const canvasPanel = document.createElement('div');
+    canvasPanel.className = 'demo-panel';
+    const canvas = document.createElement('canvas');
+    canvas.width = 1560; canvas.height = 800;
+    canvas.style.cssText = 'width: 100%; height: auto;';
+    const canvasStats = document.createElement('div');
+    canvasStats.className = 'demo-stats';
+    canvasPanel.appendChild(canvas);
+    canvasPanel.appendChild(canvasStats);
+    demoArea.appendChild(canvasPanel);
+
+    effect(() => {
+      const ctx = canvas.getContext('2d');
+      const w = width(), lineH = lh(), fSize = fs(), txt = content(), font = fontStr();
+      const cw = canvas.width, ch = canvas.height;
+      const scale = 2; // retina
+
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.fillStyle = '#0d0d0d';
+      ctx.fillRect(0, 0, cw, ch);
+
+      const offsetX = (cw - w * scale) / 2;
+      const offsetY = 30 * scale;
+
+      // Container boundary
+      ctx.strokeStyle = '#282828';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.strokeRect(offsetX, offsetY, w * scale, ch - 60 * scale);
+      ctx.setLineDash([]);
+
+      const t0 = performance.now();
+      const prepared = prepareWithSegments(txt, font);
+      const result = layoutWithLines(prepared, w, lineH);
+      const elapsed = performance.now() - t0;
+
+      ctx.font = `${fSize * scale}px Inter, system-ui, sans-serif`;
+      ctx.fillStyle = '#ccc';
+      ctx.textBaseline = 'top';
+
+      for (let i = 0; i < result.lines.length; i++) {
+        const line = result.lines[i];
+        const y = offsetY + 16 * scale + i * lineH * scale;
+        if (y + lineH * scale > ch - 30 * scale) break;
+        ctx.fillText(line.text, offsetX + 12 * scale, y);
+      }
+
+      canvasStats.textContent = `canvas: ${result.lineCount} lines | ${result.height.toFixed(0)}px | laid out in ${elapsed.toFixed(2)}ms`;
+    });
+
+    // ======= SVG DEMO =======
+    const svgPanel = document.createElement('div');
+    svgPanel.className = 'demo-panel';
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 780 400');
+    svg.style.cssText = 'width: 100%; background: #0d0d0d;';
+    const svgGroup = document.createElementNS(SVG_NS, 'g');
+    svg.appendChild(svgGroup);
+    const svgStats = document.createElement('div');
+    svgStats.className = 'demo-stats';
+    svgPanel.appendChild(svg);
+    svgPanel.appendChild(svgStats);
+    demoArea.appendChild(svgPanel);
+
+    effect(() => {
+      const w = width(), lineH = lh(), fSize = fs(), txt = content(), font = fontStr();
+      while (svgGroup.firstChild) svgGroup.removeChild(svgGroup.firstChild);
+
+      const offsetX = (780 - w) / 2;
+
+      // Container boundary
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', String(offsetX)); rect.setAttribute('y', '15');
+      rect.setAttribute('width', String(w)); rect.setAttribute('height', '370');
+      rect.setAttribute('fill', 'none'); rect.setAttribute('stroke', '#282828');
+      rect.setAttribute('stroke-dasharray', '6 6');
+      svgGroup.appendChild(rect);
+
+      const t0 = performance.now();
+      const prepared = prepareWithSegments(txt, font);
+      const result = layoutWithLines(prepared, w, lineH);
+      const elapsed = performance.now() - t0;
+
+      for (let i = 0; i < result.lines.length; i++) {
+        const line = result.lines[i];
+        const y = 30 + i * lineH;
+        if (y > 370) break;
+        const tEl = document.createElementNS(SVG_NS, 'text');
+        tEl.setAttribute('x', String(offsetX + 8));
+        tEl.setAttribute('y', String(y));
+        tEl.setAttribute('fill', '#ccc');
+        tEl.setAttribute('font-size', String(fSize));
+        tEl.setAttribute('font-family', 'Inter, system-ui, sans-serif');
+        tEl.textContent = line.text;
+        svgGroup.appendChild(tEl);
+      }
+
+      svgStats.textContent = `svg: ${result.lineCount} lines | ${result.height.toFixed(0)}px | ${elapsed.toFixed(2)}ms`;
+    });
+
+    // ======= PERF DEMO =======
+    const perfPanel = document.createElement('div');
+    perfPanel.className = 'demo-panel';
+    const perfContent = document.createElement('div');
+    perfContent.className = 'demo-content';
+    const perfBtn = document.createElement('button');
+    perfBtn.className = 'perf-btn';
+    perfBtn.textContent = 'Run Benchmark (500 layouts)';
+    const perfResult = document.createElement('div');
+    perfResult.className = 'perf-result';
+    perfResult.textContent = 'Compare Pretext layout speed vs DOM reflow measurement.\n\n' +
+      'This will:\n' +
+      '  1. Prepare text once (font metrics via canvas)\n' +
+      '  2. Run layout() 500 times at different widths\n' +
+      '  3. Do the same 500 measurements via DOM offsetHeight\n\n' +
+      'The difference is Pretext\'s core insight:\nprepare() is expensive (once), layout() is free (arithmetic).';
+    perfContent.appendChild(perfBtn);
+    perfContent.appendChild(perfResult);
+    perfPanel.appendChild(perfContent);
+    demoArea.appendChild(perfPanel);
+
+    perfBtn.onclick = () => {
+      perfResult.textContent = 'Running...';
+      perfBtn.disabled = true;
+      requestAnimationFrame(() => {
+        const font = '16px Inter, system-ui, sans-serif';
+        const prepared = prepareWithSegments(LONG, font);
+
+        const t0 = performance.now();
+        for (let i = 0; i < 500; i++) layoutWithLines(prepared, 300 + (i % 400), 24);
+        const pretextTime = performance.now() - t0;
+
+        const measurer = document.createElement('div');
+        measurer.style.cssText = 'position:absolute;visibility:hidden;font:16px Inter,system-ui,sans-serif;line-height:24px;top:-9999px;';
+        document.body.appendChild(measurer);
+        measurer.textContent = LONG;
+
+        const t1 = performance.now();
+        for (let i = 0; i < 500; i++) {
+          measurer.style.width = `${300 + (i % 400)}px`;
+          void measurer.offsetHeight;
+        }
+        const domTime = performance.now() - t1;
+        document.body.removeChild(measurer);
+
+        const speedup = (domTime / pretextTime).toFixed(0);
+        perfResult.innerHTML =
+          `<b>500 text layouts at different widths</b>\n\n` +
+          `Pretext (prepare once + 500x layout):  ${pretextTime.toFixed(2)}ms\n` +
+          `DOM (500x width change + offsetHeight): ${domTime.toFixed(2)}ms\n\n` +
+          `<span class="perf-speedup">Pretext is ${speedup}x faster</span>\n\n` +
+          `prepare() reads font metrics once via Canvas measureText().\n` +
+          `After that, layout() is pure arithmetic — no DOM, no reflow.`;
+        perfBtn.disabled = false;
+      });
+    };
+
+    // --- Tab visibility ---
+    effect(() => {
+      const tab = activeTab();
+      reflowPanel.classList.toggle('hidden', tab !== 'reflow');
+      canvasPanel.classList.toggle('hidden', tab !== 'canvas');
+      svgPanel.classList.toggle('hidden', tab !== 'svg');
+      perfPanel.classList.toggle('hidden', tab !== 'perf');
+    });
+  </script>
+</body>
+</html>
