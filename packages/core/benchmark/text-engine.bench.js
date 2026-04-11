@@ -15,14 +15,23 @@ const { signal, flushSync } = await import('../src/reactive.js');
 const { insert } = await import('../src/render.js');
 const { configureText, _resetTextEngineForTests, _setPretextForTests } = await import('../src/text-engine.js');
 
-// Stub Pretext (real @chenglou/pretext not installed)
-const stubPretext = {
-  prepare: (text) => ({ text, segments: text.split(' ') }),
-  layout: (prepared, width) => ({
-    lines: [{ text: prepared.text, x: 0, y: 16 }],
-    width,
-  }),
-};
+// Try real Pretext first, fall back to stub
+let pretextLib = null;
+let usingRealPretext = false;
+try {
+  pretextLib = await import('@chenglou/pretext');
+  usingRealPretext = true;
+  console.log('[bench] Using REAL @chenglou/pretext');
+} catch {
+  console.log('[bench] @chenglou/pretext not installed — using stub');
+  pretextLib = {
+    prepare: (text) => ({ text, segments: text.split(' ') }),
+    layout: (prepared, width) => ({
+      lines: [{ text: prepared.text, x: 0, y: 16 }],
+      width,
+    }),
+  };
+}
 
 function makeContainer() {
   const div = document.createElement('div');
@@ -49,7 +58,7 @@ function runScenario(name, setupFn) {
   const offTime = bench('OFF (measure: false)', setupFn);
 
   _resetTextEngineForTests();
-  _setPretextForTests(stubPretext);
+  _setPretextForTests(pretextLib);
   configureText({ measure: true });
   const onTime = bench('ON  (measure: true)', setupFn);
 
@@ -129,4 +138,6 @@ for (const r of results) {
   );
 }
 
-console.log('\nNOTE: This run used a STUB. Install @chenglou/pretext and re-run for real numbers.');
+if (!usingRealPretext) {
+  console.log('\nNOTE: This run used a STUB. Install @chenglou/pretext and re-run for real numbers.');
+}
