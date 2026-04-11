@@ -14,6 +14,8 @@ const {
   _setPretextForTests,
   measureText,
   clearMeasureCache,
+  resolveFontInfo,
+  fontInfoToString,
 } = await import('../src/text-engine.js');
 
 // ─────────────────────────────────────────────
@@ -246,5 +248,59 @@ describe('measureText LRU cache', () => {
     clearMeasureCache();
     await measureText('hello', 'Arial 16px', 100, 1.5);
     assert.equal(fake.calls.prepare, 2);
+  });
+});
+
+// ─────────────────────────────────────────────
+// Task 5: Font resolution
+// ─────────────────────────────────────────────
+
+describe('resolveFontInfo and fontInfoToString', () => {
+  let dom;
+
+  beforeEach(async () => {
+    _resetTextEngineForTests();
+    const { JSDOM } = await import('jsdom');
+    dom = new JSDOM('<!DOCTYPE html><html><body><div id="test" style="font-family: Arial; font-size: 14px; font-weight: bold; font-style: italic; line-height: 1.6;"></div></body></html>');
+    global.document = dom.window.document;
+    global.getComputedStyle = dom.window.getComputedStyle;
+  });
+
+  it('resolveFontInfo reads all 5 properties from the element', () => {
+    const el = dom.window.document.getElementById('test');
+    const info = resolveFontInfo(el);
+    assert.ok(info.fontFamily, 'should have fontFamily');
+    assert.ok(info.fontSize, 'should have fontSize');
+    assert.ok(info.fontWeight, 'should have fontWeight');
+    assert.ok(info.fontStyle, 'should have fontStyle');
+    assert.ok(info.lineHeight, 'should have lineHeight');
+    assert.ok(info.fontFamily.includes('Arial'), `expected Arial, got ${info.fontFamily}`);
+    assert.ok(info.fontStyle.includes('italic'), `expected italic, got ${info.fontStyle}`);
+  });
+
+  it('fontInfoToString formats as Canvas font string', () => {
+    const info = {
+      fontFamily: 'Arial',
+      fontSize: '14px',
+      fontWeight: 'bold',
+      fontStyle: 'italic',
+      lineHeight: '1.6',
+    };
+    const result = fontInfoToString(info);
+    assert.equal(result, 'italic bold 14px Arial');
+  });
+
+  it('resolveFontInfo falls back to defaults when getComputedStyle is unavailable', () => {
+    const savedGetCS = global.getComputedStyle;
+    delete global.getComputedStyle;
+    try {
+      const info = resolveFontInfo(null);
+      assert.equal(info.fontFamily, 'sans-serif');
+      assert.equal(info.fontSize, '16px');
+      assert.equal(info.fontWeight, '400');
+      assert.equal(info.fontStyle, 'normal');
+    } finally {
+      global.getComputedStyle = savedGetCS;
+    }
   });
 });

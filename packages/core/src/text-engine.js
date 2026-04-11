@@ -102,6 +102,34 @@ export function clearMeasureCache() {
   measureCache.clear();
 }
 
+// --- Font resolution ---
+
+const FONT_DEFAULTS = {
+  fontFamily: 'sans-serif',
+  fontSize: '16px',
+  fontWeight: '400',
+  fontStyle: 'normal',
+  lineHeight: 'normal',
+};
+
+export function resolveFontInfo(el) {
+  if (typeof getComputedStyle === 'undefined' || !el) {
+    return { ...FONT_DEFAULTS };
+  }
+  const style = getComputedStyle(el);
+  return {
+    fontFamily: style.fontFamily || FONT_DEFAULTS.fontFamily,
+    fontSize: style.fontSize || FONT_DEFAULTS.fontSize,
+    fontWeight: style.fontWeight || FONT_DEFAULTS.fontWeight,
+    fontStyle: style.fontStyle || FONT_DEFAULTS.fontStyle,
+    lineHeight: style.lineHeight || FONT_DEFAULTS.lineHeight,
+  };
+}
+
+export function fontInfoToString(info) {
+  return `${info.fontStyle} ${info.fontWeight} ${info.fontSize} ${info.fontFamily}`;
+}
+
 // --- Test helpers ---
 
 export function _resetTextEngineForTests() {
