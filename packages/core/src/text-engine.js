@@ -154,6 +154,33 @@ export function ensureFontsReady() {
   return fontsReadyPromise;
 }
 
+// --- Measure hook ---
+
+let _hookInvocationCount = 0;
+
+export function measureTextIfEnabled(parent, text) {
+  if (!textConfig.measure) return;
+  _hookInvocationCount++;
+  queueMicrotask(() => {
+    if (!parent || !parent.ownerDocument) return;
+    if (typeof parent.isConnected === 'boolean' && !parent.isConnected) return;
+    const font = resolveFontInfo(parent);
+    const fontStr = fontInfoToString(font);
+    const width = parent.clientWidth || 0;
+    const lineHeight = parseFloat(font.lineHeight) || parseFloat(font.size) * 1.2;
+    if (width === 0) return;
+    measureText(text, fontStr, width, lineHeight).catch(() => {});
+  });
+}
+
+export function _wasMeasureHookInvoked() {
+  return _hookInvocationCount > 0;
+}
+
+export function _resetMeasureHookInvocation() {
+  _hookInvocationCount = 0;
+}
+
 // --- Test helpers ---
 
 export function _resetTextEngineForTests() {
@@ -163,4 +190,5 @@ export function _resetTextEngineForTests() {
   pretextLoadPromise = null;
   measureCache.clear();
   fontsReadyPromise = null;
+  _hookInvocationCount = 0;
 }

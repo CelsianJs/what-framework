@@ -4,6 +4,7 @@
 
 import { effect, untrack, createRoot, _createItemScope, signal, __DEV__ } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
+import { measureTextIfEnabled } from './text-engine.js';
 
 export { effect, untrack };
 
@@ -168,6 +169,7 @@ export function insert(parent, child, marker) {
       const m = marker || null;
       if (m) parent.insertBefore(textNode, m);
       else parent.appendChild(textNode);
+      measureTextIfEnabled(parent, String(first));
       let current = textNode;
       let isTextFastPath = true;
       effect(() => {
@@ -177,6 +179,7 @@ export function insert(parent, child, marker) {
           // Fast path: still text — update data directly (no allocations)
           const str = String(val);
           if (textNode.data !== str) textNode.data = str;
+          measureTextIfEnabled(parent, str);
         } else {
           // Type changed — fall back to full reconcile
           isTextFastPath = false;
