@@ -61,6 +61,47 @@ export async function ensurePretext() {
   return pretextLoadPromise;
 }
 
+// --- LRU measureText cache ---
+
+const measureCache = new Map();
+
+function cacheGet(key) {
+  if (!measureCache.has(key)) return undefined;
+  const value = measureCache.get(key);
+  // Re-insert to maintain LRU order (most recently used at end)
+  measureCache.delete(key);
+  measureCache.set(key, value);
+  return value;
+}
+
+function cacheSet(key, value) {
+  if (measureCache.has(key)) {
+    measureCache.delete(key);
+  } else if (measureCache.size >= textConfig.cacheSize) {
+    // Evict oldest (first inserted = first key in Map)
+    const oldest = measureCache.keys().next().value;
+    measureCache.delete(oldest);
+  }
+  measureCache.set(key, value);
+}
+
+export async function measureText(text, font, containerWidth, lineHeight) {
+  const pretext = await ensurePretext();
+
+  const cacheKey = `${font}|${text}`;
+  let prepared = cacheGet(cacheKey);
+  if (!prepared) {
+    prepared = pretext.prepare(text, font);
+    cacheSet(cacheKey, prepared);
+  }
+
+  return pretext.layout(prepared, containerWidth, lineHeight);
+}
+
+export function clearMeasureCache() {
+  measureCache.clear();
+}
+
 // --- Test helpers ---
 
 export function _resetTextEngineForTests() {
@@ -68,4 +109,5 @@ export function _resetTextEngineForTests() {
   hasMounted = false;
   pretextModule = null;
   pretextLoadPromise = null;
+  measureCache.clear();
 }

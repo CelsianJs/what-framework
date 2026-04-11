@@ -12,6 +12,8 @@ const {
   _markMounted,
   ensurePretext,
   _setPretextForTests,
+  measureText,
+  clearMeasureCache,
 } = await import('../src/text-engine.js');
 
 // ─────────────────────────────────────────────
@@ -128,9 +130,7 @@ describe('ensurePretext', () => {
   });
 
   it('allows retry after failure (pretextLoadPromise reset to null)', async () => {
-    // First call fails
     try { await ensurePretext(); } catch (_) {}
-    // Second call also tries (doesn't hang on a rejected cached promise)
     await assert.rejects(
       () => ensurePretext(),
       (err) => {
@@ -153,5 +153,98 @@ describe('ensurePretext', () => {
     const a = await ensurePretext();
     const b = await ensurePretext();
     assert.equal(a, b);
+  });
+});
+
+// ─────────────────────────────────────────────
+// Task 4: LRU measureText cache
+// ─────────────────────────────────────────────
+
+describe('measureText LRU cache', () => {
+  beforeEach(() => {
+    _resetTextEngineForTests();
+  });
+
+  function makeFakePretext() {
+    const calls = { prepare: 0, prepareArgs: [] };
+    const fake = {
+      prepare(text, font) {
+        calls.prepare++;
+        calls.prepareArgs.push({ text, font });
+        return { text, font };
+      },
+      layout(prepared, width, lineHeight) {
+        return { prepared, width, lineHeight };
+      },
+      calls,
+    };
+    return fake;
+  }
+
+  it('prepare() called once per (font, text) pair, cached on repeat with different width', async () => {
+    const fake = makeFakePretext();
+    _setPretextForTests(fake);
+
+    await measureText('hello', 'Arial 16px', 100, 1.5);
+    await measureText('hello', 'Arial 16px', 200, 1.5);
+    assert.equal(fake.calls.prepare, 1, 'prepare should only be called once for the same font+text');
+  });
+
+  it('re-prepares when text changes', async () => {
+    const fake = makeFakePretext();
+    _setPretextForTests(fake);
+
+    await measureText('hello', 'Arial 16px', 100, 1.5);
+    await measureText('world', 'Arial 16px', 100, 1.5);
+    assert.equal(fake.calls.prepare, 2);
+  });
+
+  it('re-prepares when font changes', async () => {
+    const fake = makeFakePretext();
+    _setPretextForTests(fake);
+
+    await measureText('hello', 'Arial 16px', 100, 1.5);
+    await measureText('hello', 'Helvetica 16px', 100, 1.5);
+    assert.equal(fake.calls.prepare, 2);
+  });
+
+  it('evicts oldest when cacheSize exceeded', async () => {
+    configureText({ cacheSize: 2 });
+    const fake = makeFakePretext();
+    _setPretextForTests(fake);
+
+    await measureText('a', 'Arial 16px', 100, 1.5); // oldest
+    await measureText('b', 'Arial 16px', 100, 1.5);
+    assert.equal(fake.calls.prepare, 2);
+
+    // 3rd entry evicts oldest ("Arial 16px|a")
+    await measureText('c', 'Arial 16px', 100, 1.5);
+    assert.equal(fake.calls.prepare, 3);
+
+    // 'a' was evicted, should re-prepare
+    await measureText('a', 'Arial 16px', 100, 1.5);
+    assert.equal(fake.calls.prepare, 4, 'evicted entry should require re-prepare');
+  });
+
+  it('returns the layout result', async () => {
+    const fake = makeFakePretext();
+    _setPretextForTests(fake);
+
+    const result = await measureText('hello', 'Arial 16px', 200, 1.5);
+    assert.ok(result, 'should return a result');
+    assert.equal(result.width, 200);
+    assert.equal(result.lineHeight, 1.5);
+  });
+
+  it('clearMeasureCache forces re-prepare', async () => {
+    const fake = makeFakePretext();
+    _setPretextForTests(fake);
+
+    await measureText('hello', 'Arial 16px', 100, 1.5);
+    assert.equal(fake.calls.prepare, 1);
+
+    clearMeasureCache();
+    await measureText('hello', 'Arial 16px', 100, 1.5);
+    assert.equal(fake.calls.prepare, 2);
   });
 });
