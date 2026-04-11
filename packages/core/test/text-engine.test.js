@@ -9,6 +9,7 @@ const {
   configureText,
   getTextConfig,
   _resetTextEngineForTests,
+  _markMounted,
 } = await import('../src/text-engine.js');
 
 // ─────────────────────────────────────────────
@@ -49,5 +50,55 @@ describe('text-engine config', () => {
     const config = getTextConfig();
     config.measure = true;
     assert.equal(getTextConfig().measure, false);
+  });
+});
+
+// ─────────────────────────────────────────────
+// Task 2: Timing contract (warn-after-mount)
+// ─────────────────────────────────────────────
+
+describe('text-engine timing contract', () => {
+  beforeEach(() => {
+    _resetTextEngineForTests();
+  });
+
+  it('no warning when configured before mount', () => {
+    const warnings = [];
+    const original = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      configureText({ measure: true });
+      assert.equal(warnings.length, 0);
+    } finally {
+      console.warn = original;
+    }
+  });
+
+  it('warning fires when configured after _markMounted()', () => {
+    const warnings = [];
+    const original = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      _markMounted();
+      configureText({ measure: true });
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0].includes('configureText'), `Expected warning to mention 'configureText', got: ${warnings[0]}`);
+    } finally {
+      console.warn = original;
+    }
+  });
+
+  it('_resetTextEngineForTests clears hasMounted', () => {
+    _markMounted();
+    _resetTextEngineForTests();
+    const warnings = [];
+    const original = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      configureText({ measure: true });
+      assert.equal(warnings.length, 0);
+    } finally {
+      console.warn = original;
+    }
   });
 });
