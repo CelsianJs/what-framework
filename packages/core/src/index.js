@@ -173,6 +173,9 @@ export {
   validateImports,
 } from './guardrails.js';
 
+// Text engine configuration
+export { configureText, getTextConfig } from './text-engine.js';
+
 // Agent context (global inspection API)
 export {
   installAgentContext,

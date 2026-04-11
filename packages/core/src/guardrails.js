@@ -150,6 +150,8 @@ const VALID_EXPORTS = new Set([
   // Scheduler
   'scheduleRead', 'scheduleWrite', 'flushScheduler', 'measure', 'mutate',
   'useScheduledEffect', 'nextFrame', 'raf', 'onResize', 'onIntersect', 'smoothScrollTo',
+  // Text engine
+  'configureText', 'getTextConfig',
   // Animation
   'spring', 'tween', 'easings', 'useTransition', 'useGesture', 'useAnimatedValue',
   'createTransitionClasses', 'cssTransition',
