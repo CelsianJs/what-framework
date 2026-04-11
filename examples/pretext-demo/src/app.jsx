@@ -262,6 +262,116 @@ function PerfDemo() {
   return container;
 }
 
+// --- Stress Test Demo ---
+function StressDemo() {
+  const container = document.createElement('div');
+  container.style.cssText = 'border: 1px solid #222; border-radius: 10px; background: #0d0d0d; overflow: hidden;';
+
+  const header = document.createElement('div');
+  header.style.cssText = 'padding: 16px 20px; border-bottom: 1px solid #1a1a1a; display: flex; justify-content: space-between; align-items: center;';
+
+  const fpsDisplay = document.createElement('span');
+  fpsDisplay.style.cssText = "font: 14px 'JetBrains Mono', monospace; color: #34d399;";
+  fpsDisplay.textContent = 'FPS: --';
+
+  const countDisplay = document.createElement('span');
+  countDisplay.style.cssText = "font: 12px 'JetBrains Mono', monospace; color: #666;";
+  countDisplay.textContent = '200 text blocks';
+
+  const startBtn = document.createElement('button');
+  startBtn.textContent = 'Start Stress Test';
+  startBtn.style.cssText = 'padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit;';
+
+  header.appendChild(fpsDisplay);
+  header.appendChild(countDisplay);
+  header.appendChild(startBtn);
+
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 16px; max-height: 500px; overflow-y: auto;';
+
+  // Create 200 text blocks
+  const blocks = [];
+  const snippets = [
+    'The quick brown fox jumps over the lazy dog.',
+    'Pack my box with five dozen liquor jugs.',
+    'How vexingly quick daft zebras jump!',
+    'Sphinx of black quartz, judge my vow.',
+    'Two driven jocks help fax my big quiz.',
+    'The five boxing wizards jump quickly.',
+    'Jackdaws love my big sphinx of quartz.',
+    'Grumpy wizards make toxic brew for the jovial queen.',
+  ];
+
+  for (let i = 0; i < 200; i++) {
+    const block = document.createElement('div');
+    block.style.cssText = 'font-size: 11px; line-height: 15px; color: #888; padding: 6px; border: 1px solid #1a1a1a; border-radius: 4px; background: #080808; overflow: hidden; min-height: 40px;';
+    block.textContent = snippets[i % snippets.length];
+    grid.appendChild(block);
+    blocks.push(block);
+  }
+
+  container.appendChild(header);
+  container.appendChild(grid);
+
+  let running = false;
+  let animFrame = null;
+
+  startBtn.onclick = () => {
+    if (running) {
+      running = false;
+      startBtn.textContent = 'Start Stress Test';
+      startBtn.style.background = '#2563eb';
+      if (animFrame) cancelAnimationFrame(animFrame);
+      return;
+    }
+    running = true;
+    startBtn.textContent = 'Stop';
+    startBtn.style.background = '#dc2626';
+
+    const font = '11px Inter, system-ui, sans-serif';
+    const prepared = prepareWithSegments(snippets.join(' '), font);
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let fpsVal = 0;
+    let phase = 0;
+
+    function animate() {
+      if (!running) return;
+      const now = performance.now();
+      frameCount++;
+      if (now - lastTime >= 1000) {
+        fpsVal = frameCount;
+        frameCount = 0;
+        lastTime = now;
+      }
+
+      // Sweep width from 60 to 180 and back
+      phase += 0.02;
+      const w = 100 + Math.sin(phase) * 60;
+
+      // Pretext: measure all 200 blocks via pure arithmetic
+      const t0 = performance.now();
+      for (let i = 0; i < 200; i++) {
+        const snippet = snippets[i % snippets.length];
+        const prep = prepareWithSegments(snippet, font);
+        const result = layoutWithLines(prep, w, 15);
+        // Apply the width — text reflows via CSS, but we KNOW the height without reflow
+        blocks[i].style.width = `${w}px`;
+      }
+      const elapsed = performance.now() - t0;
+
+      const color = fpsVal >= 55 ? '#34d399' : fpsVal >= 30 ? '#fbbf24' : '#ef4444';
+      fpsDisplay.style.color = color;
+      fpsDisplay.textContent = `FPS: ${fpsVal} | layout: ${elapsed.toFixed(1)}ms`;
+
+      animFrame = requestAnimationFrame(animate);
+    }
+    animate();
+  };
+
+  return container;
+}
+
 // --- App ---
 function App() {
   return (
@@ -302,12 +412,14 @@ function App() {
         <Tab id="reflow" label="Live Reflow" />
         <Tab id="canvas" label="Canvas" />
         <Tab id="svg" label="SVG" />
+        <Tab id="stress" label="Stress Test" />
         <Tab id="perf" label="Performance" />
       </div>
 
       <div ref={(el) => effect(() => { el.style.display = activeTab() === 'reflow' ? '' : 'none'; })}><ReflowDemo /></div>
       <div ref={(el) => effect(() => { el.style.display = activeTab() === 'canvas' ? '' : 'none'; })}><CanvasDemo /></div>
       <div ref={(el) => effect(() => { el.style.display = activeTab() === 'svg' ? '' : 'none'; })}><SVGDemo /></div>
+      <div ref={(el) => effect(() => { el.style.display = activeTab() === 'stress' ? '' : 'none'; })}><StressDemo /></div>
       <div ref={(el) => effect(() => { el.style.display = activeTab() === 'perf' ? '' : 'none'; })}><PerfDemo /></div>
     </div>
   );
