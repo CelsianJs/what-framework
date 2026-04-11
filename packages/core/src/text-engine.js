@@ -42,6 +42,12 @@ export function _setPretextForTests(fake) {
   pretextLoadPromise = Promise.resolve(fake);
 }
 
+// Synchronous accessor for components that require Pretext at creation time.
+// Returns null if Pretext has not yet been loaded.
+export function _getPretextSync() {
+  return pretextModule;
+}
+
 export async function ensurePretext() {
   if (pretextModule) return pretextModule;
   if (pretextLoadPromise) return pretextLoadPromise;
