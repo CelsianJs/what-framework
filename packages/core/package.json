@@ -29,10 +29,6 @@
       "types": "./testing.d.ts",
       "production": "./dist/testing.min.js",
       "import": "./src/testing.js"
-    },
-    "./text": {
-      "production": "./dist/text/index.min.js",
-      "import": "./src/text/index.js"
     }
   },
   "files": [
@@ -43,14 +39,6 @@
     "testing.d.ts"
   ],
   "sideEffects": false,
-  "peerDependencies": {
-    "@chenglou/pretext": "*"
-  },
-  "peerDependenciesMeta": {
-    "@chenglou/pretext": {
-      "optional": true
-    }
-  },
   "keywords": [
     "framework",
     "signals",

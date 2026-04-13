@@ -173,8 +173,8 @@ export {
   validateImports,
 } from './guardrails.js';
 
-// Text engine configuration
-export { configureText, getTextConfig } from './text-engine.js';
+// Generic text insertion hook (used by external text engines like what-text)
+export { _setTextInsertHook } from './render.js';
 
 // Agent context (global inspection API)
 export {
