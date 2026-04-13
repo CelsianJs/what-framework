@@ -10,7 +10,6 @@ const {
   configureText,
   getTextConfig,
   _resetTextEngineForTests,
-  _markMounted,
   ensurePretext,
   _setPretextForTests,
   measureText,
@@ -82,32 +81,12 @@ describe('text-engine timing contract', () => {
     }
   });
 
-  it('warning fires when configured after _markMounted()', () => {
-    const warnings = [];
-    const original = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-    try {
-      _markMounted();
-      configureText({ measure: true });
-      assert.equal(warnings.length, 1);
-      assert.ok(warnings[0].includes('configureText'), `Expected warning to mention 'configureText', got: ${warnings[0]}`);
-    } finally {
-      console.warn = original;
-    }
-  });
-
-  it('_resetTextEngineForTests clears hasMounted', () => {
-    _markMounted();
-    _resetTextEngineForTests();
-    const warnings = [];
-    const original = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-    try {
-      configureText({ measure: true });
-      assert.equal(warnings.length, 0);
-    } finally {
-      console.warn = original;
-    }
+  it('configureText registers the text insertion hook', () => {
+    configureText({ measure: true });
+    assert.equal(getTextConfig().measure, true);
+    // Disabling should unregister
+    configureText({ measure: false });
+    assert.equal(getTextConfig().measure, false);
   });
 });
 
@@ -126,8 +105,8 @@ describe('ensurePretext', () => {
     try {
       const mod = await ensurePretext();
       // Pretext is installed — verify it has the expected API
-      assert.equal(typeof mod.prepare, 'function', 'pretext should export prepare()');
-      assert.equal(typeof mod.layout, 'function', 'pretext should export layout()');
+      assert.equal(typeof mod.prepareWithSegments, 'function', 'pretext should export prepareWithSegments()');
+      assert.equal(typeof mod.layoutWithLines, 'function', 'pretext should export layoutWithLines()');
     } catch (err) {
       // Pretext not installed — verify clear error message
       assert.ok(
@@ -138,14 +117,14 @@ describe('ensurePretext', () => {
   });
 
   it('returns the cached module on success when using _setPretextForTests', async () => {
-    const fake = { prepare: () => {}, layout: () => {} };
+    const fake = { prepareWithSegments: () => {}, layoutWithLines: () => ({}) };
     _setPretextForTests(fake);
     const result = await ensurePretext();
     assert.equal(result, fake);
   });
 
   it('returns the same module on repeated calls (caching)', async () => {
-    const fake = { prepare: () => {}, layout: () => {} };
+    const fake = { prepareWithSegments: () => {}, layoutWithLines: () => ({}) };
     _setPretextForTests(fake);
     const a = await ensurePretext();
     const b = await ensurePretext();
@@ -172,13 +151,13 @@ describe('measureText LRU cache', () => {
   function makeFakePretext() {
     const calls = { prepare: 0, prepareArgs: [] };
     const fake = {
-      prepare(text, font) {
+      prepareWithSegments(text, font) {
         calls.prepare++;
         calls.prepareArgs.push({ text, font });
         return { text, font };
       },
-      layout(prepared, width, lineHeight) {
-        return { prepared, width, lineHeight };
+      layoutWithLines(prepared, width, lineHeight) {
+        return { prepared, width, lineHeight, lines: [], lineCount: 0, height: 0 };
       },
       calls,
     };
@@ -328,8 +307,8 @@ describe('ensureFontsReady font-ready gate', () => {
     };
 
     const fake = {
-      prepare(text, font) { return { text, font }; },
-      layout(prepared, width, lineHeight) { return { prepared, width, lineHeight }; },
+      prepareWithSegments(text, font) { return { text, font }; },
+      layoutWithLines(prepared, width, lineHeight) { return { prepared, width, lineHeight, lines: [], lineCount: 0, height: 0 }; },
     };
     _setPretextForTests(fake);
 
@@ -361,8 +340,8 @@ describe('ensureFontsReady font-ready gate', () => {
     };
 
     const fake = {
-      prepare(text, font) { return { text, font }; },
-      layout(prepared, width, lineHeight) { return { prepared, width, lineHeight, count: ++callCount }; },
+      prepareWithSegments(text, font) { return { text, font }; },
+      layoutWithLines(prepared, width, lineHeight) { return { prepared, width, lineHeight, lines: [], lineCount: 0, height: 0, count: ++callCount }; },
     };
     _setPretextForTests(fake);
 

@@ -12,8 +12,8 @@ global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then
 global.window = dom.window;
 global.getComputedStyle = dom.window.getComputedStyle;
 
-const { signal, flushSync } = await import('../src/reactive.js');
-const { insert } = await import('../src/render.js');
+const { signal, flushSync } = await import('../../core/src/reactive.js');
+const { insert } = await import('../../core/src/render.js');
 const { configureText, _resetTextEngineForTests, _setPretextForTests } = await import('../src/text-engine.js');
 
 function createContainer() {
@@ -38,8 +38,8 @@ describe('text-engine safety: measure mode does not alter DOM output', () => {
     // ON
     _resetTextEngineForTests();
     _setPretextForTests({
-      prepare: (t) => ({ t }),
-      layout: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
+      prepareWithSegments: (t) => ({ t }),
+      layoutWithLines: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
     });
     configureText({ measure: true });
     const onContainer = createContainer();
@@ -58,8 +58,8 @@ describe('text-engine safety: measure mode does not alter DOM output', () => {
     // ON
     _resetTextEngineForTests();
     _setPretextForTests({
-      prepare: (t) => ({ t }),
-      layout: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
+      prepareWithSegments: (t) => ({ t }),
+      layoutWithLines: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
     });
     configureText({ measure: true });
     const onContainer = createContainer();
@@ -86,8 +86,8 @@ describe('text-engine safety: measure mode does not alter DOM output', () => {
     // ON
     _resetTextEngineForTests();
     _setPretextForTests({
-      prepare: (t) => ({ t }),
-      layout: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
+      prepareWithSegments: (t) => ({ t }),
+      layoutWithLines: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
     });
     configureText({ measure: true });
     const onContainer = createContainer();
@@ -115,8 +115,8 @@ describe('text-engine safety: measure mode does not alter DOM output', () => {
     // ON
     _resetTextEngineForTests();
     _setPretextForTests({
-      prepare: (t) => ({ t }),
-      layout: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
+      prepareWithSegments: (t) => ({ t }),
+      layoutWithLines: (p, w, lh) => ({ lines: [{ text: p.t }], lineCount: 1, height: lh }),
     });
     configureText({ measure: true });
     const onContainer = createContainer();
