@@ -20,7 +20,7 @@
     "inspector"
   ],
   "peerDependencies": {
-    "what-core": "^0.7.0"
+    "what-core": "^0.8.0"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",

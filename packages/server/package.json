@@ -36,7 +36,7 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.7.0"
+    "what-core": "^0.8.0"
   },
   "repository": {
     "type": "git",

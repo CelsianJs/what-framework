@@ -22,7 +22,7 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "dependencies": {
-    "what-framework": "^0.7.0"
+    "what-framework": "^0.8.0"
   },
   "repository": {
     "type": "git",

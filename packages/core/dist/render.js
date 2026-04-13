@@ -8,42 +8,41 @@ var insideComputed = false;
 var batchDepth = 0;
 var pendingEffects = [];
 var pendingNeedSort = false;
-var subSetOwner = /* @__PURE__ */ new WeakMap();
 var NEEDS_UPSTREAM = /* @__PURE__ */ Symbol("needs_upstream");
 function signal(initial, debugName) {
   let value = initial;
   const subs = /* @__PURE__ */ new Set();
-  function sig(...args) {
-    if (args.length === 0) {
-      if (currentEffect) {
-        subs.add(currentEffect);
-        currentEffect.deps.push(subs);
-      }
-      return value;
-    }
-    if (__DEV__ && insideComputed) {
-      console.warn(
-        "[what] Signal.set() called inside a computed function. This may cause infinite loops. Use effect() instead." + (debugName ? ` (signal: ${debugName})` : "")
-      );
-    }
-    const nextVal = typeof args[0] === "function" ? args[0](value) : args[0];
-    if (Object.is(value, nextVal)) return;
-    value = nextVal;
-    if (__DEV__ && __devtools) __devtools.onSignalUpdate(sig);
-    if (subs.size > 0) notify(subs);
-  }
-  sig.set = (next) => {
+  let lastTracked = null;
+  let lastTrackedEpoch = 0;
+  function _sigWrite(next) {
     if (__DEV__ && insideComputed) {
       console.warn(
         "[what] Signal.set() called inside a computed function. This may cause infinite loops. Use effect() instead." + (debugName ? ` (signal: ${debugName})` : "")
       );
     }
     const nextVal = typeof next === "function" ? next(value) : next;
-    if (Object.is(value, nextVal)) return;
+    if (value === nextVal || value !== value && nextVal !== nextVal) return;
     value = nextVal;
+    lastTracked = null;
     if (__DEV__ && __devtools) __devtools.onSignalUpdate(sig);
     if (subs.size > 0) notify(subs);
-  };
+  }
+  function sig(newVal) {
+    if (arguments.length === 0) {
+      const ce = currentEffect;
+      if (ce !== null) {
+        if (ce !== lastTracked || ce._epoch !== lastTrackedEpoch) {
+          lastTracked = ce;
+          lastTrackedEpoch = ce._epoch;
+          subs.add(ce);
+          ce.deps.push(subs);
+        }
+      }
+      return value;
+    }
+    _sigWrite(newVal);
+  }
+  sig.set = _sigWrite;
   sig.peek = () => value;
   sig.subscribe = (fn) => {
     return effect(() => fn(sig()));
@@ -60,7 +59,7 @@ function _updateLevel(e) {
   let maxDepLevel = 0;
   const deps = e.deps;
   for (let i = 0; i < deps.length; i++) {
-    const owner = subSetOwner.get(deps[i]);
+    const owner = deps[i]._owner;
     if (owner) {
       const depLevel = owner._level;
       if (depLevel > maxDepLevel) maxDepLevel = depLevel;
@@ -106,8 +105,12 @@ function _createEffect(fn, lazy) {
     // reference to the computed's subscriber set
     _isDirty: null,
     // function to check if computed is dirty (set by computed())
-    _markDirty: null
+    _markDirty: null,
     // function to mark computed dirty (set by computed())
+    _cleanup: null,
+    // cleanup function returned by effect fn (declared upfront for shape)
+    _epoch: 0
+    // incremented on cleanup — used by signal lastTracked cache
   };
   if (__DEV__ && __devtools) __devtools.onEffectCreate(e);
   return e;
@@ -137,12 +140,13 @@ function _runEffect(e) {
     if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
     return;
   }
+  const singleDep = e.deps.length === 1 ? e.deps[0] : null;
   cleanup(e);
   if (e._cleanup) {
     try {
       e._cleanup();
     } catch (err) {
-      if (__devtools?.onError) __devtools.onError(err, { type: "effect-cleanup", effect: e });
+      if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: "effect-cleanup", effect: e });
       if (__DEV__) console.warn("[what] Error in effect cleanup:", err);
     }
     e._cleanup = null;
@@ -156,10 +160,13 @@ function _runEffect(e) {
     }
   } catch (err) {
     if (err === NEEDS_UPSTREAM) throw err;
-    if (__devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
+    if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
     throw err;
   } finally {
     currentEffect = prev;
+  }
+  if (singleDep !== null && e.deps.length === 1 && e.deps[0] === singleDep && !e._cleanup && !e._pending) {
+    e._stable = true;
   }
   if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
 }
@@ -180,45 +187,51 @@ function cleanup(e) {
   const deps = e.deps;
   for (let i = 0; i < deps.length; i++) deps[i].delete(e);
   deps.length = 0;
+  e._epoch++;
 }
 var notifyDepth = 0;
 var notifyQueue = null;
 var notifyQueueLen = 0;
+function _processSubscriber(e) {
+  if (e.disposed) return;
+  if (e._onNotify) {
+    e._onNotify();
+  } else if (!e._pending) {
+    if (batchDepth === 0 && e._stable) {
+      const prev = currentEffect;
+      currentEffect = null;
+      try {
+        const result = e.fn();
+        if (typeof result === "function") {
+          if (e._cleanup) try {
+            e._cleanup();
+          } catch (err) {
+          }
+          e._cleanup = result;
+        }
+      } catch (err) {
+        if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
+        if (__DEV__) console.warn("[what] Error in stable effect:", err);
+      } finally {
+        currentEffect = prev;
+      }
+    } else {
+      e._pending = true;
+      const level = e._level;
+      const len = pendingEffects.length;
+      if (len > 0 && pendingEffects[len - 1]._level > level) {
+        pendingNeedSort = true;
+      }
+      pendingEffects.push(e);
+    }
+  }
+}
 function notify(subs) {
   if (notifyDepth === 0) {
     notifyDepth = 1;
     try {
       for (const e of subs) {
-        if (e.disposed) continue;
-        if (e._onNotify) {
-          e._onNotify();
-        } else if (batchDepth === 0 && e._stable) {
-          const prev = currentEffect;
-          currentEffect = null;
-          try {
-            const result = e.fn();
-            if (typeof result === "function") {
-              if (e._cleanup) try {
-                e._cleanup();
-              } catch (err) {
-              }
-              e._cleanup = result;
-            }
-          } catch (err) {
-            if (__devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
-            if (__DEV__) console.warn("[what] Error in stable effect:", err);
-          } finally {
-            currentEffect = prev;
-          }
-        } else if (!e._pending) {
-          e._pending = true;
-          const level = e._level;
-          const len = pendingEffects.length;
-          if (len > 0 && pendingEffects[len - 1]._level > level) {
-            pendingNeedSort = true;
-          }
-          pendingEffects.push(e);
-        }
+        _processSubscriber(e);
       }
       if (notifyQueueLen > 0) {
         let qi = 0;
@@ -227,36 +240,7 @@ function notify(subs) {
           notifyQueue[qi] = null;
           qi++;
           for (const e of queuedSubs) {
-            if (e.disposed) continue;
-            if (e._onNotify) {
-              e._onNotify();
-            } else if (batchDepth === 0 && e._stable) {
-              const prev = currentEffect;
-              currentEffect = null;
-              try {
-                const result = e.fn();
-                if (typeof result === "function") {
-                  if (e._cleanup) try {
-                    e._cleanup();
-                  } catch (err) {
-                  }
-                  e._cleanup = result;
-                }
-              } catch (err) {
-                if (__devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
-                if (__DEV__) console.warn("[what] Error in stable effect:", err);
-              } finally {
-                currentEffect = prev;
-              }
-            } else if (!e._pending) {
-              e._pending = true;
-              const level = e._level;
-              const len = pendingEffects.length;
-              if (len > 0 && pendingEffects[len - 1]._level > level) {
-                pendingNeedSort = true;
-              }
-              pendingEffects.push(e);
-            }
+            _processSubscriber(e);
           }
         }
         notifyQueueLen = 0;
@@ -312,8 +296,6 @@ function flush() {
       iterations++;
     }
     if (iterations >= 25) {
-      for (let i = 0; i < pendingEffects.length; i++) pendingEffects[i]._pending = false;
-      pendingEffects.length = 0;
       if (__DEV__) {
         const remaining = pendingEffects.slice(0, 3);
         const effectNames = remaining.map((e) => e.fn?.name || e.fn?.toString().slice(0, 60) || "(anonymous)");
@@ -323,6 +305,8 @@ function flush() {
       } else {
         console.warn("[what] Possible infinite effect loop detected");
       }
+      for (let i = 0; i < pendingEffects.length; i++) pendingEffects[i]._pending = false;
+      pendingEffects.length = 0;
     }
   } finally {
     isFlushing = false;
@@ -337,45 +321,6 @@ function untrack(fn) {
     currentEffect = prev;
   }
 }
-function createRoot(fn) {
-  const prevRoot = currentRoot;
-  const prevOwner = currentOwner;
-  const root = {
-    disposals: [],
-    owner: currentOwner,
-    // parent owner for ownership tree
-    children: [],
-    // child roots (ownership tree)
-    _disposed: false
-  };
-  if (currentOwner) {
-    currentOwner.children.push(root);
-  }
-  currentRoot = root;
-  currentOwner = root;
-  try {
-    const dispose = () => {
-      if (root._disposed) return;
-      root._disposed = true;
-      for (let i = root.children.length - 1; i >= 0; i--) {
-        _disposeRoot(root.children[i]);
-      }
-      root.children.length = 0;
-      for (let i = root.disposals.length - 1; i >= 0; i--) {
-        root.disposals[i]();
-      }
-      root.disposals.length = 0;
-      if (root.owner) {
-        const idx = root.owner.children.indexOf(root);
-        if (idx >= 0) root.owner.children.splice(idx, 1);
-      }
-    };
-    return fn(dispose);
-  } finally {
-    currentRoot = prevRoot;
-    currentOwner = prevOwner;
-  }
-}
 function _disposeRoot(root) {
   if (root._disposed) return;
   root._disposed = true;
@@ -387,6 +332,38 @@ function _disposeRoot(root) {
     root.disposals[i]();
   }
   root.disposals.length = 0;
+}
+function _createItemScope(fn) {
+  const prevRoot = currentRoot;
+  const prevOwner = currentOwner;
+  const scope = {
+    disposals: [],
+    owner: null,
+    // No parent registration
+    children: [],
+    // Kept for compat with effects that create sub-roots
+    _disposed: false
+  };
+  currentRoot = scope;
+  currentOwner = scope;
+  try {
+    const dispose = () => {
+      if (scope._disposed) return;
+      scope._disposed = true;
+      for (let i = scope.children.length - 1; i >= 0; i--) {
+        _disposeRoot(scope.children[i]);
+      }
+      scope.children.length = 0;
+      for (let i = scope.disposals.length - 1; i >= 0; i--) {
+        scope.disposals[i]();
+      }
+      scope.disposals.length = 0;
+    };
+    return fn(dispose);
+  } finally {
+    currentRoot = prevRoot;
+    currentOwner = prevOwner;
+  }
 }
 
 // packages/core/src/components.js
@@ -520,9 +497,11 @@ function disposeTree(node) {
   if (node._componentCtx) {
     disposeComponent(node._componentCtx);
   }
-  const commentCtx = _commentCtxMap.get(node);
-  if (commentCtx) {
-    disposeComponent(commentCtx);
+  if (node.nodeType === 8) {
+    const commentCtx = _commentCtxMap.get(node);
+    if (commentCtx) {
+      disposeComponent(commentCtx);
+    }
   }
   if (node._dispose) {
     try {
@@ -538,9 +517,10 @@ function disposeTree(node) {
       }
     }
   }
-  if (node.childNodes) {
-    for (const child of node.childNodes) {
-      disposeTree(child);
+  const children = node.childNodes;
+  if (children && children.length > 0) {
+    for (let i = 0; i < children.length; i++) {
+      disposeTree(children[i]);
     }
   }
 }
@@ -605,6 +585,27 @@ function createDOM(vnode, parent, isSvg) {
   }
   return document.createTextNode(String(vnode));
 }
+var _propsProxyHandler = {
+  get(target, key) {
+    if (key === "_sig") return void 0;
+    return target._sig()[key];
+  },
+  has(target, key) {
+    if (key === "_sig") return false;
+    return key in target._sig();
+  },
+  ownKeys(target) {
+    return Reflect.ownKeys(target._sig());
+  },
+  getOwnPropertyDescriptor(target, key) {
+    if (key === "_sig") return void 0;
+    const current = target._sig();
+    if (key in current) {
+      return { value: current[key], writable: false, enumerable: true, configurable: true };
+    }
+    return void 0;
+  }
+};
 var componentStack = [];
 function getCurrentComponent() {
   return componentStack[componentStack.length - 1];
@@ -633,6 +634,21 @@ function createComponent(vnode, parent, isSvg) {
   if (Component === "__portal" || vnode.tag === "__portal") {
     return createPortalDOM(vnode, parent);
   }
+  const parentCtx = componentStack[componentStack.length - 1] || null;
+  let errorBoundary = null;
+  if (parentCtx) {
+    errorBoundary = parentCtx._errorBoundary || null;
+    if (!errorBoundary) {
+      let p = parentCtx._parentCtx;
+      while (p) {
+        if (p._errorBoundary) {
+          errorBoundary = p._errorBoundary;
+          break;
+        }
+        p = p._parentCtx;
+      }
+    }
+  }
   const ctx = {
     hooks: [],
     hookIndex: 0,
@@ -641,15 +657,8 @@ function createComponent(vnode, parent, isSvg) {
     mounted: false,
     disposed: false,
     Component,
-    _parentCtx: componentStack[componentStack.length - 1] || null,
-    _errorBoundary: (() => {
-      let p = componentStack[componentStack.length - 1];
-      while (p) {
-        if (p._errorBoundary) return p._errorBoundary;
-        p = p._parentCtx;
-      }
-      return null;
-    })()
+    _parentCtx: parentCtx,
+    _errorBoundary: errorBoundary
   };
   const startComment = document.createComment("c:start");
   const endComment = document.createComment("c:end");
@@ -662,29 +671,15 @@ function createComponent(vnode, parent, isSvg) {
   mountedComponents.add(ctx);
   if (__DEV__ && __devtools?.onComponentMount) __devtools.onComponentMount(ctx);
   const propsChildren = children.length === 0 ? void 0 : children.length === 1 ? children[0] : children;
-  const propsSignal = signal({ ...props, children: propsChildren });
+  let mergedProps;
+  if (propsChildren !== void 0) {
+    mergedProps = props ? Object.assign({}, props, { children: propsChildren }) : { children: propsChildren };
+  } else {
+    mergedProps = props ? Object.assign({}, props) : {};
+  }
+  const propsSignal = signal(mergedProps);
   ctx._propsSignal = propsSignal;
-  const reactiveProps = new Proxy({}, {
-    get(_, key) {
-      const current = propsSignal();
-      return current[key];
-    },
-    has(_, key) {
-      const current = propsSignal();
-      return key in current;
-    },
-    ownKeys() {
-      const current = propsSignal();
-      return Reflect.ownKeys(current);
-    },
-    getOwnPropertyDescriptor(_, key) {
-      const current = propsSignal();
-      if (key in current) {
-        return { value: current[key], writable: false, enumerable: true, configurable: true };
-      }
-      return void 0;
-    }
-  });
+  const reactiveProps = new Proxy({ _sig: propsSignal }, _propsProxyHandler);
   componentStack.push(ctx);
   let result;
   try {
@@ -865,21 +860,22 @@ function createElementFromVNode(vnode, parent, isSvg) {
   if (props) {
     applyProps(el, props, {}, svgContext);
   }
-  for (const child of children) {
-    const node = createDOM(child, el, svgContext && tag !== "foreignObject");
+  const isSvgChildren = svgContext && tag !== "foreignObject";
+  for (let i = 0; i < children.length; i++) {
+    const node = createDOM(children[i], el, isSvgChildren);
     if (node) el.appendChild(node);
   }
   el._vnode = vnode;
   return el;
 }
 function applyProps(el, newProps, oldProps, isSvg) {
-  newProps = newProps || {};
-  oldProps = oldProps || {};
+  if (!newProps) return;
   for (const key in newProps) {
     if (key === "key" || key === "children") continue;
     if (key === "ref") {
-      if (typeof newProps.ref === "function") newProps.ref(el);
-      else if (newProps.ref) newProps.ref.current = el;
+      const ref = newProps.ref;
+      if (typeof ref === "function") ref(el);
+      else if (ref) ref.current = el;
       continue;
     }
     setProp(el, key, newProps[key], isSvg);
@@ -916,8 +912,9 @@ function setProp(el, key, value, isSvg) {
     if (!el._events) el._events = {};
     const wrappedHandler = (e) => {
       if (!e.nativeEvent) e.nativeEvent = e;
-      return untrack(() => value(e));
+      return untrack(() => wrappedHandler._handler(e));
     };
+    wrappedHandler._handler = value;
     wrappedHandler._original = value;
     el._events[storageKey] = wrappedHandler;
     const eventOpts = value._eventOpts;
@@ -991,10 +988,18 @@ function setProp(el, key, value, isSvg) {
 }
 
 // packages/core/src/render.js
+var _onTextInsert = null;
+function _setTextInsertHook(fn) {
+  _onTextInsert = typeof fn === "function" ? fn : null;
+}
 function _$createComponent(Component, props, children) {
   if (children && children.length > 0) {
     const mergedChildren = children.length === 1 ? children[0] : children;
-    props = props ? { ...props, children: mergedChildren } : { children: mergedChildren };
+    if (props) {
+      props.children = mergedChildren;
+    } else {
+      props = { children: mergedChildren };
+    }
   }
   return createDOM({ tag: Component, props: props || {}, children: children || [], key: null, _vnode: true });
 }
@@ -1082,13 +1087,9 @@ function _$templateImpl(html) {
   if (tableInfo) {
     const t2 = document.createElement("template");
     t2.innerHTML = tableInfo.wrap + trimmed + tableInfo.unwrap;
-    return () => {
-      let node = t2.content.firstChild;
-      for (let i = 0; i < tableInfo.depth; i++) {
-        node = node.firstChild;
-      }
-      return node.cloneNode(true);
-    };
+    let target = t2.content.firstChild;
+    for (let i = 0; i < tableInfo.depth; i++) target = target.firstChild;
+    return () => target.cloneNode(true);
   }
   const t = document.createElement("template");
   t.innerHTML = trimmed;
@@ -1118,11 +1119,46 @@ function svgTemplate(html) {
 }
 function insert(parent, child, marker) {
   if (typeof child === "function") {
-    let current = null;
+    const first = child();
+    const t = typeof first;
+    if (t === "string" || t === "number") {
+      const textNode = document.createTextNode(String(first));
+      const m = marker || null;
+      if (m) parent.insertBefore(textNode, m);
+      else parent.appendChild(textNode);
+      if (_onTextInsert) _onTextInsert(parent, String(first));
+      let current2 = textNode;
+      let isTextFastPath = true;
+      effect(() => {
+        const val = child();
+        const vt = typeof val;
+        if (isTextFastPath && (vt === "string" || vt === "number")) {
+          const str = String(val);
+          if (textNode.data !== str) textNode.data = str;
+          if (_onTextInsert) _onTextInsert(parent, str);
+        } else {
+          isTextFastPath = false;
+          current2 = reconcileInsert(parent, val, current2, m);
+        }
+      });
+      return textNode;
+    }
+    let current = first != null ? reconcileInsert(parent, first, null, marker || null) : null;
     effect(() => {
       current = reconcileInsert(parent, child(), current, marker || null);
     });
     return current;
+  }
+  if (typeof child === "string" || typeof child === "number") {
+    const textNode = document.createTextNode(String(child));
+    if (marker) parent.insertBefore(textNode, marker);
+    else parent.appendChild(textNode);
+    return textNode;
+  }
+  if (child != null && typeof child === "object" && child.nodeType > 0) {
+    if (marker) parent.insertBefore(child, marker);
+    else parent.appendChild(child);
+    return child;
   }
   return reconcileInsert(parent, child, null, marker || null);
 }
@@ -1134,8 +1170,9 @@ function isDomNode2(value) {
 function isVNode2(value) {
   return !!value && typeof value === "object" && (value._vnode === true || "tag" in value);
 }
+var _hasSVGElement = typeof SVGElement !== "undefined";
 function isSvgParent(parent) {
-  return typeof SVGElement !== "undefined" && parent instanceof SVGElement && parent.tagName.toLowerCase() !== "foreignobject";
+  return _hasSVGElement && parent instanceof SVGElement && parent.tagName !== "foreignObject";
 }
 function asNodeArray(value) {
   if (value == null) return [];
@@ -1192,18 +1229,39 @@ function reconcileInsert(parent, value, current, marker) {
   }
   if ((typeof value === "string" || typeof value === "number") && current && !Array.isArray(current) && current.nodeType === 3) {
     const text = String(value);
-    if (current.textContent !== text) current.textContent = text;
+    if (current.data !== text) current.data = text;
     return current;
+  }
+  if (typeof value === "object" && value !== null && value.nodeType > 0 && !Array.isArray(value)) {
+    if (value === current) return current;
+    if (current && !Array.isArray(current) && current.nodeType > 0) {
+      if (current.parentNode === parent) {
+        disposeTree(current);
+        parent.replaceChild(value, current);
+      } else {
+        if (targetMarker) parent.insertBefore(value, targetMarker);
+        else parent.appendChild(value);
+      }
+      return value;
+    }
   }
   const newNodes = valuesToNodes(value, parent, []);
   const oldNodes = asNodeArray(current);
   if (sameNodeArray(oldNodes, newNodes)) {
     return current;
   }
-  const keep = new Set(newNodes);
+  const newLen = newNodes.length;
   for (let i = 0; i < oldNodes.length; i++) {
     const oldNode = oldNodes[i];
-    if (!keep.has(oldNode) && oldNode.parentNode === parent) {
+    if (oldNode.parentNode !== parent) continue;
+    let found = false;
+    for (let j = 0; j < newLen; j++) {
+      if (newNodes[j] === oldNode) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
       disposeTree(oldNode);
       parent.removeChild(oldNode);
     }
@@ -1238,7 +1296,7 @@ function mapArray(source, mapFn, options) {
       } else {
         reconcileList(parent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn);
       }
-      items = newItems.slice();
+      items = newItems.length > 0 ? newItems.slice() : newItems;
     });
     return endMarker;
   };
@@ -1249,10 +1307,15 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
   if (newLen === 0) {
     if (oldLen > 0) {
       for (let i = 0; i < oldLen; i++) {
-        disposeFns[i]?.();
-        if (mappedNodes[i]?.parentNode === parent) {
-          disposeTree(mappedNodes[i]);
-          parent.removeChild(mappedNodes[i]);
+        if (disposeFns[i]) disposeFns[i]();
+      }
+      for (let i = oldLen - 1; i >= 0; i--) {
+        const node = mappedNodes[i];
+        if (node) {
+          if (node._componentCtx || node._dispose || node._propEffects) {
+            disposeTree(node);
+          }
+          if (node.parentNode === parent) parent.removeChild(node);
         }
       }
       mappedNodes.length = 0;
@@ -1264,7 +1327,7 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
     const frag = document.createDocumentFragment();
     for (let i = 0; i < newLen; i++) {
       const item = newItems[i];
-      const node = createRoot((dispose) => {
+      const node = _createItemScope((dispose) => {
         disposeFns[i] = dispose;
         return mapFn(item, i);
       });
@@ -1308,7 +1371,7 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
     for (let i = start; i <= newEnd; i++) {
       const item = newItems[i];
       const idx = i;
-      newMapped[i] = createRoot((dispose) => {
+      newMapped[i] = _createItemScope((dispose) => {
         newDispose[idx] = dispose;
         return mapFn(item, idx);
       });
@@ -1388,7 +1451,7 @@ function _reconcileMiddle(parent, endMarker, oldItems, newItems, mappedNodes, di
     if (!newMapped[i]) {
       const item = newItems[i];
       const idx = i;
-      newMapped[i] = createRoot((dispose) => {
+      newMapped[i] = _createItemScope((dispose) => {
         newDispose[idx] = dispose;
         return mapFn(item, idx);
       });
@@ -1446,10 +1509,15 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   if (newLen === 0) {
     if (oldLen > 0) {
       for (let i = 0; i < oldLen; i++) {
-        disposeFns[i]?.();
-        if (mappedNodes[i]?.parentNode === parent) {
-          disposeTree(mappedNodes[i]);
-          parent.removeChild(mappedNodes[i]);
+        if (disposeFns[i]) disposeFns[i]();
+      }
+      for (let i = oldLen - 1; i >= 0; i--) {
+        const node = mappedNodes[i];
+        if (node) {
+          if (node._componentCtx || node._dispose || node._propEffects) {
+            disposeTree(node);
+          }
+          if (node.parentNode === parent) parent.removeChild(node);
         }
       }
       mappedNodes.length = 0;
@@ -1472,7 +1540,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       } else {
         accessor = item;
       }
-      const node = createRoot((dispose) => {
+      const node = _createItemScope((dispose) => {
         disposeFns[idx] = dispose;
         return mapFn(accessor, idx);
       });
@@ -1541,7 +1609,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       } else {
         accessor = item;
       }
-      newMapped[i] = createRoot((dispose) => {
+      newMapped[i] = _createItemScope((dispose) => {
         newDispose[idx] = dispose;
         return mapFn(accessor, idx);
       });
@@ -1597,7 +1665,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       } else {
         accessor = item;
       }
-      newMapped[i] = createRoot((dispose) => {
+      newMapped[i] = _createItemScope((dispose) => {
         newDispose[idx] = dispose;
         return mapFn(accessor, idx);
       });
@@ -1976,6 +2044,7 @@ function hydrateElementProps(el, props) {
 export {
   _$createComponent,
   _$templateImpl as _$template,
+  _setTextInsertHook,
   template as _template,
   classList,
   delegateEvents,
