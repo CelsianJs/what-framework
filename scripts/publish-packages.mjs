@@ -10,6 +10,7 @@ const repoRoot = resolve(__dirname, '..');
 
 const PACKAGE_ORDER = [
   'packages/core',
+  'packages/what-text',
   'packages/router',
   'packages/server',
   'packages/compiler',
