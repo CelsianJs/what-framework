@@ -1,20 +1,18 @@
-# What Framework — Text Engine (Pretext Integration)
+# what-text — Text Engine (Pretext Integration)
 
 > **Status: alpha.** The text engine API is stable for the measure-only path. TextCanvas, TextSVG, and TextFlow are experimental. Breaking changes may occur before v1.0.
 
-The text engine is an optional layer that lets What Framework use `@chenglou/pretext` for precise text measurement and layout. Without Pretext installed, everything works as normal — measurement is just skipped.
+`what-text` is a **separate package** that adds optional text measurement and layout to What Framework, powered by [`@chenglou/pretext`](https://github.com/chenglou/pretext). The core framework has zero dependencies on this package — install it only if you need it.
 
 ---
 
 ## Installation
 
-`@chenglou/pretext` is an **optional peer dependency**. Install it only if you need measurement:
-
 ```bash
-npm install @chenglou/pretext
+npm install what-text @chenglou/pretext
 ```
 
-If Pretext is not installed, all text engine features degrade gracefully: static text renders normally, and dynamic text updates as usual. The only thing missing is computed layout data.
+`what-text` is a peer of `what-core` (the framework core). `@chenglou/pretext` is an optional peer of `what-text` — if not installed, measure mode emits a warning and alpha components show errors gracefully.
 
 ---
 
@@ -23,7 +21,7 @@ If Pretext is not installed, all text engine features degrade gracefully: static
 The simplest integration path. Enable it before calling `mount()`:
 
 ```js
-import { configureText } from 'what-framework';
+import { configureText } from 'what-text';
 import { mount, h } from 'what-framework';
 import App from './App.js';
 
@@ -57,7 +55,7 @@ The cache key is `font + text`. Eviction is LRU.
 Wraps text in a flow container where Pretext controls line breaking. Falls back to normal block layout if Pretext is unavailable.
 
 ```js
-import { TextFlow } from 'what-framework/text';
+import { TextFlow } from 'what-text';
 
 function Article() {
   return h(TextFlow, { columns: 2, width: 640 },
@@ -83,7 +81,7 @@ function Article() {
 Renders text into a `<canvas>` element using Pretext layout data. Useful for pixel-perfect rendering or non-standard typography.
 
 ```js
-import { TextCanvas } from 'what-framework/text';
+import { TextCanvas } from 'what-text';
 
 function Badge({ label }) {
   return h(TextCanvas, { width: 200, height: 40, font: '700 14px Inter' }, label);
@@ -113,7 +111,7 @@ function Badge({ label }) {
 Renders Pretext-laid-out text into an `<svg>` element. Useful for diagrams, data-viz labels, and print-quality output.
 
 ```js
-import { TextSVG } from 'what-framework/text';
+import { TextSVG } from 'what-text';
 
 function ChartLabel({ text, x, y }) {
   return h(TextSVG, { width: 120, height: 24, font: '12px monospace' }, text);
@@ -141,11 +139,11 @@ function ChartLabel({ text, x, y }) {
 
 To remove the text engine integration entirely:
 
-1. Uninstall the package: `npm uninstall @chenglou/pretext`
-2. Remove any `configureText(...)` calls from your app entry point.
+1. Uninstall: `npm uninstall what-text @chenglou/pretext`
+2. Remove any `import ... from 'what-text'` and `configureText(...)` calls.
 3. Replace `TextFlow`, `TextCanvas`, or `TextSVG` components with standard HTML equivalents.
 
-No other changes are required. The framework core does not depend on Pretext at runtime.
+No other changes are required. The framework core has zero dependency on what-text or Pretext.
 
 ---
 

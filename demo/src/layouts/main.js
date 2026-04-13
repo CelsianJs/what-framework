@@ -12,7 +12,6 @@ export function Layout({ children }) {
             <Link href="/demos" class="nav-link">Demos</Link>
             <Link href="/islands" class="nav-link">Islands</Link>
             <Link href="/bench" class="nav-link">Benchmarks</Link>
-            <Link href="/pretext" class="nav-link">Pretext</Link>
             <Link href="/docs" class="nav-link">Docs</Link>
             <a
               href="https://github.com/CelsianJs/what-framework"

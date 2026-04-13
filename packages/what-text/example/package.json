@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "what-framework": "^0.7.0",
-    "@chenglou/pretext": "*"
+    "what-text": "^0.7.0",
+    "@chenglou/pretext": ">=0.1.0"
   },
   "devDependencies": {
     "what-compiler": "^0.7.0",

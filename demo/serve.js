@@ -30,8 +30,6 @@ function transformImports(code) {
     .replace(/from\s+['"]what-framework['"]/g, `from '/framework/core/src/index.js'`)
     .replace(/from\s+['"]what-framework\/router['"]/g, `from '/framework/router/src/index.js'`)
     .replace(/from\s+['"]what-framework\/server['"]/g, `from '/framework/server/src/index.js'`)
-    .replace(/from\s+['"]what-framework\/text['"]/g, `from '/framework/core/src/text/index.js'`)
-    .replace(/from\s+['"]@chenglou\/pretext['"]/g, `from '/vendor/pretext/dist/layout.js'`)
     // Legacy aliases
     .replace(/from\s+['"]@what\/core['"]/g, `from '/framework/core/src/index.js'`)
     .replace(/from\s+['"]@what\/router['"]/g, `from '/framework/router/src/index.js'`)
@@ -59,17 +57,6 @@ const server = createServer((req, res) => {
       code = code.replace(/from\s+['"]\.\.\//g, (match) => {
         return match; // Keep relative for now
       });
-      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
-      res.end(code);
-      return;
-    }
-  }
-
-  // Serve vendor packages (node_modules)
-  if (pathname.startsWith('/vendor/pretext/')) {
-    const vendorPath = join(__dirname, '..', 'node_modules', '@chenglou', 'pretext', pathname.slice(16));
-    if (existsSync(vendorPath) && statSync(vendorPath).isFile()) {
-      const code = readFileSync(vendorPath, 'utf-8');
       res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
       res.end(code);
       return;
