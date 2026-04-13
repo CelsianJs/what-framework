@@ -1,6 +1,6 @@
 {
   "name": "what-text",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Optional text engine for What Framework, powered by @chenglou/pretext",
   "type": "module",
   "main": "src/index.js",

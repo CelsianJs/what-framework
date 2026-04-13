@@ -1,6 +1,6 @@
 {
   "name": "what-react",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "React compatibility layer for What Framework — use React packages with signals under the hood",
   "type": "module",
   "main": "src/index.js",
@@ -23,7 +23,7 @@
     "compatibility"
   ],
   "peerDependencies": {
-    "what-core": "^0.8.0"
+    "what-core": "^0.8.1"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
