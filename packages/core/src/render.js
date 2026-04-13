@@ -4,8 +4,18 @@
 
 import { effect, untrack, createRoot, _createItemScope, signal, __DEV__ } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
-
 export { effect, untrack };
+
+// --- Generic text insertion hook ---
+// External text engines (e.g., what-text) register a callback here via
+// _setTextInsertHook(). When null (default), zero cost — no module loaded,
+// no branch taken. The hook receives (parentElement, textString) on every
+// dynamic text insertion and update.
+let _onTextInsert = null;
+
+export function _setTextInsertHook(fn) {
+  _onTextInsert = typeof fn === 'function' ? fn : null;
+}
 
 // --- _$createComponent(Component, props, children) ---
 // Internal compiler target for component instantiation. The compiler emits calls
@@ -168,6 +178,7 @@ export function insert(parent, child, marker) {
       const m = marker || null;
       if (m) parent.insertBefore(textNode, m);
       else parent.appendChild(textNode);
+      if (_onTextInsert) _onTextInsert(parent, String(first));
       let current = textNode;
       let isTextFastPath = true;
       effect(() => {
@@ -177,6 +188,7 @@ export function insert(parent, child, marker) {
           // Fast path: still text — update data directly (no allocations)
           const str = String(val);
           if (textNode.data !== str) textNode.data = str;
+          if (_onTextInsert) _onTextInsert(parent, str);
         } else {
           // Type changed — fall back to full reconcile
           isTextFastPath = false;

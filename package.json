@@ -1,7 +1,7 @@
 {
   "name": "what-fw",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "description": "The closest framework to vanilla JS",
   "workspaces": [
@@ -34,7 +34,7 @@
     "demo": "node demo/serve.js",
     "release:publish": "node scripts/publish-packages.mjs",
     "release:verify": "npm run -s test && npm run -s build && npm run -s bench:gate",
-    "test": "node --test packages/core/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js"
+    "test": "node --test packages/core/test/*.test.js packages/what-text/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js"
   },
   "engines": {
     "node": ">=20"
@@ -43,5 +43,8 @@
     "esbuild": "^0.27.4",
     "jsdom": "^28.1.0",
     "playwright": "^1.58.2"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.5"
   }
 }

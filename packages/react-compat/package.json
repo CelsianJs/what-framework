@@ -1,6 +1,6 @@
 {
   "name": "what-react",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "React compatibility layer for What Framework — use React packages with signals under the hood",
   "type": "module",
   "main": "src/index.js",

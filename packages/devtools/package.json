@@ -1,6 +1,6 @@
 {
   "name": "what-devtools",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Dev tools for What Framework — signal inspector, component tree, effect graph",
   "type": "module",
   "main": "src/index.js",

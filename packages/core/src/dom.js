@@ -5,7 +5,6 @@
 import { effect, batch, untrack, signal, __DEV__, __devtools } from './reactive.js';
 import { reportError, _injectGetCurrentComponent, shallowEqual } from './components.js';
 import { _setComponentRef } from './helpers.js';
-
 // SVG elements that need namespace
 const SVG_ELEMENTS = new Set([
   'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse',
