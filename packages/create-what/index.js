@@ -25,7 +25,7 @@ if (flags.has('--help') || flags.has('-h')) {
 }
 
 if (flags.has('--version') || flags.has('-v')) {
-  console.log('0.6.3');
+  console.log('0.6.4');
   process.exit(0);
 }
 
@@ -38,7 +38,7 @@ if (unknownFlags.length > 0) {
 const skipPrompts = flags.has('--yes') || flags.has('-y');
 
 function printHelp() {
-  console.log(`create-what 0.6.3
+  console.log(`create-what 0.6.4
 
 Usage:
   npx create-what [app-name] [--yes]
@@ -159,7 +159,7 @@ function generatePackageJson(projectName, { reactCompat, cssApproach }) {
   const devDeps = {
     vite: '^6.0.0',
     'what-compiler': '^0.6.3',
-    'what-devtools-mcp': '^0.6.3',
+    'what-devtools-mcp': '^0.6.4',
     '@babel/core': '^7.23.0',
   };
 
