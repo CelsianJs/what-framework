@@ -1,7 +1,7 @@
 {
   "name": "what-react",
-  "version": "0.6.2",
-  "description": "React compatibility layer for What Framework — use React packages with signals under the hood",
+  "version": "0.6.3",
+  "description": "React compatibility layer for What Framework \u2014 use React packages with signals under the hood",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -23,7 +23,7 @@
     "compatibility"
   ],
   "peerDependencies": {
-    "what-core": "^0.6.2"
+    "what-core": "^0.6.3"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",

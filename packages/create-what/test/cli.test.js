@@ -8,5 +8,5 @@ test('create-what exposes non-mutating CLI help and version', () => {
   assert.match(help, /--yes/);
 
   const version = execFileSync(process.execPath, ['packages/create-what/index.js', '--version'], { encoding: 'utf8' }).trim();
-  assert.equal(version, '0.6.2');
+  assert.equal(version, '0.6.3');
 });

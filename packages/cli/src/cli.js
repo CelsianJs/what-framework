@@ -537,7 +537,7 @@ function init() {
       generate: 'what generate',
     },
     dependencies: {
-      'what-framework': '^0.6.2',
+      'what-framework': '^0.6.3',
     },
   }, null, 2));
 

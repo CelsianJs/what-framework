@@ -19,7 +19,7 @@
 ## What Remains
 
 ### Should Fix (fresh review)
-1. **Backport package clarity**: `what-mcp` and `eslint-plugin-what` remain `0.6.0` while other backport packages are `0.6.2`. Release dry-run currently skips them as already published, but future backport notes should call out whether they are intentionally unchanged.
+1. **Backport package clarity**: `what-mcp` and `eslint-plugin-what` remain `0.6.0` while other backport packages are `0.6.3`. Release dry-run currently skips them as already published, but future backport notes should call out whether they are intentionally unchanged.
 2. **Internal/compiler-facing symbols in public API**: `__setDevToolsHooks`, `_template`, `_$template`, `_$createComponent` are still exported from main `index.js`. Consider a separate `what-core/compiler` subpath export in a future non-backport release.
 3. **`storeComputed` deprecation**: Still exported and emits console warning. Either remove in the next breaking/minor lane or document as deprecated in `.d.ts`.
 
@@ -44,8 +44,8 @@ node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest
 ## Release Channel Follow-up (0.6.x backport)
 - `docs/RELEASE.md` documents the explicit backport command: `npm run release:publish -- --tag backport --allow-non-latest --dry-run` before removing `--dry-run` for the actual publish.
 - GitHub release workflow has an `allow_non_latest` input; non-`latest` `npm_tag` values require that checkbox, and `allow_non_latest` is rejected with `npm_tag=latest`.
-- The docs-site landing page now points MCP setup snippets at `npx what-devtools-mcp` and labels the footer as `v0.6.2` on the `0.6-backport` channel.
-- Scaffolder templates (`create-what` and `what init`) use `^0.6.2` package ranges to match this backport lane instead of stale `^0.6.0` ranges.
+- The docs-site landing page now points MCP setup snippets at `npx what-devtools-mcp` and labels the footer as `v0.6.3` on the `0.6-backport` channel.
+- Scaffolder templates (`create-what` and `what init`) use `^0.6.3` package ranges to match this backport lane instead of stale `^0.6.0` ranges.
 
 ## 2026-05-10 — Release workflow / production-condition smoke hardening
 
@@ -58,7 +58,7 @@ Gold-standard/product-review refresh found release-flow blast-radius and product
 Verification:
 - `npm run -s pack:smoke` passed.
 - `npm run -s release:verify` passed: lint, typecheck, node tests (764), devtools public API tests (11), build, package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
-- `node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest` passed; all 12 backport packages were already published, 0 failures.
+- `node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest` passed; 0.6.2 packages were already published; the 0.6.3 patch lane is for the registry-smoke export fix.
 - `git diff --check` passed.
 
 ## 2026-05-10 — Registry smoke and handoff truth follow-up

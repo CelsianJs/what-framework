@@ -25,7 +25,7 @@ if (flags.has('--help') || flags.has('-h')) {
 }
 
 if (flags.has('--version') || flags.has('-v')) {
-  console.log('0.6.2');
+  console.log('0.6.3');
   process.exit(0);
 }
 
@@ -38,7 +38,7 @@ if (unknownFlags.length > 0) {
 const skipPrompts = flags.has('--yes') || flags.has('-y');
 
 function printHelp() {
-  console.log(`create-what 0.6.2
+  console.log(`create-what 0.6.3
 
 Usage:
   npx create-what [app-name] [--yes]
@@ -154,18 +154,18 @@ async function gatherOptions() {
 
 function generatePackageJson(projectName, { reactCompat, cssApproach }) {
   const deps = {
-    'what-framework': '^0.6.2',
+    'what-framework': '^0.6.3',
   };
   const devDeps = {
     vite: '^6.0.0',
-    'what-compiler': '^0.6.2',
-    'what-devtools-mcp': '^0.6.2',
+    'what-compiler': '^0.6.3',
+    'what-devtools-mcp': '^0.6.3',
     '@babel/core': '^7.23.0',
   };
 
   if (reactCompat) {
-    deps['what-react'] = '^0.6.2';
-    deps['what-core'] = '^0.6.2';
+    deps['what-react'] = '^0.6.3';
+    deps['what-core'] = '^0.6.3';
     // Include zustand as a demo React library
     deps['zustand'] = '^5.0.0';
   }

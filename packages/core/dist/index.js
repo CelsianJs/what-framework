@@ -5725,7 +5725,7 @@ function levenshtein(a, b) {
 }
 
 // packages/core/src/agent-context.js
-var VERSION = "0.6.2";
+var VERSION = "0.6.3";
 var mountedComponents2 = [];
 function registerComponent(component) {
   if (!__DEV__) return;
