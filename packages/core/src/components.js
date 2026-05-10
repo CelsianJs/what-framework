@@ -229,12 +229,29 @@ export function For({ each, fallback = null, children, key: keyFn }) {
 export function Switch({ fallback = null, children }) {
   const kids = Array.isArray(children) ? children : [children];
 
+  const hasReactiveCondition = kids.some(
+    child => child && child.tag === Match && typeof child.props.when === 'function'
+  );
+
+  if (hasReactiveCondition) {
+    return () => {
+      for (const child of kids) {
+        if (child && child.tag === Match) {
+          const condition = typeof child.props.when === 'function'
+            ? child.props.when()
+            : child.props.when;
+          if (condition) {
+            return child.children;
+          }
+        }
+      }
+      return fallback;
+    };
+  }
+
   for (const child of kids) {
     if (child && child.tag === Match) {
-      const condition = typeof child.props.when === 'function'
-        ? child.props.when()
-        : child.props.when;
-      if (condition) {
+      if (child.props.when) {
         return child.children;
       }
     }
@@ -254,8 +271,6 @@ export function Match({ when, children }) {
 // The babel plugin compiles <Counter client:idle /> into this.
 
 export function Island({ component: Component, mode, mediaQuery, ...props }) {
-  const placeholder = h('div', { 'data-island': Component.name || 'Island', 'data-hydrate': mode });
-
   // We need to return a vnode that the reconciler can handle.
   // The actual hydration scheduling happens after mount via an effect.
   const wrapper = signal(null);
@@ -335,8 +350,8 @@ export function Island({ component: Component, mode, mediaQuery, ...props }) {
     if (el) scheduleHydration(el);
   };
 
-  // Return: show placeholder until hydrated, then show the real component
+  // Return: reactive function so DOM runtime tracks hydration state changes
   return h('div', { 'data-island': Component.name || 'Island', 'data-hydrate': mode, ref: refCallback },
-    hydrated() ? wrapper() : null
+    () => hydrated() ? wrapper() : null
   );
 }

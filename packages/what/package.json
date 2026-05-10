@@ -41,6 +41,14 @@
       "types": "./testing.d.ts",
       "production": "./dist/testing.min.js",
       "import": "./src/testing.js"
+    },
+    "./hooks": {
+      "types": "./hooks.d.ts",
+      "import": "./src/hooks.js"
+    },
+    "./react-compat": {
+      "types": "./react-compat.d.ts",
+      "import": "./src/react-compat.js"
     }
   },
   "files": [
@@ -51,7 +59,9 @@
     "render.d.ts",
     "router.d.ts",
     "server.d.ts",
-    "testing.d.ts"
+    "testing.d.ts",
+    "hooks.d.ts",
+    "react-compat.d.ts"
   ],
   "sideEffects": false,
   "keywords": [

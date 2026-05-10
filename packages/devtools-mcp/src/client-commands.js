@@ -131,14 +131,17 @@ export async function handleExtendedCommand(command, args, devtools) {
         (window.__WHAT_UNSAFE_EVAL__ === true ||
          devtools?._unsafeEvalEnabled === true);
 
-      // Allow safe read-only expressions without the unsafe flag
+      // Allow safe read-only expressions without the unsafe flag.
+      // Uses a strict allowlist of specific property paths — no generic regex
+      // that could leak sensitive data (document.cookie, etc.).
       const code = (args.code || '').trim();
-      const isSafeRead = /^[\w.[\]'"]+$/.test(code) || // property access: document.title, window.innerWidth
-        /^typeof\s+\w+/.test(code) || // typeof checks
+      const isSafeRead =
+        /^typeof\s+\w+$/.test(code) || // typeof checks
         /^document\.(title|URL|readyState|visibilityState|characterSet|contentType)$/.test(code) ||
-        /^window\.(innerWidth|innerHeight|devicePixelRatio|screen\.\w+)$/.test(code) ||
-        /^navigator\.\w+$/.test(code) ||
-        /^location\.\w+$/.test(code);
+        /^window\.(innerWidth|innerHeight|devicePixelRatio)$/.test(code) ||
+        /^window\.screen\.\w+$/.test(code) ||
+        /^navigator\.(userAgent|language|languages|onLine|hardwareConcurrency|platform)$/.test(code) ||
+        /^location\.(href|pathname|hostname|port|protocol|search|hash|origin)$/.test(code);
 
       if (!evalEnabled && !isSafeRead) {
         return {
@@ -148,9 +151,10 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       const start = performance.now();
       try {
-        // Use Function constructor to execute in global scope
+        // Use Function constructor to execute in global scope.
+        // Use trimmed `code` (not raw `args.code`) to match the isSafeRead check.
         // eslint-disable-next-line no-new-func
-        const fn = new Function(args.code);
+        const fn = new Function(code);
         const raw = fn();
         const elapsed = performance.now() - start;
         return {
@@ -869,7 +873,14 @@ export async function handleExtendedCommand(command, args, devtools) {
           };
         }
       } else if (role) {
-        const candidates = scope.querySelectorAll(`[role="${CSS.escape(role)}"], ${role}`);
+        // Only allow known HTML tag names as a fallback selector to prevent CSS injection.
+        // The role attribute selector is always escaped via CSS.escape().
+        // This maps ARIA roles to their corresponding HTML elements (e.g., role="button" -> <button>).
+        const roleToTag = new Set(['button', 'main', 'search', 'form', 'option', 'img', 'table', 'menu', 'dialog', 'summary']);
+        const roleSelector = `[role="${CSS.escape(role)}"]`;
+        // Only append the tag selector if the role maps to a known HTML element name
+        const fullSelector = roleToTag.has(role.toLowerCase()) ? `${roleSelector}, ${role.toLowerCase()}` : roleSelector;
+        const candidates = scope.querySelectorAll(fullSelector);
         const idx = (index != null && index >= 0 && index < candidates.length) ? index : 0;
         el = candidates[idx] || null;
         matchDescription = `role="${role}"${candidates.length > 1 ? ` (${candidates.length} matches, using index ${idx})` : ''}`;
@@ -879,6 +890,12 @@ export async function handleExtendedCommand(command, args, devtools) {
         return { error: `No element found matching: ${matchDescription || 'no selector provided'}` };
       }
 
+      // Warn if clicking a disabled element — the click will still fire
+      // but frameworks typically ignore it. Surface this to AI agents.
+      const isDisabled = el.disabled || el.getAttribute('aria-disabled') === 'true';
+
+      // Capture path before click for navigation detection
+      const pathBefore = window.location.pathname;
       // Capture state before click
       const snapshotBefore = devtools?.getSnapshot ? devtools.safeSerialize(devtools.getSnapshot()) : null;
       const signalsBefore = new Map();
@@ -940,10 +957,10 @@ export async function handleExtendedCommand(command, args, devtools) {
         }
       }
 
-      // Detect navigation
-      const navigated = window.location.pathname !== (args._prevPath || window.location.pathname);
+      // Detect navigation (compare against path captured before click)
+      const navigated = window.location.pathname !== pathBefore;
 
-      return {
+      const result = {
         clicked: true,
         element: {
           tag: el.tagName.toLowerCase(),
@@ -956,6 +973,12 @@ export async function handleExtendedCommand(command, args, devtools) {
         currentPath: window.location.pathname,
         navigated,
       };
+
+      if (isDisabled) {
+        result.warning = 'Element is disabled — click events may be ignored by the framework. Check if the element should be enabled first.';
+      }
+
+      return result;
     }
 
     // -------------------------------------------------------------------------
@@ -1027,6 +1050,9 @@ export async function handleExtendedCommand(command, args, devtools) {
         };
       }
 
+      // Warn on disabled or readonly inputs
+      const inputDisabled = input.disabled || input.readOnly;
+
       // Capture before
       const beforeVal = input.value;
       setInputValue(input, value);
@@ -1048,7 +1074,7 @@ export async function handleExtendedCommand(command, args, devtools) {
       // Clean undefined values
       if (validity) Object.keys(validity).forEach(k => validity[k] === undefined && delete validity[k]);
 
-      return {
+      const fillResult = {
         filled: true,
         element: {
           tag: input.tagName.toLowerCase(),
@@ -1061,6 +1087,12 @@ export async function handleExtendedCommand(command, args, devtools) {
         currentValue: input.value,
         validation: validity,
       };
+
+      if (inputDisabled) {
+        fillResult.warning = `Input is ${input.disabled ? 'disabled' : 'readonly'} — the value was set programmatically but the framework may ignore or revert it.`;
+      }
+
+      return fillResult;
     }
 
     // -------------------------------------------------------------------------
@@ -1733,11 +1765,16 @@ function findLabelFor(input) {
 // Helper: Set input value with proper events
 // ---------------------------------------------------------------------------
 function setInputValue(input, val) {
-  // Use native setter to bypass React/framework wrappers
-  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-    input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
-    'value'
-  )?.set;
+  // Use native setter to bypass React/framework wrappers.
+  // Only HTMLInputElement and HTMLTextAreaElement have overridable value setters;
+  // <select> and other elements just use .value directly.
+  const tag = input.tagName;
+  let nativeInputValueSetter = null;
+  if (tag === 'TEXTAREA') {
+    nativeInputValueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  } else if (tag === 'INPUT') {
+    nativeInputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  }
   if (nativeInputValueSetter) {
     nativeInputValueSetter.call(input, val);
   } else {

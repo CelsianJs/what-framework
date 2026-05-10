@@ -131,7 +131,6 @@ export {
   setQueryData,
   getQueryData,
   clearCache,
-  __getCacheSnapshot,
 } from './data.js';
 
 // Form utilities

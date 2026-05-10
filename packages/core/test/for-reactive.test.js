@@ -28,7 +28,7 @@ if (!global.customElements) {
 const { signal, effect, batch, createRoot } = await import('../src/reactive.js');
 const { h, Fragment } = await import('../src/h.js');
 const { mount, createDOM, disposeTree } = await import('../src/dom.js');
-const { For, Show } = await import('../src/components.js');
+const { For, Show, Switch, Match } = await import('../src/components.js');
 
 // Helper: flush microtask queue (multiple rounds for nested effects)
 async function flush() {
@@ -431,5 +431,121 @@ describe('Show: reactive conditional rendering', () => {
     await flush();
 
     assert.deepEqual(getItemTexts(document.getElementById('show-test')), ['nope'], 'static false shows fallback');
+  });
+});
+
+// =========================================================================
+// Switch/Match: Reactive Multi-Condition Rendering
+// =========================================================================
+
+describe('Switch/Match: reactive multi-condition rendering', () => {
+
+  it('renders the first matching case', async () => {
+    const container = getContainer();
+    const view = signal('home');
+
+    function App() {
+      return h('div', { id: 'switch-test' },
+        h(Switch, { fallback: h('span', {}, '404') },
+          h(Match, { when: () => view() === 'home' }, h('span', {}, 'Home')),
+          h(Match, { when: () => view() === 'about' }, h('span', {}, 'About')),
+          h(Match, { when: () => view() === 'contact' }, h('span', {}, 'Contact')),
+        )
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['Home']);
+  });
+
+  it('reactively switches between cases', async () => {
+    const container = getContainer();
+    const view = signal('home');
+
+    function App() {
+      return h('div', { id: 'switch-test' },
+        h(Switch, { fallback: h('span', {}, '404') },
+          h(Match, { when: () => view() === 'home' }, h('span', {}, 'Home')),
+          h(Match, { when: () => view() === 'about' }, h('span', {}, 'About')),
+        )
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['Home'], 'initially home');
+
+    view('about');
+    await flush();
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['About'], 'switched to about');
+
+    view('home');
+    await flush();
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['Home'], 'back to home');
+  });
+
+  it('shows fallback when no case matches', async () => {
+    const container = getContainer();
+    const view = signal('home');
+
+    function App() {
+      return h('div', { id: 'switch-test' },
+        h(Switch, { fallback: h('span', {}, '404') },
+          h(Match, { when: () => view() === 'home' }, h('span', {}, 'Home')),
+        )
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['Home']);
+
+    view('unknown');
+    await flush();
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['404'], 'shows fallback');
+  });
+
+  it('works with static boolean conditions', async () => {
+    const container = getContainer();
+
+    function App() {
+      return h('div', { id: 'switch-test' },
+        h(Switch, { fallback: h('span', {}, 'none') },
+          h(Match, { when: false }, h('span', {}, 'A')),
+          h(Match, { when: true }, h('span', {}, 'B')),
+          h(Match, { when: true }, h('span', {}, 'C')),
+        )
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['B'], 'picks first truthy match');
+  });
+
+  it('handles rapid condition changes', async () => {
+    const container = getContainer();
+    const view = signal('a');
+
+    function App() {
+      return h('div', { id: 'switch-test' },
+        h(Switch, {},
+          h(Match, { when: () => view() === 'a' }, h('span', {}, 'A')),
+          h(Match, { when: () => view() === 'b' }, h('span', {}, 'B')),
+          h(Match, { when: () => view() === 'c' }, h('span', {}, 'C')),
+        )
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    view('b');
+    view('c');
+    view('a');
+    await flush();
+    assert.deepEqual(getItemTexts(document.getElementById('switch-test')), ['A'], 'settles on final state');
   });
 });

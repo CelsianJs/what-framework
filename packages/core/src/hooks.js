@@ -371,14 +371,3 @@ export function createResource(fetcher, options = {}) {
   return [data, { loading, error, refetch, mutate }];
 }
 
-// --- Dep comparison (kept for potential external use) ---
-
-function depsChanged(oldDeps, newDeps) {
-  if (oldDeps === undefined) return true;
-  if (!oldDeps || !newDeps) return true;
-  if (oldDeps.length !== newDeps.length) return true;
-  for (let i = 0; i < oldDeps.length; i++) {
-    if (!Object.is(oldDeps[i], newDeps[i])) return true;
-  }
-  return false;
-}
