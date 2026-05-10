@@ -204,6 +204,13 @@ export function createDOM(vnode, parent, isSvg) {
     return createComponent(vnode, parent, isSvg);
   }
 
+  // Special boundary vnodes (returned by ErrorBoundary, Suspense, Portal components)
+  // These have string tags like '__errorBoundary' and must be routed to createComponent
+  // which contains the special-case handlers for them.
+  if (isVNode(vnode) && (vnode.tag === '__errorBoundary' || vnode.tag === '__suspense' || vnode.tag === '__portal')) {
+    return createComponent(vnode, parent, isSvg);
+  }
+
   // VNode with string tag — create element
   if (isVNode(vnode)) {
     return createElementFromVNode(vnode, parent, isSvg);
