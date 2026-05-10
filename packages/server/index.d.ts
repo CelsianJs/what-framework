@@ -16,11 +16,11 @@ export function renderToStream(vnode: VNode): AsyncGenerator<string>;
 /** CSRF token generation for server actions */
 export function generateCsrfToken(): string;
 
-/** Validate a CSRF token */
-export function validateCsrfToken(token: string): boolean;
+/** Validate a CSRF token from request against the session token */
+export function validateCsrfToken(requestToken: string, sessionToken: string): boolean;
 
 /** Generate a CSRF meta tag for inclusion in HTML head */
-export function csrfMetaTag(): string;
+export function csrfMetaTag(token: string): string;
 
 // --- Page Configuration ---
 

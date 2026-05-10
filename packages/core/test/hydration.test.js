@@ -21,7 +21,8 @@ if (!global.customElements) {
 }
 
 const { h } = await import('../src/h.js');
-const { hydrate, isHydrating } = await import('../src/render.js');
+const { signal } = await import('../src/reactive.js');
+const { hydrate, isHydrating, getHydrationMismatchCount } = await import('../src/render.js');
 const { renderToString, renderToHydratableString } = await import('../../server/src/index.js');
 
 function getContainer() {
@@ -238,5 +239,128 @@ describe('renderToHydratableString()', () => {
 
     // The span should be reused (same reference)
     assert.equal(container.querySelector('span'), originalSpan, 'Span should be reused during hydration');
+  });
+});
+
+// =========================================================================
+// getHydrationMismatchCount()
+// =========================================================================
+
+describe('getHydrationMismatchCount()', () => {
+  it('should return 0 when hydration matches perfectly', () => {
+    const container = getContainer();
+    container.innerHTML = '<div><p>Match</p></div>';
+
+    const vnode = h('div', null, h('p', null, 'Match'));
+    hydrate(vnode, container);
+
+    assert.equal(getHydrationMismatchCount(), 0, 'No mismatches expected');
+  });
+
+  it('should count tag name mismatches', () => {
+    const container = getContainer();
+    container.innerHTML = '<span>Wrong tag</span>';
+
+    // Client expects div, server rendered span
+    const vnode = h('div', null, 'Wrong tag');
+    hydrate(vnode, container);
+
+    assert.ok(getHydrationMismatchCount() > 0, 'Tag mismatch should be counted');
+  });
+
+  it('should count attribute mismatches', () => {
+    const container = getContainer();
+    container.innerHTML = '<div class="server-class">Content</div>';
+
+    const vnode = h('div', { class: 'client-class' }, 'Content');
+    hydrate(vnode, container);
+
+    assert.ok(getHydrationMismatchCount() > 0, 'Attribute mismatch should be counted');
+  });
+
+  it('should accumulate multiple mismatches within one hydrate call', () => {
+    const container = getContainer();
+    // Two elements with wrong tags
+    container.innerHTML = '<div><span>A</span><span>B</span></div>';
+
+    const vnode = h('div', null, h('p', null, 'A'), h('p', null, 'B'));
+    hydrate(vnode, container);
+
+    assert.ok(getHydrationMismatchCount() >= 2, 'Should count at least 2 mismatches');
+  });
+});
+
+// =========================================================================
+// ref callbacks during hydration
+// =========================================================================
+
+describe('hydrate() ref callbacks', () => {
+  it('should fire ref callback with the hydrated DOM element', () => {
+    const container = getContainer();
+    container.innerHTML = '<div><button>Click</button></div>';
+
+    const originalButton = container.querySelector('button');
+    let refEl = null;
+
+    const vnode = h('div', null,
+      h('button', { ref: (el) => { refEl = el; } }, 'Click')
+    );
+    hydrate(vnode, container);
+
+    assert.ok(refEl !== null, 'Ref callback should have fired');
+    assert.equal(refEl, originalButton, 'Ref should receive the reused DOM element');
+  });
+
+  it('should set ref.current for object refs', () => {
+    const container = getContainer();
+    container.innerHTML = '<input type="text">';
+
+    const inputRef = { current: null };
+    const vnode = h('input', { type: 'text', ref: inputRef });
+    hydrate(vnode, container);
+
+    assert.ok(inputRef.current !== null, 'Object ref should be set');
+    assert.equal(inputRef.current.tagName, 'INPUT', 'Ref should point to input element');
+  });
+});
+
+// =========================================================================
+// Attribute mismatch detection
+// =========================================================================
+
+describe('hydrate() attribute mismatch detection', () => {
+  it('should detect class mismatch and apply client value', () => {
+    const container = getContainer();
+    container.innerHTML = '<div class="foo">Content</div>';
+
+    const vnode = h('div', { class: 'bar' }, 'Content');
+    hydrate(vnode, container);
+
+    const div = container.firstChild;
+    // Client value should win
+    assert.equal(div.className, 'bar', 'Client class should be applied');
+  });
+
+  it('should detect id mismatch and apply client value', () => {
+    const container = getContainer();
+    container.innerHTML = '<div id="server-id">Content</div>';
+
+    const vnode = h('div', { id: 'client-id' }, 'Content');
+    hydrate(vnode, container);
+
+    const div = container.firstChild;
+    assert.equal(div.id, 'client-id', 'Client id should be applied');
+  });
+
+  it('should not flag matching attributes', () => {
+    const container = getContainer();
+    container.innerHTML = '<div class="same" id="same">Content</div>';
+
+    const countBefore = getHydrationMismatchCount();
+    const vnode = h('div', { class: 'same', id: 'same' }, 'Content');
+    hydrate(vnode, container);
+
+    // hydrate resets the counter, so after a perfect match it should be 0
+    assert.equal(getHydrationMismatchCount(), 0, 'No mismatch for matching attributes');
   });
 });

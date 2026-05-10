@@ -1278,9 +1278,10 @@ function hydrateElementProps(el, props) {
       const attrName = key === 'className' ? 'class' : key === 'htmlFor' ? 'for' : key;
       const serverValue = el.getAttribute(attrName);
       if (serverValue !== null && serverValue !== value) {
-        console.warn(
-          `[what] Hydration attribute mismatch on <${el.tagName.toLowerCase()}>: ` +
-          `${attrName}="${serverValue}" (server) vs "${value}" (client)`
+        reportHydrationMismatch(
+          `${attrName}="${value}"`,
+          `${attrName}="${serverValue}"`,
+          el.tagName.toLowerCase()
         );
         // Apply client value to fix the mismatch
         setProp(el, key, value);

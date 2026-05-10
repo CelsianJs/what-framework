@@ -400,6 +400,8 @@ export namespace JSX {
 
   interface DetailsHTMLAttributes extends HTMLAttributes<HTMLDetailsElement> {
     open?: boolean;
+    ontoggle?: EventHandler<Event>;
+    onToggle?: EventHandler<Event>;
   }
 
   // SVG attributes
