@@ -135,7 +135,17 @@ jobs:
         run: npm run -s build
 
       - name: Package consumer smoke
-        run: npm run -s pack:smoke
+        run: |
+          set -o pipefail
+          mkdir -p artifacts
+          npm run -s pack:smoke 2>&1 | tee artifacts/package-smoke.log
+
+      - name: Upload package smoke artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-smoke-log
+          path: artifacts/package-smoke.log
+          if-no-files-found: error
 
   release-safety:
     runs-on: ubuntu-latest

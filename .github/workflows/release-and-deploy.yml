@@ -38,13 +38,12 @@ concurrency:
   group: release-and-deploy-main
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.dry_run && 'release-dry-run' || 'production-release' }}
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,8 +64,29 @@ jobs:
       - name: Verify quality gates
         run: npm run -s release:verify
 
+  publish:
+    needs: verify
+    if: ${{ inputs.publish_packages }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.dry_run && 'release-dry-run' || 'production-release' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Validate npm release channel
-        if: ${{ inputs.publish_packages }}
         run: |
           # Backport publishes must use npm_tag=backport with allow_non_latest=true.
           # Normal latest releases stay protected: package versions must be above npm latest
@@ -85,7 +105,6 @@ jobs:
           fi
 
       - name: Publish npm packages
-        if: ${{ inputs.publish_packages }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -104,8 +123,25 @@ jobs:
           fi
           node scripts/publish-packages.mjs "${ARGS[@]}"
 
+  deploy:
+    needs: [verify, publish]
+    if: ${{ always() && inputs.deploy_web && needs.verify.result == 'success' && (!inputs.publish_packages || needs.publish.result == 'success') }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.dry_run && 'deploy-dry-run' || 'production-deploy' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Deploy Vercel targets
-        if: ${{ inputs.deploy_web }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |

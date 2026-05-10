@@ -47,3 +47,17 @@ node --test 'packages/core/test/*.test.js'   # 552 tests, all should pass
 - GitHub release workflow has an `allow_non_latest` input; non-`latest` `npm_tag` values require that checkbox, and `allow_non_latest` is rejected with `npm_tag=latest`.
 - The docs-site landing page now points MCP setup snippets at `npx what-devtools-mcp` and labels the footer as `v0.6.2` on the `0.6-backport` channel.
 - Scaffolder templates (`create-what` and `what init`) use `^0.6.2` package ranges to match this backport lane instead of stale `^0.6.0` ranges.
+
+## 2026-05-10 — Release workflow / production-condition smoke hardening
+
+Gold-standard/product-review refresh found release-flow blast-radius and production export-condition gaps. Addressed locally:
+
+- `release-and-deploy.yml` now splits quality verification, npm publish, and Vercel deploy into separate jobs. Deploy waits for verify and, when requested, successful publish.
+- CI package-smoke job now uploads a `package-smoke-log` artifact.
+- Packed-package consumer smoke now also runs `node --conditions=production` against production export conditions for core/framework/router/server/render imports.
+
+Verification:
+- `npm run -s pack:smoke` passed.
+- `npm run -s release:verify` passed: lint, typecheck, node tests (764), devtools public API tests (11), build, package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
+- `node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest` passed; all 12 backport packages were already published, 0 failures.
+- `git diff --check` passed.

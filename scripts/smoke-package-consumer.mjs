@@ -74,7 +74,28 @@ if (typeof renderToString !== 'function') throw new Error('what-server import fa
 if (!ReactCompat || typeof ReactCompat !== 'object') throw new Error('what-react import failed');
 `);
 
+
+  writeFileSync(join(consumerDir, 'production-smoke.mjs'), `
+import { signal, computed } from 'what-core';
+import { template } from 'what-core/render';
+import { signal as frameworkSignal } from 'what-framework';
+import { isSafeUrl } from 'what-router';
+import { renderToString } from 'what-server';
+
+const count = signal(3);
+const doubled = computed(() => count() * 2);
+if (doubled() !== 6) throw new Error('what-core production condition import failed');
+
+const fwCount = frameworkSignal(2);
+if (fwCount() !== 2) throw new Error('what-framework production condition import failed');
+
+if (isSafeUrl('javascript:alert(1)')) throw new Error('what-router production condition import failed');
+if (typeof renderToString !== 'function') throw new Error('what-server production condition import failed');
+if (typeof template !== 'function') throw new Error('what-core/render production condition import failed');
+`);
+
   run('node', ['smoke.mjs'], { cwd: consumerDir });
+  run('node', ['--conditions=production', 'production-smoke.mjs'], { cwd: consumerDir });
   run('npx', ['--no-install', 'what'], { cwd: consumerDir });
   run('npx', ['--no-install', 'create-what', '--help'], { cwd: consumerDir });
   console.log('[pack-smoke] Package consumer smoke passed');
