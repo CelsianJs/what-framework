@@ -826,7 +826,7 @@ function generateReadme(projectName, { reactCompat, cssApproach }) {
 - Uses the What compiler for JSX transforms and automatic reactivity.
 - Vite is preconfigured; use \`npm run dev/build/preview\`.
 - Event handlers accept both \`onClick\` and \`onclick\`; docs and templates use \`onClick\`.
-- Bun is also supported: \`bun create what@latest\`, \`bun run dev\`.`;
+- Bun is also supported: \`bun create what@backport\`, \`bun run dev\`.`;
 
   if (reactCompat) {
     notes += `

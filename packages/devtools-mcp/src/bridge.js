@@ -7,7 +7,7 @@
 import { WebSocketServer } from 'ws';
 import { randomBytes } from 'crypto';
 import { createServer } from 'http';
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { join } from 'path';
 
 const MAX_EVENT_LOG = 1000;
@@ -66,16 +66,15 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
   }});
 
   // --- Token Discovery ---
-  // Two mechanisms so the browser client can find the token automatically:
-  //
-  // 1. HTTP endpoint: GET http://localhost:{port+1}/__what_mcp_token returns the token
-  //    The client fetches this on startup before connecting the WebSocket.
-  //
-  // 2. File: writes token to node_modules/.cache/what-devtools-mcp/token
-  //    The Vite plugin reads this at transform time.
-
+  // Primary mechanism: write a process-local cache file that the Vite plugin
+  // reads at transform time. HTTP token discovery exposes bearer credentials
+  // to any loopback page, so it is disabled unless explicitly opted in.
+  const httpTokenDiscovery = /^(1|true|yes)$/i.test(process.env.WHAT_MCP_HTTP_TOKEN_DISCOVERY || '');
   const discoveryPort = port + 1;
-  const httpServer = createServer((req, res) => {
+  let httpServer = null;
+
+  if (httpTokenDiscovery) {
+    httpServer = createServer((req, res) => {
     const origin = req.headers.origin;
     const allowedOrigin = isAllowedDiscoveryOrigin(origin);
 
@@ -113,25 +112,32 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
     }
   });
 
-  httpServer.listen(discoveryPort, host, () => {
-    console.error(`[what-devtools-mcp] Token discovery on http://${host}:${discoveryPort}/__what_mcp_token`);
-  });
-  httpServer.on('error', () => {
-    // Discovery port unavailable — not critical, file-based fallback still works
-    console.error(`[what-devtools-mcp] Token discovery port ${discoveryPort} unavailable (non-fatal)`);
-  });
+    httpServer.listen(discoveryPort, host, () => {
+      console.error(`[what-devtools-mcp] HTTP token discovery enabled on http://${host}:${discoveryPort}/__what_mcp_token`);
+    });
+    httpServer.on('error', () => {
+      // Discovery port unavailable — not critical, file-based fallback still works
+      console.error(`[what-devtools-mcp] Token discovery port ${discoveryPort} unavailable (non-fatal)`);
+    });
+  }
 
   // Write token to a well-known file path for Vite plugin to read
   try {
     const cacheDir = join(process.cwd(), 'node_modules', '.cache', 'what-devtools-mcp');
     mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(join(cacheDir, 'token'), JSON.stringify({ token: authToken, port, discoveryPort }));
+    const tokenFile = join(cacheDir, 'token');
+    writeFileSync(tokenFile, JSON.stringify({ token: authToken, port, discoveryPort: httpTokenDiscovery ? discoveryPort : null }), { mode: 0o600 });
+    chmodSync(tokenFile, 0o600);
   } catch {
-    // Non-fatal — HTTP discovery is the primary mechanism
+    // Non-fatal — explicit tokens or HTTP discovery can still be used
   }
 
   console.error(`[what-devtools-mcp] Bridge listening on ws://${host}:${port}`);
-  console.error(`[what-devtools-mcp] Auth token: ${authToken}`);
+  if (process.env.WHAT_MCP_LOG_TOKEN === '1') {
+    console.error(`[what-devtools-mcp] Auth token: ${authToken}`);
+  } else {
+    console.error('[what-devtools-mcp] Auth token generated; raw token logging disabled.');
+  }
 
   wss.on('connection', (ws) => {
     browserSocket = ws;
@@ -260,7 +266,7 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
       pendingCommands.delete(id);
     }
     wss.close();
-    httpServer.close();
+    httpServer?.close();
   }
 
   return {

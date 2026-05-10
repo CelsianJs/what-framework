@@ -140,7 +140,7 @@ This lets you use React ecosystem libraries (zustand, TanStack Query, Radix UI, 
 ### Option A: Scaffold with react compat
 
 ```bash
-npm create what@latest react-app
+npm create what@backport react-app
 # When prompted, say Yes to "Add React library support?"
 cd react-app
 npm install

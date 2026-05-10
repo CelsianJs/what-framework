@@ -5,7 +5,7 @@ Scaffold a new [What Framework](https://whatfw.com) project with one command.
 ## Usage
 
 ```bash
-npm create what@latest my-app
+npm create what@backport my-app
 cd my-app
 npm install
 npm run dev
@@ -14,13 +14,13 @@ npm run dev
 Or with Bun:
 
 ```bash
-bun create what@latest my-app
+bun create what@backport my-app
 ```
 
 ### Skip prompts
 
 ```bash
-npm create what@latest my-app -- --yes
+npm create what@backport my-app -- --yes
 ```
 
 ## Options

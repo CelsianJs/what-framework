@@ -36,13 +36,14 @@
     "release:verify": "npm run -s lint && npm run -s hygiene:artifacts && npm run -s typecheck && npm run -s test && npm run -s build && npm run -s pack:smoke && npm run -s bench:gate && npm run -s test:e2e && npm audit --audit-level=moderate",
     "test": "npm run -s test:node && npm run -s test:devtools",
     "test:e2e": "npx playwright test",
-    "test:node": "node --test packages/core/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/server/test/*.test.js packages/create-what/test/*.test.js packages/mcp-server/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js packages/devtools-mcp/test/tools-interact.test.js",
+    "test:node": "node --test packages/core/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/server/test/*.test.js packages/create-what/test/*.test.js packages/cli/test/*.test.js packages/mcp-server/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js packages/devtools-mcp/test/tools-interact.test.js",
     "test:devtools": "node --test packages/devtools/test/*.test.js",
     "pack:smoke": "node scripts/smoke-package-consumer.mjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "node scripts/check-js.mjs",
     "registry:smoke": "node scripts/smoke-registry-consumer.mjs",
-    "hygiene:artifacts": "node scripts/check-artifact-hygiene.mjs"
+    "hygiene:artifacts": "node scripts/check-artifact-hygiene.mjs",
+    "cli:smoke": "node scripts/smoke-cli-flows.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -97,6 +97,10 @@ if (typeof template !== 'function') throw new Error('what-core/render production
   run('node', ['smoke.mjs'], { cwd: consumerDir });
   run('node', ['--conditions=production', 'production-smoke.mjs'], { cwd: consumerDir });
   run('npx', ['--no-install', 'what'], { cwd: consumerDir });
+  run('node', [join(repoRoot, 'scripts/smoke-cli-flows.mjs')], {
+    cwd: consumerDir,
+    env: { ...process.env, WHAT_CLI_BIN: join(consumerDir, 'node_modules/.bin/what') },
+  });
   run('npx', ['--no-install', 'create-what', '--help'], { cwd: consumerDir });
   console.log('[pack-smoke] Package consumer smoke passed');
 } finally {
@@ -112,6 +116,7 @@ function run(cmd, args, options = {}) {
     cwd: options.cwd ?? repoRoot,
     encoding: 'utf8',
     stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    env: options.env ?? process.env,
   });
 
   if (result.status !== 0) {

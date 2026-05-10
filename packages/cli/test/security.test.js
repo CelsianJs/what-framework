@@ -1,38 +1,14 @@
 // Security tests for CLI
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, rmSync, realpathSync } from 'fs';
-import { join, normalize, resolve } from 'path';
+import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const testDir = join(__dirname, '.test-security');
 
-// Recreate safePath function for testing (same logic as in cli.js)
-function safePath(base, userPath) {
-  try {
-    // Reject paths that contain .. segments (path traversal attempt)
-    const normalized = normalize(userPath);
-    if (normalized.startsWith('..') || normalized.includes('/..') || normalized.includes('\\..')) {
-      return null;
-    }
-
-    // Get the real base path (resolve symlinks)
-    const realBase = realpathSync(base);
-
-    // Resolve the user path against the base
-    const resolved = resolve(realBase, normalized);
-
-    // Double-check: ensure resolved path is within base
-    if (!resolved.startsWith(realBase + '/') && resolved !== realBase) {
-      return null;
-    }
-
-    return resolved;
-  } catch {
-    return null;
-  }
-}
+import { safePath } from '../src/cli.js';
 
 describe('security', () => {
   before(() => {
@@ -64,6 +40,29 @@ describe('security', () => {
       const result = safePath(base, 'index.html');
       assert.ok(result !== null, 'Valid paths should return resolved path');
       assert.ok(result.endsWith('index.html'), 'Should resolve to correct file');
+    });
+
+
+    it('should allow normal URL paths that start with /', () => {
+      const base = join(testDir, 'public');
+      const result = safePath(base, '/index.html');
+      assert.ok(result !== null, 'URL paths should be allowed');
+      assert.ok(result.endsWith('index.html'), 'Should resolve to correct file');
+    });
+
+    it('should decode URL paths safely', () => {
+      const base = join(testDir, 'public');
+      writeFileSync(join(testDir, 'public', 'space file.txt'), 'ok');
+      const result = safePath(base, '/space%20file.txt');
+      assert.ok(result !== null, 'URL-encoded paths should be allowed');
+      assert.ok(result.endsWith('space file.txt'), 'Should decode URL path components');
+    });
+
+    it('should block URL-encoded traversal attacks', () => {
+      const base = join(testDir, 'public');
+      assert.equal(safePath(base, '/%2e%2e/secret.txt'), null);
+      assert.equal(safePath(base, '/%2Fetc/passwd'), null);
+      assert.equal(safePath(base, '/%00secret.txt'), null);
     });
 
     it('should allow empty/current path', () => {

@@ -6,6 +6,8 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
+import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { createBridge } from '../src/bridge.js';
 
 const TEST_PORT = 9399; // avoid conflicts with default 9229
@@ -34,6 +36,7 @@ describe('WebSocket Bridge', () => {
   let client;
 
   afterEach(async () => {
+    delete process.env.WHAT_MCP_HTTP_TOKEN_DISCOVERY;
     if (client?.readyState === WebSocket.OPEN) client.close();
     if (bridge) bridge.close();
     // Small delay for cleanup
@@ -189,7 +192,19 @@ describe('WebSocket Bridge', () => {
     assert.ok(bridge.authToken.length >= 32, 'authToken should be at least 32 chars');
   });
 
-  it('serves token discovery without wildcard CORS for loopback origins', async () => {
+  it('writes token cache with owner-only permissions', () => {
+    const cacheFile = join(process.cwd(), 'node_modules', '.cache', 'what-devtools-mcp', 'token');
+    rmSync(cacheFile, { force: true });
+    mkdirSync(join(process.cwd(), 'node_modules', '.cache', 'what-devtools-mcp'), { recursive: true });
+
+    bridge = createBridge({ port: TEST_PORT });
+
+    assert.equal(existsSync(cacheFile), true);
+    assert.equal(statSync(cacheFile).mode & 0o777, 0o600);
+  });
+
+  it('serves token discovery without wildcard CORS for loopback origins when explicitly enabled', async () => {
+    process.env.WHAT_MCP_HTTP_TOKEN_DISCOVERY = '1';
     bridge = createBridge({ port: TEST_PORT });
 
     const response = await fetch(TOKEN_URL, {
@@ -205,7 +220,8 @@ describe('WebSocket Bridge', () => {
     assert.equal(body.wsPort, TEST_PORT);
   });
 
-  it('rejects token discovery requests from non-local origins', async () => {
+  it('rejects token discovery requests from non-local origins when explicitly enabled', async () => {
+    process.env.WHAT_MCP_HTTP_TOKEN_DISCOVERY = '1';
     bridge = createBridge({ port: TEST_PORT });
 
     const response = await fetch(TOKEN_URL, {

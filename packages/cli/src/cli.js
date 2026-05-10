@@ -6,15 +6,30 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSync, copyFileSync, realpathSync } from 'fs';
 import { join, resolve, relative, extname, basename, normalize } from 'path';
 import { createServer } from 'http';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';
 
-// Security: Prevent path traversal attacks
+// Security: Prevent path traversal attacks while accepting URL paths like /main.js.
 function safePath(base, userPath) {
   try {
-    // Reject paths that contain .. segments (path traversal attempt)
-    const normalized = normalize(userPath);
+    if (typeof userPath !== 'string') return null;
+
+    let relativePath = userPath.startsWith('/') ? userPath.slice(1) : userPath;
+    try {
+      relativePath = decodeURIComponent(relativePath);
+    } catch {
+      return null;
+    }
+
+    if (relativePath.includes('\0')) return null;
+    relativePath = relativePath.replace(/\\/g, '/');
+
+    // Reject encoded absolute paths/double-leading-slash paths after decoding.
+    if (relativePath.startsWith('/')) return null;
+
+    // Reject paths that contain .. segments (path traversal attempt).
+    const normalized = normalize(relativePath || '.');
     if (normalized.startsWith('..') || normalized.includes('/..') || normalized.includes('\\..')) {
       return null;
     }
@@ -153,31 +168,6 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const cwd = process.cwd();
 
 const args = process.argv.slice(2);
-const command = args[0];
-
-const commands = { dev, build, preview, generate, init };
-
-if (!command || !commands[command]) {
-  console.log(`
-  what - The closest framework to vanilla JS
-
-  Usage: what <command>
-
-  Commands:
-    dev       Start dev server with HMR
-    build     Production build
-    preview   Preview production build
-    generate  Static site generation
-    init      Create a new project
-
-  Options:
-    --port    Dev server port (default: 3000)
-    --host    Dev server host (default: localhost)
-  `);
-  process.exit(0);
-}
-
-commands[command]();
 
 // --- Dev Server ---
 
@@ -945,3 +935,44 @@ function watchFiles(dir, onChange) {
   // Poll every 100ms for more responsive HMR
   setInterval(scan, 100);
 }
+
+function printHelp() {
+  console.log(`
+  what - The closest framework to vanilla JS
+
+  Usage: what <command>
+
+  Commands:
+    dev       Start dev server with HMR
+    build     Production build
+    preview   Preview production build
+    generate  Static site generation
+    init      Create a new project
+
+  Options:
+    --port    Dev server port (default: 3000)
+    --host    Dev server host (default: localhost)
+  `);
+}
+
+async function main() {
+  const command = args[0];
+  const commands = { dev, build, preview, generate, init };
+
+  if (!command || !commands[command]) {
+    printHelp();
+    return;
+  }
+
+  await commands[command]();
+}
+
+const isCliEntry = process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+if (isCliEntry) {
+  main().catch((error) => {
+    console.error(error?.stack || error?.message || String(error));
+    process.exit(1);
+  });
+}
+
+export { safePath };

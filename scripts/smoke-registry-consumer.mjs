@@ -109,6 +109,10 @@ if (typeof template !== 'function') throw new Error('what-core/render production
   }
 
   run('npx', ['--no-install', 'what'], { cwd: consumerDir });
+  run('node', [join(repoRoot, 'scripts/smoke-cli-flows.mjs')], {
+    cwd: consumerDir,
+    env: { ...process.env, WHAT_CLI_BIN: join(consumerDir, 'node_modules/.bin/what') },
+  });
   run('npx', ['--no-install', 'create-what', '--help'], { cwd: consumerDir });
 
   mkdirSync(dirname(artifactPath), { recursive: true });
@@ -119,7 +123,7 @@ if (typeof template !== 'function') throw new Error('what-core/render production
     packages: specs,
     binaries: bins,
     distTag: expectedDistTag || null,
-    checks: ['dist-tag verification when applicable', 'npm install --ignore-scripts with propagation retry', 'esm imports', 'production-condition imports', 'binary presence', 'what cli', 'create-what --help'],
+    checks: ['dist-tag verification when applicable', 'npm install --ignore-scripts with propagation retry', 'esm imports', 'production-condition imports', 'binary presence', 'what cli', 'real what CLI build/generate/dev/preview asset smoke', 'create-what --help'],
   }, null, 2) + '\n');
 
   console.log(`[registry-smoke] Registry consumer smoke passed for ${specs.length} package(s)`);
@@ -192,6 +196,7 @@ function run(cmd, args, options = {}) {
     cwd: options.cwd ?? repoRoot,
     encoding: 'utf8',
     stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    env: options.env ?? process.env,
   });
 
   if (result.status !== 0) {

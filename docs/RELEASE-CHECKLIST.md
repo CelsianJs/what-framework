@@ -179,7 +179,7 @@ Files that contain version strings:
 
 - [ ] Trigger `Release And Deploy` workflow from GitHub Actions:
   - Go to Actions > Release And Deploy > Run workflow
-  - Set `publish_packages: true`, `deploy_web: true`, `npm_tag: latest`
+  - Set `publish_packages: true`, `deploy_web: true`, `npm_tag: backport`, `allow_non_latest: true` for this 0.6.x branch
   - The workflow runs `release:verify` automatically before publish/deploy
 
 ---
@@ -187,7 +187,7 @@ Files that contain version strings:
 ## Post-Release Verification
 
 - [ ] `npm install what-framework@<version>` works in a fresh directory
-- [ ] `npm create what@latest` scaffolds correctly and the generated app runs
+- [ ] `npm create what@backport` scaffolds correctly and the generated app runs
 - [ ] MCP server starts: `npx what-devtools-mcp`
 - [ ] Doc MCP server starts: `npx what-mcp`
 - [ ] Landing page (https://whatfw.com) shows correct version in badge and footer
@@ -195,7 +195,7 @@ Files that contain version strings:
 - [ ] Benchmarks site (https://benchmarks.whatfw.com) loads
 - [ ] React compat site (https://react.whatfw.com) loads
 - [ ] All doc links from README work (no 404s)
-- [ ] Search npm for `what-framework` — verify latest version shows
+- [ ] Search npm for `what-framework` — verify the `backport` dist-tag shows this 0.6.x version
 
 ---
 
