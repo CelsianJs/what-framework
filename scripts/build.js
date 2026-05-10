@@ -5,9 +5,10 @@
 // Outputs both .js (ESM) and .min.js (minified) with source maps.
 
 import { build } from 'esbuild';
-import { readFileSync, mkdirSync, existsSync, statSync } from 'fs';
+import { readFileSync, mkdirSync, existsSync, statSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { gzipSync } from 'zlib';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const root = resolve(__dirname, '..');
@@ -72,6 +73,10 @@ const packages = [
 
 let totalBundle = 0;
 let totalMinified = 0;
+let totalGzip = 0;
+
+// Detailed per-entry data for the size report
+const sizeReport = [];
 
 for (const pkg of packages) {
   const pkgDir = join(root, 'packages', pkg.name);
@@ -80,6 +85,8 @@ for (const pkg of packages) {
 
   let pkgBundle = 0;
   let pkgMinified = 0;
+  let pkgGzip = 0;
+  const entryResults = [];
 
   for (const entry of pkg.entries) {
     const entryPath = join(pkgDir, entry.input);
@@ -122,8 +129,23 @@ for (const pkg of packages) {
       const bundleSize = existsSync(bundlePath) ? statSync(bundlePath).size : 0;
       const minSize = existsSync(minPath) ? statSync(minPath).size : 0;
 
+      // Gzip the minified bundle for realistic transfer-size measurement
+      let gzipSize = 0;
+      if (existsSync(minPath)) {
+        const minContent = readFileSync(minPath);
+        gzipSize = gzipSync(minContent, { level: 9 }).length;
+      }
+
       pkgBundle += bundleSize;
       pkgMinified += minSize;
+      pkgGzip += gzipSize;
+
+      entryResults.push({
+        entry: entry.outputBase,
+        bundle: bundleSize,
+        min: minSize,
+        gzip: gzipSize,
+      });
     } catch (err) {
       console.error(`  ERROR building ${pkg.name}/${entry.input}: ${err.message}`);
     }
@@ -131,21 +153,41 @@ for (const pkg of packages) {
 
   totalBundle += pkgBundle;
   totalMinified += pkgMinified;
+  totalGzip += pkgGzip;
 
-  const ratio = pkgBundle > 0
-    ? ((1 - pkgMinified / pkgBundle) * 100).toFixed(0)
-    : 0;
+  sizeReport.push({
+    package: pkg.name,
+    bundle: pkgBundle,
+    min: pkgMinified,
+    gzip: pkgGzip,
+    entries: entryResults,
+  });
+
   console.log(
-    `  @what/${pkg.name}  bundle ${formatSize(pkgBundle)}  min ${formatSize(pkgMinified)}  (${ratio}% minification)`
+    `  @what/${pkg.name}  bundle ${formatSize(pkgBundle)}  min ${formatSize(pkgMinified)}  gzip ${formatSize(pkgGzip)}`
   );
+  // Show per-entry breakdown for packages with multiple entries
+  if (entryResults.length > 1) {
+    for (const e of entryResults) {
+      console.log(
+        `    ${e.entry.padEnd(20)} min ${formatSize(e.min).padStart(8)}  gzip ${formatSize(e.gzip).padStart(8)}`
+      );
+    }
+  }
 }
 
-const totalRatio = totalBundle > 0
-  ? ((1 - totalMinified / totalBundle) * 100).toFixed(0)
-  : 0;
 console.log(
-  `\n  Total:  bundle ${formatSize(totalBundle)}  min ${formatSize(totalMinified)}  (${totalRatio}% minification)`
+  `\n  Total:  bundle ${formatSize(totalBundle)}  min ${formatSize(totalMinified)}  gzip ${formatSize(totalGzip)}`
 );
+
+// Write machine-readable size report (JSON)
+const reportPath = join(root, 'size-report.json');
+writeFileSync(reportPath, JSON.stringify({
+  generated: new Date().toISOString(),
+  packages: sizeReport,
+  totals: { bundle: totalBundle, min: totalMinified, gzip: totalGzip },
+}, null, 2) + '\n');
+console.log(`  Size report: ${reportPath}`);
 console.log('  Done!\n');
 
 function formatSize(bytes) {

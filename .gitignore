@@ -3,6 +3,7 @@ node_modules/
 
 # Build outputs
 dist/
+size-report.json
 
 # Environment
 .env
