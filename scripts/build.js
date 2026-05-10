@@ -85,6 +85,7 @@ const packages = [
 let totalBundle = 0;
 let totalMinified = 0;
 let totalGzip = 0;
+let buildFailures = 0;
 
 // Detailed per-entry data for the size report
 const sizeReport = [];
@@ -159,6 +160,7 @@ for (const pkg of packages) {
         gzip: gzipSize,
       });
     } catch (err) {
+      buildFailures += 1;
       console.error(`  ERROR building ${pkg.name}/${entry.input}: ${err.message}`);
     }
   }
@@ -200,6 +202,10 @@ writeFileSync(reportPath, JSON.stringify({
   totals: { bundle: totalBundle, min: totalMinified, gzip: totalGzip },
 }, null, 2) + '\n');
 console.log(`  Size report: ${reportPath}`);
+if (buildFailures > 0) {
+  console.error(`  Build failed: ${buildFailures} entr${buildFailures === 1 ? 'y' : 'ies'} failed.`);
+  process.exit(1);
+}
 console.log('  Done!\n');
 
 function formatSize(bytes) {
