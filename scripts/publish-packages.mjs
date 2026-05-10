@@ -182,6 +182,12 @@ function parseArgs(args) {
   if (options.tag === 'latest' && options.allowNonLatest) {
     usage('--allow-non-latest can only be used with a non-latest --tag');
   }
+  if (options.allowNonLatest && options.tag !== 'backport') {
+    usage('--allow-non-latest is reserved for the backport dist-tag; use --tag backport or publish a newer latest version');
+  }
+  if (options.tag !== 'latest' && !options.allowNonLatest) {
+    usage('non-latest --tag releases require --allow-non-latest and are currently limited to --tag backport');
+  }
   return options;
 }
 

@@ -78,6 +78,10 @@ jobs:
             echo "allow_non_latest can only be used with a non-latest npm_tag." >&2
             exit 1
           fi
+          if [ "${{ inputs.allow_non_latest }}" = "true" ] && [ "${{ inputs.npm_tag }}" != "backport" ]; then
+            echo "Backport is the only allowed non-latest npm_tag for this branch." >&2
+            exit 1
+          fi
 
       - name: Publish npm packages
         if: ${{ inputs.publish_packages }}

@@ -53,7 +53,7 @@ try {
   }, null, 2));
 
   console.log('[pack-smoke] Installing packed packages into a clean consumer project');
-  run('npm', ['install', '--ignore-scripts', '--legacy-peer-deps', '--no-audit', '--no-fund', ...tarballs], { cwd: consumerDir });
+  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...tarballs], { cwd: consumerDir });
 
   writeFileSync(join(consumerDir, 'smoke.mjs'), `
 import { signal, computed } from 'what-core';
@@ -75,6 +75,8 @@ if (!ReactCompat || typeof ReactCompat !== 'object') throw new Error('what-react
 `);
 
   run('node', ['smoke.mjs'], { cwd: consumerDir });
+  run('npx', ['--no-install', 'what'], { cwd: consumerDir });
+  run('npx', ['--no-install', 'create-what', '--help'], { cwd: consumerDir });
   console.log('[pack-smoke] Package consumer smoke passed');
 } finally {
   if (process.env.KEEP_PACKAGE_SMOKE_TMP) {
