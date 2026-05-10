@@ -13,10 +13,12 @@
       "import": "./src/index.js"
     },
     "./jsx-runtime": {
+      "types": "./jsx-runtime.d.ts",
       "production": "./dist/jsx-runtime.min.js",
       "import": "./src/jsx-runtime.js"
     },
     "./jsx-dev-runtime": {
+      "types": "./jsx-runtime.d.ts",
       "production": "./dist/jsx-dev-runtime.min.js",
       "import": "./src/jsx-dev-runtime.js"
     },
@@ -45,6 +47,7 @@
     "src",
     "dist",
     "index.d.ts",
+    "jsx-runtime.d.ts",
     "render.d.ts",
     "router.d.ts",
     "server.d.ts",

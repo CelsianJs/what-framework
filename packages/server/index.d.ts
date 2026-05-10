@@ -7,8 +7,20 @@ import { VNode, VNodeChild, Signal } from '../core';
 /** Render VNode tree to HTML string */
 export function renderToString(vnode: VNode): string;
 
+/** Render VNode tree with hydration markers (data-hk attributes, comment boundaries) */
+export function renderToHydratableString(vnode: VNode): string;
+
 /** Render VNode tree as async iterator for streaming */
 export function renderToStream(vnode: VNode): AsyncGenerator<string>;
+
+/** CSRF token generation for server actions */
+export function generateCsrfToken(): string;
+
+/** Validate a CSRF token */
+export function validateCsrfToken(token: string): boolean;
+
+/** Generate a CSRF meta tag for inclusion in HTML head */
+export function csrfMetaTag(): string;
 
 // --- Page Configuration ---
 

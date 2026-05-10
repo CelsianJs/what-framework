@@ -24,14 +24,58 @@ export interface Computed<T> {
   _signal: true;
 }
 
-export function signal<T>(initial: T): Signal<T>;
+/**
+ * Create a reactive signal with an initial value.
+ * Read with `sig()`, write with `sig(newVal)` or `sig.set(newVal)`.
+ * @param initial - Initial value
+ * @param debugName - Optional name for devtools inspection
+ */
+export function signal<T>(initial: T, debugName?: string): Signal<T>;
+
+/**
+ * Create a derived (computed) signal. Lazy: only recomputes when a
+ * dependency changes AND the computed is read.
+ */
 export function computed<T>(fn: () => T): Computed<T>;
+
+/**
+ * Run a side-effect function that auto-tracks signal reads.
+ * Re-runs when any tracked signal changes.
+ * Return a cleanup function from `fn` to run before each re-execution.
+ * @returns Dispose function to stop the effect
+ */
 export function effect(fn: () => void | (() => void), opts?: { stable?: boolean }): () => void;
+
+/**
+ * Eager computed that only propagates when the value actually changes.
+ * Alias: `signalMemo` (exported as `memo` from reactive, renamed to avoid
+ * collision with component `memo`).
+ */
 export function signalMemo<T>(fn: () => T): Computed<T>;
+
+/** Group multiple signal writes; effects run once at the end. */
 export function batch<T>(fn: () => T): T;
+
+/** Read signals without subscribing to them. */
 export function untrack<T>(fn: () => T): T;
+
+/** Force all pending effects to run synchronously. Use sparingly. */
 export function flushSync(): void;
+
+/**
+ * Create an isolated reactive scope with ownership tree.
+ * All effects created inside are tracked and disposed together.
+ */
 export function createRoot<T>(fn: (dispose: () => void) => T): T;
+
+/** Get the current owner context (for advanced async patterns). */
+export function getOwner(): any;
+
+/** Run a function within a specific owner context. */
+export function runWithOwner<T>(owner: any, fn: () => T): T;
+
+/** Register a cleanup function with the current owner/root. */
+export function onRootCleanup(fn: () => void): void;
 
 // --- Virtual DOM ---
 
@@ -505,3 +549,132 @@ export function ErrorMessage(props: {
   errors?: Record<string, FieldError> | (() => Record<string, FieldError>);
   render?: (args: { message?: string; type?: string }) => VNodeChild;
 }): VNodeChild;
+
+// --- Structured Error System ---
+
+export interface ErrorCodeDefinition {
+  code: string;
+  severity: 'error' | 'warning';
+  template: string;
+  suggestion: string;
+  codeExample: string;
+}
+
+export const ERROR_CODES: {
+  INFINITE_EFFECT: ErrorCodeDefinition;
+  MISSING_SIGNAL_READ: ErrorCodeDefinition;
+  HYDRATION_MISMATCH: ErrorCodeDefinition;
+  ORPHAN_EFFECT: ErrorCodeDefinition;
+  SIGNAL_WRITE_IN_RENDER: ErrorCodeDefinition;
+  MISSING_CLEANUP: ErrorCodeDefinition;
+  UNSAFE_INNERHTML: ErrorCodeDefinition;
+  MISSING_KEY: ErrorCodeDefinition;
+};
+
+export class WhatError extends Error {
+  code: string;
+  suggestion?: string;
+  file?: string;
+  line?: number;
+  component?: string;
+  signal?: string;
+  effect?: string;
+  constructor(opts: {
+    code: string;
+    message: string;
+    suggestion?: string;
+    file?: string;
+    line?: number;
+    component?: string;
+    signal?: string;
+    effect?: string;
+  });
+  toJSON(): Record<string, any>;
+}
+
+export function createWhatError(
+  errorCode: string | ErrorCodeDefinition,
+  context?: Record<string, any>,
+): WhatError;
+
+export function classifyError(err: Error, context?: Record<string, any>): WhatError;
+export function collectError(whatError: WhatError): void;
+export function getCollectedErrors(since?: number): Array<Record<string, any>>;
+export function clearCollectedErrors(): void;
+
+// --- Agent Guardrails ---
+
+export interface GuardrailConfig {
+  signalReadDetection: boolean;
+  effectCycleDetection: boolean;
+  componentNaming: boolean;
+  importValidation: boolean;
+}
+
+export function configureGuardrails(overrides: Partial<GuardrailConfig>): void;
+export function getGuardrailConfig(): GuardrailConfig;
+export function installSignalReadGuardrail<T>(signalFn: Signal<T>, debugName?: string): Signal<T>;
+export function checkComponentName(name: string): { code: string; name: string; suggestion: string } | null;
+export function validateImports(importNames: string[]): Array<{ name: string; message: string; suggestion: string }>;
+
+// --- Agent Context ---
+
+export interface AgentHealthReport {
+  effectCycleRisk: boolean;
+  orphanEffects: number;
+  signalLeaks: number;
+  memoryPressure: 'low' | 'medium' | 'high';
+  recentErrorCount: number;
+  totalSignals: number;
+  totalComponents: number;
+}
+
+export function installAgentContext(): void;
+export function registerComponent(component: any): void;
+export function unregisterComponent(component: any): void;
+export function getMountedComponents(): any[];
+export function registerSignal(sig: Signal<any>): void;
+export function unregisterSignal(sig: Signal<any>): void;
+export function getActiveSignals(): Signal<any>[];
+export function getHealth(): AgentHealthReport;
+
+// --- Hydration ---
+
+/**
+ * Hydrate a vnode tree against existing server-rendered DOM in the container.
+ * Reuses existing DOM nodes instead of creating new ones.
+ */
+export function hydrate(vnode: VNodeChild, container: Element): any;
+
+/** Returns true if currently inside a hydration pass. */
+export function isHydrating(): boolean;
+
+// --- Compiler Internals ---
+// These are used by the compiler output. Not intended for direct use.
+
+/**
+ * @internal Compiler target for component instantiation.
+ * The compiler emits calls to this instead of h().
+ */
+export function _$createComponent(
+  Component: Component<any>,
+  props: Record<string, any>,
+  children?: VNodeChild[],
+): any;
+
+/**
+ * @internal Pre-parse HTML string into a template factory.
+ * Used by the compiler. Application code should use JSX.
+ */
+export function _$template(html: string): () => Element;
+
+/**
+ * @internal Alias for template(). Compiler internal.
+ * @deprecated Use JSX instead of calling template() directly.
+ */
+export function _template(html: string): () => Element;
+
+/**
+ * @internal Parse SVG content inside an SVG namespace container.
+ */
+export function svgTemplate(html: string): () => Element;
