@@ -651,12 +651,26 @@ export function getHealth(): AgentHealthReport;
 
 /**
  * Hydrate a vnode tree against existing server-rendered DOM in the container.
- * Reuses existing DOM nodes instead of creating new ones.
+ * Reuses existing DOM nodes instead of creating new ones. Attaches reactive
+ * bindings and event handlers to the server-rendered markup.
+ *
+ * In dev mode, logs warnings for every hydration mismatch (text, element,
+ * attribute). After hydration completes, logs a summary if mismatches occurred.
+ *
+ * @param vnode - The component tree (same tree used for SSR)
+ * @param container - The DOM element containing server-rendered HTML
+ * @returns The hydrated DOM node(s)
  */
 export function hydrate(vnode: VNodeChild, container: Element): any;
 
 /** Returns true if currently inside a hydration pass. */
 export function isHydrating(): boolean;
+
+/**
+ * Returns the number of hydration mismatches from the most recent `hydrate()` call.
+ * Useful for testing and diagnostics.
+ */
+export function getHydrationMismatchCount(): number;
 
 // --- Compiler Internals ---
 // These are used by the compiler output. Not intended for direct use.

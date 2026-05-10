@@ -4,6 +4,7 @@
 
 import { effect, untrack, createRoot, signal, __DEV__ } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
+import { createWhatError, collectError } from './errors.js';
 
 export { effect, untrack };
 
@@ -980,9 +981,16 @@ export function isHydrating() {
 export function hydrate(vnode, container) {
   _isHydrating = true;
   _hydrationCursor = { parent: container, index: 0 };
+  _hydrationMismatchCount = 0;
 
   try {
     const result = hydrateNode(vnode, container);
+    if (__DEV__ && _hydrationMismatchCount > 0) {
+      console.warn(
+        `[what] Hydration completed with ${_hydrationMismatchCount} mismatch${_hydrationMismatchCount === 1 ? '' : 'es'}. ` +
+        'See previous warnings for details. This usually means server and client render different initial HTML.'
+      );
+    }
     return result;
   } finally {
     _isHydrating = false;
@@ -1012,11 +1020,33 @@ function claimNode(parent) {
   return null;
 }
 
-function isDevMode() {
-  return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
+// Track hydration mismatch count for diagnostics
+let _hydrationMismatchCount = 0;
+
+/** Returns the number of hydration mismatches encountered during the last hydrate() call. */
+export function getHydrationMismatchCount() {
+  return _hydrationMismatchCount;
 }
 
-function hydrateNode(vnode, parent) {
+function reportHydrationMismatch(expected, actual, componentName) {
+  _hydrationMismatchCount++;
+  if (__DEV__) {
+    const context = {
+      component: componentName || 'unknown',
+      serverHTML: actual,
+      clientHTML: expected,
+    };
+    const whatError = createWhatError('HYDRATION_MISMATCH', context);
+    collectError(whatError);
+    console.warn(
+      `[what] Hydration mismatch: expected ${expected}, got ${actual}` +
+      (componentName ? ` (in ${componentName})` : '') +
+      '. Falling back to client render.'
+    );
+  }
+}
+
+function hydrateNode(vnode, parent, _componentName) {
   if (vnode == null || typeof vnode === 'boolean') {
     return null;
   }
@@ -1028,9 +1058,9 @@ function hydrateNode(vnode, parent) {
 
     if (existing && existing.nodeType === 3) {
       // Reuse text node — check for mismatch in dev
-      if (isDevMode() && existing.textContent !== text) {
-        console.warn(
-          `[what] Hydration mismatch: expected text "${text}", got "${existing.textContent}"`
+      if (__DEV__ && existing.textContent !== text) {
+        reportHydrationMismatch(
+          `text "${text}"`, `text "${existing.textContent}"`, _componentName
         );
         existing.textContent = text;
       }
@@ -1038,11 +1068,9 @@ function hydrateNode(vnode, parent) {
     }
 
     // Mismatch: expected text node, got element or nothing
-    if (isDevMode()) {
-      console.warn(
-        `[what] Hydration mismatch: expected text node "${text}", got ${existing ? existing.nodeName : 'nothing'}. Falling back to client render.`
-      );
-    }
+    reportHydrationMismatch(
+      `text node "${text}"`, existing ? existing.nodeName : 'nothing', _componentName
+    );
     const textNode = document.createTextNode(text);
     if (existing) {
       parent.replaceChild(textNode, existing);
@@ -1056,7 +1084,7 @@ function hydrateNode(vnode, parent) {
   if (typeof vnode === 'function') {
     // Unwrap to get the initial value for hydration
     const initialValue = vnode();
-    let current = hydrateNode(initialValue, parent);
+    let current = hydrateNode(initialValue, parent, _componentName);
 
     // Set up reactive effect for future updates (normal rendering path)
     effect(() => {
@@ -1073,7 +1101,7 @@ function hydrateNode(vnode, parent) {
   if (Array.isArray(vnode)) {
     const nodes = [];
     for (const child of vnode) {
-      const node = hydrateNode(child, parent);
+      const node = hydrateNode(child, parent, _componentName);
       if (node) nodes.push(node);
     }
     return nodes.length === 1 ? nodes[0] : nodes;
@@ -1085,6 +1113,7 @@ function hydrateNode(vnode, parent) {
     if (typeof vnode.tag === 'function') {
       const componentStack = getComponentStack();
       const Component = vnode.tag;
+      const compName = Component.displayName || Component.name || 'Anonymous';
       const props = vnode.props || {};
       const children = vnode.children || [];
 
@@ -1111,7 +1140,9 @@ function hydrateNode(vnode, parent) {
         result = Component({ ...props, children: propsChildren });
       } catch (error) {
         componentStack.pop();
-        console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', error);
+        if (__DEV__) {
+          console.error('[what] Error in component during hydration:', compName, error);
+        }
         return null;
       }
 
@@ -1128,7 +1159,7 @@ function hydrateNode(vnode, parent) {
         });
       }
 
-      return hydrateNode(result, parent);
+      return hydrateNode(result, parent, compName);
     }
 
     // Element — claim existing DOM element
@@ -1139,6 +1170,16 @@ function hydrateNode(vnode, parent) {
       // Match! Reuse this element. Apply props/bindings.
       hydrateElementProps(existing, vnode.props || {});
 
+      // Handle ref callback — this was previously missing during hydration
+      if (vnode.props?.ref) {
+        const ref = vnode.props.ref;
+        if (typeof ref === 'function') {
+          ref(existing);
+        } else if (typeof ref === 'object' && ref !== null) {
+          ref.current = existing;
+        }
+      }
+
       // Hydrate children
       const savedCursor = _hydrationCursor;
       _hydrationCursor = { parent: existing, index: 0 };
@@ -1146,7 +1187,7 @@ function hydrateNode(vnode, parent) {
       const rawInner = vnode.props?.dangerouslySetInnerHTML?.__html;
       if (rawInner == null) {
         for (const child of vnode.children) {
-          hydrateNode(child, existing);
+          hydrateNode(child, existing, _componentName);
         }
       }
 
@@ -1155,11 +1196,9 @@ function hydrateNode(vnode, parent) {
     }
 
     // Mismatch — fall back to client render for this subtree
-    if (isDevMode()) {
-      console.warn(
-        `[what] Hydration mismatch: expected <${vnode.tag}>, got ${existing ? existing.nodeName : 'nothing'}. Falling back to client render.`
-      );
-    }
+    reportHydrationMismatch(
+      `<${vnode.tag}>`, existing ? existing.nodeName : 'nothing', _componentName
+    );
 
     // Create the element from scratch
     const newEl = document.createElement(vnode.tag);
@@ -1230,8 +1269,22 @@ function hydrateElementProps(el, props) {
       continue;
     }
 
-    // Static props — skip attributes already set from SSR
-    // Only attach non-serializable props or ones that may differ
+    // Static props — verify attributes match in dev mode
     if (key === 'data-hk') continue;
+
+    // In dev mode, check that the server-rendered attribute matches the client value
+    // to catch hydration mismatches early (e.g., class="foo" vs class="bar")
+    if (__DEV__ && typeof value === 'string') {
+      const attrName = key === 'className' ? 'class' : key === 'htmlFor' ? 'for' : key;
+      const serverValue = el.getAttribute(attrName);
+      if (serverValue !== null && serverValue !== value) {
+        console.warn(
+          `[what] Hydration attribute mismatch on <${el.tagName.toLowerCase()}>: ` +
+          `${attrName}="${serverValue}" (server) vs "${value}" (client)`
+        );
+        // Apply client value to fix the mismatch
+        setProp(el, key, value);
+      }
+    }
   }
 }

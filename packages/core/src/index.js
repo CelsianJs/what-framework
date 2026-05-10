@@ -5,7 +5,7 @@
 export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot, getOwner, runWithOwner, onCleanup as onRootCleanup, __setDevToolsHooks } from './reactive.js';
 
 // Fine-grained rendering primitives
-export { template, _template, _$template, svgTemplate, insert, mapArray, spread, setProp, delegateEvents, on, classList, hydrate, isHydrating, _$createComponent } from './render.js';
+export { template, _template, _$template, svgTemplate, insert, mapArray, spread, setProp, delegateEvents, on, classList, hydrate, isHydrating, getHydrationMismatchCount, _$createComponent } from './render.js';
 
 // JSX factory — Fragment and html tagged template are public APIs.
 // h is exported for internal package use only (jsx-runtime, server, router, react-compat).
