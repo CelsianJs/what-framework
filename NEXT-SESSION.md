@@ -4,7 +4,7 @@
 - **Branch**: `audit-hardening`
 - **Latest verification**: `npm run -s release:verify` passed on 2026-05-10.
 - **Release verify coverage**: lint, typecheck, node tests (764), devtools public API tests (11), build, packed-package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
-- **Release lane**: `0.6-backport`; do not publish these versions to npm `latest` because public latest is already `0.8.1`.
+- **Release lane**: `backport` npm dist-tag for the 0.6.x lane; do not publish these versions to npm `latest` because public latest is already `0.8.1`.
 
 ## What Was Done
 - Fixed Island component reactivity bug (eager eval -> reactive function).
@@ -38,11 +38,11 @@ node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest
 - Do **not** publish the current package versions (`0.6.x`) to the `latest` npm dist-tag: npm `latest` is already `0.8.1` for the public packages.
 - The publish script now fails preflight for local versions lower than or equal to npm `latest` when publishing `latest`.
 - If this branch is intended as a backport, publish only with an explicit non-latest dist-tag and the documented safety acknowledgement, for example:
-  `node scripts/publish-packages.mjs --tag 0.6-backport --allow-non-latest --dry-run`
+  `node scripts/publish-packages.mjs --tag backport --allow-non-latest --dry-run`
 - If this sprint is intended to become the next latest release, first update every public package to a consistent version greater than npm `latest` and synchronize dependency ranges before removing `--dry-run`.
 
 ## Release Channel Follow-up (0.6.x backport)
-- `docs/RELEASE.md` documents the explicit backport command: `npm run release:publish -- --tag 0.6-backport --allow-non-latest --dry-run` before removing `--dry-run` for the actual publish.
+- `docs/RELEASE.md` documents the explicit backport command: `npm run release:publish -- --tag backport --allow-non-latest --dry-run` before removing `--dry-run` for the actual publish.
 - GitHub release workflow has an `allow_non_latest` input; non-`latest` `npm_tag` values require that checkbox, and `allow_non_latest` is rejected with `npm_tag=latest`.
 - The docs-site landing page now points MCP setup snippets at `npx what-devtools-mcp` and labels the footer as `v0.6.2` on the `0.6-backport` channel.
 - Scaffolder templates (`create-what` and `what init`) use `^0.6.2` package ranges to match this backport lane instead of stale `^0.6.0` ranges.
