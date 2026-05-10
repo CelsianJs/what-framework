@@ -40,7 +40,8 @@
     "test:devtools": "node --test packages/devtools/test/*.test.js",
     "pack:smoke": "node scripts/smoke-package-consumer.mjs",
     "lint": "node scripts/lint.mjs",
-    "typecheck": "node scripts/check-js.mjs"
+    "typecheck": "node scripts/check-js.mjs",
+    "registry:smoke": "node scripts/smoke-registry-consumer.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -50,5 +51,6 @@
     "esbuild": "^0.27.4",
     "jsdom": "^28.1.0",
     "playwright": "^1.58.2"
-  }
+  },
+  "packageManager": "npm@11.0.0"
 }

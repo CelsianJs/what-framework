@@ -2,37 +2,36 @@
 
 ## Current State
 - **Branch**: `audit-hardening`
-- **Tests**: 552 passing (node:test, NOT vitest)
-- **PM Score**: 7.5/10 (est. 8+ after latest fixes)
-- **Test runner**: `node --test 'packages/core/test/*.test.js'`
+- **Latest verification**: `npm run -s release:verify` passed on 2026-05-10.
+- **Release verify coverage**: lint, typecheck, node tests (764), devtools public API tests (11), build, packed-package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
+- **Release lane**: `0.6-backport`; do not publish these versions to npm `latest` because public latest is already `0.8.1`.
 
 ## What Was Done
-- Fixed Island component reactivity bug (eager eval -> reactive function)
-- Made Switch/Match reactive when conditions use signals
-- Added 30 component tests (ErrorBoundary, Suspense, Island, reportError)
-- Added ./hooks and ./react-compat subpath exports with TypeScript declarations
-- Removed dead code (depsChanged, __getCacheSnapshot from public API)
-- npm audit: 0 vulnerabilities
+- Fixed Island component reactivity bug (eager eval -> reactive function).
+- Made Switch/Match reactive when conditions use signals.
+- Added component tests for ErrorBoundary, Suspense, Island, and reportError.
+- Added `./hooks` and `./react-compat` subpath exports with TypeScript declarations.
+- Removed dead code (`depsChanged`, `__getCacheSnapshot` from public API).
+- Added release preflight protection against accidentally publishing old `0.6.x` packages to `latest`.
+- Split release/deploy workflow so Vercel deploy cannot mask npm publish failures.
+- Added production export-condition smoke coverage for packed packages.
 
 ## What Remains
 
-### Should Fix (from PM Review #3)
-1. **Devtools browser tests (9/9 failing)**: Playwright-based tests in `packages/devtools/test/devtools.test.js` all timeout or get connection refused. The Vite dev server spawns but the fixture app never renders. Has been broken across 3 reviews. These are infra-dependent (need running browser+server), not code bugs.
-
-2. **Internal symbols in public API**: `__setDevToolsHooks`, `_template`, `_$template`, `_$createComponent` are exported from main `index.js`. The latter three are compiler output targets. Consider a separate `what-core/compiler` subpath export.
-
-3. **`storeComputed` deprecation**: Still exported and emits console warning. Either remove entirely or document as deprecated in `.d.ts`.
+### Should Fix (fresh review)
+1. **Backport package clarity**: `what-mcp` and `eslint-plugin-what` remain `0.6.0` while other backport packages are `0.6.2`. Release dry-run currently skips them as already published, but future backport notes should call out whether they are intentionally unchanged.
+2. **Internal/compiler-facing symbols in public API**: `__setDevToolsHooks`, `_template`, `_$template`, `_$createComponent` are still exported from main `index.js`. Consider a separate `what-core/compiler` subpath export in a future non-backport release.
+3. **`storeComputed` deprecation**: Still exported and emits console warning. Either remove in the next breaking/minor lane or document as deprecated in `.d.ts`.
 
 ### Nice to Have
-- API surface is wide (154 exports) — consider which modules (skeleton, animation, data/SWR, form) could be separate packages
-- Verify `what-framework` package version ranges stay synchronized with workspace packages
-- Real browser integration tests for Island hydration modes (load, idle, visible, interaction, media)
+- API surface is wide (154 exports) — consider which modules (skeleton, animation, data/SWR, form) could be separate packages.
+- Real browser integration tests for Island hydration modes (load, idle, visible, interaction, media).
 
 ## How to Resume
 ```bash
 cd what-fw
-node --test 'packages/core/test/*.test.js'   # 552 tests, all should pass
-# Do NOT use npx vitest — that picks up Playwright specs and fails
+npm run -s release:verify
+node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest
 ```
 
 ## Release Gate Notes (audit-hardening)
@@ -61,3 +60,20 @@ Verification:
 - `npm run -s release:verify` passed: lint, typecheck, node tests (764), devtools public API tests (11), build, package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
 - `node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest` passed; all 12 backport packages were already published, 0 failures.
 - `git diff --check` passed.
+
+## 2026-05-10 — Registry smoke and handoff truth follow-up
+
+Fresh product/gold-standard reviews found contradictory handoff state and missing post-publish registry verification. Addressed locally:
+
+- Rewrote the current-state section to reflect the latest `release:verify` result instead of stale 552-test/devtools-failing notes.
+- Added `packageManager: npm@11.0.0` to pin the toolchain used locally for this verification tranche.
+- Added `scripts/smoke-registry-consumer.mjs` and `npm run registry:smoke` for post-publish registry consumer checks.
+- Release workflow now runs registry smoke after non-dry-run publish and uploads `artifacts/registry-smoke.json` with `if-no-files-found: error`.
+
+Verification:
+- `node --check scripts/smoke-registry-consumer.mjs` passed
+- `npm run -s release:verify` passed: lint, typecheck, node tests (764), devtools tests (11), build, packed package smoke, benchmark gate, Playwright e2e (22), npm audit (0 vulnerabilities)
+- `git diff --check` passed
+
+Not run:
+- `npm run registry:smoke` is post-publish only and requires the just-published npm package set.

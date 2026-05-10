@@ -123,6 +123,18 @@ jobs:
           fi
           node scripts/publish-packages.mjs "${ARGS[@]}"
 
+      - name: Verify npm registry packages
+        if: ${{ !inputs.dry_run }}
+        run: npm run -s registry:smoke
+
+      - name: Upload registry smoke artifact
+        if: ${{ !inputs.dry_run && always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: what-registry-smoke
+          path: artifacts/registry-smoke.json
+          if-no-files-found: error
+
   deploy:
     needs: [verify, publish]
     if: ${{ always() && inputs.deploy_web && needs.verify.result == 'success' && (!inputs.publish_packages || needs.publish.result == 'success') }}
