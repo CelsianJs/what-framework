@@ -100,3 +100,9 @@ Not run:
 - Real registry smoke caught the already-published `0.6.2` backport issue: `what-react@0.6.2` imported `what-core/hooks`, but the published `what-core@0.6.2` artifact did not expose that subpath.
 - Fixed by publishing the patched `0.6.3` backport lane with `node scripts/publish-packages.mjs --tag backport --allow-non-latest`. Published 10 packages: `what-core`, `what-router`, `what-server`, `what-compiler`, `what-devtools`, `what-devtools-mcp`, `what-react`, `what-framework`, `what-framework-cli`, and `create-what`. `what-mcp@0.6.0` and `eslint-plugin-what@0.6.0` were intentionally skipped as already published.
 - Post-publish `npm run -s registry:smoke` passed for 12 package(s), including ESM imports, production-condition imports, binary presence, `what` CLI, and `create-what --help`.
+
+## Current Review Fixes (2026-05-10)
+- Registry smoke now retries npm propagation and verifies the `backport` dist-tag for current 0.6.x packages.
+- Backport docs now use `@backport` install/scaffold/MCP commands instead of `@latest` or deprecated unpinned `what-mcp`.
+- React compatibility copy now states the measured matrix: 88 confirmed, 1 partial, 5 expected, and avoids “any library / zero changes” overclaims.
+- Artifact hygiene now fails on unexpected tracked `dist/` outputs while allowing intentional publish/static-site dist artifacts.

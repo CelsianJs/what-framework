@@ -23,6 +23,21 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
+
+const trackedDistFiles = trackedFiles.filter((file) => file.includes('/dist/'));
+const allowedDistPatterns = [
+  /^packages\/[^/]+\/dist\//,
+  /^sites\/react-compat\/dist\//,
+];
+const unexpectedDistFiles = trackedDistFiles.filter((file) => !allowedDistPatterns.some((pattern) => pattern.test(file)));
+if (unexpectedDistFiles.length > 0) {
+  console.error('Unexpected generated dist files are tracked:');
+  for (const file of unexpectedDistFiles) console.error(`  - ${file}`);
+  console.error('Only package publish artifacts and the checked-in react-compat static site dist are allowed.');
+  process.exit(1);
+}
+
+
 const manifestRoots = ['benchmark', 'comparison-test/benchmark'];
 const benchmarkManifests = [];
 
@@ -53,4 +68,5 @@ if (publicBenchmarkManifests.length > 0) {
 }
 
 console.log('OK: no tracked Playwright/test-result artifacts.');
+console.log('OK: tracked dist artifacts are limited to intentional publish/static-site outputs.');
 console.log('OK: benchmark/comparison package manifests are private.');

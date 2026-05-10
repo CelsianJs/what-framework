@@ -5,7 +5,7 @@ Get a WhatFW app running in under 2 minutes. This guide covers both human develo
 ## 1. Scaffold and Run
 
 ```bash
-npm create what@latest my-app
+npm create what@backport my-app
 cd my-app
 npm install
 npm run dev
@@ -15,28 +15,13 @@ Open `http://localhost:5173`.
 
 `create-what` includes Vite + the What compiler. You use `npm run dev/build/preview` and can ignore bundler internals unless you want custom tooling.
 
-Bun works too: `bun create what@latest my-app`, then `bun run dev`.
+Bun works too: `bun create what@backport my-app`, then `bun run dev`.
 
 ## 2. MCP Setup (for AI Agents)
 
-If you are an AI agent (Claude Code, Cursor, etc.), add the MCP servers for documentation and live debugging.
+If you are an AI agent (Claude Code, Cursor, etc.), add the DevTools MCP server for live debugging. The legacy docs MCP package is deprecated on this backport lane.
 
-### Documentation Server
-
-```json
-{
-  "mcpServers": {
-    "what-framework": {
-      "command": "npx",
-      "args": ["what-mcp"]
-    }
-  }
-}
-```
-
-This gives you 13 tools for querying API docs, examples, and guidance.
-
-### Live DevTools (Optional)
+### Live DevTools (Recommended)
 
 For runtime debugging, add the DevTools MCP server:
 
@@ -45,7 +30,7 @@ For runtime debugging, add the DevTools MCP server:
   "mcpServers": {
     "what-devtools": {
       "command": "npx",
-      "args": ["what-devtools-mcp"]
+      "args": ["what-devtools-mcp@backport"]
     }
   }
 }

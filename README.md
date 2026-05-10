@@ -12,12 +12,12 @@
 - **Structured Errors** — Every error returns JSON with code, message, suggested fix, and code example. Agents parse and fix in one pass
 - **Agent Guardrails** — Runtime catches infinite loops, missing cleanup, XSS, and signal misuse before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — ~15 core APIs, 12KB runtime, zero dependencies, tree-shakeable
+- **Small & Fast** — ~15 core APIs, 12KB `what-core` runtime, zero external core dependencies; the aggregate package uses first-party What packages
 
 ## Quick Start
 
 ```bash
-npm create what@latest my-app
+npm create what@backport my-app
 cd my-app
 npm install
 npm run dev
@@ -35,7 +35,7 @@ Connect your AI agent to a running What app:
 {
   "what-devtools": {
     "command": "npx",
-    "args": ["what-devtools-mcp"],
+    "args": ["what-devtools-mcp@backport"],
     "env": { "PORT": "3001" }
   }
 }
@@ -48,7 +48,7 @@ Connect your AI agent to a running What app:
   "mcpServers": {
     "what-devtools": {
       "command": "npx",
-      "args": ["what-devtools-mcp"]
+      "args": ["what-devtools-mcp@backport"]
     }
   }
 }
@@ -90,13 +90,13 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 | `what-compiler` | JSX transform and optimizing compiler |
 | `what-devtools` | Runtime signal/effect inspector and browser panel |
 | `what-devtools-mcp` | MCP bridge for AI agent integration |
-| `what-react` | React compatibility layer (90+ React libraries) |
+| `what-react` | React compatibility layer (88 confirmed libraries, 1 partial, 5 expected) |
 | `create-what` | Project scaffolder |
 
 ## Manual Setup
 
 ```bash
-npm install what-framework what-compiler
+npm install what-framework@backport what-compiler@backport
 npm install -D vite
 ```
 
@@ -110,7 +110,7 @@ export default defineConfig({
 });
 ```
 
-Bun works too: `bun create what@latest` and `bun run dev`.
+Bun works too: `bun create what@backport` and `bun run dev`. Use `@latest` only for the mainline channel, not this 0.6.x backport branch.
 
 ## MCP DevTools (AI Agent Debugging)
 
@@ -119,8 +119,7 @@ WhatFW ships MCP servers for AI-assisted development:
 ```json
 {
   "mcpServers": {
-    "what-framework": { "command": "npx", "args": ["what-mcp"] },
-    "what-devtools": { "command": "npx", "args": ["what-devtools-mcp"] }
+    "what-devtools": { "command": "npx", "args": ["what-devtools-mcp@backport"] }
   }
 }
 ```
@@ -129,10 +128,10 @@ WhatFW ships MCP servers for AI-assisted development:
 
 ## React Compatibility
 
-Use 49+ React ecosystem libraries with `what-react`. This is a secondary feature -- native WhatFW APIs are preferred for new code.
+Use many public-API React ecosystem libraries with `what-react`; the current matrix has 88 confirmed, 1 partial, and 5 expected entries. This is a secondary feature -- native WhatFW APIs are preferred for new code.
 
 ```bash
-npm install what-react
+npm install what-react@backport what-core@backport
 ```
 
 See `/REACT-COMPAT.md` for the full compatibility matrix.

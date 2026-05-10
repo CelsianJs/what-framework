@@ -2,6 +2,16 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.6.3] - 2026-05-10
+
+### Release status
+- Patch release for the `0.6.x` hardening backport line. Published to npm with the `backport` dist-tag; npm `latest` remains the newer mainline channel.
+- `what-mcp@0.6.0` and `eslint-plugin-what@0.6.0` remain unchanged and intentionally skipped during the 0.6.3 publish.
+
+### Fixed
+- Repaired the real registry consumer path by publishing `what-core@0.6.3` with the `what-core/hooks` subpath used by `what-react`.
+- Added post-publish registry smoke evidence for the 0.6.3 backport and tightened artifact hygiene around generated dist outputs.
+
 ## [0.6.2] - 2026-05-10
 
 ### Release status

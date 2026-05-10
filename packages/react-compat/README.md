@@ -1,13 +1,13 @@
 # what-react
 
-React compatibility layer for [What Framework](https://whatfw.com). Use React ecosystem libraries with What's signal-based engine under the hood -- zero code changes required.
+React compatibility layer for [What Framework](https://whatfw.com). Use many public-API React ecosystem libraries with What's signal-based engine under the hood; internals-heavy libraries still need verification.
 
-**90+ React libraries confirmed working**, including zustand, @tanstack/react-query, react-hook-form, framer-motion, @radix-ui, react-select, react-router, and many more.
+**88 React libraries confirmed working**, with 1 partial and 5 expected entries in the current matrix, including zustand, @tanstack/react-query, react-hook-form, framer-motion, @radix-ui, react-select, react-router, and many more.
 
 ## Install
 
 ```bash
-npm install what-react what-core
+npm install what-react@backport what-core@backport
 ```
 
 ## Setup
@@ -32,7 +32,7 @@ The plugin handles everything automatically:
 
 ## Usage
 
-Install any React library and use it normally. No code changes needed.
+Install a verified public-API React library and use it normally. Many work without app-code changes; libraries that depend on React internals should be tested against the matrix first.
 
 ```jsx
 // zustand -- just works

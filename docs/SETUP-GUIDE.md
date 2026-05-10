@@ -15,7 +15,7 @@ Get up and running with What Framework in under 5 minutes.
 ## 1. Create a New Project
 
 ```bash
-npm create what@latest my-app
+npm create what@backport my-app
 cd my-app
 npm install
 npm run dev
@@ -23,11 +23,11 @@ npm run dev
 
 Open **http://localhost:5173** — you should see a counter app with increment/decrement buttons.
 
-> **If that doesn't work**, try the explicit form: `npx create-what@latest my-app`
+> **If that doesn't work**, try the explicit form: `npx create-what@backport my-app`
 >
 > Still getting errors? Clear the npx cache and retry:
 > ```bash
-> npx --yes create-what@latest my-app
+> npx --yes create-what@backport my-app
 > ```
 
 The scaffolder will ask you:
@@ -37,7 +37,7 @@ The scaffolder will ask you:
 To skip prompts and get defaults:
 
 ```bash
-npm create what@latest my-app -- --yes
+npm create what@backport my-app -- --yes
 ```
 
 ---
@@ -388,8 +388,8 @@ mount(<App />, '#app');
 ## Troubleshooting
 
 **`sh: create-what: command not found` when running npx**
-→ Use the explicit version: `npx --yes create-what@latest my-app`
-→ Or use npm's create shorthand: `npm create what@latest my-app`
+→ Use the explicit version: `npx --yes create-what@backport my-app`
+→ Or use npm's create shorthand: `npm create what@backport my-app`
 → Make sure you're on **npm 9+** (`npm -v`). Older npm versions have npx bugs.
 
 **"Cannot find module 'what-framework'"**

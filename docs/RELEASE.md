@@ -13,7 +13,7 @@ Manual trigger inputs:
 1. `publish_packages` (boolean)
 2. `deploy_web` (boolean)
 3. `deploy_targets` (optional comma-separated override)
-4. `npm_tag` (default `latest`)
+4. `npm_tag` (default `latest`; use `backport` for this 0.6.x branch)
 5. `dry_run` (boolean)
 6. `allow_non_latest` (boolean; required with a non-`latest` `npm_tag`)
 
@@ -48,6 +48,14 @@ npm run release:publish -- --tag backport --allow-non-latest
 
 Keep `--dry-run` until the publish plan has been reviewed. Remove it only for the actual backport publish.
 
+Post-publish backport verification must confirm both exact versions and the `backport` dist-tag:
+
+```bash
+npm run registry:smoke
+```
+
+`registry:smoke` retries npm propagation and verifies the `backport` dist-tag for packages on the current 0.6.x root version.
+
 ## Local Publish
 
 Publish all non-private packages in dependency order:
@@ -60,12 +68,6 @@ Dry-run:
 
 ```bash
 npm run release:publish -- --dry-run
-```
-
-Custom latest-compatible tag (version must still be greater than npm `latest` unless this is an acknowledged backport):
-
-```bash
-npm run release:publish -- --tag next
 ```
 
 Backport tag dry-run (required for 0.6.x maintenance releases):

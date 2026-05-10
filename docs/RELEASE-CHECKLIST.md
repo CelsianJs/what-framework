@@ -72,10 +72,8 @@ Publish in this exact order (dependency graph, from `scripts/publish-packages.mj
 12. packages/create-what   → create-what
 ```
 
-- [ ] Dry-run first: `npm run release:publish -- --dry-run`
-- [ ] Publish for real: `npm run release:publish`
-- [ ] (Optional) Publish with dist-tag: `npm run release:publish -- --tag next`
-- [ ] Backport releases only: `npm run release:publish -- --tag backport --allow-non-latest --dry-run`, then remove `--dry-run` for the actual publish
+- [ ] Latest/mainline only: dry-run first with `npm run release:publish -- --dry-run`, then `npm run release:publish` after version preflight passes
+- [ ] 0.6.x backport only: `npm run release:publish -- --tag backport --allow-non-latest --dry-run`, then remove `--dry-run` for the actual publish
 - [ ] Verify all packages show correct version on npm:
   ```bash
   npm view what-framework version
@@ -84,9 +82,9 @@ Publish in this exact order (dependency graph, from `scripts/publish-packages.mj
   npm view what-devtools-mcp version
   npm view create-what version
   ```
-- [ ] Test scaffolder works: `npm create what@latest test-app` (then delete `test-app/`)
-- [ ] Test MCP server starts: `npx what-devtools-mcp` (Ctrl-C after it starts)
-- [ ] Test doc MCP server: `npx what-mcp` (Ctrl-C after it starts)
+- [ ] Test backport scaffolder works: `npm create what@backport test-app` (then delete `test-app/`)
+- [ ] Test DevTools MCP server starts: `npx what-devtools-mcp@backport` (Ctrl-C after it starts)
+- [ ] Legacy docs MCP, if needed, must be pinned explicitly: `npx what-mcp@0.6.0`
 
 ---
 

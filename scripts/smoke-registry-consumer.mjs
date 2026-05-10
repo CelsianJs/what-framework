@@ -32,13 +32,16 @@ try {
   mkdirSync(consumerDir, { recursive: true });
 
   const specs = [];
+  const packageSpecs = [];
   const bins = [];
   for (const relDir of PACKAGE_DIRS) {
     const pkgDir = join(repoRoot, relDir);
     const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
     if (pkg.private) continue;
     const selector = process.env.WHAT_REGISTRY_VERSION || pkg.version;
-    specs.push(`${pkg.name}@${selector}`);
+    const spec = `${pkg.name}@${selector}`;
+    specs.push(spec);
+    packageSpecs.push({ name: pkg.name, version: pkg.version, selector, spec });
     if (typeof pkg.bin === 'string') bins.push((pkg.name || '').split('/').pop());
     if (pkg.bin && typeof pkg.bin === 'object') bins.push(...Object.keys(pkg.bin));
   }
@@ -50,8 +53,13 @@ try {
     type: 'module',
   }, null, 2));
 
+  const expectedDistTag = process.env.WHAT_REGISTRY_DIST_TAG || inferExpectedDistTag(packageSpecs);
+  if (expectedDistTag) {
+    verifyDistTag(packageSpecs, expectedDistTag);
+  }
+
   console.log('[registry-smoke] Installing published packages into a clean consumer project');
-  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...specs], { cwd: consumerDir });
+  retry('npm install from registry', () => run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...specs], { cwd: consumerDir }));
 
   writeFileSync(join(consumerDir, 'smoke.mjs'), `
 import { signal, computed } from 'what-core';
@@ -110,7 +118,8 @@ if (typeof template !== 'function') throw new Error('what-core/render production
     packageCount: specs.length,
     packages: specs,
     binaries: bins,
-    checks: ['npm install --ignore-scripts', 'esm imports', 'production-condition imports', 'binary presence', 'what cli', 'create-what --help'],
+    distTag: expectedDistTag || null,
+    checks: ['dist-tag verification when applicable', 'npm install --ignore-scripts with propagation retry', 'esm imports', 'production-condition imports', 'binary presence', 'what cli', 'create-what --help'],
   }, null, 2) + '\n');
 
   console.log(`[registry-smoke] Registry consumer smoke passed for ${specs.length} package(s)`);
@@ -120,6 +129,62 @@ if (typeof template !== 'function') throw new Error('what-core/render production
   } else {
     rmSync(workspace, { recursive: true, force: true });
   }
+}
+
+
+function inferExpectedDistTag(packageSpecs) {
+  const rootPkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+  const rootVersion = rootPkg.version;
+  if (/^0\.6\./.test(rootVersion) && packageSpecs.some(pkg => pkg.version === rootVersion && pkg.selector === rootVersion)) {
+    return 'backport';
+  }
+  return '';
+}
+
+function verifyDistTag(packageSpecs, distTag) {
+  const rootVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version;
+  const targets = packageSpecs.filter(pkg => pkg.version === rootVersion && pkg.selector === rootVersion);
+  for (const pkg of targets) {
+    retry(`npm dist-tag ${pkg.name}@${distTag}`, () => {
+      const result = run('npm', ['view', pkg.name, `dist-tags.${distTag}`, '--json'], { capture: true });
+      const actual = parseNpmJsonString(result.stdout);
+      if (actual !== pkg.version) {
+        throw new Error(`Expected ${pkg.name} dist-tag ${distTag} to be ${pkg.version}, got ${actual || '<missing>'}`);
+      }
+    });
+  }
+}
+
+function parseNpmJsonString(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    return typeof parsed === 'string' ? parsed : '';
+  } catch {
+    return text.replace(/^"|"$/g, '');
+  }
+}
+
+function retry(label, fn) {
+  const attempts = Number.parseInt(process.env.WHAT_REGISTRY_SMOKE_RETRIES || '6', 10);
+  const delayMs = Number.parseInt(process.env.WHAT_REGISTRY_SMOKE_RETRY_MS || '5000', 10);
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts) break;
+      console.warn(`[registry-smoke] ${label} failed on attempt ${attempt}/${attempts}; retrying in ${delayMs}ms`);
+      sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function run(cmd, args, options = {}) {

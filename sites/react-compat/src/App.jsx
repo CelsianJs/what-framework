@@ -183,16 +183,16 @@ function Hero() {
   return (
     <section class="hero">
       <div class="container">
-        <div class="hero-pill"><span class="dot"></span> what-react v0.1.0</div>
-        <h1><span class="grad">90+ React Libraries.</span><br />Zero Changes.</h1>
+        <div class="hero-pill"><span class="dot"></span> what-react v0.6.3</div>
+        <h1><span class="grad">88 React Libraries Confirmed.</span><br />Public APIs First.</h1>
         <p class="hero-sub">
           What Framework's <code>what-react</code> compat layer lets you use the React ecosystem
-          on a signals-powered engine. Same imports. Same API. Faster runtime.
+          on a signals-powered engine. Same imports for verified public APIs; internals-heavy libraries need matrix validation.
         </p>
         <div class="stats-bar">
-          <Counter target={90} suffix="" colorClass="c-blue">Confirmed Working</Counter>
-          <Counter target={96} suffix="+" colorClass="c-cyan">Total Compatible</Counter>
-          <Counter target={0} suffix="" colorClass="c-purple">Lines Changed</Counter>
+          <Counter target={88} suffix="" colorClass="c-blue">Confirmed Working</Counter>
+          <Counter target={1} suffix="" colorClass="c-cyan">Partial</Counter>
+          <Counter target={5} suffix="" colorClass="c-purple">Expected</Counter>
           <Counter target={500} suffix="M+" colorClass="c-green">Ecosystem Downloads/wk</Counter>
         </div>
       </div>

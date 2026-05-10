@@ -1,4 +1,4 @@
-// Package data — 90 confirmed + 1 partial + 5 expected
+// Package data — 88 confirmed + 1 partial + 5 expected
 export const pkgs = [
   // State Management
   { n: 'Zustand', d: '19.1M', c: 'State Management', s: 'pass', t: 'Benchmarked 2.5x faster' },
