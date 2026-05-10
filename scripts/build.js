@@ -103,7 +103,11 @@ for (const pkg of packages) {
 
   for (const entry of pkg.entries) {
     const entryPath = join(pkgDir, entry.input);
-    if (!existsSync(entryPath)) continue;
+    if (!existsSync(entryPath)) {
+      buildFailures += 1;
+      console.error(`  ERROR missing configured entry ${pkg.name}/${entry.input}`);
+      continue;
+    }
 
     try {
       // ESM bundle (readable, with source map)
