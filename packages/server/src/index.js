@@ -4,6 +4,72 @@
 
 import { h } from 'what-core';
 
+// --- SSR Error Collection ---
+// Errors that occur during SSR are collected and serialized into the HTML output
+// so the client can pick them up during hydration and display/report them.
+
+let _ssrErrors = [];
+const MAX_SSR_ERRORS = 50;
+
+function _collectSSRError(error, context = {}) {
+  const entry = {
+    code: error.code || 'ERR_SSR_RENDER',
+    message: error.message || String(error),
+    component: context.component || null,
+    timestamp: Date.now(),
+  };
+  // In dev mode, include extra detail for debugging
+  if (_isDevMode) {
+    entry.suggestion = error.suggestion || null;
+    entry.stack = error.stack?.split('\n').slice(0, 5).join('\n') || null;
+  }
+  _ssrErrors.push(entry);
+  if (_ssrErrors.length > MAX_SSR_ERRORS) _ssrErrors.shift();
+}
+
+function _resetSSRErrors() {
+  _ssrErrors = [];
+}
+
+/**
+ * Serialize collected SSR errors into a script tag for client hydration.
+ * In dev mode: includes full error details (message, suggestion, stack).
+ * In production: includes only error code and component name.
+ */
+export function serializeSSRErrors() {
+  if (_ssrErrors.length === 0) return '';
+  const payload = _isDevMode
+    ? _ssrErrors
+    : _ssrErrors.map(e => ({ code: e.code, component: e.component }));
+  const json = JSON.stringify(payload).replace(/<\//g, '<\\/'); // prevent XSS via </script>
+  return `<script type="application/json" data-what-ssr-errors>${json}</script>`;
+}
+
+/**
+ * Read SSR errors from the DOM during client hydration.
+ * Call this on the client side during hydration to pick up errors from SSR.
+ * Returns an array of error objects, or empty array if none.
+ */
+export function hydrateSSRErrors() {
+  if (typeof document === 'undefined') return [];
+  const el = document.querySelector('script[data-what-ssr-errors]');
+  if (!el) return [];
+  try {
+    const errors = JSON.parse(el.textContent);
+    el.remove(); // clean up after reading
+    return errors;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get collected SSR errors (for programmatic access before serialization).
+ */
+export function getSSRErrors() {
+  return _ssrErrors.slice();
+}
+
 // --- Hydration ID Generator ---
 let _hydrationIdCounter = 0;
 
@@ -21,6 +87,7 @@ function nextHydrationId() {
 
 export function renderToHydratableString(vnode) {
   resetHydrationId();
+  _resetSSRErrors();
   return _renderHydratable(vnode);
 }
 
@@ -42,7 +109,8 @@ function _renderHydratable(vnode) {
     try {
       return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
     } catch (e) {
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      _collectSSRError(e, { component: 'reactive-function' });
+      if (_isDevMode) {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
       return '<!--$--><!--/$-->';
@@ -57,10 +125,20 @@ function _renderHydratable(vnode) {
   // Component — add hydration key to root element
   if (typeof vnode.tag === 'function') {
     const hkId = nextHydrationId();
-    const result = vnode.tag({ ...vnode.props, children: vnode.children });
-    const html = _renderHydratable(result);
-    // Inject data-hk into the first element tag if present
-    return injectHydrationKey(html, hkId);
+    const componentName = vnode.tag.displayName || vnode.tag.name || 'Anonymous';
+    try {
+      const result = vnode.tag({ ...vnode.props, children: vnode.children });
+      const html = _renderHydratable(result);
+      // Inject data-hk into the first element tag if present
+      return injectHydrationKey(html, hkId);
+    } catch (e) {
+      _collectSSRError(e, { component: componentName });
+      if (_isDevMode) {
+        console.warn(`[what-server] Error rendering component "${componentName}" in SSR:`, e.message);
+        return `<!--ssr-error:${escapeHtml(componentName)}-->`;
+      }
+      return `<!--ssr-error-->`;
+    }
   }
 
   // Element
@@ -110,7 +188,8 @@ export function renderToString(vnode) {
     try {
       return renderToString(vnode());
     } catch (e) {
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      _collectSSRError(e, { component: 'reactive-function' });
+      if (_isDevMode) {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
       return '';
@@ -124,8 +203,18 @@ export function renderToString(vnode) {
 
   // Component
   if (typeof vnode.tag === 'function') {
-    const result = vnode.tag({ ...vnode.props, children: vnode.children });
-    return renderToString(result);
+    const componentName = vnode.tag.displayName || vnode.tag.name || 'Anonymous';
+    try {
+      const result = vnode.tag({ ...vnode.props, children: vnode.children });
+      return renderToString(result);
+    } catch (e) {
+      _collectSSRError(e, { component: componentName });
+      if (_isDevMode) {
+        console.warn(`[what-server] Error rendering component "${componentName}" in SSR:`, e.message);
+        return `<!-- SSR Error in ${escapeHtml(componentName)}: ${escapeHtml(e.message)} -->`;
+      }
+      return `<!-- SSR Error -->`;
+    }
   }
 
   // Element
@@ -163,7 +252,8 @@ export async function* renderToStream(vnode) {
     try {
       yield* renderToStream(vnode());
     } catch (e) {
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      _collectSSRError(e, { component: 'reactive-function' });
+      if (_isDevMode) {
         console.warn('[what-server] Error rendering reactive function in stream SSR:', e.message);
       }
     }
@@ -178,17 +268,19 @@ export async function* renderToStream(vnode) {
   }
 
   if (typeof vnode.tag === 'function') {
+    const componentName = vnode.tag.displayName || vnode.tag.name || 'Anonymous';
     try {
       const result = vnode.tag({ ...vnode.props, children: vnode.children });
       // Support async components
       const resolved = result instanceof Promise ? await result : result;
       yield* renderToStream(resolved);
     } catch (e) {
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
-        console.warn('[what-server] Error rendering component in stream SSR:', e.message);
+      _collectSSRError(e, { component: componentName });
+      if (_isDevMode) {
+        console.warn(`[what-server] Error rendering component "${componentName}" in stream SSR:`, e.message);
       }
       yield _isDevMode
-        ? `<!-- SSR Error: ${escapeHtml(e.message || 'Component error')} -->`
+        ? `<!-- SSR Error in ${escapeHtml(componentName)}: ${escapeHtml(e.message || 'Component error')} -->`
         : `<!-- SSR Error -->`;
     }
     return;
@@ -226,6 +318,7 @@ export function definePage(config) {
 
 // Generate static HTML for a page
 export function generateStaticPage(page, data = {}) {
+  _resetSSRErrors();
   const vnode = page.component(data);
   const html = renderToString(vnode);
   const islands = page.islands || [];
@@ -238,10 +331,11 @@ export function generateStaticPage(page, data = {}) {
     scripts: page.mode === 'static' ? [] : page.scripts || [],
     styles: page.styles || [],
     mode: page.mode,
+    ssrErrors: serializeSSRErrors(),
   });
 }
 
-function wrapDocument({ title, meta, body, islands, scripts, styles, mode }) {
+function wrapDocument({ title, meta, body, islands, scripts, styles, mode, ssrErrors = '' }) {
   const metaTags = Object.entries(meta)
     .map(([name, content]) => `<meta name="${escapeHtml(name)}" content="${escapeHtml(content)}">`)
     .join('\n    ');
@@ -274,6 +368,7 @@ function wrapDocument({ title, meta, body, islands, scripts, styles, mode }) {
   </head>
   <body>
     <div id="app">${body}</div>
+    ${ssrErrors}
     ${islandScript}
     ${scriptTags}
     ${clientScript}
@@ -374,6 +469,11 @@ const VOID_ELEMENTS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
   'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
+
+// SSR error serialization is exported above:
+//   serializeSSRErrors()  — serialize collected errors to script tag
+//   hydrateSSRErrors()    — read errors from DOM during client hydration
+//   getSSRErrors()        — programmatic access to collected errors
 
 // Re-export server actions
 export {
