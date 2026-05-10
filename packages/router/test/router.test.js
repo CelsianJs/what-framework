@@ -182,6 +182,47 @@ describe('URL sanitization', () => {
     assert.equal(isSafeUrl(123), false);
     assert.equal(isSafeUrl(null), false);
   });
+
+  it('should reject URLs with control characters before protocol', () => {
+    // Tab and newline injection attacks
+    assert.equal(isSafeUrl('java\tscript:alert(1)'), false);
+    assert.equal(isSafeUrl('java\nscript:alert(1)'), false);
+    assert.equal(isSafeUrl('java\rscript:alert(1)'), false);
+    assert.equal(isSafeUrl('\x00javascript:alert(1)'), false);
+    assert.equal(isSafeUrl('\x01javascript:alert(1)'), false);
+  });
+
+  it('should reject mixed-case protocol variants', () => {
+    assert.equal(isSafeUrl('JaVaScRiPt:alert(1)'), false);
+    assert.equal(isSafeUrl('JAVASCRIPT:alert(1)'), false);
+    assert.equal(isSafeUrl('DATA:text/html,<h1>x</h1>'), false);
+    assert.equal(isSafeUrl('VbScRiPt:alert(1)'), false);
+  });
+
+  it('should reject URLs with leading whitespace and control chars', () => {
+    assert.equal(isSafeUrl('  \t\njavascript:alert(1)'), false);
+    assert.equal(isSafeUrl('\x0Cjavascript:alert(1)'), false); // form feed
+  });
+
+  it('should allow relative paths and anchors', () => {
+    assert.equal(isSafeUrl('./page'), true);
+    assert.equal(isSafeUrl('../parent'), true);
+    assert.equal(isSafeUrl('?query=1'), true);
+    assert.equal(isSafeUrl('/path?q=1#hash'), true);
+    assert.equal(isSafeUrl(''), true);
+  });
+
+  it('should allow http and https URLs', () => {
+    assert.equal(isSafeUrl('http://example.com'), true);
+    assert.equal(isSafeUrl('https://example.com'), true);
+    assert.equal(isSafeUrl('HTTP://example.com'), true);
+  });
+
+  it('should reject undefined and object inputs', () => {
+    assert.equal(isSafeUrl(undefined), false);
+    assert.equal(isSafeUrl({}), false);
+    assert.equal(isSafeUrl([]), false);
+  });
 });
 
 // =========================================================================
