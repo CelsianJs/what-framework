@@ -31,6 +31,10 @@ const subsToSignalId = new WeakMap();
 const errors = [];
 const MAX_ERRORS = 100;
 
+// Hydration mismatch log (capped at 50)
+const hydrationMismatches = [];
+const MAX_HYDRATION_MISMATCHES = 50;
+
 // Event listeners for the DevPanel
 const listeners = new Set();
 
@@ -314,6 +318,7 @@ export function getSnapshot(opts = {}) {
     effects: effectList,
     components: componentList,
     errors: errors.slice(),
+    hydrationMismatches: hydrationMismatches.slice(),
   };
 }
 
@@ -341,10 +346,24 @@ export function installDevTools(core) {
   const hooks = {
     onSignalCreate: (sig) => registerSignal(sig),
     onSignalUpdate: (sig) => notifySignalUpdate(sig),
+    onSignalDispose: (sig) => unregisterSignal(sig),
     onEffectCreate: (e) => registerEffect(e),
     onEffectDispose: (e) => unregisterEffect(e),
     onEffectRun: (e) => trackEffectRun(e),
     onError: (err, context) => captureError(err, context),
+    onHydrationMismatch: (info) => {
+      const entry = {
+        type: 'hydration_mismatch',
+        component: info.component,
+        expected: info.expected,
+        actual: info.actual,
+        mismatchCount: info.mismatchCount,
+        timestamp: Date.now(),
+      };
+      hydrationMismatches.push(entry);
+      if (hydrationMismatches.length > MAX_HYDRATION_MISMATCHES) hydrationMismatches.shift();
+      emit('hydration:mismatch', entry);
+    },
     onComponentMount: (ctx) => {
       const name = ctx.Component?.displayName || ctx.Component?.name || 'Anonymous';
       const parentDevId = ctx._parentCtx?._devId || null;
@@ -375,13 +394,14 @@ export function installDevTools(core) {
       get effects() { return getSnapshot().effects; },
       get components() { return getSnapshot().components; },
       get errors() { return getErrors(); },
+      get hydrationMismatches() { return hydrationMismatches.slice(); },
       getSnapshot,
       getErrors,
       subscribe,
       safeSerialize,
-      _registries: { signals, effects, components, errors },
+      _registries: { signals, effects, components, errors, hydrationMismatches },
     };
   }
 }
 
-export { signals, effects, components, errors };
+export { signals, effects, components, errors, hydrationMismatches };

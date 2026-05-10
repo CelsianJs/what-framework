@@ -2,7 +2,7 @@
 // Solid-style rendering: components run once, signals create individual DOM effects.
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
-import { effect, untrack, createRoot, signal, __DEV__ } from './reactive.js';
+import { effect, untrack, createRoot, signal, __DEV__, __devtools } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
 import { createWhatError, collectError } from './errors.js';
 
@@ -1038,6 +1038,19 @@ function reportHydrationMismatch(expected, actual, componentName) {
     };
     const whatError = createWhatError('HYDRATION_MISMATCH', context);
     collectError(whatError);
+    // Notify devtools so MCP agents see hydration mismatches as live events
+    if (__devtools?.onHydrationMismatch) {
+      __devtools.onHydrationMismatch({
+        component: componentName || 'unknown',
+        expected,
+        actual,
+        mismatchCount: _hydrationMismatchCount,
+      });
+    }
+    // Also notify the error handler so it appears in devtools error log
+    if (__devtools?.onError) {
+      __devtools.onError(whatError, { type: 'hydration', component: componentName });
+    }
     console.warn(
       `[what] Hydration mismatch: expected ${expected}, got ${actual}` +
       (componentName ? ` (in ${componentName})` : '') +

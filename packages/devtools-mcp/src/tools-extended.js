@@ -553,6 +553,24 @@ export function registerExtendedTools(server, bridge) {
         } else {
           healthy.push({ category: 'errors', message: 'No runtime errors captured.' });
         }
+
+        // Check for hydration mismatches
+        const hydrationMismatches = snapshot.hydrationMismatches || [];
+        if (hydrationMismatches.length > 0) {
+          issues.push({
+            severity: 'error',
+            category: 'hydration',
+            message: `${hydrationMismatches.length} hydration mismatch${hydrationMismatches.length !== 1 ? 'es' : ''} detected.`,
+            details: hydrationMismatches.slice(-5).map(m => ({
+              component: m.component,
+              expected: m.expected,
+              actual: m.actual,
+            })),
+            suggestion: 'Avoid browser-only APIs (window, localStorage) in initial render. Use onMount() for client-only code.',
+          });
+        } else {
+          healthy.push({ category: 'hydration', message: 'No hydration mismatches detected.' });
+        }
       }
 
       // --- Performance checks ---
