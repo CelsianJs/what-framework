@@ -89,6 +89,23 @@ Tips:
 | Compare before/after state | `what_diff_snapshot {action: "save"}` then `{action: "diff"}` |
 | Change a signal live | `what_set_signal {signalId, value}` |
 | Navigate to a route | `what_navigate {path}` |
+| Click a button/link | `what_click {text: "Submit"}` or `{testId: "add-task"}` |
+| Fill a form field | `what_fill {label: "Email", value: "test@test.com"}` |
+| Fill multiple fields at once | `what_fill {inputs: {email: "a@b.com", password: "secret"}}` |
+| Submit a form | `what_interact {action: "submit_form", componentId: N}` |
+| Select a dropdown option | `what_interact {action: "select_option", label: "Country", value: "US"}` |
+| Toggle a checkbox/switch | `what_interact {action: "toggle", text: "Dark Mode"}` |
+| Hover over an element | `what_interact {action: "hover", text: "Menu"}` |
+| Scroll to an element | `what_interact {action: "scroll_to", componentId: N}` |
+| Type text into focused input | `what_interact {action: "type", value: "hello"}` |
+| Check text is visible | `what_assert {text: "Welcome", visible: true}` |
+| Verify signal value | `what_assert {signalName: "count", value: 3}` |
+| Verify no errors on page | `what_assert {selector: ".error", count: 0}` |
+| Check current route | `what_assert {route: "/dashboard"}` |
+| Wait for loading to finish | `what_wait {text: "Loading", gone: true}` |
+| Wait for component to mount | `what_wait {componentId: 5, mounted: true}` |
+| Wait for app to be idle | `what_wait {idle: true}` |
+| See everything I can interact with | `what_page_map_interactive` |
 | Validate code before saving | `what_lint {code}` |
 | Generate boilerplate | `what_scaffold {type, name}` |
 | Diagnose an error code | `what_fix {errorCode}` |
@@ -125,6 +142,15 @@ Tips:
 **Act:**
 - `what_set_signal {signalId, value}` — change a signal value in the live app
 - `what_navigate {path}` — navigate to a route
+
+**Interact (Playwright-killer tools):**
+- `what_click {text|ariaLabel|testId|role}` — click elements semantically, returns what changed (signals, components, navigation)
+- `what_fill {label|name|placeholder, value}` — fill form fields, returns validation state
+- `what_fill {inputs: {field: "value", ...}}` — fill multiple fields in one call
+- `what_interact {action, ...}` — compound actions: submit_form, select_option, toggle, scroll_to, hover, type, clear, focus
+- `what_assert {text|signalName|selector|route, ...}` — verify page state without screenshots
+- `what_wait {text|componentId|signalId|idle, timeout}` — wait for async conditions
+- `what_page_map_interactive` — enhanced page map showing exact tool/args for every interactive element
 
 **Code quality (no browser needed):**
 - `what_lint {code}` — static analysis, 7 rules
@@ -167,6 +193,21 @@ Tips:
 **Build & test new features:**
 `what_look` on existing components to match styling -> `what_scaffold` for structure -> write code -> `what_lint` to validate -> `what_diff_snapshot({action: "save"})` -> `what_set_signal` to simulate the feature's trigger -> `what_diff_snapshot({action: "diff"})` to verify the reactive cascade works end-to-end.
 
+**Interact with the page (no Playwright needed):**
+`what_page_map_interactive` -> see all interactive elements with exact tool/args -> `what_fill({label: "Email", value: "test@test.com"})` -> `what_fill({label: "Password", value: "secret"})` -> `what_click({text: "Login"})` -> check what changed in the response.
+
+**Fill and submit a form:**
+`what_page_map_interactive` -> `what_fill({inputs: {email: "a@b.com", password: "secret"}})` -> `what_interact({action: "submit_form", componentId: N})` -> `what_assert({route: "/dashboard"})`.
+
+**Test a user flow end-to-end:**
+`what_diff_snapshot({action: "save"})` -> `what_click({text: "Add Task"})` -> `what_fill({placeholder: "Enter task...", value: "Buy milk"})` -> `what_click({text: "Save"})` -> `what_assert({text: "Buy milk", visible: true})` -> `what_diff_snapshot({action: "diff"})` to see the full reactive cascade.
+
+**Wait for async operations:**
+`what_click({text: "Load Data"})` -> `what_wait({text: "Loading", gone: true})` -> `what_assert({text: "Data loaded"})`.
+
+**Verify state without screenshots:**
+`what_assert({signalName: "count", value: 5})` + `what_assert({selector: ".todo-item", count: 3})` + `what_assert({route: "/tasks"})` — all in one pipeline, no images needed.
+
 **Effect should have fired but didn't (stale subscription):**
 If `what_dependency_graph` shows an edge from signal to effect, but `what_diff_snapshot` after changing that signal shows the effect didn't re-run, the subscription may be stale. This happens when a component that owns the effect is unmounted and remounted (e.g., view switches). Check effect `runCount` before and after — if unchanged despite the signal changing, the effect lost its subscription during a remount cycle. Fix: move the effect to module scope or use `computed()` instead.
 
@@ -203,6 +244,29 @@ If `what_dependency_graph` shows an edge from signal to effect, but `what_diff_s
 | `what_scaffold` | `type` | `"component"` `"page"` `"form"` `"store"` `"island"` | What to generate |
 | `what_scaffold` | `props` | string[] | Prop names the component accepts |
 | `what_scaffold` | `signals` | string[] | Signal names to declare |
+| `what_click` | `text` | string | Button/link text to click |
+| `what_click` | `ariaLabel` | string | Click by aria-label |
+| `what_click` | `testId` | string | Click by data-testid |
+| `what_click` | `role` | string | Click by ARIA role |
+| `what_click` | `componentId` | number | Scope search to this component |
+| `what_click` | `index` | number | If multiple matches, click Nth (0-based) |
+| `what_fill` | `label` | string | Find input by label text |
+| `what_fill` | `name` | string | Find input by name attribute |
+| `what_fill` | `placeholder` | string | Find input by placeholder |
+| `what_fill` | `value` | string | Value to fill (single-field mode) |
+| `what_fill` | `inputs` | object | Multi-fill: `{fieldName: "value", ...}` |
+| `what_interact` | `action` | string | `"submit_form"` `"select_option"` `"toggle"` `"scroll_to"` `"hover"` `"type"` `"clear"` `"focus"` |
+| `what_assert` | `text` | string | Assert text exists on page |
+| `what_assert` | `visible` | boolean | Text must be visually visible |
+| `what_assert` | `signalName` | string | Assert signal by name |
+| `what_assert` | `value` | any | Expected signal value |
+| `what_assert` | `selector` | string | CSS selector to count |
+| `what_assert` | `count` | number | Expected element count |
+| `what_assert` | `route` | string | Assert current path |
+| `what_wait` | `text` | string | Wait for text to appear |
+| `what_wait` | `gone` | boolean | Wait for text to disappear |
+| `what_wait` | `idle` | boolean | Wait for no reactive activity |
+| `what_wait` | `timeout` | number | Max wait in ms (default: 5000, max: 30000) |
 
 ### Parallel-Safe Tools
 
@@ -213,7 +277,11 @@ These tools are read-only and safe to call in parallel (batch them to save round
 - `what_diff_snapshot({action: "save"})` (saving is read-only — it stores a copy)
 - `what_lint`, `what_scaffold`, `what_fix` (offline tools, always safe)
 
-**NOT safe to parallelize:** `what_set_signal` calls that share downstream effects (order matters). `what_set_signal` on independent signals IS safe to batch.
+**Read-only interaction tools (safe to parallelize):**
+- `what_assert` — state verification, no side effects
+- `what_page_map_interactive` — enhanced page map, read-only
+
+**NOT safe to parallelize:** `what_set_signal`, `what_click`, `what_fill`, `what_interact` — these mutate state and must run sequentially. `what_wait` blocks until a condition is met, so parallelize with caution.
 
 ### Diff Cascade Metrics
 

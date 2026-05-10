@@ -1020,6 +1020,14 @@ try {
   // Agent tools not yet available — that's fine
 }
 
+// Import and register interaction tools (what_click, what_fill, what_interact, etc.)
+try {
+  const { registerInteractionTools } = await import('./tools-interact.js');
+  registerInteractionTools(server, bridge);
+} catch {
+  // Interaction tools not yet available — that's fine
+}
+
 // --- MCP Prompts: agent guidance ---
 
 server.prompt(
