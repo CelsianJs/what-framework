@@ -77,3 +77,21 @@ Verification:
 
 Not run:
 - `npm run registry:smoke` is post-publish only and requires the just-published npm package set.
+
+## 2026-05-10 — Registry smoke artifact + test-result hygiene follow-up
+
+Fresh re-review found the new registry smoke script installed packages but did not yet write the artifact the workflow uploads, and tracked Playwright result files remained in git. Addressed locally:
+
+- `scripts/smoke-registry-consumer.mjs` now mirrors pack smoke expectations: installs published packages, imports public APIs, runs production-condition imports, verifies CLI binaries, runs `what` and `create-what --help`, and writes `artifacts/registry-smoke.json`.
+- Removed tracked Playwright/test-result artifacts from the index and extended `.gitignore` for test-result output.
+- Added `scripts/check-artifact-hygiene.mjs`, `npm run hygiene:artifacts`, and wired it into `release:verify`.
+
+Verification:
+- `node --check scripts/smoke-registry-consumer.mjs` passed
+- `node --check scripts/check-artifact-hygiene.mjs` passed
+- `npm run -s hygiene:artifacts` passed
+- `npm run -s release:verify` passed: lint, hygiene, typecheck, node tests (764), devtools tests (11), build, packed package smoke, benchmark gate, Playwright e2e (22), npm audit (0 vulnerabilities)
+- `git diff --check` passed
+
+Not run:
+- `npm run registry:smoke` is post-publish only and requires the just-published npm package set.

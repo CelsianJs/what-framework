@@ -37,3 +37,8 @@ examples/npm-app-suite/*/package-lock.json
 examples/package-demos/*/package-lock.json
 packages/*/package-lock.json
 sites/*/package-lock.json
+
+# Test runner artifacts
+test-results/
+examples/*/test-results/
+examples/real-world-suite/test-results/
