@@ -45,3 +45,4 @@ examples/real-world-suite/test-results/
 
 # Generated verification artifacts
 artifacts/
+tmp/

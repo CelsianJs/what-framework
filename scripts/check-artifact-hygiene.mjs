@@ -16,6 +16,14 @@ if (res.status !== 0) {
 
 const trackedFiles = res.stdout.split(/\r?\n/).filter(Boolean);
 
+
+const trackedTmpFiles = trackedFiles.filter((file) => file.startsWith('tmp/'));
+if (trackedTmpFiles.length > 0) {
+  console.error('Scratch tmp files are tracked; move durable checks into named test directories or ignore generated temp output:');
+  for (const file of trackedTmpFiles) console.error(`  - ${file}`);
+  process.exit(1);
+}
+
 const offenders = trackedFiles.filter((file) => forbidden.some((pattern) => pattern.test(file)));
 if (offenders.length > 0) {
   console.error('Playwright/test artifacts are tracked:');
@@ -67,6 +75,7 @@ if (publicBenchmarkManifests.length > 0) {
   process.exit(1);
 }
 
+console.log('OK: no tracked scratch tmp files.');
 console.log('OK: no tracked Playwright/test-result artifacts.');
 console.log('OK: tracked dist artifacts are limited to intentional publish/static-site outputs.');
 console.log('OK: benchmark/comparison package manifests are private.');
