@@ -106,8 +106,17 @@ export function html(strings: TemplateStringsArray, ...values: any[]): VNode | V
 export function mount(vnode: VNodeChild, container: string | Element): () => void;
 
 // Fine-grained rendering primitives
+
+/**
+ * @internal Compiler internal -- do NOT call directly in application code.
+ * Use JSX instead. The compiler transforms JSX into `_$template()` calls automatically.
+ * Direct use with untrusted input creates XSS vulnerabilities (innerHTML).
+ * @deprecated Use JSX. This export exists only for backward compatibility.
+ */
 export function template(html: string): () => Element;
+/** @internal Compiler internal -- inserts reactive children into DOM. Emitted by the compiler. */
 export function insert(parent: Node, child: any, marker?: Node | null): any;
+/** @internal Compiler internal -- keyed list reconciliation. Emitted by the compiler for `<For>`. */
 export function mapArray<T>(
   source: () => T[],
   mapFn: (item: T | Signal<T>, index: number) => Node,
