@@ -1,10 +1,10 @@
 {
   "name": "what-framework-cli",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "What Framework CLI - Dev server, build, and deployment tools",
   "type": "module",
   "bin": {
-    "what": "./src/cli.js"
+    "what": "src/cli.js"
   },
   "main": "src/cli.js",
   "exports": {
@@ -22,11 +22,11 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "dependencies": {
-    "what-framework": "^0.6.0"
+    "what-framework": "^0.6.2"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/what-framework"
+    "url": "git+https://github.com/CelsianJs/what-framework.git"
   },
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"

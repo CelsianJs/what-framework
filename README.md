@@ -35,7 +35,7 @@ Connect your AI agent to a running What app:
 {
   "what-devtools": {
     "command": "npx",
-    "args": ["what-devtools", "--mcp"],
+    "args": ["what-devtools-mcp"],
     "env": { "PORT": "3001" }
   }
 }
@@ -48,7 +48,7 @@ Connect your AI agent to a running What app:
   "mcpServers": {
     "what-devtools": {
       "command": "npx",
-      "args": ["what-devtools", "--mcp"]
+      "args": ["what-devtools-mcp"]
     }
   }
 }
@@ -88,7 +88,8 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 | `what-framework/server` | SSR, islands architecture, static generation |
 | `what-framework/testing` | Test utilities |
 | `what-compiler` | JSX transform and optimizing compiler |
-| `what-devtools` | MCP server for AI agent integration |
+| `what-devtools` | Runtime signal/effect inspector and browser panel |
+| `what-devtools-mcp` | MCP bridge for AI agent integration |
 | `what-react` | React compatibility layer (90+ React libraries) |
 | `create-what` | Project scaffolder |
 

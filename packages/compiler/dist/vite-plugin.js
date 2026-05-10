@@ -889,10 +889,12 @@ function whatBabelPlugin({ types: t }) {
         const value = getAttributeValue(attr.value);
         islandProps.push(t.objectProperty(t.identifier(attrName), value));
       }
-      return t.callExpression(
+      const islandCall = t.callExpression(
         t.identifier("_$createComponent"),
         [t.identifier("Island"), t.objectExpression(islandProps), t.arrayExpression([])]
       );
+      t.addComment(islandCall, "leading", "#__PURE__");
+      return islandCall;
     }
     state.needsCreateComponent = true;
     const props = [];
@@ -996,7 +998,9 @@ function whatBabelPlugin({ types: t }) {
       propsExpr = t.nullLiteral();
     }
     const childrenArray = transformedChildren.length > 0 ? t.arrayExpression(transformedChildren) : t.arrayExpression([]);
-    return t.callExpression(t.identifier("_$createComponent"), [t.identifier(componentName), propsExpr, childrenArray]);
+    const call = t.callExpression(t.identifier("_$createComponent"), [t.identifier(componentName), propsExpr, childrenArray]);
+    t.addComment(call, "leading", "#__PURE__");
+    return call;
   }
   function transformForFineGrained(path3, state) {
     const { node } = path3;
@@ -1085,11 +1089,19 @@ function whatBabelPlugin({ types: t }) {
           state._varCounter = 0;
           state._pendingSetup = [];
           state.nextVarId = () => `_el$${state._varCounter++}`;
+          state.runtimePackage = "what-framework";
+          state._sawFrameworkImport = false;
           state.signalNames = /* @__PURE__ */ new Set();
           state.importedIdentifiers = /* @__PURE__ */ new Set();
           for (const node of path3.node.body) {
             if (t.isImportDeclaration(node)) {
               const source = node.source.value;
+              if (source === "what-framework" || source.startsWith("what-framework/")) {
+                state.runtimePackage = "what-framework";
+                state._sawFrameworkImport = true;
+              } else if (!state._sawFrameworkImport && (source === "what-core" || source.startsWith("what-core/"))) {
+                state.runtimePackage = "what-core";
+              }
               const isReactiveSource = source === "what-framework" || source.startsWith("what-framework/") || source === "what-core" || source.startsWith("what-core/") || source.startsWith("./") || source.startsWith("../");
               for (const spec of node.specifiers) {
                 let localName = null;
@@ -1140,12 +1152,14 @@ function whatBabelPlugin({ types: t }) {
         },
         exit(path3, state) {
           for (const tmpl of state.templates.reverse()) {
+            const templateCall = t.callExpression(t.identifier("_$template"), [t.stringLiteral(tmpl.html)]);
+            t.addComment(templateCall, "leading", "#__PURE__");
             path3.unshiftContainer(
               "body",
               t.variableDeclaration("const", [
                 t.variableDeclarator(
                   t.identifier(tmpl.id),
-                  t.callExpression(t.identifier("_$template"), [t.stringLiteral(tmpl.html)])
+                  templateCall
                 )
               ])
             );
@@ -1210,7 +1224,7 @@ function whatBabelPlugin({ types: t }) {
           if (fgSpecifiers.length > 0) {
             let existingRenderImport = null;
             for (const node of path3.node.body) {
-              if (t.isImportDeclaration(node) && (node.source.value === "what-framework/render" || node.source.value === "what-core/render")) {
+              if (t.isImportDeclaration(node) && (node.source.value === "what-framework/compiler" || node.source.value === "what-core/compiler" || node.source.value === "what-framework/render" || node.source.value === "what-core/render")) {
                 existingRenderImport = node;
                 break;
               }
@@ -1227,12 +1241,12 @@ function whatBabelPlugin({ types: t }) {
             } else {
               path3.unshiftContainer(
                 "body",
-                t.importDeclaration(fgSpecifiers, t.stringLiteral("what-framework/render"))
+                t.importDeclaration(fgSpecifiers, t.stringLiteral(`${state.runtimePackage}/compiler`))
               );
             }
           }
           if (coreSpecifiers.length > 0) {
-            addCoreImports(path3, t, coreSpecifiers);
+            addCoreImports(path3, t, coreSpecifiers, state.runtimePackage);
           }
           if (state.needsDelegation && state.delegatedEvents && state.delegatedEvents.size > 0) {
             const eventArray = t.arrayExpression(
@@ -1283,7 +1297,7 @@ function whatBabelPlugin({ types: t }) {
     }
   };
 }
-function addCoreImports(path3, t, coreSpecifiers) {
+function addCoreImports(path3, t, coreSpecifiers, runtimePackage = "what-framework") {
   let existingImport = null;
   for (const node of path3.node.body) {
     if (t.isImportDeclaration(node) && (node.source.value === "what-core" || node.source.value === "what-framework")) {
@@ -1303,7 +1317,7 @@ function addCoreImports(path3, t, coreSpecifiers) {
   } else {
     const importDecl = t.importDeclaration(
       coreSpecifiers,
-      t.stringLiteral("what-framework")
+      t.stringLiteral(runtimePackage)
     );
     path3.unshiftContainer("body", importDecl);
   }

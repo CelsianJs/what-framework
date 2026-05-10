@@ -663,6 +663,9 @@ function createDOM(vnode, parent, isSvg) {
   if (isVNode(vnode) && typeof vnode.tag === "function") {
     return createComponent(vnode, parent, isSvg);
   }
+  if (isVNode(vnode) && (vnode.tag === "__errorBoundary" || vnode.tag === "__suspense" || vnode.tag === "__portal")) {
+    return createComponent(vnode, parent, isSvg);
+  }
   if (isVNode(vnode)) {
     return createElementFromVNode(vnode, parent, isSvg);
   }

@@ -26,6 +26,8 @@ const packages = [
       { input: 'src/jsx-runtime.js', outputBase: 'jsx-runtime' },
       { input: 'src/jsx-dev-runtime.js', outputBase: 'jsx-dev-runtime' },
       { input: 'src/testing.js', outputBase: 'testing' },
+      { input: 'src/compiler.js', outputBase: 'compiler' },
+      { input: 'src/devtools.js', outputBase: 'devtools' },
     ],
     external: [],
   },
@@ -55,8 +57,17 @@ const packages = [
       { input: 'src/jsx-runtime.js', outputBase: 'jsx-runtime' },
       { input: 'src/jsx-dev-runtime.js', outputBase: 'jsx-dev-runtime' },
       { input: 'src/testing.js', outputBase: 'testing' },
+      { input: 'src/compiler.js', outputBase: 'compiler' },
     ],
     external: ['what-core', 'what-router', 'what-server', 'what-compiler'],
+  },
+  {
+    name: 'devtools',
+    entries: [
+      { input: 'src/index.js', outputBase: 'index' },
+      { input: 'src/DevPanel.jsx', outputBase: 'panel' },
+    ],
+    external: ['what-core'],
   },
   {
     name: 'compiler',

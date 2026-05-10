@@ -28,6 +28,11 @@ on:
         required: true
         default: false
         type: boolean
+      allow_non_latest:
+        description: Acknowledge intentional non-latest/backport npm publish (requires non-latest npm_tag)
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: release-and-deploy-main
@@ -56,6 +61,18 @@ jobs:
       - name: Verify quality gates
         run: npm run -s release:verify
 
+      - name: Validate npm release channel
+        if: ${{ inputs.publish_packages }}
+        run: |
+          if [ "${{ inputs.npm_tag }}" != "latest" ] && [ "${{ inputs.allow_non_latest }}" != "true" ]; then
+            echo "Non-latest npm_tag requires allow_non_latest=true." >&2
+            exit 1
+          fi
+          if [ "${{ inputs.npm_tag }}" = "latest" ] && [ "${{ inputs.allow_non_latest }}" = "true" ]; then
+            echo "allow_non_latest can only be used with a non-latest npm_tag." >&2
+            exit 1
+          fi
+
       - name: Publish npm packages
         if: ${{ inputs.publish_packages }}
         env:
@@ -67,6 +84,9 @@ jobs:
           fi
           if [ -n "${{ inputs.npm_tag }}" ]; then
             ARGS+=(--tag "${{ inputs.npm_tag }}")
+          fi
+          if [ "${{ inputs.allow_non_latest }}" = "true" ]; then
+            ARGS+=(--allow-non-latest)
           fi
           node scripts/publish-packages.mjs "${ARGS[@]}"
 

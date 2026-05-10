@@ -27,12 +27,11 @@ describe('_$createComponent runtime', () => {
     );
   });
 
-  it('is exported from the main index', async () => {
+  it('is exported from the compiler subpath, not the public main index', async () => {
     const core = await import('../../core/src/index.js');
-    assert.ok(
-      typeof core._$createComponent === 'function',
-      '_$createComponent should be exported from core index.js'
-    );
+    const compiler = await import('../../core/src/compiler.js');
+    assert.equal(core._$createComponent, undefined);
+    assert.equal(typeof compiler._$createComponent, 'function');
   });
 
   it('creates DOM from a simple component', async () => {
@@ -78,9 +77,10 @@ describe('h() is internal-only, not a public API', () => {
       typeof core.h === 'function',
       'h should exist for internal package consumers'
     );
-    assert.ok(
-      typeof core._$createComponent === 'function',
-      '_$createComponent should be the compiler target, not h'
+    assert.equal(
+      core._$createComponent,
+      undefined,
+      '_$createComponent should live on the compiler subpath, not the public index'
     );
   });
 

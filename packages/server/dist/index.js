@@ -340,6 +340,46 @@ function useMutation(mutationFn, options = {}) {
 }
 
 // packages/server/src/index.js
+var _ssrErrors = [];
+var MAX_SSR_ERRORS = 50;
+function _collectSSRError(error, context = {}) {
+  const entry = {
+    code: error.code || "ERR_SSR_RENDER",
+    message: error.message || String(error),
+    component: context.component || null,
+    timestamp: Date.now()
+  };
+  if (_isDevMode) {
+    entry.suggestion = error.suggestion || null;
+    entry.stack = error.stack?.split("\n").slice(0, 5).join("\n") || null;
+  }
+  _ssrErrors.push(entry);
+  if (_ssrErrors.length > MAX_SSR_ERRORS) _ssrErrors.shift();
+}
+function _resetSSRErrors() {
+  _ssrErrors = [];
+}
+function serializeSSRErrors() {
+  if (_ssrErrors.length === 0) return "";
+  const payload = _isDevMode ? _ssrErrors : _ssrErrors.map((e) => ({ code: e.code, component: e.component }));
+  const json = JSON.stringify(payload).replace(/<\//g, "<\\/");
+  return `<script type="application/json" data-what-ssr-errors>${json}<\/script>`;
+}
+function hydrateSSRErrors() {
+  if (typeof document === "undefined") return [];
+  const el = document.querySelector("script[data-what-ssr-errors]");
+  if (!el) return [];
+  try {
+    const errors = JSON.parse(el.textContent);
+    el.remove();
+    return errors;
+  } catch {
+    return [];
+  }
+}
+function getSSRErrors() {
+  return _ssrErrors.slice();
+}
 var _hydrationIdCounter = 0;
 function resetHydrationId() {
   _hydrationIdCounter = 0;
@@ -349,6 +389,7 @@ function nextHydrationId() {
 }
 function renderToHydratableString(vnode) {
   resetHydrationId();
+  _resetSSRErrors();
   return _renderHydratable(vnode);
 }
 function _renderHydratable(vnode) {
@@ -363,7 +404,8 @@ function _renderHydratable(vnode) {
     try {
       return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
     } catch (e) {
-      if (typeof process !== "undefined" && true) {
+      _collectSSRError(e, { component: "reactive-function" });
+      if (_isDevMode) {
         console.warn("[what-server] Error rendering reactive function in SSR:", e.message);
       }
       return "<!--$--><!--/$-->";
@@ -374,9 +416,19 @@ function _renderHydratable(vnode) {
   }
   if (typeof vnode.tag === "function") {
     const hkId = nextHydrationId();
-    const result = vnode.tag({ ...vnode.props, children: vnode.children });
-    const html = _renderHydratable(result);
-    return injectHydrationKey(html, hkId);
+    const componentName = vnode.tag.displayName || vnode.tag.name || "Anonymous";
+    try {
+      const result = vnode.tag({ ...vnode.props, children: vnode.children });
+      const html = _renderHydratable(result);
+      return injectHydrationKey(html, hkId);
+    } catch (e) {
+      _collectSSRError(e, { component: componentName });
+      if (_isDevMode) {
+        console.warn(`[what-server] Error rendering component "${componentName}" in SSR:`, e.message);
+        return `<!--ssr-error:${escapeHtml(componentName)}-->`;
+      }
+      return `<!--ssr-error-->`;
+    }
   }
   const { tag, props, children } = vnode;
   const attrs = renderAttrs(props || {});
@@ -408,7 +460,8 @@ function renderToString(vnode) {
     try {
       return renderToString(vnode());
     } catch (e) {
-      if (typeof process !== "undefined" && true) {
+      _collectSSRError(e, { component: "reactive-function" });
+      if (_isDevMode) {
         console.warn("[what-server] Error rendering reactive function in SSR:", e.message);
       }
       return "";
@@ -418,8 +471,18 @@ function renderToString(vnode) {
     return vnode.map(renderToString).join("");
   }
   if (typeof vnode.tag === "function") {
-    const result = vnode.tag({ ...vnode.props, children: vnode.children });
-    return renderToString(result);
+    const componentName = vnode.tag.displayName || vnode.tag.name || "Anonymous";
+    try {
+      const result = vnode.tag({ ...vnode.props, children: vnode.children });
+      return renderToString(result);
+    } catch (e) {
+      _collectSSRError(e, { component: componentName });
+      if (_isDevMode) {
+        console.warn(`[what-server] Error rendering component "${componentName}" in SSR:`, e.message);
+        return `<!-- SSR Error in ${escapeHtml(componentName)}: ${escapeHtml(e.message)} -->`;
+      }
+      return `<!-- SSR Error -->`;
+    }
   }
   const { tag, props, children } = vnode;
   const attrs = renderAttrs(props || {});
@@ -443,7 +506,8 @@ async function* renderToStream(vnode) {
     try {
       yield* renderToStream(vnode());
     } catch (e) {
-      if (typeof process !== "undefined" && true) {
+      _collectSSRError(e, { component: "reactive-function" });
+      if (_isDevMode) {
         console.warn("[what-server] Error rendering reactive function in stream SSR:", e.message);
       }
     }
@@ -456,15 +520,17 @@ async function* renderToStream(vnode) {
     return;
   }
   if (typeof vnode.tag === "function") {
+    const componentName = vnode.tag.displayName || vnode.tag.name || "Anonymous";
     try {
       const result = vnode.tag({ ...vnode.props, children: vnode.children });
       const resolved = result instanceof Promise ? await result : result;
       yield* renderToStream(resolved);
     } catch (e) {
-      if (typeof process !== "undefined" && true) {
-        console.warn("[what-server] Error rendering component in stream SSR:", e.message);
+      _collectSSRError(e, { component: componentName });
+      if (_isDevMode) {
+        console.warn(`[what-server] Error rendering component "${componentName}" in stream SSR:`, e.message);
       }
-      yield _isDevMode ? `<!-- SSR Error: ${escapeHtml(e.message || "Component error")} -->` : `<!-- SSR Error -->`;
+      yield _isDevMode ? `<!-- SSR Error in ${escapeHtml(componentName)}: ${escapeHtml(e.message || "Component error")} -->` : `<!-- SSR Error -->`;
     }
     return;
   }
@@ -494,6 +560,7 @@ function definePage(config) {
   };
 }
 function generateStaticPage(page, data = {}) {
+  _resetSSRErrors();
   const vnode = page.component(data);
   const html = renderToString(vnode);
   const islands = page.islands || [];
@@ -504,10 +571,11 @@ function generateStaticPage(page, data = {}) {
     islands,
     scripts: page.mode === "static" ? [] : page.scripts || [],
     styles: page.styles || [],
-    mode: page.mode
+    mode: page.mode,
+    ssrErrors: serializeSSRErrors()
   });
 }
-function wrapDocument({ title, meta, body, islands, scripts, styles, mode }) {
+function wrapDocument({ title, meta, body, islands, scripts, styles, mode, ssrErrors = "" }) {
   const metaTags = Object.entries(meta).map(([name, content]) => `<meta name="${escapeHtml(name)}" content="${escapeHtml(content)}">`).join("\n    ");
   const styleTags = styles.map((href) => `<link rel="stylesheet" href="${escapeHtml(href)}">`).join("\n    ");
   const islandScript = islands.length > 0 ? `
@@ -529,6 +597,7 @@ function wrapDocument({ title, meta, body, islands, scripts, styles, mode }) {
   </head>
   <body>
     <div id="app">${body}</div>
+    ${ssrErrors}
     ${islandScript}
     ${scriptTags}
     ${clientScript}
@@ -612,12 +681,15 @@ export {
   generateCsrfToken,
   generateStaticPage,
   getRegisteredActions,
+  getSSRErrors,
   handleActionRequest,
+  hydrateSSRErrors,
   invalidatePath,
   onRevalidate,
   renderToHydratableString,
   renderToStream,
   renderToString,
+  serializeSSRErrors,
   server,
   useAction,
   useFormAction,

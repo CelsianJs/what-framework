@@ -177,9 +177,11 @@ describe('MEDIUM-1: template() compiler-internal safety', () => {
     assert.equal(el.tagName.toLowerCase(), 'p');
   });
 
-  it('_$template is exported from index.js', async () => {
+  it('_$template is exported from the compiler subpath, not index.js', async () => {
     const core = await import('../src/index.js');
-    assert.equal(typeof core._$template, 'function');
+    const compiler = await import('../src/compiler.js');
+    assert.equal(core._$template, undefined);
+    assert.equal(typeof compiler._$template, 'function');
   });
 });
 

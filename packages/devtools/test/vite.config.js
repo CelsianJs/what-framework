@@ -31,6 +31,9 @@ export default defineConfig({
   root: __dirname,
   resolve: {
     alias: {
+      'what-framework/compiler': pkgs('core', 'src', 'compiler.js'),
+      'what-core/compiler': pkgs('core', 'src', 'compiler.js'),
+      'what-core/devtools': pkgs('core', 'src', 'devtools.js'),
       'what-core': pkgs('core', 'src', 'index.js'),
       'what-devtools/panel': pkgs('devtools', 'src', 'DevPanel.jsx'),
       'what-devtools': pkgs('devtools', 'src', 'index.js'),

@@ -108,6 +108,18 @@ describe('guardrails', () => {
       assert.ok(invalid[0].suggestion.includes('signal'));
     });
 
+
+
+    it('rejects internals that moved to subpath exports', () => {
+      const invalid = validateImports(['__setDevToolsHooks', '_$createComponent', '_template', '__getCacheSnapshot']);
+      assert.deepEqual(invalid.map(item => item.name), [
+        '__setDevToolsHooks',
+        '_$createComponent',
+        '_template',
+        '__getCacheSnapshot',
+      ]);
+    });
+
     it('returns empty for empty input', () => {
       const invalid = validateImports([]);
       assert.equal(invalid.length, 0);

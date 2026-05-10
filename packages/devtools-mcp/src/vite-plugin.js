@@ -41,11 +41,19 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
       return html.replace(
         '</body>',
         `<script type="module">
-import * as core from 'what-core';
-import { installDevTools } from 'what-devtools';
-import { connectDevToolsMCP } from 'what-devtools-mcp/client';
-installDevTools(core);
-connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)} });
+Promise.all([
+  import('what-core'),
+  import('what-devtools'),
+  import('what-devtools-mcp/client'),
+]).then(([core, devtools, mcp]) => {
+  devtools.installDevTools(core);
+  mcp.connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)} });
+}).catch((error) => {
+  console.warn(
+    '[what-devtools-mcp] DevTools injection failed. Install what-core, what-devtools, and what-devtools-mcp, then verify Vite aliases/package exports.',
+    error
+  );
+});
 </script>
 </body>`
       );

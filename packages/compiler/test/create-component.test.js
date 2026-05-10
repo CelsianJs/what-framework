@@ -72,7 +72,7 @@ describe('Component compilation uses _$createComponent', () => {
     );
   });
 
-  it('imports _$createComponent from render module', () => {
+  it('imports _$createComponent from compiler module', () => {
     const code = `
       function App() {
         return <MyComponent />;
@@ -85,8 +85,28 @@ describe('Component compilation uses _$createComponent', () => {
       `Expected _$createComponent import in output, got:\n${output}`
     );
     assert.ok(
-      output.includes('what-framework/render'),
-      `Expected what-framework/render import in output, got:\n${output}`
+      output.includes('what-framework/compiler'),
+      `Expected what-framework/compiler import in output, got:\n${output}`
+    );
+  });
+
+  it('imports compiler helpers from what-core/compiler for what-core consumers', () => {
+    const code = `
+      import { signal } from 'what-core';
+      const count = signal(0);
+      function App() {
+        return <MyComponent count={count()} />;
+      }
+    `;
+    const output = compile(code);
+
+    assert.ok(
+      output.includes('what-core/compiler'),
+      `Expected what-core/compiler import in output, got:\n${output}`
+    );
+    assert.ok(
+      !output.includes('what-framework/compiler'),
+      `Expected no what-framework/compiler import for what-core consumer, got:\n${output}`
     );
   });
 

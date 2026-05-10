@@ -230,12 +230,15 @@ export function unregisterEffect(e) {
 /**
  * Capture a runtime error.
  */
-function captureError(err, context) {
+export function captureError(err, typeOrContext, context) {
+  const resolvedContext = typeof typeOrContext === 'string'
+    ? { ...(context || {}), type: typeOrContext }
+    : (typeOrContext || context || {});
   const entry = {
     message: err?.message || String(err),
     stack: err?.stack || null,
-    type: context?.type || 'unknown',
-    effectId: context?.effect?._devId || null,
+    type: resolvedContext?.type || 'unknown',
+    effectId: resolvedContext?.effect?._devId || null,
     timestamp: Date.now(),
   };
   errors.push(entry);
@@ -334,6 +337,32 @@ export function getErrors(opts = {}) {
 }
 
 /**
+ * Get captured hydration mismatches.
+ * @param {object} [opts]
+ * @param {number} [opts.since] - Only mismatches after this timestamp
+ */
+export function getHydrationMismatches(opts = {}) {
+  const { since } = opts;
+  if (since) return hydrationMismatches.filter(m => m.timestamp > since);
+  return hydrationMismatches.slice();
+}
+
+/**
+ * Reset devtools registries and captured logs.
+ */
+export function resetDevTools() {
+  signals.clear();
+  effects.clear();
+  components.clear();
+  errors.length = 0;
+  hydrationMismatches.length = 0;
+  listeners.clear();
+  signalId = 0;
+  effectId = 0;
+  componentId = 0;
+}
+
+/**
  * Install devtools. Call once at app startup.
  * Wires into what-core's __DEV__ hooks and exposes `window.__WHAT_DEVTOOLS__`.
  *
@@ -381,11 +410,13 @@ export function installDevTools(core) {
     if (typeof window !== 'undefined') window.__WHAT_CORE__ = core;
   } else {
     try {
-      import('what-core').then(mod => {
+      import('what-core/devtools').then(mod => {
         if (mod.__setDevToolsHooks) mod.__setDevToolsHooks(hooks);
-        if (typeof window !== 'undefined') window.__WHAT_CORE__ = mod;
-      }).catch(() => {});
-    } catch {}
+        if (typeof window !== 'undefined') window.__WHAT_CORE_DEVTOOLS__ = mod;
+      }).catch((error) => warnDevToolsImportFailure(error));
+    } catch (error) {
+      warnDevToolsImportFailure(error);
+    }
   }
 
   if (typeof window !== 'undefined') {
@@ -394,14 +425,26 @@ export function installDevTools(core) {
       get effects() { return getSnapshot().effects; },
       get components() { return getSnapshot().components; },
       get errors() { return getErrors(); },
-      get hydrationMismatches() { return hydrationMismatches.slice(); },
+      get hydrationMismatches() { return getHydrationMismatches(); },
       getSnapshot,
       getErrors,
+      getHydrationMismatches,
       subscribe,
       safeSerialize,
+      captureError,
+      resetDevTools,
       _registries: { signals, effects, components, errors, hydrationMismatches },
     };
   }
 }
 
 export { signals, effects, components, errors, hydrationMismatches };
+
+function warnDevToolsImportFailure(error) {
+  const isDev = typeof process === 'undefined' || process.env?.NODE_ENV !== 'production';
+  if (!isDev || typeof console === 'undefined') return;
+  console.warn(
+    '[what-devtools] Could not import what-core/devtools. Pass installDevTools({ __setDevToolsHooks }) or verify package subpath exports.',
+    error
+  );
+}

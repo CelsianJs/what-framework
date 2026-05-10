@@ -1,7 +1,7 @@
 {
   "name": "what-framework",
   "version": "0.6.2",
-  "description": "The closest framework to vanilla JS — signals, components, islands, SSR",
+  "description": "The closest framework to vanilla JS \u2014 signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",
   "module": "src/index.js",
@@ -49,6 +49,11 @@
     "./react-compat": {
       "types": "./react-compat.d.ts",
       "import": "./src/react-compat.js"
+    },
+    "./compiler": {
+      "types": "./compiler.d.ts",
+      "production": "./dist/compiler.min.js",
+      "import": "./src/compiler.js"
     }
   },
   "files": [
@@ -61,7 +66,8 @@
     "server.d.ts",
     "testing.d.ts",
     "hooks.d.ts",
-    "react-compat.d.ts"
+    "react-compat.d.ts",
+    "compiler.d.ts"
   ],
   "sideEffects": false,
   "keywords": [
@@ -86,9 +92,9 @@
   },
   "homepage": "https://whatfw.com",
   "dependencies": {
-    "what-core": "^0.6.0",
-    "what-router": "^0.6.0",
-    "what-server": "^0.6.0",
-    "what-compiler": "^0.6.0"
+    "what-core": "^0.6.2",
+    "what-router": "^0.6.2",
+    "what-server": "^0.6.2",
+    "what-compiler": "^0.6.2"
   }
 }

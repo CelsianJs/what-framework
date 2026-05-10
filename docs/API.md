@@ -115,7 +115,7 @@ count.subscribe(fn);   // shorthand for effect(() => fn(count()))
 |---|---|
 | `createStore(definition)` | Store hook factory |
 | `derived(fn)` | Store-level derived field marker |
-| `storeComputed(fn)` | Alias of `derived` |
+| `storeComputed(fn)` | Deprecated alias of `derived`; use `derived(fn)` in new code |
 | `atom(initial)` | Standalone signal |
 
 ### Decision matrix

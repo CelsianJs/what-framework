@@ -1,10 +1,10 @@
 {
   "name": "create-what",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "Scaffold a new What Framework project",
   "type": "module",
   "bin": {
-    "create-what": "./index.js"
+    "create-what": "index.js"
   },
   "main": "index.js",
   "files": [
@@ -20,7 +20,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/what-framework"
+    "url": "git+https://github.com/CelsianJs/what-framework.git"
   },
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"

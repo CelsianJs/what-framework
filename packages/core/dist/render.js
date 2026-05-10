@@ -600,6 +600,9 @@ function createDOM(vnode, parent, isSvg) {
   if (isVNode(vnode) && typeof vnode.tag === "function") {
     return createComponent(vnode, parent, isSvg);
   }
+  if (isVNode(vnode) && (vnode.tag === "__errorBoundary" || vnode.tag === "__suspense" || vnode.tag === "__portal")) {
+    return createComponent(vnode, parent, isSvg);
+  }
   if (isVNode(vnode)) {
     return createElementFromVNode(vnode, parent, isSvg);
   }
@@ -987,6 +990,185 @@ function setProp(el, key, value, isSvg) {
     el[key] = value;
   } else {
     el.setAttribute(key, value);
+  }
+}
+
+// packages/core/src/errors.js
+var ERROR_CODES = {
+  INFINITE_EFFECT: {
+    code: "ERR_INFINITE_EFFECT",
+    severity: "error",
+    template: 'Effect "{{effectName}}" exceeded 25 flush iterations \u2014 likely an infinite loop.',
+    suggestion: "An effect is writing to a signal it also reads, creating a cycle. Use untrack() to read the signal without subscribing, or restructure so the write and read are in separate effects.",
+    codeExample: `// Bad \u2014 reads and writes count, creating a cycle:
+effect(() => { count(count() + 1); });
+
+// Good \u2014 use untrack() so the read doesn't subscribe:
+effect(() => { count(untrack(count) + 1); });
+
+// Better \u2014 split into separate logic:
+const doubled = computed(() => count() * 2);`
+  },
+  MISSING_SIGNAL_READ: {
+    code: "ERR_MISSING_SIGNAL_READ",
+    severity: "warning",
+    template: 'Signal "{{signalName}}" used without calling () \u2014 renders as "[Function]" instead of its value.',
+    suggestion: "Signals are functions. Call them to read: count() not count. In JSX: {count()} not {count}.",
+    codeExample: `// Bad \u2014 signal reference, not value:
+<span>{count}</span>       // renders "[Function]"
+
+// Good \u2014 call the signal:
+<span>{count()}</span>     // renders the actual value`
+  },
+  HYDRATION_MISMATCH: {
+    code: "ERR_HYDRATION_MISMATCH",
+    severity: "error",
+    template: 'Hydration mismatch in component "{{component}}": server rendered "{{serverHTML}}" but client expects "{{clientHTML}}".',
+    suggestion: "Ensure server and client render identical initial HTML. Avoid reading browser-only APIs (window, localStorage) during the initial render. Use onMount() for client-only logic.",
+    codeExample: `// Bad \u2014 different on server vs client:
+function App() {
+  return <p>{window.innerWidth}</p>;
+}
+
+// Good \u2014 use onMount for client-only values:
+function App() {
+  const width = signal(0);
+  onMount(() => width(window.innerWidth));
+  return <p>{width()}</p>;
+}`
+  },
+  ORPHAN_EFFECT: {
+    code: "ERR_ORPHAN_EFFECT",
+    severity: "warning",
+    template: 'Effect "{{effectName}}" was created outside a reactive root \u2014 it will never be cleaned up.',
+    suggestion: "Wrap effect creation in createRoot() or create effects inside component functions where they are automatically tracked.",
+    codeExample: `// Bad \u2014 orphaned, leaks memory:
+effect(() => console.log(count()));
+
+// Good \u2014 inside a root with cleanup:
+createRoot(dispose => {
+  effect(() => console.log(count()));
+  // later: dispose() cleans up
+});`
+  },
+  SIGNAL_WRITE_IN_RENDER: {
+    code: "ERR_SIGNAL_WRITE_IN_RENDER",
+    severity: "error",
+    template: 'Signal "{{signalName}}" written during render of component "{{component}}". This triggers re-execution.',
+    suggestion: "Move signal writes into event handlers, effects, or onMount(). The component body should only read signals, not write them.",
+    codeExample: `// Bad \u2014 write during render:
+function Counter() {
+  count(count() + 1);  // triggers infinite loop
+  return <span>{count()}</span>;
+}
+
+// Good \u2014 write in event handler:
+function Counter() {
+  return <button onclick={() => count(c => c + 1)}>{count()}</button>;
+}`
+  },
+  MISSING_CLEANUP: {
+    code: "ERR_MISSING_CLEANUP",
+    severity: "warning",
+    template: 'Effect sets up "{{resource}}" but does not return a cleanup function.',
+    suggestion: "Effects that add event listeners, set timers, or open connections should return a cleanup function to prevent memory leaks.",
+    codeExample: `// Bad \u2014 no cleanup:
+effect(() => {
+  window.addEventListener('resize', handler);
+});
+
+// Good \u2014 return cleanup:
+effect(() => {
+  window.addEventListener('resize', handler);
+  return () => window.removeEventListener('resize', handler);
+});`
+  },
+  UNSAFE_INNERHTML: {
+    code: "ERR_UNSAFE_INNERHTML",
+    severity: "warning",
+    template: "innerHTML set on element without using the __html safety marker.",
+    suggestion: "Use the html tagged template literal or pass { __html: content } to mark innerHTML as intentional and reviewed.",
+    codeExample: `// Bad \u2014 raw innerHTML (XSS risk):
+<div innerHTML={userInput} />
+
+// Good \u2014 explicit opt-in:
+<div innerHTML={{ __html: sanitizedContent }} />
+
+// Better \u2014 use the html template literal:
+html\`<div>\${sanitizedContent}</div>\``
+  },
+  MISSING_KEY: {
+    code: "ERR_MISSING_KEY",
+    severity: "warning",
+    template: 'List rendered without key prop in component "{{component}}". Items may re-order incorrectly.',
+    suggestion: "Add a unique key prop to each item in a list. Use a stable identifier (like an ID), not the array index.",
+    codeExample: `// Bad \u2014 no key:
+<For each={items()}>{item => <li>{item.name}</li>}</For>
+
+// Good \u2014 stable key:
+<For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`
+  }
+};
+var WhatError = class extends Error {
+  constructor({ code, message, suggestion, file, line, component, signal: signal2, effect: effect2 }) {
+    super(message);
+    this.name = "WhatError";
+    this.code = code;
+    this.suggestion = suggestion;
+    this.file = file;
+    this.line = line;
+    this.component = component;
+    this.signal = signal2;
+    this.effect = effect2;
+  }
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      suggestion: this.suggestion,
+      file: this.file,
+      line: this.line,
+      component: this.component,
+      signal: this.signal,
+      effect: this.effect
+    };
+  }
+};
+function createWhatError(errorCode, context = {}) {
+  const def = typeof errorCode === "string" ? ERROR_CODES[errorCode] : errorCode;
+  if (!def) {
+    return new WhatError({
+      code: "ERR_UNKNOWN",
+      message: `Unknown error: ${errorCode}`,
+      suggestion: "Check the error code and try again."
+    });
+  }
+  let message = def.template;
+  for (const [key, val] of Object.entries(context)) {
+    message = message.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), String(val));
+  }
+  message = message.replace(/\{\{[^}]+\}\}/g, "(unknown)");
+  return new WhatError({
+    code: def.code,
+    message,
+    suggestion: def.suggestion,
+    file: context.file,
+    line: context.line,
+    component: context.component,
+    signal: context.signal || context.signalName,
+    effect: context.effect || context.effectName
+  });
+}
+var collectedErrors = [];
+var MAX_COLLECTED = 200;
+function collectError(whatError) {
+  if (!__DEV__) return;
+  collectedErrors.push({
+    ...whatError.toJSON(),
+    timestamp: Date.now()
+  });
+  if (collectedErrors.length > MAX_COLLECTED) {
+    collectedErrors = collectedErrors.slice(-MAX_COLLECTED);
   }
 }
 
@@ -1777,8 +1959,14 @@ function isHydrating() {
 function hydrate(vnode, container) {
   _isHydrating = true;
   _hydrationCursor = { parent: container, index: 0 };
+  _hydrationMismatchCount = 0;
   try {
     const result = hydrateNode(vnode, container);
+    if (__DEV__ && _hydrationMismatchCount > 0) {
+      console.warn(
+        `[what] Hydration completed with ${_hydrationMismatchCount} mismatch${_hydrationMismatchCount === 1 ? "" : "es"}. See previous warnings for details. This usually means server and client render different initial HTML.`
+      );
+    }
     return result;
   } finally {
     _isHydrating = false;
@@ -1801,10 +1989,37 @@ function claimNode(parent) {
   }
   return null;
 }
-function isDevMode() {
-  return typeof process !== "undefined" && true;
+var _hydrationMismatchCount = 0;
+function getHydrationMismatchCount() {
+  return _hydrationMismatchCount;
 }
-function hydrateNode(vnode, parent) {
+function reportHydrationMismatch(expected, actual, componentName) {
+  _hydrationMismatchCount++;
+  if (__DEV__) {
+    const context = {
+      component: componentName || "unknown",
+      serverHTML: actual,
+      clientHTML: expected
+    };
+    const whatError = createWhatError("HYDRATION_MISMATCH", context);
+    collectError(whatError);
+    if (__devtools?.onHydrationMismatch) {
+      __devtools.onHydrationMismatch({
+        component: componentName || "unknown",
+        expected,
+        actual,
+        mismatchCount: _hydrationMismatchCount
+      });
+    }
+    if (__devtools?.onError) {
+      __devtools.onError(whatError, { type: "hydration", component: componentName });
+    }
+    console.warn(
+      `[what] Hydration mismatch: expected ${expected}, got ${actual}` + (componentName ? ` (in ${componentName})` : "") + ". Falling back to client render."
+    );
+  }
+}
+function hydrateNode(vnode, parent, _componentName) {
   if (vnode == null || typeof vnode === "boolean") {
     return null;
   }
@@ -1812,19 +2027,21 @@ function hydrateNode(vnode, parent) {
     const existing = claimNode(parent);
     const text = String(vnode);
     if (existing && existing.nodeType === 3) {
-      if (isDevMode() && existing.textContent !== text) {
-        console.warn(
-          `[what] Hydration mismatch: expected text "${text}", got "${existing.textContent}"`
+      if (__DEV__ && existing.textContent !== text) {
+        reportHydrationMismatch(
+          `text "${text}"`,
+          `text "${existing.textContent}"`,
+          _componentName
         );
         existing.textContent = text;
       }
       return existing;
     }
-    if (isDevMode()) {
-      console.warn(
-        `[what] Hydration mismatch: expected text node "${text}", got ${existing ? existing.nodeName : "nothing"}. Falling back to client render.`
-      );
-    }
+    reportHydrationMismatch(
+      `text node "${text}"`,
+      existing ? existing.nodeName : "nothing",
+      _componentName
+    );
     const textNode2 = document.createTextNode(text);
     if (existing) {
       parent.replaceChild(textNode2, existing);
@@ -1835,7 +2052,7 @@ function hydrateNode(vnode, parent) {
   }
   if (typeof vnode === "function") {
     const initialValue = vnode();
-    let current = hydrateNode(initialValue, parent);
+    let current = hydrateNode(initialValue, parent, _componentName);
     effect(() => {
       const value = vnode();
       if (!_isHydrating) {
@@ -1847,7 +2064,7 @@ function hydrateNode(vnode, parent) {
   if (Array.isArray(vnode)) {
     const nodes = [];
     for (const child of vnode) {
-      const node = hydrateNode(child, parent);
+      const node = hydrateNode(child, parent, _componentName);
       if (node) nodes.push(node);
     }
     return nodes.length === 1 ? nodes[0] : nodes;
@@ -1856,6 +2073,7 @@ function hydrateNode(vnode, parent) {
     if (typeof vnode.tag === "function") {
       const componentStack2 = getComponentStack();
       const Component = vnode.tag;
+      const compName = Component.displayName || Component.name || "Anonymous";
       const props = vnode.props || {};
       const children = vnode.children || [];
       const ctx = {
@@ -1876,7 +2094,9 @@ function hydrateNode(vnode, parent) {
         result = Component({ ...props, children: propsChildren });
       } catch (error) {
         componentStack2.pop();
-        console.error("[what] Error in component during hydration:", Component.name || "Anonymous", error);
+        if (__DEV__) {
+          console.error("[what] Error in component during hydration:", compName, error);
+        }
         return null;
       }
       componentStack2.pop();
@@ -1893,28 +2113,36 @@ function hydrateNode(vnode, parent) {
           }
         });
       }
-      return hydrateNode(result, parent);
+      return hydrateNode(result, parent, compName);
     }
     const existing = claimNode(parent);
     const expectedTag = vnode.tag.toUpperCase();
     if (existing && existing.nodeType === 1 && existing.nodeName === expectedTag) {
       hydrateElementProps(existing, vnode.props || {});
+      if (vnode.props?.ref) {
+        const ref = vnode.props.ref;
+        if (typeof ref === "function") {
+          ref(existing);
+        } else if (typeof ref === "object" && ref !== null) {
+          ref.current = existing;
+        }
+      }
       const savedCursor = _hydrationCursor;
       _hydrationCursor = { parent: existing, index: 0 };
       const rawInner = vnode.props?.dangerouslySetInnerHTML?.__html;
       if (rawInner == null) {
         for (const child of vnode.children) {
-          hydrateNode(child, existing);
+          hydrateNode(child, existing, _componentName);
         }
       }
       _hydrationCursor = savedCursor;
       return existing;
     }
-    if (isDevMode()) {
-      console.warn(
-        `[what] Hydration mismatch: expected <${vnode.tag}>, got ${existing ? existing.nodeName : "nothing"}. Falling back to client render.`
-      );
-    }
+    reportHydrationMismatch(
+      `<${vnode.tag}>`,
+      existing ? existing.nodeName : "nothing",
+      _componentName
+    );
     const newEl = document.createElement(vnode.tag);
     for (const key in vnode.props || {}) {
       if (key === "children" || key === "key") continue;
@@ -1971,6 +2199,18 @@ function hydrateElementProps(el, props) {
       continue;
     }
     if (key === "data-hk") continue;
+    if (__DEV__ && typeof value === "string") {
+      const attrName = key === "className" ? "class" : key === "htmlFor" ? "for" : key;
+      const serverValue = el.getAttribute(attrName);
+      if (serverValue !== null && serverValue !== value) {
+        reportHydrationMismatch(
+          `${attrName}="${value}"`,
+          `${attrName}="${serverValue}"`,
+          el.tagName.toLowerCase()
+        );
+        setProp2(el, key, value);
+      }
+    }
   }
 }
 export {
@@ -1980,6 +2220,7 @@ export {
   classList,
   delegateEvents,
   effect,
+  getHydrationMismatchCount,
   hydrate,
   insert,
   isHydrating,

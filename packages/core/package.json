@@ -34,6 +34,16 @@
     },
     "./hooks": {
       "import": "./src/hooks.js"
+    },
+    "./compiler": {
+      "types": "./compiler.d.ts",
+      "production": "./dist/compiler.min.js",
+      "import": "./src/compiler.js"
+    },
+    "./devtools": {
+      "types": "./devtools.d.ts",
+      "production": "./dist/devtools.min.js",
+      "import": "./src/devtools.js"
     }
   },
   "files": [
@@ -42,7 +52,9 @@
     "index.d.ts",
     "jsx-runtime.d.ts",
     "render.d.ts",
-    "testing.d.ts"
+    "testing.d.ts",
+    "compiler.d.ts",
+    "devtools.d.ts"
   ],
   "sideEffects": false,
   "keywords": [

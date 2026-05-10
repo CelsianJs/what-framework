@@ -7,11 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = 4599;
-const URL = `http://localhost:${PORT}/fixture.html`;
+const HOST = '127.0.0.1';
+const URL = `http://${HOST}:${PORT}/fixture.html`;
 
 let viteProcess;
 let browser;
 let page;
+let shuttingDown = false;
 
 // Wait for Vite to be ready
 function waitForServer(url, timeout = 30000) {
@@ -47,14 +49,29 @@ describe('what-devtools', () => {
   before(async () => {
     // Start Vite dev server
     const repoRoot = resolve(__dirname, '..', '..', '..');
-    viteProcess = spawn('npx', ['vite', '--config', resolve(__dirname, 'vite.config.js')], {
+    viteProcess = spawn(process.execPath, [
+      resolve(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js'),
+      '--host', HOST,
+      '--config', resolve(__dirname, 'vite.config.js'),
+    ], {
       cwd: repoRoot,
-      stdio: 'pipe',
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, NODE_ENV: 'development' },
     });
 
+    let serverOutput = '';
+    viteProcess.stdout?.on('data', chunk => { serverOutput += chunk.toString(); });
+    viteProcess.stderr?.on('data', chunk => { serverOutput += chunk.toString(); });
+    viteProcess.on('exit', (code, signal) => {
+      if (!shuttingDown && code !== null && code !== 0) {
+        console.error(`Vite dev server exited early (${code}, ${signal || 'no signal'}):\n${serverOutput}`);
+      }
+    });
+
     // Wait for server
-    await waitForServer(URL);
+    await waitForServer(URL).catch(err => {
+      throw new Error(`${err.message} while waiting for ${URL}. Vite output:\n${serverOutput}`);
+    });
 
     // Launch browser
     browser = await chromium.launch();
@@ -64,8 +81,12 @@ describe('what-devtools', () => {
   after(async () => {
     if (browser) await browser.close();
     if (viteProcess) {
+      shuttingDown = true;
       viteProcess.kill('SIGTERM');
-      await new Promise(r => viteProcess.on('exit', r));
+      await Promise.race([
+        new Promise(r => viteProcess.on('exit', r)),
+        new Promise(r => setTimeout(r, 3000)),
+      ]);
     }
   });
 

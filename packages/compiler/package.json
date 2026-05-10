@@ -38,7 +38,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@babel/core": "^7.0.0",
-    "what-core": "^0.6.0"
+    "what-core": "^0.6.2"
   },
   "files": [
     "src",

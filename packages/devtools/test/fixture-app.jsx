@@ -1,4 +1,5 @@
-import { signal, effect, mount, __setDevToolsHooks } from 'what-core';
+import { signal, effect, mount, h, Fragment } from 'what-core';
+import { __setDevToolsHooks } from 'what-core/devtools';
 import { installDevTools, getSnapshot, subscribe } from 'what-devtools';
 import { DevPanel } from 'what-devtools/panel';
 
@@ -16,16 +17,15 @@ effect(() => {
   if (el) el.textContent = `Count: ${count()}`;
 });
 
-// Simple test app
+// Simple test app. Use h() here to keep the browser test focused on devtools
+// infrastructure instead of exercising JSX fragment compilation.
 function App() {
-  return (
-    <>
-      <h1 id="title">DevTools Test App</h1>
-      <div id="count-display">Count: 0</div>
-      <button id="increment" onclick={() => count(c => c + 1)}>+1</button>
-      <button id="set-name" onclick={() => name('world')}>Set Name</button>
-      <DevPanel />
-    </>
+  return h(Fragment, null,
+    h('h1', { id: 'title' }, 'DevTools Test App'),
+    h('div', { id: 'count-display' }, 'Count: 0'),
+    h('button', { id: 'increment', onClick: () => count(c => c + 1) }, '+1'),
+    h('button', { id: 'set-name', onClick: () => name('world') }, 'Set Name'),
+    h(DevPanel),
   );
 }
 

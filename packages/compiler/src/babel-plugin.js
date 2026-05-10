@@ -1328,6 +1328,8 @@ export default function whatBabelPlugin({ types: t }) {
           state._varCounter = 0;
           state._pendingSetup = [];
           state.nextVarId = () => `_el$${state._varCounter++}`;
+          state.runtimePackage = 'what-framework';
+          state._sawFrameworkImport = false;
 
           // Collect signal names for smart reactivity detection
           state.signalNames = new Set();
@@ -1341,6 +1343,13 @@ export default function whatBabelPlugin({ types: t }) {
           for (const node of path.node.body) {
             if (t.isImportDeclaration(node)) {
               const source = node.source.value;
+              if (source === 'what-framework' || source.startsWith('what-framework/')) {
+                state.runtimePackage = 'what-framework';
+                state._sawFrameworkImport = true;
+              } else if (!state._sawFrameworkImport && (source === 'what-core' || source.startsWith('what-core/'))) {
+                state.runtimePackage = 'what-core';
+              }
+
               const isReactiveSource =
                 source === 'what-framework' ||
                 source.startsWith('what-framework/') ||
@@ -1485,6 +1494,8 @@ export default function whatBabelPlugin({ types: t }) {
             let existingRenderImport = null;
             for (const node of path.node.body) {
               if (t.isImportDeclaration(node) && (
+                node.source.value === 'what-framework/compiler' ||
+                node.source.value === 'what-core/compiler' ||
                 node.source.value === 'what-framework/render' ||
                 node.source.value === 'what-core/render'
               )) {
@@ -1506,13 +1517,13 @@ export default function whatBabelPlugin({ types: t }) {
               }
             } else {
               path.unshiftContainer('body',
-                t.importDeclaration(fgSpecifiers, t.stringLiteral('what-framework/render'))
+                t.importDeclaration(fgSpecifiers, t.stringLiteral(`${state.runtimePackage}/compiler`))
               );
             }
           }
 
           if (coreSpecifiers.length > 0) {
-            addCoreImports(path, t, coreSpecifiers);
+            addCoreImports(path, t, coreSpecifiers, state.runtimePackage);
           }
 
           // Emit event delegation setup call if any delegated events were used
@@ -1572,7 +1583,7 @@ export default function whatBabelPlugin({ types: t }) {
   };
 }
 
-function addCoreImports(path, t, coreSpecifiers) {
+function addCoreImports(path, t, coreSpecifiers, runtimePackage = 'what-framework') {
   let existingImport = null;
   for (const node of path.node.body) {
     if (t.isImportDeclaration(node) && (
@@ -1597,7 +1608,7 @@ function addCoreImports(path, t, coreSpecifiers) {
   } else {
     const importDecl = t.importDeclaration(
       coreSpecifiers,
-      t.stringLiteral('what-framework')
+      t.stringLiteral(runtimePackage)
     );
     path.unshiftContainer('body', importDecl);
   }

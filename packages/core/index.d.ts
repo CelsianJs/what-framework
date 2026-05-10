@@ -216,6 +216,9 @@ export function Island(props: IslandProps): VNode;
 
 export type DerivedFn<T> = ((state: any) => T) & { _isDerived: true };
 export function derived<T>(fn: (state: any) => T): DerivedFn<T>;
+/**
+ * @deprecated Use derived(fn) instead. storeComputed remains as a runtime alias for backward compatibility.
+ */
 export function storeComputed<T>(fn: (state: any) => T): DerivedFn<T>;
 export type StoreDefinition = Record<string, any>;
 export type Store<T extends StoreDefinition> = T;
@@ -672,31 +675,7 @@ export function isHydrating(): boolean;
  */
 export function getHydrationMismatchCount(): number;
 
-// --- Compiler Internals ---
-// These are used by the compiler output. Not intended for direct use.
-
-/**
- * @internal Compiler target for component instantiation.
- * The compiler emits calls to this instead of h().
- */
-export function _$createComponent(
-  Component: Component<any>,
-  props: Record<string, any>,
-  children?: VNodeChild[],
-): any;
-
-/**
- * @internal Pre-parse HTML string into a template factory.
- * Used by the compiler. Application code should use JSX.
- */
-export function _$template(html: string): () => Element;
-
-/**
- * @internal Alias for template(). Compiler internal.
- * @deprecated Use JSX instead of calling template() directly.
- */
-export function _template(html: string): () => Element;
-
+// --- SVG template helper ---
 /**
  * @internal Parse SVG content inside an SVG namespace container.
  */

@@ -1,9 +1,6 @@
 // packages/core/src/reactive.js
 var __DEV__ = typeof process !== "undefined" ? true : true;
 var __devtools = null;
-function __setDevToolsHooks(hooks) {
-  if (__DEV__) __devtools = hooks;
-}
 var currentEffect = null;
 var currentRoot = null;
 var currentOwner = null;
@@ -814,36 +811,60 @@ function reportError(error, startCtx) {
   return false;
 }
 function Show({ when, fallback = null, children }) {
-  const condition = typeof when === "function" ? when() : when;
-  return condition ? children : fallback;
+  if (typeof when === "function") {
+    return () => when() ? children : fallback;
+  }
+  return when ? children : fallback;
 }
-function For({ each: each2, fallback = null, children }) {
-  const list = typeof each2 === "function" ? each2() : each2;
-  if (!list || list.length === 0) return fallback;
+function For({ each: each2, fallback = null, children, key: keyFn }) {
   const renderFn = Array.isArray(children) ? children[0] : children;
   if (typeof renderFn !== "function") {
-    console.warn("[what] For: children must be a render function, e.g. <For each={items}>{(item) => ...}</For>");
+    if (__DEV__) {
+      console.warn("[what] For: children must be a render function, e.g. <For each={items}>{(item) => ...}</For>");
+    }
     return fallback;
   }
-  return list.map((item, index) => {
+  const source = typeof each2 === "function" ? each2 : () => each2;
+  const mapFn = (item, index) => {
     const vnode = renderFn(item, index);
     if (vnode && typeof vnode === "object" && vnode.key == null) {
-      if (item != null && typeof item === "object") {
-        if (item.id != null) vnode.key = item.id;
-        else if (item.key != null) vnode.key = item.key;
-      } else if (typeof item === "string" || typeof item === "number") {
-        vnode.key = item;
+      const rawItem = typeof item === "function" && item._signal ? item() : item;
+      if (rawItem != null && typeof rawItem === "object") {
+        if (rawItem.id != null) vnode.key = rawItem.id;
+        else if (rawItem.key != null) vnode.key = rawItem.key;
+      } else if (typeof rawItem === "string" || typeof rawItem === "number") {
+        vnode.key = rawItem;
       }
     }
     return vnode;
-  });
+  };
+  return () => {
+    const list = source();
+    if (!list || list.length === 0) return fallback;
+    return list.map((item, i) => mapFn(item, i));
+  };
 }
 function Switch({ fallback = null, children }) {
   const kids = Array.isArray(children) ? children : [children];
+  const hasReactiveCondition = kids.some(
+    (child) => child && child.tag === Match && typeof child.props.when === "function"
+  );
+  if (hasReactiveCondition) {
+    return () => {
+      for (const child of kids) {
+        if (child && child.tag === Match) {
+          const condition = typeof child.props.when === "function" ? child.props.when() : child.props.when;
+          if (condition) {
+            return child.children;
+          }
+        }
+      }
+      return fallback;
+    };
+  }
   for (const child of kids) {
     if (child && child.tag === Match) {
-      const condition = typeof child.props.when === "function" ? child.props.when() : child.props.when;
-      if (condition) {
+      if (child.props.when) {
         return child.children;
       }
     }
@@ -854,7 +875,6 @@ function Match({ when, children }) {
   return { tag: Match, props: { when }, children, _vnode: true };
 }
 function Island({ component: Component, mode, mediaQuery, ...props }) {
-  const placeholder = h("div", { "data-island": Component.name || "Island", "data-hydrate": mode });
   const wrapper = signal(null);
   const hydrated = signal(false);
   function doHydrate() {
@@ -925,7 +945,7 @@ function Island({ component: Component, mode, mediaQuery, ...props }) {
   return h(
     "div",
     { "data-island": Component.name || "Island", "data-hydrate": mode, ref: refCallback },
-    hydrated() ? wrapper() : null
+    () => hydrated() ? wrapper() : null
   );
 }
 
@@ -1268,6 +1288,9 @@ function createDOM(vnode, parent, isSvg) {
     return frag;
   }
   if (isVNode(vnode) && typeof vnode.tag === "function") {
+    return createComponent(vnode, parent, isSvg);
+  }
+  if (isVNode(vnode) && (vnode.tag === "__errorBoundary" || vnode.tag === "__suspense" || vnode.tag === "__portal")) {
     return createComponent(vnode, parent, isSvg);
   }
   if (isVNode(vnode)) {
@@ -1660,14 +1683,214 @@ function setProp(el, key, value, isSvg) {
   }
 }
 
-// packages/core/src/render.js
-function _$createComponent(Component, props, children) {
-  if (children && children.length > 0) {
-    const mergedChildren = children.length === 1 ? children[0] : children;
-    props = props ? { ...props, children: mergedChildren } : { children: mergedChildren };
-  }
-  return createDOM({ tag: Component, props: props || {}, children: children || [], key: null, _vnode: true });
+// packages/core/src/errors.js
+var ERROR_CODES = {
+  INFINITE_EFFECT: {
+    code: "ERR_INFINITE_EFFECT",
+    severity: "error",
+    template: 'Effect "{{effectName}}" exceeded 25 flush iterations \u2014 likely an infinite loop.',
+    suggestion: "An effect is writing to a signal it also reads, creating a cycle. Use untrack() to read the signal without subscribing, or restructure so the write and read are in separate effects.",
+    codeExample: `// Bad \u2014 reads and writes count, creating a cycle:
+effect(() => { count(count() + 1); });
+
+// Good \u2014 use untrack() so the read doesn't subscribe:
+effect(() => { count(untrack(count) + 1); });
+
+// Better \u2014 split into separate logic:
+const doubled = computed(() => count() * 2);`
+  },
+  MISSING_SIGNAL_READ: {
+    code: "ERR_MISSING_SIGNAL_READ",
+    severity: "warning",
+    template: 'Signal "{{signalName}}" used without calling () \u2014 renders as "[Function]" instead of its value.',
+    suggestion: "Signals are functions. Call them to read: count() not count. In JSX: {count()} not {count}.",
+    codeExample: `// Bad \u2014 signal reference, not value:
+<span>{count}</span>       // renders "[Function]"
+
+// Good \u2014 call the signal:
+<span>{count()}</span>     // renders the actual value`
+  },
+  HYDRATION_MISMATCH: {
+    code: "ERR_HYDRATION_MISMATCH",
+    severity: "error",
+    template: 'Hydration mismatch in component "{{component}}": server rendered "{{serverHTML}}" but client expects "{{clientHTML}}".',
+    suggestion: "Ensure server and client render identical initial HTML. Avoid reading browser-only APIs (window, localStorage) during the initial render. Use onMount() for client-only logic.",
+    codeExample: `// Bad \u2014 different on server vs client:
+function App() {
+  return <p>{window.innerWidth}</p>;
 }
+
+// Good \u2014 use onMount for client-only values:
+function App() {
+  const width = signal(0);
+  onMount(() => width(window.innerWidth));
+  return <p>{width()}</p>;
+}`
+  },
+  ORPHAN_EFFECT: {
+    code: "ERR_ORPHAN_EFFECT",
+    severity: "warning",
+    template: 'Effect "{{effectName}}" was created outside a reactive root \u2014 it will never be cleaned up.',
+    suggestion: "Wrap effect creation in createRoot() or create effects inside component functions where they are automatically tracked.",
+    codeExample: `// Bad \u2014 orphaned, leaks memory:
+effect(() => console.log(count()));
+
+// Good \u2014 inside a root with cleanup:
+createRoot(dispose => {
+  effect(() => console.log(count()));
+  // later: dispose() cleans up
+});`
+  },
+  SIGNAL_WRITE_IN_RENDER: {
+    code: "ERR_SIGNAL_WRITE_IN_RENDER",
+    severity: "error",
+    template: 'Signal "{{signalName}}" written during render of component "{{component}}". This triggers re-execution.',
+    suggestion: "Move signal writes into event handlers, effects, or onMount(). The component body should only read signals, not write them.",
+    codeExample: `// Bad \u2014 write during render:
+function Counter() {
+  count(count() + 1);  // triggers infinite loop
+  return <span>{count()}</span>;
+}
+
+// Good \u2014 write in event handler:
+function Counter() {
+  return <button onclick={() => count(c => c + 1)}>{count()}</button>;
+}`
+  },
+  MISSING_CLEANUP: {
+    code: "ERR_MISSING_CLEANUP",
+    severity: "warning",
+    template: 'Effect sets up "{{resource}}" but does not return a cleanup function.',
+    suggestion: "Effects that add event listeners, set timers, or open connections should return a cleanup function to prevent memory leaks.",
+    codeExample: `// Bad \u2014 no cleanup:
+effect(() => {
+  window.addEventListener('resize', handler);
+});
+
+// Good \u2014 return cleanup:
+effect(() => {
+  window.addEventListener('resize', handler);
+  return () => window.removeEventListener('resize', handler);
+});`
+  },
+  UNSAFE_INNERHTML: {
+    code: "ERR_UNSAFE_INNERHTML",
+    severity: "warning",
+    template: "innerHTML set on element without using the __html safety marker.",
+    suggestion: "Use the html tagged template literal or pass { __html: content } to mark innerHTML as intentional and reviewed.",
+    codeExample: `// Bad \u2014 raw innerHTML (XSS risk):
+<div innerHTML={userInput} />
+
+// Good \u2014 explicit opt-in:
+<div innerHTML={{ __html: sanitizedContent }} />
+
+// Better \u2014 use the html template literal:
+html\`<div>\${sanitizedContent}</div>\``
+  },
+  MISSING_KEY: {
+    code: "ERR_MISSING_KEY",
+    severity: "warning",
+    template: 'List rendered without key prop in component "{{component}}". Items may re-order incorrectly.',
+    suggestion: "Add a unique key prop to each item in a list. Use a stable identifier (like an ID), not the array index.",
+    codeExample: `// Bad \u2014 no key:
+<For each={items()}>{item => <li>{item.name}</li>}</For>
+
+// Good \u2014 stable key:
+<For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`
+  }
+};
+var WhatError = class extends Error {
+  constructor({ code, message, suggestion, file, line, component, signal: signal2, effect: effect2 }) {
+    super(message);
+    this.name = "WhatError";
+    this.code = code;
+    this.suggestion = suggestion;
+    this.file = file;
+    this.line = line;
+    this.component = component;
+    this.signal = signal2;
+    this.effect = effect2;
+  }
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      suggestion: this.suggestion,
+      file: this.file,
+      line: this.line,
+      component: this.component,
+      signal: this.signal,
+      effect: this.effect
+    };
+  }
+};
+function createWhatError(errorCode, context = {}) {
+  const def = typeof errorCode === "string" ? ERROR_CODES[errorCode] : errorCode;
+  if (!def) {
+    return new WhatError({
+      code: "ERR_UNKNOWN",
+      message: `Unknown error: ${errorCode}`,
+      suggestion: "Check the error code and try again."
+    });
+  }
+  let message = def.template;
+  for (const [key, val] of Object.entries(context)) {
+    message = message.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), String(val));
+  }
+  message = message.replace(/\{\{[^}]+\}\}/g, "(unknown)");
+  return new WhatError({
+    code: def.code,
+    message,
+    suggestion: def.suggestion,
+    file: context.file,
+    line: context.line,
+    component: context.component,
+    signal: context.signal || context.signalName,
+    effect: context.effect || context.effectName
+  });
+}
+var collectedErrors = [];
+var MAX_COLLECTED = 200;
+function collectError(whatError) {
+  if (!__DEV__) return;
+  collectedErrors.push({
+    ...whatError.toJSON(),
+    timestamp: Date.now()
+  });
+  if (collectedErrors.length > MAX_COLLECTED) {
+    collectedErrors = collectedErrors.slice(-MAX_COLLECTED);
+  }
+}
+function getCollectedErrors(since) {
+  if (since) return collectedErrors.filter((e) => e.timestamp > since);
+  return collectedErrors.slice();
+}
+function clearCollectedErrors() {
+  collectedErrors = [];
+}
+function classifyError(err, context = {}) {
+  const msg = err?.message || String(err);
+  if (msg.includes("infinite effect loop") || msg.includes("25 iterations")) {
+    return createWhatError("INFINITE_EFFECT", context);
+  }
+  if (msg.includes("hydration") || msg.includes("Hydration")) {
+    return createWhatError("HYDRATION_MISMATCH", context);
+  }
+  if (msg.includes("Signal.set() called inside a computed")) {
+    return createWhatError("SIGNAL_WRITE_IN_RENDER", {
+      ...context,
+      signalName: msg.match(/signal: (\w+)/)?.[1] || context.signalName
+    });
+  }
+  return new WhatError({
+    code: "ERR_RUNTIME",
+    message: msg,
+    suggestion: "Check the stack trace and component context for more details.",
+    ...context
+  });
+}
+
+// packages/core/src/render.js
 var URL_ATTRS = /* @__PURE__ */ new Set(["href", "src", "action", "formaction", "formAction"]);
 function isSafeUrl(url) {
   if (typeof url !== "string") return true;
@@ -2447,8 +2670,14 @@ function isHydrating() {
 function hydrate(vnode, container) {
   _isHydrating = true;
   _hydrationCursor = { parent: container, index: 0 };
+  _hydrationMismatchCount = 0;
   try {
     const result = hydrateNode(vnode, container);
+    if (__DEV__ && _hydrationMismatchCount > 0) {
+      console.warn(
+        `[what] Hydration completed with ${_hydrationMismatchCount} mismatch${_hydrationMismatchCount === 1 ? "" : "es"}. See previous warnings for details. This usually means server and client render different initial HTML.`
+      );
+    }
     return result;
   } finally {
     _isHydrating = false;
@@ -2471,10 +2700,37 @@ function claimNode(parent) {
   }
   return null;
 }
-function isDevMode() {
-  return typeof process !== "undefined" && true;
+var _hydrationMismatchCount = 0;
+function getHydrationMismatchCount() {
+  return _hydrationMismatchCount;
 }
-function hydrateNode(vnode, parent) {
+function reportHydrationMismatch(expected, actual, componentName) {
+  _hydrationMismatchCount++;
+  if (__DEV__) {
+    const context = {
+      component: componentName || "unknown",
+      serverHTML: actual,
+      clientHTML: expected
+    };
+    const whatError = createWhatError("HYDRATION_MISMATCH", context);
+    collectError(whatError);
+    if (__devtools?.onHydrationMismatch) {
+      __devtools.onHydrationMismatch({
+        component: componentName || "unknown",
+        expected,
+        actual,
+        mismatchCount: _hydrationMismatchCount
+      });
+    }
+    if (__devtools?.onError) {
+      __devtools.onError(whatError, { type: "hydration", component: componentName });
+    }
+    console.warn(
+      `[what] Hydration mismatch: expected ${expected}, got ${actual}` + (componentName ? ` (in ${componentName})` : "") + ". Falling back to client render."
+    );
+  }
+}
+function hydrateNode(vnode, parent, _componentName) {
   if (vnode == null || typeof vnode === "boolean") {
     return null;
   }
@@ -2482,19 +2738,21 @@ function hydrateNode(vnode, parent) {
     const existing = claimNode(parent);
     const text = String(vnode);
     if (existing && existing.nodeType === 3) {
-      if (isDevMode() && existing.textContent !== text) {
-        console.warn(
-          `[what] Hydration mismatch: expected text "${text}", got "${existing.textContent}"`
+      if (__DEV__ && existing.textContent !== text) {
+        reportHydrationMismatch(
+          `text "${text}"`,
+          `text "${existing.textContent}"`,
+          _componentName
         );
         existing.textContent = text;
       }
       return existing;
     }
-    if (isDevMode()) {
-      console.warn(
-        `[what] Hydration mismatch: expected text node "${text}", got ${existing ? existing.nodeName : "nothing"}. Falling back to client render.`
-      );
-    }
+    reportHydrationMismatch(
+      `text node "${text}"`,
+      existing ? existing.nodeName : "nothing",
+      _componentName
+    );
     const textNode2 = document.createTextNode(text);
     if (existing) {
       parent.replaceChild(textNode2, existing);
@@ -2505,7 +2763,7 @@ function hydrateNode(vnode, parent) {
   }
   if (typeof vnode === "function") {
     const initialValue = vnode();
-    let current = hydrateNode(initialValue, parent);
+    let current = hydrateNode(initialValue, parent, _componentName);
     effect(() => {
       const value = vnode();
       if (!_isHydrating) {
@@ -2517,7 +2775,7 @@ function hydrateNode(vnode, parent) {
   if (Array.isArray(vnode)) {
     const nodes = [];
     for (const child of vnode) {
-      const node = hydrateNode(child, parent);
+      const node = hydrateNode(child, parent, _componentName);
       if (node) nodes.push(node);
     }
     return nodes.length === 1 ? nodes[0] : nodes;
@@ -2526,6 +2784,7 @@ function hydrateNode(vnode, parent) {
     if (typeof vnode.tag === "function") {
       const componentStack2 = getComponentStack();
       const Component = vnode.tag;
+      const compName = Component.displayName || Component.name || "Anonymous";
       const props = vnode.props || {};
       const children = vnode.children || [];
       const ctx = {
@@ -2546,7 +2805,9 @@ function hydrateNode(vnode, parent) {
         result = Component({ ...props, children: propsChildren });
       } catch (error) {
         componentStack2.pop();
-        console.error("[what] Error in component during hydration:", Component.name || "Anonymous", error);
+        if (__DEV__) {
+          console.error("[what] Error in component during hydration:", compName, error);
+        }
         return null;
       }
       componentStack2.pop();
@@ -2563,28 +2824,36 @@ function hydrateNode(vnode, parent) {
           }
         });
       }
-      return hydrateNode(result, parent);
+      return hydrateNode(result, parent, compName);
     }
     const existing = claimNode(parent);
     const expectedTag = vnode.tag.toUpperCase();
     if (existing && existing.nodeType === 1 && existing.nodeName === expectedTag) {
       hydrateElementProps(existing, vnode.props || {});
+      if (vnode.props?.ref) {
+        const ref = vnode.props.ref;
+        if (typeof ref === "function") {
+          ref(existing);
+        } else if (typeof ref === "object" && ref !== null) {
+          ref.current = existing;
+        }
+      }
       const savedCursor = _hydrationCursor;
       _hydrationCursor = { parent: existing, index: 0 };
       const rawInner = vnode.props?.dangerouslySetInnerHTML?.__html;
       if (rawInner == null) {
         for (const child of vnode.children) {
-          hydrateNode(child, existing);
+          hydrateNode(child, existing, _componentName);
         }
       }
       _hydrationCursor = savedCursor;
       return existing;
     }
-    if (isDevMode()) {
-      console.warn(
-        `[what] Hydration mismatch: expected <${vnode.tag}>, got ${existing ? existing.nodeName : "nothing"}. Falling back to client render.`
-      );
-    }
+    reportHydrationMismatch(
+      `<${vnode.tag}>`,
+      existing ? existing.nodeName : "nothing",
+      _componentName
+    );
     const newEl = document.createElement(vnode.tag);
     for (const key in vnode.props || {}) {
       if (key === "children" || key === "key") continue;
@@ -2641,6 +2910,18 @@ function hydrateElementProps(el, props) {
       continue;
     }
     if (key === "data-hk") continue;
+    if (__DEV__ && typeof value === "string") {
+      const attrName = key === "className" ? "class" : key === "htmlFor" ? "for" : key;
+      const serverValue = el.getAttribute(attrName);
+      if (serverValue !== null && serverValue !== value) {
+        reportHydrationMismatch(
+          `${attrName}="${value}"`,
+          `${attrName}="${serverValue}"`,
+          el.tagName.toLowerCase()
+        );
+        setProp2(el, key, value);
+      }
+    }
   }
 }
 
@@ -2658,16 +2939,6 @@ function getHook(ctx) {
   const index = ctx.hookIndex++;
   return { index, exists: index < ctx.hooks.length };
 }
-function useState(initial) {
-  const ctx = getCtx("useState");
-  const { index, exists } = getHook(ctx);
-  if (!exists) {
-    const s2 = signal(typeof initial === "function" ? initial() : initial);
-    ctx.hooks[index] = s2;
-  }
-  const s = ctx.hooks[index];
-  return [s, s.set];
-}
 function useSignal(initial) {
   const ctx = getCtx("useSignal");
   const { index, exists } = getHook(ctx);
@@ -2681,97 +2952,6 @@ function useComputed(fn) {
   const { index, exists } = getHook(ctx);
   if (!exists) {
     ctx.hooks[index] = computed(fn);
-  }
-  return ctx.hooks[index];
-}
-function useEffect(fn, deps) {
-  const ctx = getCtx("useEffect");
-  const { index, exists } = getHook(ctx);
-  if (!exists) {
-    ctx.hooks[index] = { cleanup: null, dispose: null };
-  }
-  if (__DEV__ && Array.isArray(deps) && deps.length > 0) {
-    for (let i = 0; i < deps.length; i++) {
-      const dep = deps[i];
-      if (dep != null && typeof dep !== "function") {
-        console.warn(
-          `[what] useEffect dep at index ${i} is not a function. Did you mean to pass a signal? Use count instead of count()`
-        );
-      }
-    }
-  }
-  const hook = ctx.hooks[index];
-  if (hook.dispose) return;
-  if (deps === void 0) {
-    queueMicrotask(() => {
-      if (ctx.disposed) return;
-      hook.dispose = effect(() => {
-        if (hook.cleanup) {
-          try {
-            hook.cleanup();
-          } catch (e) {
-          }
-          hook.cleanup = null;
-        }
-        const result = fn();
-        if (typeof result === "function") hook.cleanup = result;
-      });
-      ctx.effects = ctx.effects || [];
-      ctx.effects.push(hook.dispose);
-    });
-  } else if (deps.length === 0) {
-    queueMicrotask(() => {
-      if (ctx.disposed) return;
-      const result = fn();
-      if (typeof result === "function") hook.cleanup = result;
-    });
-    hook.dispose = true;
-  } else {
-    queueMicrotask(() => {
-      if (ctx.disposed) return;
-      hook.dispose = effect(() => {
-        for (let i = 0; i < deps.length; i++) {
-          const dep = deps[i];
-          if (typeof dep === "function" && dep._signal) {
-            dep();
-          }
-        }
-        if (hook.cleanup) {
-          try {
-            hook.cleanup();
-          } catch (e) {
-          }
-          hook.cleanup = null;
-        }
-        const result = untrack(() => fn());
-        if (typeof result === "function") hook.cleanup = result;
-      });
-      ctx.effects = ctx.effects || [];
-      ctx.effects.push(hook.dispose);
-    });
-  }
-}
-function useMemo(fn, deps) {
-  const ctx = getCtx("useMemo");
-  const { index, exists } = getHook(ctx);
-  if (!exists) {
-    ctx.hooks[index] = { computed: computed(fn) };
-  }
-  return ctx.hooks[index].computed;
-}
-function useCallback(fn, deps) {
-  const ctx = getCtx("useCallback");
-  const { index, exists } = getHook(ctx);
-  if (!exists) {
-    ctx.hooks[index] = { callback: fn };
-  }
-  return ctx.hooks[index].callback;
-}
-function useRef(initial) {
-  const ctx = getCtx("useRef");
-  const { index, exists } = getHook(ctx);
-  if (!exists) {
-    ctx.hooks[index] = { current: initial };
   }
   return ctx.hooks[index];
 }
@@ -4843,18 +5023,6 @@ function clearCache() {
   lastFetchTimestamps.clear();
   inFlightRequests.clear();
 }
-function __getCacheSnapshot() {
-  const entries = [];
-  for (const [key, sig] of cacheSignals) {
-    entries.push({
-      key,
-      data: sig.peek(),
-      error: errorSignals.has(key) ? errorSignals.get(key).peek() : null,
-      isValidating: validatingSignals.has(key) ? validatingSignals.get(key).peek() : false
-    });
-  }
-  return entries;
-}
 
 // packages/core/src/form.js
 function useForm(options = {}) {
@@ -5312,213 +5480,6 @@ function ErrorMessage({ name, formState, errors, render }) {
   return h("span", { class: "what-error", role: "alert" }, error.message);
 }
 
-// packages/core/src/errors.js
-var ERROR_CODES = {
-  INFINITE_EFFECT: {
-    code: "ERR_INFINITE_EFFECT",
-    severity: "error",
-    template: 'Effect "{{effectName}}" exceeded 25 flush iterations \u2014 likely an infinite loop.',
-    suggestion: "An effect is writing to a signal it also reads, creating a cycle. Use untrack() to read the signal without subscribing, or restructure so the write and read are in separate effects.",
-    codeExample: `// Bad \u2014 reads and writes count, creating a cycle:
-effect(() => { count(count() + 1); });
-
-// Good \u2014 use untrack() so the read doesn't subscribe:
-effect(() => { count(untrack(count) + 1); });
-
-// Better \u2014 split into separate logic:
-const doubled = computed(() => count() * 2);`
-  },
-  MISSING_SIGNAL_READ: {
-    code: "ERR_MISSING_SIGNAL_READ",
-    severity: "warning",
-    template: 'Signal "{{signalName}}" used without calling () \u2014 renders as "[Function]" instead of its value.',
-    suggestion: "Signals are functions. Call them to read: count() not count. In JSX: {count()} not {count}.",
-    codeExample: `// Bad \u2014 signal reference, not value:
-<span>{count}</span>       // renders "[Function]"
-
-// Good \u2014 call the signal:
-<span>{count()}</span>     // renders the actual value`
-  },
-  HYDRATION_MISMATCH: {
-    code: "ERR_HYDRATION_MISMATCH",
-    severity: "error",
-    template: 'Hydration mismatch in component "{{component}}": server rendered "{{serverHTML}}" but client expects "{{clientHTML}}".',
-    suggestion: "Ensure server and client render identical initial HTML. Avoid reading browser-only APIs (window, localStorage) during the initial render. Use onMount() for client-only logic.",
-    codeExample: `// Bad \u2014 different on server vs client:
-function App() {
-  return <p>{window.innerWidth}</p>;
-}
-
-// Good \u2014 use onMount for client-only values:
-function App() {
-  const width = signal(0);
-  onMount(() => width(window.innerWidth));
-  return <p>{width()}</p>;
-}`
-  },
-  ORPHAN_EFFECT: {
-    code: "ERR_ORPHAN_EFFECT",
-    severity: "warning",
-    template: 'Effect "{{effectName}}" was created outside a reactive root \u2014 it will never be cleaned up.',
-    suggestion: "Wrap effect creation in createRoot() or create effects inside component functions where they are automatically tracked.",
-    codeExample: `// Bad \u2014 orphaned, leaks memory:
-effect(() => console.log(count()));
-
-// Good \u2014 inside a root with cleanup:
-createRoot(dispose => {
-  effect(() => console.log(count()));
-  // later: dispose() cleans up
-});`
-  },
-  SIGNAL_WRITE_IN_RENDER: {
-    code: "ERR_SIGNAL_WRITE_IN_RENDER",
-    severity: "error",
-    template: 'Signal "{{signalName}}" written during render of component "{{component}}". This triggers re-execution.',
-    suggestion: "Move signal writes into event handlers, effects, or onMount(). The component body should only read signals, not write them.",
-    codeExample: `// Bad \u2014 write during render:
-function Counter() {
-  count(count() + 1);  // triggers infinite loop
-  return <span>{count()}</span>;
-}
-
-// Good \u2014 write in event handler:
-function Counter() {
-  return <button onclick={() => count(c => c + 1)}>{count()}</button>;
-}`
-  },
-  MISSING_CLEANUP: {
-    code: "ERR_MISSING_CLEANUP",
-    severity: "warning",
-    template: 'Effect sets up "{{resource}}" but does not return a cleanup function.',
-    suggestion: "Effects that add event listeners, set timers, or open connections should return a cleanup function to prevent memory leaks.",
-    codeExample: `// Bad \u2014 no cleanup:
-effect(() => {
-  window.addEventListener('resize', handler);
-});
-
-// Good \u2014 return cleanup:
-effect(() => {
-  window.addEventListener('resize', handler);
-  return () => window.removeEventListener('resize', handler);
-});`
-  },
-  UNSAFE_INNERHTML: {
-    code: "ERR_UNSAFE_INNERHTML",
-    severity: "warning",
-    template: "innerHTML set on element without using the __html safety marker.",
-    suggestion: "Use the html tagged template literal or pass { __html: content } to mark innerHTML as intentional and reviewed.",
-    codeExample: `// Bad \u2014 raw innerHTML (XSS risk):
-<div innerHTML={userInput} />
-
-// Good \u2014 explicit opt-in:
-<div innerHTML={{ __html: sanitizedContent }} />
-
-// Better \u2014 use the html template literal:
-html\`<div>\${sanitizedContent}</div>\``
-  },
-  MISSING_KEY: {
-    code: "ERR_MISSING_KEY",
-    severity: "warning",
-    template: 'List rendered without key prop in component "{{component}}". Items may re-order incorrectly.',
-    suggestion: "Add a unique key prop to each item in a list. Use a stable identifier (like an ID), not the array index.",
-    codeExample: `// Bad \u2014 no key:
-<For each={items()}>{item => <li>{item.name}</li>}</For>
-
-// Good \u2014 stable key:
-<For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`
-  }
-};
-var WhatError = class extends Error {
-  constructor({ code, message, suggestion, file, line, component, signal: signal2, effect: effect2 }) {
-    super(message);
-    this.name = "WhatError";
-    this.code = code;
-    this.suggestion = suggestion;
-    this.file = file;
-    this.line = line;
-    this.component = component;
-    this.signal = signal2;
-    this.effect = effect2;
-  }
-  toJSON() {
-    return {
-      code: this.code,
-      message: this.message,
-      suggestion: this.suggestion,
-      file: this.file,
-      line: this.line,
-      component: this.component,
-      signal: this.signal,
-      effect: this.effect
-    };
-  }
-};
-function createWhatError(errorCode, context = {}) {
-  const def = typeof errorCode === "string" ? ERROR_CODES[errorCode] : errorCode;
-  if (!def) {
-    return new WhatError({
-      code: "ERR_UNKNOWN",
-      message: `Unknown error: ${errorCode}`,
-      suggestion: "Check the error code and try again."
-    });
-  }
-  let message = def.template;
-  for (const [key, val] of Object.entries(context)) {
-    message = message.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), String(val));
-  }
-  message = message.replace(/\{\{[^}]+\}\}/g, "(unknown)");
-  return new WhatError({
-    code: def.code,
-    message,
-    suggestion: def.suggestion,
-    file: context.file,
-    line: context.line,
-    component: context.component,
-    signal: context.signal || context.signalName,
-    effect: context.effect || context.effectName
-  });
-}
-var collectedErrors = [];
-var MAX_COLLECTED = 200;
-function collectError(whatError) {
-  if (!__DEV__) return;
-  collectedErrors.push({
-    ...whatError.toJSON(),
-    timestamp: Date.now()
-  });
-  if (collectedErrors.length > MAX_COLLECTED) {
-    collectedErrors = collectedErrors.slice(-MAX_COLLECTED);
-  }
-}
-function getCollectedErrors(since) {
-  if (since) return collectedErrors.filter((e) => e.timestamp > since);
-  return collectedErrors.slice();
-}
-function clearCollectedErrors() {
-  collectedErrors = [];
-}
-function classifyError(err, context = {}) {
-  const msg = err?.message || String(err);
-  if (msg.includes("infinite effect loop") || msg.includes("25 iterations")) {
-    return createWhatError("INFINITE_EFFECT", context);
-  }
-  if (msg.includes("hydration") || msg.includes("Hydration")) {
-    return createWhatError("HYDRATION_MISMATCH", context);
-  }
-  if (msg.includes("Signal.set() called inside a computed")) {
-    return createWhatError("SIGNAL_WRITE_IN_RENDER", {
-      ...context,
-      signalName: msg.match(/signal: (\w+)/)?.[1] || context.signalName
-    });
-  }
-  return new WhatError({
-    code: "ERR_RUNTIME",
-    message: msg,
-    suggestion: "Check the stack trace and component context for more details.",
-    ...context
-  });
-}
-
 // packages/core/src/guardrails.js
 var guardrails = {
   signalReadDetection: true,
@@ -5579,10 +5540,8 @@ var VALID_EXPORTS = /* @__PURE__ */ new Set([
   "getOwner",
   "runWithOwner",
   "onRootCleanup",
-  "__setDevToolsHooks",
   // Rendering
   "template",
-  "_template",
   "svgTemplate",
   "insert",
   "mapArray",
@@ -5593,7 +5552,6 @@ var VALID_EXPORTS = /* @__PURE__ */ new Set([
   "classList",
   "hydrate",
   "isHydrating",
-  "_$createComponent",
   // JSX
   "h",
   "Fragment",
@@ -5706,7 +5664,6 @@ var VALID_EXPORTS = /* @__PURE__ */ new Set([
   "setQueryData",
   "getQueryData",
   "clearCache",
-  "__getCacheSnapshot",
   // Form
   "useForm",
   "useField",
@@ -5768,7 +5725,7 @@ function levenshtein(a, b) {
 }
 
 // packages/core/src/agent-context.js
-var VERSION = "0.6.0";
+var VERSION = "0.6.2";
 var mountedComponents2 = [];
 function registerComponent(component) {
   if (!__DEV__) return;
@@ -5881,11 +5838,6 @@ export {
   Textarea,
   VisuallyHidden,
   WhatError,
-  _$createComponent,
-  _$templateImpl as _$template,
-  __getCacheSnapshot,
-  __setDevToolsHooks,
-  template as _template,
   announce,
   announceAssertive,
   atom,
@@ -5919,6 +5871,7 @@ export {
   getCollectedErrors,
   getGuardrailConfig,
   getHealth,
+  getHydrationMismatchCount,
   getMountedComponents,
   getOwner,
   getQueryData,
@@ -5975,12 +5928,10 @@ export {
   useAriaChecked,
   useAriaExpanded,
   useAriaSelected,
-  useCallback,
   useClickOutside,
   useComputed,
   useContext,
   useDescribedBy,
-  useEffect,
   useFetch,
   useField,
   useFocus,
@@ -5994,16 +5945,13 @@ export {
   useLabelledBy,
   useLocalStorage,
   useMediaQuery,
-  useMemo,
   useQuery,
   useReducer,
-  useRef,
   useRovingTabIndex,
   useSWR,
   useScheduledEffect,
   useSignal,
   useSkeleton,
-  useState,
   useTransition,
   validateImports,
   yupResolver,

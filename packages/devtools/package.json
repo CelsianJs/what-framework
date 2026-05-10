@@ -1,15 +1,26 @@
 {
   "name": "what-devtools",
-  "version": "0.6.0",
-  "description": "Dev tools for What Framework — signal inspector, component tree, effect graph",
+  "version": "0.6.2",
+  "description": "Dev tools for What Framework \u2014 signal inspector, component tree, effect graph",
   "type": "module",
   "main": "src/index.js",
   "exports": {
-    ".": "./src/index.js",
-    "./panel": "./src/DevPanel.jsx"
+    ".": {
+      "types": "./index.d.ts",
+      "production": "./dist/index.min.js",
+      "import": "./src/index.js"
+    },
+    "./panel": {
+      "types": "./panel.d.ts",
+      "production": "./dist/panel.min.js",
+      "import": "./dist/panel.js"
+    }
   },
   "files": [
-    "src"
+    "src",
+    "dist",
+    "index.d.ts",
+    "panel.d.ts"
   ],
   "keywords": [
     "what",
@@ -20,7 +31,7 @@
     "inspector"
   ],
   "peerDependencies": {
-    "what-core": "^0.6.0"
+    "what-core": "^0.6.2"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
@@ -31,5 +42,6 @@
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"
   },
-  "homepage": "https://whatfw.com"
+  "homepage": "https://whatfw.com",
+  "types": "index.d.ts"
 }

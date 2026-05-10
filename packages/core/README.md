@@ -98,6 +98,8 @@ mount(<Counter />, '#app');
 
 **Store** -- `createStore`, `derived`, `atom`
 
+> `storeComputed(fn)` is a deprecated compatibility alias for `derived(fn)`. Use `derived` for new store computed fields.
+
 **Data Fetching** -- `useSWR`, `useQuery`, `useInfiniteQuery`, `invalidateQueries`, `prefetchQuery`
 
 **Forms** -- `useForm`, `useField`, `rules`, `zodResolver`, `Input`, `Select`, `Checkbox`, `ErrorMessage`

@@ -125,11 +125,10 @@ function capitalize(str) {
 const VALID_EXPORTS = new Set([
   // Reactive primitives
   'signal', 'computed', 'effect', 'signalMemo', 'batch', 'untrack', 'flushSync',
-  'createRoot', 'getOwner', 'runWithOwner', 'onRootCleanup', '__setDevToolsHooks',
+  'createRoot', 'getOwner', 'runWithOwner', 'onRootCleanup',
   // Rendering
-  'template', '_template', 'svgTemplate', 'insert', 'mapArray', 'spread',
+  'template', 'svgTemplate', 'insert', 'mapArray', 'spread',
   'setProp', 'delegateEvents', 'on', 'classList', 'hydrate', 'isHydrating',
-  '_$createComponent',
   // JSX
   'h', 'Fragment', 'html',
   // DOM
@@ -163,7 +162,7 @@ const VALID_EXPORTS = new Set([
   'IslandSkeleton', 'useSkeleton', 'Placeholder', 'LoadingDots', 'Spinner',
   // Data fetching
   'useFetch', 'useSWR', 'useQuery', 'useInfiniteQuery', 'invalidateQueries',
-  'prefetchQuery', 'setQueryData', 'getQueryData', 'clearCache', '__getCacheSnapshot',
+  'prefetchQuery', 'setQueryData', 'getQueryData', 'clearCache',
   // Form
   'useForm', 'useField', 'rules', 'simpleResolver', 'zodResolver', 'yupResolver',
   'Input', 'Textarea', 'Select', 'Checkbox', 'Radio', 'ErrorMessage',

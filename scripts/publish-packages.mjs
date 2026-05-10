@@ -36,6 +36,7 @@ if (!options.dryRun && !process.env.NODE_AUTH_TOKEN && !process.env.NPM_TOKEN) {
 console.log('[release] Publish plan');
 console.log(`  dry-run: ${options.dryRun ? 'yes' : 'no'}`);
 console.log(`  tag: ${options.tag}`);
+console.log(`  allow non-latest version: ${options.allowNonLatest ? 'yes' : 'no'}`);
 console.log('');
 
 const summary = {
@@ -43,6 +44,8 @@ const summary = {
   skipped: [],
   failed: [],
 };
+
+const publishQueue = [];
 
 for (const relDir of PACKAGE_ORDER) {
   const pkgDir = join(repoRoot, relDir);
@@ -70,6 +73,27 @@ for (const relDir of PACKAGE_ORDER) {
   }
 
   const spec = `${name}@${version}`;
+  const latest = getLatestVersion(name);
+  if (latest.status === 'error') {
+    console.error(`[release] Could not verify npm latest for ${name}: ${latest.message}`);
+    summary.failed.push(`${spec} (npm latest lookup failed)`);
+    continue;
+  }
+  if (latest.version && compareVersions(version, latest.version) <= 0) {
+    if (options.tag === 'latest' || !options.allowNonLatest) {
+      const guidance = options.tag === 'latest'
+        ? `bump ${name} above npm latest ${latest.version} before publishing with --tag latest`
+        : `pass --allow-non-latest to intentionally publish ${version} under non-latest tag "${options.tag}" (npm latest is ${latest.version})`;
+      console.error(`[release] Version preflight failed for ${spec}: ${guidance}.`);
+      summary.failed.push(`${spec} (npm latest is ${latest.version})`);
+      continue;
+    }
+    console.warn(`[release] Non-latest publish allowed for ${spec}: npm latest is ${latest.version}, dist-tag is "${options.tag}"`);
+  }
+
+  if (latest.status === 'not_found') {
+    console.warn(`[release] No npm latest found for ${name}; treating ${spec} as initial publish candidate`);
+  }
 
   if (isVersionPublished(spec)) {
     console.log(`[release] Skip ${spec}: already published`);
@@ -77,6 +101,16 @@ for (const relDir of PACKAGE_ORDER) {
     continue;
   }
 
+  publishQueue.push({ relDir, pkgDir, spec });
+}
+
+if (summary.failed.length > 0) {
+  console.error('\n[release] Refusing to publish because version preflight failed.');
+  printSummary(summary, options);
+  process.exit(1);
+}
+
+for (const { relDir, pkgDir, spec } of publishQueue) {
   console.log(`[release] Publishing ${spec} from ${relDir}`);
 
   const publishArgs = ['publish', '--access', 'public'];
@@ -99,20 +133,14 @@ for (const relDir of PACKAGE_ORDER) {
   }
 }
 
-console.log('\n[release] Publish summary');
-console.log(`  published: ${summary.published.length}`);
-for (const item of summary.published) console.log(`    - ${item}`);
-console.log(`  skipped: ${summary.skipped.length}`);
-for (const item of summary.skipped) console.log(`    - ${item}`);
-console.log(`  failed: ${summary.failed.length}`);
-for (const item of summary.failed) console.log(`    - ${item}`);
+printSummary(summary, options);
 
 if (summary.failed.length > 0) {
   process.exit(1);
 }
 
 function parseArgs(args) {
-  const options = { dryRun: false, tag: 'latest', otp: '' };
+  const options = { dryRun: false, tag: 'latest', otp: '', allowNonLatest: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === '--dry-run') {
@@ -137,15 +165,42 @@ function parseArgs(args) {
       i += 1;
       continue;
     }
+    if (arg === '--allow-non-latest') {
+      options.allowNonLatest = true;
+      continue;
+    }
     usage(`Unknown argument: ${arg}`);
+  }
+  if (options.tag === 'latest' && options.allowNonLatest) {
+    usage('--allow-non-latest can only be used with a non-latest --tag');
   }
   return options;
 }
 
 function usage(message) {
   if (message) console.error(`[release] ${message}`);
-  console.error('Usage: node scripts/publish-packages.mjs [--dry-run] [--tag <dist-tag>] [--otp <code>]');
+  console.error('Usage: node scripts/publish-packages.mjs [--dry-run] [--tag <dist-tag>] [--allow-non-latest] [--otp <code>]');
   process.exit(1);
+}
+
+function getLatestVersion(name) {
+  const res = spawnSync('npm', ['view', `${name}@latest`, 'version', '--json'], {
+    encoding: 'utf8',
+  });
+  if (res.status !== 0) {
+    const output = `${res.stderr ?? ''}
+${res.stdout ?? ''}`;
+    if (/E404|404 Not Found|is not in this registry/i.test(output)) {
+      return { status: 'not_found', version: '', message: output.trim() };
+    }
+    return { status: 'error', version: '', message: output.trim() || `npm exited with ${res.status}` };
+  }
+  try {
+    const parsed = JSON.parse(res.stdout);
+    return { status: 'ok', version: typeof parsed === 'string' ? parsed : '', message: '' };
+  } catch {
+    return { status: 'ok', version: res.stdout.trim().replace(/^"|"$/g, ''), message: '' };
+  }
 }
 
 function isVersionPublished(spec) {
@@ -160,4 +215,37 @@ function run(cmd, args, opts = {}) {
     stdio: 'inherit',
     ...opts,
   });
+}
+
+function printSummary(summary, options) {
+  console.log('\n[release] Publish summary');
+  console.log(`  ${options.dryRun ? 'dry-run publish candidates' : 'published'}: ${summary.published.length}`);
+  for (const item of summary.published) console.log(`    - ${item}`);
+  console.log(`  skipped: ${summary.skipped.length}`);
+  for (const item of summary.skipped) console.log(`    - ${item}`);
+  console.log(`  failed: ${summary.failed.length}`);
+  for (const item of summary.failed) console.log(`    - ${item}`);
+}
+
+function compareVersions(a, b) {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  for (let i = 0; i < 3; i += 1) {
+    if (pa.core[i] > pb.core[i]) return 1;
+    if (pa.core[i] < pb.core[i]) return -1;
+  }
+  if (pa.pre === pb.pre) return 0;
+  if (!pa.pre) return 1;
+  if (!pb.pre) return -1;
+  return pa.pre.localeCompare(pb.pre, undefined, { numeric: true });
+}
+
+function parseVersion(version) {
+  const [corePart, pre = ''] = String(version).split('-', 2);
+  const core = corePart.split('.').map(part => {
+    const value = Number.parseInt(part, 10);
+    return Number.isFinite(value) ? value : 0;
+  });
+  while (core.length < 3) core.push(0);
+  return { core: core.slice(0, 3), pre };
 }

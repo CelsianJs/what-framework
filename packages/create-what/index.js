@@ -16,7 +16,38 @@ import { createInterface } from 'node:readline';
 const args = process.argv.slice(2);
 const positional = args.filter(a => !a.startsWith('-'));
 const flags = new Set(args.filter(a => a.startsWith('-')));
+const allowedFlags = new Set(['--yes', '-y', '--help', '-h', '--version', '-v']);
+const unknownFlags = [...flags].filter(flag => !allowedFlags.has(flag));
+
+if (flags.has('--help') || flags.has('-h')) {
+  printHelp();
+  process.exit(0);
+}
+
+if (flags.has('--version') || flags.has('-v')) {
+  console.log('0.6.2');
+  process.exit(0);
+}
+
+if (unknownFlags.length > 0) {
+  console.error(`Unknown option: ${unknownFlags.join(', ')}`);
+  printHelp();
+  process.exit(1);
+}
+
 const skipPrompts = flags.has('--yes') || flags.has('-y');
+
+function printHelp() {
+  console.log(`create-what 0.6.2
+
+Usage:
+  npx create-what [app-name] [--yes]
+
+Options:
+  --yes, -y      Skip prompts and use defaults
+  --version, -v  Print version
+  --help, -h     Show this help message`);
+}
 
 // ---------------------------------------------------------------------------
 // Prompt helpers (zero-dependency, uses Node readline)
@@ -123,18 +154,18 @@ async function gatherOptions() {
 
 function generatePackageJson(projectName, { reactCompat, cssApproach }) {
   const deps = {
-    'what-framework': '^0.6.0',
+    'what-framework': '^0.6.2',
   };
   const devDeps = {
     vite: '^6.0.0',
-    'what-compiler': '^0.6.0',
-    'what-devtools-mcp': '^0.6.0',
+    'what-compiler': '^0.6.2',
+    'what-devtools-mcp': '^0.6.2',
     '@babel/core': '^7.23.0',
   };
 
   if (reactCompat) {
-    deps['what-react'] = '^0.1.0';
-    deps['what-core'] = '^0.6.0';
+    deps['what-react'] = '^0.6.2';
+    deps['what-core'] = '^0.6.2';
     // Include zustand as a demo React library
     deps['zustand'] = '^5.0.0';
   }
