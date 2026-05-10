@@ -131,9 +131,14 @@ Props handling:
 ## Hooks
 
 React-compatible hooks backed by signals.
+Note: useState, useEffect, useMemo, useCallback, useRef are only available
+from 'what-framework/react-compat'. The main package uses signal-first APIs.
 
 \`\`\`js
-import { useState, useEffect, useMemo, useCallback, useRef, useReducer, createContext, useContext } from 'what';
+// React-compat hooks (import from react-compat)
+import { useState, useEffect, useMemo, useCallback, useRef } from 'what-framework/react-compat';
+// Signal-first hooks (available from main package)
+import { useSignal, useComputed, useReducer, createContext, useContext } from 'what';
 
 // State
 const [count, setCount] = useState(0);

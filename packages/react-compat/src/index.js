@@ -22,17 +22,22 @@ import {
   lazy as whatLazy,
   Suspense as WhatSuspense,
   ErrorBoundary as WhatErrorBoundary,
-  useState as whatUseState,
-  useEffect as whatUseEffect,
-  useMemo as whatUseMemo,
-  useCallback as whatUseCallback,
-  useRef as whatUseRef,
   useContext as whatUseContext,
   useReducer as whatUseReducer,
   createContext as whatCreateContext,
   onMount,
   onCleanup,
 } from 'what-core';
+
+// React-style hooks are not exported from what-core's main entry (by design).
+// Import them from the hooks subpath for react-compat use only.
+import {
+  useState as whatUseState,
+  useEffect as whatUseEffect,
+  useMemo as whatUseMemo,
+  useCallback as whatUseCallback,
+  useRef as whatUseRef,
+} from 'what-core/hooks';
 
 // ---- Re-export What's hooks with React-compatible names ----
 

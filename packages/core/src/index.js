@@ -15,15 +15,12 @@ export { h, Fragment, html } from './h.js';
 // DOM mounting & rendering (fine-grained, no VDOM reconciler)
 export { mount } from './dom.js';
 
-// Hooks (React-compatible API)
+// Hooks — Solid-style API (signal-first)
+// React-style hooks (useState, useEffect, useMemo, useCallback, useRef)
+// are available via 'what-framework/react-compat' only.
 export {
-  useState,
   useSignal,
   useComputed,
-  useEffect,
-  useMemo,
-  useCallback,
-  useRef,
   useContext,
   useReducer,
   createContext,

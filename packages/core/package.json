@@ -31,6 +31,9 @@
       "types": "./testing.d.ts",
       "production": "./dist/testing.min.js",
       "import": "./src/testing.js"
+    },
+    "./hooks": {
+      "import": "./src/hooks.js"
     }
   },
   "files": [
