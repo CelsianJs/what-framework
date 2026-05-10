@@ -15,7 +15,7 @@ import { signal, effect, untrack, __DEV__ } from './reactive.js';
 
 export function memo(Component, _areEqual) {
   // No-op in run-once model — just return the component as-is
-  const MemoWrapper = function MemoWrapper(props) {
+  const MemoWrapper = /*#__PURE__*/ function MemoWrapper(props) {
     return Component(props);
   };
   MemoWrapper.displayName = `Memo(${Component.name || 'Anonymous'})`;

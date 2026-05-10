@@ -1080,10 +1080,12 @@ export default function whatBabelPlugin({ types: t }) {
         islandProps.push(t.objectProperty(t.identifier(attrName), value));
       }
 
-      return t.callExpression(
+      const islandCall = t.callExpression(
         t.identifier('_$createComponent'),
         [t.identifier('Island'), t.objectExpression(islandProps), t.arrayExpression([])]
       );
+      t.addComment(islandCall, 'leading', '#__PURE__');
+      return islandCall;
     }
 
     // Regular component — use _$createComponent to instantiate, component runs once
@@ -1210,7 +1212,11 @@ export default function whatBabelPlugin({ types: t }) {
       ? t.arrayExpression(transformedChildren)
       : t.arrayExpression([]);
 
-    return t.callExpression(t.identifier('_$createComponent'), [t.identifier(componentName), propsExpr, childrenArray]);
+    const call = t.callExpression(t.identifier('_$createComponent'), [t.identifier(componentName), propsExpr, childrenArray]);
+    // Mark component creation as pure for tree-shaking: if the result is unused,
+    // bundlers can safely eliminate the call.
+    t.addComment(call, 'leading', '#__PURE__');
+    return call;
   }
 
   function transformForFineGrained(path, state) {
@@ -1400,11 +1406,15 @@ export default function whatBabelPlugin({ types: t }) {
         exit(path, state) {
           // Insert template declarations at top of program (hoisted to module scope)
           for (const tmpl of state.templates.reverse()) {
+            const templateCall = t.callExpression(t.identifier('_$template'), [t.stringLiteral(tmpl.html)]);
+            // Mark template creation as pure for tree-shaking: if the template
+            // variable is never referenced, bundlers can eliminate this call.
+            t.addComment(templateCall, 'leading', '#__PURE__');
             path.unshiftContainer('body',
               t.variableDeclaration('const', [
                 t.variableDeclarator(
                   t.identifier(tmpl.id),
-                  t.callExpression(t.identifier('_$template'), [t.stringLiteral(tmpl.html)])
+                  templateCall
                 )
               ])
             );
