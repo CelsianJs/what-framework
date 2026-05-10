@@ -13,6 +13,28 @@ import { join } from 'path';
 const MAX_EVENT_LOG = 1000;
 const MAX_ERROR_LOG = 100;
 
+function isLoopbackHostname(hostname) {
+  const normalized = hostname.toLowerCase();
+  return normalized === 'localhost'
+    || normalized.endsWith('.localhost')
+    || normalized === '127.0.0.1'
+    || normalized.startsWith('127.')
+    || normalized === '[::1]'
+    || normalized === '::1';
+}
+
+function isAllowedDiscoveryOrigin(origin) {
+  if (!origin) return true;
+
+  try {
+    const url = new URL(origin);
+    return (url.protocol === 'http:' || url.protocol === 'https:')
+      && isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
   let latestSnapshot = null;
   const eventLog = [];
@@ -54,10 +76,33 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
 
   const discoveryPort = port + 1;
   const httpServer = createServer((req, res) => {
-    // CORS headers so the browser can fetch from any origin
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    const allowedOrigin = isAllowedDiscoveryOrigin(origin);
+
+    res.setHeader('Vary', 'Origin');
+    if (origin && allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET');
     res.setHeader('Cache-Control', 'no-store');
+
+    if (!allowedOrigin) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method !== 'GET') {
+      res.writeHead(405);
+      res.end('Method not allowed');
+      return;
+    }
 
     if (req.url === '/__what_mcp_token') {
       res.writeHead(200, { 'Content-Type': 'application/json' });

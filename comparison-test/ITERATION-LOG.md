@@ -85,7 +85,7 @@ All 4 agents **failed to use any MCP tools**. The `what-devtools-mcp` server was
 
 **Pre-conditions:**
 - `.mcp.json` at project root with what-devtools-mcp server
-- Demo app running at localhost:3456 with WHAT_MCP_TOKEN=dev123
+- Demo app running at localhost:3456 with WHAT_MCP_TOKEN=<local-dev-token>
 - All visual tool fixes applied (comment node → Element)
 - Bootstrap endpoint returns app info + tool catalog
 
@@ -752,7 +752,7 @@ All 4 tool fixes committed and pushed but need MCP server restart to take effect
 | `offline` | **No** | lint (good+bad code), fix, scaffold |
 | `claudemd` | Yes (falls back to offline) | Quick Start workflow, Code Review workflow |
 
-Usage: `WHAT_MCP_TOKEN=dev123 WHAT_MCP_PORT=9555 node comparison-test/run-mcp-test.js --scenario all`
+Usage: `WHAT_MCP_TOKEN=<local-dev-token> WHAT_MCP_PORT=9555 node comparison-test/run-mcp-test.js --scenario all`
 
 **Cumulative: 20 test agents, 11 rounds, 13 commits. Test runner now self-validates CLAUDE.md workflows.**
 

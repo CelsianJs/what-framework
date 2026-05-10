@@ -9,7 +9,7 @@
  *   node comparison-test/run-mcp-test.js [--scenario orientation|visual|state|feature]
  *
  * Prerequisites:
- *   - Demo app running: WHAT_MCP_TOKEN=dev123 npx vite --config packages/devtools-mcp/test/demo-app/vite.config.js
+ *   - Demo app running: WHAT_MCP_TOKEN=<local-dev-token> npx vite --config packages/devtools-mcp/test/demo-app/vite.config.js
  *   - Browser open at http://localhost:3456
  */
 

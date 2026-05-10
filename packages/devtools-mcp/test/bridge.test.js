@@ -9,6 +9,7 @@ import WebSocket from 'ws';
 import { createBridge } from '../src/bridge.js';
 
 const TEST_PORT = 9399; // avoid conflicts with default 9229
+const TOKEN_URL = `http://127.0.0.1:${TEST_PORT + 1}/__what_mcp_token`;
 
 function waitForOpen(ws) {
   return new Promise((resolve, reject) => {
@@ -186,5 +187,32 @@ describe('WebSocket Bridge', () => {
     assert.ok(bridge.authToken, 'authToken should be defined');
     assert.equal(typeof bridge.authToken, 'string');
     assert.ok(bridge.authToken.length >= 32, 'authToken should be at least 32 chars');
+  });
+
+  it('serves token discovery without wildcard CORS for loopback origins', async () => {
+    bridge = createBridge({ port: TEST_PORT });
+
+    const response = await fetch(TOKEN_URL, {
+      headers: { Origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+    assert.notEqual(response.headers.get('access-control-allow-origin'), '*');
+
+    const body = await response.json();
+    assert.equal(body.token, bridge.authToken);
+    assert.equal(body.wsPort, TEST_PORT);
+  });
+
+  it('rejects token discovery requests from non-local origins', async () => {
+    bridge = createBridge({ port: TEST_PORT });
+
+    const response = await fetch(TOKEN_URL, {
+      headers: { Origin: 'https://example.com' },
+    });
+
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
   });
 });
