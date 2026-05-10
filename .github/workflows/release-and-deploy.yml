@@ -6,12 +6,12 @@ on:
       publish_packages:
         description: Publish packages to npm
         required: true
-        default: true
+        default: false
         type: boolean
       deploy_web:
         description: Deploy configured web surfaces to Vercel
         required: true
-        default: true
+        default: false
         type: boolean
       deploy_targets:
         description: Comma-separated deploy targets (empty = defaults in script)
@@ -26,7 +26,7 @@ on:
       dry_run:
         description: Run without publishing/deploying
         required: true
-        default: false
+        default: true
         type: boolean
       allow_non_latest:
         description: Acknowledge intentional non-latest/backport npm publish (requires non-latest npm_tag; use with npm_tag=backport)
@@ -41,6 +41,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.dry_run && 'release-dry-run' || 'production-release' }}
     permissions:
       contents: read
       id-token: write

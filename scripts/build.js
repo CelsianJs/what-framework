@@ -5,7 +5,7 @@
 // Outputs both .js (ESM) and .min.js (minified) with source maps.
 
 import { build } from 'esbuild';
-import { readFileSync, mkdirSync, existsSync, statSync, writeFileSync } from 'fs';
+import { readFileSync, mkdirSync, existsSync, statSync, writeFileSync, rmSync } from 'fs';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { gzipSync } from 'zlib';
@@ -92,6 +92,7 @@ const sizeReport = [];
 for (const pkg of packages) {
   const pkgDir = join(root, 'packages', pkg.name);
   const distDir = join(pkgDir, 'dist');
+  rmSync(distDir, { recursive: true, force: true });
   mkdirSync(distDir, { recursive: true });
 
   let pkgBundle = 0;
