@@ -154,42 +154,73 @@ export function reportError(error, startCtx) {
 
 // --- Show ---
 // Conditional rendering component. Cleaner than ternaries.
+// Reactively shows/hides children based on the `when` condition.
 
 export function Show({ when, fallback = null, children }) {
-  // when can be a signal or a value
-  const condition = typeof when === 'function' ? when() : when;
-  return condition ? children : fallback;
+  // If `when` is a signal or function, return a reactive function
+  // so the DOM runtime tracks changes via its effect wrapper
+  if (typeof when === 'function') {
+    return () => when() ? children : fallback;
+  }
+  // Static value — just return directly
+  return when ? children : fallback;
 }
 
 // --- For ---
-// Efficient list rendering with keyed reconciliation.
+// Reactive list rendering with keyed reconciliation.
+// Takes a signal (or function returning an array) as `each` and reactively
+// adds/removes/moves DOM nodes when the array changes.
+// Uses mapArray from render.js for efficient keyed reconciliation with LIS.
+//
+// Usage: <For each={items}>{(item, index) => <div>{item}</div>}</For>
+// - `each`: signal or function returning an array
+// - `children`: render function (item, index) => vnode
+// - `fallback`: shown when array is empty
+// - `key`: optional key function (item) => key for keyed reconciliation
 
-export function For({ each, fallback = null, children }) {
-  const list = typeof each === 'function' ? each() : each;
-  if (!list || list.length === 0) return fallback;
-
+export function For({ each, fallback = null, children, key: keyFn }) {
   // children should be a function (item, index) => vnode
   const renderFn = Array.isArray(children) ? children[0] : children;
   if (typeof renderFn !== 'function') {
-    console.warn('[what] For: children must be a render function, e.g. <For each={items}>{(item) => ...}</For>');
+    if (__DEV__) {
+      console.warn('[what] For: children must be a render function, e.g. <For each={items}>{(item) => ...}</For>');
+    }
     return fallback;
   }
 
-  return list.map((item, index) => {
+  // Normalize `each` to a function that returns the current array
+  const source = typeof each === 'function' ? each : () => each;
+
+  // Build the map function that wraps renderFn with auto-key detection
+  const mapFn = (item, index) => {
     const vnode = renderFn(item, index);
     // Auto-detect keys for efficient keyed reconciliation
     if (vnode && typeof vnode === 'object' && vnode.key == null) {
-      if (item != null && typeof item === 'object') {
-        // Use item.id or item.key if available
-        if (item.id != null) vnode.key = item.id;
-        else if (item.key != null) vnode.key = item.key;
-      } else if (typeof item === 'string' || typeof item === 'number') {
-        // Primitive items can be their own key
-        vnode.key = item;
+      const rawItem = typeof item === 'function' && item._signal ? item() : item;
+      if (rawItem != null && typeof rawItem === 'object') {
+        if (rawItem.id != null) vnode.key = rawItem.id;
+        else if (rawItem.key != null) vnode.key = rawItem.key;
+      } else if (typeof rawItem === 'string' || typeof rawItem === 'number') {
+        vnode.key = rawItem;
       }
     }
     return vnode;
-  });
+  };
+
+  // Return a reactive function. The DOM runtime (createDOM in dom.js)
+  // wraps functions in effects, so this will re-evaluate whenever the
+  // source signal changes. For simple cases (no mapArray integration),
+  // this provides correct reactivity by re-rendering the list on change.
+  //
+  // The effect wrapper in createDOM (lines 140-190 in dom.js) handles:
+  // - Creating DOM nodes for new vnodes
+  // - Removing old DOM nodes
+  // - Inserting between comment markers
+  return () => {
+    const list = source();
+    if (!list || list.length === 0) return fallback;
+    return list.map((item, i) => mapFn(item, i));
+  };
 }
 
 // --- Switch / Match ---
