@@ -1041,7 +1041,7 @@ server.prompt(
         type: 'text',
         text: `# WhatFW MCP DevTools — Quick Reference
 
-You have access to 28 MCP tools for inspecting and debugging a live What Framework app running in the browser.
+You have access to 34 MCP tools for inspecting, debugging, and INTERACTING WITH a live What Framework app running in the browser. No Playwright needed.
 
 ## Connection Check
 Always start with: \`what_connection_status\` — confirms the browser is connected and shows signal/effect/component counts.
@@ -1050,9 +1050,17 @@ Always start with: \`what_connection_status\` — confirms the browser is connec
 
 1. **what_diagnose** — One-call health check. Finds errors, performance issues, and reactivity problems.
 2. **what_explain** {componentId} — Everything about one component: its signals, effects, DOM, and errors.
-3. **what_look** {componentId} — Visual inspection WITHOUT a screenshot: computed styles, dimensions, layout classification, child elements, accessibility.
-4. **what_signals** — List all reactive signals with current values. Filter by name.
-5. **what_lint** {code} — Static analysis before saving code. Catches 7 common mistakes.
+3. **what_page_map_interactive** — See every interactive element on the page with exact tool + args to use.
+4. **what_click** {text} — Click buttons/links by text. Returns what changed (signals, components, navigation).
+5. **what_assert** {text, signalName, route} — Verify page state without screenshots.
+
+## Page Interaction (replaces Playwright)
+- \`what_page_map_interactive\` — "What can I do on this page?" Shows every button, input, link, form with exact args.
+- \`what_click\` {text|ariaLabel|testId|role} — Click by semantic selector. Returns signal changes, component mounts.
+- \`what_fill\` {label|name, value} — Fill form inputs. Returns validation state. Multi-fill: {inputs: {field: val}}.
+- \`what_interact\` {action} — submit_form, select_option, toggle, scroll_to, hover, type, clear, focus.
+- \`what_assert\` {text|signalName|selector|route} — Verify page state: text visible, signal value, element count, route.
+- \`what_wait\` {text|componentId|signalId|idle} — Wait for async conditions: text appear/gone, component mount, idle.
 
 ## Visual Tools (cheapest first)
 - \`what_look\` — Text description of styles/layout (~400 tokens). Use FIRST.
@@ -1062,7 +1070,7 @@ Always start with: \`what_connection_status\` — confirms the browser is connec
 ## State Debugging
 - \`what_signals\` — See all signal values
 - \`what_signal_trace\` {signalId} — "Why did this signal change?" Shows which effects wrote to it.
-- \`what_dependency_graph\` {signalId} — Full reactive graph: signal → effects → downstream.
+- \`what_dependency_graph\` {signalId} — Full reactive graph: signal -> effects -> downstream.
 - \`what_watch\` — Observe reactive events over a time window.
 
 ## Actions
@@ -1074,10 +1082,22 @@ Always start with: \`what_connection_status\` — confirms the browser is connec
 - \`what_scaffold\` {type, name} — Generate idiomatic component/page/form/store boilerplate.
 - \`what_fix\` {errorCode} — Get diagnosis + fix + code example for any WhatFW error.
 
+## Example: Test a Login Flow (no Playwright)
+\`\`\`
+what_page_map_interactive                           // see the page
+what_fill({label: "Email", value: "test@test.com"}) // fill email
+what_fill({label: "Password", value: "secret123"})  // fill password
+what_click({text: "Log In"})                        // click login -> see signal changes
+what_wait({text: "Loading", gone: true})             // wait for loading
+what_assert({route: "/dashboard"})                   // verify navigation
+what_assert({text: "Welcome back", visible: true})   // verify greeting
+\`\`\`
+
 ## Anti-Patterns
+- DON'T use Playwright for page interaction — use what_click, what_fill, what_interact
 - DON'T screenshot first — use what_look (10x cheaper)
 - DON'T call what_signals + what_effects + what_dom_inspect separately — use what_explain
-- DON'T use what_eval for state inspection — use the structured tools
+- DON'T use CSS selectors — use semantic selectors (text, label, ariaLabel, testId)
 
 ## What Framework Basics
 - Components run ONCE (not on every render like React)
