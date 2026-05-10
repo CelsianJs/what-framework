@@ -81,15 +81,27 @@ Every change goes through a PR. The process:
 
 ### Publishing to npm
 
-After merging:
+After merging a normal latest release:
 
-1. Bump versions in affected `package.json` files (core, compiler, what-framework are usually coupled)
+1. Bump versions in affected `package.json` files (core, compiler, what-framework are usually coupled) above the current npm `latest` version
 2. `npm run build` — rebuild dist
 3. `npm test` — verify all tests still pass
-4. `node scripts/publish-packages.mjs --dry-run` — verify what will be published
-5. `node scripts/publish-packages.mjs --otp <code>` — publish with 2FA code
+4. `npm run pack:smoke` — verify packed packages install in a clean consumer project
+5. `node scripts/publish-packages.mjs --dry-run` — verify what will be published
+6. `node scripts/publish-packages.mjs --otp <code>` — publish with 2FA code
 
-The publish script handles dependency ordering and skips already-published versions.
+The publish script handles dependency ordering and skips already-published versions. It refuses to publish a version that is not greater than npm `latest` unless the release uses an explicit non-`latest` dist-tag and `--allow-non-latest`.
+
+#### Backport publishes
+
+For `0.6.x` maintenance/backport releases, do **not** publish to the `latest` dist-tag. Use the dedicated backport channel and keep the acknowledgement flag visible in both dry-runs and the actual publish:
+
+```bash
+node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest
+node scripts/publish-packages.mjs --tag backport --allow-non-latest --otp <code>
+```
+
+In GitHub Actions, set `npm_tag=backport` and `allow_non_latest=true`. Leave `allow_non_latest=false` for normal `latest` releases.
 
 ## Code Style
 

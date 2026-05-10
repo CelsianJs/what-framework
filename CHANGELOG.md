@@ -2,6 +2,15 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.6.2] - 2026-05-10
+
+### Release status
+- Backport release for the `0.6.x` hardening line. The root workspace metadata now tracks `0.6.2`; public packages in the backport set are `0.6.2`, while packages without backported changes remain at their previously published `0.6.0` versions.
+- Publish this backport only to the npm `backport` dist-tag with `--allow-non-latest`; do not publish `0.6.x` packages to `latest` because npm `latest` is newer than this maintenance line.
+
+### Fixed
+- Backported hardening fixes for the What Framework package set, including release-channel guardrails and package-consumer smoke coverage.
+
 ## [0.6.0] - 2026-03-26
 
 ### Added

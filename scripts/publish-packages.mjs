@@ -37,6 +37,7 @@ console.log('[release] Publish plan');
 console.log(`  dry-run: ${options.dryRun ? 'yes' : 'no'}`);
 console.log(`  tag: ${options.tag}`);
 console.log(`  allow non-latest version: ${options.allowNonLatest ? 'yes' : 'no'}`);
+console.log(`  npm provenance: ${options.provenance ? 'yes' : 'no'}`);
 console.log('');
 
 const summary = {
@@ -120,6 +121,9 @@ for (const { relDir, pkgDir, spec } of publishQueue) {
   if (options.otp) {
     publishArgs.push('--otp', options.otp);
   }
+  if (options.provenance) {
+    publishArgs.push('--provenance');
+  }
   if (options.dryRun) {
     publishArgs.push('--dry-run');
   }
@@ -140,7 +144,7 @@ if (summary.failed.length > 0) {
 }
 
 function parseArgs(args) {
-  const options = { dryRun: false, tag: 'latest', otp: '', allowNonLatest: false };
+  const options = { dryRun: false, tag: 'latest', otp: '', allowNonLatest: false, provenance: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === '--dry-run') {
@@ -169,6 +173,10 @@ function parseArgs(args) {
       options.allowNonLatest = true;
       continue;
     }
+    if (arg === '--provenance') {
+      options.provenance = true;
+      continue;
+    }
     usage(`Unknown argument: ${arg}`);
   }
   if (options.tag === 'latest' && options.allowNonLatest) {
@@ -179,7 +187,7 @@ function parseArgs(args) {
 
 function usage(message) {
   if (message) console.error(`[release] ${message}`);
-  console.error('Usage: node scripts/publish-packages.mjs [--dry-run] [--tag <dist-tag>] [--allow-non-latest] [--otp <code>]');
+  console.error('Usage: node scripts/publish-packages.mjs [--dry-run] [--tag <dist-tag>] [--allow-non-latest] [--provenance] [--otp <code>]');
   process.exit(1);
 }
 

@@ -75,6 +75,7 @@ Publish in this exact order (dependency graph, from `scripts/publish-packages.mj
 - [ ] Dry-run first: `npm run release:publish -- --dry-run`
 - [ ] Publish for real: `npm run release:publish`
 - [ ] (Optional) Publish with dist-tag: `npm run release:publish -- --tag next`
+- [ ] Backport releases only: `npm run release:publish -- --tag backport --allow-non-latest --dry-run`, then remove `--dry-run` for the actual publish
 - [ ] Verify all packages show correct version on npm:
   ```bash
   npm view what-framework version

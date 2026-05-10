@@ -42,8 +42,8 @@ This branch is a `0.6.x` hardening backport unless package metadata is intention
 Backports must use an explicit non-`latest` dist-tag plus the safety acknowledgement flag:
 
 ```bash
-npm run release:publish -- --tag 0.6-backport --allow-non-latest --dry-run
-npm run release:publish -- --tag 0.6-backport --allow-non-latest
+npm run release:publish -- --tag backport --allow-non-latest --dry-run
+npm run release:publish -- --tag backport --allow-non-latest
 ```
 
 Keep `--dry-run` until the publish plan has been reviewed. Remove it only for the actual backport publish.
@@ -68,10 +68,10 @@ Custom latest-compatible tag (version must still be greater than npm `latest` un
 npm run release:publish -- --tag next
 ```
 
-Backport tag dry-run:
+Backport tag dry-run (required for 0.6.x maintenance releases):
 
 ```bash
-npm run release:publish -- --tag 0.6-backport --allow-non-latest --dry-run
+npm run release:publish -- --tag backport --allow-non-latest --dry-run
 ```
 
 ## Local Deploy (Vercel)
