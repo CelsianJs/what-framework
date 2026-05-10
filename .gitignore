@@ -42,3 +42,6 @@ sites/*/package-lock.json
 test-results/
 examples/*/test-results/
 examples/real-world-suite/test-results/
+
+# Generated verification artifacts
+artifacts/
