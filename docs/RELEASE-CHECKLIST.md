@@ -46,9 +46,9 @@ Current 0.6.x package set:
 | Package | Current backport version | Notes |
 |---|---:|---|
 | `what-core` | `0.6.8` | Core/runtime API and security backports |
-| `what-framework` | `0.6.7` | Umbrella package aligned to current core/router/server ranges |
+| `what-framework` | `0.6.8` | Umbrella package aligned to current core/router/server ranges |
 | `what-router` | `0.6.7` | Router backport line |
-| `what-server` | `0.6.6` | SSR/server backport line |
+| `what-server` | `0.6.7` | SSR/server backport line |
 | `what-compiler` | `0.6.5` | Compiler backport line |
 | `what-devtools` | `0.6.5` | Browser devtools backport line |
 | `what-devtools-mcp` | `0.6.5` | DevTools MCP backport line |

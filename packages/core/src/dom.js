@@ -589,28 +589,8 @@ function applyProps(el, newProps, oldProps, isSvg) {
 }
 
 function setProp(el, key, value, isSvg) {
-  // Sanitize URL attributes before property assignment or setAttribute can commit them.
-  if (!isSafeUrlAttributeValue(key, value)) {
-    if (typeof console !== 'undefined') {
-      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
-    }
-    el.removeAttribute(getDomAttributeName(key));
-    return;
-  }
-  // Reactive function props — wrap in effect for fine-grained updates
-  if (typeof value === 'function' && !(key.startsWith('on') && key.length > 2) && key !== 'ref') {
-    if (!el._propEffects) el._propEffects = {};
-    if (el._propEffects[key]) {
-      try { el._propEffects[key](); } catch (e) { /* already disposed */ }
-    }
-    el._propEffects[key] = effect(() => {
-      const resolved = value();
-      setProp(el, key, resolved, isSvg);
-    });
-    return;
-  }
-
-  // Event handlers
+  // Event handlers are not URL-bearing attributes; keep this fast path ahead of
+  // URL sanitization so hot event mount paths do not pay attr normalization costs.
   if (key.startsWith('on') && key.length > 2) {
     let eventName = key.slice(2);
     let useCapture = false;
@@ -633,6 +613,35 @@ function setProp(el, key, value, isSvg) {
     el._events[storageKey] = wrappedHandler;
     const eventOpts = value._eventOpts;
     el.addEventListener(event, wrappedHandler, eventOpts || useCapture || undefined);
+    return;
+  }
+
+  // Refs are object/function assignments, not DOM URL sinks. Keep them out of
+  // URL sanitization when setProp is reached directly by reactive updates.
+  if (key === 'ref') {
+    if (typeof value === 'function') value(el);
+    else if (value) value.current = el;
+    return;
+  }
+
+  // Sanitize URL attributes before property assignment or setAttribute can commit them.
+  if (!isSafeUrlAttributeValue(key, value)) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
+    }
+    el.removeAttribute(getDomAttributeName(key));
+    return;
+  }
+  // Reactive function props — wrap in effect for fine-grained updates
+  if (typeof value === 'function') {
+    if (!el._propEffects) el._propEffects = {};
+    if (el._propEffects[key]) {
+      try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+    }
+    el._propEffects[key] = effect(() => {
+      const resolved = value();
+      setProp(el, key, resolved, isSvg);
+    });
     return;
   }
 

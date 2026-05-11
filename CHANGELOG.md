@@ -10,11 +10,16 @@ All notable changes to What Framework will be documented in this file.
 
 ### Package entries
 - `what-core@0.6.8` - backports core API/export alignment, hook typings, DOM security hardening, and packed-consumer fixes.
-- `what-framework@0.6.7` and `what-router@0.6.7` - backport umbrella/router API alignment for the current 0.6.x package set.
-- `what-server@0.6.6` - backports SSR URL-sink hardening while keeping `renderToString()` list rendering inside the benchmark gate.
+- `what-framework@0.6.8` - backports the current umbrella package alignment for `what-core@0.6.8`, `what-router@0.6.7`, and `what-server@0.6.7`.
+- `what-router@0.6.7` - current router backport line.
+- `what-server@0.6.7` - backports SSR URL-sink hardening while keeping `renderToString()` list rendering inside the benchmark gate.
 - `what-compiler@0.6.5`, `what-devtools@0.6.5`, `what-devtools-mcp@0.6.5`, and `what-react@0.6.5` - current backport-compatible compiler, devtools, MCP bridge, and React compatibility releases.
 - `what-framework-cli@0.6.4` and `create-what@0.6.4` - current backport CLI/scaffolder releases.
 - `what-mcp@0.6.0` and `eslint-plugin-what@0.6.0` - unchanged legacy 0.6.x packages; pin exact versions when needed.
+
+### Fixed
+- Restored the DOM event/ref fast path ahead of URL-attribute sanitization so `bench:gate` keeps the 0.6.x event-prop baseline without weakening the gate.
+- Stable effect reruns now report cleanup failures through DevTools error hooks and dev warnings instead of silently swallowing them.
 
 ## [0.6.3] - 2026-05-10
 

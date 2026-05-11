@@ -210,38 +210,11 @@ function _createEffect(fn, lazy2) {
 function _runEffect(e) {
   if (e.disposed) return;
   if (e._stable) {
-    if (e._cleanup) {
-      try {
-        e._cleanup();
-      } catch (err) {
-        if (__DEV__) console.warn("[what] Error in effect cleanup:", err);
-      }
-      e._cleanup = null;
-    }
-    const prev2 = currentEffect;
-    currentEffect = null;
-    try {
-      const result = e.fn();
-      if (typeof result === "function") e._cleanup = result;
-    } catch (err) {
-      if (__devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
-      if (__DEV__) console.warn("[what] Error in stable effect:", err);
-    } finally {
-      currentEffect = prev2;
-    }
-    if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
+    runStableEffect(e);
     return;
   }
   cleanup(e);
-  if (e._cleanup) {
-    try {
-      e._cleanup();
-    } catch (err) {
-      if (__devtools?.onError) __devtools.onError(err, { type: "effect-cleanup", effect: e });
-      if (__DEV__) console.warn("[what] Error in effect cleanup:", err);
-    }
-    e._cleanup = null;
-  }
+  runEffectCleanup(e, "effect cleanup");
   const prev = currentEffect;
   currentEffect = e;
   try {
@@ -262,14 +235,36 @@ function _disposeEffect(e) {
   e.disposed = true;
   if (__DEV__ && __devtools) __devtools.onEffectDispose(e);
   cleanup(e);
-  if (e._cleanup) {
-    try {
-      e._cleanup();
-    } catch (err) {
-      if (__DEV__) console.warn("[what] Error in effect cleanup on dispose:", err);
-    }
-    e._cleanup = null;
+  runEffectCleanup(e, "effect cleanup on dispose");
+}
+function reportEffectCleanupError(err, e, phase) {
+  if (__devtools?.onError) __devtools.onError(err, { type: "effect-cleanup", effect: e, phase });
+  if (__DEV__) console.warn(`[what] Error in ${phase}:`, err);
+}
+function runEffectCleanup(e, phase) {
+  if (!e._cleanup) return;
+  const cleanupFn = e._cleanup;
+  e._cleanup = null;
+  try {
+    cleanupFn();
+  } catch (err) {
+    reportEffectCleanupError(err, e, phase);
   }
+}
+function runStableEffect(e) {
+  const prev = currentEffect;
+  currentEffect = null;
+  try {
+    runEffectCleanup(e, "stable effect cleanup");
+    const result = e.fn();
+    if (typeof result === "function") e._cleanup = result;
+  } catch (err) {
+    if (__devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
+    if (__DEV__) console.warn("[what] Error in stable effect:", err);
+  } finally {
+    currentEffect = prev;
+  }
+  if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
 }
 function cleanup(e) {
   const deps = e.deps;
@@ -288,23 +283,7 @@ function notify(subs) {
         if (e._onNotify) {
           e._onNotify();
         } else if (batchDepth === 0 && e._stable) {
-          const prev = currentEffect;
-          currentEffect = null;
-          try {
-            const result = e.fn();
-            if (typeof result === "function") {
-              if (e._cleanup) try {
-                e._cleanup();
-              } catch (err) {
-              }
-              e._cleanup = result;
-            }
-          } catch (err) {
-            if (__devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
-            if (__DEV__) console.warn("[what] Error in stable effect:", err);
-          } finally {
-            currentEffect = prev;
-          }
+          runStableEffect(e);
         } else if (!e._pending) {
           e._pending = true;
           const level = e._level;
@@ -326,23 +305,7 @@ function notify(subs) {
             if (e._onNotify) {
               e._onNotify();
             } else if (batchDepth === 0 && e._stable) {
-              const prev = currentEffect;
-              currentEffect = null;
-              try {
-                const result = e.fn();
-                if (typeof result === "function") {
-                  if (e._cleanup) try {
-                    e._cleanup();
-                  } catch (err) {
-                  }
-                  e._cleanup = result;
-                }
-              } catch (err) {
-                if (__devtools?.onError) __devtools.onError(err, { type: "effect", effect: e });
-                if (__DEV__) console.warn("[what] Error in stable effect:", err);
-              } finally {
-                currentEffect = prev;
-              }
+              runStableEffect(e);
             } else if (!e._pending) {
               e._pending = true;
               const level = e._level;
@@ -1626,27 +1589,6 @@ function applyProps(el, newProps, oldProps, isSvg) {
   }
 }
 function setProp(el, key, value, isSvg) {
-  if (!isSafeUrlAttributeValue(key, value)) {
-    if (typeof console !== "undefined") {
-      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
-    }
-    el.removeAttribute(getDomAttributeName(key));
-    return;
-  }
-  if (typeof value === "function" && !(key.startsWith("on") && key.length > 2) && key !== "ref") {
-    if (!el._propEffects) el._propEffects = {};
-    if (el._propEffects[key]) {
-      try {
-        el._propEffects[key]();
-      } catch (e) {
-      }
-    }
-    el._propEffects[key] = effect(() => {
-      const resolved = value();
-      setProp(el, key, resolved, isSvg);
-    });
-    return;
-  }
   if (key.startsWith("on") && key.length > 2) {
     let eventName = key.slice(2);
     let useCapture = false;
@@ -1669,6 +1611,32 @@ function setProp(el, key, value, isSvg) {
     el._events[storageKey] = wrappedHandler;
     const eventOpts = value._eventOpts;
     el.addEventListener(event, wrappedHandler, eventOpts || useCapture || void 0);
+    return;
+  }
+  if (key === "ref") {
+    if (typeof value === "function") value(el);
+    else if (value) value.current = el;
+    return;
+  }
+  if (!isSafeUrlAttributeValue(key, value)) {
+    if (typeof console !== "undefined") {
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
+    }
+    el.removeAttribute(getDomAttributeName(key));
+    return;
+  }
+  if (typeof value === "function") {
+    if (!el._propEffects) el._propEffects = {};
+    if (el._propEffects[key]) {
+      try {
+        el._propEffects[key]();
+      } catch (e) {
+      }
+    }
+    el._propEffects[key] = effect(() => {
+      const resolved = value();
+      setProp(el, key, resolved, isSvg);
+    });
     return;
   }
   if (key === "className" || key === "class") {

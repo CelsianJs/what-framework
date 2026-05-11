@@ -42,5 +42,13 @@
     "ai-debugging"
   ],
   "license": "MIT",
-  "types": "index.d.ts"
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CelsianJs/what-framework"
+  },
+  "homepage": "https://whatfw.com",
+  "bugs": {
+    "url": "https://github.com/CelsianJs/what-framework/issues"
+  }
 }

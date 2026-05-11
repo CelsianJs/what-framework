@@ -1,7 +1,7 @@
 // Tests for What Framework - Reactive System
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, batch, untrack, flushSync } from '../src/reactive.js';
+import { signal, computed, effect, batch, untrack, flushSync, __setDevToolsHooks } from '../src/reactive.js';
 
 // Helper: flush microtask queue
 async function flush() {
@@ -120,6 +120,49 @@ describe('effect', () => {
     dispose();
     s.set(1);
     assert.equal(runs, 1);
+  });
+
+  it('reports stable effect cleanup errors on inline rerun', () => {
+    const s = signal(0);
+    const cleanupError = new Error('stable cleanup failed');
+    const reported = [];
+    const warnings = [];
+    const originalWarn = console.warn;
+
+    __setDevToolsHooks({
+      onError: (error, meta) => reported.push({ error, meta }),
+      onEffectCreate: () => {},
+      onEffectDispose: () => {},
+      onEffectRun: () => {},
+      onSignalCreate: () => {},
+      onSignalUpdate: () => {},
+    });
+    console.warn = (...args) => warnings.push(args);
+
+    try {
+      let runs = 0;
+      const dispose = effect(() => {
+        s();
+        runs++;
+        return () => {
+          if (runs === 1) throw cleanupError;
+        };
+      }, { stable: true });
+
+      s.set(1);
+
+      assert.equal(runs, 2);
+      assert.equal(reported.length, 1);
+      assert.equal(reported[0].error, cleanupError);
+      assert.equal(reported[0].meta.type, 'effect-cleanup');
+      assert.equal(reported[0].meta.phase, 'stable effect cleanup');
+      assert.match(String(warnings[0][0]), /stable effect cleanup/);
+
+      dispose();
+    } finally {
+      console.warn = originalWarn;
+      __setDevToolsHooks(null);
+    }
   });
 
   it('should track dynamic deps', async () => {

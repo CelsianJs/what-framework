@@ -323,36 +323,13 @@ function _runEffect(e) {
 
   // Stable effect fast path: deps don't change, skip cleanup/re-subscribe.
   if (e._stable) {
-    if (e._cleanup) {
-      try { e._cleanup(); } catch (err) {
-        if (__DEV__) console.warn('[what] Error in effect cleanup:', err);
-      }
-      e._cleanup = null;
-    }
-    const prev = currentEffect;
-    currentEffect = null; // Don't re-track deps (already subscribed)
-    try {
-      const result = e.fn();
-      if (typeof result === 'function') e._cleanup = result;
-    } catch (err) {
-      if (__devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
-      if (__DEV__) console.warn('[what] Error in stable effect:', err);
-    } finally {
-      currentEffect = prev;
-    }
-    if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
+    runStableEffect(e);
     return;
   }
 
   cleanup(e);
   // Run effect cleanup from previous run
-  if (e._cleanup) {
-    try { e._cleanup(); } catch (err) {
-      if (__devtools?.onError) __devtools.onError(err, { type: 'effect-cleanup', effect: e });
-      if (__DEV__) console.warn('[what] Error in effect cleanup:', err);
-    }
-    e._cleanup = null;
-  }
+  runEffectCleanup(e, 'effect cleanup');
   const prev = currentEffect;
   currentEffect = e;
   try {
@@ -376,12 +353,39 @@ function _disposeEffect(e) {
   if (__DEV__ && __devtools) __devtools.onEffectDispose(e);
   cleanup(e);
   // Run cleanup on dispose
-  if (e._cleanup) {
-    try { e._cleanup(); } catch (err) {
-      if (__DEV__) console.warn('[what] Error in effect cleanup on dispose:', err);
-    }
-    e._cleanup = null;
+  runEffectCleanup(e, 'effect cleanup on dispose');
+}
+
+function reportEffectCleanupError(err, e, phase) {
+  if (__devtools?.onError) __devtools.onError(err, { type: 'effect-cleanup', effect: e, phase });
+  if (__DEV__) console.warn(`[what] Error in ${phase}:`, err);
+}
+
+function runEffectCleanup(e, phase) {
+  if (!e._cleanup) return;
+  const cleanupFn = e._cleanup;
+  e._cleanup = null;
+  try {
+    cleanupFn();
+  } catch (err) {
+    reportEffectCleanupError(err, e, phase);
   }
+}
+
+function runStableEffect(e) {
+  const prev = currentEffect;
+  currentEffect = null; // Don't re-track deps (already subscribed)
+  try {
+    runEffectCleanup(e, 'stable effect cleanup');
+    const result = e.fn();
+    if (typeof result === 'function') e._cleanup = result;
+  } catch (err) {
+    if (__devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
+    if (__DEV__) console.warn('[what] Error in stable effect:', err);
+  } finally {
+    currentEffect = prev;
+  }
+  if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
 }
 
 function cleanup(e) {
@@ -413,21 +417,7 @@ function notify(subs) {
           // _onNotify may call notify() recursively — tracked by notifyDepth.
           e._onNotify();
         } else if (batchDepth === 0 && e._stable) {
-          // Inline execution for stable effects
-          const prev = currentEffect;
-          currentEffect = null;
-          try {
-            const result = e.fn();
-            if (typeof result === 'function') {
-              if (e._cleanup) try { e._cleanup(); } catch (err) {}
-              e._cleanup = result;
-            }
-          } catch (err) {
-            if (__devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
-            if (__DEV__) console.warn('[what] Error in stable effect:', err);
-          } finally {
-            currentEffect = prev;
-          }
+          runStableEffect(e);
         } else if (!e._pending) {
           e._pending = true;
           const level = e._level;
@@ -450,20 +440,7 @@ function notify(subs) {
             if (e._onNotify) {
               e._onNotify();
             } else if (batchDepth === 0 && e._stable) {
-              const prev = currentEffect;
-              currentEffect = null;
-              try {
-                const result = e.fn();
-                if (typeof result === 'function') {
-                  if (e._cleanup) try { e._cleanup(); } catch (err) {}
-                  e._cleanup = result;
-                }
-              } catch (err) {
-                if (__devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
-                if (__DEV__) console.warn('[what] Error in stable effect:', err);
-              } finally {
-                currentEffect = prev;
-              }
+              runStableEffect(e);
             } else if (!e._pending) {
               e._pending = true;
               const level = e._level;
