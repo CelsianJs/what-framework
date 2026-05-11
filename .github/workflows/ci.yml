@@ -66,6 +66,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Publish surface hygiene
+        run: npm run -s hygiene:publish
+
       - name: Security audit
         run: npm audit --audit-level=moderate
 
