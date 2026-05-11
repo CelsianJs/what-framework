@@ -19,9 +19,7 @@
 ## What Remains
 
 ### Should Fix (fresh review)
-1. **Backport package clarity**: `what-mcp` and `eslint-plugin-what` remain `0.6.0` while other backport packages are `0.6.3`. Release dry-run currently skips them as already published, but future backport notes should call out whether they are intentionally unchanged.
-2. **Internal/compiler-facing symbols in public API**: `__setDevToolsHooks`, `_template`, `_$template`, `_$createComponent` are still exported from main `index.js`. Consider a separate `what-core/compiler` subpath export in a future non-backport release.
-3. **`storeComputed` deprecation**: Still exported and emits console warning. Either remove in the next breaking/minor lane or document as deprecated in `.d.ts`.
+- None currently local/reproducible on the 0.6.x backport lane. Backport package clarity is documented in `docs/RELEASE-CHECKLIST.md`; compiler-facing symbols are guarded by `what-core/compiler` subpath tests; `storeComputed` is marked `@deprecated` in the public `.d.ts` and docs.
 
 ### Nice to Have
 - API surface is wide (154 exports) — consider which modules (skeleton, animation, data/SWR, form) could be separate packages.
