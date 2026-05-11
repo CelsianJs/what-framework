@@ -59,7 +59,12 @@ export async function navigate(to, opts = {}) {
     const newUrl = basePath + to;
     history.replaceState(state, '', newUrl);
     _url.set(newUrl);
-    const el = document.querySelector(to);
+    let el = null;
+    try {
+      el = document.getElementById(decodeURIComponent(to.slice(1)));
+    } catch {
+      el = document.getElementById(to.slice(1));
+    }
     if (el) el.scrollIntoView({ behavior: 'smooth' });
     return;
   }
@@ -545,6 +550,12 @@ const prefetchedUrls = new Set();
 
 export function prefetch(href) {
   if (typeof document === 'undefined') return;
+  if (!isSafeUrl(href)) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[what-router] Blocked prefetch for unsafe URL: ${href}`);
+    }
+    return;
+  }
   if (prefetchedUrls.has(href)) return;
   prefetchedUrls.add(href);
 

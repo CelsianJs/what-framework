@@ -71,6 +71,7 @@ try {
 
   writeFileSync(join(consumerDir, 'index.ts'), `
 import { h, signal, computed, isSafeUrl } from 'what-framework';
+import { useSignal as useCoreSignal } from 'what-core/hooks';
 import { Link, navigate, isSafeUrl as routerSafe } from 'what-framework/router';
 import { renderToString } from 'what-framework/server';
 import { createRoot, createPortal, version } from 'what-react/dom';
@@ -105,6 +106,7 @@ const mcpConn = connectDevToolsMCP({ port: 9229, host: '127.0.0.1', token: 'dev'
 void mcpConn.isConnected;
 mcpConn.disconnect();
 void whatDevToolsMCP({ host: '127.0.0.1' });
+void useCoreSignal;
 
 class Demo extends Component<{ initial: number }, { value: number }> {
   state = { value: this.props.initial };

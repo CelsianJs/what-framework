@@ -35,7 +35,7 @@ const { h } = await import('../../core/src/h.js');
 const { mount } = await import('../../core/src/dom.js');
 
 // Import router
-const { Router, Link, navigate, route, defineRoutes, asyncGuard, isSafeUrl } = await import('../src/index.js');
+const { Router, Link, navigate, route, defineRoutes, asyncGuard, isSafeUrl, prefetch } = await import('../src/index.js');
 
 // Helper: flush microtask queue
 async function flush() {
@@ -433,6 +433,17 @@ describe('navigate()', () => {
     await navigate('javascript:alert(1)');
     // URL should not change
     assert.equal(route.url, urlBefore);
+  });
+
+  it('should not throw for invalid hash selectors', async () => {
+    await assert.doesNotReject(() => navigate('#bad]', { transition: false }));
+  });
+
+  it('should reject unsafe prefetch URLs', () => {
+    const before = document.head.querySelectorAll('link[rel="prefetch"]').length;
+    prefetch('javascript:alert(1)');
+    const after = document.head.querySelectorAll('link[rel="prefetch"]').length;
+    assert.equal(after, before);
   });
 
   it('should not navigate to same URL', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "what-core",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "What Framework - The closest framework to vanilla JS",
   "type": "module",
   "main": "src/index.js",
@@ -33,6 +33,7 @@
       "import": "./src/testing.js"
     },
     "./hooks": {
+      "types": "./hooks.d.ts",
       "import": "./src/hooks.js"
     },
     "./compiler": {
@@ -53,6 +54,7 @@
     "jsx-runtime.d.ts",
     "render.d.ts",
     "testing.d.ts",
+    "hooks.d.ts",
     "compiler.d.ts",
     "devtools.d.ts"
   ],

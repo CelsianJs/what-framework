@@ -54,9 +54,7 @@ try {
   }, null, 2));
 
   const expectedDistTag = process.env.WHAT_REGISTRY_DIST_TAG || inferExpectedDistTag(packageSpecs);
-  if (expectedDistTag) {
-    verifyDistTag(packageSpecs, expectedDistTag);
-  }
+  const distTagChecks = expectedDistTag ? verifyDistTag(packageSpecs, expectedDistTag) : [];
 
   console.log('[registry-smoke] Installing published packages into a clean consumer project');
   retry('npm install from registry', () => run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...specs], { cwd: consumerDir }));
@@ -123,7 +121,8 @@ if (typeof template !== 'function') throw new Error('what-core/render production
     packages: specs,
     binaries: bins,
     distTag: expectedDistTag || null,
-    checks: ['dist-tag verification when applicable', 'npm install --ignore-scripts with propagation retry', 'esm imports', 'production-condition imports', 'binary presence', 'what cli', 'real what CLI build/generate/dev/preview asset smoke', 'create-what --help'],
+    distTagChecks,
+    checks: ['dist-tag verification/reporting when applicable', 'npm install --ignore-scripts with propagation retry', 'esm imports', 'production-condition imports', 'binary presence', 'what cli', 'real what CLI build/generate/dev/preview asset smoke', 'create-what --help'],
   }, null, 2) + '\n');
 
   console.log(`[registry-smoke] Registry consumer smoke passed for ${specs.length} package(s)`);
@@ -147,16 +146,34 @@ function inferExpectedDistTag(packageSpecs) {
 
 function verifyDistTag(packageSpecs, distTag) {
   const rootVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version;
-  const targets = packageSpecs.filter(pkg => pkg.version === rootVersion && pkg.selector === rootVersion);
-  for (const pkg of targets) {
-    retry(`npm dist-tag ${pkg.name}@${distTag}`, () => {
-      const result = run('npm', ['view', pkg.name, `dist-tags.${distTag}`, '--json'], { capture: true });
-      const actual = parseNpmJsonString(result.stdout);
-      if (actual !== pkg.version) {
-        throw new Error(`Expected ${pkg.name} dist-tag ${distTag} to be ${pkg.version}, got ${actual || '<missing>'}`);
-      }
+  const checks = [];
+  for (const pkg of packageSpecs) {
+    let actual = '';
+    try {
+      actual = retry(`npm dist-tag ${pkg.name}@${distTag}`, () => {
+        const result = run('npm', ['view', pkg.name, `dist-tags.${distTag}`, '--json'], { capture: true });
+        return parseNpmJsonString(result.stdout);
+      });
+    } catch {
+      actual = '';
+    }
+
+    const required = pkg.version === rootVersion && pkg.selector === rootVersion;
+    checks.push({
+      name: pkg.name,
+      version: pkg.version,
+      distTag,
+      actual: actual || null,
+      verified: actual === pkg.version,
+      required,
+      intentionallyUntagged: !required && actual !== pkg.version,
     });
+
+    if (required && actual !== pkg.version) {
+      throw new Error(`Expected ${pkg.name} dist-tag ${distTag} to be ${pkg.version}, got ${actual || '<missing>'}`);
+    }
   }
+  return checks;
 }
 
 function parseNpmJsonString(value) {
