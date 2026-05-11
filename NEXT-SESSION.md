@@ -117,3 +117,10 @@ Not run:
 - Backport docs now use `@backport` install/scaffold/MCP commands instead of `@latest` or deprecated unpinned `what-mcp`.
 - React compatibility copy now states the measured matrix: 88 confirmed, 1 partial, 5 expected, and avoids “any library / zero changes” overclaims.
 - Artifact hygiene now fails on unexpected tracked `dist/` outputs while allowing intentional publish/static-site dist artifacts.
+
+## 2026-05-10 — WhatStack runbook smoke refresh
+
+Ran the What-FW SSR smoke from `../SMOKE-TEST-RUNBOOK.md` against the local workspace packages:
+
+- `renderToString(h(App))` produced `<div id="app">...`.
+- Smoke assertions passed for signal output `42`, computed output `84`, and `id="app"`.
