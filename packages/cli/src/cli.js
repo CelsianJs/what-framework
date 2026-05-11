@@ -151,6 +151,7 @@ class SimpleWebSocket {
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const cwd = process.cwd();
+const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -537,7 +538,7 @@ function init() {
       generate: 'what generate',
     },
     dependencies: {
-      'what-framework': '^0.6.0',
+      'what-framework': `^${packageVersion}`, 
     },
   }, null, 2));
 
@@ -557,7 +558,7 @@ function getFlag(name, defaultValue) {
 }
 
 // Async config loader — uses dynamic import() instead of unsafe new Function()
-let _configCache = null;
+var _configCache = null;
 async function loadConfigAsync() {
   if (_configCache) return _configCache;
   const configPath = join(cwd, 'what.config.js');
