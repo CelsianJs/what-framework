@@ -633,22 +633,68 @@ function renderAttrs(props) {
     if (key === "key" || key === "ref" || key === "children" || key === "dangerouslySetInnerHTML" || key === "innerHTML") continue;
     if (key.startsWith("on") && key.length > 2) continue;
     if (val === false || val == null) continue;
+    const attrName = getHtmlAttributeName(key);
+    if (!isValidHtmlAttributeName(attrName)) {
+      if (_isDevMode) console.warn(`[what-server] Omitted invalid attribute name: ${key}`);
+      continue;
+    }
+    if (!isSafeUrlAttributeValue(attrName, val)) {
+      if (_isDevMode) console.warn(`[what-server] Omitted unsafe URL attribute "${attrName}": ${val}`);
+      continue;
+    }
     if (key === "className" || key === "class") {
       out += ` class="${escapeHtml(String(val))}"`;
     } else if (key === "style" && typeof val === "object") {
       const css = Object.entries(val).map(([p, v]) => `${camelToKebab(p)}:${v}`).join(";");
       out += ` style="${escapeHtml(css)}"`;
     } else if (val === true) {
-      if (key.startsWith("aria-") || key === "role") {
-        out += ` ${key}="true"`;
+      if (attrName.startsWith("aria-") || attrName === "role") {
+        out += ` ${attrName}="true"`;
       } else {
-        out += ` ${key}`;
+        out += ` ${attrName}`;
       }
     } else {
-      out += ` ${key}="${escapeHtml(String(val))}"`;
+      out += ` ${attrName}="${escapeHtml(String(val))}"`;
     }
   }
   return out;
+}
+function getHtmlAttributeName(name) {
+  if (name === "className") return "class";
+  if (name === "htmlFor") return "for";
+  return name;
+}
+function isValidHtmlAttributeName(name) {
+  return /^[^\s"'>/=\x00-\x1f\x7f]+$/.test(name);
+}
+var URL_ATTRS = /* @__PURE__ */ new Set([
+  "href",
+  "src",
+  "action",
+  "formaction",
+  "poster",
+  "cite",
+  "background",
+  "xlink:href"
+]);
+var URL_LIST_ATTRS = /* @__PURE__ */ new Set(["srcset"]);
+function isSafeUrlAttributeValue(name, value) {
+  const normalizedName = String(name).toLowerCase();
+  if (URL_LIST_ATTRS.has(normalizedName)) return isSafeSrcsetValue(value);
+  if (URL_ATTRS.has(normalizedName)) return isSafeUrlValue(value);
+  return true;
+}
+function isSafeUrlValue(value) {
+  if (typeof value !== "string") return true;
+  const normalized = value.trim().replace(/[\s\x00-\x1f\x7f]/g, "").toLowerCase();
+  return !(normalized.startsWith("javascript:") || normalized.startsWith("data:") || normalized.startsWith("vbscript:"));
+}
+function isSafeSrcsetValue(value) {
+  if (typeof value !== "string") return true;
+  return value.split(",").every((candidate) => {
+    const url = candidate.trim().split(/\s+/, 1)[0] || "";
+    return url === "" || isSafeUrlValue(url);
+  });
 }
 function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");

@@ -89,7 +89,16 @@ export function serializeIslandStores() {
   for (const [name, store] of sharedStores) {
     data[name] = store._getSnapshot();
   }
-  return JSON.stringify(data);
+  return escapeJsonForScript(JSON.stringify(data));
+}
+
+function escapeJsonForScript(json) {
+  return json
+    .replace(/</g, '\\u003C')
+    .replace(/>/g, '\\u003E')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 // Hydrate shared stores from SSR data

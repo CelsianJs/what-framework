@@ -462,6 +462,53 @@ function _setComponentRef(fn) {
   _getCurrentComponentRef = fn;
 }
 
+// packages/core/src/security.js
+var URL_ATTRS = /* @__PURE__ */ new Set([
+  "href",
+  "src",
+  "action",
+  "formaction",
+  "poster",
+  "cite",
+  "background",
+  "xlink:href"
+]);
+var URL_LIST_ATTRS = /* @__PURE__ */ new Set(["srcset"]);
+function normalizeAttrName(name) {
+  return String(name).toLowerCase();
+}
+function normalizeUrlForProtocolCheck(url) {
+  return String(url).trim().replace(/[\s\x00-\x1f\x7f]/g, "").toLowerCase();
+}
+function isSafeUrlValue(value) {
+  if (typeof value !== "string") return true;
+  const normalized = normalizeUrlForProtocolCheck(value);
+  return !(normalized.startsWith("javascript:") || normalized.startsWith("data:") || normalized.startsWith("vbscript:"));
+}
+function isSafeSrcsetValue(value) {
+  if (typeof value !== "string") return true;
+  return value.split(",").every((candidate) => {
+    const url = candidate.trim().split(/\s+/, 1)[0] || "";
+    return url === "" || isSafeUrlValue(url);
+  });
+}
+function isUrlAttribute(name) {
+  return URL_ATTRS.has(normalizeAttrName(name));
+}
+function isUrlListAttribute(name) {
+  return URL_LIST_ATTRS.has(normalizeAttrName(name));
+}
+function isSafeUrlAttributeValue(name, value) {
+  if (isUrlListAttribute(name)) return isSafeSrcsetValue(value);
+  if (isUrlAttribute(name)) return isSafeUrlValue(value);
+  return true;
+}
+function getDomAttributeName(name) {
+  if (name === "className") return "class";
+  if (name === "htmlFor") return "for";
+  return normalizeAttrName(name) === "formaction" ? "formaction" : name;
+}
+
 // packages/core/src/dom.js
 var SVG_ELEMENTS = /* @__PURE__ */ new Set([
   "svg",
@@ -949,6 +996,13 @@ function applyProps(el, newProps, oldProps, isSvg) {
   }
 }
 function setProp(el, key, value, isSvg) {
+  if (!isSafeUrlAttributeValue(key, value)) {
+    if (typeof console !== "undefined") {
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
+    }
+    el.removeAttribute(getDomAttributeName(key));
+    return;
+  }
   if (typeof value === "function" && !(key.startsWith("on") && key.length > 2) && key !== "ref") {
     if (!el._propEffects) el._propEffects = {};
     if (el._propEffects[key]) {

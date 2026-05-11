@@ -5,6 +5,7 @@
 import { effect, batch, untrack, signal, __DEV__, __devtools } from './reactive.js';
 import { reportError, _injectGetCurrentComponent, shallowEqual } from './components.js';
 import { _setComponentRef } from './helpers.js';
+import { getDomAttributeName, isSafeUrlAttributeValue } from './security.js';
 
 // SVG elements that need namespace
 const SVG_ELEMENTS = new Set([
@@ -588,6 +589,14 @@ function applyProps(el, newProps, oldProps, isSvg) {
 }
 
 function setProp(el, key, value, isSvg) {
+  // Sanitize URL attributes before property assignment or setAttribute can commit them.
+  if (!isSafeUrlAttributeValue(key, value)) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
+    }
+    el.removeAttribute(getDomAttributeName(key));
+    return;
+  }
   // Reactive function props — wrap in effect for fine-grained updates
   if (typeof value === 'function' && !(key.startsWith('on') && key.length > 2) && key !== 'ref') {
     if (!el._propEffects) el._propEffects = {};

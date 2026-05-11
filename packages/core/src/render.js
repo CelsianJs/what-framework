@@ -5,6 +5,7 @@
 import { effect, untrack, createRoot, signal, __DEV__, __devtools } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
 import { createWhatError, collectError } from './errors.js';
+import { getDomAttributeName, isSafeUrlAttributeValue } from './security.js';
 
 export { effect, untrack };
 
@@ -20,20 +21,6 @@ export function _$createComponent(Component, props, children) {
   }
   // Build a VNode-like object and pass to createDOM which handles component execution
   return createDOM({ tag: Component, props: props || {}, children: children || [], key: null, _vnode: true });
-}
-
-// --- URL Sanitization for DOM attributes ---
-// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed).
-
-const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'formAction']);
-
-function isSafeUrl(url) {
-  if (typeof url !== 'string') return true; // non-string values are not URL-injection risks
-  const normalized = url.trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
-  if (normalized.startsWith('javascript:')) return false;
-  if (normalized.startsWith('data:')) return false;
-  if (normalized.startsWith('vbscript:')) return false;
-  return true;
 }
 
 // --- template(html) ---
@@ -870,13 +857,12 @@ export function setProp(el, key, value) {
   if (key === 'key') return;
 
   // Sanitize URL attributes — reject dangerous protocols
-  if (URL_ATTRS.has(key) || URL_ATTRS.has(key.toLowerCase())) {
-    if (!isSafeUrl(value)) {
-      if (typeof console !== 'undefined') {
-        console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
-      }
-      return;
+  if (!isSafeUrlAttributeValue(key, value)) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
     }
+    el.removeAttribute(getDomAttributeName(key));
+    return;
   }
 
   if (key === 'class' || key === 'className') {
