@@ -1,14 +1,15 @@
 import * as core from 'what-core';
+import * as coreDevtools from 'what-core/devtools';
 import { signal, effect, mount, h } from 'what-core';
 import { installDevTools } from 'what-devtools';
 import { connectDevToolsMCP } from '../../src/client.js';
 
 // Install devtools first — pass core module for synchronous hook wiring
-installDevTools(core);
+installDevTools({ ...core, ...coreDevtools });
 
 // Connect to MCP bridge with auth token (injected by Vite define in e2e tests)
 const bridgeToken = typeof __BRIDGE_AUTH_TOKEN__ !== 'undefined' ? __BRIDGE_AUTH_TOKEN__ : '';
-connectDevToolsMCP({ port: 9499, token: bridgeToken });
+connectDevToolsMCP({ port: 9499, token: bridgeToken, host: '127.0.0.1' });
 
 // Simple counter app for testing
 const count = signal(0);

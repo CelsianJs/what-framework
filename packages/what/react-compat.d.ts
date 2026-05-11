@@ -1,6 +1,6 @@
 // What Framework - React Compatibility Layer Type Definitions
 
-import { Signal, VNode } from './index';
+import { Signal, VNode } from './index.js';
 
 export const useState: <T>(initial: T | (() => T)) => [Signal<T>, (value: T | ((prev: T) => T)) => void];
 export const useEffect: (fn: () => void | (() => void), deps?: any[]) => void;

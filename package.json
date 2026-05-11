@@ -1,7 +1,7 @@
 {
   "name": "what-fw",
   "private": true,
-  "version": "0.6.3",
+  "version": "0.6.5",
   "type": "module",
   "description": "The closest framework to vanilla JS",
   "workspaces": [
@@ -33,8 +33,8 @@
     "deploy:vercel": "node scripts/deploy-vercel.mjs",
     "demo": "node demo/serve.js",
     "release:publish": "node scripts/publish-packages.mjs",
-    "release:verify": "npm run -s lint && npm run -s hygiene:artifacts && npm run -s typecheck && npm run -s test && npm run -s build && npm run -s pack:smoke && npm run -s bench:gate && npm run -s test:e2e && npm audit --audit-level=moderate",
-    "test": "npm run -s test:node && npm run -s test:devtools",
+    "release:verify": "npm run -s lint && npm run -s hygiene:artifacts && npm run -s typecheck && npm run -s test && npm run -s build && npm run -s type:smoke && npm run -s pack:smoke && npm run -s bench:gate && npm run -s test:e2e && npm audit --audit-level=moderate",
+    "test": "npm run -s test:node && npm run -s test:devtools && npm run -s test:devtools-mcp:e2e",
     "test:e2e": "npx playwright test",
     "test:node": "node --test packages/core/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/server/test/*.test.js packages/create-what/test/*.test.js packages/cli/test/*.test.js packages/mcp-server/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js packages/devtools-mcp/test/tools-interact.test.js",
     "test:devtools": "node --test packages/devtools/test/*.test.js",
@@ -43,7 +43,9 @@
     "typecheck": "node scripts/check-js.mjs",
     "registry:smoke": "node scripts/smoke-registry-consumer.mjs",
     "hygiene:artifacts": "node scripts/check-artifact-hygiene.mjs",
-    "cli:smoke": "node scripts/smoke-cli-flows.mjs"
+    "cli:smoke": "node scripts/smoke-cli-flows.mjs",
+    "test:devtools-mcp:e2e": "node --test packages/devtools-mcp/test/e2e.test.js",
+    "type:smoke": "node scripts/smoke-types-consumer.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -52,7 +54,8 @@
     "@playwright/test": "^1.58.2",
     "esbuild": "^0.27.4",
     "jsdom": "^28.1.0",
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "typescript": "^5.9.3"
   },
   "packageManager": "npm@11.0.0"
 }

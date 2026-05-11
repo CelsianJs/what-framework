@@ -1,18 +1,43 @@
 {
   "name": "what-react",
-  "version": "0.6.3",
+  "version": "0.6.5",
   "description": "React compatibility layer for What Framework \u2014 use React packages with signals under the hood",
   "type": "module",
   "main": "src/index.js",
   "exports": {
-    ".": "./src/index.js",
-    "./dom": "./src/dom.js",
-    "./jsx-runtime": "./src/jsx-runtime.js",
-    "./jsx-dev-runtime": "./src/jsx-dev-runtime.js",
-    "./vite": "./src/vite-plugin.js"
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./dom": {
+      "types": "./dom.d.ts",
+      "import": "./src/dom.js"
+    },
+    "./jsx-runtime": {
+      "types": "./jsx-runtime.d.ts",
+      "import": "./src/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./jsx-dev-runtime.d.ts",
+      "import": "./src/jsx-dev-runtime.js"
+    },
+    "./vite": {
+      "types": "./vite.d.ts",
+      "import": "./src/vite-plugin.js"
+    },
+    "./use-sync-external-store-with-selector": {
+      "types": "./use-sync-external-store-with-selector.d.ts",
+      "import": "./src/use-sync-external-store-with-selector.js"
+    }
   },
   "files": [
-    "src"
+    "src",
+    "index.d.ts",
+    "dom.d.ts",
+    "jsx-runtime.d.ts",
+    "jsx-dev-runtime.d.ts",
+    "vite.d.ts",
+    "use-sync-external-store-with-selector.d.ts"
   ],
   "keywords": [
     "react",
@@ -23,7 +48,7 @@
     "compatibility"
   ],
   "peerDependencies": {
-    "what-core": "^0.6.3"
+    "what-core": "^0.6.5"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
@@ -34,5 +59,6 @@
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"
   },
-  "homepage": "https://react.whatfw.com"
+  "homepage": "https://react.whatfw.com",
+  "types": "index.d.ts"
 }

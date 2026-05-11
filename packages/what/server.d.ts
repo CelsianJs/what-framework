@@ -1,6 +1,6 @@
 // What Framework Server - TypeScript Definitions
 
-import { VNode, VNodeChild, Signal } from './index';
+import { VNode, VNodeChild, Signal } from './index.js';
 
 // --- SSR ---
 

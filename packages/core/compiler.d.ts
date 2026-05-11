@@ -1,4 +1,4 @@
-import type { Component, VNodeChild } from './index';
+import type { Component, VNodeChild } from './index.js';
 
 /** @internal Compiler target for component instantiation. */
 export function _$createComponent(

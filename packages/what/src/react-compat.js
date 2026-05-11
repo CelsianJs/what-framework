@@ -1,1 +1,1 @@
-export * from 'what-react-compat';
+export * from 'what-react';

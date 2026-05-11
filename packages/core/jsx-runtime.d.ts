@@ -2,9 +2,9 @@
 // Provides JSX IntrinsicElements and Element types for TypeScript JSX support.
 // Used with: jsxImportSource: "what-core" or "what-framework"
 
-import { VNode, VNodeChild, Component } from './index';
+import { VNode, VNodeChild, Component } from './index.js';
 
-export { Fragment } from './index';
+export { Fragment } from './index.js';
 
 /** Automatic JSX transform entry point */
 export function jsx(type: string | Component<any>, props: Record<string, any> | null, key?: string | number): VNode;

@@ -1,6 +1,6 @@
 // What Framework Router - TypeScript Definitions
 
-import { VNode, VNodeChild, Component, Signal, Computed } from '../core';
+import { VNode, VNodeChild, Component, Signal, Computed } from 'what-core';
 
 // --- Route State ---
 
@@ -22,6 +22,11 @@ export interface RouteState {
 }
 
 export const route: RouteState;
+
+// --- URL Sanitization ---
+
+/** Return false for javascript:, data:, vbscript:, and other unsafe navigation URLs. */
+export function isSafeUrl(url: string): boolean;
 
 // --- Navigation ---
 

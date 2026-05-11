@@ -9,4 +9,4 @@ export {
   classList,
   effect,
   untrack,
-} from './index';
+} from './index.js';

@@ -8,6 +8,7 @@ const coreRoot = resolve(__dirname, '../../../../packages/core');
 export default defineConfig({
   resolve: {
     alias: {
+      'what-core/devtools': resolve(coreRoot, 'src/devtools.js'),
       'what-core': resolve(coreRoot, 'src/index.js'),
       'what-devtools': resolve(__dirname, '../../../../packages/devtools/src/index.js'),
     },

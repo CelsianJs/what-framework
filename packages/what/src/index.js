@@ -2,3 +2,4 @@
 // Main entry point - re-exports everything from core
 
 export * from 'what-core';
+export { isSafeUrl } from 'what-router';

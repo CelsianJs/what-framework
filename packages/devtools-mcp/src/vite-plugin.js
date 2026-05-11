@@ -32,7 +32,7 @@ function resolveToken(explicitToken) {
   return '';
 }
 
-export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
+export default function whatDevToolsMCP({ port = 9229, token = '', host = '127.0.0.1' } = {}) {
   return {
     name: 'what-devtools-mcp',
     apply: 'serve',
@@ -47,7 +47,7 @@ Promise.all([
   import('what-devtools-mcp/client'),
 ]).then(([core, devtools, mcp]) => {
   devtools.installDevTools(core);
-  mcp.connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)} });
+  mcp.connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)}, host: ${JSON.stringify(host)} });
 }).catch((error) => {
   console.warn(
     '[what-devtools-mcp] DevTools injection failed. Install what-core, what-devtools, and what-devtools-mcp, then verify Vite aliases/package exports.',

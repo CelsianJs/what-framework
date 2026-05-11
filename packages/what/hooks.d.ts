@@ -1,6 +1,6 @@
 // What Framework - Hooks Type Definitions
 
-import { Signal } from './index';
+import { Signal } from './index.js';
 
 export function useState<T>(initial: T | (() => T)): [Signal<T>, (value: T | ((prev: T) => T)) => void];
 export function useSignal<T>(initial: T): Signal<T>;

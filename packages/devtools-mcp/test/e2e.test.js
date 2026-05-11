@@ -48,7 +48,7 @@ describe('E2E: Browser → Bridge → MCP', () => {
     // 3. Start Vite dev server — inject the bridge auth token so the fixture can connect
     viteServer = await createServer({
       root: FIXTURE_DIR,
-      server: { port: 3999, strictPort: true },
+      server: { host: '127.0.0.1', port: 3999, strictPort: true },
       logLevel: 'silent',
       define: {
         '__BRIDGE_AUTH_TOKEN__': JSON.stringify(bridge.authToken),
@@ -59,10 +59,20 @@ describe('E2E: Browser → Bridge → MCP', () => {
     // 4. Launch browser
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage();
-    await page.goto('http://localhost:3999');
+    const browserMessages = [];
+    page.on('console', (msg) => browserMessages.push(`${msg.type()}: ${msg.text()}`));
+    page.on('pageerror', (error) => browserMessages.push(`pageerror: ${error.message}`));
+    page.on('response', (response) => {
+      if (response.status() >= 400) browserMessages.push(`response ${response.status()}: ${response.url()}`);
+    });
+    await page.goto('http://127.0.0.1:3999');
 
-    // Wait for WS connection to establish
-    await page.waitForTimeout(1000);
+    // Wait for the browser client to establish the bridge WebSocket.
+    const deadline = Date.now() + 5000;
+    while (!bridge.isConnected() && Date.now() < deadline) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(bridge.isConnected(), true, `Browser did not connect to bridge. Browser messages:\n${browserMessages.join('\n')}`);
   });
 
   after(async () => {
