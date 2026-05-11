@@ -6,7 +6,7 @@ Code-side hardening sprint work is wrapped for What Framework.
 
 Current head:
 
-- `main@a05216b`
+- `main@199e073`
 - Tag `v0.8.4` pushed.
 - Working tree clean at final audit.
 
@@ -20,7 +20,7 @@ Released public registry state:
 
 Latest verified gates:
 
-- GitHub CI `25653342413` passed on `main@a05216b`.
+- GitHub CI `25654464676` passed on `main@199e073`.
 - Registry smoke verified `npx create-what@0.8.4 --help` prints usage without scaffolding.
 - Registry smoke verified `npx create-what@0.8.4 demo-app --yes` generates dependencies at `^0.8.4` and the generated app builds.
 - Registry smoke verified `npx --package what-framework-cli@0.8.4 what --help` and `npx --package what-framework-cli@0.8.4 what build` both pass.
