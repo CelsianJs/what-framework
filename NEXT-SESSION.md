@@ -6,9 +6,9 @@ Code-side hardening sprint work is wrapped for What Framework.
 
 Current head:
 
-- `main@199e073`
+- Use `git rev-parse --short HEAD` on `main`; this handoff file is intentionally committed after release code changes, so avoid copying a stale self-referential hash.
 - Tag `v0.8.4` pushed.
-- Working tree clean at final audit.
+- Working tree was clean at final audit.
 
 Released public registry state:
 
@@ -20,7 +20,7 @@ Released public registry state:
 
 Latest verified gates:
 
-- GitHub CI `25654464676` passed on `main@199e073`.
+- GitHub CI passed on the handoff-doc head after this file was restored; see workspace audit for the latest run id.
 - Registry smoke verified `npx create-what@0.8.4 --help` prints usage without scaffolding.
 - Registry smoke verified `npx create-what@0.8.4 demo-app --yes` generates dependencies at `^0.8.4` and the generated app builds.
 - Registry smoke verified `npx --package what-framework-cli@0.8.4 what --help` and `npx --package what-framework-cli@0.8.4 what build` both pass.
