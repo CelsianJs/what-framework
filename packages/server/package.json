@@ -1,6 +1,6 @@
 {
   "name": "what-server",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",

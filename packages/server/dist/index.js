@@ -412,7 +412,7 @@ function _renderHydratable(vnode) {
     }
   }
   if (Array.isArray(vnode)) {
-    return `<!--[]-->${vnode.map(_renderHydratable).join("")}<!--/[]-->`;
+    return `<!--[]-->${renderChildrenToString(vnode, _renderHydratable)}<!--/[]-->`;
   }
   if (typeof vnode.tag === "function") {
     const hkId = nextHydrationId();
@@ -435,7 +435,7 @@ function _renderHydratable(vnode) {
   const open = `<${tag}${attrs}>`;
   if (VOID_ELEMENTS.has(tag)) return open;
   const rawInner = _resolveInnerHTML(props);
-  const inner = rawInner != null ? String(rawInner) : children.map(_renderHydratable).join("");
+  const inner = rawInner != null ? String(rawInner) : renderChildrenToString(children, _renderHydratable);
   return `${open}${inner}</${tag}>`;
 }
 function injectHydrationKey(html, hkId) {
@@ -468,7 +468,7 @@ function renderToString(vnode) {
     }
   }
   if (Array.isArray(vnode)) {
-    return vnode.map(renderToString).join("");
+    return renderChildrenToString(vnode, renderToString);
   }
   if (typeof vnode.tag === "function") {
     const componentName = vnode.tag.displayName || vnode.tag.name || "Anonymous";
@@ -489,8 +489,15 @@ function renderToString(vnode) {
   const open = `<${tag}${attrs}>`;
   if (VOID_ELEMENTS.has(tag)) return open;
   const rawInner = _resolveInnerHTML(props);
-  const inner = rawInner != null ? String(rawInner) : children.map(renderToString).join("");
+  const inner = rawInner != null ? String(rawInner) : renderChildrenToString(children, renderToString);
   return `${open}${inner}</${tag}>`;
+}
+function renderChildrenToString(children, renderChild) {
+  let html = "";
+  for (let i = 0; i < children.length; i++) {
+    html += renderChild(children[i]);
+  }
+  return html;
 }
 async function* renderToStream(vnode) {
   if (vnode == null || vnode === false || vnode === true) return;
@@ -629,16 +636,20 @@ function _resolveInnerHTML(props) {
 }
 function renderAttrs(props) {
   let out = "";
-  for (const [key, val] of Object.entries(props)) {
+  const keys = Object.keys(props);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const val = props[key];
     if (key === "key" || key === "ref" || key === "children" || key === "dangerouslySetInnerHTML" || key === "innerHTML") continue;
     if (key.startsWith("on") && key.length > 2) continue;
     if (val === false || val == null) continue;
-    const attrName = getHtmlAttributeName(key);
-    if (!isValidHtmlAttributeName(attrName)) {
+    const attr = getHtmlAttributeMetadata(key);
+    const attrName = attr.name;
+    if (!attr.valid) {
       if (_isDevMode) console.warn(`[what-server] Omitted invalid attribute name: ${key}`);
       continue;
     }
-    if (!isSafeUrlAttributeValue(attrName, val)) {
+    if (!isSafeUrlAttributeValue(attr.urlKind, val)) {
       if (_isDevMode) console.warn(`[what-server] Omitted unsafe URL attribute "${attrName}": ${val}`);
       continue;
     }
@@ -664,6 +675,25 @@ function getHtmlAttributeName(name) {
   if (name === "htmlFor") return "for";
   return name;
 }
+var ATTR_METADATA_CACHE = /* @__PURE__ */ new Map();
+var ATTR_METADATA_CACHE_MAX = 2048;
+var URL_ATTR_KIND_NONE = 0;
+var URL_ATTR_KIND_SINGLE = 1;
+var URL_ATTR_KIND_LIST = 2;
+function getHtmlAttributeMetadata(key) {
+  const cached = ATTR_METADATA_CACHE.get(key);
+  if (cached) return cached;
+  const name = getHtmlAttributeName(key);
+  const valid = isValidHtmlAttributeName(name);
+  const meta = {
+    name,
+    valid,
+    urlKind: valid ? getUrlAttributeKind(name) : URL_ATTR_KIND_NONE
+  };
+  if (ATTR_METADATA_CACHE.size >= ATTR_METADATA_CACHE_MAX) ATTR_METADATA_CACHE.clear();
+  ATTR_METADATA_CACHE.set(key, meta);
+  return meta;
+}
 function isValidHtmlAttributeName(name) {
   return /^[^\s"'>/=\x00-\x1f\x7f]+$/.test(name);
 }
@@ -678,10 +708,25 @@ var URL_ATTRS = /* @__PURE__ */ new Set([
   "xlink:href"
 ]);
 var URL_LIST_ATTRS = /* @__PURE__ */ new Set(["srcset"]);
-function isSafeUrlAttributeValue(name, value) {
-  const normalizedName = String(name).toLowerCase();
-  if (URL_LIST_ATTRS.has(normalizedName)) return isSafeSrcsetValue(value);
-  if (URL_ATTRS.has(normalizedName)) return isSafeUrlValue(value);
+function getUrlAttributeKind(name) {
+  if (URL_ATTRS.has(name)) return URL_ATTR_KIND_SINGLE;
+  if (URL_LIST_ATTRS.has(name)) return URL_ATTR_KIND_LIST;
+  if (!hasAsciiUppercase(name)) return URL_ATTR_KIND_NONE;
+  const normalizedName = name.toLowerCase();
+  if (URL_ATTRS.has(normalizedName)) return URL_ATTR_KIND_SINGLE;
+  if (URL_LIST_ATTRS.has(normalizedName)) return URL_ATTR_KIND_LIST;
+  return URL_ATTR_KIND_NONE;
+}
+function hasAsciiUppercase(str) {
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 65 && code <= 90) return true;
+  }
+  return false;
+}
+function isSafeUrlAttributeValue(urlKind, value) {
+  if (urlKind === URL_ATTR_KIND_LIST) return isSafeSrcsetValue(value);
+  if (urlKind === URL_ATTR_KIND_SINGLE) return isSafeUrlValue(value);
   return true;
 }
 function isSafeUrlValue(value) {
