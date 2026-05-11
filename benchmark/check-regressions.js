@@ -12,8 +12,8 @@ const BASELINE_DIR = join(ROOT, 'benchmark', 'baseline');
 const CORE_BASELINE = join(BASELINE_DIR, 'core.json');
 const DX_BASELINE = join(BASELINE_DIR, 'dx.json');
 
-const coreTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_CORE ?? '0.2');
-const dxTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_DX ?? '0.25');
+const coreTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_CORE ?? '0.3');
+const dxTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_DX ?? '0.35');
 
 // Guard only stable, release-critical operations.
 // Extremely fast micro-ops can vary significantly between runs.

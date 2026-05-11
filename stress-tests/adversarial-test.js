@@ -250,7 +250,7 @@ describe('pathological SSR', () => {
     assert.equal(html, '<span>a</span><span>b</span>');
   });
 
-  test('SSR with component throwing error', () => {
+  test('SSR with component throwing error fails explicitly instead of hanging', () => {
     function BadComp() {
       throw new Error('boom');
     }
@@ -408,9 +408,10 @@ describe('XSS prevention', () => {
     assert.ok(!html.includes('<script>'));
   });
 
-  test('attribute injection via quotes', () => {
+  test('attribute injection via quotes escapes into the original attribute value', () => {
     const html = renderToString(h('div', { title: '" onclick="alert(1)' }));
-    assert.ok(!html.includes('onclick'));
+    assert.ok(html.includes('title="&quot; onclick=&quot;alert(1)"'));
+    assert.ok(!html.includes('" onclick='));
   });
 
   test('attribute injection via angle brackets', () => {
@@ -418,11 +419,9 @@ describe('XSS prevention', () => {
     assert.ok(!html.includes('<script>'));
   });
 
-  test('href javascript: protocol', () => {
-    // Framework does not filter href values — that's the developer's responsibility
-    // But it should at least not double-encode
+  test('href javascript: protocol is omitted', () => {
     const html = renderToString(h('a', { href: 'javascript:alert(1)' }));
-    assert.ok(html.includes('href="javascript:alert(1)"'));
+    assert.equal(html, '<a></a>');
   });
 
   test('data attribute injection', () => {
@@ -510,9 +509,8 @@ describe('streaming SSR error recovery', () => {
 
     console.warn = origWarn;
 
-    // Should produce an error comment, not crash
-    assert.ok(result.includes('SSR Error') || result.includes('stream-error'),
-      `Got: ${result}`);
+    // Should produce the server renderer's safe error comment, not crash.
+    assert.ok(result.includes('SSR Error'), `Got: ${result}`);
   });
 });
 

@@ -82,4 +82,10 @@ jobs:
         run: npm ci
 
       - name: Benchmark gate
+        env:
+          # GitHub-hosted runners are substantially slower/noisier than the
+          # checked-in local baselines; keep CI as a catastrophic regression
+          # guard while preserving stricter defaults for local release checks.
+          WHAT_BENCH_TOLERANCE_CORE: 0.75
+          WHAT_BENCH_TOLERANCE_DX: 0.85
         run: npm run -s bench:gate
