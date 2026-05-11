@@ -21,6 +21,7 @@ Released public registry state:
 Latest verified gates:
 
 - GitHub CI passed on the handoff-doc head after this file was restored; see workspace audit for the latest run id.
+- GitHub Release artifact: https://github.com/CelsianJs/what-framework/releases/tag/v0.8.4
 - Registry smoke verified `npx create-what@0.8.4 --help` prints usage without scaffolding.
 - Registry smoke verified `npx create-what@0.8.4 demo-app --yes` generates dependencies at `^0.8.4` and the generated app builds.
 - Registry smoke verified `npx --package what-framework-cli@0.8.4 what --help` and `npx --package what-framework-cli@0.8.4 what build` both pass.
