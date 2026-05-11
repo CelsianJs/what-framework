@@ -9,7 +9,7 @@ import {
   createRoot, h, Fragment,
 } from '../packages/core/src/index.js';
 
-import { renderToString, renderToStream } from '../packages/server/src/index.js';
+import { renderToString, renderToStream, getSSRErrors } from '../packages/server/src/index.js';
 
 // ============================================================
 // 1. STACK OVERFLOW — Can we blow the stack?
@@ -250,11 +250,15 @@ describe('pathological SSR', () => {
     assert.equal(html, '<span>a</span><span>b</span>');
   });
 
-  test('SSR with component throwing error', () => {
+  test('SSR with component throwing error records and renders a safe error comment', () => {
     function BadComp() {
       throw new Error('boom');
     }
-    assert.throws(() => renderToString(h(BadComp)), /boom/);
+    const html = renderToString(h(BadComp));
+    assert.equal(html, '<!-- SSR Error in BadComp: boom -->');
+    assert.deepEqual(getSSRErrors().map(({ code, message, component }) => ({ code, message, component })), [
+      { code: 'ERR_SSR_RENDER', message: 'boom', component: 'BadComp' },
+    ]);
   });
 });
 
@@ -408,9 +412,10 @@ describe('XSS prevention', () => {
     assert.ok(!html.includes('<script>'));
   });
 
-  test('attribute injection via quotes', () => {
+  test('attribute injection via quotes escapes into the original attribute value', () => {
     const html = renderToString(h('div', { title: '" onclick="alert(1)' }));
-    assert.ok(!html.includes('onclick'));
+    assert.ok(html.includes('title="&quot; onclick=&quot;alert(1)"'));
+    assert.ok(!html.includes('" onclick='));
   });
 
   test('attribute injection via angle brackets', () => {
@@ -418,11 +423,9 @@ describe('XSS prevention', () => {
     assert.ok(!html.includes('<script>'));
   });
 
-  test('href javascript: protocol', () => {
-    // Framework does not filter href values — that's the developer's responsibility
-    // But it should at least not double-encode
+  test('href javascript: protocol is omitted', () => {
     const html = renderToString(h('a', { href: 'javascript:alert(1)' }));
-    assert.ok(html.includes('href="javascript:alert(1)"'));
+    assert.equal(html, '<a></a>');
   });
 
   test('data attribute injection', () => {
