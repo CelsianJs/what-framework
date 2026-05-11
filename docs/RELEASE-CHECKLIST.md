@@ -45,13 +45,13 @@ Current 0.6.x package set:
 
 | Package | Current backport version | Notes |
 |---|---:|---|
-| `what-core` | `0.6.8` | Core/runtime API and security backports |
-| `what-framework` | `0.6.8` | Umbrella package aligned to current core/router/server ranges |
+| `what-core` | `0.6.9` | Core/runtime API and security backports |
+| `what-framework` | `0.6.9` | Umbrella package aligned to current core/router/server ranges |
 | `what-router` | `0.6.7` | Router backport line |
 | `what-server` | `0.6.7` | SSR/server backport line |
 | `what-compiler` | `0.6.5` | Compiler backport line |
 | `what-devtools` | `0.6.5` | Browser devtools backport line |
-| `what-devtools-mcp` | `0.6.5` | DevTools MCP backport line |
+| `what-devtools-mcp` | `0.6.6` | DevTools MCP backport line |
 | `what-react` | `0.6.5` | React compatibility backport line |
 | `what-framework-cli` | `0.6.4` | CLI backport line |
 | `create-what` | `0.6.4` | Scaffolder backport line |

@@ -1,6 +1,6 @@
 {
   "name": "what-core",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "What Framework - The closest framework to vanilla JS",
   "type": "module",
   "main": "src/index.js",
@@ -73,7 +73,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/what-framework"
+    "url": "git+https://github.com/CelsianJs/what-framework.git"
   },
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"

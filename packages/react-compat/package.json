@@ -1,7 +1,7 @@
 {
   "name": "what-react",
   "version": "0.6.5",
-  "description": "React compatibility layer for What Framework \u2014 use React packages with signals under the hood",
+  "description": "React compatibility layer for What Framework — use React packages with signals under the hood",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -54,7 +54,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/what-framework"
+    "url": "git+https://github.com/CelsianJs/what-framework.git"
   },
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"

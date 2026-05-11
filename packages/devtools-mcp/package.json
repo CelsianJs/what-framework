@@ -1,6 +1,6 @@
 {
   "name": "what-devtools-mcp",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "MCP server bridging AI agents to live What Framework app state via WebSocket",
   "type": "module",
   "bin": {
@@ -45,7 +45,7 @@
   "types": "index.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/what-framework"
+    "url": "git+https://github.com/CelsianJs/what-framework.git"
   },
   "homepage": "https://whatfw.com",
   "bugs": {

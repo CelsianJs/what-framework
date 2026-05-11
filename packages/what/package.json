@@ -1,6 +1,6 @@
 {
   "name": "what-framework",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "The closest framework to vanilla JS — signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",
@@ -85,14 +85,14 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/what-framework"
+    "url": "git+https://github.com/CelsianJs/what-framework.git"
   },
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"
   },
   "homepage": "https://whatfw.com",
   "dependencies": {
-    "what-core": "^0.6.8",
+    "what-core": "^0.6.9",
     "what-router": "^0.6.7",
     "what-server": "^0.6.7",
     "what-compiler": "^0.6.5"

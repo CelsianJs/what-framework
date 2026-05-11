@@ -40,7 +40,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/CelsianJs/what-framework"
+    "url": "git+https://github.com/CelsianJs/what-framework.git"
   },
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"
