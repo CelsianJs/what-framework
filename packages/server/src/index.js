@@ -349,12 +349,25 @@ function renderAttrs(props) {
         out += ` ${key}`;
       }
     } else {
+      if (isUnsafeUrlAttribute(key, val)) continue;
       out += ` ${key}="${escapeHtml(String(val))}"`;
     }
   }
 
   return out;
 }
+
+
+function isUnsafeUrlAttribute(key, val) {
+  const normalizedKey = key.toLowerCase();
+  if (!URL_ATTRS.has(normalizedKey)) return false;
+  const normalizedValue = String(val).trim().replace(/[\u0000-\u001f\u007f\s]+/g, '').toLowerCase();
+  return normalizedValue.startsWith('javascript:') || normalizedValue.startsWith('vbscript:');
+}
+
+const URL_ATTRS = new Set([
+  'href', 'src', 'action', 'formaction', 'xlink:href',
+]);
 
 function escapeHtml(str) {
   return str

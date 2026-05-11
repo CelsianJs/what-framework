@@ -1,6 +1,6 @@
 {
   "name": "what-text",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Optional text engine for What Framework, powered by @chenglou/pretext",
   "type": "module",
   "main": "src/index.js",
@@ -10,18 +10,26 @@
       "import": "./src/index.js"
     }
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "sideEffects": false,
   "peerDependencies": {
     "what-core": ">=0.7.0",
-    "@chenglou/pretext": ">=0.1.0"
+    "@chenglou/pretext": ">=0.0.5"
   },
   "peerDependenciesMeta": {
     "@chenglou/pretext": {
       "optional": true
     }
   },
-  "keywords": ["what-framework", "text", "pretext", "layout", "measurement"],
+  "keywords": [
+    "what-framework",
+    "text",
+    "pretext",
+    "layout",
+    "measurement"
+  ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "repository": {
