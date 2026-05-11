@@ -1,7 +1,7 @@
 {
   "name": "what-fw",
   "private": true,
-  "version": "0.8.2",
+  "version": "0.8.3",
   "type": "module",
   "description": "The closest framework to vanilla JS",
   "workspaces": [
@@ -34,7 +34,7 @@
     "demo": "node demo/serve.js",
     "release:publish": "node scripts/publish-packages.mjs",
     "release:verify": "npm run -s test && npm run -s build && npm run -s bench:gate",
-    "test": "node --test packages/core/test/*.test.js packages/what-text/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js && npm run -s test:stress",
+    "test": "node --test packages/core/test/*.test.js packages/what-text/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/create-what/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js && npm run -s test:stress",
     "test:stress": "node stress-tests/adversarial-test.js"
   },
   "engines": {

@@ -6,8 +6,8 @@
 //   npx create-what my-app
 //   npx create-what my-app --yes   (skip prompts, use defaults)
 
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 // ---------------------------------------------------------------------------
@@ -17,6 +17,23 @@ const args = process.argv.slice(2);
 const positional = args.filter(a => !a.startsWith('-'));
 const flags = new Set(args.filter(a => a.startsWith('-')));
 const skipPrompts = flags.has('--yes') || flags.has('-y');
+const showHelp = flags.has('--help') || flags.has('-h');
+const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
+const whatVersionRange = `^${packageVersion}`;
+
+if (showHelp) {
+  console.log(`
+  create-what - scaffold a What Framework project
+
+  Usage:
+    create-what [project-name] [options]
+
+  Options:
+    -y, --yes     Skip prompts and use defaults
+    -h, --help    Show this help message
+`);
+  process.exit(0);
+}
 
 // ---------------------------------------------------------------------------
 // Prompt helpers (zero-dependency, uses Node readline)
@@ -121,20 +138,20 @@ async function gatherOptions() {
 // File generators
 // ---------------------------------------------------------------------------
 
-function generatePackageJson(projectName, { reactCompat, cssApproach }) {
+function generatePackageJson(packageName, { reactCompat, cssApproach }) {
   const deps = {
-    'what-framework': '^0.6.0',
+    'what-framework': whatVersionRange,
   };
   const devDeps = {
     vite: '^6.0.0',
-    'what-compiler': '^0.6.0',
-    'what-devtools-mcp': '^0.6.0',
+    'what-compiler': whatVersionRange,
+    'what-devtools-mcp': whatVersionRange,
     '@babel/core': '^7.23.0',
   };
 
   if (reactCompat) {
-    deps['what-react'] = '^0.1.0';
-    deps['what-core'] = '^0.6.0';
+    deps['what-react'] = whatVersionRange;
+    deps['what-core'] = whatVersionRange;
     // Include zustand as a demo React library
     deps['zustand'] = '^5.0.0';
   }
@@ -150,7 +167,7 @@ function generatePackageJson(projectName, { reactCompat, cssApproach }) {
   }
 
   return JSON.stringify({
-    name: projectName,
+    name: packageName,
     private: true,
     version: '0.1.0',
     type: 'module',
@@ -214,13 +231,13 @@ export default defineConfig({
   return config;
 }
 
-function generateIndexHtml(projectName) {
+function generateIndexHtml(packageName) {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${projectName}</title>
+    <title>${packageName}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
@@ -790,7 +807,7 @@ output {
 `;
 }
 
-function generateReadme(projectName, { reactCompat, cssApproach }) {
+function generateReadme(packageName, { reactCompat, cssApproach }) {
   let notes = `- Canonical package name is \`what-framework\`.
 - Uses the What compiler for JSX transforms and automatic reactivity.
 - Vite is preconfigured; use \`npm run dev/build/preview\`.
@@ -813,7 +830,7 @@ function generateReadme(projectName, { reactCompat, cssApproach }) {
 - StyleX is configured via \`vite-plugin-stylex\`. Define styles with \`stylex.create()\` and apply with \`{...stylex.props()}\`.`;
   }
 
-  return `# ${projectName}
+  return `# ${packageName}
 
 ## Run
 
@@ -837,17 +854,18 @@ async function main() {
   const options = await gatherOptions();
   const { projectName, reactCompat, cssApproach } = options;
 
-  const root = join(process.cwd(), projectName);
+  const root = resolve(process.cwd(), projectName);
+  const packageName = basename(root);
 
   if (existsSync(root)) {
-    console.error(`\nError: "${projectName}" already exists.`);
+    console.error(`\nError: "${root}" already exists.`);
     process.exit(1);
   }
 
-  mkdirSync(join(root, 'src'), { recursive: true });
-  mkdirSync(join(root, 'public'), { recursive: true });
+  mkdirSync(resolve(root, 'src'), { recursive: true });
+  mkdirSync(resolve(root, 'public'), { recursive: true });
   // MCP DevTools config — lets AI agents (Claude Code, Cursor, etc.) connect to the running app
-  writeFileSync(join(root, '.mcp.json'), JSON.stringify({
+  writeFileSync(resolve(root, '.mcp.json'), JSON.stringify({
     mcpServers: {
       'what-devtools-mcp': {
         command: 'npx',
@@ -857,7 +875,7 @@ async function main() {
   }, null, 2) + '\n');
 
   // CLAUDE.md — agent instructions for Claude Code (also useful for other AI tools)
-  writeFileSync(join(root, 'CLAUDE.md'), `# ${projectName}
+  writeFileSync(resolve(root, 'CLAUDE.md'), `# ${packageName}
 
 Built with What Framework — signal-based reactivity, components run once.
 
@@ -987,7 +1005,7 @@ If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscri
 `);
 
   // AGENTS.md — model-agnostic instructions for OpenCode, Codex, Gemini, Cursor, etc.
-  writeFileSync(join(root, 'AGENTS.md'), `# ${projectName} — Agent Instructions
+  writeFileSync(resolve(root, 'AGENTS.md'), `# ${packageName} — Agent Instructions
 
 > Model-agnostic guide for AI agents using MCP DevTools with What Framework.
 
@@ -1051,8 +1069,8 @@ count(c => c + 1) // update
 `);
 
   // Also generate a .cursor/mcp.json for Cursor users
-  mkdirSync(join(root, '.cursor'), { recursive: true });
-  writeFileSync(join(root, '.cursor', 'mcp.json'), JSON.stringify({
+  mkdirSync(resolve(root, '.cursor'), { recursive: true });
+  writeFileSync(resolve(root, '.cursor', 'mcp.json'), JSON.stringify({
     mcpServers: {
       'what-devtools-mcp': {
         command: 'npx',
@@ -1062,16 +1080,16 @@ count(c => c + 1) // update
   }, null, 2) + '\n');
 
   // .gitignore
-  writeFileSync(join(root, '.gitignore'), `node_modules\ndist\n.DS_Store\n`);
+  writeFileSync(resolve(root, '.gitignore'), `node_modules\ndist\n.DS_Store\n`);
 
   // package.json
-  writeFileSync(join(root, 'package.json'), generatePackageJson(projectName, options));
+  writeFileSync(resolve(root, 'package.json'), generatePackageJson(packageName, options));
 
   // index.html
-  writeFileSync(join(root, 'index.html'), generateIndexHtml(projectName));
+  writeFileSync(resolve(root, 'index.html'), generateIndexHtml(packageName));
 
   // favicon
-  writeFileSync(join(root, 'public', 'favicon.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  writeFileSync(resolve(root, 'public', 'favicon.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
       <stop offset="0%" stop-color="#2563eb" />
@@ -1084,10 +1102,10 @@ count(c => c + 1) // update
 `);
 
   // vite.config.js
-  writeFileSync(join(root, 'vite.config.js'), generateViteConfig(options));
+  writeFileSync(resolve(root, 'vite.config.js'), generateViteConfig(options));
 
   // tsconfig.json
-  writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
+  writeFileSync(resolve(root, 'tsconfig.json'), JSON.stringify({
     compilerOptions: {
       target: 'ES2022',
       module: 'ESNext',
@@ -1107,32 +1125,32 @@ count(c => c + 1) // update
   }, null, 2) + '\n');
 
   // .vscode
-  mkdirSync(join(root, '.vscode'), { recursive: true });
+  mkdirSync(resolve(root, '.vscode'), { recursive: true });
 
-  writeFileSync(join(root, '.vscode', 'settings.json'), JSON.stringify({
+  writeFileSync(resolve(root, '.vscode', 'settings.json'), JSON.stringify({
     'typescript.tsdk': 'node_modules/typescript/lib',
     'editor.formatOnSave': true,
   }, null, 2) + '\n');
 
-  writeFileSync(join(root, '.vscode', 'extensions.json'), JSON.stringify({
+  writeFileSync(resolve(root, '.vscode', 'extensions.json'), JSON.stringify({
     recommendations: [],
   }, null, 2) + '\n');
 
   // src/main.jsx
-  writeFileSync(join(root, 'src', 'main.jsx'), generateMainJsx(options));
+  writeFileSync(resolve(root, 'src', 'main.jsx'), generateMainJsx(options));
 
   // src/styles.css
   if (reactCompat && cssApproach === 'none') {
-    writeFileSync(join(root, 'src', 'styles.css'), generateStylesWithReactCompat());
+    writeFileSync(resolve(root, 'src', 'styles.css'), generateStylesWithReactCompat());
   } else {
-    writeFileSync(join(root, 'src', 'styles.css'), generateStyles(options));
+    writeFileSync(resolve(root, 'src', 'styles.css'), generateStyles(options));
   }
 
   // README.md
-  writeFileSync(join(root, 'README.md'), generateReadme(projectName, options));
+  writeFileSync(resolve(root, 'README.md'), generateReadme(packageName, options));
 
   // Summary
-  console.log(`\nCreated ${projectName}.`);
+  console.log(`\nCreated ${root}.`);
 
   const features = [];
   if (reactCompat) features.push('React compat (what-react + zustand demo)');
@@ -1143,7 +1161,7 @@ count(c => c + 1) // update
   }
 
   console.log('\nNext steps:');
-  console.log(`  cd ${projectName}`);
+  console.log(`  cd ${root}`);
   console.log('  npm install');
   console.log('  npm run dev\n');
 }
