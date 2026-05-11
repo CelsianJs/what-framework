@@ -58,6 +58,7 @@ try {
 function createFixtureApp(dir) {
   mkdirSync(join(dir, 'src'), { recursive: true });
   mkdirSync(join(dir, 'public'), { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }, null, 2) + '\n');
   writeFileSync(join(dir, 'what.config.js'), `export default { mode: 'client', outDir: 'dist', hash: false };\n`);
   writeFileSync(join(dir, 'src/index.html'), `<!doctype html><div id="app"></div><script type="module" src="/main.js"></script>\n`);
   writeFileSync(join(dir, 'src/main.js'), `console.log('fixture-main');\n`);
