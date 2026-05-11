@@ -70,7 +70,7 @@ try {
   }, null, 2));
 
   writeFileSync(join(consumerDir, 'index.ts'), `
-import { h, signal, computed, isSafeUrl } from 'what-framework';
+import { h, signal, computed, isSafeUrl, useState as useFrameworkState, useMemo as useFrameworkMemo } from 'what-framework';
 import { useSignal as useCoreSignal } from 'what-core/hooks';
 import { Link, navigate, isSafeUrl as routerSafe } from 'what-framework/router';
 import { renderToString } from 'what-framework/server';
@@ -107,6 +107,8 @@ void mcpConn.isConnected;
 mcpConn.disconnect();
 void whatDevToolsMCP({ host: '127.0.0.1' });
 void useCoreSignal;
+void useFrameworkState;
+void useFrameworkMemo;
 
 class Demo extends Component<{ initial: number }, { value: number }> {
   state = { value: this.props.initial };

@@ -9,6 +9,35 @@ function isSafeUrl(url) {
   if (normalized.startsWith("vbscript:")) return false;
   return true;
 }
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+function getLinkTarget(href) {
+  const fallback = { href, navigateTo: href, shouldIntercept: false, isSafe: false };
+  if (!isSafeUrl(href)) return fallback;
+  if (typeof window === "undefined") {
+    return { href, navigateTo: href, shouldIntercept: true, isSafe: true };
+  }
+  try {
+    const url = new URL(href, window.location.href);
+    const isHttp = url.protocol === "http:" || url.protocol === "https:";
+    if (!isHttp || url.origin !== window.location.origin) {
+      return { href, navigateTo: href, shouldIntercept: false, isSafe: true };
+    }
+    return {
+      href,
+      navigateTo: url.pathname + url.search + url.hash,
+      shouldIntercept: true,
+      isSafe: true
+    };
+  } catch {
+    return { href, navigateTo: href, shouldIntercept: false, isSafe: true };
+  }
+}
 var _url = signal(typeof location !== "undefined" ? location.pathname + location.search + location.hash : "/");
 var _params = signal({});
 var _query = signal({});
@@ -77,15 +106,22 @@ async function navigate(to, opts = {}) {
       }
     }
     _url.set(to);
-    _isNavigating.set(false);
   };
-  if (transition && typeof document !== "undefined" && document.startViewTransition) {
-    try {
-      await document.startViewTransition(doNavigation).finished;
-    } catch (e) {
+  try {
+    if (transition && typeof document !== "undefined" && document.startViewTransition) {
+      try {
+        await document.startViewTransition(doNavigation).finished;
+      } catch (e) {
+        if (_url.peek() !== to) doNavigation();
+      }
+    } else {
+      doNavigation();
     }
-  } else {
-    doNavigation();
+  } catch (e) {
+    _navigationError.set(e);
+    throw e;
+  } finally {
+    _isNavigating.set(false);
   }
 }
 if (typeof window !== "undefined") {
@@ -137,7 +173,7 @@ function matchRoute(path, routes) {
     if (match) {
       const params = {};
       paramNames.forEach((name, i) => {
-        params[name] = decodeURIComponent(match[i + 1]);
+        params[name] = safeDecodeURIComponent(match[i + 1]);
       });
       return { route: route2, params };
     }
@@ -151,8 +187,8 @@ function parseQuery(search) {
   for (const pair of qs.split("&")) {
     const [key, val] = pair.split("=");
     if (!key) continue;
-    const decodedKey = decodeURIComponent(key);
-    const decodedVal = val ? decodeURIComponent(val) : "";
+    const decodedKey = safeDecodeURIComponent(key);
+    const decodedVal = val ? safeDecodeURIComponent(val) : "";
     if (decodedKey in params) {
       if (Array.isArray(params[decodedKey])) {
         params[decodedKey].push(decodedVal);
@@ -291,15 +327,16 @@ function Link({
   transition = true,
   ...rest
 }) {
-  const safeHref = isSafeUrl(href) ? href : "about:blank";
-  if (!isSafeUrl(href) && typeof console !== "undefined") {
+  const target = getLinkTarget(href);
+  const safeHref = target.isSafe ? href : "about:blank";
+  if (!target.isSafe && typeof console !== "undefined") {
     console.warn(`[what-router] Link blocked unsafe href: ${href}`);
   }
-  const hrefPath = safeHref.split("?")[0].split("#")[0];
+  const hrefPath = target.shouldIntercept ? target.navigateTo.split("?")[0].split("#")[0] : "";
   const reactiveClass = () => {
     const currentPath = route.path;
-    const isActive = hrefPath === "/" ? currentPath === "/" : currentPath === hrefPath || currentPath.startsWith(hrefPath + "/");
-    const isExactActive = currentPath === hrefPath;
+    const isActive = target.shouldIntercept && (hrefPath === "/" ? currentPath === "/" : currentPath === hrefPath || currentPath.startsWith(hrefPath + "/"));
+    const isExactActive = target.shouldIntercept && currentPath === hrefPath;
     return [
       cls || className,
       isActive && activeClass,
@@ -311,8 +348,9 @@ function Link({
     class: reactiveClass,
     onclick: (e) => {
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      if (!target.shouldIntercept) return;
       e.preventDefault();
-      navigate(safeHref, { replace: rep, transition });
+      navigate(target.navigateTo, { replace: rep, transition });
     },
     onmouseenter: shouldPrefetch ? () => prefetch(safeHref) : void 0,
     ...rest

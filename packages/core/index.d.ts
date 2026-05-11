@@ -130,11 +130,11 @@ export function classList(el: Element, classes: Record<string, boolean | (() => 
 
 // --- Hooks ---
 
-export function useState<T>(initial: T | (() => T)): [T, (value: Updater<T>) => void];
+export function useState<T>(initial: T | (() => T)): [Signal<T>, (value: Updater<T>) => void];
 export function useSignal<T>(initial: T | (() => T)): Signal<T>;
 export function useComputed<T>(fn: () => T): Computed<T>;
 export function useEffect(fn: () => void | (() => void), deps?: unknown[]): void;
-export function useMemo<T>(fn: () => T, deps?: unknown[]): T;
+export function useMemo<T>(fn: () => T, deps?: unknown[]): Computed<T>;
 export function useCallback<T extends (...args: any[]) => any>(fn: T, deps?: unknown[]): T;
 export function useRef<T>(initial: T): { current: T };
 
@@ -149,7 +149,7 @@ export function useReducer<S, A>(
   reducer: (state: S, action: A) => S,
   initialState: S,
   init?: (initial: S) => S,
-): [S, (action: A) => void];
+): [Signal<S>, (action: A) => void];
 export function onMount(fn: () => void): void;
 export function onCleanup(fn: () => void): void;
 

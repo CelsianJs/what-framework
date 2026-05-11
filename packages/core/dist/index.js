@@ -2983,6 +2983,16 @@ function getHook(ctx) {
   const index = ctx.hookIndex++;
   return { index, exists: index < ctx.hooks.length };
 }
+function useState(initial) {
+  const ctx = getCtx("useState");
+  const { index, exists } = getHook(ctx);
+  if (!exists) {
+    const s2 = signal(typeof initial === "function" ? initial() : initial);
+    ctx.hooks[index] = s2;
+  }
+  const s = ctx.hooks[index];
+  return [s, s.set];
+}
 function useSignal(initial) {
   const ctx = getCtx("useSignal");
   const { index, exists } = getHook(ctx);
@@ -2996,6 +3006,97 @@ function useComputed(fn) {
   const { index, exists } = getHook(ctx);
   if (!exists) {
     ctx.hooks[index] = computed(fn);
+  }
+  return ctx.hooks[index];
+}
+function useEffect(fn, deps) {
+  const ctx = getCtx("useEffect");
+  const { index, exists } = getHook(ctx);
+  if (!exists) {
+    ctx.hooks[index] = { cleanup: null, dispose: null };
+  }
+  if (__DEV__ && Array.isArray(deps) && deps.length > 0) {
+    for (let i = 0; i < deps.length; i++) {
+      const dep = deps[i];
+      if (dep != null && typeof dep !== "function") {
+        console.warn(
+          `[what] useEffect dep at index ${i} is not a function. Did you mean to pass a signal? Use count instead of count()`
+        );
+      }
+    }
+  }
+  const hook = ctx.hooks[index];
+  if (hook.dispose) return;
+  if (deps === void 0) {
+    queueMicrotask(() => {
+      if (ctx.disposed) return;
+      hook.dispose = effect(() => {
+        if (hook.cleanup) {
+          try {
+            hook.cleanup();
+          } catch (e) {
+          }
+          hook.cleanup = null;
+        }
+        const result = fn();
+        if (typeof result === "function") hook.cleanup = result;
+      });
+      ctx.effects = ctx.effects || [];
+      ctx.effects.push(hook.dispose);
+    });
+  } else if (deps.length === 0) {
+    queueMicrotask(() => {
+      if (ctx.disposed) return;
+      const result = fn();
+      if (typeof result === "function") hook.cleanup = result;
+    });
+    hook.dispose = true;
+  } else {
+    queueMicrotask(() => {
+      if (ctx.disposed) return;
+      hook.dispose = effect(() => {
+        for (let i = 0; i < deps.length; i++) {
+          const dep = deps[i];
+          if (typeof dep === "function" && dep._signal) {
+            dep();
+          }
+        }
+        if (hook.cleanup) {
+          try {
+            hook.cleanup();
+          } catch (e) {
+          }
+          hook.cleanup = null;
+        }
+        const result = untrack(() => fn());
+        if (typeof result === "function") hook.cleanup = result;
+      });
+      ctx.effects = ctx.effects || [];
+      ctx.effects.push(hook.dispose);
+    });
+  }
+}
+function useMemo(fn, deps) {
+  const ctx = getCtx("useMemo");
+  const { index, exists } = getHook(ctx);
+  if (!exists) {
+    ctx.hooks[index] = { computed: computed(fn) };
+  }
+  return ctx.hooks[index].computed;
+}
+function useCallback(fn, deps) {
+  const ctx = getCtx("useCallback");
+  const { index, exists } = getHook(ctx);
+  if (!exists) {
+    ctx.hooks[index] = { callback: fn };
+  }
+  return ctx.hooks[index].callback;
+}
+function useRef(initial) {
+  const ctx = getCtx("useRef");
+  const { index, exists } = getHook(ctx);
+  if (!exists) {
+    ctx.hooks[index] = { current: initial };
   }
   return ctx.hooks[index];
 }
@@ -5972,10 +6073,12 @@ export {
   useAriaChecked,
   useAriaExpanded,
   useAriaSelected,
+  useCallback,
   useClickOutside,
   useComputed,
   useContext,
   useDescribedBy,
+  useEffect,
   useFetch,
   useField,
   useFocus,
@@ -5989,13 +6092,16 @@ export {
   useLabelledBy,
   useLocalStorage,
   useMediaQuery,
+  useMemo,
   useQuery,
   useReducer,
+  useRef,
   useRovingTabIndex,
   useSWR,
   useScheduledEffect,
   useSignal,
   useSkeleton,
+  useState,
   useTransition,
   validateImports,
   yupResolver,

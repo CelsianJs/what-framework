@@ -57,7 +57,7 @@ try {
 
   writeFileSync(join(consumerDir, 'smoke.mjs'), `
 import { signal, computed } from 'what-core';
-import { signal as frameworkSignal } from 'what-framework';
+import { signal as frameworkSignal, useState as useFrameworkState, useEffect as useFrameworkEffect } from 'what-framework';
 import { isSafeUrl } from 'what-router';
 import { renderToString } from 'what-server';
 import * as ReactCompat from 'what-react';
@@ -68,6 +68,8 @@ if (doubled() !== 4) throw new Error('what-core signal/computed import failed');
 
 const fwCount = frameworkSignal(1);
 if (fwCount() !== 1) throw new Error('what-framework umbrella import failed');
+if (typeof useFrameworkState !== 'function') throw new Error('what-framework useState runtime export failed');
+if (typeof useFrameworkEffect !== 'function') throw new Error('what-framework useEffect runtime export failed');
 
 if (isSafeUrl('javascript:alert(1)')) throw new Error('what-router import failed');
 if (typeof renderToString !== 'function') throw new Error('what-server import failed');
@@ -78,7 +80,7 @@ if (!ReactCompat || typeof ReactCompat !== 'object') throw new Error('what-react
   writeFileSync(join(consumerDir, 'production-smoke.mjs'), `
 import { signal, computed } from 'what-core';
 import { template } from 'what-core/render';
-import { signal as frameworkSignal } from 'what-framework';
+import { signal as frameworkSignal, useState as useFrameworkState, useEffect as useFrameworkEffect } from 'what-framework';
 import { isSafeUrl } from 'what-router';
 import { renderToString } from 'what-server';
 
@@ -88,6 +90,8 @@ if (doubled() !== 6) throw new Error('what-core production condition import fail
 
 const fwCount = frameworkSignal(2);
 if (fwCount() !== 2) throw new Error('what-framework production condition import failed');
+if (typeof useFrameworkState !== 'function') throw new Error('what-framework production useState export failed');
+if (typeof useFrameworkEffect !== 'function') throw new Error('what-framework production useEffect export failed');
 
 if (isSafeUrl('javascript:alert(1)')) throw new Error('what-router production condition import failed');
 if (typeof renderToString !== 'function') throw new Error('what-server production condition import failed');

@@ -86,7 +86,13 @@ function matchRoute(path, routes) {
     const match = path.match(regex);
     if (match) {
       const params = {};
-      paramNames.forEach((name, i) => { params[name] = decodeURIComponent(match[i + 1]); });
+      paramNames.forEach((name, i) => {
+        try {
+          params[name] = decodeURIComponent(match[i + 1]);
+        } catch {
+          params[name] = match[i + 1];
+        }
+      });
       return { route, params };
     }
   }
@@ -150,6 +156,11 @@ describe('route matching', () => {
   it('should decode URI components in params', () => {
     const m = matchRoute('/users/hello%20world', routes);
     assert.deepEqual(m.params, { id: 'hello world' });
+  });
+
+  it('should preserve malformed encoded params instead of throwing', () => {
+    const m = matchRoute('/users/%E0%A4%A', routes);
+    assert.deepEqual(m.params, { id: '%E0%A4%A' });
   });
 });
 
@@ -382,6 +393,12 @@ describe('asyncGuard', () => {
 // =========================================================================
 
 describe('Link component', () => {
+  function click(anchor) {
+    const event = new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    const notPrevented = anchor.dispatchEvent(event);
+    return { event, notPrevented };
+  }
+
   it('should create an anchor element with href', async () => {
     const container = getContainer();
     history.pushState(null, '', '/');
@@ -421,6 +438,58 @@ describe('Link component', () => {
     // The class prop is a reactive function — the DOM runtime resolves it via effect
     // In jsdom with our runtime, the class should contain 'active' and 'exact-active'
   });
+
+  it('should not intercept external HTTP(S) links', async () => {
+    const container = getContainer();
+    await navigate('/', { replace: true, transition: false });
+    await flush();
+
+    mount(h(Link, { href: 'https://example.com/docs' }, 'External'), container);
+    await flush();
+
+    const a = container.querySelector('a');
+    const before = route.url;
+    const { event, notPrevented } = click(a);
+    await flush();
+
+    assert.equal(event.defaultPrevented, false);
+    assert.equal(notPrevented, true);
+    assert.equal(route.url, before);
+  });
+
+  it('should intercept same-origin absolute links as SPA paths', async () => {
+    const container = getContainer();
+    await navigate('/', { replace: true, transition: false });
+    await flush();
+
+    mount(h(Link, { href: 'http://localhost/about?tab=1#top' }, 'About'), container);
+    await flush();
+
+    const a = container.querySelector('a');
+    const { event } = click(a);
+    await flush();
+
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(route.url, '/about?tab=1#top');
+  });
+
+  it('should leave malformed absolute targets to native navigation', async () => {
+    const container = getContainer();
+    await navigate('/', { replace: true, transition: false });
+    await flush();
+
+    mount(h(Link, { href: 'http://[', prefetch: false }, 'Malformed'), container);
+    await flush();
+
+    const a = container.querySelector('a');
+    const before = route.url;
+    const { event, notPrevented } = click(a);
+    await flush();
+
+    assert.equal(event.defaultPrevented, false);
+    assert.equal(notPrevented, true);
+    assert.equal(route.url, before);
+  });
 });
 
 // =========================================================================
@@ -450,5 +519,29 @@ describe('navigate()', () => {
     const current = route.url;
     await navigate(current);
     assert.equal(route.url, current);
+  });
+
+  it('should clear isNavigating when history mutation throws', async () => {
+    await assert.rejects(
+      () => navigate('https://example.com/off-origin', { transition: false }),
+      /pushState|history|origin|URL/
+    );
+    assert.equal(route.isNavigating, false);
+    assert.ok(route.error instanceof Error || route.error instanceof DOMException);
+  });
+
+  it('should preserve malformed route params and query values', async () => {
+    const container = getContainer();
+    function UserPage({ params, query }) {
+      return h('div', { id: 'malformed' }, `${params.id}|${query.q}`);
+    }
+
+    await navigate('/users/%E0%A4%A?q=%E0%A4%A', { replace: true, transition: false });
+    await flush();
+
+    mount(h(Router, { routes: [{ path: '/users/:id', component: UserPage }] }), container);
+    await flush();
+
+    assert.equal(container.querySelector('#malformed')?.textContent, '%E0%A4%A|%E0%A4%A');
   });
 });

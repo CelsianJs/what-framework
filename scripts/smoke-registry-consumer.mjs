@@ -27,6 +27,11 @@ const PACKAGE_DIRS = [
 const workspace = mkdtempSync(join(tmpdir(), 'what-fw-registry-smoke-'));
 const consumerDir = join(workspace, 'consumer');
 const artifactPath = process.env.WHAT_REGISTRY_SMOKE_ARTIFACT || join(repoRoot, 'artifacts/registry-smoke.json');
+const CHECKED_BACKPORT_DIST_TAG_ALLOWLIST = new Set([
+  // Deprecated 0.6.0 packages retained for compatibility; release docs pin them explicitly.
+  'what-mcp',
+  'eslint-plugin-what',
+]);
 
 try {
   mkdirSync(consumerDir, { recursive: true });
@@ -122,6 +127,7 @@ if (typeof template !== 'function') throw new Error('what-core/render production
     binaries: bins,
     distTag: expectedDistTag || null,
     distTagChecks,
+    distTagAllowlist: Array.from(getDistTagAllowlist()),
     checks: ['dist-tag verification/reporting when applicable', 'npm install --ignore-scripts with propagation retry', 'esm imports', 'production-condition imports', 'binary presence', 'what cli', 'real what CLI build/generate/dev/preview asset smoke', 'create-what --help'],
   }, null, 2) + '\n');
 
@@ -137,15 +143,23 @@ if (typeof template !== 'function') throw new Error('what-core/render production
 
 function inferExpectedDistTag(packageSpecs) {
   const rootPkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
-  const rootVersion = rootPkg.version;
-  if (/^0\.6\./.test(rootVersion) && packageSpecs.some(pkg => pkg.version === rootVersion && pkg.selector === rootVersion)) {
+  if (/^0\.6\./.test(rootPkg.version) && packageSpecs.some(pkg => /^0\.6\./.test(pkg.version))) {
     return 'backport';
   }
   return '';
 }
 
+function getDistTagAllowlist() {
+  const allowed = new Set(CHECKED_BACKPORT_DIST_TAG_ALLOWLIST);
+  for (const name of (process.env.WHAT_REGISTRY_DIST_TAG_ALLOWLIST || '').split(',')) {
+    const trimmed = name.trim();
+    if (trimmed) allowed.add(trimmed);
+  }
+  return allowed;
+}
+
 function verifyDistTag(packageSpecs, distTag) {
-  const rootVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version;
+  const allowedUntagged = getDistTagAllowlist();
   const checks = [];
   for (const pkg of packageSpecs) {
     let actual = '';
@@ -158,7 +172,9 @@ function verifyDistTag(packageSpecs, distTag) {
       actual = '';
     }
 
-    const required = pkg.version === rootVersion && pkg.selector === rootVersion;
+    const isCurrentBackportPackage = /^0\.6\./.test(pkg.version);
+    const isAllowlisted = allowedUntagged.has(pkg.name);
+    const required = isCurrentBackportPackage && !isAllowlisted;
     checks.push({
       name: pkg.name,
       version: pkg.version,
@@ -166,7 +182,8 @@ function verifyDistTag(packageSpecs, distTag) {
       actual: actual || null,
       verified: actual === pkg.version,
       required,
-      intentionallyUntagged: !required && actual !== pkg.version,
+      allowlisted: isAllowlisted,
+      intentionallyUntagged: isAllowlisted && actual !== pkg.version,
     });
 
     if (required && actual !== pkg.version) {
