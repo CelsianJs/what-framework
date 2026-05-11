@@ -3,7 +3,7 @@
 ## Current State
 - **Branch**: `audit-hardening`
 - **Latest verification**: `npm run -s release:verify` passed on 2026-05-10.
-- **Release verify coverage**: lint, typecheck, node tests (764), devtools public API tests (11), build, packed-package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
+- **Release verify coverage**: lint, typecheck, node tests (799), adversarial stress tests (40), devtools public API tests (11), build, packed-package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
 - **Release lane**: `backport` npm dist-tag for the 0.6.x lane; do not publish these versions to npm `latest` because public latest is already `0.8.1`.
 
 ## What Was Done
@@ -19,11 +19,24 @@
 ## What Remains
 
 ### Should Fix (fresh review)
-- None currently local/reproducible on the 0.6.x backport lane. Backport package clarity is documented in `docs/RELEASE-CHECKLIST.md`; compiler-facing symbols are guarded by `what-core/compiler` subpath tests; `storeComputed` is marked `@deprecated` in the public `.d.ts` and docs.
+- None currently local/reproducible on the 0.6.x backport lane. Backport package clarity is documented in `docs/RELEASE-CHECKLIST.md`; compiler-facing symbols are guarded by `what-core/compiler` subpath tests; `storeComputed` is marked `@deprecated` in the public `.d.ts` and docs; adversarial SSR/XSS stress coverage is now part of `npm test` via `npm run test:stress`.
 
 ### Nice to Have
 - API surface is wide (154 exports) — consider which modules (skeleton, animation, data/SWR, form) could be separate packages.
 - Real browser integration tests for Island hydration modes (load, idle, visible, interaction, media).
+
+
+## 2026-05-10 — Adversarial stress gate follow-up
+
+Fresh review found `stress-tests/adversarial-test.js` had fallen out of sync with current SSR hardening and was not part of the main test gate. Addressed locally:
+
+- Updated the stress expectations to assert captured SSR component errors, escaped attribute injection, and omission of unsafe `javascript:` URL attributes.
+- Added `npm run test:stress` and wired it into `npm test`, so CI/release verification can no longer miss this standalone adversarial suite.
+
+Verification:
+- `node stress-tests/adversarial-test.js` passed: 40 tests.
+- `npm run -s test` passed: node tests (799), adversarial stress tests (40), devtools tests, and DevTools MCP e2e.
+- `git diff --check` passed.
 
 ## How to Resume
 ```bash
@@ -55,7 +68,7 @@ Gold-standard/product-review refresh found release-flow blast-radius and product
 
 Verification:
 - `npm run -s pack:smoke` passed.
-- `npm run -s release:verify` passed: lint, typecheck, node tests (764), devtools public API tests (11), build, package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
+- `npm run -s release:verify` passed: lint, typecheck, node tests (799), adversarial stress tests (40), devtools public API tests (11), build, package smoke, benchmark gate, Playwright e2e (22), and npm audit (0 vulnerabilities).
 - `node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest` passed; 0.6.2 packages were already published; the 0.6.3 patch lane is for the registry-smoke export fix.
 - `git diff --check` passed.
 
