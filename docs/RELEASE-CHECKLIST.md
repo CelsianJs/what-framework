@@ -20,25 +20,45 @@ Works for both human developers and AI agents.
 
 ## Version Bump
 
-- [ ] Bump version in root `package.json`
-- [ ] Bump ALL 12 packages to the same version:
+Choose the release lane before editing package metadata.
 
-| # | Package (npm name) | File path |
-|---|---|---|
-| 1 | `what-core` | `packages/core/package.json` |
-| 2 | `what-router` | `packages/router/package.json` |
-| 3 | `what-server` | `packages/server/package.json` |
-| 4 | `what-compiler` | `packages/compiler/package.json` |
-| 5 | `what-devtools` | `packages/devtools/package.json` |
-| 6 | `what-mcp` | `packages/mcp-server/package.json` |
-| 7 | `what-devtools-mcp` | `packages/devtools-mcp/package.json` |
-| 8 | `eslint-plugin-what` | `packages/eslint-plugin/package.json` |
-| 9 | `what-react` | `packages/react-compat/package.json` |
-| 10 | `what-framework` | `packages/what/package.json` |
-| 11 | `what-framework-cli` | `packages/cli/package.json` |
-| 12 | `create-what` | `packages/create-what/package.json` |
+### Mainline / `latest` lane
 
-- [ ] Update cross-package dependency versions (these use `^` or `>=` ranges):
+Use this only when every public package being published is greater than the current npm `latest` version.
+
+- [ ] Bump root `package.json` to the new mainline version.
+- [ ] Bump all public packages that are part of the release to the same mainline version.
+- [ ] Keep internal dependency ranges synchronized to that same version (`^X.Y.Z` or `>=X.Y.Z` as used today).
+- [ ] Confirm the publish command does **not** include `--allow-non-latest`.
+
+### 0.6.x backport lane
+
+Use this lane for maintenance fixes that must ship behind the `backport` dist-tag while npm `latest` is newer. Backport versions may be staggered by package.
+
+- [ ] Bump only packages that changed. Do not force-bump unchanged packages just to match the root version.
+- [ ] Update dependent 0.6.x package ranges only where the changed package is required by the consumer.
+- [ ] Record the exact package/version set in `CHANGELOG.md`.
+- [ ] Keep unchanged legacy packages pinned in docs when needed (`what-mcp@0.6.0`, `eslint-plugin-what@0.6.0`).
+- [ ] Publish with `--tag backport --allow-non-latest`; never publish 0.6.x to `latest`.
+
+Current 0.6.x package set:
+
+| Package | Current backport version | Notes |
+|---|---:|---|
+| `what-core` | `0.6.8` | Core/runtime API and security backports |
+| `what-framework` | `0.6.7` | Umbrella package aligned to current core/router/server ranges |
+| `what-router` | `0.6.7` | Router backport line |
+| `what-server` | `0.6.6` | SSR/server backport line |
+| `what-compiler` | `0.6.5` | Compiler backport line |
+| `what-devtools` | `0.6.5` | Browser devtools backport line |
+| `what-devtools-mcp` | `0.6.5` | DevTools MCP backport line |
+| `what-react` | `0.6.5` | React compatibility backport line |
+| `what-framework-cli` | `0.6.4` | CLI backport line |
+| `create-what` | `0.6.4` | Scaffolder backport line |
+| `what-mcp` | `0.6.0` | Unchanged legacy docs MCP |
+| `eslint-plugin-what` | `0.6.0` | Unchanged legacy ESLint plugin |
+
+Cross-package dependencies to review when a package changes:
 
 | Package | Depends on | Range style |
 |---|---|---|

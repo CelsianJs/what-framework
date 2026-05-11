@@ -10,8 +10,8 @@ import { signal, effect, computed, batch, onMount, h, mount } from 'what-framewo
 // State: signal(initialValue, 'debugName')
 const count = signal(0, 'count');
 count()           // read -> 0
-count(5)          // write -> sets to 5
-count(c => c + 1) // updater -> increments
+count.set(5)          // write -> sets to 5
+count.set(c => c + 1) // updater -> increments
 
 // Derived state
 const doubled = computed(() => count() * 2);
@@ -20,14 +20,14 @@ const doubled = computed(() => count() * 2);
 effect(() => console.log('Count:', count()));
 
 // Batch multiple writes (effects run once at end)
-batch(() => { a(1); b(2); });
+batch(() => { a.set(1); b.set(2); });
 
 // Components run ONCE — the function body never re-executes
 function Counter() {
   const count = signal(0, 'count');
   return h('div', {},
     h('span', {}, () => `Count: ${count()}`),  // reactive text
-    h('button', { onclick: () => count(c => c + 1) }, 'Add'),
+    h('button', { onClick: () => count.set(c => c + 1) }, 'Add'),
   );
 }
 
@@ -35,7 +35,7 @@ mount(h(Counter, {}), '#app');
 ```
 
 ### Key Differences from React
-- `signal()` not `useState()` — read with `()`, write with `(newVal)`
+- `signal()` not `useState()` — read with `()`, write with `.set(newVal)`
 - Components run once, not on every state change
 - No JSX re-render — signals create fine-grained DOM effects
 - `effect()` not `useEffect()` — no dependency array, auto-tracks
@@ -47,6 +47,10 @@ mount(h(Counter, {}), '#app');
 - **Module-scope signals** — shared across components (like a global store). Define outside any function.
 - **Component-scope signals** — local to one component. Define inside the component function.
 - Components run once, so signal declarations in the body execute exactly once (not per-render like React hooks).
+
+## Release Channels
+
+Use npm `latest` for normal projects. Use the `backport` dist-tag only for the maintained 0.6.x line; those package versions are intentionally staggered by changed package. Pin legacy backport-only docs MCP as `what-mcp@0.6.0` when needed, and prefer `what-devtools-mcp@backport` for live debugging.
 
 ## MCP DevTools
 

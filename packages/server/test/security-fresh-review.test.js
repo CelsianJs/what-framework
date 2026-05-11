@@ -18,6 +18,12 @@ describe('fresh-review SSR attribute hardening', () => {
     assert.equal(html, '<a title="kept">bad</a>');
   });
 
+  it('omits unsafe mixed-case URL attributes in renderToString output', () => {
+    const html = renderToString(h('a', { HREF: 'javascript:alert(1)', title: 'kept' }, 'bad'));
+
+    assert.equal(html, '<a title="kept">bad</a>');
+  });
+
   it('omits unsafe URL attributes in hydratable SSR output', () => {
     const html = renderToHydratableString(h('img', { src: 'data:text/html,<script>alert(1)</script>', alt: 'x' }));
 

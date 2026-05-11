@@ -81,34 +81,34 @@ Every change goes through a PR. The process:
 
 ### Publishing to npm
 
-After merging a normal latest release:
+After merging a normal mainline/latest release:
 
-1. Bump versions in affected `package.json` files (core, compiler, what-framework are usually coupled) above the current npm `latest` version
+1. Bump the public packages being released above the current npm `latest` version; mainline releases should keep coupled packages on the same version
 2. `npm run build` — rebuild dist
 3. `npm test` — verify all tests still pass
 4. `npm run pack:smoke` — verify packed packages install in a clean consumer project
 5. `node scripts/publish-packages.mjs --dry-run` — verify what will be published
 6. `node scripts/publish-packages.mjs --otp <code>` — publish with 2FA code
 
-The publish script handles dependency ordering and skips already-published versions. It refuses to publish a version that is not greater than npm `latest` unless the release uses an explicit non-`latest` dist-tag and `--allow-non-latest`.
+The publish script handles dependency ordering and skips already-published versions. It refuses to publish a version that is not greater than npm `latest` unless the release uses an explicit non-`latest` dist-tag and `--allow-non-latest`. Mainline/latest releases are same-version releases; 0.6.x backports are intentionally staggered by changed package.
 
 #### Backport publishes
 
-For `0.6.x` maintenance/backport releases, do **not** publish to the `latest` dist-tag. Use the dedicated backport channel and keep the acknowledgement flag visible in both dry-runs and the actual publish:
+For `0.6.x` maintenance/backport releases, do **not** publish to the `latest` dist-tag and do not force-bump unchanged packages. Use the dedicated backport channel and keep the acknowledgement flag visible in both dry-runs and the actual publish:
 
 ```bash
 node scripts/publish-packages.mjs --dry-run --tag backport --allow-non-latest
 node scripts/publish-packages.mjs --tag backport --allow-non-latest --otp <code>
 ```
 
-In GitHub Actions, set `npm_tag=backport` and `allow_non_latest=true`. Leave `allow_non_latest=false` for normal `latest` releases.
+In GitHub Actions, set `npm_tag=backport` and `allow_non_latest=true`. Leave `allow_non_latest=false` for normal same-version `latest` releases. Record the exact staggered backport package/version set in `CHANGELOG.md`.
 
 ## Code Style
 
 - No build step for source -- packages ship raw ES modules from `src/`
-- Event handlers are lowercase: `onclick`, `oninput` (not camelCase)
-- Signals use unified getter/setter: `sig()` reads, `sig.set(value)` writes
-- Reactive children in JSX: `{() => count()}` for text, `{() => items().map(...)}` for lists
+- Event handlers in source and docs use React-style casing: `onClick`, `onInput`. The runtime still accepts lowercase aliases for compatibility.
+- Signals use `sig()` to read and `sig.set(value)` / `sig.set(prev => next)` to write. Callable setters remain compatibility-only.
+- JSX signal reads in attributes and children are compiler-wrapped automatically; use explicit `() => ...` only when writing hyperscript or intentionally passing a reactive function child.
 
 ---
 

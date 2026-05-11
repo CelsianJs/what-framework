@@ -53,6 +53,16 @@ npm install
 npm run dev
 ```
 
+### Release Channels
+
+Use `@latest` for normal projects. Use `@backport` only when you intentionally need the maintained 0.6.x line:
+
+```bash
+npm create what@backport my-app
+```
+
+The 0.6.x backport channel has staggered package versions. If you need the legacy documentation MCP server on that channel, pin it explicitly as `what-mcp@0.6.0`; use `what-devtools-mcp@backport` for live debugging.
+
 ### Step 3: Enable Live Debugging
 
 Add the DevTools Vite plugin for runtime inspection:
@@ -68,7 +78,7 @@ export default defineConfig({
 });
 ```
 
-Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`, and 15 other tools to inspect the running app.
+Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`, and the rest of the DevTools MCP tools to inspect the running app.
 
 ### Step 4: Read the Agent Guide
 
@@ -159,7 +169,7 @@ mount(<App />, '#app');
 - Use `onClick` in source code and docs.
 - Runtime accepts `onclick` too (compatibility).
 - Prefer `sig.set(value)` and `sig.set(prev => next)`.
-- Callable setters (`sig(value)`) remain supported.
+- Callable setters (`sig(value)`) remain supported for compatibility, but new docs should show `.set`.
 - Use ternaries / `<Show>` for conditionals.
 - `show()` is removed.
 
