@@ -1,6 +1,6 @@
 # React Compatibility Layer
 
-The `what-react` package lets you use React ecosystem libraries with WhatFW's signal-based runtime. This is a secondary feature -- WhatFW's native APIs (`useSignal`, `useComputed`, `createStore`, `useSWR`, etc.) are preferred for new code. Use the compat layer when you need a specific React library that has no WhatFW equivalent.
+The `what-react` package lets you use React ecosystem libraries with What Framework's signal-based runtime. This is a secondary feature -- What Framework's native APIs (`useSignal`, `useComputed`, `createStore`, `useSWR`, etc.) are preferred for new code. Use the compat layer when you need a specific React library that has no What Framework equivalent.
 
 ## Setup
 
@@ -20,10 +20,10 @@ export default defineConfig({
 
 ## How It Works
 
-The compat layer maps React's API to WhatFW's signal-based runtime:
+The compat layer maps React's API to What Framework's signal-based runtime:
 - `useState` becomes a signal
 - `useEffect` becomes an effect
-- `useRef`, `useMemo`, `useCallback` map to WhatFW equivalents
+- `useRef`, `useMemo`, `useCallback` map to What Framework equivalents
 
 React libraries see a standard React API surface but get signal-based reactivity underneath.
 

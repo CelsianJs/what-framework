@@ -163,7 +163,7 @@ export default defineConfig({
 - [Documentation](https://whatfw.com)
 - [GitHub](https://github.com/CelsianJs/what-framework)
 - [Benchmarks](https://benchmarks.whatfw.com)
-- [React Compat](https://react.whatfw.com) -- use 90+ React libraries with What
+- [React Compat](https://react.whatfw.com) -- use 49+ React libraries with What
 
 ## License
 

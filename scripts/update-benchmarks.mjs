@@ -1,4 +1,69 @@
-<!DOCTYPE html>
+#!/usr/bin/env node
+
+// Runs benchmark/run.js, reads JSON output, and regenerates
+// sites/benchmarks/index.html with fresh data + a "Last updated" timestamp.
+
+import { execSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '..');
+const jsonPath = resolve(repoRoot, 'sites/benchmarks/results.json');
+const htmlPath = resolve(repoRoot, 'sites/benchmarks/index.html');
+
+const pkg = JSON.parse(readFileSync(resolve(repoRoot, 'packages/core/package.json'), 'utf8'));
+const version = pkg.version;
+
+console.log(`[bench] Running benchmarks for what-framework v${version}...`);
+execSync(`node benchmark/run.js --json "${jsonPath}"`, { cwd: repoRoot, stdio: 'inherit' });
+
+const data = JSON.parse(readFileSync(jsonPath, 'utf8'));
+const results = data.results;
+
+function find(name) {
+  return results.find((r) => r.name === name);
+}
+
+function fmtOps(ops) {
+  if (ops >= 1_000_000) return `${(ops / 1_000_000).toFixed(1)}M ops/sec`;
+  if (ops >= 1_000) return `${Math.round(ops / 1_000)}K ops/sec`;
+  return `${ops} ops/sec`;
+}
+
+function fmtTime(ms) {
+  if (ms < 0.001) return `${(ms * 1000).toFixed(1)}µs`;
+  return `${ms.toFixed(4)}ms`;
+}
+
+function row(name, displayName) {
+  const r = find(name);
+  if (!r) return '';
+  const label = displayName || name;
+  return `          <tr>
+            <td>${label}</td>
+            <td class="value">${fmtOps(r.opsPerSec)}</td>
+            <td class="value">${fmtTime(r.avg)}</td>
+          </tr>`;
+}
+
+function bundleRow() {
+  return `          <tr>
+            <td>what-framework (core)</td>
+            <td class="value">~4kB</td>
+          </tr>`;
+}
+
+const now = new Date();
+const dateStr = now.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+const isoDate = now.toISOString();
+
+const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -208,8 +273,8 @@
 
   <div class="container">
     <h1>Performance Benchmarks</h1>
-    <p class="subtitle">Real measured performance data from the What Framework test suite. All benchmarks run on Node.js v22.13.1.</p>
-    <p class="last-updated">Last updated <time datetime="2026-05-12T13:40:16.844Z">May 12, 2026</time> · v0.8.4 · darwin</p>
+    <p class="subtitle">Real measured performance data from the What Framework test suite. All benchmarks run on Node.js ${data.node}.</p>
+    <p class="last-updated">Last updated <time datetime="${isoDate}">${dateStr}</time> · v${version} · ${data.platform}</p>
 
     <!-- Signals -->
     <div class="benchmark-section">
@@ -223,36 +288,12 @@
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Signal create</td>
-            <td class="value">7.7M ops/sec</td>
-            <td class="value">0.1µs</td>
-          </tr>
-          <tr>
-            <td>Signal read (100x per iteration)</td>
-            <td class="value">4.5M ops/sec</td>
-            <td class="value">0.2µs</td>
-          </tr>
-          <tr>
-            <td>Signal write (no subscribers)</td>
-            <td class="value">1.9M ops/sec</td>
-            <td class="value">0.5µs</td>
-          </tr>
-          <tr>
-            <td>Signal write (1 subscriber)</td>
-            <td class="value">776K ops/sec</td>
-            <td class="value">0.0013ms</td>
-          </tr>
-          <tr>
-            <td>Signal write (10 subscribers)</td>
-            <td class="value">207K ops/sec</td>
-            <td class="value">0.0048ms</td>
-          </tr>
-          <tr>
-            <td>Signal peek (untracked read)</td>
-            <td class="value">4.5M ops/sec</td>
-            <td class="value">0.2µs</td>
-          </tr>
+${row('signal() create', 'Signal create')}
+${row('signal() read', 'Signal read (100x per iteration)')}
+${row('signal() write (no subscribers)', 'Signal write (no subscribers)')}
+${row('signal() write (1 subscriber)', 'Signal write (1 subscriber)')}
+${row('signal() write (10 subscribers)', 'Signal write (10 subscribers)')}
+${row('signal.peek()', 'Signal peek (untracked read)')}
         </tbody>
       </table>
       <p class="note">Subscriber overhead is expected — effects run on every write.</p>
@@ -270,21 +311,9 @@
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Computed create + read</td>
-            <td class="value">2.3M ops/sec</td>
-            <td class="value">0.4µs</td>
-          </tr>
-          <tr>
-            <td>Computed chain (depth 5)</td>
-            <td class="value">304K ops/sec</td>
-            <td class="value">0.0033ms</td>
-          </tr>
-          <tr>
-            <td>Computed diamond dependency</td>
-            <td class="value">503K ops/sec</td>
-            <td class="value">0.0020ms</td>
-          </tr>
+${row('computed() create + read', 'Computed create + read')}
+${row('computed() chain (depth 5)', 'Computed chain (depth 5)')}
+${row('computed() diamond dependency', 'Computed diamond dependency')}
         </tbody>
       </table>
     </div>
@@ -301,16 +330,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Effect create + dispose</td>
-            <td class="value">5.4M ops/sec</td>
-            <td class="value">0.2µs</td>
-          </tr>
-          <tr>
-            <td>Effect with 10 signal deps</td>
-            <td class="value">971K ops/sec</td>
-            <td class="value">0.0010ms</td>
-          </tr>
+${row('effect() create + dispose', 'Effect create + dispose')}
+${row('effect() with 10 signal deps', 'Effect with 10 signal deps')}
         </tbody>
       </table>
     </div>
@@ -327,16 +348,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Batch 100 writes, 1 effect</td>
-            <td class="value">547K ops/sec</td>
-            <td class="value">0.0018ms</td>
-          </tr>
-          <tr>
-            <td>Batch 10 signals, 10 writes each</td>
-            <td class="value">428K ops/sec</td>
-            <td class="value">0.0023ms</td>
-          </tr>
+${row('batch() 100 writes, 1 effect', 'Batch 100 writes, 1 effect')}
+${row('batch() 10 signals, 10 writes each', 'Batch 10 signals, 10 writes each')}
         </tbody>
       </table>
       <p class="note">Batching prevents intermediate computations, making 100 writes nearly as fast as 1.</p>
@@ -354,26 +367,10 @@
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Single element creation</td>
-            <td class="value">9.1M ops/sec</td>
-            <td class="value">0.1µs</td>
-          </tr>
-          <tr>
-            <td>Nested (3 levels)</td>
-            <td class="value">6.1M ops/sec</td>
-            <td class="value">0.2µs</td>
-          </tr>
-          <tr>
-            <td>List of 100 items</td>
-            <td class="value">79K ops/sec</td>
-            <td class="value">0.0127ms</td>
-          </tr>
-          <tr>
-            <td>Component call</td>
-            <td class="value">16.1M ops/sec</td>
-            <td class="value">0.1µs</td>
-          </tr>
+${row('h() element', 'Single element creation')}
+${row('h() nested (3 levels)', 'Nested (3 levels)')}
+${row('h() list of 100 items', 'List of 100 items')}
+${row('h() component call', 'Component call')}
         </tbody>
       </table>
     </div>
@@ -390,26 +387,10 @@
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>SSR simple element</td>
-            <td class="value">1.4M ops/sec</td>
-            <td class="value">0.7µs</td>
-          </tr>
-          <tr>
-            <td>SSR nested tree</td>
-            <td class="value">411K ops/sec</td>
-            <td class="value">0.0024ms</td>
-          </tr>
-          <tr>
-            <td>SSR list of 100 items</td>
-            <td class="value">16K ops/sec</td>
-            <td class="value">0.0637ms</td>
-          </tr>
-          <tr>
-            <td>SSR component tree (50 items)</td>
-            <td class="value">55K ops/sec</td>
-            <td class="value">0.0183ms</td>
-          </tr>
+${row('renderToString() simple', 'SSR simple element')}
+${row('renderToString() nested', 'SSR nested tree')}
+${row('renderToString() list of 100', 'SSR list of 100 items')}
+${row('renderToString() component tree', 'SSR component tree (50 items)')}
         </tbody>
       </table>
     </div>
@@ -425,10 +406,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>what-framework (core)</td>
-            <td class="value">~4kB</td>
-          </tr>
+${bundleRow()}
         </tbody>
       </table>
       <p class="note">Measured using gzip -9 compression.</p>
@@ -437,19 +415,24 @@
     <!-- Methodology -->
     <div class="methodology">
       <h2>Methodology</h2>
-      <p>All benchmarks run on Node.js v22.13.1 with the following approach:</p>
+      <p>All benchmarks run on Node.js ${data.node} with the following approach:</p>
       <p>• <strong>Warmup:</strong> 100–1000 iterations discarded before measurement</p>
       <p>• <strong>Iterations:</strong> 500–10,000 per test (varies by operation cost)</p>
       <p>• <strong>Timing:</strong> High-resolution <code>performance.now()</code></p>
       <p>• <strong>Calculation:</strong> Trimmed mean (discard top/bottom 10%)</p>
-      <p>• <strong>Environment:</strong> macOS, Node.js v22.13.1</p>
+      <p>• <strong>Environment:</strong> ${data.platform === 'darwin' ? 'macOS' : data.platform}, Node.js ${data.node}</p>
       <p>• <strong>Automated:</strong> Benchmarks regenerate every 3 days via CI</p>
       <p>Source code available in <code>/benchmark</code> directory. Run with <code>npm run bench</code>.</p>
     </div>
   </div>
 
   <footer>
-    <a href="https://whatfw.com">What Framework</a> v0.8.4 — <a href="https://react.whatfw.com">React Compat</a> — <a href="https://www.npmjs.com/package/what-framework">npm</a> — <a href="https://github.com/CelsianJs/what-framework">GitHub</a>
+    <a href="https://whatfw.com">What Framework</a> v${version} — <a href="https://react.whatfw.com">React Compat</a> — <a href="https://www.npmjs.com/package/what-framework">npm</a> — <a href="https://github.com/CelsianJs/what-framework">GitHub</a>
   </footer>
 </body>
 </html>
+`;
+
+writeFileSync(htmlPath, html);
+console.log(`\n[bench] Updated ${htmlPath}`);
+console.log(`[bench] Version: v${version}, Date: ${dateStr}, Node: ${data.node}`);

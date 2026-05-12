@@ -18,7 +18,7 @@
 - **Structured Errors** — Every error returns JSON with code, message, suggested fix, and code example. Agents parse and fix in one pass
 - **Agent Guardrails** — Runtime catches infinite loops, missing cleanup, XSS, and signal misuse before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — Small core API surface, 12KB runtime, zero dependencies, tree-shakeable
+- **Small & Fast** — Small core API surface, 12KB runtime, minimal dependencies, tree-shakeable
 
 ## Quick Start
 
@@ -82,7 +82,8 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 | `what-framework/server` | SSR, islands architecture, static generation |
 | `what-framework/testing` | Test utilities |
 | `what-compiler` | JSX transform and optimizing compiler |
-| `what-devtools` | MCP server for AI agent integration |
+| `what-devtools` | Browser dev panel (signal inspector, component tree) |
+| `what-devtools-mcp` | MCP server for AI agent integration |
 | `what-react` | React compatibility layer (49+ React libraries) |
 | `create-what` | Project scaffolder |
 
@@ -107,11 +108,11 @@ Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## MCP DevTools (AI Agent Debugging)
 
-WhatFW ships an MCP server for AI-assisted development. 18 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
+What Framework ships an MCP server for AI-assisted development. 18 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
 
 ## React Compatibility
 
-Use 49+ React ecosystem libraries with `what-react`. This is a secondary feature -- native WhatFW APIs are preferred for new code.
+Use 49+ React ecosystem libraries with `what-react`. This is a secondary feature -- native What Framework APIs are preferred for new code.
 
 ```bash
 npm install what-react
@@ -121,7 +122,7 @@ See `/REACT-COMPAT.md` for the full compatibility matrix.
 
 ## Docs
 
-- [Agent Guide](/.internal/Agents.md) -- MCP, patterns, mistakes
+- [Agent Guide](.internal/Agents.md) -- MCP, patterns, mistakes
 - [Getting Started](/GETTING-STARTED.md) -- Setup for agents and developers
 - [Quick Start](/docs/QUICKSTART.md) -- Tutorial
 - [API Reference](/docs/API.md) -- Full API

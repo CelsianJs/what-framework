@@ -2,7 +2,7 @@
 
 React compatibility layer for [What Framework](https://whatfw.com). Use React ecosystem libraries with What's signal-based engine under the hood -- zero code changes required.
 
-**90+ React libraries confirmed working**, including zustand, @tanstack/react-query, react-hook-form, framer-motion, @radix-ui, react-select, react-router, and many more.
+**49+ React libraries confirmed working**, including zustand, @tanstack/react-query, react-hook-form, framer-motion, @radix-ui, react-select, react-router, and many more.
 
 ## Install
 

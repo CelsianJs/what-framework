@@ -28,6 +28,7 @@
     "bench:core": "node benchmark/run.js",
     "bench:dx": "node benchmark/dx-microbench.js",
     "bench:gate": "node benchmark/check-regressions.js",
+    "bench:update": "node scripts/update-benchmarks.mjs",
     "codemod:show": "node scripts/codemods/show-to-ternary.js --write demo examples training-builds",
     "codemod:show:check": "node scripts/codemods/show-to-ternary.js demo examples training-builds",
     "deploy:vercel": "node scripts/deploy-vercel.mjs",
