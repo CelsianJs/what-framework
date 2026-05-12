@@ -1,7 +1,7 @@
 {
   "name": "what-framework",
   "version": "0.8.4",
-  "description": "The closest framework to vanilla JS — signals, components, islands, SSR",
+  "description": "The web framework built for AI agents — signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",
   "module": "src/index.js",

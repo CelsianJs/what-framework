@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.8.4",
   "type": "module",
-  "description": "The closest framework to vanilla JS",
+  "description": "The web framework built for AI agents",
   "workspaces": [
     "packages/*",
     "demo",

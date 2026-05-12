@@ -1,10 +1,14 @@
 # What Framework
 
+[![npm version](https://img.shields.io/npm/v/what-framework)](https://www.npmjs.com/package/what-framework)
+[![license](https://img.shields.io/npm/l/what-framework)](https://github.com/CelsianJs/what-framework/blob/main/LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/CelsianJs/what-framework/ci.yml?branch=main&label=tests)](https://github.com/CelsianJs/what-framework/actions)
+
 **The web framework built for AI agents.**
 
-[whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [Playground](https://playground.whatfw.com) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
+[whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [Playground](https://playground-lilac-five.vercel.app) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
 
-> **[Try What Framework in the Playground →](https://playground.whatfw.com)**
+> **[Try What Framework in the Playground →](https://playground-lilac-five.vercel.app)**
 
 ---
 
@@ -14,7 +18,7 @@
 - **Structured Errors** — Every error returns JSON with code, message, suggested fix, and code example. Agents parse and fix in one pass
 - **Agent Guardrails** — Runtime catches infinite loops, missing cleanup, XSS, and signal misuse before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — ~15 core APIs, 12KB runtime, zero dependencies, tree-shakeable
+- **Small & Fast** — Small core API surface, 12KB runtime, zero dependencies, tree-shakeable
 
 ## Quick Start
 
@@ -31,30 +35,18 @@ Open `http://localhost:5173`.
 
 Connect your AI agent to a running What app:
 
-**Claude Code:**
 ```json
-// .claude/mcp_servers.json
-{
-  "what-devtools": {
-    "command": "npx",
-    "args": ["what-devtools", "--mcp"],
-    "env": { "PORT": "3001" }
-  }
-}
-```
-
-**Cursor:**
-```json
-// .cursor/mcp.json
 {
   "mcpServers": {
-    "what-devtools": {
+    "what-framework": {
       "command": "npx",
-      "args": ["what-devtools", "--mcp"]
+      "args": ["what-devtools-mcp"]
     }
   }
 }
 ```
+
+Add to `.claude/mcp_servers.json` (Claude Code) or `.cursor/mcp.json` (Cursor).
 
 ## Example Component
 
@@ -91,7 +83,7 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 | `what-framework/testing` | Test utilities |
 | `what-compiler` | JSX transform and optimizing compiler |
 | `what-devtools` | MCP server for AI agent integration |
-| `what-react` | React compatibility layer (90+ React libraries) |
+| `what-react` | React compatibility layer (49+ React libraries) |
 | `create-what` | Project scaffolder |
 
 ## Manual Setup
@@ -115,18 +107,7 @@ Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## MCP DevTools (AI Agent Debugging)
 
-WhatFW ships MCP servers for AI-assisted development:
-
-```json
-{
-  "mcpServers": {
-    "what-framework": { "command": "npx", "args": ["what-mcp"] },
-    "what-devtools": { "command": "npx", "args": ["what-devtools-mcp"] }
-  }
-}
-```
-
-18 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
+WhatFW ships an MCP server for AI-assisted development. 18 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
 
 ## React Compatibility
 
@@ -140,7 +121,7 @@ See `/REACT-COMPAT.md` for the full compatibility matrix.
 
 ## Docs
 
-- [Agent Guide](/Agents.md) -- MCP, patterns, mistakes
+- [Agent Guide](/.internal/Agents.md) -- MCP, patterns, mistakes
 - [Getting Started](/GETTING-STARTED.md) -- Setup for agents and developers
 - [Quick Start](/docs/QUICKSTART.md) -- Tutorial
 - [API Reference](/docs/API.md) -- Full API

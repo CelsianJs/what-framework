@@ -18,6 +18,9 @@ dist/
 .vercel
 .playwright-mcp/
 
+# Internal dev docs (not public)
+.internal/
+
 # Screenshots / debug artifacts
 *.png
 *.jpeg

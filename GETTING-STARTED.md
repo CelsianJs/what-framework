@@ -2,7 +2,7 @@
 
 The first framework built for AI agents. Small API, MCP DevTools, structured errors, compiler guardrails.
 
-> **Try it now** -- no install required: [playground.whatfw.com](https://playground.whatfw.com)
+> **Try it now** -- no install required: [playground-lilac-five.vercel.app](https://playground-lilac-five.vercel.app)
 
 ## For AI Agents (Claude Code, Cursor, etc.)
 
@@ -10,16 +10,12 @@ The first framework built for AI agents. Small API, MCP DevTools, structured err
 
 Add to your MCP client configuration:
 
-**Claude Code** (`~/.claude/claude_desktop_config.json` or project `.mcp.json`):
+**Claude Code** (`~/.claude/mcp_servers.json` or project `.mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "what-framework": {
-      "command": "npx",
-      "args": ["what-mcp"]
-    },
-    "what-devtools": {
       "command": "npx",
       "args": ["what-devtools-mcp"]
     }
@@ -34,17 +30,13 @@ Add to your MCP client configuration:
   "mcpServers": {
     "what-framework": {
       "command": "npx",
-      "args": ["what-mcp"]
-    },
-    "what-devtools": {
-      "command": "npx",
       "args": ["what-devtools-mcp"]
     }
   }
 }
 ```
 
-The `what-mcp` server provides 13 documentation tools. The `what-devtools-mcp` server provides 18 live debugging tools.
+The `what-devtools-mcp` server provides 18 live debugging tools.
 
 ### Step 2: Create a Project
 
@@ -74,7 +66,7 @@ Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`,
 
 ### Step 4: Read the Agent Guide
 
-See `/Agents.md` for the complete agent coding reference:
+See `/.internal/Agents.md` for the complete agent coding reference:
 - 10 copy-paste patterns
 - MCP tools reference with examples
 - Top 10 agent mistakes
@@ -232,4 +224,4 @@ Wrap dialog body with `<FocusTrap>`.
 - `/docs/API.md` -- Full API reference
 - `/docs/GOTCHAS.md` -- Common mistakes
 - `/docs/STYLING.md` -- Styling guide
-- `/Agents.md` -- Agent coding guide
+- `/.internal/Agents.md` -- Agent coding guide

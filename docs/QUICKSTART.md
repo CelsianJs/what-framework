@@ -2,7 +2,7 @@
 
 Get a WhatFW app running in under 2 minutes. This guide covers both human developers and AI agents.
 
-> **Want to skip setup?** [Try What Framework in the online playground →](https://playground.whatfw.com)
+> **Want to skip setup?** [Try What Framework in the online playground →](https://playground-lilac-five.vercel.app)
 
 ## 1. Scaffold and Run
 
@@ -23,35 +23,20 @@ Bun works too: `bun create what@latest my-app`, then `bun run dev`.
 
 If you are an AI agent (Claude Code, Cursor, etc.), add the MCP servers for documentation and live debugging.
 
-### Documentation Server
+### MCP Server
 
 ```json
 {
   "mcpServers": {
     "what-framework": {
       "command": "npx",
-      "args": ["what-mcp"]
-    }
-  }
-}
-```
-
-This gives you 13 tools for querying API docs, examples, and guidance.
-
-### Live DevTools (Optional)
-
-For runtime debugging, add the DevTools MCP server:
-
-```json
-{
-  "mcpServers": {
-    "what-devtools": {
-      "command": "npx",
       "args": ["what-devtools-mcp"]
     }
   }
 }
 ```
+
+This gives you 18 live debugging tools for inspecting signals, effects, components, DOM, and more.
 
 And add the Vite plugin to your app:
 
@@ -254,7 +239,7 @@ See [TYPESCRIPT.md](./TYPESCRIPT.md) for the full guide.
 
 ## 12. Next Docs
 
-- `/Agents.md` -- Complete agent coding guide
+- `/.internal/Agents.md` -- Complete agent coding guide
 - `/docs/API.md` -- Full API reference
 - `/docs/GOTCHAS.md` -- Common mistakes
 - `/docs/MCP-DEVTOOLS.md` -- MCP tools reference
