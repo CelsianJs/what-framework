@@ -27,6 +27,63 @@ const components = new Map(); // id → { name, element, mountedAt, parentId }
 // Reverse lookup: subscriber Set → signal ID (O(1) dep resolution)
 const subsToSignalId = new WeakMap();
 
+// Set of known component function names (added on registerComponent, kept
+// forever even after unmount so post-mortem signals still attribute).
+// Used by attributeToComponent() to recognise component frames in stack traces.
+const knownComponentNames = new Set();
+
+// name -> Set<componentId>. When multiple components share a name we cannot
+// disambiguate via stack; the heuristic falls back to the most-recently-mounted.
+const componentsByName = new Map();
+
+/**
+ * Heuristic attribution: parse new Error().stack to find the most recently
+ * called component frame. Returns a componentId or null.
+ *
+ * Why a stack heuristic instead of a hook:
+ *   - We cannot add bracketing hooks to packages/core (compiler agent owns it).
+ *   - `onComponentMount` fires before the component body runs; there's no
+ *     `onComponentRendered` paired event.
+ *   - Signal/effect creation happens DURING the component body, so its
+ *     stack always contains a frame named after the component function.
+ *
+ * Limitations:
+ *   - Anonymous components (no function name) cannot be matched.
+ *   - Arrow components bound to a const get the const name in V8 stacks.
+ *   - In production builds without source maps, function names may be mangled
+ *     — but installDevTools should only run in dev anyway.
+ */
+function attributeToComponent() {
+  if (knownComponentNames.size === 0) return null;
+  let stack;
+  try { throw new Error(); } catch (e) { stack = e.stack; }
+  if (!stack) return null;
+  // Walk stack from innermost to outermost. The FIRST component frame we
+  // hit is the deepest (currently-running) component.
+  const lines = stack.split('\n');
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line.startsWith('at ')) continue;
+    // Extract function name token. Handles `at Foo`, `at Object.Foo`,
+    // `at new Foo`, `at Foo.bar`, `at Foo (file:line:col)`.
+    const m = line.match(/^at\s+(?:new\s+)?([\w$.]+)/);
+    if (!m) continue;
+    const tokens = m[1].split('.');
+    for (const tok of tokens) {
+      if (knownComponentNames.has(tok)) {
+        const ids = componentsByName.get(tok);
+        if (ids && ids.size > 0) {
+          // Most-recently-mounted wins.
+          let max = -1;
+          for (const id of ids) if (id > max) max = id;
+          return max;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // Error log (capped at 100)
 const errors = [];
 const MAX_ERRORS = 100;
@@ -135,6 +192,9 @@ export function registerSignal(sig, name) {
     ref: sig,
     createdAt: Date.now(),
     internal: false,
+    // P1-6: attribute to the component currently executing, so what_explain
+    // can show component-local signals instead of always returning [].
+    componentId: attributeToComponent(),
   };
   signals.set(id, entry);
   sig._devId = id;
@@ -181,6 +241,8 @@ export function registerEffect(e, name) {
     depSignalIds: [],
     runCount: 0,
     lastRunAt: null,
+    // P1-6: attribute to the component currently executing.
+    componentId: attributeToComponent(),
   };
   effects.set(id, entry);
   e._devId = id;
@@ -241,6 +303,23 @@ function captureError(err, context) {
 
 /**
  * Register a component mount.
+ *
+ * TODO(P2-7) — stable component IDs across remounts.
+ * Currently `componentId` is a monotonic counter, so a view switch (or any
+ * conditional render) produces fresh IDs even when the same component
+ * remounts in the same slot. Agents that cache IDs across calls get burned.
+ *
+ * A stable scheme would key by (parent stable id + position + name), but
+ * that requires:
+ *   - Tracking position within parent (currently only parentDevId is known).
+ *   - Resolving collisions when two siblings have the same name.
+ *   - Deciding how recursion (component-renders-itself) is handled.
+ *   - Migrating every code path that assumes monotonic numeric IDs (devtools
+ *     panel, registries, MCP bridge serialization, snapshot diffing).
+ *
+ * Verdict: the registry rewrite is invasive enough to warrant a dedicated
+ * change. For now, the MCP tool descriptions document the ephemerality
+ * (see what_components / what_explain) so agents re-query before using IDs.
  */
 export function registerComponent(name, element, parentDevId) {
   if (!installed) return;
@@ -253,6 +332,13 @@ export function registerComponent(name, element, parentDevId) {
     mountedAt: Date.now(),
   };
   components.set(id, entry);
+  // Index by name so attributeToComponent() can match stack frames.
+  if (name) {
+    knownComponentNames.add(name);
+    let set = componentsByName.get(name);
+    if (!set) { set = new Set(); componentsByName.set(name, set); }
+    set.add(id);
+  }
   emit('component:mounted', entry);
   return id;
 }
@@ -262,7 +348,17 @@ export function registerComponent(name, element, parentDevId) {
  */
 export function unregisterComponent(id) {
   if (!installed) return;
+  const entry = components.get(id);
   components.delete(id);
+  if (entry?.name) {
+    const set = componentsByName.get(entry.name);
+    if (set) {
+      set.delete(id);
+      // Keep knownComponentNames populated even after unmount — a re-mount
+      // of the same component should still attribute correctly, and
+      // attribution costs nothing when no live components match.
+    }
+  }
   emit('component:unmounted', { id });
 }
 
@@ -290,6 +386,7 @@ export function getSnapshot(opts = {}) {
       id,
       name: entry.name,
       value: entry.ref.peek(),
+      componentId: entry.componentId || null,
     });
   }
 
@@ -301,6 +398,7 @@ export function getSnapshot(opts = {}) {
       depSignalIds: entry.depSignalIds || [],
       runCount: entry.runCount || 0,
       lastRunAt: entry.lastRunAt || null,
+      componentId: entry.componentId || null,
     });
   }
 
@@ -357,15 +455,60 @@ export function installDevTools(core) {
   };
 
   // Wire into what-core's reactive system
+  function installInto(mod) {
+    if (!mod) return;
+    if (mod.__setDevToolsHooks) mod.__setDevToolsHooks(hooks);
+    if (typeof window !== 'undefined') window.__WHAT_CORE__ = mod;
+
+    // P1-9: drain anything created BEFORE installDevTools was called
+    // (e.g. module-scope signals in store.js imported before app.js).
+    // The placeholder hooks in reactive.js buffered creations; we now
+    // register them with the live devtools so what_signals can see them.
+    if (typeof mod.__drainPreinstallBuffer === 'function') {
+      try {
+        const drained = mod.__drainPreinstallBuffer();
+        for (const sig of drained.signals || []) {
+          // Avoid double-register if the placeholder somehow already passed
+          // through to hooks (defensive — should be impossible given the
+          // ordering in reactive.js).
+          if (sig._devId == null) registerSignal(sig);
+        }
+        for (const e of drained.effects || []) {
+          if (e._devId == null) {
+            registerEffect(e);
+            // The effect already ran once before install; populate its deps
+            // now so what_dependency_graph shows the edges immediately,
+            // instead of waiting for the next run to re-track.
+            const entry = effects.get(e._devId);
+            if (entry && Array.isArray(e.deps)) {
+              const depSignalIds = [];
+              for (const subSet of e.deps) {
+                const sigId = subsToSignalId.get(subSet);
+                if (sigId != null) depSignalIds.push(sigId);
+              }
+              entry.depSignalIds = depSignalIds;
+              entry.runCount = 1;
+              entry.lastRunAt = Date.now();
+            }
+          }
+        }
+        for (const ctx of drained.components || []) {
+          if (ctx._devId == null) hooks.onComponentMount(ctx);
+        }
+      } catch (err) {
+        // Non-fatal — pre-install drain is best-effort.
+        if (typeof console !== 'undefined') {
+          console.warn('[what-devtools] pre-install drain failed:', err);
+        }
+      }
+    }
+  }
+
   if (core && core.__setDevToolsHooks) {
-    core.__setDevToolsHooks(hooks);
-    if (typeof window !== 'undefined') window.__WHAT_CORE__ = core;
+    installInto(core);
   } else {
     try {
-      import('what-core').then(mod => {
-        if (mod.__setDevToolsHooks) mod.__setDevToolsHooks(hooks);
-        if (typeof window !== 'undefined') window.__WHAT_CORE__ = mod;
-      }).catch(() => {});
+      import('what-core').then(installInto).catch(() => {});
     } catch {}
   }
 

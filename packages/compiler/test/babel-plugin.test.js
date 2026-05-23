@@ -555,8 +555,8 @@ describe('event delegation', () => {
       }
     `);
 
-    // Should use __click property assignment, not addEventListener
-    assert.match(code, /__click\s*=/, 'click should use delegation');
+    // Should use $$click property assignment, not addEventListener
+    assert.match(code, /\$\$click\s*=/, 'click should use delegation');
     assert.doesNotMatch(code, /addEventListener.*click/, 'click should not use addEventListener');
     // Should emit delegateEvents call
     assert.match(code, /delegateEvents/, 'should import delegateEvents');
@@ -569,7 +569,7 @@ describe('event delegation', () => {
       }
     `);
 
-    assert.match(code, /__input\s*=/, 'input should use delegation');
+    assert.match(code, /\$\$input\s*=/, 'input should use delegation');
   });
 
   it('does NOT delegate scroll events', () => {

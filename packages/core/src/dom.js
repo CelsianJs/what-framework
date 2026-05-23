@@ -209,8 +209,11 @@ export function createDOM(vnode, parent, isSvg) {
     return createComponent(vnode, parent, isSvg);
   }
 
-  // VNode with string tag — create element
-  if (isVNode(vnode)) {
+  // VNode with special boundary tags — route to boundary handlers
+  if (isVNode(vnode) && typeof vnode.tag === 'string') {
+    if (vnode.tag === '__errorBoundary') return createErrorBoundary(vnode, parent);
+    if (vnode.tag === '__suspense') return createSuspenseBoundary(vnode, parent);
+    if (vnode.tag === '__portal') return createPortalDOM(vnode, parent);
     return createElementFromVNode(vnode, parent, isSvg);
   }
 
@@ -350,12 +353,16 @@ function createComponent(vnode, parent, isSvg) {
   // match non-configurable own properties of target; functions have 'prototype').
   const reactiveProps = new Proxy({ _sig: propsSignal }, _propsProxyHandler);
 
-  // Component runs ONCE — not inside an effect
+  // Component runs ONCE — not inside an effect.
+  // untrack() prevents the component's signal reads and effect creation
+  // from being captured by any parent effect (e.g., reconcileInsert).
+  // Without this, dynamically-rendered components leak their internal
+  // reactivity into the parent, causing infinite re-creation loops.
   componentStack.push(ctx);
 
   let result;
   try {
-    result = Component(reactiveProps);
+    result = untrack(() => Component(reactiveProps));
   } catch (error) {
     componentStack.pop();
     if (!reportError(error, ctx)) {
@@ -607,6 +614,27 @@ function applyProps(el, newProps, oldProps, isSvg) {
   }
 }
 
+// <select> needs its value set after <option> children mount. Setting it
+// immediately can fail if the matching <option> isn't in the DOM yet; the
+// microtask retry fixes up after the options are appended.
+export function _setSelectValue(el, value) {
+  el.value = value;
+  if (el.value !== String(value)) {
+    queueMicrotask(() => { el.value = value; });
+  }
+}
+
+// NOTE: there are intentionally TWO `setProp` implementations in this codebase:
+//   - dom.js setProp (this one) — h()/createDOM/diff-style path. Handles
+//     addEventListener bookkeeping (el._events with capture variants and the
+//     untrack wrapper), supports `isSvg` flag from the caller. Used by the
+//     legacy diff-driven update path.
+//   - render.js setProp — fine-grained-compiler output path. No event-handler
+//     bookkeeping (events go through delegation / direct addEventListener at
+//     compile time), but adds URL sanitization for href/src and the
+//     innerHTML `{__html}` enforcement that the compiler relies on.
+// Both share the `el._propEffects[key]` disposer convention. Do not merge
+// without consolidating the event/listener model — they have different callers.
 function setProp(el, key, value, isSvg) {
   // Reactive function props — wrap in effect for fine-grained updates
   if (typeof value === 'function' && !(key.startsWith('on') && key.length > 2) && key !== 'ref') {
@@ -722,6 +750,12 @@ function setProp(el, key, value, isSvg) {
     } else {
       el.setAttribute(key, value === true ? '' : String(value));
     }
+    return;
+  }
+
+  // <select> value must be set after <option> children are in the DOM
+  if (key === 'value' && el.tagName === 'SELECT') {
+    _setSelectValue(el, value);
     return;
   }
 

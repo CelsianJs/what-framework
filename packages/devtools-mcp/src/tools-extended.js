@@ -71,6 +71,37 @@ export function registerExtendedTools(server, bridge) {
   }
 
   // ---------------------------------------------------------------------------
+  // Helper: framework-wide signal value preview policy.
+  //
+  // Goal: agents see the SAME shape across every tool that surfaces a signal
+  // value (what_signals, what_dependency_graph, what_signal_trace, …).
+  //
+  // Policy:
+  //   - Primitives (number/boolean/null/undefined): return as-is.
+  //   - Strings: full when small, truncated with ellipsis when long.
+  //   - Arrays/objects: full structure when its JSON stringification fits
+  //     under PREVIEW_LIMIT chars; otherwise return a truncated JSON string.
+  //
+  // Threshold chosen to fit "small list of small items" while protecting
+  // dep-graph topology output from token blow-ups on huge structures.
+  // ---------------------------------------------------------------------------
+  const PREVIEW_LIMIT = 100;
+  function previewSignalValue(raw) {
+    if (raw == null) return raw;
+    const t = typeof raw;
+    if (t === 'number' || t === 'boolean') return raw;
+    if (t === 'string') return raw.length > PREVIEW_LIMIT ? raw.slice(0, PREVIEW_LIMIT) + '…' : raw;
+    if (t === 'object') {
+      let json;
+      try { json = JSON.stringify(raw); } catch { return String(raw); }
+      if (json == null) return String(raw);
+      if (json.length <= PREVIEW_LIMIT) return raw;
+      return json.slice(0, PREVIEW_LIMIT) + '…';
+    }
+    return String(raw);
+  }
+
+  // ---------------------------------------------------------------------------
   // Helper: get a fresh or cached snapshot
   // ---------------------------------------------------------------------------
 
@@ -353,16 +384,10 @@ export function registerExtendedTools(server, bridge) {
         const id = Number(idStr);
         if (type === 'signal') {
           const s = signalMap.get(id);
-          // Truncate values to avoid token waste — graph topology is what matters
-          const raw = s?.value;
-          let value;
-          if (raw == null) value = raw;
-          else if (typeof raw === 'string') value = raw.length > 80 ? raw.slice(0, 80) + '…' : raw;
-          else if (Array.isArray(raw)) value = `Array(${raw.length})`;
-          else if (typeof raw === 'object') {
-            const json = JSON.stringify(raw);
-            value = json.length > 80 ? json.slice(0, 80) + '…' : raw;
-          } else value = raw;
+          // Use the framework-wide value-preview policy — full values when
+          // small, truncated JSON when large. Keeps output consistent with
+          // what_signals so agents see the same shape across tools.
+          const value = previewSignalValue(s?.value);
           nodes.push({ type: 'signal', id, name: s?.name || `signal_${id}`, value });
         } else {
           const e = effectMap.get(id);
@@ -860,7 +885,7 @@ export function registerExtendedTools(server, bridge) {
 
   server.tool(
     'what_explain',
-    'Get a complete picture of a component: its signals with values, effects with deps and run counts, rendered DOM, and any errors. The "tell me everything about this component" tool.',
+    'Get a complete picture of a component: its signals with values, effects with deps and run counts, rendered DOM, and any errors. The "tell me everything about this component" tool. Component IDs are ephemeral — they change on mount/unmount, so re-query what_components after any signal write that may have remounted the tree.',
     {
       componentId: z.number().describe('Component ID to explain (from what_components)'),
       includeDOM: z.boolean().optional().default(true).describe('Include rendered DOM output (default: true)'),
@@ -937,8 +962,9 @@ export function registerExtendedTools(server, bridge) {
     {
       signalId: z.number().describe('Signal ID to trace (from what_signals)'),
       depth: z.number().optional().default(2).describe('Causal chain depth — how many levels of effect->signal->effect to trace (default: 2)'),
+      auto_watch_ms: z.number().optional().default(500).describe('If no recent writes were captured, briefly listen for events for this many ms before returning (default: 500, set to 0 to disable).'),
     },
-    async ({ signalId, depth }) => {
+    async ({ signalId, depth, auto_watch_ms }) => {
       const { snapshot, err } = await freshSnapshot('what_signal_trace');
       if (err) return err;
 
@@ -958,6 +984,21 @@ export function registerExtendedTools(server, bridge) {
         writers = await bridge.sendCommand('get-signal-writers', { signalId }, 5000);
         if (writers.error) writers = { recentWrites: [], totalWrites: 0, note: writers.error };
       } catch {}
+
+      // Auto-arm what_watch when no writes have been captured yet. The
+      // signal-writer ring buffer is populated by initEventTracking, which
+      // runs on first extended command. If the caller hits what_signal_trace
+      // first, the buffer is empty even though the browser is producing
+      // events. Listen briefly so the user gets a result on the first try
+      // instead of having to manually chain what_watch -> what_signal_trace.
+      const watchMs = Math.min(Math.max(Number(auto_watch_ms) || 0, 0), 5000);
+      if (watchMs > 0 && (!writers.recentWrites || writers.recentWrites.length === 0)) {
+        await new Promise(r => setTimeout(r, watchMs));
+        try {
+          const refetched = await bridge.sendCommand('get-signal-writers', { signalId }, 5000);
+          if (refetched && !refetched.error) writers = refetched;
+        } catch {}
+      }
 
       // Build causal chain
       // For each writer effect, find what signals it depends on

@@ -172,8 +172,34 @@ export default function whatVitePlugin(options = {}) {
           jsx: 'preserve',
         },
         optimizeDeps: {
-          // Pre-bundle the framework
-          include: ['what-framework']
+          // Exclude framework packages from Vite's dependency pre-bundling.
+          //
+          // Bug class this prevents — "dual module instance":
+          //   The compiler emits `import { ... } from 'what-framework/render'`
+          //   (a subpath resolved to the source file). Meanwhile user code
+          //   imports `'what-framework'` (the package entry). If Vite
+          //   pre-bundles `'what-framework'` into an esbuild chunk under
+          //   node_modules/.vite, those two import paths resolve to two
+          //   *different* module instances. Module-scoped state — the
+          //   `componentStack` used by createComponent, effect ownership,
+          //   the signal subscriber registry — is duplicated, so a signal
+          //   created in user code never notifies effects created via the
+          //   compiler-emitted path, and `getCurrentComponent()` returns
+          //   undefined inside components mounted through compiler output.
+          //
+          // Why `exclude` is the right knob:
+          //   `include` would force pre-bundling of the package entry, which
+          //   does not resolve the subpath import the compiler emits — so the
+          //   split persists. Using `exclude` tells Vite to skip the optimizer
+          //   for these packages and serve them via the normal module graph,
+          //   where both the package entry and the `/render` subpath share
+          //   a single ESM module record.
+          //
+          // Regression symptom if this is removed:
+          //   Components mount but lifecycle hooks (onMount, onCleanup) and
+          //   shared store state silently no-op; effects don't re-run on
+          //   signal writes from user code; SSR/CSR hydration mismatches.
+          exclude: ['what-framework', 'what-core', 'what-compiler', 'what-router'],
         }
       };
     }

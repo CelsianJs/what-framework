@@ -25,7 +25,7 @@ const VOID_HTML_ELEMENTS = new Set([
 ]);
 
 // Events that use document-level delegation for performance.
-// The compiler emits `el.__click = handler` instead of addEventListener.
+// The compiler emits `el.$$click = handler` instead of addEventListener.
 // A one-time document listener walks event.target upward to find the handler.
 const DELEGATED_EVENTS = new Set([
   'click', 'input', 'change', 'keydown', 'keyup', 'submit',
@@ -52,8 +52,47 @@ export default function whatBabelPlugin({ types: t }) {
   // Shared utilities
   // =====================================================
 
+  // Warn-once tracking for unknown event modifier segments. Keyed by
+  // `${filename}::${segment}` so each typo is reported at most once per file
+  // per compile process. Without the filename in the key, the same typo in
+  // two different files would silently warn for the first file only —
+  // problematic in long-running Vite dev servers.
+  const _unknownModifierWarned = new Set();
+
+  function hasEventModifiers(name, state) {
+    // Any `__` in an `on*` attribute is intended as modifier syntax — even
+    // if every segment is unknown. Returning false there would emit the
+    // attribute as a plain delegated-event property (e.g.
+    // `el.$$onclick__totalyWrong = handler`), which never fires. Instead,
+    // always route through the modifier-handling branch so the parser can
+    // warn about the typo and drop the unknown segments.
+    if (!name.includes('__')) return false;
+    if (!name.startsWith('on')) return false;
+    const parts = name.split('__');
+    const tail = parts.slice(1);
+    if (tail.length === 0) return false;
+    if (process.env.NODE_ENV !== 'production') {
+      const unknown = tail.filter(m => !EVENT_MODIFIERS.has(m));
+      const filename = (state && (state.filename || (state.file && state.file.opts && state.file.opts.filename))) || '<unknown>';
+      for (const m of unknown) {
+        const key = `${filename}::${m}`;
+        if (!_unknownModifierWarned.has(key)) {
+          _unknownModifierWarned.add(key);
+          console.warn(
+            `[what-compiler] Unknown event modifier "__${m}" in attribute "${name}" (${filename}). ` +
+            `Known modifiers: ${[...EVENT_MODIFIERS].join(', ')}. ` +
+            `Unknown segments are ignored.`
+          );
+        }
+      }
+    }
+    return true;
+  }
+
   function parseEventModifiers(name) {
-    const parts = name.split('|');
+    // Support both '|' (template strings) and '__' (JSX-safe) as modifier delimiters
+    const delimiter = name.includes('|') ? '|' : '__';
+    const parts = name.split(delimiter);
     const eventName = parts[0];
     const modifiers = parts.slice(1).filter(m => EVENT_MODIFIERS.has(m));
     return { eventName, modifiers };
@@ -339,7 +378,8 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     if (t.isIdentifier(expr)) {
-      return isSignalIdentifier(expr.name, signalNames);
+      return isSignalIdentifier(expr.name, signalNames) ||
+             (importedIds && importedIds.has(expr.name));
     }
 
     if (t.isMemberExpression(expr)) {
@@ -381,6 +421,100 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     return false;
+  }
+
+  // --- Auto-lower .map() to mapArray ---
+  // Detects: source().map((item) => <Comp key={expr} .../>)
+  // or wrapped in an arrow: () => source().map(...)
+  // Produces: _$mapArray(source, (item) => <Comp .../>, { key: item => expr })
+  function tryLowerMapToMapArray(expr, state) {
+    // Unwrap arrow function: () => source().map(...)
+    let mapCall = expr;
+    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0 && t.isCallExpression(expr.body)) {
+      mapCall = expr.body;
+    }
+
+    // Check: something.map(fn)
+    if (!t.isCallExpression(mapCall)) return null;
+    if (!t.isMemberExpression(mapCall.callee)) return null;
+    if (!t.isIdentifier(mapCall.callee.property, { name: 'map' })) return null;
+    if (mapCall.arguments.length < 1) return null;
+
+    const mapFn = mapCall.arguments[0];
+    if (!t.isArrowFunctionExpression(mapFn) && !t.isFunctionExpression(mapFn)) return null;
+
+    // Get the map callback's return expression
+    let returnExpr = null;
+    if (t.isArrowFunctionExpression(mapFn)) {
+      if (t.isExpression(mapFn.body)) {
+        returnExpr = mapFn.body;
+      } else if (t.isBlockStatement(mapFn.body)) {
+        const ret = mapFn.body.body.find(s => t.isReturnStatement(s));
+        if (ret) returnExpr = ret.argument;
+      }
+    } else if (t.isFunctionExpression(mapFn)) {
+      const ret = mapFn.body.body.find(s => t.isReturnStatement(s));
+      if (ret) returnExpr = ret.argument;
+    }
+
+    if (!returnExpr) return null;
+
+    // Check if the return is JSX with a `key` prop
+    if (!t.isJSXElement(returnExpr)) return null;
+    const attrs = returnExpr.openingElement.attributes;
+    let keyAttr = null;
+    for (const attr of attrs) {
+      if (t.isJSXAttribute(attr) && getAttrName(attr) === 'key') {
+        keyAttr = attr;
+        break;
+      }
+    }
+    if (!keyAttr) {
+      // JSX returned without a key — bail out, but warn at compile time so
+      // users notice they're missing keyed reconciliation. Only warn in dev
+      // (production builds are noiseless).
+      if (process.env.NODE_ENV !== 'production') {
+        const loc = returnExpr.loc;
+        const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+        const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+        console.warn(
+          `[what-compiler] .map() returning JSX without a \`key\` prop at ${fileName}${lineInfo}. ` +
+          `Without a key, the list cannot use keyed reconciliation — items are re-created on every update. ` +
+          `Add key={...} to enable efficient updates.`
+        );
+      }
+      return null;
+    }
+
+    // Extract the key expression
+    const keyValue = getAttributeValue(keyAttr.value);
+    if (!keyValue) return null;
+
+    // Remove the key prop from the JSX element (mapArray handles keying, not the DOM)
+    returnExpr.openingElement.attributes = attrs.filter(a => a !== keyAttr);
+
+    // Build the source: the object before .map() — wrap in an arrow for reactive access
+    const sourceObj = mapCall.callee.object;
+    const source = t.arrowFunctionExpression([], sourceObj);
+
+    // Build the key function: (item) => keyExpr.
+    // Clone both the parameter and the key expression — the parameter is shared
+    // with the user's map callback AST and keyValue may be referenced elsewhere
+    // in the tree. Cloning insulates this new arrow from later mutations.
+    const itemParam = mapFn.params[0] ? t.cloneNode(mapFn.params[0], true) : t.identifier('_item');
+    const keyFn = t.arrowFunctionExpression([itemParam], t.cloneNode(keyValue, true));
+
+    // Build: _$mapArray(source, mapFn, { key: keyFn, raw: true })
+    // raw: true means mapFn receives the raw item value (not a signal accessor),
+    // matching user-authored .map() semantics where `item.prop` accesses values directly.
+    return t.callExpression(t.identifier('_$mapArray'), [
+      source,
+      mapFn,
+      t.objectExpression([
+        t.objectProperty(t.identifier('key'), keyFn),
+        t.objectProperty(t.identifier('raw'), t.booleanLiteral(true))
+      ])
+    ]);
   }
 
   // =====================================================
@@ -500,16 +634,16 @@ export default function whatBabelPlugin({ types: t }) {
     const openingElement = node.openingElement;
     const tagName = openingElement.name.name;
 
-    if (isComponent(tagName)) {
-      return transformComponentFineGrained(path, state);
-    }
-
-    // Control flow components (lowercase but special)
+    // Control flow components — check before generic isComponent since they start uppercase
     if (tagName === 'For') {
       return transformForFineGrained(path, state);
     }
     if (tagName === 'Show') {
       return transformShowFineGrained(path, state);
+    }
+
+    if (isComponent(tagName)) {
+      return transformComponentFineGrained(path, state);
     }
 
     const attributes = openingElement.attributes;
@@ -669,12 +803,12 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       // Event handlers
-      if (attrName.startsWith('on') && !attrName.includes('|')) {
+      if (attrName.startsWith('on') && !attrName.includes('|') && !hasEventModifiers(attrName, state)) {
         const event = attrName.slice(2).toLowerCase();
         const handler = getAttributeValue(attr.value);
 
         if (DELEGATED_EVENTS.has(event)) {
-          // Use event delegation: el.__click = handler
+          // Use event delegation: el.$$click = handler (matches runtime lookup)
           state.needsDelegation = true;
           if (!state.delegatedEvents) state.delegatedEvents = new Set();
           state.delegatedEvents.add(event);
@@ -683,7 +817,7 @@ export default function whatBabelPlugin({ types: t }) {
               t.assignmentExpression('=',
                 t.memberExpression(
                   t.identifier(elId),
-                  t.identifier(`__${event}`)
+                  t.identifier(`$$${event}`)
                 ),
                 handler
               )
@@ -703,8 +837,8 @@ export default function whatBabelPlugin({ types: t }) {
         continue;
       }
 
-      // Event with modifiers
-      if (attrName.startsWith('on') && attrName.includes('|')) {
+      // Event with modifiers (pipe '|' or JSX-safe double underscore '__')
+      if (attrName.startsWith('on') && (attrName.includes('|') || hasEventModifiers(attrName, state))) {
         const { eventName, modifiers } = parseEventModifiers(attrName);
         const handler = getAttributeValue(attr.value);
         const wrappedHandler = createEventHandler(handler, modifiers);
@@ -810,8 +944,14 @@ export default function whatBabelPlugin({ types: t }) {
 
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
           state.needsEffect = true;
+          // Auto-invoke bare signal/imported identifiers: value={name} -> name()
+          const valueExpr = t.isIdentifier(expr) &&
+            (isSignalIdentifier(expr.name, state.signalNames) ||
+             (state.importedIdentifiers && state.importedIdentifiers.has(expr.name)))
+            ? t.callExpression(expr, [])
+            : expr;
           const effectCall = t.callExpression(t.identifier('_$effect'), [
-            t.arrowFunctionExpression([], buildSetPropCall(domName, expr))
+            t.arrowFunctionExpression([], buildSetPropCall(domName, valueExpr))
           ]);
           // In dev mode, add a leading comment when the effect wrapping is uncertain
           // (non-signal function call whose args happen to contain signal reads)
@@ -913,9 +1053,44 @@ export default function whatBabelPlugin({ types: t }) {
     // --- Pass 2: Generate code using stable references ---
     for (const entry of entries) {
       if (entry.type === 'expression') {
-        const expr = entry.child.expression;
+        let expr = entry.child.expression;
         const marker = getMarker(entry.childIndex);
         state.needsInsert = true;
+
+        // Auto-lower .map() to mapArray when the callback returns keyed JSX.
+        // Pattern: source().map(item => <Comp key={...} />) or source().map((item, i) => ...)
+        const mapResult = tryLowerMapToMapArray(expr, state);
+        if (mapResult) {
+          state.needsMapArray = true;
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                mapResult,
+                marker
+              ])
+            )
+          );
+          continue;
+        }
+
+        // mapArray() calls return self-managing inserters — pass directly, never wrap in () =>
+        const isMapArrayCall = t.isCallExpression(expr) && t.isIdentifier(expr.callee) &&
+          (expr.callee.name === 'mapArray' || expr.callee.name === '_$mapArray');
+        if (isMapArrayCall) {
+          state.needsMapArray = true;
+          if (expr.callee.name === 'mapArray') expr.callee.name = '_$mapArray';
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                expr,
+                marker
+              ])
+            )
+          );
+          continue;
+        }
 
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
           const insertCall = t.callExpression(t.identifier('_$insert'), [
@@ -1153,7 +1328,7 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       // Handle event modifiers on components
-      if (attrName.startsWith('on') && attrName.includes('|')) {
+      if (attrName.startsWith('on') && (attrName.includes('|') || hasEventModifiers(attrName, state))) {
         const { eventName, modifiers } = parseEventModifiers(attrName);
         const handler = getAttributeValue(attr.value);
         const wrappedHandler = createEventHandler(handler, modifiers);
@@ -1218,12 +1393,15 @@ export default function whatBabelPlugin({ types: t }) {
     const attributes = node.openingElement.attributes;
     const children = node.children;
 
-    // <For each={data}>{(item) => <Row />}</For>
-    // → mapArray(data, (item) => ...)
+    // <For each={data} key={item => item.id}>{(item) => <Row />}</For>
+    // → mapArray(data, (item) => ..., { key: item => item.id })
     let eachExpr = null;
+    let keyExpr = null;
     for (const attr of attributes) {
-      if (t.isJSXAttribute(attr) && getAttrName(attr) === 'each') {
-        eachExpr = getAttributeValue(attr.value);
+      if (t.isJSXAttribute(attr)) {
+        const name = getAttrName(attr);
+        if (name === 'each') eachExpr = getAttributeValue(attr.value);
+        else if (name === 'key') keyExpr = getAttributeValue(attr.value);
       }
     }
 
@@ -1248,14 +1426,120 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     state.needsMapArray = true;
-    return t.callExpression(t.identifier('_$mapArray'), [eachExpr, renderFn]);
+    const args = [eachExpr, renderFn];
+    if (keyExpr) {
+      args.push(t.objectExpression([
+        t.objectProperty(t.identifier('key'), keyExpr)
+      ]));
+    }
+    return t.callExpression(t.identifier('_$mapArray'), args);
   }
 
   function transformShowFineGrained(path, state) {
-    // <Show when={cond}>{content}</Show>
-    // Uses _$createComponent(Show, ...) — Show is a runtime component
-    state.needsCreateComponent = true;
-    return transformComponentFineGrained(path, state);
+    // <Show when={cond} fallback={alt}>{content}</Show>
+    // → () => cond() ? content : (fallback || null)
+    // This compiles to a reactive expression that insert() wraps in an effect.
+    const { node } = path;
+    const attributes = node.openingElement.attributes;
+    const children = node.children;
+
+    let whenExpr = null;
+    let fallbackExpr = null;
+    for (const attr of attributes) {
+      if (t.isJSXAttribute(attr)) {
+        const name = getAttrName(attr);
+        if (name === 'when') whenExpr = getAttributeValue(attr.value);
+        else if (name === 'fallback') fallbackExpr = getAttributeValue(attr.value);
+      }
+    }
+
+    if (!whenExpr) {
+      // <Show> without a when prop has no defined semantics — fail loudly at
+      // build time so the user fixes their source instead of seeing runtime
+      // confusion. buildCodeFrameError pins the error to the JSX location.
+      throw path.buildCodeFrameError(
+        '<Show> requires a "when" prop. Example: <Show when={isOpen} fallback={null}>...</Show>'
+      );
+    }
+
+    // Extract the content — either a render function child or static JSX children
+    let contentExpr = null;
+    for (const child of children) {
+      if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
+        // Render function: {() => <div>...</div>} or {(value) => <div>{value}</div>}
+        contentExpr = child.expression;
+        break;
+      }
+    }
+
+    if (!contentExpr) {
+      // Static children — collect and transform them
+      const transformedChildren = [];
+      for (const child of children) {
+        if (t.isJSXText(child)) {
+          const text = child.value.trim();
+          if (text) transformedChildren.push(t.stringLiteral(text));
+        } else if (t.isJSXElement(child)) {
+          transformedChildren.push(transformElementFineGrained({ node: child }, state));
+        }
+      }
+      if (transformedChildren.length === 1) {
+        contentExpr = transformedChildren[0];
+      } else if (transformedChildren.length > 1) {
+        contentExpr = t.arrayExpression(transformedChildren);
+      } else {
+        contentExpr = t.nullLiteral();
+      }
+    }
+
+    // Build:
+    //   () => { const _v = <condition>; return _v ? <consequent> : <alternate>; }
+    // Hoisting into a local prevents double-evaluation of the `when` signal
+    // (the consequent's render callback also needs the resolved value).
+    //
+    // `whenExpr` shape determines how we form the condition:
+    //   - call expression          → use as-is              <Show when={cond()}>
+    //   - arrow w/ expression body → use the body            <Show when={() => x > 5}>
+    //   - identifier that looks like a signal/import        <Show when={isOpen}>
+    //                              → invoke it as accessor:  isOpen()
+    //   - anything else (member, literal, logical, etc.)    <Show when={user.isAdmin}>
+    //                              → use the raw expression. Do NOT invoke —
+    //                                non-functions would throw at runtime.
+    let condition;
+    if (t.isCallExpression(whenExpr)) {
+      condition = whenExpr;
+    } else if (t.isArrowFunctionExpression(whenExpr) && t.isExpression(whenExpr.body)) {
+      condition = whenExpr.body;
+    } else if (
+      t.isIdentifier(whenExpr) &&
+      (
+        (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames)) ||
+        (state.importedIdentifiers && state.importedIdentifiers.has(whenExpr.name))
+      )
+    ) {
+      condition = t.callExpression(whenExpr, []);
+    } else {
+      // Plain boolean expression — member access, literal, logical, etc.
+      condition = whenExpr;
+    }
+
+    const vId = path.scope
+      ? path.scope.generateUidIdentifier('v')
+      : t.identifier('_v');
+
+    const consequent = t.isFunction(contentExpr)
+      ? t.callExpression(contentExpr, [t.cloneNode(vId)])
+      : contentExpr;
+    const alternate = fallbackExpr || t.nullLiteral();
+
+    return t.arrowFunctionExpression([], t.blockStatement([
+      t.variableDeclaration('const', [
+        t.variableDeclarator(vId, condition)
+      ]),
+      t.returnStatement(
+        t.conditionalExpression(t.cloneNode(vId), consequent, alternate)
+      )
+    ]));
   }
 
   function transformFragmentFineGrained(path, state) {
@@ -1528,19 +1812,45 @@ export default function whatBabelPlugin({ types: t }) {
         state._pendingSetup = [];
 
         if (pending.length > 0) {
-          // Find the enclosing statement to hoist setup before it
+          // Find the enclosing statement to hoist setup before it,
+          // but only if it's in the SAME function scope. Crossing into
+          // an inner arrow/function (e.g., .map(item => <JSX/>)) would
+          // hoist references to closure variables out of scope.
           let stmtPath = path;
+          let crossedFunctionBoundary = false;
           while (stmtPath && !stmtPath.isStatement()) {
+            if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
+              crossedFunctionBoundary = true;
+            }
             stmtPath = stmtPath.parentPath;
           }
-          if (stmtPath && stmtPath.isStatement()) {
-            // Insert setup statements before the enclosing statement
-            for (const stmt of pending) {
-              stmtPath.insertBefore(stmt);
-            }
+          // We can safely hoist setup as siblings of `stmtPath` ONLY if
+          // `stmtPath` lives inside a statement list (BlockStatement.body or
+          // Program.body). For single-statement positions like
+          // `if (cond) return <jsx/>;` or `while (x) return <jsx/>;`,
+          // Babel's `insertBefore` wraps the parent into a block lazily and
+          // multi-statement inserts end up split across scopes, leaving the
+          // `_$insert(_el$N, ...)` call outside the block that declares
+          // `const _el$N`. This is a TDZ/ReferenceError at runtime.
+          //
+          // To guarantee that ALL setup statements and the returned reference
+          // share one lexical block, require that `stmtPath.listKey` points
+          // at a statement list. Otherwise fall through to the IIFE path,
+          // which is always safe.
+          const inStatementList =
+            stmtPath
+            && stmtPath.isStatement()
+            && (stmtPath.listKey === 'body' || stmtPath.listKey === 'consequent')
+            && Array.isArray(stmtPath.container);
+          if (inStatementList && !crossedFunctionBoundary) {
+            // Same function scope — safe to hoist setup before the enclosing
+            // statement. Works for return statements too: `insertBefore`
+            // places setup above `return <jsx/>` without wrapping in an IIFE.
+            stmtPath.insertBefore(pending);
             path.replaceWith(transformed);
           } else {
-            // Fallback: if we can't find a statement parent, use IIFE
+            // Crossed a function boundary or no enclosing statement found —
+            // fall back to IIFE so closure variables remain in scope.
             pending.push(t.returnStatement(transformed));
             path.replaceWith(
               t.callExpression(

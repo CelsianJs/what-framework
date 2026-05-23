@@ -3,7 +3,7 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, _createItemScope, signal, __DEV__ } from './reactive.js';
-import { createDOM, disposeTree, getCurrentComponent, getComponentStack } from './dom.js';
+import { createDOM, disposeTree, getCurrentComponent, getComponentStack, _setSelectValue } from './dom.js';
 export { effect, untrack };
 
 // --- Generic text insertion hook ---
@@ -167,6 +167,11 @@ export function svgTemplate(html) {
 // - array → insert each element
 
 export function insert(parent, child, marker) {
+  // mapArray inserter: self-managing reactive list with its own effect
+  if (typeof child === 'function' && child._mapArray) {
+    return child(parent, marker || null);
+  }
+
   if (typeof child === 'function') {
     // Fast path: if the first evaluation returns a string/number, optimistically
     // create a text node for direct updates. If the value type changes later
@@ -197,8 +202,10 @@ export function insert(parent, child, marker) {
       });
       return textNode;
     }
-    // General path for non-text reactive children (first value was null/vnode/array)
-    let current = first != null ? reconcileInsert(parent, first, null, marker || null) : null;
+    // General path for non-text reactive children (first value was null/vnode/array).
+    // Let the effect handle both the initial insert and subsequent updates to avoid
+    // double-evaluating child() (which would create components twice on mount).
+    let current = null;
     effect(() => {
       current = reconcileInsert(parent, child(), current, marker || null);
     });
@@ -256,13 +263,28 @@ function valuesToNodes(value, parent, out) {
     return out;
   }
 
+  // Resolve function values (reactive accessors passed through props)
+  if (typeof value === 'function') {
+    valuesToNodes(value(), parent, out);
+    return out;
+  }
+
   if (typeof value === 'string' || typeof value === 'number') {
     out.push(document.createTextNode(String(value)));
     return out;
   }
 
   if (isDomNode(value)) {
-    out.push(value);
+    // DocumentFragments lose their children on DOM insertion, making them
+    // untrackable for reconciliation. Flatten to child nodes instead.
+    if (value.nodeType === 11 && value.childNodes.length > 0) {
+      const children = Array.from(value.childNodes);
+      for (let i = 0; i < children.length; i++) {
+        out.push(children[i]);
+      }
+    } else {
+      out.push(value);
+    }
     return out;
   }
 
@@ -383,7 +405,7 @@ export function mapArray(source, mapFn, options) {
   const keyFn = options?.key;
   const raw = options?.raw || false;
 
-  return (parent, marker) => {
+  const inserter = (parent, marker) => {
     let items = [];
     let mappedNodes = [];
     let disposeFns = [];
@@ -407,6 +429,8 @@ export function mapArray(source, mapFn, options) {
 
     return endMarker;
   };
+  inserter._mapArray = true;
+  return inserter;
 }
 
 function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, disposeFns, mapFn) {
@@ -655,6 +679,68 @@ function _lis(arr, len) {
 // When a key persists but its item reference changes, the item signal updates
 // in place — no DOM node destruction/creation. Only effects reading the
 // item accessor re-run (e.g., textContent update for changed label).
+//
+// Multi-node items: Components return DocumentFragments (c:start, content, c:end).
+// We track each item via a start-marker comment. Moving/removing an item moves
+// all nodes from its marker up to (but not including) the next item's marker.
+
+function _createItemMarker() {
+  return document.createComment('i');
+}
+
+// Collect all DOM nodes belonging to one item (from its marker to beforeEnd).
+function _collectItemNodes(marker, beforeEnd) {
+  const nodes = [];
+  let n = marker;
+  while (n && n !== beforeEnd) {
+    nodes.push(n);
+    n = n.nextSibling;
+  }
+  return nodes;
+}
+
+// Move all nodes for an item (starting at marker) before `ref` in `parent`.
+function _moveItem(parent, marker, beforeEnd, ref) {
+  let n = marker;
+  while (n && n !== beforeEnd) {
+    const next = n.nextSibling;
+    parent.insertBefore(n, ref);
+    n = next;
+  }
+}
+
+// Remove all nodes for an item from the DOM.
+function _removeItemNodes(parent, marker, beforeEnd) {
+  let n = marker;
+  while (n && n !== beforeEnd) {
+    const next = n.nextSibling;
+    if (n._componentCtx || n._dispose || n._propEffects) disposeTree(n);
+    parent.removeChild(n);
+    n = next;
+  }
+}
+
+// Create a new item: wraps mapFn result in a marker + appends to target.
+function _createKeyedItem(target, item, idx, keyFn, keyedState, mapFn, mappedArr, disposeArr, signal_) {
+  let accessor;
+  if (keyedState) {
+    const key = keyFn(item);
+    const itemSig = signal_(item);
+    accessor = itemSig;
+    keyedState.set(key, { itemSig });
+  } else {
+    accessor = item;
+  }
+  const marker = _createItemMarker();
+  target.appendChild(marker);
+  const result = _createItemScope(dispose => {
+    disposeArr[idx] = dispose;
+    return mapFn(accessor, idx);
+  });
+  // result may be a DocumentFragment or a single node
+  target.appendChild(result);
+  mappedArr[idx] = marker;
+}
 
 function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedState) {
   const newLen = newItems.length;
@@ -663,18 +749,12 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   // --- Fast path: clear all ---
   if (newLen === 0) {
     if (oldLen > 0) {
-      // Dispose reactive scopes first, then remove DOM nodes.
       for (let i = 0; i < oldLen; i++) {
         if (disposeFns[i]) disposeFns[i]();
       }
-      for (let i = oldLen - 1; i >= 0; i--) {
-        const node = mappedNodes[i];
-        if (node) {
-          if (node._componentCtx || node._dispose || node._propEffects) {
-            disposeTree(node);
-          }
-          if (node.parentNode === parent) parent.removeChild(node);
-        }
+      // Remove all nodes between first item marker and endMarker
+      if (mappedNodes[0]) {
+        _removeItemNodes(parent, mappedNodes[0], endMarker);
       }
       mappedNodes.length = 0;
       disposeFns.length = 0;
@@ -687,23 +767,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   if (oldLen === 0) {
     const frag = document.createDocumentFragment();
     for (let i = 0; i < newLen; i++) {
-      const item = newItems[i];
-      const idx = i;
-      let accessor;
-      if (keyedState) {
-        const key = keyFn(item);
-        const itemSig = signal(item);
-        accessor = itemSig;
-        keyedState.set(key, { itemSig });
-      } else {
-        accessor = item; // raw mode: pass item directly
-      }
-      const node = _createItemScope(dispose => {
-        disposeFns[idx] = dispose;
-        return mapFn(accessor, idx);
-      });
-      mappedNodes[i] = node;
-      frag.appendChild(node);
+      _createKeyedItem(frag, newItems[i], i, keyFn, keyedState, mapFn, mappedNodes, disposeFns, signal);
     }
     parent.insertBefore(frag, endMarker);
     return;
@@ -713,12 +777,10 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   let start = 0;
   const minLen = Math.min(oldLen, newLen);
   while (start < minLen) {
-    // Fast path: same reference → same key, no update needed
     if (oldItems[start] === newItems[start]) { start++; continue; }
     const oldKey = keyFn(oldItems[start]);
     const newKey = keyFn(newItems[start]);
     if (oldKey !== newKey) break;
-    // Key matches but reference changed — update signal (non-raw mode only)
     if (keyedState) keyedState.get(oldKey).itemSig.set(newItems[start]);
     start++;
   }
@@ -736,13 +798,8 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     newEnd--;
   }
 
-  // If everything matched, nothing to do
-  if (start > oldEnd && start > newEnd) {
-    // Just copy existing mappings to output
-    return;
-  }
+  if (start > oldEnd && start > newEnd) return;
 
-  // Copy prefix/suffix into output arrays
   const newMapped = new Array(newLen);
   const newDispose = new Array(newLen);
   for (let i = 0; i < start; i++) {
@@ -760,27 +817,12 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
 
   // --- Only additions in middle ---
   if (midOldLen === 0) {
-    const marker = newEnd + 1 < newLen && newMapped[newEnd + 1] ? newMapped[newEnd + 1] : endMarker;
+    const ref = newEnd + 1 < newLen && newMapped[newEnd + 1] ? newMapped[newEnd + 1] : endMarker;
     const frag = document.createDocumentFragment();
     for (let i = start; i <= newEnd; i++) {
-      const item = newItems[i];
-      const idx = i;
-      let accessor;
-      if (keyedState) {
-        const key = keyFn(item);
-        const itemSig = signal(item);
-        accessor = itemSig;
-        keyedState.set(key, { itemSig });
-      } else {
-        accessor = item;
-      }
-      newMapped[i] = _createItemScope(dispose => {
-        newDispose[idx] = dispose;
-        return mapFn(accessor, idx);
-      });
-      frag.appendChild(newMapped[i]);
+      _createKeyedItem(frag, newItems[i], i, keyFn, keyedState, mapFn, newMapped, newDispose, signal);
     }
-    parent.insertBefore(frag, marker);
+    parent.insertBefore(frag, ref);
     _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
     return;
   }
@@ -789,7 +831,11 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   if (midNewLen === 0) {
     for (let i = start; i <= oldEnd; i++) {
       disposeFns[i]?.();
-      if (mappedNodes[i]?.parentNode) parent.removeChild(mappedNodes[i]);
+      // Compute the range boundary from the live DOM. Sibling markers in
+      // mappedNodes may have been detached by earlier iterations of this loop;
+      // walking the DOM finds the next surviving item marker (or endMarker).
+      const rangeEnd = _findNextMarkerAfter(parent, mappedNodes[i], mappedNodes, i, endMarker);
+      _removeItemNodes(parent, mappedNodes[i], rangeEnd);
       if (keyedState) keyedState.delete(keyFn(oldItems[i]));
     }
     _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
@@ -797,7 +843,6 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   }
 
   // --- General case: reconcile middle section ---
-  // Build old key → old index map for middle section only
   const oldKeyMap = new Map();
   for (let i = start; i <= oldEnd; i++) {
     oldKeyMap.set(keyFn(oldItems[i]), i);
@@ -806,7 +851,6 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   const oldIndices = new Int32Array(midNewLen);
   oldIndices.fill(-1);
 
-  // Match by key
   for (let i = start; i <= newEnd; i++) {
     const key = keyFn(newItems[i]);
     const oldIdx = oldKeyMap.get(key);
@@ -815,43 +859,35 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       newMapped[i] = mappedNodes[oldIdx];
       newDispose[i] = disposeFns[oldIdx];
       oldIndices[i - start] = oldIdx;
-      // Update item signal if reference changed (non-raw mode only)
       if (keyedState && newItems[i] !== oldItems[oldIdx]) {
         keyedState.get(key).itemSig.set(newItems[i]);
       }
     }
   }
 
-  // Dispose removed items
-  for (const [key, oldIdx] of oldKeyMap) {
+  // Dispose removed items (iterate in reverse to avoid shifting boundaries)
+  const removedIndices = [...oldKeyMap.values()].sort((a, b) => b - a);
+  for (const oldIdx of removedIndices) {
     disposeFns[oldIdx]?.();
-    if (mappedNodes[oldIdx]?.parentNode) parent.removeChild(mappedNodes[oldIdx]);
-    if (keyedState) keyedState.delete(key);
+    // Compute the range boundary from the live DOM. Adjacent removals can
+    // detach mappedNodes[oldIdx + 1] before we get here, so we cannot trust
+    // that reference — walk the DOM to find the next surviving item marker.
+    const rangeEnd = _findNextMarkerAfter(parent, mappedNodes[oldIdx], mappedNodes, oldIdx, endMarker);
+    _removeItemNodes(parent, mappedNodes[oldIdx], rangeEnd);
+    if (keyedState) keyedState.delete(keyFn(oldItems[oldIdx]));
   }
 
-  // Create new items
+  // Create new items (into a detached fragment, then positioned below)
   for (let i = start; i <= newEnd; i++) {
     if (!newMapped[i]) {
-      const item = newItems[i];
-      const idx = i;
-      let accessor;
-      if (keyedState) {
-        const key = keyFn(item);
-        const itemSig = signal(item);
-        accessor = itemSig;
-        keyedState.set(key, { itemSig });
-      } else {
-        accessor = item;
-      }
-      newMapped[i] = _createItemScope(dispose => {
-        newDispose[idx] = dispose;
-        return mapFn(accessor, idx);
-      });
+      const frag = document.createDocumentFragment();
+      _createKeyedItem(frag, newItems[i], i, keyFn, keyedState, mapFn, newMapped, newDispose, signal);
+      // Leave in frag for now — will be positioned in the move pass
+      newMapped[i]._frag = frag;
     }
   }
 
   // Position using LIS
-  // First check: are reused items already in order? (common for update-in-place)
   let reusedCount = 0;
   let alreadySorted = true;
   let lastOldIdx = -1;
@@ -866,7 +902,6 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   const inLIS = new Uint8Array(midNewLen);
 
   if (alreadySorted) {
-    // All reused items are in order — mark all as in LIS (no moves needed)
     for (let i = 0; i < midNewLen; i++) {
       if (oldIndices[i] !== -1) inLIS[i] = 1;
     }
@@ -891,21 +926,45 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     }
   }
 
-  // Position: work backwards, insert items not in LIS
-  let nextSibling = newEnd + 1 < newMapped.length && newMapped[newEnd + 1]
-    ? newMapped[newEnd + 1] : endMarker;
+  // Position: work backwards, move items not in LIS
+  // For existing items: move all nodes from marker to next-item boundary.
+  // For new items: insert from their detached fragment.
+  // We rebuild the output array to reflect final positions.
+  _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
 
+  let ref = endMarker;
   for (let i = newEnd; i >= start; i--) {
     const mi = i - start;
-    if (oldIndices[mi] === -1 || !inLIS[mi]) {
-      // Guard against stale nextSibling from nested reconciliation
-      if (nextSibling && nextSibling.parentNode !== parent) nextSibling = endMarker;
-      parent.insertBefore(newMapped[i], nextSibling);
-    }
-    nextSibling = newMapped[i];
-  }
+    const marker = mappedNodes[i];
 
-  _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
+    if (oldIndices[mi] === -1) {
+      // New item — insert from detached fragment
+      if (marker._frag) {
+        parent.insertBefore(marker._frag, ref);
+        delete marker._frag;
+      }
+    } else if (!inLIS[mi]) {
+      // Existing item not in LIS — move all its nodes
+      const nextItemMarker = _findNextMarkerAfter(parent, marker, mappedNodes, i, endMarker);
+      _moveItem(parent, marker, nextItemMarker, ref);
+    }
+    ref = marker;
+  }
+}
+
+// TODO(perf): cache item end boundary on marker if large keyed reorders show O(n²) hot paths.
+// Find the boundary end for an item's nodes in the current DOM.
+// Walks from the marker's nextSibling until we hit another item's marker or endMarker.
+function _findNextMarkerAfter(parent, marker, mappedNodes, idx, endMarker) {
+  // The item's nodes end at the next sibling that is either:
+  // - another item's marker comment (data === 'i')
+  // - the list endMarker (data === '/list')
+  let n = marker.nextSibling;
+  while (n && n !== endMarker) {
+    if (n.nodeType === 8 && n.data === 'i') return n;
+    n = n.nextSibling;
+  }
+  return endMarker;
 }
 
 function _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen) {
@@ -933,18 +992,31 @@ export function spread(el, props) {
     }
 
     if (typeof value === 'function' && !key.startsWith('on')) {
-      // Reactive prop — create micro-effect
+      // Reactive prop — create micro-effect. The disposer must be registered
+      // on el._propEffects so disposeTree() (dom.js) tears it down when the
+      // element unmounts; otherwise the effect keeps firing on signal writes
+      // for a detached element. Mirror the setProp() pattern.
+      if (!el._propEffects) el._propEffects = {};
+      // If a previous spread/setProp already registered an effect for this
+      // key, dispose it first to avoid double-tracking.
+      if (el._propEffects[key]) {
+        try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+      }
       if (key === 'class' || key === 'className') {
-        effect(() => { el.className = value() || ''; });
+        el._propEffects[key] = effect(() => {
+          const cls = value() || '';
+          if (_hasSVGElement && el instanceof SVGElement) el.setAttribute('class', cls);
+          else el.className = cls;
+        });
       } else if (key === 'style' && typeof value() === 'object') {
-        effect(() => {
+        el._propEffects[key] = effect(() => {
           const styles = value();
           for (const prop in styles) {
             el.style[prop] = styles[prop] ?? '';
           }
         });
       } else {
-        effect(() => { setProp(el, key, value()); });
+        el._propEffects[key] = effect(() => { setProp(el, key, value()); });
       }
     } else {
       // Static prop
@@ -953,6 +1025,15 @@ export function spread(el, props) {
   }
 }
 
+// NOTE: this is the fine-grained-compiler path's setProp. A second
+// implementation lives in dom.js (h()/diff path). See the longer note above
+// the dom.js version. Key differences vs. dom.js setProp:
+//   - assumes events are handled by the compiler (delegation or direct
+//     addEventListener) — no el._events bookkeeping here.
+//   - sanitizes URL attributes (href/src) against javascript: protocol.
+//   - enforces innerHTML must be { __html: ... } — plain strings are warned.
+// Both share the el._propEffects[key] disposer convention so disposeTree()
+// can tear down reactive prop effects on unmount.
 export function setProp(el, key, value) {
   // Ref handling — assign element to ref object/callback (defense in depth)
   if (key === 'ref') {
@@ -964,6 +1045,19 @@ export function setProp(el, key, value) {
   // Key prop — no-op, WhatFW has no virtual DOM (defense in depth, issue #6)
   if (key === 'key') return;
 
+  // Reactive accessor: function values on non-event props are treated as
+  // reactive getters. Wrap in an effect so the prop auto-updates. Track the
+  // disposer on el._propEffects so disposeTree() tears it down on unmount —
+  // mirrors the pattern in dom.js setProp / spread().
+  if (typeof value === 'function' && !key.startsWith('on')) {
+    if (!el._propEffects) el._propEffects = {};
+    if (el._propEffects[key]) {
+      try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+    }
+    el._propEffects[key] = effect(() => setProp(el, key, value()));
+    return;
+  }
+
   // Sanitize URL attributes — reject dangerous protocols
   if (URL_ATTRS.has(key) || URL_ATTRS.has(key.toLowerCase())) {
     if (!isSafeUrl(value)) {
@@ -974,21 +1068,25 @@ export function setProp(el, key, value) {
     }
   }
 
+  const isSvg = _hasSVGElement && el instanceof SVGElement;
+
   if (key === 'class' || key === 'className') {
-    el.className = value || '';
+    if (isSvg) {
+      el.setAttribute('class', value || '');
+    } else {
+      el.className = value || '';
+    }
   } else if (key === 'dangerouslySetInnerHTML') {
     el.innerHTML = value?.__html ?? '';
   } else if (key === 'innerHTML') {
     if (value && typeof value === 'object' && '__html' in value) {
       el.innerHTML = value.__html ?? '';
     } else {
-      // Plain string innerHTML is rejected for security — use { __html: string } form
       if (typeof console !== 'undefined' && value != null && value !== '') {
         console.warn(
           '[what] Plain string innerHTML is not allowed. Use { __html: "..." } or dangerouslySetInnerHTML={{ __html: "..." }} instead.'
         );
       }
-      // Ignored — do not set innerHTML from plain string
     }
   } else if (key === 'style') {
     if (typeof value === 'string') {
@@ -1003,6 +1101,10 @@ export function setProp(el, key, value) {
   } else if (typeof value === 'boolean') {
     if (value) el.setAttribute(key, '');
     else el.removeAttribute(key);
+  } else if (isSvg) {
+    el.setAttribute(key, value);
+  } else if (key === 'value' && el.tagName === 'SELECT') {
+    _setSelectValue(el, value);
   } else if (key in el) {
     el[key] = value;
   } else {
