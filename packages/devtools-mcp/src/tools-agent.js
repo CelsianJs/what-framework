@@ -1133,4 +1133,152 @@ export function registerAgentTools(server, bridge) {
       });
     }
   );
+
+  // -----------------------------------------------------------------------
+  // Tool 6 — what_record_window
+  //
+  // Opens a sampling window (default 1s, max 30s), captures which effects
+  // re-ran during that window, and returns a ranked list — most-fired first.
+  //
+  // Differs from `what_perf` (cumulative runCount since boot) and from
+  // `what_watch` (raw event log). This one is the one-call "which effects
+  // re-ran during this action?" answer, which is what you want when
+  // profiling a single user interaction (drag-drop, button click, route
+  // change). Pair with `what_set_signal` or a user-driven action to scope
+  // the recording.
+  // -----------------------------------------------------------------------
+
+  server.tool(
+    'what_record_window',
+    'Sample which effects re-ran during a time window. Captures runCount before and after a configurable duration, then returns a ranked delta. Use this to identify which effects fire during a specific action (e.g., a drag, a click, or a route change). Default 1000ms.',
+    {
+      duration: z.number().optional().default(1000).describe('Sampling window in ms (default: 1000, max: 30000, min: 50)'),
+      topN: z.number().optional().default(20).describe('Maximum number of effects to return (default: 20)'),
+      includeZero: z.boolean().optional().default(false).describe('Include effects that did not re-run (default: false — only changed effects)'),
+    },
+    async ({ duration, topN, includeZero }) => {
+      if (!bridge.isConnected()) return noConnection('what_record_window');
+
+      const ms = Math.min(Math.max(duration ?? 1000, 50), 30000);
+      const limit = Math.min(Math.max(topN ?? 20, 1), 200);
+
+      // ---- Take baseline ----
+      let baseline;
+      try {
+        baseline = await (bridge.refreshSnapshot ? bridge.refreshSnapshot() : bridge.getSnapshot());
+      } catch {
+        baseline = bridge.getSnapshot();
+      }
+      if (!baseline) {
+        return errorResponse('No snapshot available for baseline.', [
+          'Refresh the browser page so the devtools client registers its state.',
+        ]);
+      }
+
+      const baselineRunCounts = new Map();
+      const baselineEffectMeta = new Map();
+      for (const e of baseline.effects || []) {
+        baselineRunCounts.set(e.id, e.runCount || 0);
+        baselineEffectMeta.set(e.id, {
+          id: e.id,
+          name: e.name || `effect_${e.id}`,
+          componentId: e.componentId,
+          depCount: (e.depSignalIds || e.deps || []).length,
+        });
+      }
+      const baselineEventCount = bridge.getEvents
+        ? bridge.getEvents(Date.now() - 1).length
+        : 0;
+      const startTs = Date.now();
+
+      // ---- Wait for the window ----
+      await new Promise((resolve) => setTimeout(resolve, ms));
+
+      // ---- Take post-window snapshot ----
+      let after;
+      try {
+        after = await (bridge.refreshSnapshot ? bridge.refreshSnapshot() : bridge.getSnapshot());
+      } catch {
+        after = bridge.getSnapshot();
+      }
+      if (!after) {
+        return errorResponse('No snapshot available after the recording window.', [
+          'The browser may have lost connection mid-recording.',
+        ]);
+      }
+
+      // ---- Compute delta ----
+      const ranked = [];
+      const newEffects = [];
+      const seen = new Set();
+      for (const e of after.effects || []) {
+        seen.add(e.id);
+        const before = baselineRunCounts.get(e.id);
+        const nowCount = e.runCount || 0;
+        if (before === undefined) {
+          // Effect was created during the window
+          newEffects.push({
+            id: e.id,
+            name: e.name || `effect_${e.id}`,
+            componentId: e.componentId,
+            runCount: nowCount,
+            depCount: (e.depSignalIds || e.deps || []).length,
+          });
+          continue;
+        }
+        const delta = nowCount - before;
+        if (delta > 0 || includeZero) {
+          ranked.push({
+            id: e.id,
+            name: e.name || baselineEffectMeta.get(e.id)?.name || `effect_${e.id}`,
+            componentId: e.componentId ?? baselineEffectMeta.get(e.id)?.componentId,
+            runs: delta,
+            totalRuns: nowCount,
+            depCount: (e.depSignalIds || e.deps || []).length,
+          });
+        }
+      }
+      const disposedDuring = [];
+      for (const [id, meta] of baselineEffectMeta) {
+        if (!seen.has(id)) disposedDuring.push(meta);
+      }
+
+      ranked.sort((a, b) => b.runs - a.runs);
+      const top = ranked.slice(0, limit);
+
+      const totalRuns = ranked.reduce((sum, e) => sum + e.runs, 0);
+      const distinctEffects = ranked.length;
+      const eventsDuring = bridge.getEvents
+        ? bridge.getEvents(startTs).length
+        : null;
+
+      const summary = totalRuns === 0
+        ? `No effects re-ran during the ${ms}ms window. App is idle (or no reactive state changed).`
+        : `${totalRuns} effect run${totalRuns !== 1 ? 's' : ''} across ${distinctEffects} distinct effect${distinctEffects !== 1 ? 's' : ''} in ${ms}ms.`;
+
+      const nextSteps = [];
+      if (top.length > 0 && top[0].runs >= 10) {
+        nextSteps.push(`Hot effect "${top[0].name}" ran ${top[0].runs} times — inspect with what_dependency_graph({effectId: ${top[0].id}, direction: "upstream"}).`);
+      }
+      if (newEffects.length > 5) {
+        nextSteps.push(`${newEffects.length} effects were created during the window — likely a re-mount cycle. Check what_diff_snapshot for component churn.`);
+      }
+      if (disposedDuring.length > 0 && newEffects.length > 0) {
+        nextSteps.push(`${disposedDuring.length} effects were disposed and ${newEffects.length} were created — component tree is being torn down and rebuilt.`);
+      }
+
+      return ok({
+        summary,
+        windowMs: ms,
+        totalRuns,
+        distinctEffects,
+        topEffects: top,
+        newEffectsCount: newEffects.length,
+        newEffects: newEffects.slice(0, limit),
+        disposedCount: disposedDuring.length,
+        eventsDuring,
+        nextSteps,
+      });
+    }
+  );
 }

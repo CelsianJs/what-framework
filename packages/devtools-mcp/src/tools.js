@@ -126,6 +126,7 @@ export function registerTools(server, bridge) {
           { name: 'what_signal_trace', desc: 'Why did a signal change? Causal chain.' },
           { name: 'what_dependency_graph', desc: 'Reactive dependency graph' },
           { name: 'what_watch', desc: 'Observe events over a time window' },
+          { name: 'what_record_window', desc: 'Rank effects that re-ran during a recording window — what fired for this action?' },
           { name: 'what_set_signal', desc: 'Change a signal value in the live app' },
           { name: 'what_lint', desc: 'Static analysis for code (no browser needed)' },
           { name: 'what_scaffold', desc: 'Generate boilerplate (no browser needed)' },
