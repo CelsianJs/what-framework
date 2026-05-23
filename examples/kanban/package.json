@@ -1,0 +1,23 @@
+{
+  "name": "what-kanban",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "what-framework": "file:../../packages/what",
+    "what-core": "file:../../packages/core",
+    "what-compiler": "file:../../packages/compiler",
+    "what-router": "file:../../packages/router",
+    "what-devtools": "file:../../packages/devtools",
+    "what-devtools-mcp": "file:../../packages/devtools-mcp"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "vite": "^6.0.0"
+  }
+}

@@ -47,6 +47,43 @@ const SIGNAL_CREATORS = new Set([
   'createResource', 'useSWR', 'useQuery', 'useInfiniteQuery',
 ]);
 
+// Normalize JSX text per React/Babel rules:
+//  - Split on newlines, treat tabs as spaces.
+//  - For interior lines: trim leading and trailing horizontal whitespace.
+//  - For the first line: only trim trailing whitespace.
+//  - For the last line: only trim leading whitespace.
+//  - Skip lines that are entirely whitespace (don't add a separator space).
+//  - Join the remaining non-empty lines with single spaces.
+//
+// This preserves leading/trailing single-line whitespace that sits next to
+// an expression like `{count} items` — without this, the space is eaten and
+// the rendered output reads `5items`.
+function normalizeJsxText(value) {
+  // Single-line text (no newlines): preserve the original (just tabs->spaces).
+  // This keeps the space in cases like `{a} {b}` where the JSXText is " ".
+  if (!/[\r\n]/.test(value)) {
+    return value.replace(/\t/g, ' ');
+  }
+  const lines = value.split(/\r\n|\n|\r/);
+  let lastNonEmpty = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/[^ \t]/.test(lines[i])) lastNonEmpty = i;
+  }
+  if (lastNonEmpty === -1) return '';
+  let out = '';
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].replace(/\t/g, ' ');
+    const isFirst = i === 0;
+    const isLast = i === lines.length - 1;
+    if (!isFirst) line = line.replace(/^ +/, '');
+    if (!isLast) line = line.replace(/ +$/, '');
+    if (!line) continue;
+    if (i !== lastNonEmpty) line += ' ';
+    out += line;
+  }
+  return out;
+}
+
 export default function whatBabelPlugin({ types: t }) {
   // =====================================================
   // Shared utilities
@@ -549,7 +586,7 @@ export default function whatBabelPlugin({ types: t }) {
   // Extract static HTML from JSX element for template()
   function extractStaticHTML(node) {
     if (t.isJSXText(node)) {
-      const text = node.value.replace(/\n\s+/g, ' ').trim();
+      const text = normalizeJsxText(node.value);
       return text ? escapeHTML(text) : '';
     }
 
@@ -601,7 +638,7 @@ export default function whatBabelPlugin({ types: t }) {
 
     for (const child of node.children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        const text = normalizeJsxText(child.value);
         if (text) html += escapeHTML(text);
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
@@ -737,7 +774,7 @@ export default function whatBabelPlugin({ types: t }) {
     const transformedChildren = [];
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        const text = normalizeJsxText(child.value);
         if (text) transformedChildren.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
@@ -981,7 +1018,7 @@ export default function whatBabelPlugin({ types: t }) {
 
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        const text = normalizeJsxText(child.value);
         if (text) childIndex++;
         continue;
       }
@@ -1352,7 +1389,7 @@ export default function whatBabelPlugin({ types: t }) {
     const transformedChildren = [];
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        const text = normalizeJsxText(child.value);
         if (text) transformedChildren.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
@@ -1477,7 +1514,7 @@ export default function whatBabelPlugin({ types: t }) {
       const transformedChildren = [];
       for (const child of children) {
         if (t.isJSXText(child)) {
-          const text = child.value.trim();
+          const text = normalizeJsxText(child.value);
           if (text) transformedChildren.push(t.stringLiteral(text));
         } else if (t.isJSXElement(child)) {
           transformedChildren.push(transformElementFineGrained({ node: child }, state));
@@ -1549,7 +1586,7 @@ export default function whatBabelPlugin({ types: t }) {
     const transformed = [];
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, ' ').trim();
+        const text = normalizeJsxText(child.value);
         if (text) transformed.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
