@@ -2,6 +2,34 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- New MCP tool `what_record_window`: opens a sampling window and ranks
+  effects by re-runs delta. Answers "which effects fired for this action?"
+  Complements `what_perf` (cumulative) and `what_watch` (raw events).
+- New example `examples/kanban`: multi-board kanban with HTML5 DnD,
+  `what-router`, and localStorage persistence. Includes 11 store unit
+  tests wired into the root test glob.
+
+### Fixed
+- `h()` stringified live DOM-node children to `"[object HTMLDivElement]"`,
+  breaking wrapper components (Link, custom containers) when JSX children
+  were pre-realized. `_flattenSingle`/`_flattenInto` now detect `nodeType`.
+- JSX text adjacent to expressions was trimmed by the compiler, rendering
+  `"5items"` instead of `"5 items"`. Added React-spec `normalizeJsxText()`
+  and replaced 8 trim sites in `packages/compiler/src/babel-plugin.js`.
+- `createStore` action return values were silently dropped. `const id =
+  store.addItem()` produced `undefined`. Actions now propagate the result
+  out of the `batch()` wrapper.
+
+### Tests
+- +5 `h-dom-children.test.js`
+- +4 `jsx-whitespace.test.js`
+- +3 `store-return-value.test.js`
+- +5 `record-window.test.js`
+- +11 `examples/kanban/test/store.test.js`
+
 ## [0.8.4] - 2026-05-11
 
 ### Fixed
