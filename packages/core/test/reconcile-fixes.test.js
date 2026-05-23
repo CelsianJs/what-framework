@@ -245,6 +245,121 @@ describe('mapArray keyed: adjacent-item removal does not corrupt DOM', () => {
     assert.equal(after2, original2, 'node identity preserved on reorder');
     assert.equal(createCount, 3, 'no new components created during reorder');
   });
+
+  // ------------------------------------------------------------------------
+  // REGRESSION: reconcileKeyed reuse-vs-dispose path
+  // When a key persists across an update, the item's reactive scope MUST stay
+  // alive — effects created inside the mapFn must continue to react to
+  // external signals after the reorder. Conversely, removed items' scopes
+  // MUST be disposed (no leaked effects).
+  //
+  // Bug class guarded: an earlier version of reconcileKeyed could prune the
+  // wrong entry from oldKeyMap, causing a reused item's scope to be disposed
+  // alongside the removed item that shared its key index. The fix (delete
+  // matched keys from oldKeyMap so removedIndices only contains genuinely
+  // removed items) is now baked in at render.js:858. This test makes the
+  // behavior durable.
+  // ------------------------------------------------------------------------
+  it('reused items keep their reactive scope alive after mixed insert/remove/reorder', async () => {
+    const container = getContainer();
+    const tick = signal(0);
+    let disposeCount = 0;
+    const effectRuns = new Map(); // key -> count
+
+    function Row(itemAccessor) {
+      // itemAccessor is a signal (keyed mode), call it to read.
+      const item = typeof itemAccessor === 'function' ? itemAccessor() : itemAccessor;
+      const el = document.createElement('div');
+      el.dataset.id = item.id;
+      effectRuns.set(item.id, 0);
+
+      // Effect that reads BOTH the item accessor AND an external signal.
+      // If the item is reused, this effect must continue to re-run when `tick`
+      // changes. If the item's scope is disposed, this effect will not re-run.
+      effect(() => {
+        const cur = typeof itemAccessor === 'function' ? itemAccessor() : itemAccessor;
+        tick(); // subscribe to external signal
+        el.textContent = `${cur.id}:${tick()}`;
+        effectRuns.set(cur.id, (effectRuns.get(cur.id) || 0) + 1);
+      });
+
+      // Track teardown.
+      el._dispose = () => { disposeCount++; };
+      return el;
+    }
+
+    const items = signal([
+      { id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'e' },
+    ]);
+
+    const inserter = mapArray(items, Row, { key: (i) => i.id });
+    inserter(container, null);
+    flushSync();
+    await flush();
+
+    assert.equal(container.querySelectorAll('[data-id]').length, 5);
+    const nodeB = container.querySelector('[data-id="b"]');
+    const nodeD = container.querySelector('[data-id="d"]');
+    const runsBeforeB = effectRuns.get('b');
+    const runsBeforeD = effectRuns.get('d');
+    assert.ok(runsBeforeB >= 1 && runsBeforeD >= 1, 'effects ran on initial mount');
+
+    // Mixed update: insert 'x' at head, remove 'a' and 'c', reorder the rest,
+    // append 'y' at tail. Keys b, d, e survive — they must keep their scopes.
+    items([
+      { id: 'x' },        // new
+      { id: 'd' },        // reused, moved
+      { id: 'b' },        // reused, moved
+      { id: 'e' },        // reused
+      { id: 'y' },        // new
+    ]);
+    flushSync();
+    await flush();
+
+    // Identity preservation: reused items use the same DOM node.
+    assert.equal(container.querySelector('[data-id="b"]'), nodeB,
+      'reused item b keeps its DOM node');
+    assert.equal(container.querySelector('[data-id="d"]'), nodeD,
+      'reused item d keeps its DOM node');
+
+    // Removed items' scopes were disposed: exactly 2 disposes (a, c).
+    assert.equal(disposeCount, 2,
+      `expected 2 disposers for removed items a,c; got ${disposeCount}`);
+
+    // Critical: reused items' scopes are STILL ALIVE. Mutating the external
+    // `tick` signal must trigger their effects to re-run.
+    const runsB1 = effectRuns.get('b');
+    const runsD1 = effectRuns.get('d');
+    tick(1);
+    flushSync();
+    await flush();
+
+    assert.ok(effectRuns.get('b') > runsB1,
+      `reused item b's effect must re-run on tick change; was ${runsB1}, now ${effectRuns.get('b')}`);
+    assert.ok(effectRuns.get('d') > runsD1,
+      `reused item d's effect must re-run on tick change; was ${runsD1}, now ${effectRuns.get('d')}`);
+    assert.equal(nodeB.textContent, 'b:1', 'reused b DOM reflects external signal change');
+    assert.equal(nodeD.textContent, 'd:1', 'reused d DOM reflects external signal change');
+
+    // Now remove the rest and confirm all remaining scopes are torn down.
+    const disposeBefore = disposeCount;
+    items([]);
+    flushSync();
+    await flush();
+    // 5 items remained (x, d, b, e, y); all 5 should dispose.
+    assert.equal(disposeCount - disposeBefore, 5,
+      `clearing should dispose all 5 remaining scopes; got ${disposeCount - disposeBefore}`);
+
+    // After full teardown, tick changes must not re-run any disposed effects.
+    const runsAfterClear = new Map(effectRuns);
+    tick(2);
+    flushSync();
+    await flush();
+    for (const [id, count] of runsAfterClear) {
+      assert.equal(effectRuns.get(id), count,
+        `effect for ${id} must not re-run after its scope was disposed`);
+    }
+  });
 });
 
 // --------------------------------------------------------------------------
