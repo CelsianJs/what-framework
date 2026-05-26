@@ -38,6 +38,7 @@ function resolveToken(explicitToken) {
 // `/@id/<resolved-id>` URL convention so `<script src>` can request them.
 const VIRTUAL_BOOTSTRAP_ID = 'virtual:what-devtools-mcp/bootstrap';
 const RESOLVED_BOOTSTRAP_ID = '\0' + VIRTUAL_BOOTSTRAP_ID;
+// Vite encodes `\0` as `__x00__` in `/@id/` URLs — stable since Vite 2 (2021).
 const BROWSER_BOOTSTRAP_URL = '/@id/__x00__' + VIRTUAL_BOOTSTRAP_ID;
 
 export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {

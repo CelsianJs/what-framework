@@ -622,17 +622,13 @@ export function registerTools(server, bridge) {
     'Set a signal value in the running app. Returns previous and new values.',
     {
       signalId: z.number().describe('The signal ID to update (from what_signals)'),
-      value: z.any().describe('The new value to set (JSON-compatible)'),
+      value: z.any().describe('The new value to set (JSON-compatible). Note: string values that look like numbers/booleans/JSON are auto-parsed (e.g. "42" becomes 42). Set rawString: true to keep the literal string.'),
+      rawString: z.boolean().optional().describe('When true, skip auto-coercion and write the value as-is (useful for string values like "42" that would otherwise be parsed as numbers)'),
     },
-    async ({ signalId, value }) => {
+    async ({ signalId, value, rawString }) => {
       if (!bridge.isConnected()) return noConnection('what_set_signal');
       try {
-        // Defensive parse: some MCP clients (and the JSON schema z.any() path)
-        // hand us a stringified JSON value. Detect strings that LOOK like JSON
-        // (objects, arrays, numbers, booleans, null) and parse them so the
-        // browser receives the native value, not a string of JSON.
-        // We deliberately do NOT parse plain quoted strings — those are real strings.
-        const parsedValue = coerceJsonValue(value);
+        const parsedValue = rawString ? value : coerceJsonValue(value);
         const result = await bridge.sendCommand('set-signal', { signalId, value: parsedValue });
         if (result.error) return error(result.error);
 
