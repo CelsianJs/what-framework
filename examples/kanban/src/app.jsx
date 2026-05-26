@@ -41,6 +41,7 @@ function Card({ card, columnId, boardId, index }) {
   const store = useKanban();
   const dragging = useSignal(false);
   const dragOverPos = useSignal(null); // 'before' | 'after' | null
+  let dragLeaveTimer = null;
 
   // Keep local edit buffer in sync if card was renamed elsewhere.
   if (title() !== card.title && !editing()) {
@@ -76,6 +77,7 @@ function Card({ card, columnId, boardId, index }) {
         try { e.dataTransfer.setData('text/plain', card.id); } catch {}
       }}
       onDragend={() => {
+        if (dragLeaveTimer !== null) { clearTimeout(dragLeaveTimer); dragLeaveTimer = null; }
         dragging.set(false);
         dragOverPos.set(null);
         endDrag();
@@ -84,15 +86,23 @@ function Card({ card, columnId, boardId, index }) {
         if (!drag.cardId || drag.cardId === card.id) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
+        // Cancel any pending dragleave clear — cursor moved within this card
+        if (dragLeaveTimer !== null) { clearTimeout(dragLeaveTimer); dragLeaveTimer = null; }
         const rect = e.currentTarget.getBoundingClientRect();
         const isAfter = (e.clientY - rect.top) > rect.height / 2;
         dragOverPos.set(isAfter ? 'after' : 'before');
       }}
-      onDragleave={() => dragOverPos.set(null)}
+      onDragleave={() => {
+        // Debounce: defer clearing so dragenter/dragover on the next card
+        // can cancel this timeout before it fires, preventing flicker.
+        if (dragLeaveTimer !== null) clearTimeout(dragLeaveTimer);
+        dragLeaveTimer = setTimeout(() => { dragOverPos.set(null); dragLeaveTimer = null; }, 0);
+      }}
       onDrop={e => {
         if (!drag.cardId || drag.cardId === card.id) return;
         e.preventDefault();
         e.stopPropagation();
+        if (dragLeaveTimer !== null) { clearTimeout(dragLeaveTimer); dragLeaveTimer = null; }
         const pos = dragOverPos();
         dragOverPos.set(null);
         const dstIndex = pos === 'after' ? index + 1 : index;

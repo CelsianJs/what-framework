@@ -42,6 +42,33 @@ mount(h(Counter, {}), '#app');
 - `computed()` not `useMemo()` — lazy, cached
 - Import from `'what-framework'`
 
+### Lists
+
+Use `.map()` with a `key` prop for list rendering. The compiler auto-lowers it to efficient keyed reconciliation (`_$mapArray`):
+
+```js
+// Preferred: .map() with key prop
+function TodoList({ todos }) {
+  return h('ul', {},
+    () => todos().map(todo => <li key={todo.id}>{todo.title}</li>)
+  );
+}
+```
+
+`<For>` is an alternative that also works but is only needed for advanced use cases where you want signal-wrapped item accessors (the item value is passed as a signal getter so mutations update in place without recreating DOM):
+
+```js
+// Advanced: <For> gives signal-wrapped items (keyed, non-raw mode)
+<For each={todos} key={t => t.id}>
+  {(todoAccessor) => <li>{() => todoAccessor().title}</li>}
+</For>
+```
+
+| Pattern | Key required? | Item passed as | Best for |
+|---|---|---|---|
+| `.map()` + `key` prop | Yes (compile warning without) | Raw value | Most lists (simple, idiomatic) |
+| `<For each={...} key={...}>` | Optional | Signal accessor (keyed) or raw (unkeyed) | Mutable items that update in place |
+
 ### Signal Scope
 - **`signal()`** — use anywhere: module scope, inside components, in stores. This is the standard API.
 - **Module-scope signals** — shared across components (like a global store). Define outside any function.

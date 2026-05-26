@@ -1432,6 +1432,23 @@ export default function whatBabelPlugin({ types: t }) {
 
     // <For each={data} key={item => item.id}>{(item) => <Row />}</For>
     // → mapArray(data, (item) => ..., { key: item => item.id })
+    //
+    // NOTE: <For> is supported but .map() with a key prop is the preferred
+    // pattern for list rendering. The compiler auto-lowers .map() to
+    // _$mapArray with raw mode, which is simpler and matches JS idioms.
+    // <For> is useful when you need signal-wrapped item accessors (keyed
+    // mode without raw), so that item updates don't recreate DOM nodes.
+    if (process.env.NODE_ENV !== 'production') {
+      const loc = node.loc;
+      const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+      const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+      console.info(
+        `[what-compiler] <For> at ${fileName}${lineInfo}: consider using .map() with a key prop instead. ` +
+        `The compiler auto-lowers .map() to efficient keyed reconciliation. ` +
+        `<For> is only needed for signal-wrapped item accessors (advanced).`
+      );
+    }
+
     let eachExpr = null;
     let keyExpr = null;
     for (const attr of attributes) {
