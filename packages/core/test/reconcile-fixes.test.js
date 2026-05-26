@@ -543,3 +543,253 @@ describe('createComponent: component creation is untracked from parent effects',
     );
   });
 });
+
+// --------------------------------------------------------------------------
+// Keyed reconciler fast-path tests: swap and single-move optimizations
+// --------------------------------------------------------------------------
+
+describe('reconcileKeyed: swap and single-move fast paths', () => {
+
+  // Helper: create a keyed list and return controls
+  function setupKeyedList(container, initialItems, multiNode = false) {
+    let createCount = 0;
+    const disposeLog = [];
+    const nodeMap = new Map(); // key -> DOM node (first content node)
+
+    function Row(item) {
+      createCount++;
+      if (multiNode) {
+        const frag = document.createDocumentFragment();
+        const a = document.createElement('span');
+        a.className = 'item-a';
+        a.textContent = item.id;
+        a.dataset.id = item.id;
+        const b = document.createElement('span');
+        b.className = 'item-b';
+        b.textContent = item.id + '-b';
+        const c = document.createElement('em');
+        c.className = 'item-c';
+        c.textContent = item.id + '-c';
+        frag.appendChild(a);
+        frag.appendChild(b);
+        frag.appendChild(c);
+        nodeMap.set(item.id, a);
+        a._dispose = () => disposeLog.push(item.id);
+        return frag;
+      } else {
+        const el = document.createElement('div');
+        el.textContent = item.id;
+        el.dataset.id = item.id;
+        nodeMap.set(item.id, el);
+        el._dispose = () => disposeLog.push(item.id);
+        return el;
+      }
+    }
+
+    const items = signal(initialItems);
+    const inserter = mapArray(items, Row, { key: (i) => i.id, raw: true });
+    inserter(container, null);
+
+    return { items, createCount: () => createCount, disposeLog, nodeMap };
+  }
+
+  function ids(container, selector = '[data-id]') {
+    return [...container.querySelectorAll(selector)].map(n => n.dataset.id);
+  }
+
+  it('single swap in middle: [a,b,c,d,e] -> [a,d,c,b,e]', async () => {
+    const container = getContainer();
+    const { items, createCount, disposeLog, nodeMap } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}]);
+    flushSync(); await flush();
+
+    const nodeB = nodeMap.get('b');
+    const nodeD = nodeMap.get('d');
+    const cc = createCount();
+
+    items([{id:'a'},{id:'d'},{id:'c'},{id:'b'},{id:'e'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['a','d','c','b','e'], 'DOM order correct after swap');
+    assert.equal(container.querySelector('[data-id="b"]'), nodeB, 'node b identity preserved');
+    assert.equal(container.querySelector('[data-id="d"]'), nodeD, 'node d identity preserved');
+    assert.equal(createCount(), cc, 'no new nodes created');
+    assert.deepEqual(disposeLog, [], 'no disposals on swap');
+  });
+
+  it('swap at edges: [a,b,c] -> [c,b,a]', async () => {
+    const container = getContainer();
+    const { items, createCount, disposeLog, nodeMap } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'}]);
+    flushSync(); await flush();
+
+    const nodeA = nodeMap.get('a');
+    const nodeC = nodeMap.get('c');
+    const cc = createCount();
+
+    items([{id:'c'},{id:'b'},{id:'a'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['c','b','a'], 'DOM order correct after edge swap');
+    assert.equal(container.querySelector('[data-id="a"]'), nodeA, 'node a preserved');
+    assert.equal(container.querySelector('[data-id="c"]'), nodeC, 'node c preserved');
+    assert.equal(createCount(), cc, 'no new nodes created');
+    assert.deepEqual(disposeLog, [], 'no disposals');
+  });
+
+  it('single item move (drag-drop): [a,b,c,d,e] -> [a,c,d,b,e]', async () => {
+    const container = getContainer();
+    const { items, createCount, disposeLog, nodeMap } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}]);
+    flushSync(); await flush();
+
+    const nodeB = nodeMap.get('b');
+    const cc = createCount();
+
+    items([{id:'a'},{id:'c'},{id:'d'},{id:'b'},{id:'e'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['a','c','d','b','e'], 'DOM order after move');
+    assert.equal(container.querySelector('[data-id="b"]'), nodeB, 'moved node preserved');
+    assert.equal(createCount(), cc, 'no new nodes');
+    assert.deepEqual(disposeLog, [], 'no disposals');
+  });
+
+  it('move to head: [a,b,c,d] -> [d,a,b,c]', async () => {
+    const container = getContainer();
+    const { items, createCount, disposeLog } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'}]);
+    flushSync(); await flush();
+    const cc = createCount();
+
+    items([{id:'d'},{id:'a'},{id:'b'},{id:'c'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['d','a','b','c'], 'DOM order after move-to-head');
+    assert.equal(createCount(), cc, 'no new nodes');
+    assert.deepEqual(disposeLog, [], 'no disposals');
+  });
+
+  it('move to tail: [a,b,c,d] -> [b,c,d,a]', async () => {
+    const container = getContainer();
+    const { items, createCount, disposeLog } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'}]);
+    flushSync(); await flush();
+    const cc = createCount();
+
+    items([{id:'b'},{id:'c'},{id:'d'},{id:'a'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['b','c','d','a'], 'DOM order after move-to-tail');
+    assert.equal(createCount(), cc, 'no new nodes');
+    assert.deepEqual(disposeLog, [], 'no disposals');
+  });
+
+  it('multi-node items swap: fragment nodes stay together', async () => {
+    const container = getContainer();
+    const { items, createCount, disposeLog, nodeMap } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}], true);
+    flushSync(); await flush();
+
+    const nodeB = nodeMap.get('b');
+    const nodeD = nodeMap.get('d');
+    const cc = createCount();
+
+    items([{id:'a'},{id:'d'},{id:'c'},{id:'b'},{id:'e'}]);
+    flushSync(); await flush();
+
+    // Check order of the first fragment node per item
+    assert.deepEqual(ids(container, '.item-a'), ['a','d','c','b','e'], 'multi-node DOM order');
+    // Check fragment nodes stay grouped: for item 'b', the three nodes should be consecutive
+    const allNodes = [...container.childNodes].filter(n => n.nodeType === 1);
+    const bIdx = allNodes.findIndex(n => n.dataset?.id === 'b');
+    assert.ok(bIdx >= 0, 'found b');
+    assert.equal(allNodes[bIdx + 1]?.textContent, 'b-b', 'b fragment node 2 follows');
+    assert.equal(allNodes[bIdx + 2]?.textContent, 'b-c', 'b fragment node 3 follows');
+    assert.equal(createCount(), cc, 'no new nodes');
+    assert.deepEqual(disposeLog, [], 'no disposals');
+  });
+
+  it('keyed state update on swap: same key, different object reference updates itemSig', async () => {
+    const container = getContainer();
+    let readValues = [];
+
+    function Row(itemAccessor) {
+      const el = document.createElement('div');
+      effect(() => {
+        const item = typeof itemAccessor === 'function' ? itemAccessor() : itemAccessor;
+        el.textContent = item.label;
+        el.dataset.id = item.id;
+        readValues.push(item.label);
+      });
+      return el;
+    }
+
+    const items = signal([
+      {id:'a', label:'A1'}, {id:'b', label:'B1'}, {id:'c', label:'C1'}
+    ]);
+
+    const inserter = mapArray(items, Row, { key: (i) => i.id });
+    inserter(container, null);
+    flushSync(); await flush();
+
+    readValues = [];
+
+    // Swap a and c with different label references
+    items([
+      {id:'c', label:'C2'}, {id:'b', label:'B1'}, {id:'a', label:'A2'}
+    ]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['c','b','a'], 'order correct');
+    // The labels should reflect the updated references
+    const labels = [...container.querySelectorAll('[data-id]')].map(n => n.textContent);
+    assert.deepEqual(labels, ['C2', 'B1', 'A2'], 'itemSig updated with new references');
+  });
+
+  it('swap does not dispose: dispose count = 0 after pure swap', async () => {
+    const container = getContainer();
+    const { items, disposeLog } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}]);
+    flushSync(); await flush();
+
+    items([{id:'a'},{id:'d'},{id:'c'},{id:'b'},{id:'e'}]);
+    flushSync(); await flush();
+    assert.deepEqual(disposeLog, [], 'zero disposals after swap');
+  });
+
+  it('falls through correctly: 5+ mismatches via general path', async () => {
+    const container = getContainer();
+    const { items, createCount } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'},{id:'f'},{id:'g'}]);
+    flushSync(); await flush();
+    const cc = createCount();
+
+    // Reverse everything - definitely more than 4 mismatches
+    items([{id:'g'},{id:'f'},{id:'e'},{id:'d'},{id:'c'},{id:'b'},{id:'a'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['g','f','e','d','c','b','a'], 'full reverse correct');
+    assert.equal(createCount(), cc, 'no new nodes on pure reorder');
+  });
+
+  it('single move in large list (perf sanity): 100 items, move item 0 to pos 50', async () => {
+    const container = getContainer();
+    const initial = Array.from({length: 100}, (_, i) => ({id: String(i)}));
+    const { items } = setupKeyedList(container, initial);
+    flushSync(); await flush();
+
+    // Move item 0 to position 50
+    const moved = initial.slice();
+    const [item0] = moved.splice(0, 1);
+    moved.splice(50, 0, item0);
+
+    items(moved);
+    flushSync(); await flush();
+
+    const result = ids(container);
+    const actualPos = result.indexOf('0');
+    assert.equal(actualPos, 50, `item 0 should be at position 50, got ${actualPos}`);
+    assert.equal(result.length, 100, 'all 100 items present');
+  });
+});

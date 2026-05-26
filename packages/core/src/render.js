@@ -842,6 +842,219 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     return;
   }
 
+  // --- Fast paths for common small-move cases ---
+  // Detect swap (2 mismatches) or single-move (contiguous shift) cheaply
+  // before falling through to the expensive LIS + backward-walk general case.
+
+  if (midNewLen === midOldLen && midNewLen >= 2 && midNewLen <= Math.max(midOldLen, 200)) {
+    // Count positions where keys differ
+    let mismatchCount = 0;
+    let mm1 = -1, mm2 = -1; // first two mismatch indices (relative to start)
+    for (let i = 0; i < midNewLen && mismatchCount <= 4; i++) {
+      const oldKey = keyFn(oldItems[start + i]);
+      const newKey = keyFn(newItems[start + i]);
+      if (oldKey !== newKey) {
+        if (mismatchCount === 0) mm1 = i;
+        else if (mismatchCount === 1) mm2 = i;
+        mismatchCount++;
+      }
+    }
+
+    // --- Fast path A: Pure swap (exactly 2 key mismatches, keys exchanged) ---
+    if (mismatchCount === 2) {
+      const i1 = start + mm1, i2 = start + mm2;
+      const oldKey1 = keyFn(oldItems[i1]), oldKey2 = keyFn(oldItems[i2]);
+      const newKey1 = keyFn(newItems[i1]), newKey2 = keyFn(newItems[i2]);
+
+      if (oldKey1 === newKey2 && oldKey2 === newKey1) {
+        // Confirmed swap. Move item at i2's DOM position before item at i1's position,
+        // then move i1's nodes to where i2 was.
+        for (let i = 0; i < start; i++) {
+          newMapped[i] = mappedNodes[i];
+          newDispose[i] = disposeFns[i];
+        }
+        for (let i = start; i <= newEnd; i++) {
+          newMapped[i] = mappedNodes[i];
+          newDispose[i] = disposeFns[i];
+        }
+        for (let i = newEnd + 1; i < newLen; i++) {
+          const oldI = oldEnd + 1 + (i - newEnd - 1);
+          newMapped[i] = mappedNodes[oldI];
+          newDispose[i] = disposeFns[oldI];
+        }
+
+        // Swap mapped entries
+        const tmpM = newMapped[i1]; newMapped[i1] = newMapped[i2]; newMapped[i2] = tmpM;
+        const tmpD = newDispose[i1]; newDispose[i1] = newDispose[i2]; newDispose[i2] = tmpD;
+
+        // Update keyed state signals if item references differ
+        if (keyedState) {
+          if (newItems[i1] !== oldItems[i1]) {
+            const k = keyFn(newItems[i1]);
+            const entry = keyedState.get(k);
+            if (entry) entry.itemSig.set(newItems[i1]);
+          }
+          if (newItems[i2] !== oldItems[i2]) {
+            const k = keyFn(newItems[i2]);
+            const entry = keyedState.get(k);
+            if (entry) entry.itemSig.set(newItems[i2]);
+          }
+        }
+
+        // DOM moves: move i2's nodes before i1's marker, then move i1's old nodes to i2's spot.
+        // We need a reference point for where i2 was.
+        const marker1 = newMapped[i1]; // was mappedNodes[i2] — the marker for the item now at i1
+        const marker2 = newMapped[i2]; // was mappedNodes[i1] — the marker for the item now at i2
+        const end1 = _findNextMarkerAfter(parent, mappedNodes[i1], mappedNodes, i1, endMarker);
+        const end2 = _findNextMarkerAfter(parent, mappedNodes[i2], mappedNodes, i2, endMarker);
+
+        // Insert a temporary placeholder at i2's original position
+        const placeholder = document.createComment('tmp');
+        parent.insertBefore(placeholder, mappedNodes[i2]);
+
+        // Move i2's nodes to before i1's current position
+        _moveItem(parent, mappedNodes[i2], end2, mappedNodes[i1]);
+        // Move i1's nodes to where i2 was (before placeholder)
+        _moveItem(parent, mappedNodes[i1], end1, placeholder);
+        // Remove placeholder
+        parent.removeChild(placeholder);
+
+        _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
+        return;
+      }
+    }
+
+    // --- Fast path B: Single item relocated ---
+    // One item removed from position `from` and inserted at position `to`,
+    // everything between shifted by one.
+    if (mismatchCount >= 2 && mismatchCount <= midNewLen) {
+      // Try to detect single-move pattern:
+      // If we remove element at `from` in old and insert at `to` in new,
+      // the rest should match.
+      // Forward move: old[from] = new[to], old[from+1..to] = new[from..to-1]
+      // Backward move: old[from] = new[to], old[to..from-1] = new[to+1..from]
+
+      const fromRel = mm1; // first mismatch - the moved item was here in old OR went here in new
+      let movedKey = null;
+      let fromAbs = -1, toAbs = -1;
+      let isMove = false;
+
+      // Check forward move: item at old[start+fromRel] moved later
+      const candidateKey = keyFn(oldItems[start + fromRel]);
+      // Find where this key ended up in new
+      let destRel = -1;
+      for (let i = fromRel; i < midNewLen; i++) {
+        if (keyFn(newItems[start + i]) === candidateKey) { destRel = i; break; }
+      }
+      if (destRel > fromRel) {
+        // Verify: old[fromRel+1..destRel] should match new[fromRel..destRel-1]
+        let match = true;
+        for (let i = fromRel; i < destRel; i++) {
+          if (keyFn(oldItems[start + i + 1]) !== keyFn(newItems[start + i])) { match = false; break; }
+        }
+        if (match) {
+          // And everything after destRel should be the same
+          let afterMatch = true;
+          for (let i = destRel + 1; i < midNewLen; i++) {
+            if (keyFn(oldItems[start + i]) !== keyFn(newItems[start + i])) { afterMatch = false; break; }
+          }
+          if (afterMatch) {
+            isMove = true;
+            fromAbs = start + fromRel;
+            toAbs = start + destRel;
+            movedKey = candidateKey;
+          }
+        }
+      }
+
+      if (!isMove) {
+        // Check backward move: item from later in old moved to start+fromRel in new
+        const candidateKey2 = keyFn(newItems[start + fromRel]);
+        let srcRel = -1;
+        for (let i = fromRel; i < midOldLen; i++) {
+          if (keyFn(oldItems[start + i]) === candidateKey2) { srcRel = i; break; }
+        }
+        if (srcRel > fromRel) {
+          // Verify: old[fromRel..srcRel-1] should match new[fromRel+1..srcRel]
+          let match = true;
+          for (let i = fromRel; i < srcRel; i++) {
+            if (keyFn(oldItems[start + i]) !== keyFn(newItems[start + i + 1])) { match = false; break; }
+          }
+          if (match) {
+            let afterMatch = true;
+            for (let i = srcRel + 1; i < midNewLen; i++) {
+              if (keyFn(oldItems[start + i]) !== keyFn(newItems[start + i])) { afterMatch = false; break; }
+            }
+            if (afterMatch) {
+              isMove = true;
+              fromAbs = start + srcRel;
+              toAbs = start + fromRel;
+              movedKey = candidateKey2;
+            }
+          }
+        }
+      }
+
+      if (isMove) {
+        // Copy all mapped/dispose to new arrays
+        for (let i = start; i <= oldEnd; i++) {
+          newMapped[i] = mappedNodes[i];
+          newDispose[i] = disposeFns[i];
+        }
+
+        // Shift entries in newMapped/newDispose to reflect the move
+        const movedMarker = newMapped[fromAbs];
+        const movedDispose = newDispose[fromAbs];
+
+        if (fromAbs < toAbs) {
+          // Forward move: shift [from+1..to] left by 1
+          for (let i = fromAbs; i < toAbs; i++) {
+            newMapped[i] = newMapped[i + 1];
+            newDispose[i] = newDispose[i + 1];
+          }
+        } else {
+          // Backward move: shift [to..from-1] right by 1
+          for (let i = fromAbs; i > toAbs; i--) {
+            newMapped[i] = newMapped[i - 1];
+            newDispose[i] = newDispose[i - 1];
+          }
+        }
+        newMapped[toAbs] = movedMarker;
+        newDispose[toAbs] = movedDispose;
+
+        // Update keyed state signals for items whose references changed
+        if (keyedState) {
+          for (let i = start; i <= newEnd; i++) {
+            const key = keyFn(newItems[i]);
+            if (newItems[i] !== oldItems[i]) {
+              // Only look up oldItems[i] by key if index is in old range
+              const entry = keyedState.get(key);
+              if (entry) entry.itemSig.set(newItems[i]);
+            }
+          }
+        }
+
+        // Single DOM move: move the item's nodes to its new position
+        const movedEnd = _findNextMarkerAfter(parent, movedMarker, mappedNodes, fromAbs, endMarker);
+        // Find the reference node: the marker of the item that should come AFTER the moved item
+        let ref;
+        if (toAbs + 1 < newLen) {
+          ref = newMapped[toAbs + 1];
+        } else {
+          ref = endMarker;
+        }
+        // For suffix items, use the actual mapped marker
+        if (toAbs >= newEnd + 1 || (ref && ref.parentNode !== parent)) {
+          ref = endMarker;
+        }
+        _moveItem(parent, movedMarker, movedEnd, ref);
+
+        _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
+        return;
+      }
+    }
+  }
+
   // --- General case: reconcile middle section ---
   const oldKeyMap = new Map();
   for (let i = start; i <= oldEnd; i++) {
@@ -932,7 +1145,10 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   // We rebuild the output array to reflect final positions.
   _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
 
-  let ref = endMarker;
+  // Start ref at the first suffix item's marker (not endMarker) so moved items
+  // land before the suffix, not after it.
+  let ref = newEnd + 1 < newLen && mappedNodes[newEnd + 1]
+    ? mappedNodes[newEnd + 1] : endMarker;
   for (let i = newEnd; i >= start; i--) {
     const mi = i - start;
     const marker = mappedNodes[i];
