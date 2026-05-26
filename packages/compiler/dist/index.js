@@ -61,9 +61,55 @@ var SIGNAL_CREATORS = /* @__PURE__ */ new Set([
   "useQuery",
   "useInfiniteQuery"
 ]);
+function normalizeJsxText(value) {
+  if (!/[\r\n]/.test(value)) {
+    return value.replace(/\t/g, " ");
+  }
+  const lines = value.split(/\r\n|\n|\r/);
+  let lastNonEmpty = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/[^ \t]/.test(lines[i])) lastNonEmpty = i;
+  }
+  if (lastNonEmpty === -1) return "";
+  let out = "";
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].replace(/\t/g, " ");
+    const isFirst = i === 0;
+    const isLast = i === lines.length - 1;
+    if (!isFirst) line = line.replace(/^ +/, "");
+    if (!isLast) line = line.replace(/ +$/, "");
+    if (!line) continue;
+    if (i !== lastNonEmpty) line += " ";
+    out += line;
+  }
+  return out;
+}
 function whatBabelPlugin({ types: t }) {
+  const _unknownModifierWarned = /* @__PURE__ */ new Set();
+  function hasEventModifiers(name, state) {
+    if (!name.includes("__")) return false;
+    if (!name.startsWith("on")) return false;
+    const parts = name.split("__");
+    const tail = parts.slice(1);
+    if (tail.length === 0) return false;
+    if (true) {
+      const unknown = tail.filter((m) => !EVENT_MODIFIERS.has(m));
+      const filename = state && (state.filename || state.file && state.file.opts && state.file.opts.filename) || "<unknown>";
+      for (const m of unknown) {
+        const key = `${filename}::${m}`;
+        if (!_unknownModifierWarned.has(key)) {
+          _unknownModifierWarned.add(key);
+          console.warn(
+            `[what-compiler] Unknown event modifier "__${m}" in attribute "${name}" (${filename}). Known modifiers: ${[...EVENT_MODIFIERS].join(", ")}. Unknown segments are ignored.`
+          );
+        }
+      }
+    }
+    return true;
+  }
   function parseEventModifiers(name) {
-    const parts = name.split("|");
+    const delimiter = name.includes("|") ? "|" : "__";
+    const parts = name.split(delimiter);
     const eventName = parts[0];
     const modifiers = parts.slice(1).filter((m) => EVENT_MODIFIERS.has(m));
     return { eventName, modifiers };
@@ -276,7 +322,7 @@ function whatBabelPlugin({ types: t }) {
       return isPotentiallyReactive(expr.callee, signalNames, importedIds) || expr.arguments.some((arg) => isPotentiallyReactive(arg, signalNames, importedIds));
     }
     if (t.isIdentifier(expr)) {
-      return isSignalIdentifier(expr.name, signalNames);
+      return isSignalIdentifier(expr.name, signalNames) || importedIds && importedIds.has(expr.name);
     }
     if (t.isMemberExpression(expr)) {
       return isPotentiallyReactive(expr.object, signalNames, importedIds);
@@ -306,6 +352,66 @@ function whatBabelPlugin({ types: t }) {
     }
     return false;
   }
+  function tryLowerMapToMapArray(expr, state) {
+    let mapCall = expr;
+    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0 && t.isCallExpression(expr.body)) {
+      mapCall = expr.body;
+    }
+    if (!t.isCallExpression(mapCall)) return null;
+    if (!t.isMemberExpression(mapCall.callee)) return null;
+    if (!t.isIdentifier(mapCall.callee.property, { name: "map" })) return null;
+    if (mapCall.arguments.length < 1) return null;
+    const mapFn = mapCall.arguments[0];
+    if (!t.isArrowFunctionExpression(mapFn) && !t.isFunctionExpression(mapFn)) return null;
+    let returnExpr = null;
+    if (t.isArrowFunctionExpression(mapFn)) {
+      if (t.isExpression(mapFn.body)) {
+        returnExpr = mapFn.body;
+      } else if (t.isBlockStatement(mapFn.body)) {
+        const ret = mapFn.body.body.find((s) => t.isReturnStatement(s));
+        if (ret) returnExpr = ret.argument;
+      }
+    } else if (t.isFunctionExpression(mapFn)) {
+      const ret = mapFn.body.body.find((s) => t.isReturnStatement(s));
+      if (ret) returnExpr = ret.argument;
+    }
+    if (!returnExpr) return null;
+    if (!t.isJSXElement(returnExpr)) return null;
+    const attrs = returnExpr.openingElement.attributes;
+    let keyAttr = null;
+    for (const attr of attrs) {
+      if (t.isJSXAttribute(attr) && getAttrName(attr) === "key") {
+        keyAttr = attr;
+        break;
+      }
+    }
+    if (!keyAttr) {
+      if (true) {
+        const loc = returnExpr.loc;
+        const fileName = state.filename || state.file?.opts?.filename || "<unknown>";
+        const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : "";
+        console.warn(
+          `[what-compiler] .map() returning JSX without a \`key\` prop at ${fileName}${lineInfo}. Without a key, the list cannot use keyed reconciliation \u2014 items are re-created on every update. Add key={...} to enable efficient updates.`
+        );
+      }
+      return null;
+    }
+    const keyValue = getAttributeValue(keyAttr.value);
+    if (!keyValue) return null;
+    returnExpr.openingElement.attributes = attrs.filter((a) => a !== keyAttr);
+    const sourceObj = mapCall.callee.object;
+    const source = t.arrowFunctionExpression([], sourceObj);
+    const itemParam = mapFn.params[0] ? t.cloneNode(mapFn.params[0], true) : t.identifier("_item");
+    const keyFn = t.arrowFunctionExpression([itemParam], t.cloneNode(keyValue, true));
+    return t.callExpression(t.identifier("_$mapArray"), [
+      source,
+      mapFn,
+      t.objectExpression([
+        t.objectProperty(t.identifier("key"), keyFn),
+        t.objectProperty(t.identifier("raw"), t.booleanLiteral(true))
+      ])
+    ]);
+  }
   function isStaticChild(child) {
     if (t.isJSXText(child)) return true;
     if (t.isJSXExpressionContainer(child)) return false;
@@ -329,7 +435,7 @@ function whatBabelPlugin({ types: t }) {
   }
   function extractStaticHTML(node) {
     if (t.isJSXText(node)) {
-      const text = node.value.replace(/\n\s+/g, " ").trim();
+      const text = normalizeJsxText(node.value);
       return text ? escapeHTML(text) : "";
     }
     if (t.isJSXExpressionContainer(node)) {
@@ -369,7 +475,7 @@ function whatBabelPlugin({ types: t }) {
     html += ">";
     for (const child of node.children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, " ").trim();
+        const text = normalizeJsxText(child.value);
         if (text) html += escapeHTML(text);
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
@@ -396,14 +502,14 @@ function whatBabelPlugin({ types: t }) {
     const { node } = path3;
     const openingElement = node.openingElement;
     const tagName = openingElement.name.name;
-    if (isComponent(tagName)) {
-      return transformComponentFineGrained(path3, state);
-    }
     if (tagName === "For") {
       return transformForFineGrained(path3, state);
     }
     if (tagName === "Show") {
       return transformShowFineGrained(path3, state);
+    }
+    if (isComponent(tagName)) {
+      return transformComponentFineGrained(path3, state);
     }
     const attributes = openingElement.attributes;
     const children = node.children;
@@ -469,7 +575,7 @@ function whatBabelPlugin({ types: t }) {
     const transformedChildren = [];
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, " ").trim();
+        const text = normalizeJsxText(child.value);
         if (text) transformedChildren.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
@@ -526,7 +632,7 @@ function whatBabelPlugin({ types: t }) {
         );
         continue;
       }
-      if (attrName.startsWith("on") && !attrName.includes("|")) {
+      if (attrName.startsWith("on") && !attrName.includes("|") && !hasEventModifiers(attrName, state)) {
         const event = attrName.slice(2).toLowerCase();
         const handler = getAttributeValue(attr.value);
         if (DELEGATED_EVENTS.has(event)) {
@@ -539,7 +645,7 @@ function whatBabelPlugin({ types: t }) {
                 "=",
                 t.memberExpression(
                   t.identifier(elId),
-                  t.identifier(`__${event}`)
+                  t.identifier(`$$${event}`)
                 ),
                 handler
               )
@@ -557,7 +663,7 @@ function whatBabelPlugin({ types: t }) {
         }
         continue;
       }
-      if (attrName.startsWith("on") && attrName.includes("|")) {
+      if (attrName.startsWith("on") && (attrName.includes("|") || hasEventModifiers(attrName, state))) {
         const { eventName, modifiers } = parseEventModifiers(attrName);
         const handler = getAttributeValue(attr.value);
         const wrappedHandler = createEventHandler(handler, modifiers);
@@ -657,8 +763,9 @@ function whatBabelPlugin({ types: t }) {
         const domName = normalizeAttrName(attrName);
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
           state.needsEffect = true;
+          const valueExpr = t.isIdentifier(expr) && (isSignalIdentifier(expr.name, state.signalNames) || state.importedIdentifiers && state.importedIdentifiers.has(expr.name)) ? t.callExpression(expr, []) : expr;
           const effectCall = t.callExpression(t.identifier("_$effect"), [
-            t.arrowFunctionExpression([], buildSetPropCall(domName, expr))
+            t.arrowFunctionExpression([], buildSetPropCall(domName, valueExpr))
           ]);
           if (isUncertainReactive(expr, state.signalNames, state.importedIdentifiers)) {
             t.addComment(
@@ -680,7 +787,7 @@ function whatBabelPlugin({ types: t }) {
     let childIndex = 0;
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, " ").trim();
+        const text = normalizeJsxText(child.value);
         if (text) childIndex++;
         continue;
       }
@@ -735,9 +842,38 @@ function whatBabelPlugin({ types: t }) {
     }
     for (const entry of entries) {
       if (entry.type === "expression") {
-        const expr = entry.child.expression;
+        let expr = entry.child.expression;
         const marker = getMarker(entry.childIndex);
         state.needsInsert = true;
+        const mapResult = tryLowerMapToMapArray(expr, state);
+        if (mapResult) {
+          state.needsMapArray = true;
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier("_$insert"), [
+                t.identifier(elId),
+                mapResult,
+                marker
+              ])
+            )
+          );
+          continue;
+        }
+        const isMapArrayCall = t.isCallExpression(expr) && t.isIdentifier(expr.callee) && (expr.callee.name === "mapArray" || expr.callee.name === "_$mapArray");
+        if (isMapArrayCall) {
+          state.needsMapArray = true;
+          if (expr.callee.name === "mapArray") expr.callee.name = "_$mapArray";
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier("_$insert"), [
+                t.identifier(elId),
+                expr,
+                marker
+              ])
+            )
+          );
+          continue;
+        }
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
           const insertCall = t.callExpression(t.identifier("_$insert"), [
             t.identifier(elId),
@@ -946,7 +1082,7 @@ function whatBabelPlugin({ types: t }) {
         }
         continue;
       }
-      if (attrName.startsWith("on") && attrName.includes("|")) {
+      if (attrName.startsWith("on") && (attrName.includes("|") || hasEventModifiers(attrName, state))) {
         const { eventName, modifiers } = parseEventModifiers(attrName);
         const handler = getAttributeValue(attr.value);
         const wrappedHandler = createEventHandler(handler, modifiers);
@@ -964,7 +1100,7 @@ function whatBabelPlugin({ types: t }) {
     const transformedChildren = [];
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, " ").trim();
+        const text = normalizeJsxText(child.value);
         if (text) transformedChildren.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
@@ -999,9 +1135,12 @@ function whatBabelPlugin({ types: t }) {
     const attributes = node.openingElement.attributes;
     const children = node.children;
     let eachExpr = null;
+    let keyExpr = null;
     for (const attr of attributes) {
-      if (t.isJSXAttribute(attr) && getAttrName(attr) === "each") {
-        eachExpr = getAttributeValue(attr.value);
+      if (t.isJSXAttribute(attr)) {
+        const name = getAttrName(attr);
+        if (name === "each") eachExpr = getAttributeValue(attr.value);
+        else if (name === "key") keyExpr = getAttributeValue(attr.value);
       }
     }
     if (!eachExpr) {
@@ -1022,11 +1161,78 @@ function whatBabelPlugin({ types: t }) {
       return transformElementAsH(path3, state);
     }
     state.needsMapArray = true;
-    return t.callExpression(t.identifier("_$mapArray"), [eachExpr, renderFn]);
+    const args = [eachExpr, renderFn];
+    if (keyExpr) {
+      args.push(t.objectExpression([
+        t.objectProperty(t.identifier("key"), keyExpr)
+      ]));
+    }
+    return t.callExpression(t.identifier("_$mapArray"), args);
   }
   function transformShowFineGrained(path3, state) {
-    state.needsCreateComponent = true;
-    return transformComponentFineGrained(path3, state);
+    const { node } = path3;
+    const attributes = node.openingElement.attributes;
+    const children = node.children;
+    let whenExpr = null;
+    let fallbackExpr = null;
+    for (const attr of attributes) {
+      if (t.isJSXAttribute(attr)) {
+        const name = getAttrName(attr);
+        if (name === "when") whenExpr = getAttributeValue(attr.value);
+        else if (name === "fallback") fallbackExpr = getAttributeValue(attr.value);
+      }
+    }
+    if (!whenExpr) {
+      throw path3.buildCodeFrameError(
+        '<Show> requires a "when" prop. Example: <Show when={isOpen} fallback={null}>...</Show>'
+      );
+    }
+    let contentExpr = null;
+    for (const child of children) {
+      if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
+        contentExpr = child.expression;
+        break;
+      }
+    }
+    if (!contentExpr) {
+      const transformedChildren = [];
+      for (const child of children) {
+        if (t.isJSXText(child)) {
+          const text = normalizeJsxText(child.value);
+          if (text) transformedChildren.push(t.stringLiteral(text));
+        } else if (t.isJSXElement(child)) {
+          transformedChildren.push(transformElementFineGrained({ node: child }, state));
+        }
+      }
+      if (transformedChildren.length === 1) {
+        contentExpr = transformedChildren[0];
+      } else if (transformedChildren.length > 1) {
+        contentExpr = t.arrayExpression(transformedChildren);
+      } else {
+        contentExpr = t.nullLiteral();
+      }
+    }
+    let condition;
+    if (t.isCallExpression(whenExpr)) {
+      condition = whenExpr;
+    } else if (t.isArrowFunctionExpression(whenExpr) && t.isExpression(whenExpr.body)) {
+      condition = whenExpr.body;
+    } else if (t.isIdentifier(whenExpr) && (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames) || state.importedIdentifiers && state.importedIdentifiers.has(whenExpr.name))) {
+      condition = t.callExpression(whenExpr, []);
+    } else {
+      condition = whenExpr;
+    }
+    const vId = path3.scope ? path3.scope.generateUidIdentifier("v") : t.identifier("_v");
+    const consequent = t.isFunction(contentExpr) ? t.callExpression(contentExpr, [t.cloneNode(vId)]) : contentExpr;
+    const alternate = fallbackExpr || t.nullLiteral();
+    return t.arrowFunctionExpression([], t.blockStatement([
+      t.variableDeclaration("const", [
+        t.variableDeclarator(vId, condition)
+      ]),
+      t.returnStatement(
+        t.conditionalExpression(t.cloneNode(vId), consequent, alternate)
+      )
+    ]));
   }
   function transformFragmentFineGrained(path3, state) {
     const { node } = path3;
@@ -1034,7 +1240,7 @@ function whatBabelPlugin({ types: t }) {
     const transformed = [];
     for (const child of children) {
       if (t.isJSXText(child)) {
-        const text = child.value.replace(/\n\s+/g, " ").trim();
+        const text = normalizeJsxText(child.value);
         if (text) transformed.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
@@ -1251,13 +1457,16 @@ function whatBabelPlugin({ types: t }) {
         state._pendingSetup = [];
         if (pending.length > 0) {
           let stmtPath = path3;
+          let crossedFunctionBoundary = false;
           while (stmtPath && !stmtPath.isStatement()) {
+            if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
+              crossedFunctionBoundary = true;
+            }
             stmtPath = stmtPath.parentPath;
           }
-          if (stmtPath && stmtPath.isStatement()) {
-            for (const stmt of pending) {
-              stmtPath.insertBefore(stmt);
-            }
+          const inStatementList = stmtPath && stmtPath.isStatement() && (stmtPath.listKey === "body" || stmtPath.listKey === "consequent") && Array.isArray(stmtPath.container);
+          if (inStatementList && !crossedFunctionBoundary) {
+            stmtPath.insertBefore(pending);
             path3.replaceWith(transformed);
           } else {
             pending.push(t.returnStatement(transformed));
@@ -2018,8 +2227,34 @@ function whatVitePlugin(options = {}) {
           jsx: "preserve"
         },
         optimizeDeps: {
-          // Pre-bundle the framework
-          include: ["what-framework"]
+          // Exclude framework packages from Vite's dependency pre-bundling.
+          //
+          // Bug class this prevents — "dual module instance":
+          //   The compiler emits `import { ... } from 'what-framework/render'`
+          //   (a subpath resolved to the source file). Meanwhile user code
+          //   imports `'what-framework'` (the package entry). If Vite
+          //   pre-bundles `'what-framework'` into an esbuild chunk under
+          //   node_modules/.vite, those two import paths resolve to two
+          //   *different* module instances. Module-scoped state — the
+          //   `componentStack` used by createComponent, effect ownership,
+          //   the signal subscriber registry — is duplicated, so a signal
+          //   created in user code never notifies effects created via the
+          //   compiler-emitted path, and `getCurrentComponent()` returns
+          //   undefined inside components mounted through compiler output.
+          //
+          // Why `exclude` is the right knob:
+          //   `include` would force pre-bundling of the package entry, which
+          //   does not resolve the subpath import the compiler emits — so the
+          //   split persists. Using `exclude` tells Vite to skip the optimizer
+          //   for these packages and serve them via the normal module graph,
+          //   where both the package entry and the `/render` subpath share
+          //   a single ESM module record.
+          //
+          // Regression symptom if this is removed:
+          //   Components mount but lifecycle hooks (onMount, onCleanup) and
+          //   shared store state silently no-op; effects don't re-run on
+          //   signal writes from user code; SSR/CSR hydration mismatches.
+          exclude: ["what-framework", "what-core", "what-compiler", "what-router"]
         }
       };
     }

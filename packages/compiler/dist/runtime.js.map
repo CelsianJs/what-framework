@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/runtime.js"],
+  "sourcesContent": ["/**\n * What Compiler Runtime\n *\n * With the unified rendering path (babel plugin \u2192 h() \u2192 core reconciler),\n * most runtime helpers are no longer needed. The compiler now outputs h() calls\n * that go through what-core's VNode reconciler.\n *\n * This file re-exports from what-core for backwards compatibility.\n */\n\nexport { h, Fragment, mount, Island } from 'what-core';\n"],
+  "mappings": ";AAUA,SAAS,GAAG,UAAU,OAAO,cAAc;",
+  "names": []
+}
