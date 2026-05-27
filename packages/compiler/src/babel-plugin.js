@@ -95,6 +95,7 @@ export default function whatBabelPlugin({ types: t }) {
   // two different files would silently warn for the first file only —
   // problematic in long-running Vite dev servers.
   const _unknownModifierWarned = new Set();
+  const _forInfoWarned = new Set();
 
   function hasEventModifiers(name, state) {
     // Any `__` in an `on*` attribute is intended as modifier syntax — even
@@ -106,7 +107,7 @@ export default function whatBabelPlugin({ types: t }) {
     if (!name.includes('__')) return false;
     if (!name.startsWith('on')) return false;
     const parts = name.split('__');
-    const tail = parts.slice(1);
+    const tail = parts.slice(1).filter(s => s !== '');
     if (tail.length === 0) return false;
     if (process.env.NODE_ENV !== 'production') {
       const unknown = tail.filter(m => !EVENT_MODIFIERS.has(m));
@@ -1439,14 +1440,17 @@ export default function whatBabelPlugin({ types: t }) {
     // <For> is useful when you need signal-wrapped item accessors (keyed
     // mode without raw), so that item updates don't recreate DOM nodes.
     if (process.env.NODE_ENV !== 'production') {
-      const loc = node.loc;
       const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
-      const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
-      console.info(
-        `[what-compiler] <For> at ${fileName}${lineInfo}: consider using .map() with a key prop instead. ` +
-        `The compiler auto-lowers .map() to efficient keyed reconciliation. ` +
-        `<For> is only needed for signal-wrapped item accessors (advanced).`
-      );
+      if (!_forInfoWarned.has(fileName)) {
+        _forInfoWarned.add(fileName);
+        const loc = node.loc;
+        const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+        console.info(
+          `[what-compiler] <For> at ${fileName}${lineInfo}: consider using .map() with a key prop instead. ` +
+          `The compiler auto-lowers .map() to efficient keyed reconciliation. ` +
+          `<For> is only needed for signal-wrapped item accessors (advanced).`
+        );
+      }
     }
 
     let eachExpr = null;

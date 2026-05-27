@@ -793,3 +793,100 @@ describe('reconcileKeyed: swap and single-move fast paths', () => {
     assert.equal(result.length, 100, 'all 100 items present');
   });
 });
+
+// --------------------------------------------------------------------------
+// BLOCKER regression: adjacent swap infinite loop
+// When two adjacent items are swapped, the pre-computed end boundary becomes
+// unreachable after the first DOM move, causing _moveItem to walk forever.
+// --------------------------------------------------------------------------
+
+describe('reconcileKeyed: adjacent swap does not hang', () => {
+  function setupKeyedList(container, initialItems, multiNode = false) {
+    let createCount = 0;
+    const nodeMap = new Map();
+
+    function Row(item) {
+      createCount++;
+      if (multiNode) {
+        const frag = document.createDocumentFragment();
+        const a = document.createElement('span');
+        a.className = 'item-a';
+        a.textContent = item.id;
+        a.dataset.id = item.id;
+        const b = document.createElement('span');
+        b.className = 'item-b';
+        b.textContent = item.id + '-b';
+        frag.appendChild(a);
+        frag.appendChild(b);
+        nodeMap.set(item.id, a);
+        return frag;
+      } else {
+        const el = document.createElement('div');
+        el.textContent = item.id;
+        el.dataset.id = item.id;
+        nodeMap.set(item.id, el);
+        return el;
+      }
+    }
+
+    const items = signal(initialItems);
+    const inserter = mapArray(items, Row, { key: (i) => i.id, raw: true });
+    inserter(container, null);
+    return { items, createCount: () => createCount, nodeMap };
+  }
+
+  function ids(container, selector = '[data-id]') {
+    return [...container.querySelectorAll(selector)].map(n => n.dataset.id);
+  }
+
+  it('two-item list [a,b] -> [b,a] — no hang, correct DOM order', async () => {
+    const container = getContainer();
+    const { items } = setupKeyedList(container, [{id:'a'},{id:'b'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['a','b']);
+
+    // This would hang before the fix (infinite loop in _moveItem)
+    items([{id:'b'},{id:'a'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['b','a'], 'DOM order correct after adjacent swap');
+  });
+
+  it('adjacent swap in longer list [a,b,c,d] -> [a,c,b,d]', async () => {
+    const container = getContainer();
+    const { items, nodeMap } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'},{id:'d'}]);
+    flushSync(); await flush();
+
+    const nodeB = nodeMap.get('b');
+    const nodeC = nodeMap.get('c');
+
+    items([{id:'a'},{id:'c'},{id:'b'},{id:'d'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['a','c','b','d'], 'adjacent swap in middle correct');
+    assert.equal(container.querySelector('[data-id="b"]'), nodeB, 'node b identity preserved');
+    assert.equal(container.querySelector('[data-id="c"]'), nodeC, 'node c identity preserved');
+  });
+
+  it('adjacent multi-node items swap (fragments)', async () => {
+    const container = getContainer();
+    const { items } = setupKeyedList(container,
+      [{id:'a'},{id:'b'},{id:'c'}], true);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container, '.item-a'), ['a','b','c']);
+
+    items([{id:'a'},{id:'c'},{id:'b'}]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container, '.item-a'), ['a','c','b'],
+      'adjacent multi-node swap correct');
+    // Verify fragment nodes stay grouped
+    const allEls = [...container.childNodes].filter(n => n.nodeType === 1);
+    const cIdx = allEls.findIndex(n => n.dataset?.id === 'c');
+    assert.ok(cIdx >= 0, 'found c');
+    assert.equal(allEls[cIdx + 1]?.textContent, 'c-b', 'c fragment nodes stay together');
+  });
+});

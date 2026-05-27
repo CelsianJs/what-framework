@@ -901,23 +901,35 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
           }
         }
 
-        // DOM moves: move i2's nodes before i1's marker, then move i1's old nodes to i2's spot.
-        // We need a reference point for where i2 was.
-        const marker1 = newMapped[i1]; // was mappedNodes[i2] — the marker for the item now at i1
-        const marker2 = newMapped[i2]; // was mappedNodes[i1] — the marker for the item now at i2
-        const end1 = _findNextMarkerAfter(parent, mappedNodes[i1], mappedNodes, i1, endMarker);
-        const end2 = _findNextMarkerAfter(parent, mappedNodes[i2], mappedNodes, i2, endMarker);
+        // DOM moves: swap the two items' DOM ranges.
+        // Adjacent swaps need special handling because moving item2 before
+        // item1 invalidates the pre-computed end boundary for item1 (it was
+        // item2's marker, which has now moved). For adjacent items, a single
+        // _moveItem suffices. For non-adjacent items, we recompute end1 after
+        // the first move.
+        const isAdjacent = (i2 === i1 + 1) || (i1 === i2 + 1);
+        const lo = Math.min(i1, i2), hi = Math.max(i1, i2);
 
-        // Insert a temporary placeholder at i2's original position
-        const placeholder = document.createComment('tmp');
-        parent.insertBefore(placeholder, mappedNodes[i2]);
+        if (isAdjacent) {
+          // Adjacent: just move the later item's nodes before the earlier item's marker.
+          const endHi = _findNextMarkerAfter(parent, mappedNodes[hi], mappedNodes, hi, endMarker);
+          _moveItem(parent, mappedNodes[hi], endHi, mappedNodes[lo]);
+        } else {
+          // Non-adjacent: use a placeholder to remember i2's position, then
+          // recompute end1 after the first move (since DOM has changed).
+          const end2 = _findNextMarkerAfter(parent, mappedNodes[i2], mappedNodes, i2, endMarker);
 
-        // Move i2's nodes to before i1's current position
-        _moveItem(parent, mappedNodes[i2], end2, mappedNodes[i1]);
-        // Move i1's nodes to where i2 was (before placeholder)
-        _moveItem(parent, mappedNodes[i1], end1, placeholder);
-        // Remove placeholder
-        parent.removeChild(placeholder);
+          const placeholder = document.createComment('tmp');
+          parent.insertBefore(placeholder, mappedNodes[i2]);
+
+          // Move i2's nodes to before i1's current position
+          _moveItem(parent, mappedNodes[i2], end2, mappedNodes[i1]);
+          // Recompute end1 — the DOM has changed, so the pre-move boundary is stale
+          const end1 = _findNextMarkerAfter(parent, mappedNodes[i1], mappedNodes, i1, endMarker);
+          // Move i1's nodes to where i2 was (before placeholder)
+          _moveItem(parent, mappedNodes[i1], end1, placeholder);
+          parent.removeChild(placeholder);
+        }
 
         _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
         return;

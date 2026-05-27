@@ -248,6 +248,11 @@ const _propsProxyHandler = {
     }
     return undefined;
   },
+  set(target, key) {
+    // Props are read-only from the component's perspective.
+    // Reject all writes — especially dangerous prototype-chain keys.
+    return false;
+  },
 };
 
 const componentStack = [];

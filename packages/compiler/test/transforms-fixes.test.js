@@ -325,4 +325,92 @@ describe('event modifiers', () => {
     // And the broken delegated-property form must not appear
     assert.doesNotMatch(code, /\$\$onclick__/);
   });
+
+  it('onclick__ trailing delimiter is treated as a plain event (no modifiers)', () => {
+    const origWarn = console.warn;
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args.join(' '));
+    let code;
+    try {
+      code = compile(`
+        function App() {
+          return <button onclick__={fn}>x</button>;
+        }
+      `);
+    } finally {
+      console.warn = origWarn;
+    }
+    // Should NOT route through addEventListener (no real modifiers)
+    // Should use delegated event or direct assignment
+    assert.doesNotMatch(code, /addEventListener\(\s*["']click["']/,
+      'onclick__ with no real modifiers should not use addEventListener');
+    // No warnings about unknown modifiers (empty string filtered out)
+    const modWarnings = warnings.filter(w => /modifier/.test(w));
+    assert.equal(modWarnings.length, 0,
+      'no modifier warnings for trailing delimiter');
+  });
+});
+
+// =====================================================
+// Nested <Show> variable scoping
+// =====================================================
+
+describe('nested <Show> variable scoping', () => {
+  it('two nested Shows each hoist their own condition variable without collision', () => {
+    const code = compile(`
+      function App() {
+        const a = signal(true);
+        const b = signal(false);
+        return (
+          <Show when={a}>
+            <Show when={b}>
+              <p>inner</p>
+            </Show>
+          </Show>
+        );
+      }
+    `);
+    // Both Shows hoist a condition variable. They may reuse the same name
+    // (_v) since the inner one is in a nested scope (IIFE). The key check
+    // is that both conditions are captured into locals — not evaluated twice.
+    const condCaptures = code.match(/const\s+_v\w*\s*=\s*\w+\(\)/g) || [];
+    assert.ok(condCaptures.length >= 2,
+      `both nested Shows should hoist their condition, got: ${condCaptures.join('; ')}`);
+    // Verify the outer captures a() and inner captures b()
+    assert.ok(condCaptures.some(c => /a\(\)/.test(c)), 'outer Show captures a()');
+    assert.ok(condCaptures.some(c => /b\(\)/.test(c)), 'inner Show captures b()');
+  });
+});
+
+// =====================================================
+// .map() inside conditional (ternary)
+// =====================================================
+
+describe('.map() inside conditional', () => {
+  it('map with key inside ternary is NOT lowered (known limitation)', () => {
+    // The compiler's .map() lowering only fires when the .map() CallExpression
+    // is a direct JSX expression child or wrapped in a single arrow. When
+    // nested inside a ternary, the visitor does not see through the conditional.
+    // This test documents the current behavior as a known limitation.
+    const code = compile(`
+      function App() {
+        const show = signal(true);
+        const items = signal([]);
+        return (
+          <div>
+            {() => show()
+              ? items().map(item => <li key={item.id}>{item.name}</li>)
+              : null
+            }
+          </div>
+        );
+      }
+    `);
+    // Currently does NOT lower — falls back to raw .map() call.
+    assert.doesNotMatch(code, /_\$mapArray/,
+      '.map() inside ternary is not lowered (known limitation)');
+    // But the output still compiles and uses the items().map() directly.
+    assert.match(code, /items\(\)\.map/,
+      'raw .map() call is preserved in the output');
+  });
 });

@@ -433,9 +433,10 @@ export function registerExtendedTools(server, bridge) {
       const SAFE_GLOBALS = new Set(['document', 'window', 'navigator', 'location', 'screen', 'performance', 'console']);
       const segments = trimmed.split('.');
       const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+      const PROTO_DENYLIST = new Set(['constructor', 'prototype', '__proto__']);
       const isSafeRead = segments.length >= 2 &&
         SAFE_GLOBALS.has(segments[0]) &&
-        segments.every(s => isSimpleIdent.test(s));
+        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s));
 
       if (!unsafeEvalEnabled && !isSafeRead) {
         return errorResponse(
