@@ -2,33 +2,85 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]
+## [0.9.0] - 2026-05-27
 
 ### Added
-- New MCP tool `what_record_window`: opens a sampling window and ranks
-  effects by re-runs delta. Answers "which effects fired for this action?"
-  Complements `what_perf` (cumulative) and `what_watch` (raw events).
-- New example `examples/kanban`: multi-board kanban with HTML5 DnD,
-  `what-router`, and localStorage persistence. Includes 11 store unit
-  tests wired into the root test glob.
+- **Interactive playground** (`examples/playground/`): CodeMirror 6 editor
+  with sandboxed iframe preview, 5 starter examples, CSP-locked, infinite
+  loop watchdog. No server-side execution.
+- **Kanban example** (`examples/kanban/`): multi-board kanban with HTML5
+  DnD, `what-router`, and localStorage persistence.
+- New MCP tool `what_record_window`: effect-run delta over a sampling
+  window. Answers "which effects fired during this action?"
+- `what_set_signal` gains `rawString` parameter to bypass auto-coercion
+- Compiler: `.map()` lowering now walks into ternary (`cond ? arr.map(...) : fallback`)
+  and logical `&&` expressions for keyed reconciliation
+- Compiler: `<For key={...}>` support
+- Compiler: event modifier `__` syntax (JSX-safe, e.g., `onclick__prevent`)
+- Devtools: component-scope attribution via stack-trace matching
+- Devtools: pre-install signal buffer retroactively registers module-scope
+  signals created before `installDevTools` runs
+- 2 new lint rules: `destructured-props-lose-reactivity`,
+  `module-scope-signal-missing-name`
 
 ### Fixed
-- `h()` stringified live DOM-node children to `"[object HTMLDivElement]"`,
-  breaking wrapper components (Link, custom containers) when JSX children
-  were pre-realized. `_flattenSingle`/`_flattenInto` now detect `nodeType`.
-- JSX text adjacent to expressions was trimmed by the compiler, rendering
-  `"5items"` instead of `"5 items"`. Added React-spec `normalizeJsxText()`
-  and replaced 8 trim sites in `packages/compiler/src/babel-plugin.js`.
-- `createStore` action return values were silently dropped. `const id =
-  store.addItem()` produced `undefined`. Actions now propagate the result
-  out of the `batch()` wrapper.
+- **Reconciler: adjacent-item removal corruption** — live-DOM boundary walk
+  replaces stale marker references
+- **Reconciler: adjacent swap infinite loop** — dedicated path for adjacent
+  items avoids pre-computed boundary invalidation
+- **Reconciler: general-case ref bug** — suffix items were positioned
+  incorrectly when reorder occurred before a suffix
+- **Compiler: TDZ ReferenceError** on early-return JSX with interpolation
+  inside if/while/single-statement parents
+- **Compiler: `<Show>` double-evaluated `when`** — hoisted into a local
+- **Compiler: `<Show>` invoked non-functions** (member/literal expressions)
+  as signal accessors
+- `h()` stringified DOM-node children (`[object HTMLDivElement]`)
+- JSX text trimmed adjacent to expressions (`"5items"` instead of `"5 items"`)
+- `createStore` action return values silently dropped
+- `setProp` and `spread()` effect disposers now tracked on `_propEffects`
+  so `disposeTree` tears them down on unmount
+- `what_set_signal` no longer corrupts non-primitive values (was double-
+  stringifying arrays/objects)
+- Vite devtools plugin works out of the box (virtual module pattern
+  replaces broken inline bare-specifier script)
+- `__drainPreinstallBuffer` was defined but not exported — devtools
+  registry reported 0 signals in real apps
+- SELECT value timing: shared `_setSelectValue` with microtask retry
+- SVG class attribute: uses `setAttribute` instead of `className`
+- Component invocation wrapped in `untrack()` — parent effects no longer
+  capture inner subscriptions
+- DnD drop-indicator flicker in kanban (dragleave debounce)
+- Bench innerHTML warnings: 276 → 0
+
+### Security
+- `what_navigate`: reject `javascript:`, `data:`, `vbscript:` URLs
+- Props proxy: block `__proto__`/`constructor`/`prototype` in get+set traps
+- SSR URL sanitization: block `data:` protocol (was missing, client-side
+  already blocked it)
+- `what_eval` safe-read: strict property-access regex with proto denylist
+- `dangerouslySetInnerHTML`: dev-mode XSS pattern warning
+- Bridge: auth token redacted from startup logs
+
+### Performance
+- **Keyed reconciler swap/single-move fast paths**: single-item reorder
+  drops from ~78ms to ~0.5ms in 420-card lists
+- Multi-node item reconciliation via per-item markers (components returning
+  fragments now reorder correctly under LIS)
+
+### Docs
+- README + QUICKSTART: fixed API examples (`useSignal` → `signal`)
+- MCP tool count corrected: 18 → 29
+- API.md: `h()` is public (was incorrectly claimed non-existent)
+- MIGRATION-FROM-REACT: `what-core` → `what-framework`
+- CLAUDE.md: Lists section with .map() vs <For> comparison table
 
 ### Tests
-- +5 `h-dom-children.test.js`
-- +4 `jsx-whitespace.test.js`
-- +3 `store-return-value.test.js`
-- +5 `record-window.test.js`
-- +11 `examples/kanban/test/store.test.js`
+- 808 → 900 tests (+92)
+- Server package: 36 tests from zero (SSR rendering + security)
+- Security boundaries: 25 tests (URL validation, proto guard, XSS warn)
+- Reconciler: swap, adjacent, multi-node, reuse-vs-dispose, untrack
+- Compiler: Show variants, .map lowering, ternary, TDZ, event modifiers
 
 ## [0.8.4] - 2026-05-11
 
