@@ -230,6 +230,7 @@ export function createDOM(vnode, parent, isSvg) {
 const _propsProxyHandler = {
   get(target, key) {
     if (key === '_sig') return undefined; // hide internal property
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') return undefined;
     return target._sig()[key];
   },
   has(target, key) {
@@ -708,7 +709,11 @@ function setProp(el, key, value, isSvg) {
 
   // dangerouslySetInnerHTML
   if (key === 'dangerouslySetInnerHTML') {
-    el.innerHTML = value?.__html ?? '';
+    const html = value?.__html ?? '';
+    if (__DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
+      console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
+    }
+    el.innerHTML = html;
     return;
   }
 
@@ -716,7 +721,11 @@ function setProp(el, key, value, isSvg) {
   if (key === 'innerHTML') {
     if (value == null) return; // null/undefined — do nothing
     if (value && typeof value === 'object' && '__html' in value) {
-      el.innerHTML = value.__html ?? '';
+      const html = value.__html ?? '';
+      if (__DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
+        console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
+      }
+      el.innerHTML = html;
     } else {
       if (__DEV__) {
         console.warn(

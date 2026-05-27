@@ -1293,10 +1293,18 @@ export function setProp(el, key, value) {
       el.className = value || '';
     }
   } else if (key === 'dangerouslySetInnerHTML') {
-    el.innerHTML = value?.__html ?? '';
+    const html = value?.__html ?? '';
+    if (typeof __DEV__ !== 'undefined' && __DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
+      console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
+    }
+    el.innerHTML = html;
   } else if (key === 'innerHTML') {
     if (value && typeof value === 'object' && '__html' in value) {
-      el.innerHTML = value.__html ?? '';
+      const html = value.__html ?? '';
+      if (typeof __DEV__ !== 'undefined' && __DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
+        console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
+      }
+      el.innerHTML = html;
     } else {
       if (typeof console !== 'undefined' && value != null && value !== '') {
         console.warn(

@@ -133,12 +133,13 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       // Allow safe read-only expressions without the unsafe flag
       const code = (args.code || '').trim();
-      const isSafeRead = /^[\w.[\]'"]+$/.test(code) || // property access: document.title, window.innerWidth
-        /^typeof\s+\w+/.test(code) || // typeof checks
-        /^document\.(title|URL|readyState|visibilityState|characterSet|contentType)$/.test(code) ||
-        /^window\.(innerWidth|innerHeight|devicePixelRatio|screen\.\w+)$/.test(code) ||
-        /^navigator\.\w+$/.test(code) ||
-        /^location\.\w+$/.test(code);
+      // Strict safe-read: only allow dotted property access on known safe globals.
+      const SAFE_GLOBALS = new Set(['document', 'window', 'navigator', 'location', 'screen', 'performance', 'console']);
+      const segments = code.split('.');
+      const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+      const isSafeRead = segments.length >= 2 &&
+        SAFE_GLOBALS.has(segments[0]) &&
+        segments.every(s => isSimpleIdent.test(s));
 
       if (!evalEnabled && !isSafeRead) {
         return {
@@ -291,6 +292,14 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       if (!path) {
         return { error: 'No path provided' };
+      }
+
+      // Validate URL — reject dangerous protocols (server-side + browser-side defense)
+      const trimmedPath = String(path).trim();
+      const normalizedUrl = trimmedPath.replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+      const isRelativePath = /^[/.#?]/.test(trimmedPath) || !trimmedPath.includes(':');
+      if (!isRelativePath && !/^https?:/.test(normalizedUrl)) {
+        return { error: `Blocked navigation to unsafe URL: "${path}"` };
       }
 
       try {

@@ -86,7 +86,7 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
   }
 
   console.error(`[what-devtools-mcp] Bridge listening on ws://${host}:${port}`);
-  console.error(`[what-devtools-mcp] Auth token: ${authToken}`);
+  console.error(`[what-devtools-mcp] Bridge started on port ${port} (auth enabled)`);
 
   wss.on('connection', (ws) => {
     browserSocket = ws;

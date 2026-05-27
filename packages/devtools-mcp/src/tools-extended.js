@@ -428,12 +428,14 @@ export function registerExtendedTools(server, bridge) {
     async ({ code, timeout }) => {
       // Allow safe read-only property access without the unsafe flag
       const trimmed = (code || '').trim();
-      const isSafeRead = /^[\w.[\]'"]+$/.test(trimmed) && !trimmed.includes('=') ||
-        /^document\.(title|URL|readyState|visibilityState|characterSet|contentType)$/.test(trimmed) ||
-        /^window\.(innerWidth|innerHeight|devicePixelRatio|outerWidth|outerHeight)$/.test(trimmed) ||
-        /^navigator\.(userAgent|language|platform|onLine|hardwareConcurrency)$/.test(trimmed) ||
-        /^location\.(href|hostname|pathname|protocol|port|origin)$/.test(trimmed) ||
-        /^screen\.(width|height|availWidth|availHeight|colorDepth)$/.test(trimmed);
+      // Strict safe-read: only allow dotted property access on known safe globals.
+      // Each segment must be a simple identifier (no brackets, quotes, or calls).
+      const SAFE_GLOBALS = new Set(['document', 'window', 'navigator', 'location', 'screen', 'performance', 'console']);
+      const segments = trimmed.split('.');
+      const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+      const isSafeRead = segments.length >= 2 &&
+        SAFE_GLOBALS.has(segments[0]) &&
+        segments.every(s => isSimpleIdent.test(s));
 
       if (!unsafeEvalEnabled && !isSafeRead) {
         return errorResponse(
@@ -858,8 +860,19 @@ export function registerExtendedTools(server, bridge) {
     async ({ path, replace }) => {
       if (!bridge.isConnected()) return noConnection('what_navigate');
 
+      // Validate URL — reject dangerous protocols
+      const trimmedPath = path.trim();
+      const normalized = trimmedPath.replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+      const isRelative = /^[/.#?]/.test(trimmedPath) || !trimmedPath.includes(':');
+      if (!isRelative && !/^https?:/.test(normalized)) {
+        return errorResponse(`Blocked navigation to unsafe URL: "${path}"`, [
+          'Only relative paths (/foo, ./bar, #hash, ?query) and http(s) URLs are allowed.',
+          'javascript:, data:, and vbscript: URLs are rejected for security.',
+        ]);
+      }
+
       try {
-        const result = await bridge.sendCommand('navigate', { path, replace });
+        const result = await bridge.sendCommand('navigate', { path: trimmedPath, replace });
         if (result.error) {
           return errorResponse(result.error, [
             'Check that the path is valid.',
