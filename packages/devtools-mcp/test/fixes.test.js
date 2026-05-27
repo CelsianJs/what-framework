@@ -224,6 +224,196 @@ describe('audit fixes', () => {
     });
   });
 
+  // =========================================================================
+  // URL validation in what_navigate
+  // =========================================================================
+  describe('what_navigate URL validation', () => {
+    it('rejects javascript: URL', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
+      }));
+      const out = await call(client, 'what_navigate', { path: 'javascript:alert(1)' });
+      assert.ok(out.error, 'should be an error');
+      assert.ok(out.error.includes('Blocked') || out.error.includes('unsafe'));
+    });
+
+    it('rejects mixed-case JaVaScRiPt: URL', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
+      }));
+      const out = await call(client, 'what_navigate', { path: 'JaVaScRiPt:alert(1)' });
+      assert.ok(out.error, 'mixed-case should be rejected');
+    });
+
+    it('rejects data: URL', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
+      }));
+      const out = await call(client, 'what_navigate', { path: 'data:text/html,<script>' });
+      assert.ok(out.error, 'data: should be rejected');
+    });
+
+    it('rejects vbscript: URL', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
+      }));
+      const out = await call(client, 'what_navigate', { path: 'vbscript:msgbox' });
+      assert.ok(out.error, 'vbscript: should be rejected');
+    });
+
+    it('rejects newline-prefixed javascript: URL', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
+      }));
+      const out = await call(client, 'what_navigate', { path: '\njavascript:alert(1)' });
+      assert.ok(out.error, 'newline-prefixed should be rejected');
+    });
+
+    it('allows /dashboard', async () => {
+      let navigated = false;
+      ({ client, server } = await setup({
+        sendCommand: async (cmd) => {
+          if (cmd === 'navigate') { navigated = true; return { navigatedTo: '/dashboard', currentPath: '/dashboard', success: true }; }
+          return { error: 'nope' };
+        },
+      }));
+      const out = await call(client, 'what_navigate', { path: '/dashboard' });
+      assert.ok(!out.error, `unexpected error: ${out.error}`);
+      assert.ok(navigated, 'navigate command should have been sent');
+    });
+
+    it('allows ./relative', async () => {
+      let navigated = false;
+      ({ client, server } = await setup({
+        sendCommand: async (cmd) => {
+          if (cmd === 'navigate') { navigated = true; return { navigatedTo: './relative', currentPath: '/', success: true }; }
+          return { error: 'nope' };
+        },
+      }));
+      const out = await call(client, 'what_navigate', { path: './relative' });
+      assert.ok(!out.error);
+      assert.ok(navigated);
+    });
+
+    it('allows #hash', async () => {
+      let navigated = false;
+      ({ client, server } = await setup({
+        sendCommand: async (cmd) => {
+          if (cmd === 'navigate') { navigated = true; return { navigatedTo: '#hash', currentPath: '/', success: true }; }
+          return { error: 'nope' };
+        },
+      }));
+      const out = await call(client, 'what_navigate', { path: '#hash' });
+      assert.ok(!out.error);
+      assert.ok(navigated);
+    });
+
+    it('allows ?query=1', async () => {
+      let navigated = false;
+      ({ client, server } = await setup({
+        sendCommand: async (cmd) => {
+          if (cmd === 'navigate') { navigated = true; return { navigatedTo: '?query=1', currentPath: '/', success: true }; }
+          return { error: 'nope' };
+        },
+      }));
+      const out = await call(client, 'what_navigate', { path: '?query=1' });
+      assert.ok(!out.error);
+      assert.ok(navigated);
+    });
+
+    it('allows https://example.com', async () => {
+      let navigated = false;
+      ({ client, server } = await setup({
+        sendCommand: async (cmd) => {
+          if (cmd === 'navigate') { navigated = true; return { navigatedTo: 'https://example.com', currentPath: '/', success: true }; }
+          return { error: 'nope' };
+        },
+      }));
+      const out = await call(client, 'what_navigate', { path: 'https://example.com' });
+      assert.ok(!out.error, `unexpected error: ${out.error}`);
+      assert.ok(navigated);
+    });
+  });
+
+  // =========================================================================
+  // isSafeRead denylist via what_eval
+  // =========================================================================
+  describe('isSafeRead denylist (what_eval without unsafe flag)', () => {
+    // what_eval allows safe read-only expressions without --unsafe-eval.
+    // We test the boundary by calling what_eval with known safe/unsafe expressions.
+    // The tool returns an error for unsafe expressions.
+
+    it('allows window.location.href (safe dotted read)', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async (cmd, args) => {
+          if (cmd === 'eval') return { result: 'http://localhost', type: 'string', executionTime: 0 };
+          return { error: 'nope' };
+        },
+      }));
+      const out = await call(client, 'what_eval', { code: 'window.location.href' });
+      // Should NOT be an error — safe read
+      assert.ok(!out.error, `should be allowed: ${out.error}`);
+    });
+
+    it('allows document.title', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ result: 'My App', type: 'string', executionTime: 0 }),
+      }));
+      const out = await call(client, 'what_eval', { code: 'document.title' });
+      assert.ok(!out.error, `should be allowed: ${out.error}`);
+    });
+
+    it('allows navigator.userAgent', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ result: 'Mozilla/5.0', type: 'string', executionTime: 0 }),
+      }));
+      const out = await call(client, 'what_eval', { code: 'navigator.userAgent' });
+      assert.ok(!out.error);
+    });
+
+    it('rejects window.constructor (proto denylist)', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window.constructor' });
+      assert.ok(out.error, 'constructor should be rejected');
+    });
+
+    it('rejects window.constructor.constructor', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window.constructor.constructor' });
+      assert.ok(out.error);
+    });
+
+    it('rejects document.__proto__', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'document.__proto__' });
+      assert.ok(out.error);
+    });
+
+    it('rejects Object.prototype (not a safe global)', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'Object.prototype' });
+      assert.ok(out.error, 'Object is not in safe globals');
+    });
+
+    it('rejects bracket notation (window["eval"])', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window["eval"]' });
+      assert.ok(out.error, 'brackets should fail simple ident check');
+    });
+
+    it('rejects empty string', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: '' });
+      assert.ok(out.error, 'empty string should be rejected');
+    });
+
+    it('rejects single-segment expression (just "document")', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'document' });
+      assert.ok(out.error, 'single segment needs >= 2 segments');
+    });
+  });
+
   describe('P2-8 — new lint rules', () => {
     it('flags destructured props inside a component body', async () => {
       ({ client, server } = await setup());

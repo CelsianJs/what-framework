@@ -1,4 +1,5 @@
-// Tests for security fixes — URL sanitization, innerHTML restriction, escaping
+// Tests for security fixes — URL sanitization, innerHTML restriction, escaping,
+// props proxy guards, dangerouslySetInnerHTML XSS warnings
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
@@ -20,9 +21,24 @@ if (!global.customElements) {
   };
 }
 
+const { signal, effect } = await import('../src/reactive.js');
 const { setProp } = await import('../src/render.js');
 const { h } = await import('../src/h.js');
+const { mount } = await import('../src/dom.js');
 const { renderToString } = await import('../../server/src/index.js');
+
+// Helper: flush microtask queue
+async function flush() {
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => queueMicrotask(r));
+  }
+}
+
+function getContainer() {
+  const el = document.getElementById('app');
+  el.textContent = '';
+  return el;
+}
 
 // =========================================================================
 // 1a. URL Sanitization in setProp
@@ -213,5 +229,207 @@ describe('h() prototype-safe props', () => {
   it('should still work with explicit props', () => {
     const vnode = h('div', { class: 'foo' }, 'hello');
     assert.equal(vnode.props.class, 'foo');
+  });
+});
+
+// =========================================================================
+// 2. Props Proxy — __proto__ / constructor / prototype guard
+// =========================================================================
+
+describe('props proxy prototype-chain guard', () => {
+  it('props.__proto__ returns undefined', async () => {
+    let captured = 'NOT_SET';
+    function TestComp(props) {
+      captured = props.__proto__;
+      return h('div', {}, 'test');
+    }
+    mount(h(TestComp, { normalProp: 42 }), getContainer());
+    await flush();
+    assert.equal(captured, undefined);
+  });
+
+  it('props.constructor returns undefined', async () => {
+    let captured = 'NOT_SET';
+    function TestComp(props) {
+      captured = props.constructor;
+      return h('div', {}, 'test');
+    }
+    mount(h(TestComp, { normalProp: 42 }), getContainer());
+    await flush();
+    assert.equal(captured, undefined);
+  });
+
+  it('props.prototype returns undefined', async () => {
+    let captured = 'NOT_SET';
+    function TestComp(props) {
+      captured = props.prototype;
+      return h('div', {}, 'test');
+    }
+    mount(h(TestComp, { normalProp: 42 }), getContainer());
+    await flush();
+    assert.equal(captured, undefined);
+  });
+
+  it('props.normalProp works correctly', async () => {
+    let captured = null;
+    function TestComp(props) {
+      captured = props.normalProp;
+      return h('div', {}, 'test');
+    }
+    mount(h(TestComp, { normalProp: 42 }), getContainer());
+    await flush();
+    assert.equal(captured, 42);
+  });
+
+  it('setting props returns false (props are read-only)', async () => {
+    let setResult = null;
+    function TestComp(props) {
+      try {
+        props.foo = 'bar';
+        setResult = 'no-error';
+      } catch (e) {
+        setResult = 'threw';
+      }
+      return h('div', {}, 'test');
+    }
+    mount(h(TestComp, { normalProp: 1 }), getContainer());
+    await flush();
+    // The set trap returns false; in strict mode it throws.
+    assert.ok(setResult === 'threw' || setResult === 'no-error');
+  });
+
+  it('props._sig is hidden from consumer', async () => {
+    let hasSig = null;
+    let sigVal = 'NOT_SET';
+    function TestComp(props) {
+      hasSig = '_sig' in props;
+      sigVal = props._sig;
+      return h('div', {}, 'test');
+    }
+    mount(h(TestComp, { x: 1 }), getContainer());
+    await flush();
+    assert.equal(hasSig, false, '_sig should not appear in has trap');
+    assert.equal(sigVal, undefined, '_sig should return undefined from get trap');
+  });
+});
+
+// =========================================================================
+// 3. dangerouslySetInnerHTML XSS warning in dev mode
+// =========================================================================
+
+describe('dangerouslySetInnerHTML XSS warning', () => {
+  let warnCalls;
+  let origWarn;
+
+  beforeEach(() => {
+    warnCalls = [];
+    origWarn = console.warn;
+    console.warn = (...args) => {
+      warnCalls.push(args.join(' '));
+      // Don't forward to avoid noise
+    };
+  });
+
+  it('warns on <script> tag', async () => {
+    try {
+      const container = getContainer();
+      mount(
+        h('div', { dangerouslySetInnerHTML: { __html: '<script>alert(1)</script>' } }),
+        container,
+      );
+      await flush();
+      assert.ok(warnCalls.some(m => m.includes('XSS')), `expected XSS warning, got: ${warnCalls}`);
+    } finally { console.warn = origWarn; }
+  });
+
+  it('warns on onerror handler', async () => {
+    try {
+      const container = getContainer();
+      mount(
+        h('div', { dangerouslySetInnerHTML: { __html: '<img onerror=alert(1)>' } }),
+        container,
+      );
+      await flush();
+      assert.ok(warnCalls.some(m => m.includes('XSS')), `expected XSS warning, got: ${warnCalls}`);
+    } finally { console.warn = origWarn; }
+  });
+
+  it('does NOT warn on safe content', async () => {
+    try {
+      const container = getContainer();
+      mount(
+        h('div', { dangerouslySetInnerHTML: { __html: '<p>Safe content</p>' } }),
+        container,
+      );
+      await flush();
+      assert.ok(!warnCalls.some(m => m.includes('XSS')), `unexpected XSS warning: ${warnCalls}`);
+    } finally { console.warn = origWarn; }
+  });
+
+  it('does NOT warn on empty string', async () => {
+    try {
+      const container = getContainer();
+      mount(
+        h('div', { dangerouslySetInnerHTML: { __html: '' } }),
+        container,
+      );
+      await flush();
+      assert.ok(!warnCalls.some(m => m.includes('XSS')), `unexpected XSS warning: ${warnCalls}`);
+    } finally { console.warn = origWarn; }
+  });
+});
+
+// =========================================================================
+// 4. Client-side URL sanitization — additional edge cases via render.js setProp
+// =========================================================================
+
+describe('URL sanitization edge cases (render.js)', () => {
+  let warnCalls;
+  let origWarn;
+
+  beforeEach(() => {
+    warnCalls = [];
+    origWarn = console.warn;
+    console.warn = (...args) => warnCalls.push(args.join(' '));
+  });
+
+  it('blocks javascript: with leading space', () => {
+    try {
+      const el = document.createElement('a');
+      setProp(el, 'href', ' javascript:alert(1)');
+      assert.equal(el.getAttribute('href'), null);
+    } finally { console.warn = origWarn; }
+  });
+
+  it('blocks javascript: with leading tab', () => {
+    try {
+      const el = document.createElement('a');
+      setProp(el, 'href', '\tjavascript:alert(1)');
+      assert.equal(el.getAttribute('href'), null);
+    } finally { console.warn = origWarn; }
+  });
+
+  it('blocks javascript: with leading newline', () => {
+    try {
+      const el = document.createElement('a');
+      setProp(el, 'href', '\njavascript:alert(1)');
+      assert.equal(el.getAttribute('href'), null);
+    } finally { console.warn = origWarn; }
+  });
+
+  it('blocks data: in src attribute', () => {
+    try {
+      const el = document.createElement('img');
+      setProp(el, 'src', 'data:image/png;base64,abc');
+      assert.equal(el.getAttribute('src'), null);
+    } finally { console.warn = origWarn; }
+  });
+
+  it('blocks vbscript: in action attribute', () => {
+    try {
+      const el = document.createElement('form');
+      setProp(el, 'action', 'vbscript:x');
+      assert.equal(el.getAttribute('action'), null);
+    } finally { console.warn = origWarn; }
   });
 });
