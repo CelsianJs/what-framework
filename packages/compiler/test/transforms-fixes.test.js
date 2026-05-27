@@ -387,11 +387,7 @@ describe('nested <Show> variable scoping', () => {
 // =====================================================
 
 describe('.map() inside conditional', () => {
-  it('map with key inside ternary is NOT lowered (known limitation)', () => {
-    // The compiler's .map() lowering only fires when the .map() CallExpression
-    // is a direct JSX expression child or wrapped in a single arrow. When
-    // nested inside a ternary, the visitor does not see through the conditional.
-    // This test documents the current behavior as a known limitation.
+  it('map with key inside ternary IS lowered to _$mapArray', () => {
     const code = compile(`
       function App() {
         const show = signal(true);
@@ -406,11 +402,42 @@ describe('.map() inside conditional', () => {
         );
       }
     `);
-    // Currently does NOT lower — falls back to raw .map() call.
-    assert.doesNotMatch(code, /_\$mapArray/,
-      '.map() inside ternary is not lowered (known limitation)');
-    // But the output still compiles and uses the items().map() directly.
-    assert.match(code, /items\(\)\.map/,
-      'raw .map() call is preserved in the output');
+    assert.match(code, /_\$mapArray/,
+      '.map() inside ternary consequent should be lowered');
+  });
+
+  it('map with key inside logical && IS lowered to _$mapArray', () => {
+    const code = compile(`
+      function App() {
+        const show = signal(true);
+        const items = signal([]);
+        return (
+          <div>
+            {() => show() && items().map(item => <li key={item.id}>{item.name}</li>)}
+          </div>
+        );
+      }
+    `);
+    assert.match(code, /_\$mapArray/,
+      '.map() inside logical && should be lowered');
+  });
+
+  it('non-map branch of ternary is preserved as-is', () => {
+    const code = compile(`
+      function App() {
+        const show = signal(true);
+        const items = signal([]);
+        return (
+          <div>
+            {() => show()
+              ? items().map(item => <li key={item.id}>{item.name}</li>)
+              : <p>No items</p>
+            }
+          </div>
+        );
+      }
+    `);
+    assert.match(code, /_\$mapArray/,
+      'map branch is lowered');
   });
 });

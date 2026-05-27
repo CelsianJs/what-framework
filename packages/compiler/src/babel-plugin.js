@@ -464,14 +464,51 @@ export default function whatBabelPlugin({ types: t }) {
   // --- Auto-lower .map() to mapArray ---
   // Detects: source().map((item) => <Comp key={expr} .../>)
   // or wrapped in an arrow: () => source().map(...)
+  // Also walks into ternary (cond ? a.map(...) : fallback) and
+  // logical (cond && a.map(...)) expressions so React-style
+  // conditional list patterns get keyed reconciliation.
   // Produces: _$mapArray(source, (item) => <Comp .../>, { key: item => expr })
   function tryLowerMapToMapArray(expr, state) {
     // Unwrap arrow function: () => source().map(...)
     let mapCall = expr;
-    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0 && t.isCallExpression(expr.body)) {
+    let wrappedInArrow = false;
+    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0) {
       mapCall = expr.body;
+      wrappedInArrow = true;
     }
 
+    // Walk into ternary: cond ? arr().map(...) : fallback
+    if (t.isConditionalExpression(mapCall)) {
+      const loweredCon = tryLowerMapCall(mapCall.consequent, state);
+      const loweredAlt = tryLowerMapCall(mapCall.alternate, state);
+      if (loweredCon || loweredAlt) {
+        const result = t.conditionalExpression(
+          mapCall.test,
+          loweredCon || mapCall.consequent,
+          loweredAlt || mapCall.alternate
+        );
+        return wrappedInArrow ? t.arrowFunctionExpression([], result) : result;
+      }
+      return null;
+    }
+
+    // Walk into logical: cond && arr().map(...)
+    if (t.isLogicalExpression(mapCall) && (mapCall.operator === '&&' || mapCall.operator === '||')) {
+      const loweredRight = tryLowerMapCall(mapCall.right, state);
+      if (loweredRight) {
+        const result = t.logicalExpression(mapCall.operator, mapCall.left, loweredRight);
+        return wrappedInArrow ? t.arrowFunctionExpression([], result) : result;
+      }
+      return null;
+    }
+
+    // Direct .map() call
+    const lowered = tryLowerMapCall(mapCall, state);
+    return lowered;
+  }
+
+  // Core .map() lowering — extracted so it can be called per-branch
+  function tryLowerMapCall(mapCall, state) {
     // Check: something.map(fn)
     if (!t.isCallExpression(mapCall)) return null;
     if (!t.isMemberExpression(mapCall.callee)) return null;
