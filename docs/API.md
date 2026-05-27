@@ -48,7 +48,9 @@ count.subscribe(fn);   // shorthand for effect(() => fn(count()))
 | `html\`...\`` | Tagged template vnode API |
 | `mount(vnode, container)` | Mount root vnode |
 
-> JSX is the only supported authoring format. The compiler transforms JSX into optimized DOM operations. There is no public `h()` function -- component instantiation is handled internally by the compiler and runtime.
+| `h(tag, props, ...children)` | Create vnodes directly (exported from core) |
+
+> JSX is the primary authoring format. The compiler transforms JSX into optimized DOM operations. `h()` is also exported for programmatic vnode creation and is used internally by the compiler.
 
 ### Fine-grained primitives
 

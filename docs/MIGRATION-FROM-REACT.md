@@ -417,5 +417,5 @@ React libraries that depend on React internals (`__SECRET_INTERNALS_DO_NOT_USE_O
 5. Remove all `React.memo()` wrappers (unnecessary with fine-grained updates)
 6. Wrap dynamic JSX expressions in `() =>` for reactive updates
 7. Replace `.map()` in JSX with `<For>` for keyed list rendering
-8. Replace `React.lazy` with `lazy` from what-core (same API)
-9. Update imports: `react` --> `what-core`
+8. Replace `React.lazy` with `lazy` from what-framework (same API)
+9. Update imports: `react` --> `what-framework`
