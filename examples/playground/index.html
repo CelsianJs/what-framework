@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>What Framework Playground</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div id="playground">
+    <header id="toolbar">
+      <div class="toolbar-left">
+        <h1>What Playground</h1>
+        <select id="example-select">
+          <option value="counter">Counter</option>
+          <option value="todo">Todo List</option>
+          <option value="effects">Reactive Effects</option>
+          <option value="computed">Computed Chain</option>
+          <option value="signals">Signal Demo</option>
+        </select>
+      </div>
+      <div class="toolbar-right">
+        <button id="run-btn" title="Run (Ctrl+Enter)">&#9654; Run</button>
+        <span class="status" id="status">Ready</span>
+      </div>
+    </header>
+    <main id="split">
+      <div id="editor-pane">
+        <div id="editor"></div>
+        <div id="errors"></div>
+      </div>
+      <div id="drag-handle"></div>
+      <div id="preview-pane">
+      </div>
+    </main>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

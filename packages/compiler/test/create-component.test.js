@@ -54,7 +54,7 @@ describe('Component compilation uses _$createComponent', () => {
     );
   });
 
-  it('emits _$createComponent for Show component', () => {
+  it('lowers <Show> to a fine-grained reactive arrow (no _$createComponent, no h)', () => {
     const code = `
       function App() {
         return <Show when={true}><p>visible</p></Show>;
@@ -62,14 +62,18 @@ describe('Component compilation uses _$createComponent', () => {
     `;
     const output = compile(code);
 
+    // Show is compiled to an inline arrow function returning a ternary,
+    // not a runtime component. This keeps the conditional fine-grained.
     assert.ok(
-      output.includes('_$createComponent'),
-      `Expected _$createComponent in output, got:\n${output}`
+      !output.includes('_$createComponent'),
+      `Expected no _$createComponent for <Show> (now compiled inline), got:\n${output}`
     );
     assert.ok(
       !output.includes('h(Show'),
       `Expected no h(Show) in output, got:\n${output}`
     );
+    // Must hoist the condition into a local to avoid double-evaluation
+    assert.match(output, /const\s+_v\w*\s*=/, 'should hoist when expression into a local');
   });
 
   it('imports _$createComponent from render module', () => {

@@ -85,9 +85,12 @@ export function createStore(definition) {
     computeds[key] = computed(() => fn(proxy));
   }
 
-  // Build action functions bound to signals
+  // Build action functions bound to signals.
+  // Actions may return a value (e.g. `addItem(): newId`) — propagate it
+  // through the batch() wrapper so callers can use the return value.
   for (const [key, fn] of Object.entries(actions)) {
     actions[key] = (...args) => {
+      let result;
       batch(() => {
         const proxy = new Proxy({}, {
           get(_, prop) {
@@ -101,8 +104,9 @@ export function createStore(definition) {
             return true;
           },
         });
-        fn.apply(proxy, args);
+        result = fn.apply(proxy, args);
       });
+      return result;
     };
   }
 

@@ -36,7 +36,7 @@ If you are an AI agent (Claude Code, Cursor, etc.), add the MCP servers for docu
 }
 ```
 
-This gives you 18 live debugging tools for inspecting signals, effects, components, DOM, and more.
+This gives you 29 live debugging tools for inspecting signals, effects, components, DOM, and more.
 
 And add the Vite plugin to your app:
 
@@ -58,21 +58,19 @@ Now you can inspect signals, effects, components, DOM, and cache at runtime. See
 ### Signals
 
 ```jsx
-import { useSignal } from 'what-framework';
+import { signal } from 'what-framework';
 
-const count = useSignal(0);
-count.set(1);
-count.set(c => c + 1);
+const count = signal(0, 'count');
+count(1);
+count(c => c + 1);
 ```
-
-Runtime compatibility: `count(1)` also works, but docs standardize on `.set(...)`.
 
 ### Derived Values
 
 ```jsx
-import { useComputed } from 'what-framework';
+import { computed } from 'what-framework';
 
-const doubled = useComputed(() => count() * 2);
+const doubled = computed(() => count() * 2);
 ```
 
 ### Events

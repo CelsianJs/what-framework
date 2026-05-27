@@ -51,19 +51,19 @@ Add to `.claude/mcp_servers.json` (Claude Code) or `.cursor/mcp.json` (Cursor).
 ## Example Component
 
 ```jsx
-import { mount, useSignal, useComputed } from 'what-framework';
+import { signal, computed, mount } from 'what-framework';
 
 function Counter() {
-  const count = useSignal(0);
-  const doubled = useComputed(() => count() * 2);
+  const count = signal(0, 'count');
+  const doubled = computed(() => count() * 2);
 
   return (
     <main>
       <h1>What Framework</h1>
       <p>Count: {count()}</p>
       <p>Doubled: {doubled()}</p>
-      <button onClick={() => count.set(c => c + 1)}>Increment</button>
-      <button onClick={() => count.set(0)}>Reset</button>
+      <button onClick={() => count(c => c + 1)}>Increment</button>
+      <button onClick={() => count(0)}>Reset</button>
     </main>
   );
 }
@@ -108,7 +108,7 @@ Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## MCP DevTools (AI Agent Debugging)
 
-What Framework ships an MCP server for AI-assisted development. 18 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
+What Framework ships an MCP server for AI-assisted development. 29 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
 
 ## React Compatibility
 

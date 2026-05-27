@@ -362,7 +362,7 @@ function isUnsafeUrlAttribute(key, val) {
   const normalizedKey = key.toLowerCase();
   if (!URL_ATTRS.has(normalizedKey)) return false;
   const normalizedValue = String(val).trim().replace(/[\u0000-\u001f\u007f\s]+/g, '').toLowerCase();
-  return normalizedValue.startsWith('javascript:') || normalizedValue.startsWith('vbscript:');
+  return normalizedValue.startsWith('javascript:') || normalizedValue.startsWith('vbscript:') || normalizedValue.startsWith('data:');
 }
 
 const URL_ATTRS = new Set([

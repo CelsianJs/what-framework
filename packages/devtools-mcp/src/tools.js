@@ -126,6 +126,7 @@ export function registerTools(server, bridge) {
           { name: 'what_signal_trace', desc: 'Why did a signal change? Causal chain.' },
           { name: 'what_dependency_graph', desc: 'Reactive dependency graph' },
           { name: 'what_watch', desc: 'Observe events over a time window' },
+          { name: 'what_record_window', desc: 'Rank effects that re-ran during a recording window — what fired for this action?' },
           { name: 'what_set_signal', desc: 'Change a signal value in the live app' },
           { name: 'what_lint', desc: 'Static analysis for code (no browser needed)' },
           { name: 'what_scaffold', desc: 'Generate boilerplate (no browser needed)' },
@@ -285,7 +286,7 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_components',
-    'List all mounted What Framework components',
+    'List all mounted What Framework components. Component IDs are ephemeral — they change on mount/unmount (view switches, conditional rendering, filters). Re-query this tool after any operation that may have remounted before using returned IDs.',
     {
       filter: z.string().optional().describe('Regex pattern to filter component names'),
     },
@@ -476,19 +477,28 @@ export function registerTools(server, bridge) {
       if (!bridge.isConnected()) return noConnection('what_errors');
       let errors = bridge.getErrors(since);
 
+      // Build a name->component lookup so we can attribute errors to a
+      // mounted component when the stack references one. Re-fetched each call
+      // because component IDs are ephemeral (mount/unmount cycles).
+      const knownComponents = (bridge.getSnapshot()?.components || [])
+        .map(c => ({ id: c.id, name: c.name }))
+        .filter(c => c.name && /^[A-Z]/.test(c.name));
+
       // Classify each error with structured codes and suggestions
       const classified = errors.map((err, idx) => {
         const msg = err.message || err.error || '';
+        const parsed = parseStack(err.stack, knownComponents);
         let classification = {
           id: `err_${idx}`,
           severity: 'error',
           code: 'ERR_RUNTIME',
           message: msg,
           timestamp: err.timestamp,
-          file: err.file || null,
-          line: err.line || null,
-          component: err.component || null,
-          suggestion: 'Check the stack trace and component context for more details.',
+          file: err.file || parsed.file || null,
+          line: err.line || parsed.line || null,
+          column: parsed.column || null,
+          component: err.component || parsed.component || null,
+          suggestion: inferSuggestion(msg),
           codeExample: null,
         };
 
@@ -612,12 +622,14 @@ export function registerTools(server, bridge) {
     'Set a signal value in the running app. Returns previous and new values.',
     {
       signalId: z.number().describe('The signal ID to update (from what_signals)'),
-      value: z.any().describe('The new value to set (JSON-compatible)'),
+      value: z.any().describe('The new value to set (JSON-compatible). Note: string values that look like numbers/booleans/JSON are auto-parsed (e.g. "42" becomes 42). Set rawString: true to keep the literal string.'),
+      rawString: z.boolean().optional().describe('When true, skip auto-coercion and write the value as-is (useful for string values like "42" that would otherwise be parsed as numbers)'),
     },
-    async ({ signalId, value }) => {
+    async ({ signalId, value, rawString }) => {
       if (!bridge.isConnected()) return noConnection('what_set_signal');
       try {
-        const result = await bridge.sendCommand('set-signal', { signalId, value });
+        const parsedValue = rawString ? value : coerceJsonValue(value);
+        const result = await bridge.sendCommand('set-signal', { signalId, value: parsedValue });
         if (result.error) return error(result.error);
 
         const summary = `Signal ${signalId} updated. Previous: ${JSON.stringify(result.previousValue)}, New: ${JSON.stringify(result.newValue ?? value)}`;
@@ -756,4 +768,148 @@ function error(message) {
     content: [{ type: 'text', text: JSON.stringify({ error: message }, null, 2) }],
     isError: true,
   };
+}
+
+/**
+ * Parse a JS error stack trace and extract:
+ *   - file/line/column of the topmost USER frame (skipping framework internals)
+ *   - component name matched against the live components registry
+ *
+ * Stack formats vary by engine. We handle V8/Chrome (the only target since
+ * the app runs in a browser):
+ *   "    at FunctionName (file.js:12:34)"
+ *   "    at file.js:12:34"
+ *
+ * Frames are skipped if they reference framework internals (what-framework,
+ * what-core, what-devtools, node_modules, vite/, /@id/, internal anonymous).
+ */
+function parseStack(stack, knownComponents = []) {
+  const out = { file: null, line: null, column: null, component: null };
+  if (!stack || typeof stack !== 'string') return out;
+
+  const lines = stack.split('\n');
+  const skipPatterns = [
+    /what-framework/,
+    /what-core/,
+    /what-devtools/,
+    /node_modules/,
+    /\/vite\//,
+    /\/@id\//,
+    /<anonymous>/,
+    /^Error[: ]/,
+  ];
+
+  const knownNames = new Set(knownComponents.map(c => c.name));
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line.startsWith('at ')) continue;
+
+    // Try to match: at FunctionName (path:line:col)  OR  at path:line:col
+    const withFn = line.match(/^at\s+(.+?)\s+\((.+):(\d+):(\d+)\)$/);
+    const noFn = line.match(/^at\s+(.+):(\d+):(\d+)$/);
+
+    const fnName = withFn ? withFn[1] : null;
+    const path = withFn ? withFn[2] : noFn ? noFn[1] : null;
+    const ln = withFn ? Number(withFn[3]) : noFn ? Number(noFn[2]) : null;
+    const col = withFn ? Number(withFn[4]) : noFn ? Number(noFn[3]) : null;
+
+    if (!path) continue;
+
+    // Match component name from function frame against known components.
+    // Pulls out just the bare identifier, e.g. "TaskList" from "Object.TaskList"
+    // or "TaskList.handleClick".
+    if (!out.component && fnName) {
+      const tokens = fnName.split(/[.\s]/);
+      for (const tok of tokens) {
+        if (knownNames.has(tok)) { out.component = tok; break; }
+      }
+    }
+
+    // First non-skipped frame wins for file/line/column.
+    if (out.file == null) {
+      const skip = skipPatterns.some(re => re.test(path));
+      if (!skip) {
+        out.file = path;
+        out.line = ln;
+        out.column = col;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Infer a more specific suggestion from a runtime error message before any
+ * pattern-specific overrides apply. Catches common JS mistakes that the
+ * What-Framework-specific pattern matchers below don't cover.
+ */
+function inferSuggestion(msg) {
+  if (!msg) return 'Check the stack trace and component context for more details.';
+  // ReferenceError
+  if (/is not defined$/.test(msg)) {
+    const m = msg.match(/^(\w+) is not defined/);
+    const name = m?.[1] || 'identifier';
+    return `'${name}' is referenced before it is declared/imported. Check for a missing import or a typo. If it's a hook value, ensure the binding is in scope.`;
+  }
+  // TypeError: ... is not a function
+  if (/is not a function$/.test(msg)) {
+    const m = msg.match(/^(.+?) is not a function/);
+    const name = m?.[1] || 'value';
+    return `'${name}' is not callable. Common causes: a signal-returning value used like a non-signal, an undefined import, or a typo in the name. If '${name}' is a signal, you must call it with () to read its value.`;
+  }
+  // Cannot read properties of undefined/null
+  if (/Cannot read propert(?:y|ies) of (undefined|null)/.test(msg)) {
+    const m = msg.match(/Cannot read propert(?:y|ies) of (undefined|null) \(reading '(.+?)'\)/);
+    if (m) {
+      return `Tried to read '.${m[2]}' on ${m[1]}. Guard the access (e.g. \`value?.${m[2]}\`), or ensure the signal/prop has been initialised before this code runs.`;
+    }
+    return 'Tried to access a property on undefined/null. Add an optional-chain (`?.`) or null-check before the access.';
+  }
+  // Maximum call stack
+  if (/Maximum call stack/.test(msg)) {
+    return 'Infinite recursion detected. Usually an effect writes to a signal it reads — wrap the read in untrack(), or move the write into a different effect.';
+  }
+  // Assignment to constant variable
+  if (/Assignment to constant variable/.test(msg)) {
+    return 'Tried to reassign a `const`. Signals are constants — to update them, call them as functions: `mySignal(newValue)`, not `mySignal = newValue`.';
+  }
+  return 'Check the stack trace and component context for more details.';
+}
+
+/**
+ * Coerce a possibly-stringified JSON value into its native form.
+ *
+ * Agents and some MCP clients pass complex values as JSON-encoded strings
+ * (e.g. `'[{"id":1}]'` instead of `[{id: 1}]`). Without this, the receiver
+ * would store the literal string and downstream iteration/rendering breaks
+ * (mapArray iterates the string's chars, signals hold "42" instead of 42).
+ *
+ * Heuristic: only parse strings whose first non-whitespace char is one of
+ * `{ [ " t f n -` or 0-9. We intentionally do NOT parse arbitrary string
+ * content like "hello" because users may legitimately want to set a string
+ * value. Quoted JSON strings like `'"hello"'` and `'true'` etc are detected
+ * by JSON.parse succeeding on them; if the parse changes the type
+ * meaningfully (object/array/boolean/number/null), we accept it. For plain
+ * string content (`hello`), JSON.parse fails and we keep the original.
+ */
+function coerceJsonValue(value) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return value;
+  const first = trimmed[0];
+  const looksLikeJson =
+    first === '{' || first === '[' || first === '"' ||
+    first === 't' || first === 'f' || first === 'n' ||
+    first === '-' || (first >= '0' && first <= '9');
+  if (!looksLikeJson) return value;
+  try {
+    const parsed = JSON.parse(trimmed);
+    // Only accept the parse if it changes the type to a non-string — keeps
+    // user-supplied strings intact while catching double-stringified payloads.
+    if (typeof parsed !== 'string') return parsed;
+    return value;
+  } catch {
+    return value;
+  }
 }

@@ -365,6 +365,37 @@ function _createItemScope(fn) {
     currentOwner = prevOwner;
   }
 }
+if (__DEV__ && typeof WeakRef !== "undefined") {
+  const PREINSTALL_CAP = 2e3;
+  const buffer = { signals: /* @__PURE__ */ new Set(), effects: /* @__PURE__ */ new Set(), components: [] };
+  __devtools = {
+    __isPreinstallBuffer: true,
+    onSignalCreate(sig) {
+      if (buffer.signals.size < PREINSTALL_CAP) buffer.signals.add(new WeakRef(sig));
+    },
+    onSignalUpdate() {
+    },
+    onEffectCreate(e) {
+      if (buffer.effects.size < PREINSTALL_CAP) buffer.effects.add(new WeakRef(e));
+    },
+    onEffectDispose() {
+    },
+    onEffectRun() {
+    },
+    onError() {
+    },
+    onComponentMount(ctx) {
+      if (buffer.components.length < PREINSTALL_CAP) buffer.components.push(ctx);
+    },
+    onComponentUnmount() {
+    },
+    __buffer: buffer
+  };
+}
+var __preinstallSnapshot = null;
+if (__DEV__ && __devtools?.__isPreinstallBuffer) {
+  __preinstallSnapshot = __devtools.__buffer;
+}
 
 // packages/core/src/components.js
 var _getCurrentComponent = null;
@@ -580,7 +611,10 @@ function createDOM(vnode, parent, isSvg) {
   if (isVNode(vnode) && typeof vnode.tag === "function") {
     return createComponent(vnode, parent, isSvg);
   }
-  if (isVNode(vnode)) {
+  if (isVNode(vnode) && typeof vnode.tag === "string") {
+    if (vnode.tag === "__errorBoundary") return createErrorBoundary(vnode, parent);
+    if (vnode.tag === "__suspense") return createSuspenseBoundary(vnode, parent);
+    if (vnode.tag === "__portal") return createPortalDOM(vnode, parent);
     return createElementFromVNode(vnode, parent, isSvg);
   }
   return document.createTextNode(String(vnode));
@@ -683,7 +717,7 @@ function createComponent(vnode, parent, isSvg) {
   componentStack.push(ctx);
   let result;
   try {
-    result = Component(reactiveProps);
+    result = untrack(() => Component(reactiveProps));
   } catch (error) {
     componentStack.pop();
     if (!reportError(error, ctx)) {
@@ -881,6 +915,14 @@ function applyProps(el, newProps, oldProps, isSvg) {
     setProp(el, key, newProps[key], isSvg);
   }
 }
+function _setSelectValue(el, value) {
+  el.value = value;
+  if (el.value !== String(value)) {
+    queueMicrotask(() => {
+      el.value = value;
+    });
+  }
+}
 function setProp(el, key, value, isSvg) {
   if (typeof value === "function" && !(key.startsWith("on") && key.length > 2) && key !== "ref") {
     if (!el._propEffects) el._propEffects = {};
@@ -978,6 +1020,10 @@ function setProp(el, key, value, isSvg) {
     } else {
       el.setAttribute(key, value === true ? "" : String(value));
     }
+    return;
+  }
+  if (key === "value" && el.tagName === "SELECT") {
+    _setSelectValue(el, value);
     return;
   }
   if (key in el) {
@@ -1118,6 +1164,9 @@ function svgTemplate(html) {
   return () => t.content.firstChild.firstChild.cloneNode(true);
 }
 function insert(parent, child, marker) {
+  if (typeof child === "function" && child._mapArray) {
+    return child(parent, marker || null);
+  }
   if (typeof child === "function") {
     const first = child();
     const t = typeof first;
@@ -1143,7 +1192,7 @@ function insert(parent, child, marker) {
       });
       return textNode;
     }
-    let current = first != null ? reconcileInsert(parent, first, null, marker || null) : null;
+    let current = null;
     effect(() => {
       current = reconcileInsert(parent, child(), current, marker || null);
     });
@@ -1186,12 +1235,23 @@ function valuesToNodes(value, parent, out) {
     }
     return out;
   }
+  if (typeof value === "function") {
+    valuesToNodes(value(), parent, out);
+    return out;
+  }
   if (typeof value === "string" || typeof value === "number") {
     out.push(document.createTextNode(String(value)));
     return out;
   }
   if (isDomNode2(value)) {
-    out.push(value);
+    if (value.nodeType === 11 && value.childNodes.length > 0) {
+      const children = Array.from(value.childNodes);
+      for (let i = 0; i < children.length; i++) {
+        out.push(children[i]);
+      }
+    } else {
+      out.push(value);
+    }
     return out;
   }
   if (isVNode2(value)) {
@@ -1282,7 +1342,7 @@ function reconcileInsert(parent, value, current, marker) {
 function mapArray(source, mapFn, options) {
   const keyFn = options?.key;
   const raw = options?.raw || false;
-  return (parent, marker) => {
+  const inserter = (parent, marker) => {
     let items = [];
     let mappedNodes = [];
     let disposeFns = [];
@@ -1300,6 +1360,8 @@ function mapArray(source, mapFn, options) {
     });
     return endMarker;
   };
+  inserter._mapArray = true;
+  return inserter;
 }
 function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, disposeFns, mapFn) {
   const newLen = newItems.length;
@@ -1503,6 +1565,45 @@ function _lis(arr, len) {
   }
   return result;
 }
+function _createItemMarker() {
+  return document.createComment("i");
+}
+function _moveItem(parent, marker, beforeEnd, ref) {
+  let n = marker;
+  while (n && n !== beforeEnd) {
+    const next = n.nextSibling;
+    parent.insertBefore(n, ref);
+    n = next;
+  }
+}
+function _removeItemNodes(parent, marker, beforeEnd) {
+  let n = marker;
+  while (n && n !== beforeEnd) {
+    const next = n.nextSibling;
+    if (n._componentCtx || n._dispose || n._propEffects) disposeTree(n);
+    parent.removeChild(n);
+    n = next;
+  }
+}
+function _createKeyedItem(target, item, idx, keyFn, keyedState, mapFn, mappedArr, disposeArr, signal_) {
+  let accessor;
+  if (keyedState) {
+    const key = keyFn(item);
+    const itemSig = signal_(item);
+    accessor = itemSig;
+    keyedState.set(key, { itemSig });
+  } else {
+    accessor = item;
+  }
+  const marker = _createItemMarker();
+  target.appendChild(marker);
+  const result = _createItemScope((dispose) => {
+    disposeArr[idx] = dispose;
+    return mapFn(accessor, idx);
+  });
+  target.appendChild(result);
+  mappedArr[idx] = marker;
+}
 function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedState) {
   const newLen = newItems.length;
   const oldLen = oldItems.length;
@@ -1511,14 +1612,8 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       for (let i = 0; i < oldLen; i++) {
         if (disposeFns[i]) disposeFns[i]();
       }
-      for (let i = oldLen - 1; i >= 0; i--) {
-        const node = mappedNodes[i];
-        if (node) {
-          if (node._componentCtx || node._dispose || node._propEffects) {
-            disposeTree(node);
-          }
-          if (node.parentNode === parent) parent.removeChild(node);
-        }
+      if (mappedNodes[0]) {
+        _removeItemNodes(parent, mappedNodes[0], endMarker);
       }
       mappedNodes.length = 0;
       disposeFns.length = 0;
@@ -1529,23 +1624,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   if (oldLen === 0) {
     const frag = document.createDocumentFragment();
     for (let i = 0; i < newLen; i++) {
-      const item = newItems[i];
-      const idx = i;
-      let accessor;
-      if (keyedState) {
-        const key = keyFn(item);
-        const itemSig = signal(item);
-        accessor = itemSig;
-        keyedState.set(key, { itemSig });
-      } else {
-        accessor = item;
-      }
-      const node = _createItemScope((dispose) => {
-        disposeFns[idx] = dispose;
-        return mapFn(accessor, idx);
-      });
-      mappedNodes[i] = node;
-      frag.appendChild(node);
+      _createKeyedItem(frag, newItems[i], i, keyFn, keyedState, mapFn, mappedNodes, disposeFns, signal);
     }
     parent.insertBefore(frag, endMarker);
     return;
@@ -1578,9 +1657,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     oldEnd--;
     newEnd--;
   }
-  if (start > oldEnd && start > newEnd) {
-    return;
-  }
+  if (start > oldEnd && start > newEnd) return;
   const newMapped = new Array(newLen);
   const newDispose = new Array(newLen);
   for (let i = 0; i < start; i++) {
@@ -1595,34 +1672,20 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   const midNewLen = newEnd - start + 1;
   const midOldLen = oldEnd - start + 1;
   if (midOldLen === 0) {
-    const marker = newEnd + 1 < newLen && newMapped[newEnd + 1] ? newMapped[newEnd + 1] : endMarker;
+    const ref2 = newEnd + 1 < newLen && newMapped[newEnd + 1] ? newMapped[newEnd + 1] : endMarker;
     const frag = document.createDocumentFragment();
     for (let i = start; i <= newEnd; i++) {
-      const item = newItems[i];
-      const idx = i;
-      let accessor;
-      if (keyedState) {
-        const key = keyFn(item);
-        const itemSig = signal(item);
-        accessor = itemSig;
-        keyedState.set(key, { itemSig });
-      } else {
-        accessor = item;
-      }
-      newMapped[i] = _createItemScope((dispose) => {
-        newDispose[idx] = dispose;
-        return mapFn(accessor, idx);
-      });
-      frag.appendChild(newMapped[i]);
+      _createKeyedItem(frag, newItems[i], i, keyFn, keyedState, mapFn, newMapped, newDispose, signal);
     }
-    parent.insertBefore(frag, marker);
+    parent.insertBefore(frag, ref2);
     _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
     return;
   }
   if (midNewLen === 0) {
     for (let i = start; i <= oldEnd; i++) {
       disposeFns[i]?.();
-      if (mappedNodes[i]?.parentNode) parent.removeChild(mappedNodes[i]);
+      const rangeEnd = _findNextMarkerAfter(parent, mappedNodes[i], mappedNodes, i, endMarker);
+      _removeItemNodes(parent, mappedNodes[i], rangeEnd);
       if (keyedState) keyedState.delete(keyFn(oldItems[i]));
     }
     _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
@@ -1647,28 +1710,18 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       }
     }
   }
-  for (const [key, oldIdx] of oldKeyMap) {
+  const removedIndices = [...oldKeyMap.values()].sort((a, b) => b - a);
+  for (const oldIdx of removedIndices) {
     disposeFns[oldIdx]?.();
-    if (mappedNodes[oldIdx]?.parentNode) parent.removeChild(mappedNodes[oldIdx]);
-    if (keyedState) keyedState.delete(key);
+    const rangeEnd = _findNextMarkerAfter(parent, mappedNodes[oldIdx], mappedNodes, oldIdx, endMarker);
+    _removeItemNodes(parent, mappedNodes[oldIdx], rangeEnd);
+    if (keyedState) keyedState.delete(keyFn(oldItems[oldIdx]));
   }
   for (let i = start; i <= newEnd; i++) {
     if (!newMapped[i]) {
-      const item = newItems[i];
-      const idx = i;
-      let accessor;
-      if (keyedState) {
-        const key = keyFn(item);
-        const itemSig = signal(item);
-        accessor = itemSig;
-        keyedState.set(key, { itemSig });
-      } else {
-        accessor = item;
-      }
-      newMapped[i] = _createItemScope((dispose) => {
-        newDispose[idx] = dispose;
-        return mapFn(accessor, idx);
-      });
+      const frag = document.createDocumentFragment();
+      _createKeyedItem(frag, newItems[i], i, keyFn, keyedState, mapFn, newMapped, newDispose, signal);
+      newMapped[i]._frag = frag;
     }
   }
   let reusedCount = 0;
@@ -1709,16 +1762,30 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       }
     }
   }
-  let nextSibling = newEnd + 1 < newMapped.length && newMapped[newEnd + 1] ? newMapped[newEnd + 1] : endMarker;
+  _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
+  let ref = endMarker;
   for (let i = newEnd; i >= start; i--) {
     const mi = i - start;
-    if (oldIndices[mi] === -1 || !inLIS[mi]) {
-      if (nextSibling && nextSibling.parentNode !== parent) nextSibling = endMarker;
-      parent.insertBefore(newMapped[i], nextSibling);
+    const marker = mappedNodes[i];
+    if (oldIndices[mi] === -1) {
+      if (marker._frag) {
+        parent.insertBefore(marker._frag, ref);
+        delete marker._frag;
+      }
+    } else if (!inLIS[mi]) {
+      const nextItemMarker = _findNextMarkerAfter(parent, marker, mappedNodes, i, endMarker);
+      _moveItem(parent, marker, nextItemMarker, ref);
     }
-    nextSibling = newMapped[i];
+    ref = marker;
   }
-  _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
+}
+function _findNextMarkerAfter(parent, marker, mappedNodes, idx, endMarker) {
+  let n = marker.nextSibling;
+  while (n && n !== endMarker) {
+    if (n.nodeType === 8 && n.data === "i") return n;
+    n = n.nextSibling;
+  }
+  return endMarker;
 }
 function _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen) {
   mappedNodes.length = newLen;
@@ -1737,19 +1804,28 @@ function spread(el, props) {
       continue;
     }
     if (typeof value === "function" && !key.startsWith("on")) {
+      if (!el._propEffects) el._propEffects = {};
+      if (el._propEffects[key]) {
+        try {
+          el._propEffects[key]();
+        } catch (e) {
+        }
+      }
       if (key === "class" || key === "className") {
-        effect(() => {
-          el.className = value() || "";
+        el._propEffects[key] = effect(() => {
+          const cls = value() || "";
+          if (_hasSVGElement && el instanceof SVGElement) el.setAttribute("class", cls);
+          else el.className = cls;
         });
       } else if (key === "style" && typeof value() === "object") {
-        effect(() => {
+        el._propEffects[key] = effect(() => {
           const styles = value();
           for (const prop in styles) {
             el.style[prop] = styles[prop] ?? "";
           }
         });
       } else {
-        effect(() => {
+        el._propEffects[key] = effect(() => {
           setProp2(el, key, value());
         });
       }
@@ -1765,6 +1841,17 @@ function setProp2(el, key, value) {
     return;
   }
   if (key === "key") return;
+  if (typeof value === "function" && !key.startsWith("on")) {
+    if (!el._propEffects) el._propEffects = {};
+    if (el._propEffects[key]) {
+      try {
+        el._propEffects[key]();
+      } catch (e) {
+      }
+    }
+    el._propEffects[key] = effect(() => setProp2(el, key, value()));
+    return;
+  }
   if (URL_ATTRS.has(key) || URL_ATTRS.has(key.toLowerCase())) {
     if (!isSafeUrl(value)) {
       if (typeof console !== "undefined") {
@@ -1773,8 +1860,13 @@ function setProp2(el, key, value) {
       return;
     }
   }
+  const isSvg = _hasSVGElement && el instanceof SVGElement;
   if (key === "class" || key === "className") {
-    el.className = value || "";
+    if (isSvg) {
+      el.setAttribute("class", value || "");
+    } else {
+      el.className = value || "";
+    }
   } else if (key === "dangerouslySetInnerHTML") {
     el.innerHTML = value?.__html ?? "";
   } else if (key === "innerHTML") {
@@ -1800,6 +1892,10 @@ function setProp2(el, key, value) {
   } else if (typeof value === "boolean") {
     if (value) el.setAttribute(key, "");
     else el.removeAttribute(key);
+  } else if (isSvg) {
+    el.setAttribute(key, value);
+  } else if (key === "value" && el.tagName === "SELECT") {
+    _setSelectValue(el, value);
   } else if (key in el) {
     el[key] = value;
   } else {

@@ -103,7 +103,7 @@ bench('innerHTML patch path', () => {
   const container = getContainer();
 
   function App() {
-    return h('div', { id: 'x', innerHTML: html() });
+    return h('div', { id: 'x', innerHTML: { __html: html() } });
   }
 
   const stop = mount(h(App), container);

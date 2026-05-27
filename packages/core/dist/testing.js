@@ -392,6 +392,37 @@ function _disposeRoot(root) {
   }
   root.disposals.length = 0;
 }
+if (__DEV__ && typeof WeakRef !== "undefined") {
+  const PREINSTALL_CAP = 2e3;
+  const buffer = { signals: /* @__PURE__ */ new Set(), effects: /* @__PURE__ */ new Set(), components: [] };
+  __devtools = {
+    __isPreinstallBuffer: true,
+    onSignalCreate(sig) {
+      if (buffer.signals.size < PREINSTALL_CAP) buffer.signals.add(new WeakRef(sig));
+    },
+    onSignalUpdate() {
+    },
+    onEffectCreate(e) {
+      if (buffer.effects.size < PREINSTALL_CAP) buffer.effects.add(new WeakRef(e));
+    },
+    onEffectDispose() {
+    },
+    onEffectRun() {
+    },
+    onError() {
+    },
+    onComponentMount(ctx) {
+      if (buffer.components.length < PREINSTALL_CAP) buffer.components.push(ctx);
+    },
+    onComponentUnmount() {
+    },
+    __buffer: buffer
+  };
+}
+var __preinstallSnapshot = null;
+if (__DEV__ && __devtools?.__isPreinstallBuffer) {
+  __preinstallSnapshot = __devtools.__buffer;
+}
 
 // packages/core/src/h.js
 var EMPTY_OBJ = /* @__PURE__ */ Object.create(null);
@@ -425,7 +456,10 @@ function _flattenSingle(child) {
     _flattenInto(child, out);
     return out;
   }
-  if (typeof child === "object" && child._vnode) return [child];
+  if (typeof child === "object") {
+    if (child._vnode) return [child];
+    if (typeof child.nodeType === "number") return [child];
+  }
   if (typeof child === "function") return [child];
   return [String(child)];
 }
@@ -435,8 +469,14 @@ function _flattenInto(child, out) {
     for (let i = 0; i < child.length; i++) {
       _flattenInto(child[i], out);
     }
-  } else if (typeof child === "object" && child._vnode) {
-    out.push(child);
+  } else if (typeof child === "object") {
+    if (child._vnode) {
+      out.push(child);
+    } else if (typeof child.nodeType === "number") {
+      out.push(child);
+    } else {
+      out.push(String(child));
+    }
   } else if (typeof child === "function") {
     out.push(child);
   } else {
@@ -671,7 +711,10 @@ function createDOM(vnode, parent, isSvg) {
   if (isVNode(vnode) && typeof vnode.tag === "function") {
     return createComponent(vnode, parent, isSvg);
   }
-  if (isVNode(vnode)) {
+  if (isVNode(vnode) && typeof vnode.tag === "string") {
+    if (vnode.tag === "__errorBoundary") return createErrorBoundary(vnode, parent);
+    if (vnode.tag === "__suspense") return createSuspenseBoundary(vnode, parent);
+    if (vnode.tag === "__portal") return createPortalDOM(vnode, parent);
     return createElementFromVNode(vnode, parent, isSvg);
   }
   return document.createTextNode(String(vnode));
@@ -771,7 +814,7 @@ function createComponent(vnode, parent, isSvg) {
   componentStack.push(ctx);
   let result;
   try {
-    result = Component(reactiveProps);
+    result = untrack(() => Component(reactiveProps));
   } catch (error) {
     componentStack.pop();
     if (!reportError(error, ctx)) {
@@ -969,6 +1012,14 @@ function applyProps(el, newProps, oldProps, isSvg) {
     setProp(el, key, newProps[key], isSvg);
   }
 }
+function _setSelectValue(el, value) {
+  el.value = value;
+  if (el.value !== String(value)) {
+    queueMicrotask(() => {
+      el.value = value;
+    });
+  }
+}
 function setProp(el, key, value, isSvg) {
   if (typeof value === "function" && !(key.startsWith("on") && key.length > 2) && key !== "ref") {
     if (!el._propEffects) el._propEffects = {};
@@ -1066,6 +1117,10 @@ function setProp(el, key, value, isSvg) {
     } else {
       el.setAttribute(key, value === true ? "" : String(value));
     }
+    return;
+  }
+  if (key === "value" && el.tagName === "SELECT") {
+    _setSelectValue(el, value);
     return;
   }
   if (key in el) {

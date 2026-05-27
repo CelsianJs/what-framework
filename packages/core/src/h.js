@@ -51,7 +51,12 @@ function _flattenSingle(child) {
     _flattenInto(child, out);
     return out;
   }
-  if (typeof child === 'object' && child._vnode) return [child];
+  if (typeof child === 'object') {
+    if (child._vnode) return [child];
+    // Preserve DOM nodes (HTMLElement, Text, DocumentFragment, etc.) — they
+    // can flow through component composition when JSX is pre-realized.
+    if (typeof child.nodeType === 'number') return [child];
+  }
   if (typeof child === 'function') return [child];
   return [String(child)];
 }
@@ -63,8 +68,15 @@ function _flattenInto(child, out) {
     for (let i = 0; i < child.length; i++) {
       _flattenInto(child[i], out);
     }
-  } else if (typeof child === 'object' && child._vnode) {
-    out.push(child);
+  } else if (typeof child === 'object') {
+    if (child._vnode) {
+      out.push(child);
+    } else if (typeof child.nodeType === 'number') {
+      // DOM node: preserve as-is so insert() can attach it directly.
+      out.push(child);
+    } else {
+      out.push(String(child));
+    }
   } else if (typeof child === 'function') {
     out.push(child);
   } else {

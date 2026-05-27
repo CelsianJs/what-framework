@@ -133,12 +133,14 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       // Allow safe read-only expressions without the unsafe flag
       const code = (args.code || '').trim();
-      const isSafeRead = /^[\w.[\]'"]+$/.test(code) || // property access: document.title, window.innerWidth
-        /^typeof\s+\w+/.test(code) || // typeof checks
-        /^document\.(title|URL|readyState|visibilityState|characterSet|contentType)$/.test(code) ||
-        /^window\.(innerWidth|innerHeight|devicePixelRatio|screen\.\w+)$/.test(code) ||
-        /^navigator\.\w+$/.test(code) ||
-        /^location\.\w+$/.test(code);
+      // Strict safe-read: only allow dotted property access on known safe globals.
+      const SAFE_GLOBALS = new Set(['document', 'window', 'navigator', 'location', 'screen', 'performance', 'console']);
+      const segments = code.split('.');
+      const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+      const PROTO_DENYLIST = new Set(['constructor', 'prototype', '__proto__']);
+      const isSafeRead = segments.length >= 2 &&
+        SAFE_GLOBALS.has(segments[0]) &&
+        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s));
 
       if (!evalEnabled && !isSafeRead) {
         return {
@@ -291,6 +293,14 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       if (!path) {
         return { error: 'No path provided' };
+      }
+
+      // Validate URL — reject dangerous protocols (server-side + browser-side defense)
+      const trimmedPath = String(path).trim();
+      const normalizedUrl = trimmedPath.replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+      const isRelativePath = /^[/.#?]/.test(trimmedPath) || !trimmedPath.includes(':');
+      if (!isRelativePath && !/^https?:/.test(normalizedUrl)) {
+        return { error: `Blocked navigation to unsafe URL: "${path}"` };
       }
 
       try {
@@ -539,14 +549,26 @@ export async function handleExtendedCommand(command, args, devtools) {
     // page-map — Structured map of the entire visible page
     // -------------------------------------------------------------------------
     case 'page-map': {
+      // Each category gets its own budget so a page with many landmarks
+      // doesn't starve out headings or components. Previous behaviour shared
+      // one `count` across all sections — a page with >maxElements landmarks
+      // returned headings: [] and components: [], which agents read as
+      // "the page has no headings / no components".
       const maxElements = args?.maxElements || 200;
-      let count = 0;
+      const perCategory = Math.max(50, Math.floor(maxElements / 2));
+
+      function rectOf(el) {
+        // Comment nodes / detached nodes have no rect; element walk handles that.
+        if (!el || el.nodeType !== 1) return { x: 0, y: 0, w: 0, h: 0 };
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+      }
 
       // Landmarks
       const landmarks = [];
       const landmarkEls = document.querySelectorAll('[role], header, footer, nav, main, aside, section, article');
       for (const el of landmarkEls) {
-        if (count >= maxElements) break;
+        if (landmarks.length >= perCategory) break;
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) continue;
         landmarks.push({
@@ -554,16 +576,15 @@ export async function handleExtendedCommand(command, args, devtools) {
           role: el.getAttribute('role') || undefined,
           id: el.id || undefined,
           text: (el.textContent || '').trim().substring(0, 50),
-          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+          rect: rectOf(el),
         });
-        count++;
       }
 
       // Interactive elements
       const interactives = [];
       const interactiveEls = document.querySelectorAll('button, a[href], input, select, textarea, [role=button], [role=link], [contenteditable]');
       for (const el of interactiveEls) {
-        if (count >= maxElements) break;
+        if (interactives.length >= perCategory) break;
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) continue;
         const label = el.getAttribute('aria-label') || el.textContent?.trim().substring(0, 40) || el.getAttribute('placeholder') || el.getAttribute('name') || '';
@@ -572,39 +593,41 @@ export async function handleExtendedCommand(command, args, devtools) {
           type: el.getAttribute('type') || undefined,
           label: label || '(unlabeled)',
           disabled: el.disabled || undefined,
-          rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+          rect: rectOf(el),
         });
-        count++;
       }
 
-      // Headings
+      // Headings — heading lists are nearly always small so we don't gate
+      // on visibility (some agents use display:none headings for SR-only nav).
       const headings = [];
       const headingEls = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
       for (const el of headingEls) {
-        if (count >= maxElements) break;
+        if (headings.length >= perCategory) break;
+        const text = (el.textContent || '').trim().substring(0, 80);
+        if (!text) continue; // skip truly empty headings
         headings.push({
-          level: parseInt(el.tagName[1]),
-          text: (el.textContent || '').trim().substring(0, 80),
+          level: parseInt(el.tagName[1], 10),
+          text,
+          id: el.id || undefined,
         });
-        count++;
       }
 
-      // WhatFW component boundaries
+      // WhatFW component boundaries. Comment-node boundaries have no
+      // dimensions, so a strict zero-rect check was filtering everything
+      // out. Walk the registry once and emit every component, using the
+      // resolved element's rect when available.
       const components = [];
       const registries = devtools?._registries;
       if (registries?.components) {
         for (const [id, entry] of registries.components) {
-          if (count >= maxElements) break;
+          if (components.length >= perCategory) break;
           const compEl = getComponentElement(entry);
-          if (!compEl) continue;
-          const rect = compEl.getBoundingClientRect();
-          if (rect.width === 0 && rect.height === 0) continue;
           components.push({
             id,
             name: entry.name,
-            rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+            rect: compEl ? rectOf(compEl) : { x: 0, y: 0, w: 0, h: 0 },
+            hasElement: !!compEl,
           });
-          count++;
         }
       }
 
@@ -614,7 +637,7 @@ export async function handleExtendedCommand(command, args, devtools) {
         interactives,
         headings,
         components,
-        totalElements: count,
+        totalElements: landmarks.length + interactives.length + headings.length + components.length,
       };
     }
 

@@ -843,3 +843,66 @@ export function onCleanup(fn) {
     currentRoot.disposals.push(fn);
   }
 }
+
+// devtools: registry-iterator export for P1-9 —
+// Late-install replay buffer. When installDevTools() runs AFTER signals or
+// effects have already been created (the canonical example: a module-scope
+// `export const todos = signal([], 'todos')` in store.js, imported before
+// the devtools entry point), those signals were invisible to what_signals.
+//
+// We install a placeholder __devtools that ONLY buffers creations into weak
+// refs. When the real devtools install via __setDevToolsHooks, they call
+// __drainPreinstallBuffer() to register every buffered primitive.
+//
+// Cost in production: __DEV__ is false → __devtools stays null, no buffering.
+// Cost in dev: one WeakRef per signal/effect created before install.
+if (__DEV__ && typeof WeakRef !== 'undefined') {
+  // Cap each buffer so an app that never installs devtools doesn't accumulate
+  // refs unbounded. 2k is far more than any realistic component/signal count
+  // needed before the devtools entry point runs; once devtools install, the
+  // buffer is drained and subsequent creations flow through the real hooks.
+  const PREINSTALL_CAP = 2000;
+  const buffer = { signals: new Set(), effects: new Set(), components: [] };
+  __devtools = {
+    __isPreinstallBuffer: true,
+    onSignalCreate(sig) {
+      if (buffer.signals.size < PREINSTALL_CAP) buffer.signals.add(new WeakRef(sig));
+    },
+    onSignalUpdate() {},
+    onEffectCreate(e) {
+      if (buffer.effects.size < PREINSTALL_CAP) buffer.effects.add(new WeakRef(e));
+    },
+    onEffectDispose() {},
+    onEffectRun() {},
+    onError() {},
+    onComponentMount(ctx) {
+      if (buffer.components.length < PREINSTALL_CAP) buffer.components.push(ctx);
+    },
+    onComponentUnmount() {},
+    __buffer: buffer,
+  };
+}
+
+/**
+ * Drain the pre-install buffer. Called by the real devtools hooks after
+ * __setDevToolsHooks replaces the placeholder. Returns arrays of live refs.
+ */
+export function __drainPreinstallBuffer() {
+  if (!__DEV__) return { signals: [], effects: [], components: [] };
+  // If the current __devtools is the real one (no __isPreinstallBuffer), the
+  // caller installed late and there is nothing to drain from this side.
+  const out = { signals: [], effects: [], components: [] };
+  const buf = (typeof __preinstallSnapshot !== 'undefined') ? __preinstallSnapshot : null;
+  if (!buf) return out;
+  for (const ref of buf.signals) { const v = ref.deref?.(); if (v) out.signals.push(v); }
+  for (const ref of buf.effects) { const v = ref.deref?.(); if (v) out.effects.push(v); }
+  for (const ctx of buf.components) out.components.push(ctx);
+  return out;
+}
+
+// Capture the placeholder buffer at module load so __drainPreinstallBuffer
+// can return it AFTER __setDevToolsHooks has replaced __devtools.
+let __preinstallSnapshot = null;
+if (__DEV__ && __devtools?.__isPreinstallBuffer) {
+  __preinstallSnapshot = __devtools.__buffer;
+}

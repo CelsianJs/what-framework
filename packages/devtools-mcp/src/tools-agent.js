@@ -262,7 +262,7 @@ const LINT_RULES = [
             code: 'ERR_MISSING_CLEANUP',
             message: `Effect sets up ${resource} but does not return a cleanup function — memory leak risk.`,
             line,
-            suggestedFix: `Return a cleanup function: return () => remove${resource === 'event listener' ? 'EventListener(...)' : resource === 'interval' ? 'clearInterval(id)' : 'clearTimeout(id)'}`,
+            suggestedFix: `Return a cleanup function: return () => ${resource === 'event listener' ? 'removeEventListener(...)' : resource === 'interval' ? 'clearInterval(id)' : 'clearTimeout(id)'}`,
           });
         }
       }
@@ -427,6 +427,136 @@ const LINT_RULES = [
             suggestedFix: `Replace with: const ${writtenSignal} = computed(() => /* your expression */);`,
           });
         }
+      }
+      return issues;
+    },
+  },
+  {
+    // -----------------------------------------------------------------------
+    // destructured-props-lose-reactivity
+    //
+    // What Framework components run ONCE — the function body is not re-run on
+    // prop change. The reactive props proxy auto-tracks reads via `props.foo`,
+    // but `const { foo } = props` snapshots the current value and detaches it
+    // from the proxy. Subsequent updates from the parent are invisible.
+    // -----------------------------------------------------------------------
+    id: 'destructured-props-lose-reactivity',
+    code: 'ERR_DESTRUCTURED_PROPS',
+    severity: 'warning',
+    test(code) {
+      const issues = [];
+      // Find component functions whose first param is `props` (any binding).
+      // We support both `function Foo(props) {` and `const Foo = (props) =>`.
+      const componentPatterns = [
+        /function\s+([A-Z]\w*)\s*\(\s*(\w+)\s*\)\s*\{/g,
+        /(?:const|let)\s+([A-Z]\w*)\s*=\s*\(\s*(\w+)\s*\)\s*=>/g,
+      ];
+      for (const pattern of componentPatterns) {
+        let compMatch;
+        while ((compMatch = pattern.exec(code)) !== null) {
+          const propsBinding = compMatch[2];
+          // Skip if the param is already destructured at the signature
+          // (that's a separate, more legible smell; we focus on body-level
+          // destructuring inside the component).
+          if (propsBinding === 'props' || /^[a-z]/.test(propsBinding)) {
+            // Walk forward and find the component body extent (braces).
+            const startIdx = compMatch.index + compMatch[0].length;
+            let braceDepth = 1;
+            let bodyEnd = startIdx;
+            for (let i = startIdx; i < code.length && braceDepth > 0; i++) {
+              if (code[i] === '{') braceDepth++;
+              if (code[i] === '}') braceDepth--;
+              bodyEnd = i;
+            }
+            const body = code.slice(startIdx, bodyEnd);
+            // Find: const|let { ... } = props (the actual binding name).
+            const destructPattern = new RegExp(
+              `(?:const|let)\\s*\\{([^}]+)\\}\\s*=\\s*${propsBinding}\\b`,
+              'g'
+            );
+            let dm;
+            while ((dm = destructPattern.exec(body)) !== null) {
+              const fields = dm[1].split(',').map(s => s.trim().split(/[:=]/)[0].trim()).filter(Boolean);
+              const line = code.slice(0, startIdx + dm.index).split('\n').length;
+              issues.push({
+                severity: 'warning',
+                code: 'ERR_DESTRUCTURED_PROPS',
+                message: `Destructuring '${propsBinding}' in the component body snapshots props and loses reactivity. Components run ONCE — '${propsBinding}.${fields[0] || 'foo'}' tracks via the props proxy, but '{ ${fields.join(', ')} } = ${propsBinding}' does not.`,
+                line,
+                suggestedFix: `Read props directly inside JSX or effects: \`${propsBinding}.${fields[0] || 'foo'}\` — or wrap each in an accessor: const ${fields[0] || 'foo'} = () => ${propsBinding}.${fields[0] || 'foo'}.`,
+              });
+            }
+          }
+        }
+      }
+      return issues;
+    },
+  },
+  {
+    // -----------------------------------------------------------------------
+    // module-scope-signal-missing-name
+    //
+    // Module-scope signals are global state. Without a debug name (second arg
+    // to signal()), they appear as `signal_42` in devtools and what_signals,
+    // making cross-tool debugging much harder. This is a hint, not an error.
+    // -----------------------------------------------------------------------
+    id: 'module-scope-signal-missing-name',
+    code: 'HINT_SIGNAL_MISSING_NAME',
+    severity: 'info',
+    test(code) {
+      const issues = [];
+      // Look for signal/computed declarations at the top level — i.e., not
+      // indented (or only minimally) and not inside a function. A simple but
+      // reliable heuristic: lines that match `^(?:export\s+)?(?:const|let)
+      // \s+\w+\s*=\s*(signal|computed)\s*\(` AND the opening call has only
+      // one argument (no comma at the same paren depth before the close).
+      const lines = code.split('\n');
+      const declRe = /^(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(signal|computed)\s*\(/;
+      // Track simple brace depth so we skip signals declared inside a function.
+      let depth = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Pre-line depth determines whether we're at module scope.
+        const wasModuleScope = depth === 0;
+        // Update depth after — we want to evaluate the line at its starting scope.
+        for (let j = 0; j < line.length; j++) {
+          if (line[j] === '{') depth++;
+          else if (line[j] === '}') depth = Math.max(0, depth - 1);
+        }
+        if (!wasModuleScope) continue;
+        const m = line.match(declRe);
+        if (!m) continue;
+        const sigName = m[1];
+        const kind = m[2];
+        // Reconstruct the full call args by walking parens forward.
+        const callStart = m.index + m[0].length; // position right after the opening '('
+        // The match is on `line` only; rebuild full call across lines.
+        let scan = code.indexOf(line, 0);
+        // Find absolute position of the opening paren of signal/computed(...)
+        const lineStart = code.split('\n').slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
+        const openIdx = lineStart + callStart - 1; // points at the '('
+        // Walk to matching close.
+        let d = 1, j = openIdx + 1, commasAtDepth1 = 0;
+        for (; j < code.length && d > 0; j++) {
+          const ch = code[j];
+          if (ch === '(') d++;
+          else if (ch === ')') d--;
+          else if (ch === ',' && d === 1) commasAtDepth1++;
+          // Treat string literals naively — bail out of this check if we see a
+          // backtick, since template literals make this regex unreliable.
+        }
+        // For signal(), only one arg means no debug name.
+        // For computed(), arity is always 1 — skip; debug name is via .debugName?
+        if (kind === 'signal' && commasAtDepth1 === 0) {
+          issues.push({
+            severity: 'info',
+            code: 'HINT_SIGNAL_MISSING_NAME',
+            message: `Module-scope signal '${sigName}' has no debug name. It will appear as 'signal_N' in devtools and what_signals — agents and humans both find it harder to trace.`,
+            line: i + 1,
+            suggestedFix: `Add a debug name as the second argument: signal(<initial>, '${sigName}').`,
+          });
+        }
+        void scan;
       }
       return issues;
     },
@@ -641,7 +771,7 @@ export function registerAgentTools(server, bridge) {
     'Static analysis for What Framework code. Pass a code snippet, get back structured issues with fix suggestions. Works offline — no browser connection needed.',
     {
       code: z.string().describe('The What Framework code snippet to analyze'),
-      rules: z.array(z.string()).optional().describe('Specific rule IDs to run (default: all). Options: missing-signal-read, innerhtml-without-html, effect-writes-read-signal, missing-cleanup, signal-write-in-render, missing-key-in-for, prefer-computed-over-effect'),
+      rules: z.array(z.string()).optional().describe('Specific rule IDs to run (default: all). Options: missing-signal-read, innerhtml-without-html, effect-writes-read-signal, missing-cleanup, signal-write-in-render, missing-key-in-for, prefer-computed-over-effect, destructured-props-lose-reactivity, module-scope-signal-missing-name'),
     },
     async ({ code, rules: ruleFilter }) => {
       let rulesToRun = LINT_RULES;
@@ -896,7 +1026,13 @@ export function registerAgentTools(server, bridge) {
         ? `Performance concerns: ${issues.join('; ')}.`
         : `Healthy. ${signals.length} signals, ${effects.length} effects, ${components.length} components. ${memoryStr} estimated.`;
 
-      return ok({
+      // Suppress noisy "every signal has 1 subscriber" output — agents would
+      // chase it as a signal. Only emit largestSubscribers when at least one
+      // signal has 2+ subscribers worth investigating.
+      const maxSubs = largestSubscribers.length > 0
+        ? largestSubscribers[0].subscriberCount
+        : 0;
+      const result = {
         summary,
         counts: {
           signals: signals.length,
@@ -904,7 +1040,6 @@ export function registerAgentTools(server, bridge) {
           components: components.length,
         },
         hotEffects,
-        largestSubscribers,
         eventRate,
         memoryEstimate: memoryStr,
         memoryBytes: totalEstimate,
@@ -914,7 +1049,9 @@ export function registerAgentTools(server, bridge) {
           'Consider using batch() to group signal writes.',
           'Use computed() for derived values instead of effects.',
         ] : [],
-      });
+      };
+      if (maxSubs >= 2) result.largestSubscribers = largestSubscribers;
+      return ok(result);
     }
   );
 
@@ -993,6 +1130,154 @@ export function registerAgentTools(server, bridge) {
         diagnosis: entry.diagnosis,
         suggestedFix: entry.suggestedFix,
         codeExample: entry.codeExample,
+      });
+    }
+  );
+
+  // -----------------------------------------------------------------------
+  // Tool 6 — what_record_window
+  //
+  // Opens a sampling window (default 1s, max 30s), captures which effects
+  // re-ran during that window, and returns a ranked list — most-fired first.
+  //
+  // Differs from `what_perf` (cumulative runCount since boot) and from
+  // `what_watch` (raw event log). This one is the one-call "which effects
+  // re-ran during this action?" answer, which is what you want when
+  // profiling a single user interaction (drag-drop, button click, route
+  // change). Pair with `what_set_signal` or a user-driven action to scope
+  // the recording.
+  // -----------------------------------------------------------------------
+
+  server.tool(
+    'what_record_window',
+    'Sample which effects re-ran during a time window. Captures runCount before and after a configurable duration, then returns a ranked delta. Use this to identify which effects fire during a specific action (e.g., a drag, a click, or a route change). Default 1000ms.',
+    {
+      duration: z.number().optional().default(1000).describe('Sampling window in ms (default: 1000, max: 30000, min: 50)'),
+      topN: z.number().optional().default(20).describe('Maximum number of effects to return (default: 20)'),
+      includeZero: z.boolean().optional().default(false).describe('Include effects that did not re-run (default: false — only changed effects)'),
+    },
+    async ({ duration, topN, includeZero }) => {
+      if (!bridge.isConnected()) return noConnection('what_record_window');
+
+      const ms = Math.min(Math.max(duration ?? 1000, 50), 30000);
+      const limit = Math.min(Math.max(topN ?? 20, 1), 200);
+
+      // ---- Take baseline ----
+      let baseline;
+      try {
+        baseline = await (bridge.refreshSnapshot ? bridge.refreshSnapshot() : bridge.getSnapshot());
+      } catch {
+        baseline = bridge.getSnapshot();
+      }
+      if (!baseline) {
+        return errorResponse('No snapshot available for baseline.', [
+          'Refresh the browser page so the devtools client registers its state.',
+        ]);
+      }
+
+      const baselineRunCounts = new Map();
+      const baselineEffectMeta = new Map();
+      for (const e of baseline.effects || []) {
+        baselineRunCounts.set(e.id, e.runCount || 0);
+        baselineEffectMeta.set(e.id, {
+          id: e.id,
+          name: e.name || `effect_${e.id}`,
+          componentId: e.componentId,
+          depCount: (e.depSignalIds || e.deps || []).length,
+        });
+      }
+      const baselineEventCount = bridge.getEvents
+        ? bridge.getEvents(Date.now() - 1).length
+        : 0;
+      const startTs = Date.now();
+
+      // ---- Wait for the window ----
+      await new Promise((resolve) => setTimeout(resolve, ms));
+
+      // ---- Take post-window snapshot ----
+      let after;
+      try {
+        after = await (bridge.refreshSnapshot ? bridge.refreshSnapshot() : bridge.getSnapshot());
+      } catch {
+        after = bridge.getSnapshot();
+      }
+      if (!after) {
+        return errorResponse('No snapshot available after the recording window.', [
+          'The browser may have lost connection mid-recording.',
+        ]);
+      }
+
+      // ---- Compute delta ----
+      const ranked = [];
+      const newEffects = [];
+      const seen = new Set();
+      for (const e of after.effects || []) {
+        seen.add(e.id);
+        const before = baselineRunCounts.get(e.id);
+        const nowCount = e.runCount || 0;
+        if (before === undefined) {
+          // Effect was created during the window
+          newEffects.push({
+            id: e.id,
+            name: e.name || `effect_${e.id}`,
+            componentId: e.componentId,
+            runCount: nowCount,
+            depCount: (e.depSignalIds || e.deps || []).length,
+          });
+          continue;
+        }
+        const delta = nowCount - before;
+        if (delta > 0 || includeZero) {
+          ranked.push({
+            id: e.id,
+            name: e.name || baselineEffectMeta.get(e.id)?.name || `effect_${e.id}`,
+            componentId: e.componentId ?? baselineEffectMeta.get(e.id)?.componentId,
+            runs: delta,
+            totalRuns: nowCount,
+            depCount: (e.depSignalIds || e.deps || []).length,
+          });
+        }
+      }
+      const disposedDuring = [];
+      for (const [id, meta] of baselineEffectMeta) {
+        if (!seen.has(id)) disposedDuring.push(meta);
+      }
+
+      ranked.sort((a, b) => b.runs - a.runs);
+      const top = ranked.slice(0, limit);
+
+      const totalRuns = ranked.reduce((sum, e) => sum + e.runs, 0);
+      const distinctEffects = ranked.length;
+      const eventsDuring = bridge.getEvents
+        ? bridge.getEvents(startTs).length
+        : null;
+
+      const summary = totalRuns === 0
+        ? `No effects re-ran during the ${ms}ms window. App is idle (or no reactive state changed).`
+        : `${totalRuns} effect run${totalRuns !== 1 ? 's' : ''} across ${distinctEffects} distinct effect${distinctEffects !== 1 ? 's' : ''} in ${ms}ms.`;
+
+      const nextSteps = [];
+      if (top.length > 0 && top[0].runs >= 10) {
+        nextSteps.push(`Hot effect "${top[0].name}" ran ${top[0].runs} times — inspect with what_dependency_graph({effectId: ${top[0].id}, direction: "upstream"}).`);
+      }
+      if (newEffects.length > 5) {
+        nextSteps.push(`${newEffects.length} effects were created during the window — likely a re-mount cycle. Check what_diff_snapshot for component churn.`);
+      }
+      if (disposedDuring.length > 0 && newEffects.length > 0) {
+        nextSteps.push(`${disposedDuring.length} effects were disposed and ${newEffects.length} were created — component tree is being torn down and rebuilt.`);
+      }
+
+      return ok({
+        summary,
+        windowMs: ms,
+        totalRuns,
+        distinctEffects,
+        topEffects: top,
+        newEffectsCount: newEffects.length,
+        newEffects: newEffects.slice(0, limit),
+        disposedCount: disposedDuring.length,
+        eventsDuring,
+        nextSteps,
       });
     }
   );

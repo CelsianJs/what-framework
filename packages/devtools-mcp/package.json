@@ -9,6 +9,7 @@
   "exports": {
     ".": "./src/index.js",
     "./client": "./src/client.js",
+    "./vite": "./src/vite-plugin.js",
     "./vite-plugin": "./src/vite-plugin.js"
   },
   "files": [

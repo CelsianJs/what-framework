@@ -36,7 +36,7 @@
     "hygiene:publish": "node scripts/check-publish-surface.mjs",
     "release:publish": "node scripts/publish-packages.mjs",
     "release:verify": "npm run -s hygiene:publish && npm run -s test && npm run -s build && npm run -s bench:gate",
-    "test": "node --test packages/core/test/*.test.js packages/what-text/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/create-what/test/*.test.js packages/cli/test/*.test.js packages/devtools-mcp/test/bridge.test.js packages/devtools-mcp/test/tools.test.js && npm run -s test:stress",
+    "test": "node --test packages/core/test/*.test.js packages/what-text/test/*.test.js packages/router/test/*.test.js packages/compiler/test/*.test.js packages/create-what/test/*.test.js packages/cli/test/*.test.js packages/devtools-mcp/test/*.test.js examples/kanban/test/*.test.js && npm run -s test:stress",
     "test:stress": "node stress-tests/adversarial-test.js"
   },
   "engines": {

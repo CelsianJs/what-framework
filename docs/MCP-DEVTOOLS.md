@@ -17,7 +17,7 @@ The bridge server (`what-devtools-mcp`) runs as a Node.js process. It:
 2. Receives state snapshots and events from the browser client
 3. Stores an event log (last 1000 events) and error log (last 100 errors)
 4. Forwards commands from the agent to the browser
-5. Exposes 18 MCP tools for agents
+5. Exposes 29 MCP tools for agents
 
 ## Setup
 

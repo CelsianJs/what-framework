@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>What Framework — DB Adapter Comparison</title>
+  <style>
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --border: #334155;
+      --text: #e2e8f0; --muted: #94a3b8; --accent: #6366f1;
+      --success: #22c55e; --danger: #ef4444; --warning: #f59e0b;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; padding: 24px; }
+    h1 { font-size: 1.5rem; margin-bottom: 4px; }
+    h2 { font-size: 1.1rem; margin-bottom: 8px; color: var(--muted); }
+    h3 { font-size: 0.9rem; margin-bottom: 6px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; text-transform: uppercase; }
+    button { font-family: var(--font); font-size: 12px; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; background: var(--accent); color: white; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.danger { background: var(--danger); }
+    button.success { background: var(--success); }
+    button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    input, select, textarea { font-family: var(--font); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); width: 100%; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    .flex { display: flex; align-items: center; gap: 8px; }
+    .mt { margin-top: 8px; }
+    .text-muted { color: var(--muted); font-size: 11px; }
+    .loading { color: var(--accent); }
+    .error { color: var(--danger); }
+    .success-text { color: var(--success); }
+    .item-row { padding: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    .item-row:last-child { border-bottom: none; }
+    .perf { font-family: monospace; font-size: 11px; color: var(--warning); }
+    .tab-bar { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 12px; }
+    .tab-bar button { border-radius: 4px 4px 0 0; background: transparent; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab-bar button.active { color: var(--text); border-bottom-color: var(--accent); background: var(--surface); }
+    #app { max-width: 1200px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/app.jsx"></script>
+</body>
+</html>

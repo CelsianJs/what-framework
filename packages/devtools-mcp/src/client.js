@@ -207,7 +207,24 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
         break;
       }
       case 'set-signal': {
-        const { signalId, value } = args || {};
+        const { signalId, value: rawValue } = args || {};
+        // Defense-in-depth: also coerce stringified-JSON here in case an
+        // older MCP server forwards the raw string. See tools.js coerceJsonValue.
+        let value = rawValue;
+        if (typeof rawValue === 'string') {
+          const t = rawValue.trim();
+          const first = t[0];
+          if (t.length > 0 && (
+            first === '{' || first === '[' ||
+            first === 't' || first === 'f' || first === 'n' ||
+            first === '-' || (first >= '0' && first <= '9')
+          )) {
+            try {
+              const parsed = JSON.parse(t);
+              if (typeof parsed !== 'string') value = parsed;
+            } catch {}
+          }
+        }
         const registries = devtools?._registries;
         if (registries?.signals) {
           const entry = registries.signals.get(signalId);

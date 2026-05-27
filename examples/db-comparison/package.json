@@ -1,0 +1,19 @@
+{
+  "name": "what-db-comparison",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "what-framework": "file:../../packages/what",
+    "what-core": "file:../../packages/core",
+    "what-compiler": "file:../../packages/compiler"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "vite": "^6.0.0"
+  }
+}
