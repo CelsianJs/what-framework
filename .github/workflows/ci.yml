@@ -8,12 +8,9 @@ on:
     branches:
       - main
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   test:
-    runs-on: depot-ubuntu-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         node-version: [20, 22]
@@ -30,11 +27,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium (for devtools-mcp e2e)
+        run: npx playwright install --with-deps chromium
+
       - name: Test
         run: npm run -s test
 
   build:
-    runs-on: depot-ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,8 +51,11 @@ jobs:
       - name: Build
         run: npm run -s build
 
+      - name: Production build smoke gate (no blank-screen regression)
+        run: npm run -s test:prod
+
   audit:
-    runs-on: depot-ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,7 +76,7 @@ jobs:
         run: npm audit --audit-level=moderate
 
   bench-gate:
-    runs-on: depot-ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -17,7 +17,7 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "ws": "^8.0.0",
+    "ws": "^8.18.0",
     "zod": "^3.25.0"
   },
   "peerDependencies": {
@@ -30,5 +30,14 @@
     "model-context-protocol",
     "ai-debugging"
   ],
-  "license": "MIT"
+  "author": "ZVN DEV (https://zvndev.com)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CelsianJs/what-framework"
+  },
+  "bugs": {
+    "url": "https://github.com/CelsianJs/what-framework/issues"
+  },
+  "homepage": "https://whatfw.com"
 }

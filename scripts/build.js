@@ -27,6 +27,14 @@ const packages = [
       { input: 'src/testing.js', outputBase: 'testing' },
     ],
     external: [],
+    // CRITICAL: build all entries together with code-splitting so shared
+    // stateful modules (dom.js's componentStack, reactive.js's tracking
+    // context) become ONE shared chunk imported by every entry. Without this,
+    // esbuild inlines a separate copy of dom.js/reactive.js into index.min.js
+    // and render.min.js, producing two component stacks — `useSignal` reads one
+    // while the compiler's `_$createComponent` pushes the other, blanking every
+    // production build. See AUDIT-2026-06-06.md C1.
+    split: true,
   },
   {
     name: 'router',
@@ -80,6 +88,50 @@ for (const pkg of packages) {
 
   let pkgBundle = 0;
   let pkgMinified = 0;
+
+  if (pkg.split) {
+    // Build every entry in ONE esbuild call with splitting so shared internal
+    // modules are emitted as a single shared chunk (one runtime instance).
+    const entryPoints = pkg.entries
+      .map((e) => join(pkgDir, e.input))
+      .filter((p) => existsSync(p));
+    try {
+      const common = {
+        entryPoints,
+        bundle: true,
+        format: 'esm',
+        platform: 'browser',
+        splitting: true,
+        sourcemap: true,
+        treeShaking: true,
+        external: pkg.external,
+        target: 'es2022',
+        logLevel: 'silent',
+        outdir: distDir,
+      };
+      // Readable bundle: dist/<name>.js + shared chunk-<hash>.js
+      await build({ ...common, minify: false, entryNames: '[name]', chunkNames: 'chunk-[hash]' });
+      // Minified bundle: dist/<name>.min.js + shared chunk-<hash>.min.js
+      await build({ ...common, minify: true, entryNames: '[name].min', chunkNames: 'chunk-[hash].min' });
+
+      for (const entry of pkg.entries) {
+        const bundlePath = join(distDir, `${entry.outputBase}.js`);
+        const minPath = join(distDir, `${entry.outputBase}.min.js`);
+        pkgBundle += existsSync(bundlePath) ? statSync(bundlePath).size : 0;
+        pkgMinified += existsSync(minPath) ? statSync(minPath).size : 0;
+      }
+    } catch (err) {
+      console.error(`  ERROR building ${pkg.name} (split): ${err.message}`);
+    }
+
+    totalBundle += pkgBundle;
+    totalMinified += pkgMinified;
+    const ratio = pkgBundle > 0 ? ((1 - pkgMinified / pkgBundle) * 100).toFixed(0) : 0;
+    console.log(
+      `  @what/${pkg.name}  bundle ${formatSize(pkgBundle)}  min ${formatSize(pkgMinified)}  (${ratio}% minification, split)`
+    );
+    continue;
+  }
 
   for (const entry of pkg.entries) {
     const entryPath = join(pkgDir, entry.input);

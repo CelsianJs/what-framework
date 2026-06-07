@@ -90,11 +90,12 @@ function normalizeJsxText(value) {
 }
 function whatBabelPlugin({ types: t }) {
   const _unknownModifierWarned = /* @__PURE__ */ new Set();
+  const _forInfoWarned = /* @__PURE__ */ new Set();
   function hasEventModifiers(name, state) {
     if (!name.includes("__")) return false;
     if (!name.startsWith("on")) return false;
     const parts = name.split("__");
-    const tail = parts.slice(1);
+    const tail = parts.slice(1).filter((s) => s !== "");
     if (tail.length === 0) return false;
     if (true) {
       const unknown = tail.filter((m) => !EVENT_MODIFIERS.has(m));
@@ -358,9 +359,36 @@ function whatBabelPlugin({ types: t }) {
   }
   function tryLowerMapToMapArray(expr, state) {
     let mapCall = expr;
-    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0 && t.isCallExpression(expr.body)) {
+    let wrappedInArrow = false;
+    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0) {
       mapCall = expr.body;
+      wrappedInArrow = true;
     }
+    if (t.isConditionalExpression(mapCall)) {
+      const loweredCon = tryLowerMapCall(mapCall.consequent, state);
+      const loweredAlt = tryLowerMapCall(mapCall.alternate, state);
+      if (loweredCon || loweredAlt) {
+        const result = t.conditionalExpression(
+          mapCall.test,
+          loweredCon || mapCall.consequent,
+          loweredAlt || mapCall.alternate
+        );
+        return wrappedInArrow ? t.arrowFunctionExpression([], result) : result;
+      }
+      return null;
+    }
+    if (t.isLogicalExpression(mapCall) && (mapCall.operator === "&&" || mapCall.operator === "||")) {
+      const loweredRight = tryLowerMapCall(mapCall.right, state);
+      if (loweredRight) {
+        const result = t.logicalExpression(mapCall.operator, mapCall.left, loweredRight);
+        return wrappedInArrow ? t.arrowFunctionExpression([], result) : result;
+      }
+      return null;
+    }
+    const lowered = tryLowerMapCall(mapCall, state);
+    return lowered;
+  }
+  function tryLowerMapCall(mapCall, state) {
     if (!t.isCallExpression(mapCall)) return null;
     if (!t.isMemberExpression(mapCall.callee)) return null;
     if (!t.isIdentifier(mapCall.callee.property, { name: "map" })) return null;
@@ -1138,6 +1166,17 @@ function whatBabelPlugin({ types: t }) {
     const { node } = path3;
     const attributes = node.openingElement.attributes;
     const children = node.children;
+    if (true) {
+      const fileName = state.filename || state.file?.opts?.filename || "<unknown>";
+      if (!_forInfoWarned.has(fileName)) {
+        _forInfoWarned.add(fileName);
+        const loc = node.loc;
+        const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : "";
+        console.info(
+          `[what-compiler] <For> at ${fileName}${lineInfo}: consider using .map() with a key prop instead. The compiler auto-lowers .map() to efficient keyed reconciliation. <For> is only needed for signal-wrapped item accessors (advanced).`
+        );
+      }
+    }
     let eachExpr = null;
     let keyExpr = null;
     for (const attr of attributes) {
