@@ -571,7 +571,21 @@ function flush() {
         e._pending = false;
         if (!e.disposed && !e._onNotify) {
           const prevDepsLen = e.deps.length;
-          _runEffect(e);
+          // Isolate per-effect errors: one throwing effect must NOT abort the
+          // rest of the batch (which would drop queued effects and leave the
+          // graph half-updated). NEEDS_UPSTREAM is the iterative-eval sentinel
+          // and must still propagate. (AUDIT-2026-06-06 H8)
+          try {
+            _runEffect(e);
+          } catch (err) {
+            if (err === NEEDS_UPSTREAM) throw err;
+            if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
+            // Surface in production too — an uncaught reactive-update error is a
+            // real bug; staying silent (as the old throw-out-of-flush did once it
+            // escaped) hides it. console.error never aborts the batch.
+            try { console.error('[what] Uncaught error in effect during update:', err); } catch { /* no console */ }
+            continue;
+          }
           // Update level only if deps changed (graph structure change)
           if (!e._computed && e.deps.length !== prevDepsLen) {
             _updateLevel(e);

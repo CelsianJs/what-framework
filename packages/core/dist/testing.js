@@ -4,7 +4,7 @@ import {
   flushSync,
   mount,
   signal
-} from "./chunk-F2HUXI22.js";
+} from "./chunk-AW3BAPIK.js";
 import {
   h
 } from "./chunk-AZP2EOGX.js";
