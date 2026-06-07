@@ -1137,11 +1137,24 @@ export default function whatBabelPlugin({ types: t }) {
         const mapResult = tryLowerMapToMapArray(expr, state);
         if (mapResult) {
           state.needsMapArray = true;
+          // A bare _$mapArray(...) call is a self-managing inserter (it tracks
+          // its source internally) and an arrow is already reactive — pass both
+          // raw. But when lowering produced a ternary/logical wrapping the call
+          // (e.g. cond ? _$mapArray(...) : fallback), the surrounding condition
+          // must stay reactive, so wrap the whole expression in () => and let
+          // _$insert re-evaluate it on change. Without this the condition is read
+          // exactly once and never re-tracks. (AUDIT-2026-06-06 H1)
+          const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) &&
+            (mapResult.callee.name === '_$mapArray' || mapResult.callee.name === 'mapArray');
+          const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+          const insertArg = (isBareMapArray || isArrowAlready)
+            ? mapResult
+            : t.arrowFunctionExpression([], mapResult);
           statements.push(
             t.expressionStatement(
               t.callExpression(t.identifier('_$insert'), [
                 t.identifier(elId),
-                mapResult,
+                insertArg,
                 marker
               ])
             )

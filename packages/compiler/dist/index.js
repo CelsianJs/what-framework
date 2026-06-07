@@ -876,11 +876,14 @@ function whatBabelPlugin({ types: t }) {
         const mapResult = tryLowerMapToMapArray(expr, state);
         if (mapResult) {
           state.needsMapArray = true;
+          const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) && (mapResult.callee.name === "_$mapArray" || mapResult.callee.name === "mapArray");
+          const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+          const insertArg = isBareMapArray || isArrowAlready ? mapResult : t.arrowFunctionExpression([], mapResult);
           statements.push(
             t.expressionStatement(
               t.callExpression(t.identifier("_$insert"), [
                 t.identifier(elId),
-                mapResult,
+                insertArg,
                 marker
               ])
             )
