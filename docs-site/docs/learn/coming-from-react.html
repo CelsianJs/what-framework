@@ -98,6 +98,8 @@
 
           <h2 id="state">State: useState vs useSignal</h2>
 
+          <p>To ease the transition, What ships <code>useSignal</code> — a thin shim that mirrors React's <code>use*</code> naming. It's used throughout this page so the React↔What mapping stays one-to-one. The canonical API is plain <a href="#signal-vs-usesignal"><code>signal()</code></a>, which works everywhere and returns the same object; reach for it once the hook habit fades.</p>
+
           <table>
             <thead>
               <tr>
@@ -312,41 +314,41 @@ useEffect(() =&gt; {
 
           <h2 id="signal-vs-usesignal">signal() vs useSignal()</h2>
 
-          <p>What has two ways to create signals:</p>
+          <p><code>signal()</code> is the canonical API — use it everywhere: module scope, inside components, and in stores. Because What components <strong>run once</strong>, a <code>signal()</code> declared in a component body executes exactly once (not per-render like a React hook), so there is no hook-ordering rule and no need for a separate component-only primitive.</p>
 
           <table>
             <thead>
               <tr>
                 <th>API</th>
                 <th>Where to use</th>
-                <th>Cleanup</th>
+                <th>Notes</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td><code>signal(value)</code></td>
-                <td>Anywhere — module scope, outside components, stores</td>
-                <td>Manual</td>
+                <td>Anywhere — module scope, components, stores</td>
+                <td><strong>Canonical.</strong> Read with <code>count()</code>, write with <code>count(v)</code> (or the explicit <code>count.set(v)</code>)</td>
               </tr>
               <tr>
                 <td><code>useSignal(value)</code></td>
-                <td>Inside components only</td>
-                <td>Automatic (tied to component lifecycle)</td>
+                <td>Inside components (optional)</td>
+                <td>A thin compat shim for React muscle memory. Returns the same signal object as <code>signal()</code>; identical behavior in the run-once model</td>
               </tr>
             </tbody>
           </table>
 
-<pre><code><span class="comment">// Module-level signal — shared between all instances, lives forever</span>
+<pre><code><span class="comment">// Module-level signal — shared between all components</span>
 <span class="keyword">const</span> theme = <span class="function">signal</span>(<span class="string">'dark'</span>);
 
 <span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="comment">// Component-level signal — each Counter gets its own, cleaned up on unmount</span>
-  <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
+  <span class="comment">// Component-level signal — runs once, local to this component</span>
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
 
-  <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">1</span>)}&gt;{count()}&lt;/button&gt;;
+  <span class="keyword">return</span> &lt;button onClick={() =&gt; count(c =&gt; c + <span class="number">1</span>)}&gt;{count()}&lt;/button&gt;;
 }</code></pre>
 
-          <p>Rule of thumb: use <code>useSignal</code> in components (most of the time), <code>signal</code> for global/shared state.</p>
+          <p>Rule of thumb: reach for <code>signal()</code> everywhere. <code>useSignal()</code> exists if you prefer the React <code>use*</code> naming inside components — it returns the same thing.</p>
 
           <h2 id="quick-reference">Quick Reference</h2>
 

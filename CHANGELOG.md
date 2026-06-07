@@ -41,6 +41,16 @@ This release folds in the fixes from a full production-readiness audit. Highligh
   `^8.18.0`; `what-devtools-mcp` gains `repository`/`homepage` metadata.
 
 ### Changed
+- **Canonical signal API unified on `signal()`.** `signal()` is now the single
+  documented primitive for creating reactive state everywhere — module scope,
+  component bodies, and stores. Because components run once, a `signal()` in a
+  component body executes exactly once (no hook-ordering rule), so it fully
+  supersedes the component-only `useSignal()`. `useSignal()`/`useComputed()`/
+  `useEffect()` remain as a documented React-familiarity compat shim (they
+  return the same objects). The `create-what` scaffold, landing page, Learn
+  guide, and READMEs now lead with `signal()` + call-to-write (`count(v)`, with
+  `count.set(v)` as the explicit alias); the React-migration guide keeps the
+  `use*` mapping but points to `signal()` as canonical.
 - Honest size/claims: docs and sites now state ~8KB gzip for a typical app
   (~31KB full runtime before tree-shaking) instead of the previous "12KB", the
   React-compat count is unified at 90+, and site versions are aligned to 0.9.0.

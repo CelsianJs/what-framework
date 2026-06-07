@@ -824,15 +824,15 @@
             <span class="code-filename">Counter.jsx</span>
           </div>
           <div class="code-body">
-<pre><span class="keyword">import</span> { mount, useSignal, useComputed } <span class="keyword">from</span> <span class="string">'what-framework'</span>
+<pre><span class="keyword">import</span> { mount, signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>
 
 <span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="keyword">const</span> count <span class="operator">=</span> <span class="function">useSignal</span>(<span class="number">0</span>)
-  <span class="keyword">const</span> doubled <span class="operator">=</span> <span class="function">useComputed</span>(() <span class="operator">=&gt;</span> count() <span class="operator">*</span> <span class="number">2</span>)
+  <span class="keyword">const</span> count <span class="operator">=</span> <span class="function">signal</span>(<span class="number">0</span>)
+  <span class="keyword">const</span> doubled <span class="operator">=</span> <span class="function">computed</span>(() <span class="operator">=&gt;</span> count() <span class="operator">*</span> <span class="number">2</span>)
 
   <span class="keyword">return</span> (
     <span class="tag">&lt;div&gt;</span>
-      <span class="tag">&lt;button</span> <span class="attr">onClick</span><span class="operator">=</span>{() <span class="operator">=&gt;</span> count.<span class="function">set</span>(c <span class="operator">=&gt;</span> c <span class="operator">+</span> <span class="number">1</span>)}<span class="tag">&gt;</span>
+      <span class="tag">&lt;button</span> <span class="attr">onClick</span><span class="operator">=</span>{() <span class="operator">=&gt;</span> count(c <span class="operator">=&gt;</span> c <span class="operator">+</span> <span class="number">1</span>)}<span class="tag">&gt;</span>
         Count: {count()}
       <span class="tag">&lt;/button&gt;</span>
       <span class="tag">&lt;p&gt;</span>Doubled: {doubled()}<span class="tag">&lt;/p&gt;</span>
@@ -911,8 +911,8 @@
           <div class="feature-code">
 <pre>{ <span class="attr">code</span>: <span class="string">"SIGNAL_READ_OUTSIDE_TRACKING"</span>,
   <span class="attr">message</span>: <span class="string">"Signal read outside reactive scope"</span>,
-  <span class="attr">fix</span>: <span class="string">"Wrap in useComputed() or useEffect()"</span>,
-  <span class="attr">example</span>: <span class="string">"useComputed(() =&gt; count())"</span> }</pre>
+  <span class="attr">fix</span>: <span class="string">"Wrap in computed() or effect()"</span>,
+  <span class="attr">example</span>: <span class="string">"computed(() =&gt; count())"</span> }</pre>
           </div>
         </div>
 
@@ -924,8 +924,8 @@
           <p>Runtime catches infinite loops, missing effect cleanup, XSS via innerHTML, and signal misuse before they hit production. The framework protects agents from common mistakes.</p>
           <div class="feature-code">
 <pre><span class="comment">// Runtime catches this automatically:</span>
-<span class="function">useEffect</span>(() <span class="operator">=&gt;</span> {
-  count.<span class="function">set</span>(count() <span class="operator">+</span> <span class="number">1</span>) <span class="comment">// Infinite loop</span>
+<span class="function">effect</span>(() <span class="operator">=&gt;</span> {
+  count(count() <span class="operator">+</span> <span class="number">1</span>) <span class="comment">// Infinite loop</span>
 })
 <span class="comment">// Error: EFFECT_LOOP_DETECTED</span></pre>
           </div>
@@ -955,7 +955,7 @@
           <p>~15 core APIs. ~8KB typical-app runtime. Zero dependencies. Tree-shakeable. Agents generate less code, ship smaller bundles, and reason about a smaller API surface.</p>
           <div class="feature-code">
 <pre><span class="comment">// The full API an agent needs to learn:</span>
-<span class="keyword">import</span> { useSignal, useComputed, useEffect,
+<span class="keyword">import</span> { signal, computed, effect,
   mount, Show, For, createStore } <span class="keyword">from</span> <span class="string">'what-framework'</span>
 <span class="comment">// ~8KB gzipped. That's it.</span></pre>
           </div>
@@ -982,19 +982,19 @@
             <span class="code-filename">TodoApp.jsx</span>
           </div>
           <div class="code-body">
-<pre><span class="keyword">import</span> { useSignal, useComputed, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>
+<pre><span class="keyword">import</span> { signal, computed, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>
 
 <span class="keyword">function</span> <span class="function">TodoApp</span>() {
-  <span class="keyword">const</span> todos <span class="operator">=</span> <span class="function">useSignal</span>([])
-  <span class="keyword">const</span> filter <span class="operator">=</span> <span class="function">useSignal</span>(<span class="string">'all'</span>)
+  <span class="keyword">const</span> todos <span class="operator">=</span> <span class="function">signal</span>([])
+  <span class="keyword">const</span> filter <span class="operator">=</span> <span class="function">signal</span>(<span class="string">'all'</span>)
 
-  <span class="keyword">const</span> visible <span class="operator">=</span> <span class="function">useComputed</span>(() <span class="operator">=&gt;</span> {
+  <span class="keyword">const</span> visible <span class="operator">=</span> <span class="function">computed</span>(() <span class="operator">=&gt;</span> {
     <span class="keyword">if</span> (filter() <span class="operator">===</span> <span class="string">'all'</span>) <span class="keyword">return</span> todos()
     <span class="keyword">const</span> done <span class="operator">=</span> filter() <span class="operator">===</span> <span class="string">'done'</span>
     <span class="keyword">return</span> todos().<span class="function">filter</span>(t <span class="operator">=&gt;</span> t.done <span class="operator">===</span> done)
   })
 
-  <span class="keyword">const</span> remaining <span class="operator">=</span> <span class="function">useComputed</span>(() <span class="operator">=&gt;</span>
+  <span class="keyword">const</span> remaining <span class="operator">=</span> <span class="function">computed</span>(() <span class="operator">=&gt;</span>
     todos().<span class="function">filter</span>(t <span class="operator">=&gt;</span> !t.done).length
   )
 

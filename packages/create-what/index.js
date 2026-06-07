@@ -329,20 +329,20 @@ function generateMainJsx({ reactCompat, cssApproach }) {
 }
 
 function generateMainDefault() {
-  return `import { mount, useSignal } from 'what-framework';
+  return `import { mount, signal } from 'what-framework';
 
 function App() {
-  const count = useSignal(0);
+  const count = signal(0);
 
   return (
     <main className="app-shell">
       <h1>What Framework</h1>
-      <p>Compiler-first JSX, React-familiar authoring.</p>
+      <p>Compiler-first JSX, fine-grained signals.</p>
 
       <section className="counter">
-        <button onClick={() => count.set(c => c - 1)}>-</button>
+        <button onClick={() => count(c => c - 1)}>-</button>
         <output>{count()}</output>
-        <button onClick={() => count.set(c => c + 1)}>+</button>
+        <button onClick={() => count(c => c + 1)}>+</button>
       </section>
     </main>
   );
@@ -353,10 +353,10 @@ mount(<App />, '#app');
 }
 
 function generateMainWithTailwind() {
-  return `import { mount, useSignal } from 'what-framework';
+  return `import { mount, signal } from 'what-framework';
 
 function App() {
-  const count = useSignal(0);
+  const count = signal(0);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -367,14 +367,14 @@ function App() {
         <section className="mt-6 inline-flex items-center gap-3">
           <button
             className="w-9 h-9 rounded-lg border border-slate-300 bg-white text-slate-900 hover:border-blue-600 cursor-pointer"
-            onClick={() => count.set(c => c - 1)}
+            onClick={() => count(c => c - 1)}
           >
             -
           </button>
           <output className="min-w-[2ch] text-center font-bold">{count()}</output>
           <button
             className="w-9 h-9 rounded-lg border border-slate-300 bg-white text-slate-900 hover:border-blue-600 cursor-pointer"
-            onClick={() => count.set(c => c + 1)}
+            onClick={() => count(c => c + 1)}
           >
             +
           </button>
@@ -389,7 +389,7 @@ mount(<App />, '#app');
 }
 
 function generateMainWithStyleX() {
-  return `import { mount, useSignal } from 'what-framework';
+  return `import { mount, signal } from 'what-framework';
 import * as stylex from '@stylexjs/stylex';
 
 const styles = stylex.create({
@@ -443,7 +443,7 @@ const styles = stylex.create({
 });
 
 function App() {
-  const count = useSignal(0);
+  const count = signal(0);
 
   return (
     <main {...stylex.props(styles.page)}>
@@ -452,9 +452,9 @@ function App() {
         <p {...stylex.props(styles.subtitle)}>Compiler-first JSX + StyleX.</p>
 
         <section {...stylex.props(styles.counter)}>
-          <button {...stylex.props(styles.button)} onClick={() => count.set(c => c - 1)}>-</button>
+          <button {...stylex.props(styles.button)} onClick={() => count(c => c - 1)}>-</button>
           <output {...stylex.props(styles.output)}>{count()}</output>
-          <button {...stylex.props(styles.button)} onClick={() => count.set(c => c + 1)}>+</button>
+          <button {...stylex.props(styles.button)} onClick={() => count(c => c + 1)}>+</button>
         </section>
       </div>
     </main>
@@ -469,7 +469,7 @@ function generateMainWithReactCompat({ cssApproach }) {
   // React compat demo: uses zustand (a real React library) to show it works
   // with What Framework under the hood.
   if (cssApproach === 'tailwind') {
-    return `import { mount, useSignal } from 'what-framework';
+    return `import { mount, signal } from 'what-framework';
 import { create } from 'zustand';
 
 // A real React state library — works with What Framework via what-react!
@@ -508,7 +508,7 @@ function BearCounter() {
 }
 
 function App() {
-  const count = useSignal(0);
+  const count = signal(0);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -519,14 +519,14 @@ function App() {
         <section className="mt-6 inline-flex items-center gap-3">
           <button
             className="w-9 h-9 rounded-lg border border-slate-300 bg-white text-slate-900 hover:border-blue-600 cursor-pointer"
-            onClick={() => count.set(c => c - 1)}
+            onClick={() => count(c => c - 1)}
           >
             -
           </button>
           <output className="min-w-[2ch] text-center font-bold">{count()}</output>
           <button
             className="w-9 h-9 rounded-lg border border-slate-300 bg-white text-slate-900 hover:border-blue-600 cursor-pointer"
-            onClick={() => count.set(c => c + 1)}
+            onClick={() => count(c => c + 1)}
           >
             +
           </button>
@@ -543,7 +543,7 @@ mount(<App />, '#app');
   }
 
   if (cssApproach === 'stylex') {
-    return `import { mount, useSignal } from 'what-framework';
+    return `import { mount, signal } from 'what-framework';
 import { create } from 'zustand';
 import * as stylex from '@stylexjs/stylex';
 
@@ -629,7 +629,7 @@ function BearCounter() {
 }
 
 function App() {
-  const count = useSignal(0);
+  const count = signal(0);
 
   return (
     <main {...stylex.props(styles.page)}>
@@ -638,9 +638,9 @@ function App() {
         <p {...stylex.props(styles.subtitle)}>React compat + StyleX.</p>
 
         <section {...stylex.props(styles.counter)}>
-          <button {...stylex.props(styles.button)} onClick={() => count.set(c => c - 1)}>-</button>
+          <button {...stylex.props(styles.button)} onClick={() => count(c => c - 1)}>-</button>
           <output {...stylex.props(styles.output)}>{count()}</output>
-          <button {...stylex.props(styles.button)} onClick={() => count.set(c => c + 1)}>+</button>
+          <button {...stylex.props(styles.button)} onClick={() => count(c => c + 1)}>+</button>
         </section>
 
         <BearCounter />
@@ -654,7 +654,7 @@ mount(<App />, '#app');
   }
 
   // React compat with vanilla CSS
-  return `import { mount, useSignal } from 'what-framework';
+  return `import { mount, signal } from 'what-framework';
 import { create } from 'zustand';
 
 // A real React state library — works with What Framework via what-react!
@@ -683,7 +683,7 @@ function BearCounter() {
 }
 
 function App() {
-  const count = useSignal(0);
+  const count = signal(0);
 
   return (
     <main className="app-shell">
@@ -691,9 +691,9 @@ function App() {
       <p>React compat enabled — use React libraries with signals.</p>
 
       <section className="counter">
-        <button onClick={() => count.set(c => c - 1)}>-</button>
+        <button onClick={() => count(c => c - 1)}>-</button>
         <output>{count()}</output>
-        <button onClick={() => count.set(c => c + 1)}>+</button>
+        <button onClick={() => count(c => c + 1)}>+</button>
       </section>
 
       <BearCounter />

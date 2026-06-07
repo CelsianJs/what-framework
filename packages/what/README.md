@@ -22,15 +22,15 @@ npm run dev
 ## Quick Start
 
 ```jsx
-import { mount, useSignal } from 'what-framework';
+import { mount, signal } from 'what-framework';
 
 function Counter() {
-  const count = useSignal(0);
+  const count = signal(0);
 
   return (
     <div>
       <p>Count: {count()}</p>
-      <button onClick={() => count.set(c => c + 1)}>+</button>
+      <button onClick={() => count(c => c + 1)}>+</button>
     </div>
   );
 }

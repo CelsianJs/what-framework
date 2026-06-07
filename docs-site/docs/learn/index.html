@@ -113,15 +113,15 @@ npm run dev</code></pre>
           <p>Let's build a counter. Open <code>src/main.jsx</code>:</p>
 
           <div class="code-header">src/main.jsx</div>
-<pre><code><span class="keyword">import</span> { mount, useSignal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { mount, signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">App</span>() {
-  <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
 
   <span class="keyword">return</span> (
     &lt;div&gt;
       &lt;h1&gt;Counter: {count()}&lt;/h1&gt;
-      &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
+      &lt;button onClick={() =&gt; count(c =&gt; c + 1)}&gt;
         Increment
       &lt;/button&gt;
     &lt;/div&gt;
@@ -135,8 +135,8 @@ npm run dev</code></pre>
           <div class="step">
             <span class="step-number">1</span>
             <div class="step-content">
-              <h4><code>useSignal(0)</code></h4>
-              <p>Creates a reactive value starting at 0. Unlike React's useState tuple, this returns a signal getter/setter pair in one primitive.</p>
+              <h4><code>signal(0)</code></h4>
+              <p>Creates a reactive value starting at 0. Unlike React's useState tuple, this returns one function: call it to read, call it with a value to write. <code>signal()</code> works anywhere — module scope, components, or stores.</p>
             </div>
           </div>
 
@@ -151,8 +151,8 @@ npm run dev</code></pre>
           <div class="step">
             <span class="step-number">3</span>
             <div class="step-content">
-              <h4><code>count.set(c => c + 1)</code></h4>
-              <p>Updates the signal. The function receives the current value and returns the new one. The DOM updates immediately.</p>
+              <h4><code>count(c => c + 1)</code></h4>
+              <p>Updates the signal — call it with the new value, or a function that receives the current value and returns the next. <code>count.set(c => c + 1)</code> is an equivalent explicit form. The DOM updates immediately.</p>
             </div>
           </div>
 
@@ -165,17 +165,17 @@ npm run dev</code></pre>
           <p>Let's add a derived value that updates automatically:</p>
 
           <div class="code-header">src/main.jsx</div>
-<pre><code><span class="keyword">import</span> { mount, useSignal, useComputed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { mount, signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">App</span>() {
-  <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
-  <span class="keyword">const</span> doubled = <span class="function">useComputed</span>(() =&gt; count() * <span class="number">2</span>);
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> doubled = <span class="function">computed</span>(() =&gt; count() * <span class="number">2</span>);
 
   <span class="keyword">return</span> (
     &lt;div&gt;
       &lt;h1&gt;Count: {count()}&lt;/h1&gt;
       &lt;p&gt;Doubled: {doubled()}&lt;/p&gt;
-      &lt;button onClick={() =&gt; count.set(c =&gt; c + 1)}&gt;
+      &lt;button onClick={() =&gt; count(c =&gt; c + 1)}&gt;
         Increment
       &lt;/button&gt;
     &lt;/div&gt;
@@ -184,7 +184,7 @@ npm run dev</code></pre>
 
 <span class="function">mount</span>(&lt;App /&gt;, <span class="string">'#app'</span>);</code></pre>
 
-          <p><code>useComputed()</code> creates a derived signal. It:</p>
+          <p><code>computed()</code> creates a derived signal. It:</p>
           <ul>
             <li>Tracks which signals it reads (<code>count</code> in this case)</li>
             <li>Caches its value until dependencies change</li>
@@ -193,18 +193,18 @@ npm run dev</code></pre>
 
           <div class="callout callout-warning">
             <p class="callout-title">Why not just <code>const doubled = count() * 2</code>?</p>
-            <p>In React, that works because the entire component function re-runs on every state change. In What, the component function runs <strong>once</strong> — so <code>count() * 2</code> evaluates to a plain number at creation time and never updates. <code>useComputed</code> creates a reactive derivation that stays in sync.</p>
-            <p>For simple one-off expressions in JSX, the compiler handles it: <code>&lt;p&gt;{count() * 2}&lt;/p&gt;</code> works directly. Use <code>useComputed</code> when you need the derived value in multiple places or want to pass it to child components.</p>
+            <p>In React, that works because the entire component function re-runs on every state change. In What, the component function runs <strong>once</strong> — so <code>count() * 2</code> evaluates to a plain number at creation time and never updates. <code>computed</code> creates a reactive derivation that stays in sync.</p>
+            <p>For simple one-off expressions in JSX, the compiler handles it: <code>&lt;p&gt;{count() * 2}&lt;/p&gt;</code> works directly. Use <code>computed</code> when you need the derived value in multiple places or want to pass it to child components.</p>
           </div>
 
           <h2 id="side-effects">Running Side Effects</h2>
           <p>Need to do something when a signal changes? Use <code>effect()</code>:</p>
 
           <div class="code-header">src/main.jsx</div>
-<pre><code><span class="keyword">import</span> { mount, useSignal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { mount, signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">App</span>() {
-  <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
 
   <span class="comment">// Runs immediately, then re-runs when count changes</span>
   <span class="function">effect</span>(() =&gt; {
@@ -214,7 +214,7 @@ npm run dev</code></pre>
   <span class="keyword">return</span> (
     &lt;div&gt;
       &lt;p&gt;{count()}&lt;/p&gt;
-      &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">1</span>)}&gt;+1&lt;/button&gt;
+      &lt;button onClick={() =&gt; count(c =&gt; c + <span class="number">1</span>)}&gt;+1&lt;/button&gt;
     &lt;/div&gt;
   );
 }</code></pre>
