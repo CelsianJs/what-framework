@@ -339,6 +339,22 @@ function useMutation(mutationFn, options = {}) {
   };
 }
 
+// packages/server/src/serialize.js
+var SCRIPT_UNSAFE = new RegExp("[<>&\\u2028\\u2029]", "g");
+var ESCAPES = {
+  60: "\\u003c",
+  // <
+  62: "\\u003e",
+  // >
+  38: "\\u0026",
+  // &
+  8232: "\\u2028",
+  8233: "\\u2029"
+};
+function serializeState(value) {
+  return JSON.stringify(value).replace(SCRIPT_UNSAFE, (c) => ESCAPES[c.charCodeAt(0)]);
+}
+
 // packages/server/src/index.js
 var _hydrationIdCounter = 0;
 function resetHydrationId() {
@@ -632,6 +648,7 @@ export {
   renderToHydratableString,
   renderToStream,
   renderToString,
+  serializeState,
   server,
   useAction,
   useFormAction,

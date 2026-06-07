@@ -13,7 +13,7 @@ import {
   spread,
   svgTemplate,
   template
-} from "./chunk-VP4WLF5A.js";
+} from "./chunk-YA3W4XKH.js";
 import {
   ErrorBoundary,
   For,

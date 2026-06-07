@@ -404,3 +404,6 @@ export {
   validateCsrfToken,
   csrfMetaTag,
 } from './actions.js';
+
+// Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
+export { serializeState } from './serialize.js';

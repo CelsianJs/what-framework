@@ -17,6 +17,7 @@
 //   'action'  - Hydrate on first user interaction (click, focus, hover)
 
 import { mount, hydrate, signal, batch } from 'what-core';
+import { serializeState } from './serialize.js';
 
 const islandRegistry = new Map();
 const hydratedIslands = new Set();
@@ -83,13 +84,16 @@ export function useIslandStore(name, fallbackInitial = {}) {
   return createIslandStore(name, fallbackInitial);
 }
 
-// Serialize all shared stores for SSR
+// Serialize all shared stores for SSR.
+// Uses serializeState (not bare JSON.stringify) so user-controlled store values
+// containing "</script>" cannot break out of the <script> tag this is embedded
+// in. (AUDIT-2026-06-06 H3)
 export function serializeIslandStores() {
   const data = {};
   for (const [name, store] of sharedStores) {
     data[name] = store._getSnapshot();
   }
-  return JSON.stringify(data);
+  return serializeState(data);
 }
 
 // Hydrate shared stores from SSR data

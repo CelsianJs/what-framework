@@ -1,5 +1,23 @@
 // packages/server/src/islands.js
 import { mount, hydrate, signal, batch } from "what-core";
+
+// packages/server/src/serialize.js
+var SCRIPT_UNSAFE = new RegExp("[<>&\\u2028\\u2029]", "g");
+var ESCAPES = {
+  60: "\\u003c",
+  // <
+  62: "\\u003e",
+  // >
+  38: "\\u0026",
+  // &
+  8232: "\\u2028",
+  8233: "\\u2029"
+};
+function serializeState(value) {
+  return JSON.stringify(value).replace(SCRIPT_UNSAFE, (c) => ESCAPES[c.charCodeAt(0)]);
+}
+
+// packages/server/src/islands.js
 var islandRegistry = /* @__PURE__ */ new Map();
 var hydratedIslands = /* @__PURE__ */ new Set();
 var hydrationQueue = [];
@@ -56,7 +74,7 @@ function serializeIslandStores() {
   for (const [name, store] of sharedStores) {
     data[name] = store._getSnapshot();
   }
-  return JSON.stringify(data);
+  return serializeState(data);
 }
 function hydrateIslandStores(serialized) {
   try {
