@@ -448,10 +448,10 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
       for (let i = oldLen - 1; i >= 0; i--) {
         const node = mappedNodes[i];
         if (node) {
-          // Only walk subtree if the node has reactive state not tracked by createRoot
-          if (node._componentCtx || node._dispose || node._propEffects) {
-            disposeTree(node);
-          }
+          // disposeTree walks the subtree for nested component contexts
+          // (c:start comments) and reactive bindings that the item-scope
+          // dispose above does not cover. (AUDIT C5)
+          disposeTree(node);
           if (node.parentNode === parent) parent.removeChild(node);
         }
       }
@@ -514,6 +514,7 @@ function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, dispo
     // Only removals in the middle
     for (let i = start; i <= oldEnd; i++) {
       disposeFns[i]?.();
+      if (mappedNodes[i]) disposeTree(mappedNodes[i]); // dispose nested component ctx (AUDIT C5)
       if (mappedNodes[i]?.parentNode) mappedNodes[i].parentNode.removeChild(mappedNodes[i]);
     }
   } else if (midOldLen === 0) {
@@ -571,6 +572,7 @@ function _reconcileMiddle(parent, endMarker, oldItems, newItems, mappedNodes, di
   // Dispose removed items
   for (const [, oldIdx] of oldIdxMap) {
     disposeFns[oldIdx]?.();
+    if (mappedNodes[oldIdx]) disposeTree(mappedNodes[oldIdx]); // dispose nested component ctx (AUDIT C5)
     if (mappedNodes[oldIdx]?.parentNode) mappedNodes[oldIdx].parentNode.removeChild(mappedNodes[oldIdx]);
   }
 
@@ -714,7 +716,12 @@ function _removeItemNodes(parent, marker, beforeEnd) {
   let n = marker;
   while (n && n !== beforeEnd) {
     const next = n.nextSibling;
-    if (n._componentCtx || n._dispose || n._propEffects) disposeTree(n);
+    // Always disposeTree: a component's context lives on its `c:start` comment
+    // (nodeType 8, via _commentCtxMap) which carries none of the gate flags
+    // below, so the old `_componentCtx || _dispose || _propEffects` guard
+    // leaked every component's effects/cleanups/onCleanup/listeners on removal.
+    // disposeTree is internally cheap-guarded and idempotent. (AUDIT C5)
+    disposeTree(n);
     parent.removeChild(n);
     n = next;
   }
