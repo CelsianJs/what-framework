@@ -208,8 +208,8 @@
 
   <div class="container">
     <h1>Performance Benchmarks</h1>
-    <p class="subtitle">Real measured performance data from the What Framework test suite. All benchmarks run on Node.js v22.13.1.</p>
-    <p class="last-updated">Last updated <time datetime="2026-05-12T13:40:16.844Z">May 12, 2026</time> · v0.9.0 · darwin</p>
+    <p class="subtitle">Real measured performance data from the What Framework test suite. All benchmarks run on Node.js v22.22.3.</p>
+    <p class="last-updated">Last updated <time datetime="2026-06-07T08:51:11.141Z">June 7, 2026</time> · v0.9.0 · linux</p>
 
     <!-- Signals -->
     <div class="benchmark-section">
@@ -225,33 +225,33 @@
         <tbody>
           <tr>
             <td>Signal create</td>
-            <td class="value">7.7M ops/sec</td>
-            <td class="value">0.1µs</td>
+            <td class="value">1.7M ops/sec</td>
+            <td class="value">0.6µs</td>
           </tr>
           <tr>
             <td>Signal read (100x per iteration)</td>
-            <td class="value">4.5M ops/sec</td>
-            <td class="value">0.2µs</td>
+            <td class="value">805K ops/sec</td>
+            <td class="value">0.0012ms</td>
           </tr>
           <tr>
             <td>Signal write (no subscribers)</td>
-            <td class="value">1.9M ops/sec</td>
-            <td class="value">0.5µs</td>
+            <td class="value">626K ops/sec</td>
+            <td class="value">0.0016ms</td>
           </tr>
           <tr>
             <td>Signal write (1 subscriber)</td>
-            <td class="value">776K ops/sec</td>
-            <td class="value">0.0013ms</td>
+            <td class="value">231K ops/sec</td>
+            <td class="value">0.0043ms</td>
           </tr>
           <tr>
             <td>Signal write (10 subscribers)</td>
-            <td class="value">207K ops/sec</td>
-            <td class="value">0.0048ms</td>
+            <td class="value">76K ops/sec</td>
+            <td class="value">0.0131ms</td>
           </tr>
           <tr>
             <td>Signal peek (untracked read)</td>
-            <td class="value">4.5M ops/sec</td>
-            <td class="value">0.2µs</td>
+            <td class="value">1.3M ops/sec</td>
+            <td class="value">0.8µs</td>
           </tr>
         </tbody>
       </table>
@@ -272,18 +272,18 @@
         <tbody>
           <tr>
             <td>Computed create + read</td>
-            <td class="value">2.3M ops/sec</td>
-            <td class="value">0.4µs</td>
+            <td class="value">497K ops/sec</td>
+            <td class="value">0.0020ms</td>
           </tr>
           <tr>
             <td>Computed chain (depth 5)</td>
-            <td class="value">304K ops/sec</td>
-            <td class="value">0.0033ms</td>
+            <td class="value">105K ops/sec</td>
+            <td class="value">0.0095ms</td>
           </tr>
           <tr>
             <td>Computed diamond dependency</td>
-            <td class="value">503K ops/sec</td>
-            <td class="value">0.0020ms</td>
+            <td class="value">168K ops/sec</td>
+            <td class="value">0.0059ms</td>
           </tr>
         </tbody>
       </table>
@@ -303,13 +303,13 @@
         <tbody>
           <tr>
             <td>Effect create + dispose</td>
-            <td class="value">5.4M ops/sec</td>
-            <td class="value">0.2µs</td>
+            <td class="value">1.2M ops/sec</td>
+            <td class="value">0.8µs</td>
           </tr>
           <tr>
             <td>Effect with 10 signal deps</td>
-            <td class="value">971K ops/sec</td>
-            <td class="value">0.0010ms</td>
+            <td class="value">379K ops/sec</td>
+            <td class="value">0.0026ms</td>
           </tr>
         </tbody>
       </table>
@@ -329,13 +329,13 @@
         <tbody>
           <tr>
             <td>Batch 100 writes, 1 effect</td>
-            <td class="value">547K ops/sec</td>
-            <td class="value">0.0018ms</td>
+            <td class="value">160K ops/sec</td>
+            <td class="value">0.0063ms</td>
           </tr>
           <tr>
             <td>Batch 10 signals, 10 writes each</td>
-            <td class="value">428K ops/sec</td>
-            <td class="value">0.0023ms</td>
+            <td class="value">172K ops/sec</td>
+            <td class="value">0.0058ms</td>
           </tr>
         </tbody>
       </table>
@@ -356,22 +356,22 @@
         <tbody>
           <tr>
             <td>Single element creation</td>
-            <td class="value">9.1M ops/sec</td>
-            <td class="value">0.1µs</td>
-          </tr>
-          <tr>
-            <td>Nested (3 levels)</td>
-            <td class="value">6.1M ops/sec</td>
+            <td class="value">5.0M ops/sec</td>
             <td class="value">0.2µs</td>
           </tr>
           <tr>
+            <td>Nested (3 levels)</td>
+            <td class="value">3.0M ops/sec</td>
+            <td class="value">0.3µs</td>
+          </tr>
+          <tr>
             <td>List of 100 items</td>
-            <td class="value">79K ops/sec</td>
-            <td class="value">0.0127ms</td>
+            <td class="value">34K ops/sec</td>
+            <td class="value">0.0292ms</td>
           </tr>
           <tr>
             <td>Component call</td>
-            <td class="value">16.1M ops/sec</td>
+            <td class="value">9.0M ops/sec</td>
             <td class="value">0.1µs</td>
           </tr>
         </tbody>
@@ -392,23 +392,23 @@
         <tbody>
           <tr>
             <td>SSR simple element</td>
-            <td class="value">1.4M ops/sec</td>
-            <td class="value">0.7µs</td>
+            <td class="value">499K ops/sec</td>
+            <td class="value">0.0020ms</td>
           </tr>
           <tr>
             <td>SSR nested tree</td>
-            <td class="value">411K ops/sec</td>
-            <td class="value">0.0024ms</td>
+            <td class="value">214K ops/sec</td>
+            <td class="value">0.0047ms</td>
           </tr>
           <tr>
             <td>SSR list of 100 items</td>
-            <td class="value">16K ops/sec</td>
-            <td class="value">0.0637ms</td>
+            <td class="value">8K ops/sec</td>
+            <td class="value">0.1191ms</td>
           </tr>
           <tr>
             <td>SSR component tree (50 items)</td>
-            <td class="value">55K ops/sec</td>
-            <td class="value">0.0183ms</td>
+            <td class="value">29K ops/sec</td>
+            <td class="value">0.0346ms</td>
           </tr>
         </tbody>
       </table>
@@ -426,31 +426,23 @@
         </thead>
         <tbody>
           <tr>
-            <td>Typical app (TodoMVC, framework + app)</td>
-            <td class="value">~8.5kB</td>
-          </tr>
-          <tr>
-            <td>Minimal app (counter)</td>
-            <td class="value">~7.5kB</td>
-          </tr>
-          <tr>
-            <td>Full runtime (before tree-shaking)</td>
-            <td class="value">~31kB</td>
+            <td>what-framework (core)</td>
+            <td class="value">~4kB</td>
           </tr>
         </tbody>
       </table>
-      <p class="note">Measured with gzip on real Vite production builds.</p>
+      <p class="note">Measured using gzip -9 compression.</p>
     </div>
 
     <!-- Methodology -->
     <div class="methodology">
       <h2>Methodology</h2>
-      <p>All benchmarks run on Node.js v22.13.1 with the following approach:</p>
+      <p>All benchmarks run on Node.js v22.22.3 with the following approach:</p>
       <p>• <strong>Warmup:</strong> 100–1000 iterations discarded before measurement</p>
       <p>• <strong>Iterations:</strong> 500–10,000 per test (varies by operation cost)</p>
       <p>• <strong>Timing:</strong> High-resolution <code>performance.now()</code></p>
       <p>• <strong>Calculation:</strong> Trimmed mean (discard top/bottom 10%)</p>
-      <p>• <strong>Environment:</strong> macOS, Node.js v22.13.1</p>
+      <p>• <strong>Environment:</strong> linux, Node.js v22.22.3</p>
       <p>• <strong>Automated:</strong> Benchmarks regenerate every 3 days via CI</p>
       <p>Source code available in <code>/benchmark</code> directory. Run with <code>npm run bench</code>.</p>
     </div>
