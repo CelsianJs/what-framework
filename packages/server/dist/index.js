@@ -339,6 +339,22 @@ function useMutation(mutationFn, options = {}) {
   };
 }
 
+// packages/server/src/serialize.js
+var SCRIPT_UNSAFE = new RegExp("[<>&\\u2028\\u2029]", "g");
+var ESCAPES = {
+  60: "\\u003c",
+  // <
+  62: "\\u003e",
+  // >
+  38: "\\u0026",
+  // &
+  8232: "\\u2028",
+  8233: "\\u2029"
+};
+function serializeState(value) {
+  return JSON.stringify(value).replace(SCRIPT_UNSAFE, (c) => ESCAPES[c.charCodeAt(0)]);
+}
+
 // packages/server/src/index.js
 var _hydrationIdCounter = 0;
 function resetHydrationId() {
@@ -586,7 +602,7 @@ function isUnsafeUrlAttribute(key, val) {
   const normalizedKey = key.toLowerCase();
   if (!URL_ATTRS.has(normalizedKey)) return false;
   const normalizedValue = String(val).trim().replace(/[\u0000-\u001f\u007f\s]+/g, "").toLowerCase();
-  return normalizedValue.startsWith("javascript:") || normalizedValue.startsWith("vbscript:");
+  return normalizedValue.startsWith("javascript:") || normalizedValue.startsWith("vbscript:") || normalizedValue.startsWith("data:");
 }
 var URL_ATTRS = /* @__PURE__ */ new Set([
   "href",
@@ -632,6 +648,7 @@ export {
   renderToHydratableString,
   renderToStream,
   renderToString,
+  serializeState,
   server,
   useAction,
   useFormAction,

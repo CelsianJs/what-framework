@@ -181,9 +181,16 @@ async function main() {
   }
   const jfbGeoMean = Math.exp(jfbGeoSum / jfbCount);
 
-  console.log(`  Estimated js-framework-benchmark score: ~${jfbGeoMean.toFixed(2)}x`);
+  console.log(`  ROUGH non-paint estimate (NOT a real JFB score): ~${jfbGeoMean.toFixed(2)}x`);
+  console.log('  ⚠  This is a synthetic projection: it adds our measured (paint-EXCLUDED)');
+  console.log('     overhead to a hardcoded vanilla reference table. The official');
+  console.log('     js-framework-benchmark measures WITH paint on standardized hardware.');
+  console.log('     Do NOT publish this number as a benchmark result. To get a real,');
+  console.log('     comparable score, run the official js-framework-benchmark harness');
+  console.log('     against the public h()/JSX API. No framework beats hand-written');
+  console.log('     vanilla JS; fine-grained frameworks land in the Solid/Preact tier.');
   console.log('');
-  console.log('  Published scores for reference:');
+  console.log('  Published OFFICIAL scores for reference (paint-inclusive):');
   console.log('    vanillajs     1.03x  (baseline)');
   console.log('    solid v1.9    1.11x');
   console.log('    svelte v5     1.13x');

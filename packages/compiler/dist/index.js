@@ -86,11 +86,12 @@ function normalizeJsxText(value) {
 }
 function whatBabelPlugin({ types: t }) {
   const _unknownModifierWarned = /* @__PURE__ */ new Set();
+  const _forInfoWarned = /* @__PURE__ */ new Set();
   function hasEventModifiers(name, state) {
     if (!name.includes("__")) return false;
     if (!name.startsWith("on")) return false;
     const parts = name.split("__");
-    const tail = parts.slice(1);
+    const tail = parts.slice(1).filter((s) => s !== "");
     if (tail.length === 0) return false;
     if (true) {
       const unknown = tail.filter((m) => !EVENT_MODIFIERS.has(m));
@@ -239,22 +240,20 @@ function whatBabelPlugin({ types: t }) {
     }
     let scope = path3.scope;
     while (scope) {
-      for (const [name, binding] of Object.entries(scope.bindings)) {
+      for (const binding of Object.values(scope.bindings)) {
         if (binding.path.isVariableDeclarator()) {
           extractFromDeclarator(binding.path.node);
         }
-        if (binding.path.isIdentifier() || binding.kind === "param") {
-          const fnPath = binding.scope.path;
-          if (fnPath && fnPath.node && fnPath.node.params) {
-            for (const param of fnPath.node.params) {
-              if (t.isObjectPattern(param)) {
-                for (const prop of param.properties) {
-                  if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-                    signalNames.add(prop.value.name);
-                  } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
-                    signalNames.add(prop.argument.name);
-                  }
-                }
+      }
+      const fnNode = scope.path && scope.path.node;
+      if (fnNode && fnNode.params) {
+        for (const param of fnNode.params) {
+          if (t.isObjectPattern(param)) {
+            for (const prop of param.properties) {
+              if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+                signalNames.add(prop.value.name);
+              } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
+                signalNames.add(prop.argument.name);
               }
             }
           }
@@ -354,9 +353,36 @@ function whatBabelPlugin({ types: t }) {
   }
   function tryLowerMapToMapArray(expr, state) {
     let mapCall = expr;
-    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0 && t.isCallExpression(expr.body)) {
+    let wrappedInArrow = false;
+    if (t.isArrowFunctionExpression(expr) && expr.params.length === 0) {
       mapCall = expr.body;
+      wrappedInArrow = true;
     }
+    if (t.isConditionalExpression(mapCall)) {
+      const loweredCon = tryLowerMapCall(mapCall.consequent, state);
+      const loweredAlt = tryLowerMapCall(mapCall.alternate, state);
+      if (loweredCon || loweredAlt) {
+        const result = t.conditionalExpression(
+          mapCall.test,
+          loweredCon || mapCall.consequent,
+          loweredAlt || mapCall.alternate
+        );
+        return wrappedInArrow ? t.arrowFunctionExpression([], result) : result;
+      }
+      return null;
+    }
+    if (t.isLogicalExpression(mapCall) && (mapCall.operator === "&&" || mapCall.operator === "||")) {
+      const loweredRight = tryLowerMapCall(mapCall.right, state);
+      if (loweredRight) {
+        const result = t.logicalExpression(mapCall.operator, mapCall.left, loweredRight);
+        return wrappedInArrow ? t.arrowFunctionExpression([], result) : result;
+      }
+      return null;
+    }
+    const lowered = tryLowerMapCall(mapCall, state);
+    return lowered;
+  }
+  function tryLowerMapCall(mapCall, state) {
     if (!t.isCallExpression(mapCall)) return null;
     if (!t.isMemberExpression(mapCall.callee)) return null;
     if (!t.isIdentifier(mapCall.callee.property, { name: "map" })) return null;
@@ -816,22 +842,31 @@ function whatBabelPlugin({ types: t }) {
     const entriesNeedingRef = entries.filter(
       (e) => e.type === "expression" || e.type === "component" || e.type === "static" && e.hasAnythingDynamic
     );
-    const hasDynamicInsert = entries.some((e) => e.type === "expression" || e.type === "component");
-    const needsPreCapture = entriesNeedingRef.length >= 2 && hasDynamicInsert;
+    const needsPreCapture = entriesNeedingRef.length >= 2;
     const markerVars = /* @__PURE__ */ new Map();
     if (needsPreCapture) {
+      let prevVar = null;
+      let prevIndex = 0;
       for (const entry of entriesNeedingRef) {
-        const varName = `_m$${entry.childIndex}`;
+        const idx = entry.childIndex;
         const markerVar = state.nextVarId();
-        markerVars.set(entry.childIndex, markerVar);
+        markerVars.set(idx, markerVar);
+        let init;
+        if (prevVar === null) {
+          init = buildChildAccess(elId, idx);
+        } else {
+          init = t.identifier(prevVar);
+          for (let i = prevIndex; i < idx; i++) {
+            init = t.memberExpression(init, t.identifier("nextSibling"));
+          }
+        }
         statements.push(
           t.variableDeclaration("const", [
-            t.variableDeclarator(
-              t.identifier(markerVar),
-              buildChildAccess(elId, entry.childIndex)
-            )
+            t.variableDeclarator(t.identifier(markerVar), init)
           ])
         );
+        prevVar = markerVar;
+        prevIndex = idx;
       }
     }
     function getMarker(idx) {
@@ -848,11 +883,14 @@ function whatBabelPlugin({ types: t }) {
         const mapResult = tryLowerMapToMapArray(expr, state);
         if (mapResult) {
           state.needsMapArray = true;
+          const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) && (mapResult.callee.name === "_$mapArray" || mapResult.callee.name === "mapArray");
+          const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+          const insertArg = isBareMapArray || isArrowAlready ? mapResult : t.arrowFunctionExpression([], mapResult);
           statements.push(
             t.expressionStatement(
               t.callExpression(t.identifier("_$insert"), [
                 t.identifier(elId),
-                mapResult,
+                insertArg,
                 marker
               ])
             )
@@ -1134,6 +1172,17 @@ function whatBabelPlugin({ types: t }) {
     const { node } = path3;
     const attributes = node.openingElement.attributes;
     const children = node.children;
+    if (true) {
+      const fileName = state.filename || state.file?.opts?.filename || "<unknown>";
+      if (!_forInfoWarned.has(fileName)) {
+        _forInfoWarned.add(fileName);
+        const loc = node.loc;
+        const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : "";
+        console.info(
+          `[what-compiler] <For> at ${fileName}${lineInfo}: consider using .map() with a key prop instead. The compiler auto-lowers .map() to efficient keyed reconciliation. <For> is only needed for signal-wrapped item accessors (advanced).`
+        );
+      }
+    }
     let eachExpr = null;
     let keyExpr = null;
     for (const attr of attributes) {
@@ -1450,7 +1499,15 @@ function whatBabelPlugin({ types: t }) {
         }
       },
       JSXElement(path3, state) {
-        state.signalNames = collectSignalNamesFromScope(path3);
+        const scope = path3.scope;
+        let cache = state._signalNamesCache;
+        if (!cache) cache = state._signalNamesCache = /* @__PURE__ */ new WeakMap();
+        let names = cache.get(scope);
+        if (!names) {
+          names = collectSignalNamesFromScope(path3);
+          cache.set(scope, names);
+        }
+        state.signalNames = names;
         state._pendingSetup = [];
         const transformed = transformElementFineGrained(path3, state);
         const pending = state._pendingSetup;

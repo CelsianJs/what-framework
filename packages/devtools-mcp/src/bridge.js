@@ -33,9 +33,26 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
   // Set WHAT_MCP_TOKEN to share the same token between bridge and Vite plugin.
   const authToken = process.env.WHAT_MCP_TOKEN || randomBytes(24).toString('hex');
 
-  const wss = new WebSocketServer({ host, port, verifyClient: ({ req }) => {
-    // Require a valid token query parameter to connect
+  // Only browser pages served from a loopback origin may talk to the bridge.
+  // This is the key defense against the "confused deputy" attack where a page
+  // on evil.com (open in the same browser as `what dev`) steals the token and
+  // drives set-signal/navigate/eval against the live app. Requests with no
+  // Origin header come from non-browser local processes (the MCP server's own
+  // client, curl) and are gated by the token instead. (AUDIT-2026-06-06 C6)
+  function isAllowedOrigin(origin) {
+    if (!origin) return true; // non-browser client; token is the gate
     try {
+      const { hostname } = new URL(origin);
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+    } catch {
+      return false;
+    }
+  }
+
+  const wss = new WebSocketServer({ host, port, verifyClient: ({ req }) => {
+    // Require BOTH a loopback origin (defense in depth) AND a valid token.
+    try {
+      if (!isAllowedOrigin(req.headers.origin)) return false;
       const url = new URL(req.url, `http://${host}:${port}`);
       return url.searchParams.get('token') === authToken;
     } catch {
@@ -54,8 +71,19 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
 
   const discoveryPort = port + 1;
   const httpServer = createServer((req, res) => {
-    // CORS headers so the browser can fetch from any origin
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    // NEVER use a wildcard ACAO here — it would let any website read the token
+    // and then connect to the bridge. Echo the origin back only for loopback
+    // origins; reject token reads from any other origin. (AUDIT-2026-06-06 C6)
+    if (!isAllowedOrigin(origin)) {
+      res.writeHead(403);
+      res.end('Forbidden origin');
+      return;
+    }
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET');
     res.setHeader('Cache-Control', 'no-store');
 

@@ -22,12 +22,28 @@ import { registerTools } from '../src/tools.js';
 import { registerExtendedTools } from '../src/tools-extended.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(__dirname, 'fixture');
 const BRIDGE_PORT = 9499; // avoid conflicts
 
-describe('E2E: Browser → Bridge → MCP', () => {
+// Skip gracefully when the Playwright browser isn't installed (e.g. a fresh
+// `npm test` without `npx playwright install`). CI installs Chromium so this
+// suite still runs there. Without this guard, a missing browser fails the
+// entire `npm test` run (see AUDIT-2026-06-06.md m8).
+let browserAvailable = false;
+try {
+  browserAvailable = existsSync(chromium.executablePath());
+} catch {
+  browserAvailable = false;
+}
+const e2eDescribe = browserAvailable ? describe : describe.skip;
+if (!browserAvailable) {
+  console.warn('[what] Skipping devtools-mcp e2e: Chromium not installed (run `npx playwright install chromium`).');
+}
+
+e2eDescribe('E2E: Browser → Bridge → MCP', () => {
   let viteServer, browser, page, bridge, mcpServer, mcpClient;
 
   before(async () => {

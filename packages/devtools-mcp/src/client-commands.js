@@ -150,9 +150,11 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       const start = performance.now();
       try {
-        // Use Function constructor to execute in global scope
+        // Execute the SAME validated string that passed the safe-read check
+        // above (not the untrimmed args.code) to avoid a validate-one/run-another
+        // mismatch. (AUDIT-2026-06-06 m10)
         // eslint-disable-next-line no-new-func
-        const fn = new Function(args.code);
+        const fn = new Function(code);
         const raw = fn();
         const elapsed = performance.now() - start;
         return {
