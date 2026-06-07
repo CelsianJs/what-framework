@@ -2,7 +2,54 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [0.9.0] - 2026-05-27
+## [0.9.0] - 2026-06-06 — Production-readiness pass
+
+This release folds in the fixes from a full production-readiness audit. Highlights:
+
+### Fixed (critical)
+- **Production build no longer renders a blank page.** `what-core` is now built
+  with code-splitting so `dom.js` (the component stack) and `reactive.js` (the
+  tracking context) are a single shared instance across every entry. Previously
+  the minified `index`/`render` bundles each inlined their own copy, so
+  `useSignal()` read a different component stack than the compiler's
+  `_$createComponent` pushed — blanking every production build. Added a
+  `test:prod` smoke gate (run under `--conditions=production`) wired into
+  `release:verify` and CI.
+- **`npm install` resolves cleanly** — internal `what-*` peer/deps bumped to
+  `^0.9.0` (were pinned `^0.8.4`, causing ERESOLVE).
+- **Component disposal runs on list-item removal** — removing items from a list
+  (keyed or unkeyed) now disposes the item's component context, fixing a leak of
+  effects/cleanups/`onCleanup`/listeners/devtools registrations on every
+  mutation.
+- **DevTools MCP bridge locked to loopback origins** — the token endpoint no
+  longer sends a wildcard CORS header and the WebSocket handshake requires a
+  loopback `Origin`, closing a cross-origin token-theft / app-takeover vector.
+- **Island SSR state is escaped** — `serializeIslandStores()` (and the new
+  exported `serializeState()` helper) escape `</script>` breakout, fixing a
+  stored-XSS vector for user-controlled store values.
+
+### Fixed
+- **Compiler: `.map()` inside a ternary/`&&` stays reactive** — the surrounding
+  condition is now re-tracked instead of read once at mount.
+- **Compiler is no longer O(n²)** for elements with many dynamic children —
+  per-scope memoization of signal collection + a shared forward cursor walk for
+  child markers make compile time and emitted size linear (an 800-child element
+  went from ~366ms/3.8MB to ~20ms/88KB).
+- **Effect errors are isolated during flush** — one throwing effect no longer
+  aborts the rest of the batch; errors are reported, not swallowed silently.
+- `what_eval` executes the same validated string it checks; `ws` floor raised to
+  `^8.18.0`; `what-devtools-mcp` gains `repository`/`homepage` metadata.
+
+### Changed
+- Honest size/claims: docs and sites now state ~8KB gzip for a typical app
+  (~31KB full runtime before tree-shaking) instead of the previous "12KB", the
+  React-compat count is unified at 90+, and site versions are aligned to 0.9.0.
+- CI runs on `ubuntu-latest` with Playwright Chromium installed; server tests
+  are now part of `npm test`.
+
+---
+
+## [0.9.0-dev] - 2026-05-27
 
 ### Added
 - **Interactive playground** (`examples/playground/`): CodeMirror 6 editor

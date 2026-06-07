@@ -209,7 +209,7 @@
   <div class="container">
     <h1>Performance Benchmarks</h1>
     <p class="subtitle">Real measured performance data from the What Framework test suite. All benchmarks run on Node.js v22.13.1.</p>
-    <p class="last-updated">Last updated <time datetime="2026-05-12T13:40:16.844Z">May 12, 2026</time> · v0.8.4 · darwin</p>
+    <p class="last-updated">Last updated <time datetime="2026-05-12T13:40:16.844Z">May 12, 2026</time> · v0.9.0 · darwin</p>
 
     <!-- Signals -->
     <div class="benchmark-section">
@@ -426,12 +426,20 @@
         </thead>
         <tbody>
           <tr>
-            <td>what-framework (core)</td>
-            <td class="value">~4kB</td>
+            <td>Typical app (TodoMVC, framework + app)</td>
+            <td class="value">~8.5kB</td>
+          </tr>
+          <tr>
+            <td>Minimal app (counter)</td>
+            <td class="value">~7.5kB</td>
+          </tr>
+          <tr>
+            <td>Full runtime (before tree-shaking)</td>
+            <td class="value">~31kB</td>
           </tr>
         </tbody>
       </table>
-      <p class="note">Measured using gzip -9 compression.</p>
+      <p class="note">Measured with gzip on real Vite production builds.</p>
     </div>
 
     <!-- Methodology -->
@@ -449,7 +457,7 @@
   </div>
 
   <footer>
-    <a href="https://whatfw.com">What Framework</a> v0.8.4 — <a href="https://react.whatfw.com">React Compat</a> — <a href="https://www.npmjs.com/package/what-framework">npm</a> — <a href="https://github.com/CelsianJs/what-framework">GitHub</a>
+    <a href="https://whatfw.com">What Framework</a> v0.9.0 — <a href="https://react.whatfw.com">React Compat</a> — <a href="https://www.npmjs.com/package/what-framework">npm</a> — <a href="https://github.com/CelsianJs/what-framework">GitHub</a>
   </footer>
 </body>
 </html>

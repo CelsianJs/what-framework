@@ -18,7 +18,7 @@
 - **Structured Errors** — Every error returns JSON with code, message, suggested fix, and code example. Agents parse and fix in one pass
 - **Agent Guardrails** — Runtime catches infinite loops, missing cleanup, XSS, and signal misuse before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — Small core API surface, 12KB runtime, minimal dependencies, tree-shakeable
+- **Small & Fast** — Fine-grained, no VDOM. A typical app ships ~8KB gzipped (TodoMVC ≈8.5KB, a counter ≈7.5KB); the full runtime is ~31KB gzipped before tree-shaking. Minimal dependencies, tree-shakeable
 
 ## Quick Start
 
@@ -84,7 +84,7 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 | `what-compiler` | JSX transform and optimizing compiler |
 | `what-devtools` | Browser dev panel (signal inspector, component tree) |
 | `what-devtools-mcp` | MCP server for AI agent integration |
-| `what-react` | React compatibility layer (49+ React libraries) |
+| `what-react` | React compatibility layer (90+ React libraries) |
 | `create-what` | Project scaffolder |
 
 ## Manual Setup
@@ -112,7 +112,7 @@ What Framework ships an MCP server for AI-assisted development. 29 live debuggin
 
 ## React Compatibility
 
-Use 49+ React ecosystem libraries with `what-react`. This is a secondary feature -- native What Framework APIs are preferred for new code.
+Use 90+ React ecosystem libraries with `what-react`. This is a secondary feature -- native What Framework APIs are preferred for new code.
 
 ```bash
 npm install what-react
