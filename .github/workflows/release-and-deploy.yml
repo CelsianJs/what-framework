@@ -54,6 +54,13 @@ jobs:
         run: npm ci
 
       - name: Verify quality gates
+        env:
+          # GitHub-hosted runners are slower/noisier than the checked-in local
+          # baselines; use the same catastrophic-regression tolerance as the
+          # dedicated bench-gate CI job so release:verify's bench:gate doesn't
+          # fail on hardware noise (it stays strict for local release checks).
+          WHAT_BENCH_TOLERANCE_CORE: 0.80
+          WHAT_BENCH_TOLERANCE_DX: 0.85
         run: npm run -s release:verify
 
       - name: Publish npm packages
