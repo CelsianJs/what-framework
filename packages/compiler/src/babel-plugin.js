@@ -288,27 +288,27 @@ export default function whatBabelPlugin({ types: t }) {
       }
     }
 
-    // Walk up the scope chain using Babel's scope API
+    // Walk up the scope chain using Babel's scope API.
     let scope = path.scope;
     while (scope) {
-      // Check all bindings in this scope
-      for (const [name, binding] of Object.entries(scope.bindings)) {
+      // Check all variable bindings in this scope.
+      for (const binding of Object.values(scope.bindings)) {
         if (binding.path.isVariableDeclarator()) {
           extractFromDeclarator(binding.path.node);
         }
-        // Also check function params (destructured props)
-        if (binding.path.isIdentifier() || binding.kind === 'param') {
-          const fnPath = binding.scope.path;
-          if (fnPath && fnPath.node && fnPath.node.params) {
-            for (const param of fnPath.node.params) {
-              if (t.isObjectPattern(param)) {
-                for (const prop of param.properties) {
-                  if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-                    signalNames.add(prop.value.name);
-                  } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
-                    signalNames.add(prop.argument.name);
-                  }
-                }
+      }
+      // Scan this scope's own function params (destructured props) ONCE per
+      // scope — not once per binding. The old per-binding rescan made this
+      // O(params × bindings) per scope per JSXElement. (AUDIT-2026-06-06 H2)
+      const fnNode = scope.path && scope.path.node;
+      if (fnNode && fnNode.params) {
+        for (const param of fnNode.params) {
+          if (t.isObjectPattern(param)) {
+            for (const prop of param.properties) {
+              if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+                signalNames.add(prop.value.name);
+              } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
+                signalNames.add(prop.argument.name);
               }
             }
           }
@@ -1096,24 +1096,43 @@ export default function whatBabelPlugin({ types: t }) {
       e.type === 'expression' || e.type === 'component' ||
       (e.type === 'static' && e.hasAnythingDynamic)
     );
-    const hasDynamicInsert = entries.some(e => e.type === 'expression' || e.type === 'component');
-    const needsPreCapture = entriesNeedingRef.length >= 2 && hasDynamicInsert;
+    // Pre-capture whenever 2+ children need a DOM ref. Beyond preventing index
+    // shift after insert() mutations, the shared O(n) cursor walk below replaces
+    // per-child `el.firstChild.nextSibling…`-from-root access, which was O(n²) in
+    // both compile time and emitted size for elements with many dynamic
+    // children. (AUDIT-2026-06-06 H2)
+    const needsPreCapture = entriesNeedingRef.length >= 2;
 
     const markerVars = new Map(); // childIndex → variable name
     if (needsPreCapture) {
+      // Chain each marker from the PREVIOUS captured cursor instead of
+      // re-walking `el.firstChild.nextSibling…` from the root for every child.
+      // entriesNeedingRef is in ascending childIndex order, so the per-marker
+      // deltas sum to O(n) total instead of O(n²). This was the dominant
+      // quadratic in compile time and emitted-bundle size for large elements.
+      // (AUDIT-2026-06-06 H2)
+      let prevVar = null;
+      let prevIndex = 0;
       for (const entry of entriesNeedingRef) {
-        const varName = `_m$${entry.childIndex}`;
-        // Use a unique name to avoid collisions with element vars
+        const idx = entry.childIndex;
         const markerVar = state.nextVarId();
-        markerVars.set(entry.childIndex, markerVar);
+        markerVars.set(idx, markerVar);
+        let init;
+        if (prevVar === null) {
+          init = buildChildAccess(elId, idx);
+        } else {
+          init = t.identifier(prevVar);
+          for (let i = prevIndex; i < idx; i++) {
+            init = t.memberExpression(init, t.identifier('nextSibling'));
+          }
+        }
         statements.push(
           t.variableDeclaration('const', [
-            t.variableDeclarator(
-              t.identifier(markerVar),
-              buildChildAccess(elId, entry.childIndex)
-            )
+            t.variableDeclarator(t.identifier(markerVar), init)
           ])
         );
+        prevVar = markerVar;
+        prevIndex = idx;
       }
     }
 
@@ -1912,8 +1931,20 @@ export default function whatBabelPlugin({ types: t }) {
       },
 
       JSXElement(path, state) {
-        // FIX-1: Use scope-aware signal detection instead of file-global
-        state.signalNames = collectSignalNamesFromScope(path);
+        // FIX-1: Use scope-aware signal detection instead of file-global.
+        // Memoize per Babel scope: every JSXElement in the same scope yields the
+        // same signal-name set, so without this the full scope-chain walk ran
+        // once per element — O(n²) compile time for a large single component.
+        // (AUDIT-2026-06-06 H2)
+        const scope = path.scope;
+        let cache = state._signalNamesCache;
+        if (!cache) cache = state._signalNamesCache = new WeakMap();
+        let names = cache.get(scope);
+        if (!names) {
+          names = collectSignalNamesFromScope(path);
+          cache.set(scope, names);
+        }
+        state.signalNames = names;
         state._pendingSetup = [];
         const transformed = transformElementFineGrained(path, state);
         const pending = state._pendingSetup;

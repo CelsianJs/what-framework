@@ -244,22 +244,20 @@ function whatBabelPlugin({ types: t }) {
     }
     let scope = path3.scope;
     while (scope) {
-      for (const [name, binding] of Object.entries(scope.bindings)) {
+      for (const binding of Object.values(scope.bindings)) {
         if (binding.path.isVariableDeclarator()) {
           extractFromDeclarator(binding.path.node);
         }
-        if (binding.path.isIdentifier() || binding.kind === "param") {
-          const fnPath = binding.scope.path;
-          if (fnPath && fnPath.node && fnPath.node.params) {
-            for (const param of fnPath.node.params) {
-              if (t.isObjectPattern(param)) {
-                for (const prop of param.properties) {
-                  if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-                    signalNames.add(prop.value.name);
-                  } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
-                    signalNames.add(prop.argument.name);
-                  }
-                }
+      }
+      const fnNode = scope.path && scope.path.node;
+      if (fnNode && fnNode.params) {
+        for (const param of fnNode.params) {
+          if (t.isObjectPattern(param)) {
+            for (const prop of param.properties) {
+              if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+                signalNames.add(prop.value.name);
+              } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
+                signalNames.add(prop.argument.name);
               }
             }
           }
@@ -848,22 +846,31 @@ function whatBabelPlugin({ types: t }) {
     const entriesNeedingRef = entries.filter(
       (e) => e.type === "expression" || e.type === "component" || e.type === "static" && e.hasAnythingDynamic
     );
-    const hasDynamicInsert = entries.some((e) => e.type === "expression" || e.type === "component");
-    const needsPreCapture = entriesNeedingRef.length >= 2 && hasDynamicInsert;
+    const needsPreCapture = entriesNeedingRef.length >= 2;
     const markerVars = /* @__PURE__ */ new Map();
     if (needsPreCapture) {
+      let prevVar = null;
+      let prevIndex = 0;
       for (const entry of entriesNeedingRef) {
-        const varName = `_m$${entry.childIndex}`;
+        const idx = entry.childIndex;
         const markerVar = state.nextVarId();
-        markerVars.set(entry.childIndex, markerVar);
+        markerVars.set(idx, markerVar);
+        let init;
+        if (prevVar === null) {
+          init = buildChildAccess(elId, idx);
+        } else {
+          init = t.identifier(prevVar);
+          for (let i = prevIndex; i < idx; i++) {
+            init = t.memberExpression(init, t.identifier("nextSibling"));
+          }
+        }
         statements.push(
           t.variableDeclaration("const", [
-            t.variableDeclarator(
-              t.identifier(markerVar),
-              buildChildAccess(elId, entry.childIndex)
-            )
+            t.variableDeclarator(t.identifier(markerVar), init)
           ])
         );
+        prevVar = markerVar;
+        prevIndex = idx;
       }
     }
     function getMarker(idx) {
@@ -1496,7 +1503,15 @@ function whatBabelPlugin({ types: t }) {
         }
       },
       JSXElement(path3, state) {
-        state.signalNames = collectSignalNamesFromScope(path3);
+        const scope = path3.scope;
+        let cache = state._signalNamesCache;
+        if (!cache) cache = state._signalNamesCache = /* @__PURE__ */ new WeakMap();
+        let names = cache.get(scope);
+        if (!names) {
+          names = collectSignalNamesFromScope(path3);
+          cache.set(scope, names);
+        }
+        state.signalNames = names;
         state._pendingSetup = [];
         const transformed = transformElementFineGrained(path3, state);
         const pending = state._pendingSetup;
