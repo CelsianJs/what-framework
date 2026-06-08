@@ -450,5 +450,12 @@ export {
   csrfMetaTag,
 } from './actions.js';
 
+// Served server actions: wire the /__what_action route (Node + fetch adapters)
+export {
+  createActionHandler,
+  nodeActionMiddleware,
+  fetchActionHandler,
+} from './action-handler.js';
+
 // Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
 export { serializeState } from './serialize.js';
