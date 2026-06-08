@@ -70,11 +70,14 @@ function useIslandStore(name, fallbackInitial = {}) {
   return createIslandStore(name, fallbackInitial);
 }
 function serializeIslandStores() {
+  return serializeState(getIslandStoresSnapshot());
+}
+function getIslandStoresSnapshot() {
   const data = {};
   for (const [name, store] of sharedStores) {
     data[name] = store._getSnapshot();
   }
-  return serializeState(data);
+  return data;
 }
 function hydrateIslandStores(serialized) {
   try {
@@ -342,6 +345,7 @@ export {
   enhance,
   enhanceForms,
   getIslandStatus,
+  getIslandStoresSnapshot,
   hydrateIslandStores,
   hydrateIslands,
   island,

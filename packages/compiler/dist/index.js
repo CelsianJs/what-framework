@@ -1683,6 +1683,13 @@ function extractPageConfig(source) {
     return { mode: "client" };
   }
 }
+function detectPageExports(source) {
+  return {
+    hasLoader: /export\s+(?:async\s+)?(?:const|let|var|function)\s+loader\b/.test(source),
+    hasGetStaticPaths: /export\s+(?:async\s+)?(?:const|let|var|function)\s+getStaticPaths\b/.test(source),
+    hasPageConfig: /export\s+const\s+page\b/.test(source)
+  };
+}
 function generateRoutesModule(pagesDir, rootDir) {
   const { pages, layouts, apiRoutes } = scanPages(pagesDir);
   const imports = [];
@@ -1699,9 +1706,11 @@ function generateRoutesModule(pagesDir, rootDir) {
     const relPath = toImportPath(page.filePath, rootDir);
     imports.push(`import ${varName} from '${relPath}';`);
     let pageConfig = { mode: "client" };
+    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false };
     try {
       const source = fs.readFileSync(page.filePath, "utf-8");
       pageConfig = extractPageConfig(source);
+      detected = detectPageExports(source);
     } catch {
     }
     const layoutVar = findLayout(page.routePath, layoutMap);
@@ -1709,7 +1718,8 @@ function generateRoutesModule(pagesDir, rootDir) {
       path: page.routePath,
       component: varName,
       mode: pageConfig.mode || "client",
-      layout: layoutVar || null
+      layout: layoutVar || null,
+      hasLoader: detected.hasLoader
     };
     routeEntries.push(entry);
   });
@@ -1731,7 +1741,7 @@ function generateRoutesModule(pagesDir, rootDir) {
     "",
     "export const routes = [",
     ...routeEntries.map(
-      (r) => `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'${r.layout ? `, layout: ${r.layout}` : ""} },`
+      (r) => `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'${r.layout ? `, layout: ${r.layout}` : ""}${r.hasLoader ? ", hasLoader: true" : ""} },`
     ),
     "];",
     "",

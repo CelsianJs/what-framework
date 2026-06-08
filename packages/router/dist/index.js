@@ -1,5 +1,74 @@
 // packages/router/src/index.js
 import { signal, effect, computed, batch, h, ErrorBoundary } from "what-core";
+
+// packages/router/src/match.js
+function compilePath(path) {
+  const normalized = path.replace(/\([\w-]+\)\//g, "").replace(/\[\.\.\.(\w+)\]/g, (_, name) => `*:${name}`).replace(/\[(\w+)\]/g, ":$1");
+  const paramNames = [];
+  let catchAll = null;
+  const regexStr = normalized.split("/").map((segment) => {
+    if (segment.startsWith("*:")) {
+      catchAll = segment.slice(2);
+      paramNames.push(catchAll);
+      return "(.+)";
+    }
+    if (segment === "*") {
+      catchAll = "rest";
+      paramNames.push("rest");
+      return "(.+)";
+    }
+    if (segment.startsWith(":")) {
+      paramNames.push(segment.slice(1));
+      return "([^/]+)";
+    }
+    return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }).join("/");
+  const regex = new RegExp(`^${regexStr}$`);
+  return { regex, paramNames, catchAll };
+}
+function matchRoute(path, routes) {
+  const routable = routes.filter((r) => r.path);
+  const sorted = routable.sort((a, b) => {
+    const aSpecific = (a.path.match(/:/g) || []).length + (a.path.includes("*") ? 100 : 0);
+    const bSpecific = (b.path.match(/:/g) || []).length + (b.path.includes("*") ? 100 : 0);
+    return aSpecific - bSpecific;
+  });
+  for (const route2 of sorted) {
+    const { regex, paramNames } = compilePath(route2.path);
+    const match = path.match(regex);
+    if (match) {
+      const params = {};
+      paramNames.forEach((name, i) => {
+        params[name] = decodeURIComponent(match[i + 1]);
+      });
+      return { route: route2, params };
+    }
+  }
+  return null;
+}
+function parseQuery(search) {
+  const params = {};
+  if (!search) return params;
+  const qs = search.startsWith("?") ? search.slice(1) : search;
+  for (const pair of qs.split("&")) {
+    const [key, val] = pair.split("=");
+    if (!key) continue;
+    const decodedKey = decodeURIComponent(key);
+    const decodedVal = val ? decodeURIComponent(val) : "";
+    if (decodedKey in params) {
+      if (Array.isArray(params[decodedKey])) {
+        params[decodedKey].push(decodedVal);
+      } else {
+        params[decodedKey] = [params[decodedKey], decodedVal];
+      }
+    } else {
+      params[decodedKey] = decodedVal;
+    }
+  }
+  return params;
+}
+
+// packages/router/src/index.js
 function isSafeUrl(url) {
   if (typeof url !== "string") return false;
   const trimmed = url.trim();
@@ -94,71 +163,6 @@ if (typeof window !== "undefined") {
       }
     });
   });
-}
-function compilePath(path) {
-  const normalized = path.replace(/\([\w-]+\)\//g, "").replace(/\[\.\.\.(\w+)\]/g, (_, name) => `*:${name}`).replace(/\[(\w+)\]/g, ":$1");
-  const paramNames = [];
-  let catchAll = null;
-  const regexStr = normalized.split("/").map((segment) => {
-    if (segment.startsWith("*:")) {
-      catchAll = segment.slice(2);
-      paramNames.push(catchAll);
-      return "(.+)";
-    }
-    if (segment === "*") {
-      catchAll = "rest";
-      paramNames.push("rest");
-      return "(.+)";
-    }
-    if (segment.startsWith(":")) {
-      paramNames.push(segment.slice(1));
-      return "([^/]+)";
-    }
-    return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }).join("/");
-  const regex = new RegExp(`^${regexStr}$`);
-  return { regex, paramNames, catchAll };
-}
-function matchRoute(path, routes) {
-  const routable = routes.filter((r) => r.path);
-  const sorted = routable.sort((a, b) => {
-    const aSpecific = (a.path.match(/:/g) || []).length + (a.path.includes("*") ? 100 : 0);
-    const bSpecific = (b.path.match(/:/g) || []).length + (b.path.includes("*") ? 100 : 0);
-    return aSpecific - bSpecific;
-  });
-  for (const route2 of sorted) {
-    const { regex, paramNames } = compilePath(route2.path);
-    const match = path.match(regex);
-    if (match) {
-      const params = {};
-      paramNames.forEach((name, i) => {
-        params[name] = decodeURIComponent(match[i + 1]);
-      });
-      return { route: route2, params };
-    }
-  }
-  return null;
-}
-function parseQuery(search) {
-  const params = {};
-  if (!search) return params;
-  const qs = search.startsWith("?") ? search.slice(1) : search;
-  for (const pair of qs.split("&")) {
-    const [key, val] = pair.split("=");
-    if (!key) continue;
-    const decodedKey = decodeURIComponent(key);
-    const decodedVal = val ? decodeURIComponent(val) : "";
-    if (decodedKey in params) {
-      if (Array.isArray(params[decodedKey])) {
-        params[decodedKey].push(decodedVal);
-      } else {
-        params[decodedKey] = [params[decodedKey], decodedVal];
-      }
-    } else {
-      params[decodedKey] = decodedVal;
-    }
-  }
-  return params;
 }
 function buildLayoutChain(route2, routes) {
   const layouts = [];
@@ -489,12 +493,15 @@ export {
   Redirect,
   Router,
   asyncGuard,
+  compilePath,
   defineRoutes,
   enableScrollRestoration,
   guard,
   isSafeUrl,
+  matchRoute,
   navigate,
   nestedRoutes,
+  parseQuery,
   prefetch,
   route,
   routeGroup,

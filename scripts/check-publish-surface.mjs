@@ -7,6 +7,7 @@ import { relative, resolve } from 'node:path';
 const repoRoot = resolve(import.meta.dirname, '..');
 
 const allowedPublicPackageJson = new Set([
+  'packages/cache/package.json',
   'packages/cli/package.json',
   'packages/compiler/package.json',
   'packages/core/package.json',

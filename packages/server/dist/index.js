@@ -1,8 +1,63 @@
 // packages/server/src/index.js
-import { h } from "what-core";
+import { h, runWithServerContext, beginHeadCollection, endHeadCollection } from "what-core";
+
+// packages/server/src/serialize.js
+var SCRIPT_UNSAFE = new RegExp("[<>&\\u2028\\u2029]", "g");
+var ESCAPES = {
+  60: "\\u003c",
+  // <
+  62: "\\u003e",
+  // >
+  38: "\\u0026",
+  // &
+  8232: "\\u2028",
+  8233: "\\u2029"
+};
+function serializeState(value) {
+  return JSON.stringify(value).replace(SCRIPT_UNSAFE, (c) => ESCAPES[c.charCodeAt(0)]);
+}
+
+// packages/server/src/islands.js
+import { mount, hydrate, signal, batch } from "what-core";
+var sharedStores = /* @__PURE__ */ new Map();
+function getIslandStoresSnapshot() {
+  const data = {};
+  for (const [name, store] of sharedStores) {
+    data[name] = store._getSnapshot();
+  }
+  return data;
+}
 
 // packages/server/src/actions.js
-import { signal, batch } from "what-core";
+import { signal as signal2, batch as batch2 } from "what-core";
+
+// packages/server/src/revalidation-registry.js
+var _handler = null;
+var isDev = typeof process !== "undefined" ? true : true;
+function setRevalidationHandler(handler) {
+  _handler = handler;
+}
+function getRevalidationHandler() {
+  return _handler;
+}
+async function revalidatePath(path, options) {
+  if (_handler && _handler.revalidatePath) return _handler.revalidatePath(path, options);
+  if (isDev) {
+    console.warn(
+      `[what] revalidatePath('${path}') had no effect: no cache engine is bound. Create a what-cache engine and bind it in your adapter (setRevalidationHandler).`
+    );
+  }
+}
+async function revalidateTag(tag, options) {
+  if (_handler && _handler.revalidateTag) return _handler.revalidateTag(tag, options);
+  if (isDev) {
+    console.warn(
+      `[what] revalidateTag('${tag}') had no effect: no cache engine is bound.`
+    );
+  }
+}
+
+// packages/server/src/actions.js
 var actionRegistry = /* @__PURE__ */ new Map();
 function getCsrfToken() {
   if (typeof document !== "undefined") {
@@ -142,9 +197,9 @@ function formAction(actionFn, options = {}) {
   };
 }
 function useAction(actionFn) {
-  const isPending = signal(false);
-  const error = signal(null);
-  const data = signal(null);
+  const isPending = signal2(false);
+  const error = signal2(null);
+  const data = signal2(null);
   async function trigger(...args) {
     isPending.set(true);
     error.set(null);
@@ -187,18 +242,18 @@ function useFormAction(actionFn, options = {}) {
   };
 }
 function useOptimistic(initialValue, reducer) {
-  const value = signal(initialValue);
-  const pending = signal([]);
-  const baseValue = signal(initialValue);
+  const value = signal2(initialValue);
+  const pending = signal2([]);
+  const baseValue = signal2(initialValue);
   function addOptimistic(action2) {
     const optimisticValue = reducer(value.peek(), action2);
-    batch(() => {
+    batch2(() => {
       pending.set([...pending.peek(), action2]);
       value.set(optimisticValue);
     });
   }
   function resolve(action2, serverValue) {
-    batch(() => {
+    batch2(() => {
       pending.set(pending.peek().filter((a) => a !== action2));
       if (serverValue !== void 0) {
         baseValue.set(serverValue);
@@ -211,7 +266,7 @@ function useOptimistic(initialValue, reducer) {
     });
   }
   function rollback(action2, realValue) {
-    batch(() => {
+    batch2(() => {
       const newPending = pending.peek().filter((a) => a !== action2);
       pending.set(newPending);
       const base = realValue !== void 0 ? realValue : baseValue.peek();
@@ -292,7 +347,16 @@ function handleActionRequest(req, actionId, args, options = {}) {
   if (!Array.isArray(args)) {
     return Promise.resolve({ status: 400, body: { message: "Invalid action arguments" } });
   }
-  return action2.fn(...args).then((result) => ({ status: 200, body: result })).catch((error) => {
+  return action2.fn(...args).then(async (result) => {
+    const opts = action2.options || {};
+    if (Array.isArray(opts.revalidate)) {
+      for (const p of opts.revalidate) await revalidatePath(p);
+    }
+    if (Array.isArray(opts.revalidateTags)) {
+      for (const t of opts.revalidateTags) await revalidateTag(t);
+    }
+    return { status: 200, body: result };
+  }).catch((error) => {
     console.error(`[what] Action "${actionId}" error:`, error);
     return {
       status: 500,
@@ -306,9 +370,9 @@ function getRegisteredActions() {
 function useMutation(mutationFn, options = {}) {
   const { onSuccess, onError, onSettled } = options;
   const state = {
-    isPending: signal(false),
-    error: signal(null),
-    data: signal(null)
+    isPending: signal2(false),
+    error: signal2(null),
+    data: signal2(null)
   };
   async function mutate(...args) {
     state.isPending.set(true);
@@ -339,23 +403,345 @@ function useMutation(mutationFn, options = {}) {
   };
 }
 
-// packages/server/src/serialize.js
-var SCRIPT_UNSAFE = new RegExp("[<>&\\u2028\\u2029]", "g");
-var ESCAPES = {
-  60: "\\u003c",
-  // <
-  62: "\\u003e",
-  // >
-  38: "\\u0026",
-  // &
-  8232: "\\u2028",
-  8233: "\\u2029"
-};
-function serializeState(value) {
-  return JSON.stringify(value).replace(SCRIPT_UNSAFE, (c) => ESCAPES[c.charCodeAt(0)]);
+// packages/server/src/action-handler.js
+var DEFAULT_BASE_PATH = "/__what_action";
+var MAX_BODY_BYTES = 1024 * 1024;
+function lowerHeaders(headers) {
+  if (!headers) return {};
+  if (typeof headers.forEach === "function" && typeof headers.get === "function") {
+    const out2 = {};
+    headers.forEach((v, k) => {
+      out2[k.toLowerCase()] = v;
+    });
+    return out2;
+  }
+  const out = {};
+  for (const k in headers) out[k.toLowerCase()] = headers[k];
+  return out;
+}
+function jsonResponse(status, bodyObj) {
+  return {
+    status,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(bodyObj)
+  };
+}
+function createActionHandler(options = {}) {
+  const { getCsrfToken: getCsrfToken2, skipCsrf = false } = options;
+  return async function handle(reqLike) {
+    const method = (reqLike.method || "POST").toUpperCase();
+    if (method !== "POST") {
+      return jsonResponse(405, { message: "Method Not Allowed" });
+    }
+    const headers = lowerHeaders(reqLike.headers);
+    const actionId = headers["x-what-action"];
+    if (!actionId) {
+      return jsonResponse(400, { message: "Missing X-What-Action header" });
+    }
+    const body = reqLike.body || {};
+    const args = body.args;
+    const sessionCsrfToken = skipCsrf ? void 0 : getCsrfToken2 ? await getCsrfToken2(reqLike) : void 0;
+    const result = await handleActionRequest(
+      { headers },
+      actionId,
+      args,
+      { csrfToken: sessionCsrfToken, skipCsrf }
+    );
+    return jsonResponse(result.status, result.body);
+  };
+}
+function nodeActionMiddleware(options = {}) {
+  const basePath = options.basePath || DEFAULT_BASE_PATH;
+  const handle = createActionHandler(options);
+  return async function middleware(req, res, next) {
+    const url = (req.url || "").split("?")[0];
+    if (url !== basePath || (req.method || "").toUpperCase() !== "POST") {
+      return next ? next() : void 0;
+    }
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      res.writeHead(err.code === "BODY_TOO_LARGE" ? 413 : 400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ message: err.code === "BODY_TOO_LARGE" ? "Payload too large" : "Invalid JSON body" }));
+      return;
+    }
+    const out = await handle({ method: req.method, headers: req.headers, body });
+    res.writeHead(out.status, out.headers);
+    res.end(out.body);
+  };
+}
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        const e = new Error("Body too large");
+        e.code = "BODY_TOO_LARGE";
+        reject(e);
+        req.destroy?.();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (chunks.length === 0) return resolve({});
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+function fetchActionHandler(options = {}) {
+  const handle = createActionHandler(options);
+  return async function(request) {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const out = await handle({ method: request.method, headers: request.headers, body });
+    return new Response(out.body, { status: out.status, headers: out.headers });
+  };
+}
+
+// packages/server/src/adapter/core.js
+import { matchRoute, parseQuery } from "what-router/match";
+var ACTION_PATH = "/__what_action";
+var REVALIDATE_PATH = "/__what_revalidate";
+function headersToObject(headers) {
+  const out = {};
+  if (headers && typeof headers.forEach === "function") headers.forEach((v, k) => {
+    out[k.toLowerCase()] = v;
+  });
+  return out;
+}
+async function readJsonBody2(request) {
+  try {
+    return await request.json();
+  } catch {
+    return {};
+  }
+}
+function defaultRenderRoute(documentOptions) {
+  return async function renderRoute(routeMatch) {
+    const { route, params, query, request } = routeMatch;
+    const pageModule = { default: route.component, loader: route.loader };
+    const html = await renderDocument(pageModule, { params, query, request }, documentOptions);
+    return {
+      html,
+      status: 200,
+      tags: routeMatch.config && routeMatch.config.tags || [],
+      path: routeMatch.path
+    };
+  };
+}
+function createRequestHandler(options = {}) {
+  const {
+    routes = [],
+    cache,
+    render,
+    actionHandler = createActionHandler({ skipCsrf: true }),
+    revalidateWebhook,
+    document: documentOptions = {},
+    notFound,
+    basePath = ""
+  } = options;
+  const renderRoute = render || defaultRenderRoute(documentOptions);
+  if (cache && (cache.revalidatePath || cache.revalidateTag)) {
+    setRevalidationHandler({
+      revalidatePath: cache.revalidatePath,
+      revalidateTag: cache.revalidateTag
+    });
+  }
+  return async function handle(request) {
+    const url = new URL(request.url, "http://localhost");
+    let pathname = url.pathname;
+    if (basePath && pathname.startsWith(basePath)) pathname = pathname.slice(basePath.length) || "/";
+    if (request.method === "POST" && pathname === ACTION_PATH) {
+      const body = await readJsonBody2(request);
+      const out2 = await actionHandler({ method: "POST", headers: headersToObject(request.headers), body });
+      return new Response(out2.body, { status: out2.status, headers: out2.headers });
+    }
+    if (request.method === "POST" && pathname === REVALIDATE_PATH && revalidateWebhook) {
+      const body = await readJsonBody2(request);
+      const out2 = await revalidateWebhook({ headers: headersToObject(request.headers), body });
+      return new Response(JSON.stringify(out2.body), {
+        status: out2.status,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    const matched = matchRoute(pathname, routes);
+    if (!matched) {
+      const html = notFound ? notFound() : "<!DOCTYPE html><html><body><h1>404 \u2014 Not Found</h1></body></html>";
+      return new Response(html, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    const { route, params } = matched;
+    const config = route.page || { mode: route.mode || "client" };
+    const routeMatch = { path: pathname, query: parseQuery(url.search), config, route, params, request };
+    if (cache && config.mode !== "server") {
+      const result = await cache.handle(routeMatch, () => renderRoute(routeMatch));
+      return new Response(result.html, {
+        status: result.status || 200,
+        headers: { "content-type": "text/html; charset=utf-8", ...result.headers || {} }
+      });
+    }
+    const out = await renderRoute(routeMatch);
+    const headers = { "content-type": "text/html; charset=utf-8" };
+    if (config.mode === "server") headers["Cache-Control"] = "private, no-store";
+    return new Response(out.html, { status: out.status || 200, headers });
+  };
+}
+
+// packages/server/src/adapter/node.js
+import http from "node:http";
+async function nodeToWebRequest(req) {
+  const host = req.headers.host || "localhost";
+  const url = `http://${host}${req.url}`;
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (v != null) headers.set(k, Array.isArray(v) ? v.join(", ") : String(v));
+  }
+  let body;
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    if (chunks.length) body = Buffer.concat(chunks);
+  }
+  return new Request(url, { method: req.method, headers, body });
+}
+async function sendWebResponse(res, webRes) {
+  res.statusCode = webRes.status;
+  webRes.headers.forEach((value, key) => res.setHeader(key, value));
+  const text = await webRes.text();
+  res.end(text);
+}
+function toNodeListener(handler) {
+  return async function listener(req, res) {
+    try {
+      const webReq = await nodeToWebRequest(req);
+      const webRes = await handler(webReq);
+      await sendWebResponse(res, webRes);
+    } catch (err) {
+      if (!res.headersSent) res.writeHead(500, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!DOCTYPE html><html><body><h1>500 \u2014 Server Error</h1></body></html>");
+      console.error("[what-server] request error:", err);
+    }
+  };
+}
+function whatMiddleware(options = {}) {
+  const handler = createRequestHandler(options);
+  return async function middleware(req, res, next) {
+    const webReq = await nodeToWebRequest(req);
+    const webRes = await handler(webReq);
+    if (webRes.status === 404 && typeof next === "function") return next();
+    await sendWebResponse(res, webRes);
+  };
+}
+function createServer(options = {}) {
+  const handler = createRequestHandler(options);
+  const server2 = http.createServer(toNodeListener(handler));
+  const { scheduler } = options;
+  if (scheduler) {
+    scheduler.start();
+    const stop = () => {
+      try {
+        scheduler.stop();
+      } catch {
+      }
+      server2.close();
+    };
+    process.once("SIGTERM", stop);
+    process.once("SIGINT", stop);
+  }
+  return server2;
+}
+
+// packages/server/src/adapter/static.js
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { matchRoute as matchRoute2 } from "what-router/match";
+function isDynamic(path) {
+  return path.includes(":") || path.includes("*") || path.includes("[");
+}
+function buildConcretePath(pattern, params) {
+  return pattern.replace(/\[\.\.\.(\w+)\]/g, (_, n) => params[n] ?? "").replace(/\[(\w+)\]/g, (_, n) => params[n] ?? "").replace(/[:*](\w+)/g, (_, n) => params[n] ?? "");
+}
+async function exportStatic({ routes = [], outDir, render, documentOptions = {} } = {}) {
+  const written = [];
+  for (const route of routes) {
+    const mode = route.page && route.page.mode || route.mode;
+    if (mode !== "static" && mode !== "hybrid") continue;
+    const pageModule = { default: route.component, loader: route.loader };
+    let concrete = [route.path];
+    if (isDynamic(route.path)) {
+      if (typeof route.getStaticPaths !== "function") continue;
+      const result = await route.getStaticPaths();
+      concrete = (result.paths || []).map((p) => buildConcretePath(route.path, p.params || {}));
+    }
+    for (const urlPath of concrete) {
+      const matched = matchRoute2(urlPath, [route]);
+      const params = matched ? matched.params : {};
+      const reqCtx = { params, query: {} };
+      const html = render ? await render(pageModule, reqCtx) : await renderDocument(pageModule, reqCtx, documentOptions);
+      const dirPath = join(outDir, urlPath === "/" ? "" : urlPath);
+      await mkdir(dirPath, { recursive: true });
+      await writeFile(join(dirPath, "index.html"), html);
+      if (typeof route.loader === "function") {
+        const data = await route.loader(reqCtx);
+        await writeFile(join(dirPath, "__what_data.json"), serializeState({ loaderData: data }));
+      }
+      written.push(urlPath);
+    }
+  }
+  return { pages: written };
+}
+
+// packages/server/src/adapter/cloudflare.js
+function createCloudflareHandler(options = {}) {
+  const handle = createRequestHandler(options);
+  return {
+    async fetch(request, env, ctx) {
+      if (env) request.__env = env;
+      if (ctx) request.__ctx = ctx;
+      return handle(request);
+    }
+  };
+}
+
+// packages/server/src/adapter/vercel.js
+function createVercelHandler(options = {}) {
+  return createRequestHandler(options);
+}
+async function buildVercelOutput({ outDir = ".vercel/output", functionName = "render" } = {}) {
+  const { mkdir: mkdir2, writeFile: writeFile2 } = await import("node:fs/promises");
+  const { join: join2 } = await import("node:path");
+  await mkdir2(outDir, { recursive: true });
+  const config = {
+    version: 3,
+    routes: [{ src: "/.*", dest: `/${functionName}` }]
+  };
+  await writeFile2(join2(outDir, "config.json"), JSON.stringify(config, null, 2));
+  return { config, outDir };
 }
 
 // packages/server/src/index.js
+function createRenderContext(loaderData) {
+  return {
+    head: beginHeadCollection(),
+    loaderData,
+    resources: /* @__PURE__ */ new Map(),
+    resourceCounter: 0,
+    boundaryCounter: 0,
+    suspended: []
+  };
+}
 var _hydrationIdCounter = 0;
 function resetHydrationId() {
   _hydrationIdCounter = 0;
@@ -433,6 +819,16 @@ function renderToString(vnode) {
   if (Array.isArray(vnode)) {
     return vnode.map(renderToString).join("");
   }
+  if (vnode.tag === "__suspense") {
+    try {
+      return (vnode.children || []).map(renderToString).join("");
+    } catch (e) {
+      if (e && typeof e.then === "function") {
+        return renderToString(vnode.props && vnode.props.fallback);
+      }
+      throw e;
+    }
+  }
   if (typeof vnode.tag === "function") {
     const result = vnode.tag({ ...vnode.props, children: vnode.children });
     return renderToString(result);
@@ -445,19 +841,74 @@ function renderToString(vnode) {
   const inner = rawInner != null ? String(rawInner) : children.map(renderToString).join("");
   return `${open}${inner}</${tag}>`;
 }
-async function* renderToStream(vnode) {
+function renderToStringWithHead(vnode) {
+  const ctx = createRenderContext(void 0);
+  const body = runWithServerContext(ctx, () => renderToString(vnode));
+  return { body, head: endHeadCollection(ctx.head) };
+}
+async function renderPage(pageModule, reqCtx = {}) {
+  const Component = pageModule.default || pageModule;
+  const loaderData = typeof pageModule.loader === "function" ? await pageModule.loader(reqCtx) : void 0;
+  const ctx = createRenderContext(loaderData);
+  const params = reqCtx.params || {};
+  const body = runWithServerContext(
+    ctx,
+    () => renderToString(h(Component, { ...params, loaderData }))
+  );
+  return { body, head: endHeadCollection(ctx.head), loaderData };
+}
+var MAX_RESOLVE_PASSES = 12;
+async function renderToStringAsync(vnode, ctx) {
+  if (!ctx) ctx = createRenderContext(void 0);
+  let body = "";
+  for (let pass = 0; pass < MAX_RESOLVE_PASSES; pass++) {
+    body = runWithServerContext(ctx, () => renderToString(vnode));
+    const pending = [...ctx.resources.values()].filter((r) => r.status === "pending").map((r) => r.promise);
+    if (pending.length === 0) break;
+    await Promise.all(pending);
+  }
+  const resources = {};
+  for (const [k, v] of ctx.resources) if (v.status === "ready") resources[k] = v.value;
+  return { body, head: endHeadCollection(ctx.head), loaderData: ctx.loaderData, resources, ctx };
+}
+async function renderDocument(pageModule, reqCtx = {}, options = {}) {
+  const Component = pageModule.default || pageModule;
+  const loaderData = typeof pageModule.loader === "function" ? await pageModule.loader(reqCtx) : void 0;
+  const ctx = createRenderContext(loaderData);
+  const params = reqCtx.params || {};
+  const { body, head, resources } = await renderToStringAsync(
+    h(Component, { ...params, loaderData }),
+    ctx
+  );
+  const payload = {
+    loaderData: loaderData ?? null,
+    resources,
+    islandStores: getIslandStoresSnapshot()
+  };
+  return wrapHtmlDocument({ body, head, payload, options });
+}
+function wrapHtmlDocument({ body, head, payload, options = {} }) {
+  const lang = options.lang || "en";
+  const dataScript = `<script id="__what_data" type="application/json">${serializeState(payload)}<\/script>`;
+  const clientScript = options.clientEntry ? `<script type="module" src="${escapeHtml(options.clientEntry)}"><\/script>` : "";
+  const extraHead = options.head || "";
+  const bodyClass = options.bodyClass ? ` class="${escapeHtml(options.bodyClass)}"` : "";
+  return `<!DOCTYPE html><html lang="${escapeHtml(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${head || ""}${extraHead}</head><body${bodyClass}>${body}${dataScript}${clientScript}</body></html>`;
+}
+async function* renderToStream(vnode, ctx) {
+  if (ctx === void 0) ctx = createRenderContext(void 0);
   if (vnode == null || vnode === false || vnode === true) return;
   if (typeof vnode === "string" || typeof vnode === "number") {
     yield escapeHtml(String(vnode));
     return;
   }
   if (typeof vnode === "function" && vnode._signal) {
-    yield* renderToStream(vnode());
+    yield* renderToStream(vnode(), ctx);
     return;
   }
   if (typeof vnode === "function") {
     try {
-      yield* renderToStream(vnode());
+      yield* renderToStream(vnode(), ctx);
     } catch (e) {
       if (typeof process !== "undefined" && true) {
         console.warn("[what-server] Error rendering reactive function in stream SSR:", e.message);
@@ -467,15 +918,36 @@ async function* renderToStream(vnode) {
   }
   if (Array.isArray(vnode)) {
     for (const child of vnode) {
-      yield* renderToStream(child);
+      yield* renderToStream(child, ctx);
     }
+    return;
+  }
+  if (vnode.tag === "__suspense") {
+    let html = null;
+    for (let attempt = 0; attempt < MAX_RESOLVE_PASSES && html === null; attempt++) {
+      let suspended = null;
+      try {
+        html = runWithServerContext(ctx, () => (vnode.children || []).map(renderToString).join(""));
+      } catch (e) {
+        if (e && typeof e.then === "function") suspended = e;
+        else throw e;
+      }
+      if (html === null) {
+        const pending = [...ctx.resources.values()].filter((r) => r.status === "pending").map((r) => r.promise);
+        await Promise.all([suspended, ...pending].filter(Boolean));
+      }
+    }
+    if (html === null) {
+      html = runWithServerContext(ctx, () => renderToString(vnode.props && vnode.props.fallback));
+    }
+    yield html;
     return;
   }
   if (typeof vnode.tag === "function") {
     try {
       const result = vnode.tag({ ...vnode.props, children: vnode.children });
       const resolved = result instanceof Promise ? await result : result;
-      yield* renderToStream(resolved);
+      yield* renderToStream(resolved, ctx);
     } catch (e) {
       if (typeof process !== "undefined" && true) {
         console.warn("[what-server] Error rendering component in stream SSR:", e.message);
@@ -493,7 +965,7 @@ async function* renderToStream(vnode) {
       yield String(rawInner);
     } else {
       for (const child of children) {
-        yield* renderToStream(child);
+        yield* renderToStream(child, ctx);
       }
     }
     yield `</${tag}>`;
@@ -636,24 +1108,43 @@ var VOID_ELEMENTS = /* @__PURE__ */ new Set([
 ]);
 export {
   action,
+  buildVercelOutput,
+  createActionHandler,
+  createCloudflareHandler,
+  createRequestHandler,
+  createServer,
+  createVercelHandler,
   csrfMetaTag,
   definePage,
+  exportStatic,
+  fetchActionHandler,
   formAction,
   generateCsrfToken,
   generateStaticPage,
   getRegisteredActions,
+  getRevalidationHandler,
   handleActionRequest,
   invalidatePath,
+  nodeActionMiddleware,
   onRevalidate,
+  renderDocument,
+  renderPage,
   renderToHydratableString,
   renderToStream,
   renderToString,
+  renderToStringAsync,
+  renderToStringWithHead,
+  revalidatePath,
+  revalidateTag,
   serializeState,
   server,
+  setRevalidationHandler,
+  toNodeListener,
   useAction,
   useFormAction,
   useMutation,
   useOptimistic,
-  validateCsrfToken
+  validateCsrfToken,
+  whatMiddleware
 };
 //# sourceMappingURL=index.js.map
