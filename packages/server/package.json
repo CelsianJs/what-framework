@@ -36,7 +36,13 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.9.0"
+    "what-core": "^0.9.0",
+    "what-router": "^0.9.0"
+  },
+  "peerDependenciesMeta": {
+    "what-router": {
+      "optional": true
+    }
   },
   "repository": {
     "type": "git",

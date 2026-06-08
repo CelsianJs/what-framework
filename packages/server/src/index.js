@@ -570,5 +570,12 @@ export {
   getRevalidationHandler,
 } from './revalidation-registry.js';
 
+// Deploy adapters — framework-agnostic core + Node / static / edge wrappers
+export { createRequestHandler } from './adapter/core.js';
+export { createServer, toNodeListener, whatMiddleware } from './adapter/node.js';
+export { exportStatic } from './adapter/static.js';
+export { createCloudflareHandler } from './adapter/cloudflare.js';
+export { createVercelHandler, buildVercelOutput } from './adapter/vercel.js';
+
 // Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
 export { serializeState } from './serialize.js';

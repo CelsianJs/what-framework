@@ -19,12 +19,15 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     return cacheKey({ path: routeMatch.path, query: routeMatch.query, vary: routeMatch.vary });
   }
 
-  // Render + store, deduping concurrent calls for the same key.
-  function regenerate(key, routeMatch) {
+  // Render + store, deduping concurrent calls for the same key. `renderOverride`
+  // lets a caller (e.g. the deploy adapter) supply the render for this route
+  // without baking it into the engine — keeps the engine decoupled.
+  function regenerate(key, routeMatch, renderOverride) {
     const existing = inFlight.get(key);
     if (existing) return existing;
+    const doRender = renderOverride || render;
     const p = (async () => {
-      const out = await render(routeMatch, {});
+      const out = await doRender(routeMatch, {});
       const entry = makeEntry({ ...out, path: routeMatch.path }, routeMatch.config || {}, now());
       await store.set(key, entry);
       return entry;
@@ -44,12 +47,12 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     };
   }
 
-  async function handle(routeMatch) {
+  async function handle(routeMatch, renderOverride) {
     const config = routeMatch.config || {};
 
     // Uncacheable (server-rendered) routes: always render, never store.
     if (config.mode === 'server') {
-      const out = await render(routeMatch, {});
+      const out = await (renderOverride || render)(routeMatch, {});
       const entry = makeEntry({ ...out, path: routeMatch.path }, config, now());
       return serve(entry, 'BYPASS', config);
     }
@@ -64,14 +67,14 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
 
     if (entry && isServableStale(entry, t)) {
       // Serve stale immediately; refresh in the background (deduped, non-blocking).
-      regenerate(key, routeMatch).catch((e) => logger.error?.('[what-cache] background regenerate failed:', e));
+      regenerate(key, routeMatch, renderOverride).catch((e) => logger.error?.('[what-cache] background regenerate failed:', e));
       return serve(entry, 'STALE', config);
     }
 
     // Cold miss or expired beyond the swr window.
     if (entry && config.onMiss === 'stale-if-error') {
       try {
-        const fresh = await regenerate(key, routeMatch);
+        const fresh = await regenerate(key, routeMatch, renderOverride);
         return serve(fresh, 'MISS', config);
       } catch (e) {
         logger.error?.('[what-cache] regenerate failed, serving stale:', e);
@@ -79,7 +82,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       }
     }
 
-    const fresh = await regenerate(key, routeMatch);
+    const fresh = await regenerate(key, routeMatch, renderOverride);
     return serve(fresh, 'MISS', config);
   }
 
