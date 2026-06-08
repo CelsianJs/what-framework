@@ -10,6 +10,10 @@
       "types": "./index.d.ts",
       "production": "./dist/index.min.js",
       "import": "./src/index.js"
+    },
+    "./match": {
+      "production": "./dist/match.min.js",
+      "import": "./src/match.js"
     }
   },
   "files": [
