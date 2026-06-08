@@ -1,0 +1,34 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildCacheHeaders } from '../src/headers.js';
+
+describe('buildCacheHeaders', () => {
+  it('emits s-maxage + stale-while-revalidate for a cacheable entry', () => {
+    const h = buildCacheHeaders({ maxAge: 60, swrWindow: 600, tags: [] }, { mode: 'static' }, 'HIT');
+    assert.match(h['Cache-Control'], /public/);
+    assert.match(h['Cache-Control'], /s-maxage=60/);
+    assert.match(h['Cache-Control'], /stale-while-revalidate=600/);
+    assert.equal(h['X-What-Cache'], 'HIT');
+  });
+
+  it('emits no-store for server-rendered / uncacheable routes', () => {
+    const h = buildCacheHeaders({ maxAge: 0 }, { mode: 'server' }, 'BYPASS');
+    assert.match(h['Cache-Control'], /no-store/);
+    assert.match(h['Cache-Control'], /private/);
+  });
+
+  it('includes Cache-Tag and Surrogate-Key for tagged entries', () => {
+    const h = buildCacheHeaders({ maxAge: 60, swrWindow: 60, tags: ['posts', 'home'] }, { mode: 'static' }, 'HIT');
+    assert.equal(h['Cache-Tag'], 'posts,home');
+    assert.equal(h['Surrogate-Key'], 'posts home');
+  });
+
+  it('forces s-maxage=0 for partial/skeleton entries', () => {
+    const h = buildCacheHeaders({ maxAge: 60, swrWindow: 60, tags: [], partial: true }, { mode: 'static' }, 'MISS');
+    assert.match(h['Cache-Control'], /s-maxage=0/);
+  });
+
+  it('always reports the cache status', () => {
+    assert.equal(buildCacheHeaders({ maxAge: 30, swrWindow: 30 }, {}, 'STALE')['X-What-Cache'], 'STALE');
+  });
+});

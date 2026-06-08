@@ -1,0 +1,47 @@
+{
+  "name": "what-cache",
+  "version": "0.10.0",
+  "description": "What Framework - Origin-first ISR cache engine: stale-while-revalidate, on-demand & poll regeneration, no CDN required",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "production": "./dist/index.min.js",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "index.d.ts"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "isr",
+    "ssr",
+    "cache",
+    "stale-while-revalidate",
+    "incremental-static-regeneration",
+    "what-framework"
+  ],
+  "author": "ZVN DEV (https://zvndev.com)",
+  "license": "MIT",
+  "peerDependencies": {
+    "what-server": "^0.10.0"
+  },
+  "peerDependenciesMeta": {
+    "what-server": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CelsianJs/what-framework"
+  },
+  "bugs": {
+    "url": "https://github.com/CelsianJs/what-framework/issues"
+  },
+  "homepage": "https://whatfw.com"
+}

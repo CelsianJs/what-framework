@@ -457,5 +457,14 @@ export {
   fetchActionHandler,
 } from './action-handler.js';
 
+// Revalidation registry — app code calls revalidatePath/revalidateTag; the
+// deploy adapter binds a what-cache engine via setRevalidationHandler.
+export {
+  revalidatePath,
+  revalidateTag,
+  setRevalidationHandler,
+  getRevalidationHandler,
+} from './revalidation-registry.js';
+
 // Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
 export { serializeState } from './serialize.js';

@@ -14,6 +14,7 @@
 //   const result = await saveUser({ name: 'John' });
 
 import { signal, batch } from 'what-core';
+import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
 // Registry of server actions
 const actionRegistry = new Map();
@@ -402,7 +403,18 @@ export function handleActionRequest(req, actionId, args, options = {}) {
   }
 
   return action.fn(...args)
-    .then(result => ({ status: 200, body: result }))
+    .then(async result => {
+      // Server-side cache revalidation: if the action declared revalidate paths
+      // or tags, purge them through the bound cache engine (no-op if unbound).
+      const opts = action.options || {};
+      if (Array.isArray(opts.revalidate)) {
+        for (const p of opts.revalidate) await serverRevalidatePath(p);
+      }
+      if (Array.isArray(opts.revalidateTags)) {
+        for (const t of opts.revalidateTags) await serverRevalidateTag(t);
+      }
+      return { status: 200, body: result };
+    })
     .catch(error => {
       // Log the full error server-side, return generic message to client
       console.error(`[what] Action "${actionId}" error:`, error);
