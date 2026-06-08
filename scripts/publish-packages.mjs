@@ -13,6 +13,7 @@ const PACKAGE_ORDER = [
   'packages/what-text',
   'packages/router',
   'packages/server',
+  'packages/cache',
   'packages/compiler',
   'packages/devtools',
   'packages/mcp-server',

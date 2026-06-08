@@ -2,11 +2,16 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased] - 0.10 — Full-stack: SSR data, served actions, origin-first ISR
+## [0.10.0] - 2026-06-08 — Full-stack: SSR data, served actions, origin-first ISR
 
 A complete full-stack story, built additively (no breaking changes; the 0.9
 suite stays green and grew to 1068 tests). Everything is new files, new exports,
 and new optional params.
+
+> **Note:** `0.9.0` was never published to npm, so this release also delivers all
+> of the `0.9.0` production-readiness fixes below — including the critical
+> production blank-screen fix (`what-core` code-splitting). Upgrading from
+> `0.8.4` gets both the fixes and the full-stack features.
 
 ### Added — SSR & data
 - **Render-scoped server context** (`what-core` `server-context.js`) — the
