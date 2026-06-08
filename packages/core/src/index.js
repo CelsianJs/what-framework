@@ -39,7 +39,10 @@ export { memo, lazy, Suspense, ErrorBoundary, Show, For, Switch, Match, Island }
 export { createStore, derived, storeComputed, atom } from './store.js';
 
 // Head management
-export { Head, clearHead } from './head.js';
+export { Head, clearHead, beginHeadCollection, endHeadCollection } from './head.js';
+
+// SSR render-scoped context (keystone for head collection, loaders, resources)
+export { getServerContext, setServerContext, runWithServerContext } from './server-context.js';
 
 // Utilities
 export {

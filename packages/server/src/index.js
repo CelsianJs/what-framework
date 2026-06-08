@@ -2,7 +2,19 @@
 // SSR, static site generation, server components.
 // Zero-JS pages by default. Islands opt-in to client JS.
 
-import { h } from 'what-core';
+import { h, runWithServerContext, beginHeadCollection, endHeadCollection } from 'what-core';
+
+// Build a fresh render-scoped server context (head sink, loader data, resources).
+function createRenderContext(loaderData) {
+  return {
+    head: beginHeadCollection(),
+    loaderData,
+    resources: new Map(),
+    resourceCounter: 0,
+    boundaryCounter: 0,
+    suspended: [],
+  };
+}
 
 // --- Hydration ID Generator ---
 let _hydrationIdCounter = 0;
@@ -139,6 +151,19 @@ export function renderToString(vnode) {
   const rawInner = _resolveInnerHTML(props);
   const inner = rawInner != null ? String(rawInner) : children.map(renderToString).join('');
   return `${open}${inner}</${tag}>`;
+}
+
+// --- Render to String + collected <head> ---
+// Like renderToString, but captures any <Head> tags declared anywhere in the
+// tree into a render-scoped sink and returns them as escaped <head> HTML.
+//
+// Concurrency: renderToString is synchronous, so the render context set by
+// runWithServerContext lives within one uninterrupted tick — safe under
+// concurrent requests (no two renders interleave in the sync path).
+export function renderToStringWithHead(vnode) {
+  const ctx = createRenderContext(undefined);
+  const body = runWithServerContext(ctx, () => renderToString(vnode));
+  return { body, head: endHeadCollection(ctx.head) };
 }
 
 // --- Stream Render ---
