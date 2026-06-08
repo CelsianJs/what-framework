@@ -53,3 +53,43 @@ test('create-what honors absolute target paths', async () => {
   }
 });
 
+test('create-what --fullstack scaffolds a parseable SSR tree', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'create-what-fullstack-'));
+  try {
+    const result = spawnSync(process.execPath, [createWhat, 'fs-app', '--fullstack', '--yes'], { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const root = join(cwd, 'fs-app');
+
+    // package.json: what-cache dep + a `start` script for the Node server.
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    assert.equal(pkg.dependencies['what-cache'], expectedRange);
+    assert.equal(pkg.scripts.start, 'node server.js');
+
+    // The full-stack tree exists.
+    for (const f of [
+      'server.js', 'what.config.js', 'src/routes.js', 'src/db.js',
+      'src/actions/posts.js', 'src/pages/home.js', 'src/pages/post.js', 'src/pages/new.js',
+    ]) {
+      await readFile(join(root, f), 'utf8'); // throws if missing
+    }
+
+    // Pages export the file-route contract (page/loader/default) and the
+    // dynamic page exports getStaticPaths.
+    const home = await readFile(join(root, 'src/pages/home.js'), 'utf8');
+    assert.match(home, /export const page =/);
+    assert.match(home, /export const loader =/);
+    assert.match(home, /export default function/);
+    const post = await readFile(join(root, 'src/pages/post.js'), 'utf8');
+    assert.match(post, /export async function getStaticPaths/);
+
+    // The generated tree is syntactically valid ES modules — node parses it
+    // with --check (no execution, so no dependency resolution needed).
+    for (const f of ['src/db.js', 'src/pages/home.js', 'src/pages/post.js', 'src/pages/new.js', 'server.js']) {
+      const check = spawnSync(process.execPath, ['--check', join(root, f)], { encoding: 'utf8' });
+      assert.equal(check.status, 0, `${f} failed --check: ${check.stderr}`);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
