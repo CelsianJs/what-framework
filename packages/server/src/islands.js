@@ -89,11 +89,17 @@ export function useIslandStore(name, fallbackInitial = {}) {
 // containing "</script>" cannot break out of the <script> tag this is embedded
 // in. (AUDIT-2026-06-06 H3)
 export function serializeIslandStores() {
+  return serializeState(getIslandStoresSnapshot());
+}
+
+// Raw (unserialized) snapshot of all shared island stores, so renderDocument can
+// merge it into the single consolidated #__what_data payload (one serialize pass).
+export function getIslandStoresSnapshot() {
   const data = {};
   for (const [name, store] of sharedStores) {
     data[name] = store._getSnapshot();
   }
-  return serializeState(data);
+  return data;
 }
 
 // Hydrate shared stores from SSR data

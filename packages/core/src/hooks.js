@@ -6,6 +6,7 @@
 import { signal, computed, effect, batch, untrack, createRoot, __DEV__ } from './reactive.js';
 import { getCurrentComponent } from './dom.js';
 import { getServerContext } from './server-context.js';
+import { getLoaderData as _getLoaderData, getResource as _getResource } from './hydration-data.js';
 
 // --- useLoaderData ---
 // Returns the current page's server loader data. Works during SSR (reads the
@@ -17,17 +18,8 @@ export function useLoaderData() {
     const ctx = getServerContext();
     return ctx ? ctx.loaderData : undefined;
   }
-  // Client: read from the hydration payload. Phase 5 routes this through
-  // hydration-data.js; until then read the script directly (forward-compatible).
-  const el = document.getElementById('__what_data');
-  if (el) {
-    try {
-      return JSON.parse(el.textContent).loaderData;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
+  // Client: read from the consolidated hydration payload (cached, single parse).
+  return _getLoaderData();
 }
 
 function getCtx(hookName) {
@@ -339,8 +331,53 @@ export function onCleanup(fn) {
 // Returns [data, { loading, error, refetch, mutate }]
 
 export function createResource(fetcher, options = {}) {
-  const data = signal(options.initialValue ?? null);
-  const loading = signal(!options.initialValue);
+  // --- Server branch: run the fetcher, cache by key on the render context, and
+  // suspend (throw the promise) so the nearest Suspense shows its fallback until
+  // the data resolves. On re-render the cached value is returned synchronously.
+  if (typeof document === 'undefined') {
+    const ctx = getServerContext();
+    if (ctx) {
+      const key = options.key != null ? options.key : `__r${ctx.resourceCounter++}`;
+      const cached = ctx.resources.get(key);
+      if (cached && cached.status === 'ready') {
+        const accessor = () => cached.value;
+        return [accessor, { loading: () => false, error: () => null, refetch: () => {}, mutate: () => {} }];
+      }
+      if (cached && cached.status === 'error') {
+        const accessor = () => undefined;
+        return [accessor, { loading: () => false, error: () => cached.error, refetch: () => {}, mutate: () => {} }];
+      }
+      if (!cached) {
+        const promise = Promise.resolve()
+          .then(() => fetcher(options.source ?? true, {}))
+          .then((v) => { ctx.resources.set(key, { status: 'ready', value: v }); })
+          .catch((e) => { ctx.resources.set(key, { status: 'error', error: e }); });
+        ctx.resources.set(key, { status: 'pending', promise });
+        throw promise; // caught by the nearest Suspense boundary
+      }
+      // pending (shouldn't normally re-reach here within one pass)
+      throw cached.promise;
+    }
+    // No active render context (bare synchronous renderToString): suspend so the
+    // nearest Suspense boundary shows its fallback. There's no cache to resolve
+    // into here — use renderToStringAsync / renderToStream for resolved data.
+    if (options.initialValue != null) {
+      const accessor = () => options.initialValue;
+      return [accessor, { loading: () => false, error: () => null, refetch: () => {}, mutate: () => {} }];
+    }
+    throw Promise.resolve().then(() => fetcher(options.source ?? true, {}));
+  }
+
+  // --- Client branch: seed from the hydration payload so SSR'd resources don't
+  // refetch on hydrate.
+  let seeded = options.initialValue;
+  if (seeded == null && options.key != null) {
+    const fromPayload = _getResource(options.key);
+    if (fromPayload !== undefined) seeded = fromPayload;
+  }
+
+  const data = signal(seeded ?? null);
+  const loading = signal(seeded == null);
   const error = signal(null);
 
   let controller = null;
@@ -387,8 +424,8 @@ export function createResource(fetcher, options = {}) {
     });
   }
 
-  // Initial fetch if no initial value
-  if (!options.initialValue) {
+  // Initial fetch only if we have no value (initial or hydrated from payload)
+  if (seeded == null) {
     refetch(options.source);
   }
 

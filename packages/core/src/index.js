@@ -45,6 +45,9 @@ export { Head, clearHead, beginHeadCollection, endHeadCollection } from './head.
 // SSR render-scoped context (keystone for head collection, loaders, resources)
 export { getServerContext, setServerContext, runWithServerContext } from './server-context.js';
 
+// Client hydration payload reader (loader data + resources)
+export { __readHydrationData, __resetHydrationData, getLoaderData, getResource } from './hydration-data.js';
+
 // Utilities
 export {
   each,
