@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Actions — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <script src="../../theme.js"></script>
+  <script src="../copy-code.js"></script>
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.10</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+    <div class="nav-right">
+      <button class="theme-toggle" aria-label="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./coming-from-react.html">Coming from React</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Navigation &amp; Caching</div>
+        <ul class="sidebar-links">
+          <li><a href="./routing.html">Routing</a></li>
+          <li><a href="./caching.html">Caching</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Full-Stack</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-loading.html">Data Loading</a></li>
+          <li><a href="./actions.html" class="active">Server Actions</a></li>
+          <li><a href="./caching-isr.html">Caching &amp; ISR</a></li>
+          <li><a href="./deployment.html">Deployment</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Server Actions</h1>
+          <p class="subtitle">Write a mutation as a server function, call it from the client, and revalidate the cache it affects — all type-checked, CSRF-protected, and served at one endpoint.</p>
+
+          <h2 id="define">Defining an action</h2>
+          <p>Wrap a server function with <code>action()</code>. Give it a stable <code>id</code> so the client can dispatch it, and optionally declare what to revalidate on success.</p>
+<pre><code>// src/actions/posts.js
+import { action, revalidatePath } from 'what-framework/server';
+import { createPost } from '../db.js';
+
+export const createPostAction = action(
+  async ({ title, body }) =&gt; {
+    const post = createPost({ title, body });
+    return { ok: true, slug: post.slug };
+  },
+  { id: 'createPost', revalidate: ['/'], revalidateTags: ['posts'] }
+);</code></pre>
+
+          <h2 id="serve">Serving actions</h2>
+          <p>Actions are dispatched over <code>POST /__what_action</code>. The deploy adapters mount this for you; importing the action module (e.g. from your routes file) registers it. With a manual server you can mount it directly:</p>
+<pre><code>import { createActionHandler } from 'what-framework/server';
+const handler = createActionHandler({ getCsrfToken });</code></pre>
+
+          <h2 id="call">Calling from the client</h2>
+          <p>A progressively-enhanced form works with no JavaScript — it POSTs to the endpoint with a <code>data-action</code> attribute:</p>
+<pre><code>&lt;form method="post" action="/__what_action" data-action="createPost"&gt;
+  &lt;input name="title" required /&gt;
+  &lt;textarea name="body" required&gt;&lt;/textarea&gt;
+  &lt;button&gt;Publish&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+          <p>Or call it imperatively and get the typed return value:</p>
+<pre><code>const res = await fetch('/__what_action', {
+  method: 'POST',
+  headers: { 'x-what-action': 'createPost', 'content-type': 'application/json' },
+  body: JSON.stringify({ args: [{ title, body }] }),
+});
+const { slug } = await res.json();</code></pre>
+
+          <h2 id="revalidate">Revalidating after a mutation</h2>
+          <p>The <code>revalidate</code> / <code>revalidateTags</code> options fire automatically after the action resolves, purging the origin ISR cache (and any CDN) so the next request re-renders with fresh data. You can also call them by hand inside the action:</p>
+<pre><code>import { revalidatePath, revalidateTag } from 'what-framework/server';
+
+revalidatePath('/');          // purge one path
+revalidateTag('posts');       // purge everything tagged 'posts'</code></pre>
+          <div class="callout callout-note">
+            <p class="callout-title">Two revalidates, on purpose</p>
+            <p>Server <code>revalidatePath</code>/<code>revalidateTag</code> (cache) are distinct from the client router's <code>invalidatePath</code> (in-memory nav pub-sub). Server purges the rendered cache; the client one re-runs a client loader. See <a href="./caching-isr.html">Caching &amp; ISR</a>.</p>
+          </div>
+
+          <h2 id="security">CSRF &amp; error masking</h2>
+          <p>The handler validates a CSRF token by default (inject one via <code>getCsrfToken</code>; a meta tag is emitted into the document). It fails closed: a missing or bad token is rejected. Thrown errors are masked to a generic 500 so internal details never reach the client — the real error is logged server-side.</p>
+
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#define">Defining an action</a></li>
+            <li><a href="#serve">Serving actions</a></li>
+            <li><a href="#call">Calling from the client</a></li>
+            <li><a href="#revalidate">Revalidating after a mutation</a></li>
+            <li><a href="#security">CSRF & error masking</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Caching & ISR — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <script src="../../theme.js"></script>
+  <script src="../copy-code.js"></script>
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.10</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+    <div class="nav-right">
+      <button class="theme-toggle" aria-label="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./coming-from-react.html">Coming from React</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Navigation &amp; Caching</div>
+        <ul class="sidebar-links">
+          <li><a href="./routing.html">Routing</a></li>
+          <li><a href="./caching.html">Caching</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Full-Stack</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-loading.html">Data Loading</a></li>
+          <li><a href="./actions.html">Server Actions</a></li>
+          <li><a href="./caching-isr.html" class="active">Caching &amp; ISR</a></li>
+          <li><a href="./deployment.html">Deployment</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Caching & ISR</h1>
+          <p class="subtitle">Origin-first incremental static regeneration: stale-while-revalidate, on-demand purge by path or tag, scheduled poll regeneration, and getStaticPaths fallbacks — on any host, no CDN required.</p>
+
+          <h2 id="model">The model</h2>
+          <p>What's caching is <strong>origin-first</strong>. A render cache lives next to your server and does the full job: it serves fresh hits instantly, serves stale content while regenerating in the background, dedupes concurrent regenerations, and purges on demand. A CDN is <em>optional upside</em> — when present, the engine emits the right <code>Cache-Control</code> headers and fans purges out to it. Nothing about your code changes whether or not you have one.</p>
+<pre><code>import { createCacheEngine, createMemoryStore } from 'what-cache';
+
+const cache = createCacheEngine({ store: createMemoryStore() });</code></pre>
+          <p>Swap the store without touching pages: <code>createMemoryStore()</code> (default, fast, single-process), <code>createFilesystemStore({ dir })</code> (survives restarts, multi-process), or <code>createRedisStore({ client })</code> (multi-instance).</p>
+
+          <h2 id="config">Per-page config</h2>
+          <p>A page declares its caching policy with the JSON-safe <code>page</code> export:</p>
+<pre><code>export const page = {
+  mode: 'static',     // 'static' | 'hybrid' | 'server'
+  revalidate: 60,     // seconds until a cached entry goes stale
+  swr: 600,           // extra seconds it may be served stale while regenerating
+  tags: ['posts'],    // purge handles for revalidateTag
+  vary: ['cookie:theme'],   // split cache by these request signals
+  fallback: 'blocking',     // for dynamic routes (see Data Loading)
+  pollInterval: 300,        // background regeneration, seconds (optional)
+};</code></pre>
+          <ul>
+            <li><code>mode: 'static'</code> — cacheable, regenerated by ISR.</li>
+            <li><code>mode: 'server'</code> — always rendered fresh, never cached (<code>private, no-store</code>). Use for per-user pages.</li>
+            <li><code>mode: 'hybrid'</code> — static shell with dynamic islands.</li>
+          </ul>
+
+          <h2 id="swr">Stale-while-revalidate</h2>
+          <p>After <code>revalidate</code> seconds an entry is <strong>stale</strong> but still served instantly; the engine kicks off one background re-render and swaps the entry in when it's done. Readers never wait. If <code>swr</code> is set, stale-if-error keeps serving the last good copy when regeneration fails.</p>
+          <div class="callout callout-note">
+            <p class="callout-title">One render for N concurrent misses</p>
+            <p>When a thousand requests hit a stale entry at once, an in-flight lock (a per-key promise, or a Redis <code>SET NX</code> across instances) ensures exactly one regeneration runs — the rest are served the stale copy. No thundering herd.</p>
+          </div>
+
+          <h2 id="on-demand">On-demand revalidation</h2>
+          <p>Purge precisely when your data changes — from an action, a route, or anywhere on the server:</p>
+<pre><code>import { revalidatePath, revalidateTag } from 'what-framework/server';
+
+revalidatePath('/blog/hello');   // one path
+revalidateTag('posts');          // every entry tagged 'posts'</code></pre>
+          <p>This is <strong>progressive regeneration</strong>: the purged entry re-renders on its next request (or immediately, with <code>{ regenerate: true }</code>). Pages stay cached until the moment their data actually changes.</p>
+
+          <h2 id="poll">Poll regeneration</h2>
+          <p>For data that drifts without an explicit trigger (an external feed, prices), set <code>pollInterval</code> or register a route with the scheduler. It re-renders on a timer with jitter (anti-herd), a global concurrency cap, and it joins the same in-flight lock so a tick during a live regeneration is a no-op.</p>
+<pre><code>import { createScheduler } from 'what-cache';
+
+const scheduler = createScheduler(cache);
+scheduler.register(
+  { path: '/', query: {}, config: routes[0].page },
+  { intervalMs: 5 * 60 * 1000 }   // keep the home page warm every 5 min
+);
+// scheduler.start() / stop() — the Node adapter wires SIGTERM cleanup.</code></pre>
+
+          <h2 id="webhook">Revalidation webhook</h2>
+          <p>Let a CMS trigger purges over HTTP. Mount <code>createRevalidateWebhook</code> (the adapters expose it at <code>POST /__what_revalidate</code>) with a secret:</p>
+<pre><code>import { createRevalidateWebhook } from 'what-cache';
+const webhook = createRevalidateWebhook(cache, { secret: process.env.WHAT_REVALIDATE_SECRET });
+
+// POST /__what_revalidate
+// { "tags": ["posts"], "paths": ["/"], "secret": "…", "regenerate": true }</code></pre>
+          <p>The secret is checked in constant time.</p>
+
+          <h2 id="headers">Cache headers</h2>
+          <p>When a CDN is in front, the engine emits standard headers so the edge caches and revalidates in lockstep with the origin:</p>
+<pre><code>Cache-Control: public, s-maxage=60, stale-while-revalidate=600
+Cache-Tag: posts            // Fastly / generic
+Surrogate-Key: posts        // (alias)
+X-What-Cache: HIT | STALE | MISS</code></pre>
+          <p>Server-mode and action responses send <code>private, no-store</code>. Skeleton (fallback <code>true</code>) responses send <code>s-maxage=0</code> so the edge doesn't pin a placeholder.</p>
+
+          <h2 id="degradation">No-CDN vs CDN — graceful degradation</h2>
+          <p>Every capability works at the origin. A CDN only changes <em>where</em> the cache also lives.</p>
+          <table>
+            <thead><tr><th>Capability</th><th>Origin only (no CDN)</th><th>With a CDN</th></tr></thead>
+            <tbody>
+              <tr><td>Fresh / stale serving (SWR)</td><td>✓ origin store</td><td>✓ origin + edge</td></tr>
+              <tr><td>In-flight dedupe</td><td>✓ per-process / Redis</td><td>✓ same</td></tr>
+              <tr><td>revalidatePath / revalidateTag</td><td>✓ purges origin store</td><td>✓ purges origin <em>and</em> edge (<code>CDNAdapter.purge</code>)</td></tr>
+              <tr><td>Poll regeneration</td><td>✓ scheduler in the server process</td><td>✓ same (origin re-render → edge revalidate)</td></tr>
+              <tr><td>getStaticPaths fallback</td><td>✓ render-on-first-hit</td><td>✓ same, then edge-cached</td></tr>
+              <tr><td>Edge latency</td><td>origin round-trip</td><td>✓ served from nearest PoP</td></tr>
+            </tbody>
+          </table>
+          <p>Provide a CDN with <code>createCacheEngine({ store, cdn })</code> — adapters ship for <code>cloudflare</code>, <code>fastly</code>, and <code>vercel</code>. Omit it and every line above still holds, minus edge latency. That is the whole promise: <strong>no host lock-in</strong>.</p>
+
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#model">The model</a></li>
+            <li><a href="#config">Per-page config</a></li>
+            <li><a href="#swr">Stale-while-revalidate</a></li>
+            <li><a href="#on-demand">On-demand revalidation</a></li>
+            <li><a href="#poll">Poll regeneration</a></li>
+            <li><a href="#webhook">Revalidation webhook</a></li>
+            <li><a href="#headers">Cache headers</a></li>
+            <li><a href="#degradation">No-CDN vs CDN</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

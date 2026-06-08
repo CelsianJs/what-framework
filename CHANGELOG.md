@@ -2,6 +2,69 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased] - 0.10 — Full-stack: SSR data, served actions, origin-first ISR
+
+A complete full-stack story, built additively (no breaking changes; the 0.9
+suite stays green and grew to 1068 tests). Everything is new files, new exports,
+and new optional params.
+
+### Added — SSR & data
+- **Render-scoped server context** (`what-core` `server-context.js`) — the
+  concurrency keystone. Sync `renderToString` uses a set/cleared module global
+  within one tick; async paths (`renderToStream`, loaders, resources) thread the
+  context explicitly, so SSR state never leaks across concurrent requests.
+- **SSR `<Head>` collection** — `Head()` now writes title/meta/link into the
+  render context (same dedup keys as the client) and returns its children on the
+  server. New `renderToStringWithHead(vnode) → { body, head }`. `renderToString`
+  is unchanged for existing callers.
+- **Server data loaders** — co-locate `export const loader = ({ params, query,
+  request }) => data` with a page; resolved before render and delivered via the
+  isomorphic `useLoaderData()` (server reads the context, client reads the
+  hydration payload). New `renderPage` / `renderDocument` seams.
+- **Async Suspense streaming** — `renderToStream` resolves thrown promises;
+  server-aware `createResource` suspends and serializes its result. A single
+  consolidated hydration payload (`<script id="__what_data">`) carries
+  `{ loaderData, resources, islandStores }`, XSS-escaped via `serializeState`.
+
+### Added — actions
+- **Served server actions** — `createActionHandler` mounts `POST /__what_action`
+  (CSRF-validated, fail-closed, errors masked). `nodeActionMiddleware` and
+  `fetchActionHandler` cover connect/express and edge/Deno/Bun. `action()` gains
+  `revalidate` / `revalidateTags` that fire after success.
+
+### Added — caching / ISR (`what-cache`, new package, zero runtime deps)
+- **Origin-first ISR engine** — stale-while-revalidate, in-flight dedupe (one
+  render for N concurrent misses), `getStaticPaths` fallbacks
+  (`'blocking'`/`true`/`false`).
+- **Stores** — memory (LRU + tag/path reverse indexes), filesystem (atomic
+  tmp+rename, sharded), redis (injected client). Swappable without touching pages.
+- **Invalidation** — `revalidatePath` / `revalidateTag` purge the origin store
+  (and any CDN), wired into `what-server` via a registry indirection (no hard
+  dep). Constant-time-secret revalidation webhook at `POST /__what_revalidate`.
+- **Poll regeneration** — a zero-dep scheduler (`pollInterval`), self-rescheduling
+  with jitter, a concurrency cap, joining the same in-flight lock.
+- **CDN bonus** — `buildCacheHeaders` (`s-maxage` / `stale-while-revalidate` /
+  `Cache-Tag` / `Surrogate-Key` / `X-What-Cache`) and `CDNAdapter` purge impls
+  for Cloudflare / Fastly / Vercel. All optional — the engine no-ops without one.
+
+### Added — routing, adapters, DX
+- **Isomorphic matcher** — `what-router/match` (DOM-free `matchRoute`/`parseQuery`)
+  for server use. File-router codegen now emits live `loader`/`getStaticPaths`/
+  `page` bindings (SPA output byte-identical; server module separate).
+- **Deploy adapters** — one Web-Fetch core powering `node`, `static`
+  (`exportStatic`), `vercel` (`buildVercelOutput`), and `cloudflare`
+  (`createCloudflareHandler`). `createServer` wires the poll scheduler + SIGTERM.
+- **CLI `what start`** — runs the project `server.js` (Node adapter), forwarding
+  SIGINT/SIGTERM for scheduler cleanup.
+- **`create-what --fullstack`** — scaffolds a file-routed SSR app (loaders,
+  `getStaticPaths`, a server action, origin-first ISR `server.js`,
+  `what.config.js`) with a `what-cache` dep and a `start` script.
+- **Examples** — `examples/blog` (loaders, ISR, action revalidation) and
+  `examples/shop` (ISR grid, `mode:'server'` dashboard, cart actions), each with
+  an end-to-end test proving the full SSR → loader → ISR → action → revalidate loop.
+- **Docs** — new Full-Stack guides: Data Loading, Server Actions, Caching & ISR
+  (with the no-CDN vs CDN graceful-degradation matrix), and Deployment.
+
 ## [0.9.0] - 2026-06-06 — Production-readiness pass
 
 This release folds in the fixes from a full production-readiness audit. Highlights:
