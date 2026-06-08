@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Loading — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <script src="../../theme.js"></script>
+  <script src="../copy-code.js"></script>
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.10</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+    <div class="nav-right">
+      <button class="theme-toggle" aria-label="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./coming-from-react.html">Coming from React</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Navigation &amp; Caching</div>
+        <ul class="sidebar-links">
+          <li><a href="./routing.html">Routing</a></li>
+          <li><a href="./caching.html">Caching</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Full-Stack</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-loading.html" class="active">Data Loading</a></li>
+          <li><a href="./actions.html">Server Actions</a></li>
+          <li><a href="./caching-isr.html">Caching &amp; ISR</a></li>
+          <li><a href="./deployment.html">Deployment</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Data Loading</h1>
+          <p class="subtitle">Co-locate a server loader with a page; its data is rendered on the server and hydrated on the client — no waterfalls, no client fetch on first paint.</p>
+
+          <p>A <strong>loader</strong> runs on the server before a page renders. What awaits it, renders the page with the resolved data in scope, and serializes that data into the HTML so the client hydrates without re-fetching. This is the data path for SSR and ISR pages.</p>
+
+          <h2 id="loader">The loader export</h2>
+          <p>Export a function named <code>loader</code> from a page module. It receives <code>{ params, query, request }</code> and returns data (sync or async).</p>
+<pre><code>// src/pages/blog/[slug].jsx
+export const loader = async ({ params, query, request }) =&gt; {
+  const post = await db.posts.find(params.slug);
+  return { post };
+};
+
+export default function Post() {
+  const { post } = useLoaderData();
+  return &lt;article&gt;&lt;h1&gt;{post.title}&lt;/h1&gt;&lt;p&gt;{post.body}&lt;/p&gt;&lt;/article&gt;;
+}</code></pre>
+          <ul>
+            <li><code>params</code> — dynamic route segments (e.g. <code>{ slug: 'hello' }</code> for <code>/blog/[slug]</code>).</li>
+            <li><code>query</code> — parsed query string as an object.</li>
+            <li><code>request</code> — the standard <code>Request</code> (read cookies/headers for auth).</li>
+          </ul>
+          <div class="callout callout-note">
+            <p class="callout-title">Runs before render</p>
+            <p>The loader resolves <em>outside</em> the synchronous render, so the value handed to the component is plain data — never a promise. That keeps render fast and concurrency-safe.</p>
+          </div>
+
+          <h2 id="use-loader-data">useLoaderData</h2>
+          <p><code>useLoaderData()</code> returns the current page's loader data. It is isomorphic: on the server it reads the render-scoped context; on the client it reads the hydration payload (<code>&lt;script id="__what_data"&gt;</code>). It is not a hook-slot consumer, so you can call it anywhere in a component.</p>
+<pre><code>import { useLoaderData } from 'what-framework';
+
+function Post() {
+  const { post } = useLoaderData();
+  // ...
+}</code></pre>
+
+          <h2 id="static-paths">getStaticPaths</h2>
+          <p>For dynamic routes that should be pre-rendered, export <code>getStaticPaths</code>. It returns the set of paths to build ahead of time plus a <code>fallback</code> policy for everything else.</p>
+<pre><code>export async function getStaticPaths() {
+  const posts = await db.posts.all();
+  return {
+    paths: posts.map((p) =&gt; ({ params: { slug: p.slug } })),
+    fallback: 'blocking', // 'blocking' | true | false
+  };
+}</code></pre>
+          <ul>
+            <li><code>'blocking'</code> — an unbuilt path renders on first request, then is cached (default-feeling, great for ISR).</li>
+            <li><code>true</code> — serve a skeleton immediately, then swap in the rendered page.</li>
+            <li><code>false</code> — anything not in <code>paths</code> is a 404.</li>
+          </ul>
+          <p>Because <code>getStaticPaths</code> is a function (it can't be JSON), it is a <strong>named export</strong>, never part of the <code>page</code> config object.</p>
+
+          <h2 id="vs-fetching">Loaders vs client fetching</h2>
+          <p>Use a <strong>loader</strong> for data the page needs to render on the server (SEO content, the primary record). Use the client <a href="./data-fetching.html">data-fetching hooks</a> (<code>useSWR</code>, <code>useQuery</code>) for data that loads after hydration (user-specific widgets, polling dashboards). They compose: a loader seeds the first paint, hooks keep it live.</p>
+
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#loader">The loader export</a></li>
+            <li><a href="#use-loader-data">useLoaderData</a></li>
+            <li><a href="#static-paths">getStaticPaths</a></li>
+            <li><a href="#vs-fetching">Loaders vs client fetching</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

@@ -18,6 +18,8 @@ const positional = args.filter(a => !a.startsWith('-'));
 const flags = new Set(args.filter(a => a.startsWith('-')));
 const skipPrompts = flags.has('--yes') || flags.has('-y');
 const showHelp = flags.has('--help') || flags.has('-h');
+let templateFlag = flags.has('--fullstack') ? 'fullstack' : null;
+for (const f of flags) { const m = f.match(/^--template=(.+)$/); if (m) templateFlag = m[1]; }
 const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const whatVersionRange = `^${packageVersion}`;
 
@@ -29,8 +31,11 @@ if (showHelp) {
     create-what [project-name] [options]
 
   Options:
-    -y, --yes     Skip prompts and use defaults
-    -h, --help    Show this help message
+    --fullstack         Scaffold a full-stack SSR app (file routes, loaders,
+                        actions, origin-first ISR) instead of an SPA
+    --template=<name>   'spa' (default) or 'fullstack'
+    -y, --yes           Skip prompts and use defaults
+    -h, --help          Show this help message
 `);
   process.exit(0);
 }
@@ -110,7 +115,7 @@ async function gatherOptions() {
 
   if (skipPrompts) {
     projectName = projectName || 'my-what-app';
-    return { projectName, reactCompat, cssApproach };
+    return { projectName, reactCompat, cssApproach, template: templateFlag || 'spa' };
   }
 
   const prompter = createPrompter();
@@ -120,6 +125,11 @@ async function gatherOptions() {
   if (!projectName) {
     projectName = (await prompter.ask('  Project name: ')).trim() || 'my-what-app';
   }
+
+  const template = templateFlag || await prompter.select('Template:', [
+    { label: 'SPA (client-side single-page app)', value: 'spa' },
+    { label: 'Full-stack (SSR + file routes + loaders + actions + ISR)', value: 'fullstack' },
+  ]);
 
   reactCompat = await prompter.confirm('Add React library support? (what-react)');
 
@@ -131,14 +141,14 @@ async function gatherOptions() {
 
   prompter.close();
 
-  return { projectName, reactCompat, cssApproach };
+  return { projectName, reactCompat, cssApproach, template };
 }
 
 // ---------------------------------------------------------------------------
 // File generators
 // ---------------------------------------------------------------------------
 
-function generatePackageJson(packageName, { reactCompat, cssApproach }) {
+function generatePackageJson(packageName, { reactCompat, cssApproach, template }) {
   const deps = {
     'what-framework': whatVersionRange,
   };
@@ -148,6 +158,14 @@ function generatePackageJson(packageName, { reactCompat, cssApproach }) {
     'what-devtools-mcp': whatVersionRange,
     '@babel/core': '^7.23.0',
   };
+
+  // Full-stack apps add the origin-first ISR engine + a Node server entry.
+  const scripts = template === 'fullstack'
+    ? { dev: 'vite', build: 'vite build', start: 'node server.js', preview: 'vite preview' }
+    : { dev: 'vite', build: 'vite build', preview: 'vite preview' };
+  if (template === 'fullstack') {
+    deps['what-cache'] = whatVersionRange;
+  }
 
   if (reactCompat) {
     deps['what-react'] = whatVersionRange;
@@ -171,11 +189,7 @@ function generatePackageJson(packageName, { reactCompat, cssApproach }) {
     private: true,
     version: '0.1.0',
     type: 'module',
-    scripts: {
-      dev: 'vite',
-      build: 'vite build',
-      preview: 'vite preview',
-    },
+    scripts,
     dependencies: deps,
     devDependencies: devDeps,
   }, null, 2) + '\n';
@@ -807,7 +821,7 @@ output {
 `;
 }
 
-function generateReadme(packageName, { reactCompat, cssApproach }) {
+function generateReadme(packageName, { reactCompat, cssApproach, template }) {
   let notes = `- Canonical package name is \`what-framework\`.
 - Uses the What compiler for JSX transforms and automatic reactivity.
 - Vite is preconfigured; use \`npm run dev/build/preview\`.
@@ -830,6 +844,46 @@ function generateReadme(packageName, { reactCompat, cssApproach }) {
 - StyleX is configured via \`vite-plugin-stylex\`. Define styles with \`stylex.create()\` and apply with \`{...stylex.props()}\`.`;
   }
 
+  if (template === 'fullstack') {
+    return `# ${packageName}
+
+A full-stack What Framework app: file-routed SSR, server loaders, server
+actions, and origin-first ISR (stale-while-revalidate + on-demand revalidation +
+poll regeneration) — works on any host, no CDN required.
+
+## Run
+
+\`\`\`bash
+npm install
+npm start        # full-stack SSR server → http://localhost:3000
+\`\`\`
+
+Or develop the client in isolation with \`npm run dev\` (Vite, http://localhost:5173).
+
+## Structure
+
+- \`src/pages/*\` — pages. Each may export \`page\` (route config), \`loader\` (server
+  data), \`getStaticPaths\` (pre-render), and a default component.
+- \`src/actions/*\` — server actions (mutations), served at \`/__what_action\`. Call
+  \`revalidatePath\`/\`revalidateTag\` after a mutation to purge the ISR cache.
+- \`src/routes.js\` — the route table (loaders/getStaticPaths/page bound per route).
+- \`server.js\` — Node adapter + ISR engine + revalidate webhook + poll scheduler.
+- \`what.config.js\` — deploy adapter + ISR defaults.
+
+### ISR cheat-sheet
+
+- \`page = { mode: 'static', revalidate: 60 }\` → cached, regenerated in the
+  background after 60s (stale-while-revalidate).
+- \`page = { mode: 'server' }\` → always fresh, never cached.
+- \`revalidatePath('/')\` / \`revalidateTag('posts')\` → on-demand purge.
+- \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` → CMS-triggered purge.
+
+## Notes
+
+${notes}
+`;
+  }
+
   return `# ${packageName}
 
 ## Run
@@ -845,6 +899,224 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ${notes}
 `;
+}
+
+// ---------------------------------------------------------------------------
+// Full-stack template — file-routed SSR pages, server loaders, getStaticPaths,
+// origin-first ISR, and a server action that revalidates the cache. Authored
+// with h() in plain .js so it runs with `node server.js` (no build step) while
+// `npm run dev` still serves the client. Mirrors examples/blog (proven by its
+// e2e suite). The full loop: SSR → loader → ISR (MISS→HIT) → action → revalidate.
+// ---------------------------------------------------------------------------
+function generateFullstackFiles(root, packageName) {
+  mkdirSync(resolve(root, 'src', 'pages'), { recursive: true });
+  mkdirSync(resolve(root, 'src', 'actions'), { recursive: true });
+
+  // Tiny in-memory "database". Swap for SQLite/Postgres — the loader/action
+  // contract is identical.
+  writeFileSync(resolve(root, 'src', 'db.js'), `// In-memory demo data. A real app would use SQLite/Postgres; the loader and
+// action contracts are identical either way.
+
+const posts = [
+  { slug: 'hello-world', title: 'Hello, World', body: 'The first post.', createdAt: 1 },
+  { slug: 'why-signals', title: 'Why Signals', body: 'Fine-grained reactivity, no virtual DOM, components run once.', createdAt: 2 },
+];
+
+export function listPosts() {
+  return [...posts].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function getPost(slug) {
+  return posts.find((p) => p.slug === slug) || null;
+}
+
+export function createPost({ title, body }) {
+  const slug = String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const post = { slug, title, body, createdAt: Date.now() };
+  posts.push(post);
+  return post;
+}
+`);
+
+  // Server action: mutate, then revalidate the cached pages it affects.
+  writeFileSync(resolve(root, 'src', 'actions', 'posts.js'), `// Server action: create a post, then revalidate the cached home listing.
+// revalidatePath purges the origin ISR cache (and any CDN) so the new post
+// appears immediately on the next request.
+
+import { action, revalidatePath } from 'what-framework/server';
+import { createPost } from '../db.js';
+
+export const createPostAction = action(
+  async ({ title, body }) => {
+    const post = createPost({ title, body });
+    return { ok: true, slug: post.slug };
+  },
+  { id: 'createPost', revalidate: ['/'] } // purge the home listing on success
+);
+`);
+
+  // Home page — static + ISR, lists posts via a loader.
+  writeFileSync(resolve(root, 'src', 'pages', 'home.js'), `// Home page.
+//   export const page   -> route config (JSON-safe: mode, revalidate, tags)
+//   export const loader -> runs on the server before render; result -> loaderData
+//   export default      -> the page component (runs once, no re-renders)
+
+import { h, Head, useLoaderData } from 'what-framework';
+import { listPosts } from '../db.js';
+
+export const page = { mode: 'static', revalidate: 60, tags: ['posts'] };
+
+export const loader = () => ({ posts: listPosts() });
+
+export default function Home() {
+  const { posts } = useLoaderData();
+  return h('main', { class: 'container' },
+    h(Head, {
+      title: '${packageName}',
+      meta: [{ name: 'description', content: 'A full-stack app built with What Framework' }],
+    }),
+    h('h1', {}, '${packageName}'),
+    h('p', {}, 'Server-rendered, ISR-cached, hydrated islands.'),
+    h('ul', {}, posts.map((p) =>
+      h('li', { key: p.slug }, h('a', { href: \`/blog/\${p.slug}\` }, p.title))
+    )),
+    h('p', {}, h('a', { href: '/new' }, '+ New post'))
+  );
+}
+`);
+
+  // Dynamic /blog/[slug] — loader + getStaticPaths + ISR + per-post <Head>.
+  writeFileSync(resolve(root, 'src', 'pages', 'post.js'), `// Dynamic post page. getStaticPaths pre-renders known slugs at build; unknown
+// slugs render on first hit (fallback: 'blocking') and are then cached.
+
+import { h, Head, useLoaderData } from 'what-framework';
+import { getPost, listPosts } from '../db.js';
+
+export const page = { mode: 'static', revalidate: 60, tags: ['posts'] };
+
+export const loader = ({ params }) => ({ post: getPost(params.slug) });
+
+export async function getStaticPaths() {
+  return {
+    paths: listPosts().map((p) => ({ params: { slug: p.slug } })),
+    fallback: 'blocking',
+  };
+}
+
+export default function Post() {
+  const { post } = useLoaderData();
+  if (!post) return h('main', { class: 'container' }, h('h1', {}, 'Not found'));
+  return h('main', { class: 'container' },
+    h(Head, {
+      title: \`\${post.title} — ${packageName}\`,
+      meta: [{ property: 'og:title', content: post.title }],
+    }),
+    h('article', {}, h('h1', {}, post.title), h('p', {}, post.body)),
+    h('p', {}, h('a', { href: '/' }, '← Back'))
+  );
+}
+`);
+
+  // /new — mode:'server' (never cached), posts to the createPost action.
+  writeFileSync(resolve(root, 'src', 'pages', 'new.js'), `// New-post form. mode:'server' so it's always fresh. The form posts to the
+// createPost server action; progressively enhanced (works as a plain POST).
+
+import { h, Head } from 'what-framework';
+
+export const page = { mode: 'server' };
+
+export default function NewPost() {
+  return h('main', { class: 'container' },
+    h(Head, { title: 'New post — ${packageName}' }),
+    h('h1', {}, 'New post'),
+    h('form', { method: 'post', action: '/__what_action', 'data-action': 'createPost' },
+      h('input', { name: 'title', placeholder: 'Title', required: true }),
+      h('textarea', { name: 'body', placeholder: 'Write something…', required: true }),
+      h('button', { type: 'submit' }, 'Publish')
+    ),
+    h('p', {}, h('a', { href: '/' }, '← Back'))
+  );
+}
+`);
+
+  // Route table. In a JSX app the vite plugin generates this from src/pages/**;
+  // here it's hand-written so the app runs with plain \`node server.js\`.
+  writeFileSync(resolve(root, 'src', 'routes.js'), `// Each entry carries the page's default component plus its live
+// loader/getStaticPaths/page bindings.
+
+import Home, { loader as homeLoader, page as homePage } from './pages/home.js';
+import Post, { loader as postLoader, getStaticPaths as postPaths, page as postPage } from './pages/post.js';
+import NewPost, { page as newPage } from './pages/new.js';
+
+// Importing the action registers it so /__what_action can dispatch it.
+import './actions/posts.js';
+
+export const routes = [
+  { path: '/', component: Home, loader: homeLoader, page: homePage, mode: homePage.mode },
+  { path: '/blog/:slug', component: Post, loader: postLoader, getStaticPaths: postPaths, page: postPage, mode: postPage.mode },
+  { path: '/new', component: NewPost, page: newPage, mode: newPage.mode },
+];
+`);
+
+  // Full-stack server: Node adapter + origin-first ISR + revalidate webhook +
+  // poll scheduler. Works on any host — no CDN required.
+  writeFileSync(resolve(root, 'server.js'), `// Full-stack server. \`node server.js\` → http://localhost:3000.
+// Wires the Node adapter + origin-first ISR engine + on-demand revalidation
+// webhook + poll scheduler. No CDN required.
+
+import { createServer, createRequestHandler } from 'what-framework/server';
+import {
+  createCacheEngine,
+  createMemoryStore,
+  createRevalidateWebhook,
+  createScheduler,
+} from 'what-cache';
+import { routes } from './src/routes.js';
+
+const REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET || 'dev-secret';
+
+// Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})
+// to survive restarts, or createRedisStore({client}) for multi-instance.
+const cache = createCacheEngine({ store: createMemoryStore() });
+
+// Keep the home listing warm every 5 minutes regardless of traffic.
+const scheduler = createScheduler(cache);
+scheduler.register({ path: '/', query: {}, config: routes[0].page }, { intervalMs: 5 * 60 * 1000 });
+
+export function createHandler() {
+  return createRequestHandler({
+    routes,
+    cache,
+    revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
+    document: { clientEntry: '/src/entry-client.js' },
+  });
+}
+
+// Started directly (node server.js), not when imported by tests.
+if (import.meta.url === \`file://\${process.argv[1]}\`) {
+  const server = createServer({
+    routes,
+    cache,
+    scheduler,
+    revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
+    document: { clientEntry: '/src/entry-client.js' },
+  });
+  const port = Number(process.env.PORT) || 3000;
+  server.listen(port, () => console.log(\`${packageName} → http://localhost:\${port}\`));
+}
+`);
+
+  // App config — the CLI reads this to pick a deploy adapter + ISR defaults.
+  writeFileSync(resolve(root, 'what.config.js'), `// What Framework app config. \`what build\` / \`what start\` read this to pick a
+// deploy adapter and ISR defaults.
+export default {
+  adapter: 'node', // 'node' | 'vercel' | 'cloudflare' | 'static'
+  isr: {
+    store: 'memory', // 'memory' | 'filesystem' | 'redis'
+    defaultRevalidate: 60,
+  },
+};
+`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,6 +1410,11 @@ count(c => c + 1) // update
 
   // src/main.jsx
   writeFileSync(resolve(root, 'src', 'main.jsx'), generateMainJsx(options));
+
+  // Full-stack scaffold: file-routed SSR pages + server + ISR config.
+  if (options.template === 'fullstack') {
+    generateFullstackFiles(root, packageName);
+  }
 
   // src/styles.css
   if (reactCompat && cssApproach === 'none') {

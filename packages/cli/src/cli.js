@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSync, copyFileSync, realpathSync } from 'fs';
 import { join, resolve, relative, extname, basename, normalize } from 'path';
 import { createServer } from 'http';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';
@@ -156,7 +157,7 @@ const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import
 const args = process.argv.slice(2);
 const command = args[0];
 
-const commands = { dev, build, preview, generate, init };
+const commands = { dev, build, preview, generate, start, init };
 
 if (!command || !commands[command]) {
   console.log(`
@@ -169,6 +170,7 @@ if (!command || !commands[command]) {
     build     Production build
     preview   Preview production build
     generate  Static site generation
+    start     Run the full-stack server (Node adapter + ISR)
     init      Create a new project
 
   Options:
@@ -503,6 +505,47 @@ async function generate() {
   }
 
   console.log('\n  Static generation complete.\n');
+}
+
+// --- Start (full-stack server) ---
+
+// Runs the project's full-stack server (Node adapter + origin-first ISR). The
+// scaffold's `server.js` wires createServer({routes, cache, scheduler, …}) and
+// self-starts when run as the main module, so we delegate to it — keeping the
+// server's wiring in the app (where it's editable) rather than hidden in the CLI.
+async function start() {
+  const config = await loadConfigAsync();
+  const adapter = config.adapter || 'node';
+  const serverEntry = join(cwd, 'server.js');
+
+  if (!existsSync(serverEntry)) {
+    console.error(`
+  what start — no server.js found in ${cwd}
+
+  Full-stack apps run from a server.js (Node adapter + ISR engine). Scaffold one
+  with \`npm create what@latest -- --fullstack\`, or create server.js wiring
+  createServer({ routes, cache }) from 'what-framework/server'.
+`);
+    process.exit(1);
+    return;
+  }
+
+  if (adapter !== 'node') {
+    console.log(`  Note: what.config.js adapter is "${adapter}"; \`what start\` runs the Node server. Use \`what build\` for ${adapter} output.`);
+  }
+
+  console.log(`\n  what start → running server.js (${adapter} adapter)\n`);
+
+  const child = spawn(process.execPath, [serverEntry], { cwd, stdio: 'inherit', env: process.env });
+  // Forward termination signals so Ctrl-C / SIGTERM reach the server (scheduler
+  // cleanup runs in its SIGTERM handler).
+  const forward = (sig) => { try { child.kill(sig); } catch { /* already gone */ } };
+  process.on('SIGINT', () => forward('SIGINT'));
+  process.on('SIGTERM', () => forward('SIGTERM'));
+  child.on('exit', (code, signal) => {
+    if (signal) { process.kill(process.pid, signal); return; }
+    process.exit(code == null ? 0 : code);
+  });
 }
 
 // --- Init ---

@@ -1,0 +1,15 @@
+{
+  "name": "@what-examples/shop",
+  "version": "0.10.0",
+  "private": true,
+  "type": "module",
+  "description": "Full-stack store: ISR product grid, getStaticPaths product pages, mode:'server' admin dashboard, cart actions with tag revalidation — origin-first, no CDN required.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "what-framework": "*",
+    "what-cache": "*"
+  }
+}

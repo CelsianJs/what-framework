@@ -2,7 +2,21 @@
 // SSR, static site generation, server components.
 // Zero-JS pages by default. Islands opt-in to client JS.
 
-import { h } from 'what-core';
+import { h, runWithServerContext, beginHeadCollection, endHeadCollection } from 'what-core';
+import { serializeState } from './serialize.js';
+import { getIslandStoresSnapshot } from './islands.js';
+
+// Build a fresh render-scoped server context (head sink, loader data, resources).
+function createRenderContext(loaderData) {
+  return {
+    head: beginHeadCollection(),
+    loaderData,
+    resources: new Map(),
+    resourceCounter: 0,
+    boundaryCounter: 0,
+    suspended: [],
+  };
+}
 
 // --- Hydration ID Generator ---
 let _hydrationIdCounter = 0;
@@ -122,6 +136,20 @@ export function renderToString(vnode) {
     return vnode.map(renderToString).join('');
   }
 
+  // Suspense boundary — render children; if a child suspends (throws a thenable),
+  // show the fallback (a synchronous render cannot await). renderToStringAsync /
+  // renderToStream await the pending resources and re-render with real content.
+  if (vnode.tag === '__suspense') {
+    try {
+      return (vnode.children || []).map(renderToString).join('');
+    } catch (e) {
+      if (e && typeof e.then === 'function') {
+        return renderToString(vnode.props && vnode.props.fallback);
+      }
+      throw e;
+    }
+  }
+
   // Component
   if (typeof vnode.tag === 'function') {
     const result = vnode.tag({ ...vnode.props, children: vnode.children });
@@ -141,10 +169,106 @@ export function renderToString(vnode) {
   return `${open}${inner}</${tag}>`;
 }
 
-// --- Stream Render ---
-// Returns an async iterator for streaming SSR.
+// --- Render to String + collected <head> ---
+// Like renderToString, but captures any <Head> tags declared anywhere in the
+// tree into a render-scoped sink and returns them as escaped <head> HTML.
+//
+// Concurrency: renderToString is synchronous, so the render context set by
+// runWithServerContext lives within one uninterrupted tick — safe under
+// concurrent requests (no two renders interleave in the sync path).
+export function renderToStringWithHead(vnode) {
+  const ctx = createRenderContext(undefined);
+  const body = runWithServerContext(ctx, () => renderToString(vnode));
+  return { body, head: endHeadCollection(ctx.head) };
+}
 
-export async function* renderToStream(vnode) {
+// --- Render a page module (loader + component) ---
+// Runs the page's `export const loader` (if any) BEFORE the synchronous render,
+// so the resolved value is plain data by the time the render reads it. The
+// loader receives { params, query, request }. Its result is passed to the page
+// component as a `loaderData` prop and is readable anywhere via useLoaderData().
+//
+// `pageModule` is `{ default: Component, loader? }` (the shape file-router emits).
+export async function renderPage(pageModule, reqCtx = {}) {
+  const Component = pageModule.default || pageModule;
+  const loaderData = typeof pageModule.loader === 'function'
+    ? await pageModule.loader(reqCtx)
+    : undefined;
+  const ctx = createRenderContext(loaderData);
+  const params = reqCtx.params || {};
+  const body = runWithServerContext(ctx, () =>
+    renderToString(h(Component, { ...params, loaderData }))
+  );
+  return { body, head: endHeadCollection(ctx.head), loaderData };
+}
+
+// --- Async render (resolves Suspense / createResource data) ---
+// Renders, then awaits any resources that suspended, then re-renders with the
+// resolved data — repeating until the tree is stable. Returns the body, the
+// collected head, and the resolved resources for the hydration payload.
+const MAX_RESOLVE_PASSES = 12;
+
+export async function renderToStringAsync(vnode, ctx) {
+  if (!ctx) ctx = createRenderContext(undefined);
+  let body = '';
+  for (let pass = 0; pass < MAX_RESOLVE_PASSES; pass++) {
+    body = runWithServerContext(ctx, () => renderToString(vnode));
+    const pending = [...ctx.resources.values()]
+      .filter((r) => r.status === 'pending')
+      .map((r) => r.promise);
+    if (pending.length === 0) break;
+    await Promise.all(pending);
+  }
+  const resources = {};
+  for (const [k, v] of ctx.resources) if (v.status === 'ready') resources[k] = v.value;
+  return { body, head: endHeadCollection(ctx.head), loaderData: ctx.loaderData, resources, ctx };
+}
+
+// --- Render a complete HTML document (loader + data + head + hydration payload) ---
+// The full-stack entry: runs the loader, renders (resolving async resources),
+// and emits one consolidated <script id="__what_data"> with { loaderData,
+// resources, islandStores } for the client to hydrate from without refetching.
+export async function renderDocument(pageModule, reqCtx = {}, options = {}) {
+  const Component = pageModule.default || pageModule;
+  const loaderData = typeof pageModule.loader === 'function'
+    ? await pageModule.loader(reqCtx)
+    : undefined;
+  const ctx = createRenderContext(loaderData);
+  const params = reqCtx.params || {};
+  const { body, head, resources } = await renderToStringAsync(
+    h(Component, { ...params, loaderData }),
+    ctx
+  );
+  const payload = {
+    loaderData: loaderData ?? null,
+    resources,
+    islandStores: getIslandStoresSnapshot(),
+  };
+  return wrapHtmlDocument({ body, head, payload, options });
+}
+
+function wrapHtmlDocument({ body, head, payload, options = {} }) {
+  const lang = options.lang || 'en';
+  const dataScript = `<script id="__what_data" type="application/json">${serializeState(payload)}</script>`;
+  const clientScript = options.clientEntry
+    ? `<script type="module" src="${escapeHtml(options.clientEntry)}"></script>`
+    : '';
+  const extraHead = options.head || '';
+  const bodyClass = options.bodyClass ? ` class="${escapeHtml(options.bodyClass)}"` : '';
+  return (
+    `<!DOCTYPE html><html lang="${escapeHtml(lang)}"><head>` +
+    `<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">` +
+    `${head || ''}${extraHead}</head><body${bodyClass}>` +
+    `${body}${dataScript}${clientScript}</body></html>`
+  );
+}
+
+// --- Stream Render ---
+// Returns an async iterator for streaming SSR. `ctx` is threaded explicitly so
+// concurrent streams never share state across `await` points.
+
+export async function* renderToStream(vnode, ctx) {
+  if (ctx === undefined) ctx = createRenderContext(undefined);
   if (vnode == null || vnode === false || vnode === true) return;
 
   if (typeof vnode === 'string' || typeof vnode === 'number') {
@@ -154,14 +278,14 @@ export async function* renderToStream(vnode) {
 
   // Signal — unwrap by calling it
   if (typeof vnode === 'function' && vnode._signal) {
-    yield* renderToStream(vnode());
+    yield* renderToStream(vnode(), ctx);
     return;
   }
 
   // Reactive function child — call to get value
   if (typeof vnode === 'function') {
     try {
-      yield* renderToStream(vnode());
+      yield* renderToStream(vnode(), ctx);
     } catch (e) {
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in stream SSR:', e.message);
@@ -172,8 +296,33 @@ export async function* renderToStream(vnode) {
 
   if (Array.isArray(vnode)) {
     for (const child of vnode) {
-      yield* renderToStream(child);
+      yield* renderToStream(child, ctx);
     }
+    return;
+  }
+
+  // Suspense boundary — render the subtree, awaiting any suspended resources,
+  // then emit the resolved content. (In-order; out-of-order swap is a future
+  // enhancement.) The synchronous render runs inside the threaded ctx.
+  if (vnode.tag === '__suspense') {
+    let html = null;
+    for (let attempt = 0; attempt < MAX_RESOLVE_PASSES && html === null; attempt++) {
+      let suspended = null;
+      try {
+        html = runWithServerContext(ctx, () => (vnode.children || []).map(renderToString).join(''));
+      } catch (e) {
+        if (e && typeof e.then === 'function') suspended = e;
+        else throw e;
+      }
+      if (html === null) {
+        const pending = [...ctx.resources.values()].filter((r) => r.status === 'pending').map((r) => r.promise);
+        await Promise.all([suspended, ...pending].filter(Boolean));
+      }
+    }
+    if (html === null) {
+      html = runWithServerContext(ctx, () => renderToString(vnode.props && vnode.props.fallback));
+    }
+    yield html;
     return;
   }
 
@@ -182,7 +331,7 @@ export async function* renderToStream(vnode) {
       const result = vnode.tag({ ...vnode.props, children: vnode.children });
       // Support async components
       const resolved = result instanceof Promise ? await result : result;
-      yield* renderToStream(resolved);
+      yield* renderToStream(resolved, ctx);
     } catch (e) {
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering component in stream SSR:', e.message);
@@ -204,7 +353,7 @@ export async function* renderToStream(vnode) {
       yield String(rawInner);
     } else {
       for (const child of children) {
-        yield* renderToStream(child);
+        yield* renderToStream(child, ctx);
       }
     }
     yield `</${tag}>`;
@@ -404,6 +553,29 @@ export {
   validateCsrfToken,
   csrfMetaTag,
 } from './actions.js';
+
+// Served server actions: wire the /__what_action route (Node + fetch adapters)
+export {
+  createActionHandler,
+  nodeActionMiddleware,
+  fetchActionHandler,
+} from './action-handler.js';
+
+// Revalidation registry — app code calls revalidatePath/revalidateTag; the
+// deploy adapter binds a what-cache engine via setRevalidationHandler.
+export {
+  revalidatePath,
+  revalidateTag,
+  setRevalidationHandler,
+  getRevalidationHandler,
+} from './revalidation-registry.js';
+
+// Deploy adapters — framework-agnostic core + Node / static / edge wrappers
+export { createRequestHandler } from './adapter/core.js';
+export { createServer, toNodeListener, whatMiddleware } from './adapter/node.js';
+export { exportStatic } from './adapter/static.js';
+export { createCloudflareHandler } from './adapter/cloudflare.js';
+export { createVercelHandler, buildVercelOutput } from './adapter/vercel.js';
 
 // Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
 export { serializeState } from './serialize.js';

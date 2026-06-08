@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deployment — What Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <script src="../../theme.js"></script>
+  <script src="../copy-code.js"></script>
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <a href="../" class="logo">What <span class="logo-badge">v0.10</span></a>
+      <div class="nav-links">
+        <a href="./" class="active">Learn</a>
+        <a href="../reference/">Reference</a>
+        <a href="../tutorial/">Tutorial</a>
+      </div>
+    </div>
+    <div class="nav-right">
+      <button class="theme-toggle" aria-label="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Get Started</div>
+        <ul class="sidebar-links">
+          <li><a href="./">Quick Start</a></li>
+          <li><a href="./coming-from-react.html">Coming from React</a></li>
+          <li><a href="./signals.html">Signals</a></li>
+          <li><a href="./components.html">Components</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Core Concepts</div>
+        <ul class="sidebar-links">
+          <li><a href="./effects.html">Effects</a></li>
+          <li><a href="./control-flow.html">Control Flow</a></li>
+          <li><a href="./lifecycle.html">Lifecycle</a></li>
+          <li><a href="./context.html">Context</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data &amp; State</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-fetching.html">Data Fetching</a></li>
+          <li><a href="./forms.html">Forms</a></li>
+          <li><a href="./stores.html">Stores</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Navigation &amp; Caching</div>
+        <ul class="sidebar-links">
+          <li><a href="./routing.html">Routing</a></li>
+          <li><a href="./caching.html">Caching</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Full-Stack</div>
+        <ul class="sidebar-links">
+          <li><a href="./data-loading.html">Data Loading</a></li>
+          <li><a href="./actions.html">Server Actions</a></li>
+          <li><a href="./caching-isr.html">Caching &amp; ISR</a></li>
+          <li><a href="./deployment.html" class="active">Deployment</a></li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Advanced</div>
+        <ul class="sidebar-links">
+          <li><a href="./islands.html">Islands</a></li>
+          <li><a href="./ssr.html">Server Rendering</a></li>
+          <li><a href="./animation.html">Animation</a></li>
+          <li><a href="./accessibility.html">Accessibility</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-wrapper">
+        <div class="content-inner">
+          <h1>Deployment</h1>
+          <p class="subtitle">One Web-Fetch handler powers Node, static export, Vercel, and Cloudflare. Pick an adapter in what.config.js; the ISR engine and actions come along for free.</p>
+
+          <p>All adapters are thin shells over one framework-agnostic core: <code>(request) =&gt; Response</code>. Match a route, intercept <code>/__what_action</code> and <code>/__what_revalidate</code>, consult the ISR engine, render, and emit cache headers. Choosing a target is a config line, not a rewrite.</p>
+
+          <h2 id="adapters">Adapter matrix</h2>
+          <table>
+            <thead><tr><th>Adapter</th><th>Best for</th><th>ISR mechanism</th><th>Poll scheduler</th></tr></thead>
+            <tbody>
+              <tr><td><code>node</code></td><td>Long-running server, full control</td><td>origin store (memory/fs/redis)</td><td>✓ in-process</td></tr>
+              <tr><td><code>static</code></td><td>Pure SSG to any static host</td><td>build-time pre-render</td><td>— (use external cron → webhook)</td></tr>
+              <tr><td><code>vercel</code></td><td>Serverless + edge ISR</td><td>prerender + <code>expiration</code></td><td>— (Vercel Cron → webhook)</td></tr>
+              <tr><td><code>cloudflare</code></td><td>Workers at the edge</td><td>Cache API / KV + <code>waitUntil</code></td><td>— (Cron Trigger → webhook)</td></tr>
+            </tbody>
+          </table>
+          <div class="callout callout-note">
+            <p class="callout-title">Serverless &amp; polling</p>
+            <p>Serverless platforms have no always-on process, so the in-process poll scheduler doesn't run there. Use the platform's cron to hit <code>POST /__what_revalidate</code> on a schedule — same effect, platform-native.</p>
+          </div>
+
+          <h2 id="node">Node</h2>
+<pre><code>import { createServer } from 'what-framework/server';
+import { createCacheEngine, createMemoryStore } from 'what-cache';
+
+const server = createServer({
+  routes,
+  cache: createCacheEngine({ store: createMemoryStore() }),
+});
+server.listen(3000);</code></pre>
+          <p>Run it with <code>what start</code> (or <code>node server.js</code>). SIGTERM stops the scheduler cleanly.</p>
+
+          <h2 id="static">Static export</h2>
+          <p>Render every static/hybrid route (expanding <code>getStaticPaths</code>) to <code>index.html</code> + a <code>__what_data.json</code> for client navigation:</p>
+<pre><code>import { exportStatic } from 'what-framework/server';
+await exportStatic({ routes, outDir: 'dist' });
+// or: what build --static</code></pre>
+
+          <h2 id="vercel">Vercel</h2>
+<pre><code>import { buildVercelOutput } from 'what-framework/server';
+await buildVercelOutput({ routes }); // emits .vercel/output (Build Output API v3)</code></pre>
+          <p>Static routes become prerenders with an <code>expiration</code> equal to <code>revalidate</code>; dynamic routes become a render function.</p>
+
+          <h2 id="cloudflare">Cloudflare</h2>
+<pre><code>import { createCloudflareHandler } from 'what-framework/server';
+export default { fetch: createCloudflareHandler({ routes, cache }) };</code></pre>
+          <p>ISR uses the Cache API (or KV) and <code>ctx.waitUntil</code> for background SWR.</p>
+
+          <h2 id="env">Environment</h2>
+          <ul>
+            <li><code>WHAT_REVALIDATE_SECRET</code> — required to authorize the revalidation webhook.</li>
+            <li><code>PORT</code> — Node server port (default 3000).</li>
+          </ul>
+          <p>See the <a href="https://github.com/zvndev/what-fw/tree/main/examples">blog and shop examples</a> for complete, tested setups.</p>
+
+        </div>
+
+        <aside class="toc">
+          <div class="toc-title">On This Page</div>
+          <ul class="toc-links">
+            <li><a href="#adapters">Adapter matrix</a></li>
+            <li><a href="#node">Node</a></li>
+            <li><a href="#static">Static export</a></li>
+            <li><a href="#vercel">Vercel</a></li>
+            <li><a href="#cloudflare">Cloudflare</a></li>
+            <li><a href="#env">Environment</a></li>
+          </ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll('.toc-links a').forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+          });
+        }
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

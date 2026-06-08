@@ -35,6 +35,29 @@ test('what init scaffolds current release dependency range', () => {
   }
 });
 
+test('what start runs the project server.js (Node adapter)', () => {
+  const cwd = mkdtempDir('what-cli-start-');
+  try {
+    writeFileSync(join(cwd, 'server.js'), 'console.log("SERVER UP"); process.exit(0);\n');
+    const result = spawnSync(process.execPath, [cli, 'start'], { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /SERVER UP/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('what start without a server.js fails with guidance', () => {
+  const cwd = mkdtempDir('what-cli-start-missing-');
+  try {
+    const result = spawnSync(process.execPath, [cli, 'start'], { cwd, encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout + result.stderr, /server\.js/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 function mkdtempDir(prefix) {
   return mkdtempSync(join(tmpdir(), prefix));
 }

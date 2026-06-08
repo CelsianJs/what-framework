@@ -57,7 +57,60 @@ import {
   html
 } from "./chunk-AZP2EOGX.js";
 
+// packages/core/src/server-context.js
+var _current = null;
+function getServerContext() {
+  return _current;
+}
+function setServerContext(ctx) {
+  const prev = _current;
+  _current = ctx;
+  return prev;
+}
+function runWithServerContext(ctx, fn) {
+  const prev = _current;
+  _current = ctx;
+  try {
+    return fn();
+  } finally {
+    _current = prev;
+  }
+}
+
+// packages/core/src/hydration-data.js
+var _cache;
+function __readHydrationData() {
+  if (_cache !== void 0) return _cache;
+  if (typeof document === "undefined") return _cache = null;
+  const el = document.getElementById("__what_data");
+  if (!el) return _cache = null;
+  try {
+    _cache = JSON.parse(el.textContent);
+  } catch {
+    _cache = null;
+  }
+  return _cache;
+}
+function __resetHydrationData() {
+  _cache = void 0;
+}
+function getLoaderData() {
+  const data = __readHydrationData();
+  return data ? data.loaderData : void 0;
+}
+function getResource(key) {
+  const data = __readHydrationData();
+  return data && data.resources ? data.resources[key] : void 0;
+}
+
 // packages/core/src/hooks.js
+function useLoaderData() {
+  if (typeof document === "undefined") {
+    const ctx = getServerContext();
+    return ctx ? ctx.loaderData : void 0;
+  }
+  return getLoaderData();
+}
 function getCtx(hookName) {
   const ctx = getCurrentComponent();
   if (!ctx) {
@@ -255,8 +308,49 @@ function onCleanup2(fn) {
   ctx._cleanupCallbacks.push(fn);
 }
 function createResource(fetcher, options = {}) {
-  const data = signal(options.initialValue ?? null);
-  const loading = signal(!options.initialValue);
+  if (typeof document === "undefined") {
+    const ctx2 = getServerContext();
+    if (ctx2) {
+      const key = options.key != null ? options.key : `__r${ctx2.resourceCounter++}`;
+      const cached = ctx2.resources.get(key);
+      if (cached && cached.status === "ready") {
+        const accessor = () => cached.value;
+        return [accessor, { loading: () => false, error: () => null, refetch: () => {
+        }, mutate: () => {
+        } }];
+      }
+      if (cached && cached.status === "error") {
+        const accessor = () => void 0;
+        return [accessor, { loading: () => false, error: () => cached.error, refetch: () => {
+        }, mutate: () => {
+        } }];
+      }
+      if (!cached) {
+        const promise = Promise.resolve().then(() => fetcher(options.source ?? true, {})).then((v) => {
+          ctx2.resources.set(key, { status: "ready", value: v });
+        }).catch((e) => {
+          ctx2.resources.set(key, { status: "error", error: e });
+        });
+        ctx2.resources.set(key, { status: "pending", promise });
+        throw promise;
+      }
+      throw cached.promise;
+    }
+    if (options.initialValue != null) {
+      const accessor = () => options.initialValue;
+      return [accessor, { loading: () => false, error: () => null, refetch: () => {
+      }, mutate: () => {
+      } }];
+    }
+    throw Promise.resolve().then(() => fetcher(options.source ?? true, {}));
+  }
+  let seeded = options.initialValue;
+  if (seeded == null && options.key != null) {
+    const fromPayload = getResource(options.key);
+    if (fromPayload !== void 0) seeded = fromPayload;
+  }
+  const data = signal(seeded ?? null);
+  const loading = signal(seeded == null);
   const error = signal(null);
   let controller = null;
   const refetch = async (source) => {
@@ -292,7 +386,7 @@ function createResource(fetcher, options = {}) {
       if (controller) controller.abort();
     });
   }
-  if (!options.initialValue) {
+  if (seeded == null) {
     refetch(options.source);
   }
   return [data, { loading, error, refetch, mutate: mutate2 }];
@@ -391,7 +485,11 @@ var headState = {
   links: /* @__PURE__ */ new Map()
 };
 function Head({ title, meta, link, children }) {
-  if (typeof document === "undefined") return null;
+  if (typeof document === "undefined") {
+    const ctx = getServerContext();
+    if (ctx && ctx.head) writeToSink(ctx.head, { title, meta, link });
+    return children ?? null;
+  }
   if (title) {
     document.title = title;
     headState.title = title;
@@ -409,6 +507,45 @@ function Head({ title, meta, link, children }) {
     }
   }
   return children || null;
+}
+function metaKey(attrs) {
+  return attrs.name || attrs.property || attrs.httpEquiv || JSON.stringify(attrs);
+}
+function writeToSink(sink, { title, meta, link }) {
+  if (title != null) sink.title = title;
+  if (meta) {
+    for (const attrs of Array.isArray(meta) ? meta : [meta]) {
+      sink.metas.set(metaKey(attrs), attrs);
+    }
+  }
+  if (link) {
+    for (const attrs of Array.isArray(link) ? link : [link]) {
+      sink.links.set(attrs.rel + (attrs.href || ""), attrs);
+    }
+  }
+}
+function beginHeadCollection() {
+  return { title: null, metas: /* @__PURE__ */ new Map(), links: /* @__PURE__ */ new Map() };
+}
+function endHeadCollection(sink) {
+  if (!sink) return "";
+  let out = "";
+  if (sink.title != null) out += `<title>${escapeHtml(String(sink.title))}</title>`;
+  for (const attrs of sink.metas.values()) out += renderHeadTag("meta", attrs);
+  for (const attrs of sink.links.values()) out += renderHeadTag("link", attrs);
+  return out;
+}
+function renderHeadTag(tag, attrs) {
+  let s = `<${tag}`;
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    const name = k === "httpEquiv" ? "http-equiv" : k;
+    s += ` ${name}="${escapeHtml(String(v))}"`;
+  }
+  return s + ">";
+}
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 function setHeadTag(tag, key, attrs) {
   const existing = document.head.querySelector(`[data-what-head="${key}"]`);
@@ -3302,6 +3439,8 @@ export {
   _$templateImpl as _$template,
   __drainPreinstallBuffer,
   __getCacheSnapshot,
+  __readHydrationData,
+  __resetHydrationData,
   __setDevToolsHooks,
   _setTextInsertHook,
   template as _template,
@@ -3309,6 +3448,7 @@ export {
   announceAssertive,
   atom,
   batch,
+  beginHeadCollection,
   checkComponentName,
   classList,
   classifyError,
@@ -3332,15 +3472,19 @@ export {
   each,
   easings,
   effect,
+  endHeadCollection,
   flushScheduler,
   flushSync,
   getActiveSignals,
   getCollectedErrors,
   getGuardrailConfig,
   getHealth,
+  getLoaderData,
   getMountedComponents,
   getOwner,
   getQueryData,
+  getResource,
+  getServerContext,
   h,
   html,
   hydrate,
@@ -3370,10 +3514,12 @@ export {
   registerSignal,
   rules,
   runWithOwner,
+  runWithServerContext,
   scheduleRead,
   scheduleWrite,
   setProp,
   setQueryData,
+  setServerContext,
   signal,
   memo as signalMemo,
   simpleResolver,
@@ -3411,6 +3557,7 @@ export {
   useIds,
   useInfiniteQuery,
   useLabelledBy,
+  useLoaderData,
   useLocalStorage,
   useMediaQuery,
   useMemo,

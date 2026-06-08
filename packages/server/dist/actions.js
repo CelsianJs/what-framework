@@ -1,5 +1,27 @@
 // packages/server/src/actions.js
 import { signal, batch } from "what-core";
+
+// packages/server/src/revalidation-registry.js
+var _handler = null;
+var isDev = typeof process !== "undefined" ? true : true;
+async function revalidatePath(path, options) {
+  if (_handler && _handler.revalidatePath) return _handler.revalidatePath(path, options);
+  if (isDev) {
+    console.warn(
+      `[what] revalidatePath('${path}') had no effect: no cache engine is bound. Create a what-cache engine and bind it in your adapter (setRevalidationHandler).`
+    );
+  }
+}
+async function revalidateTag(tag, options) {
+  if (_handler && _handler.revalidateTag) return _handler.revalidateTag(tag, options);
+  if (isDev) {
+    console.warn(
+      `[what] revalidateTag('${tag}') had no effect: no cache engine is bound.`
+    );
+  }
+}
+
+// packages/server/src/actions.js
 var actionRegistry = /* @__PURE__ */ new Map();
 function getCsrfToken() {
   if (typeof document !== "undefined") {
@@ -289,7 +311,16 @@ function handleActionRequest(req, actionId, args, options = {}) {
   if (!Array.isArray(args)) {
     return Promise.resolve({ status: 400, body: { message: "Invalid action arguments" } });
   }
-  return action2.fn(...args).then((result) => ({ status: 200, body: result })).catch((error) => {
+  return action2.fn(...args).then(async (result) => {
+    const opts = action2.options || {};
+    if (Array.isArray(opts.revalidate)) {
+      for (const p of opts.revalidate) await revalidatePath(p);
+    }
+    if (Array.isArray(opts.revalidateTags)) {
+      for (const t of opts.revalidateTags) await revalidateTag(t);
+    }
+    return { status: 200, body: result };
+  }).catch((error) => {
     console.error(`[what] Action "${actionId}" error:`, error);
     return {
       status: 500,
