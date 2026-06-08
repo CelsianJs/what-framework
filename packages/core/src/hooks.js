@@ -5,6 +5,30 @@
 
 import { signal, computed, effect, batch, untrack, createRoot, __DEV__ } from './reactive.js';
 import { getCurrentComponent } from './dom.js';
+import { getServerContext } from './server-context.js';
+
+// --- useLoaderData ---
+// Returns the current page's server loader data. Works during SSR (reads the
+// active render context) and during/after hydration on the client (reads the
+// consolidated #__what_data payload). Intentionally NOT a component-scoped hook
+// (no hook slot) so it is safe to call anywhere — components, effects, helpers.
+export function useLoaderData() {
+  if (typeof document === 'undefined') {
+    const ctx = getServerContext();
+    return ctx ? ctx.loaderData : undefined;
+  }
+  // Client: read from the hydration payload. Phase 5 routes this through
+  // hydration-data.js; until then read the script directly (forward-compatible).
+  const el = document.getElementById('__what_data');
+  if (el) {
+    try {
+      return JSON.parse(el.textContent).loaderData;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
 
 function getCtx(hookName) {
   const ctx = getCurrentComponent();

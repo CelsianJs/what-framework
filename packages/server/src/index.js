@@ -166,6 +166,26 @@ export function renderToStringWithHead(vnode) {
   return { body, head: endHeadCollection(ctx.head) };
 }
 
+// --- Render a page module (loader + component) ---
+// Runs the page's `export const loader` (if any) BEFORE the synchronous render,
+// so the resolved value is plain data by the time the render reads it. The
+// loader receives { params, query, request }. Its result is passed to the page
+// component as a `loaderData` prop and is readable anywhere via useLoaderData().
+//
+// `pageModule` is `{ default: Component, loader? }` (the shape file-router emits).
+export async function renderPage(pageModule, reqCtx = {}) {
+  const Component = pageModule.default || pageModule;
+  const loaderData = typeof pageModule.loader === 'function'
+    ? await pageModule.loader(reqCtx)
+    : undefined;
+  const ctx = createRenderContext(loaderData);
+  const params = reqCtx.params || {};
+  const body = runWithServerContext(ctx, () =>
+    renderToString(h(Component, { ...params, loaderData }))
+  );
+  return { body, head: endHeadCollection(ctx.head), loaderData };
+}
+
 // --- Stream Render ---
 // Returns an async iterator for streaming SSR.
 

@@ -30,6 +30,7 @@ export {
   onMount,
   onCleanup,
   createResource,
+  useLoaderData,
 } from './hooks.js';
 
 // Component helpers
