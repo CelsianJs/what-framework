@@ -9,6 +9,7 @@
 import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument } from '../index.js';
 import { createActionHandler } from '../action-handler.js';
+import { setRevalidationHandler } from '../revalidation-registry.js';
 
 const ACTION_PATH = '/__what_action';
 const REVALIDATE_PATH = '/__what_revalidate';
@@ -50,6 +51,15 @@ export function createRequestHandler(options = {}) {
   } = options;
 
   const renderRoute = render || defaultRenderRoute(documentOptions);
+
+  // Bind the cache engine so server actions' revalidatePath/revalidateTag (and
+  // any app code calling them from what-framework/server) purge this engine.
+  if (cache && (cache.revalidatePath || cache.revalidateTag)) {
+    setRevalidationHandler({
+      revalidatePath: cache.revalidatePath,
+      revalidateTag: cache.revalidateTag,
+    });
+  }
 
   return async function handle(request) {
     const url = new URL(request.url, 'http://localhost');

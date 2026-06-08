@@ -1,0 +1,15 @@
+{
+  "name": "@what-examples/blog",
+  "version": "0.10.0",
+  "private": true,
+  "type": "module",
+  "description": "Full-stack blog: file routes, server loaders, getStaticPaths, ISR, server actions, SSR head — origin-first, no CDN required.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "what-framework": "*",
+    "what-cache": "*"
+  }
+}
