@@ -355,18 +355,25 @@ nav {
 .content a:hover { text-decoration: underline; }
 
 /* --- Inline Code --- */
+/* Theme-aware chip: subtle surface tint + body text so it stays readable in
+   BOTH light and dark (the dark --code-bg is reserved for <pre> blocks). */
 code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.875em;
-  background: var(--code-bg);
+  background: var(--bg-surface);
+  color: var(--text);
   padding: 2px 6px;
   border-radius: 4px;
-  border: 1px solid var(--code-border);
+  border: 1px solid var(--border);
 }
 
 /* --- Code Blocks --- */
+/* Code blocks are always dark (syntax-highlight colors are tuned for a dark
+   background), so force a light text color regardless of theme — otherwise
+   plain (non-tokenized) code is dark-on-dark and invisible in light mode. */
 pre {
   background: var(--code-bg);
+  color: #e8e8e2;
   border: 1px solid var(--code-border);
   border-radius: 8px;
   padding: 16px 20px;
@@ -377,6 +384,7 @@ pre {
 
 pre code {
   background: none;
+  color: inherit;
   padding: 0;
   border: none;
   font-size: 13.5px;
