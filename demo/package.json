@@ -4,6 +4,17 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node serve.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "serve": "node serve.js"
+  },
+  "dependencies": {
+    "what-framework": "^0.10.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "what-compiler": "^0.10.0",
+    "vite": "^7.3.5"
   }
 }
