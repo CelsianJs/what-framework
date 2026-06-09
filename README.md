@@ -6,9 +6,9 @@
 
 **The web framework built for AI agents.**
 
-[whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [Playground](https://playground-lilac-five.vercel.app) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
+[whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [Playground](https://playground.whatfw.com) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
 
-> **[Try What Framework in the Playground →](https://playground-lilac-five.vercel.app)**
+> **[Try What Framework in the Playground →](https://playground.whatfw.com)**
 
 ---
 
@@ -75,17 +75,27 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 
 ## Packages
 
+All 14 packages publish together at the same version (currently **0.10.0**).
+
 | Package | Description |
 |---|---|
-| `what-framework` | Core signals, components, reactivity, forms |
-| `what-framework/router` | Client-side routing with View Transitions |
-| `what-framework/server` | SSR, islands architecture, static generation |
-| `what-framework/testing` | Test utilities |
-| `what-compiler` | JSX transform and optimizing compiler |
+| `what-framework` | Umbrella package — re-exports core, router, server, etc. |
+| `what-core` | Signals, components, reactivity, forms, data fetching |
+| `what-compiler` | JSX transform and optimizing compiler (`what-compiler/vite`, `/babel`) |
+| `what-router` | File-based & programmatic routing with View Transitions |
+| `what-server` | SSR, islands architecture, static generation, server actions |
+| `what-isr` | Origin-first ISR cache engine (stale-while-revalidate, tags, webhooks) |
+| `what-text` | Optional text engine (powered by `@chenglou/pretext`) |
+| `create-what` | Project scaffolder (`npm create what@latest`) |
+| `what-framework-cli` | CLI — dev server, build, deploy tools (`what dev/build/start`) |
 | `what-devtools` | Browser dev panel (signal inspector, component tree) |
-| `what-devtools-mcp` | MCP server for AI agent integration |
-| `what-react` | React compatibility layer (90+ React libraries) |
-| `create-what` | Project scaffolder |
+| `what-devtools-mcp` | MCP server bridging AI agents to live app state |
+| `what-mcp` | MCP server for docs & framework assistance |
+| `what-react` | React compatibility layer (use React-ecosystem packages) |
+| `eslint-plugin-what` | ESLint rules — catch signal bugs, enforce patterns |
+
+The umbrella `what-framework` exposes subpaths: `what-framework/router`, `/server`,
+`/jsx-runtime`, etc.
 
 ## Manual Setup
 
@@ -120,8 +130,24 @@ npm install what-react
 
 See `/REACT-COMPAT.md` for the full compatibility matrix.
 
+## Where everything lives & deploys
+
+| Surface | Domain | Source | How it deploys |
+|---|---|---|---|
+| Marketing + docs | [whatfw.com](https://whatfw.com) (`/docs`) | `docs-site/` | Native Vercel ↔ GitHub (push to `main`) |
+| Playground | [playground.whatfw.com](https://playground.whatfw.com) | `sites/playground/` | Native Vercel (Vite build) |
+| React-compat demo | [react.whatfw.com](https://react.whatfw.com) | `sites/react-compat/` | Native Vercel (Vite build) |
+| Benchmarks | [benchmarks.whatfw.com](https://benchmarks.whatfw.com) | `sites/benchmarks/` | Native Vercel (static) |
+| npm packages (×14) | [npmjs.com/~](https://www.npmjs.com/package/what-framework) | `packages/*` | `Release And Deploy` workflow / `npm run release:*` |
+
+`sites/showcase/` is local-only (not deployed). Full details — build commands, domains, the
+release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DEPLOYMENTS.md)**.
+
 ## Docs
 
+- [Vision](VISION.md) -- what What is and why
+- [Deployments](DEPLOYMENTS.md) -- where everything lives and how it ships
+- [Security Policy](SECURITY.md) -- reporting + supported versions
 - [Agent Guide](.internal/Agents.md) -- MCP, patterns, mistakes
 - [Getting Started](/GETTING-STARTED.md) -- Setup for agents and developers
 - [Quick Start](/docs/QUICKSTART.md) -- Tutorial
@@ -130,9 +156,8 @@ See `/REACT-COMPAT.md` for the full compatibility matrix.
 - [MCP DevTools](/docs/MCP-DEVTOOLS.md) -- MCP tools reference
 - [Agent Patterns](/docs/AGENT-PATTERNS.md) -- Best practices
 - [Gotchas](/docs/GOTCHAS.md) -- Common mistakes
-- [Styling Guide](/docs/STYLING.md)
-- [Development](/docs/DEVELOPMENT.md)
-- [Release](/docs/RELEASE.md)
+- [Migration from React](/docs/MIGRATION-FROM-REACT.md) · [TypeScript](/docs/TYPESCRIPT.md) · [Styling](/docs/STYLING.md) · [Development](/docs/DEVELOPMENT.md) · [Release](/docs/RELEASE.md)
+- [Ecosystem Roadmap](/docs/ECOSYSTEM-PLAN.md) -- planned `@what/*` packages
 
 ## License
 
