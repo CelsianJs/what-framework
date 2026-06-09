@@ -623,7 +623,7 @@ function Dashboard() {
         h(Tag, { label: 'Run Once', color: '#3b82f6' }),
         h(Tag, { label: 'Fine-grained', color: '#f59e0b' }),
         h(Tag, { label: 'Zero config', color: '#ef4444' }),
-        h(Tag, { label: '< 5kb', color: '#06b6d4' }),
+        h(Tag, { label: '~6kb', color: '#06b6d4' }),
       ),
     ),
 

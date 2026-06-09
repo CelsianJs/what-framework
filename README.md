@@ -18,7 +18,7 @@
 - **Structured Errors** — Every error returns JSON with code, message, suggested fix, and code example. Agents parse and fix in one pass
 - **Agent Guardrails** — Runtime catches infinite loops, missing cleanup, XSS, and signal misuse before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — Fine-grained, no VDOM. A typical app ships ~8KB gzipped (TodoMVC ≈8.5KB, a counter ≈7.5KB); the full runtime is ~31KB gzipped before tree-shaking. Minimal dependencies, tree-shakeable
+- **Small & Fast** — Fine-grained, no VDOM. Measured, tree-shaken + gzipped: a counter ≈6KB, a typical app ≈8KB. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
