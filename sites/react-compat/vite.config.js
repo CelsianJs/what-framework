@@ -1,13 +1,10 @@
 import { defineConfig } from 'vite';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { transformSync } from '@babel/core';
-import whatBabelPlugin from '../../packages/compiler/src/babel-plugin.js';
+import whatBabelPlugin from 'what-compiler/babel';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkgs = (...p) => path.resolve(__dirname, '..', '..', 'packages', ...p);
-
-// Minimal What compiler plugin — just JSX transform, no optimizeDeps conflicts
+// Minimal What compiler plugin — just JSX transform, no optimizeDeps conflicts.
+// Self-contained: `what-framework` + `what-compiler` resolve from npm (see package.json),
+// so this site builds standalone on Vercel without the monorepo packages/ tree.
 function whatJsx() {
   return {
     name: 'what-jsx',
@@ -31,12 +28,4 @@ function whatJsx() {
 
 export default defineConfig({
   plugins: [whatJsx()],
-  resolve: {
-    alias: {
-      'what-framework/render': pkgs('what', 'src', 'render.js'),
-      'what-framework': pkgs('what', 'src', 'index.js'),
-      'what-core/render': pkgs('core', 'src', 'render.js'),
-      'what-core': pkgs('core', 'src', 'index.js'),
-    },
-  },
 });

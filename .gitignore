@@ -38,5 +38,4 @@ examples/*/package-lock.json
 examples/npm-app-suite/*/package-lock.json
 examples/package-demos/*/package-lock.json
 packages/*/package-lock.json
-sites/*/package-lock.json
 .npmrc
