@@ -293,7 +293,7 @@ function FrameworkInfo() {
 
     h('div', { style: 'display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;' },
       ...[
-        { label: 'Framework', value: 'What Framework v1.0' },
+        { label: 'Framework', value: 'What Framework v0.10' },
         { label: 'Core Size', value: '~4kB gzipped' },
         { label: 'Dependencies', value: '0' },
         { label: 'Modules Used', value: '14' },
