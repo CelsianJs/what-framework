@@ -7,6 +7,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToString } from 'what-framework/server';
 import { h } from 'what-framework';
+import * as esbuild from 'esbuild';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const DIST = join(ROOT, 'dist');
@@ -61,6 +62,16 @@ function extract(srcHtml) {
   const bodyEnd = srcHtml.indexOf('</body>');
   const trailing = srcHtml.slice(layoutClose + '</div>'.length, bodyEnd).trim();
   return { title, layoutInner, trailing };
+}
+
+// Replace the old fake inline `window.What = {...}` mock with a classic <script>
+// that loads the REAL What global (built to /what.global.js). The demo scripts
+// (which read window.What synchronously) then run on the real framework.
+function useRealWhat(html) {
+  return html.replace(
+    /<script>(?:(?!<\/script>)[\s\S])*?window\.What\s*=(?:(?!<\/script>)[\s\S])*?<\/script>/,
+    '<script src="/what.global.js"></script>'
+  );
 }
 
 // section base e.g. "/docs/learn"; rewrites links *within* that section + cross-section.
@@ -136,7 +147,7 @@ function buildSection({ dirRel, base, navSection }) {
       title,
       navSection,
       layoutInner: rewriteLinks(layoutInner, base),
-      trailing: rewriteLinks(trailing, base),
+      trailing: useRealWhat(rewriteLinks(trailing, base)),
     });
     write(route, html);
     count++;
@@ -148,6 +159,15 @@ function buildSection({ dirRel, base, navSection }) {
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 for (const a of ['design-system.css', 'theme.js', 'docs/styles.css', 'docs/copy-code.js']) copyAsset(a);
+
+// Bundle the REAL What framework as a browser global for the live demos.
+await esbuild.build({
+  entryPoints: [join(ROOT, 'what-global-entry.js')],
+  outfile: join(DIST, 'what.global.js'),
+  bundle: true, minify: true, format: 'iife', conditions: ['browser', 'import'],
+  legalComments: 'none',
+});
+console.log('✓ what.global.js (real What for demos)');
 
 const SECTIONS = [
   { dirRel: 'docs/learn', base: '/docs/learn', navSection: 'learn' },
