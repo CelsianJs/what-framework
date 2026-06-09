@@ -1,6 +1,6 @@
 // Revalidation registry — the indirection that lets app code call
 // revalidatePath()/revalidateTag() from `what-framework/server` while the actual
-// cache engine lives in the optional `what-cache` package. The deploy adapter
+// cache engine lives in the optional `what-isr` package. The deploy adapter
 // binds the engine at startup via setRevalidationHandler(); until then these are
 // safe no-ops (with a dev hint).
 
@@ -22,7 +22,7 @@ export async function revalidatePath(path, options) {
   if (isDev) {
     console.warn(
       `[what] revalidatePath('${path}') had no effect: no cache engine is bound. ` +
-      'Create a what-cache engine and bind it in your adapter (setRevalidationHandler).'
+      'Create a what-isr engine and bind it in your adapter (setRevalidationHandler).'
     );
   }
 }

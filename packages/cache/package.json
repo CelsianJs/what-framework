@@ -1,5 +1,5 @@
 {
-  "name": "what-cache",
+  "name": "what-isr",
   "version": "0.10.0",
   "description": "What Framework - Origin-first ISR cache engine: stale-while-revalidate, on-demand & poll regeneration, no CDN required",
   "type": "module",

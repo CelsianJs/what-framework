@@ -1,6 +1,6 @@
 // Server-side revalidation: a server action that declares { revalidate } /
 // { revalidateTags } triggers the registered cache handler after it resolves.
-// The registry indirection keeps what-server decoupled from what-cache.
+// The registry indirection keeps what-server decoupled from what-isr.
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';

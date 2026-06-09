@@ -1,6 +1,6 @@
 // Cloudflare Workers adapter — exposes a `fetch(request, env, ctx)` worker
 // entry over the same Web-Fetch core handler. ISR runs via the origin cache
-// engine; pass a what-cache redis/KV-backed store for cross-isolate caching and
+// engine; pass a what-isr redis/KV-backed store for cross-isolate caching and
 // use ctx.waitUntil for background regeneration.
 
 import { createRequestHandler } from './core.js';

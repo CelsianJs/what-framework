@@ -67,7 +67,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
 
     if (entry && isServableStale(entry, t)) {
       // Serve stale immediately; refresh in the background (deduped, non-blocking).
-      regenerate(key, routeMatch, renderOverride).catch((e) => logger.error?.('[what-cache] background regenerate failed:', e));
+      regenerate(key, routeMatch, renderOverride).catch((e) => logger.error?.('[what-isr] background regenerate failed:', e));
       return serve(entry, 'STALE', config);
     }
 
@@ -77,7 +77,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
         const fresh = await regenerate(key, routeMatch, renderOverride);
         return serve(fresh, 'MISS', config);
       } catch (e) {
-        logger.error?.('[what-cache] regenerate failed, serving stale:', e);
+        logger.error?.('[what-isr] regenerate failed, serving stale:', e);
         return serve(entry, 'STALE', config);
       }
     }
@@ -94,7 +94,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     if (cdn && cdn.purge) await cdn.purge([path]);
     if (regen) {
       const route = routeResolver ? routeResolver(norm) : { path: norm, query: {}, config: {} };
-      await regenerate(keyFor(route), route).catch((e) => logger.error?.('[what-cache] regen after revalidatePath failed:', e));
+      await regenerate(keyFor(route), route).catch((e) => logger.error?.('[what-isr] regen after revalidatePath failed:', e));
     }
     return deleted;
   }

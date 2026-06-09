@@ -38,7 +38,7 @@ export function createScheduler(engine, options = {}) {
     try {
       await engine.regenerate(task.route);
     } catch (e) {
-      logger.error?.('[what-cache] scheduled regenerate failed:', e);
+      logger.error?.('[what-isr] scheduled regenerate failed:', e);
     } finally {
       active--;
       if (running) schedule(task);

@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "what-framework": "*",
-    "what-cache": "*"
+    "what-isr": "*"
   }
 }

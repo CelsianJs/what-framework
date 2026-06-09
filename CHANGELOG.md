@@ -37,7 +37,7 @@ and new optional params.
   `fetchActionHandler` cover connect/express and edge/Deno/Bun. `action()` gains
   `revalidate` / `revalidateTags` that fire after success.
 
-### Added — caching / ISR (`what-cache`, new package, zero runtime deps)
+### Added — caching / ISR (`what-isr`, new package, zero runtime deps)
 - **Origin-first ISR engine** — stale-while-revalidate, in-flight dedupe (one
   render for N concurrent misses), `getStaticPaths` fallbacks
   (`'blocking'`/`true`/`false`).
@@ -63,7 +63,7 @@ and new optional params.
   SIGINT/SIGTERM for scheduler cleanup.
 - **`create-what --fullstack`** — scaffolds a file-routed SSR app (loaders,
   `getStaticPaths`, a server action, origin-first ISR `server.js`,
-  `what.config.js`) with a `what-cache` dep and a `start` script.
+  `what.config.js`) with a `what-isr` dep and a `start` script.
 - **Examples** — `examples/blog` (loaders, ISR, action revalidation) and
   `examples/shop` (ISR grid, `mode:'server'` dashboard, cart actions), each with
   an end-to-end test proving the full SSR → loader → ISR → action → revalidate loop.

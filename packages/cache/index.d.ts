@@ -1,4 +1,4 @@
-// what-cache — origin-first ISR engine. TypeScript definitions.
+// what-isr — origin-first ISR engine. TypeScript definitions.
 
 // --- Page caching config (the JSON-safe `page` export) ---
 export interface PageCacheConfig {

@@ -50,9 +50,9 @@ const packages = [
       { input: 'src/islands.js', outputBase: 'islands' },
       { input: 'src/actions.js', outputBase: 'actions' },
     ],
-    // what-router/what-cache are optional peers (kept external, not inlined); the
+    // what-router/what-isr are optional peers (kept external, not inlined); the
     // deploy adapters lazy-import Node builtins which must not be bundled.
-    external: ['what-core', 'what-router', 'what-router/match', 'what-cache', 'node:fs/promises', 'node:http', 'node:path'],
+    external: ['what-core', 'what-router', 'what-router/match', 'what-isr', 'node:fs/promises', 'node:http', 'node:path'],
   },
   {
     // Origin-first ISR engine. Zero runtime deps; Node-only builtins stay external.

@@ -8,7 +8,7 @@ async function revalidatePath(path, options) {
   if (_handler && _handler.revalidatePath) return _handler.revalidatePath(path, options);
   if (isDev) {
     console.warn(
-      `[what] revalidatePath('${path}') had no effect: no cache engine is bound. Create a what-cache engine and bind it in your adapter (setRevalidationHandler).`
+      `[what] revalidatePath('${path}') had no effect: no cache engine is bound. Create a what-isr engine and bind it in your adapter (setRevalidationHandler).`
     );
   }
 }

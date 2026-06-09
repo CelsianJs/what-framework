@@ -164,7 +164,7 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
     ? { dev: 'vite', build: 'vite build', start: 'node server.js', preview: 'vite preview' }
     : { dev: 'vite', build: 'vite build', preview: 'vite preview' };
   if (template === 'fullstack') {
-    deps['what-cache'] = whatVersionRange;
+    deps['what-isr'] = whatVersionRange;
   }
 
   if (reactCompat) {
@@ -1070,7 +1070,7 @@ import {
   createMemoryStore,
   createRevalidateWebhook,
   createScheduler,
-} from 'what-cache';
+} from 'what-isr';
 import { routes } from './src/routes.js';
 
 const REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET || 'dev-secret';

@@ -3,7 +3,7 @@
 // get/set/del/sadd/srem/smembers, optional keys) so this package keeps zero deps.
 
 export function createRedisStore({ client, namespace = 'what' } = {}) {
-  if (!client) throw new Error('[what-cache] createRedisStore requires { client }');
+  if (!client) throw new Error('[what-isr] createRedisStore requires { client }');
 
   const ck = (key) => `${namespace}:cache:${key}`;
   const tk = (tag) => `${namespace}:tag:${tag}`;

@@ -3,7 +3,7 @@
 //   match route -> intercept actions + revalidate webhook -> ISR cache
 //   (HIT/STALE/MISS) -> render -> respond with Cache-Control headers.
 //
-// The cache engine is OPTIONAL and injected (from what-cache) so what-server
+// The cache engine is OPTIONAL and injected (from what-isr) so what-server
 // stays standalone. Render is owned here (renderDocument) but overridable.
 
 import { matchRoute, parseQuery } from 'what-router/match';

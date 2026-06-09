@@ -4,7 +4,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
-import { createCacheEngine, createMemoryStore, createRevalidateWebhook } from 'what-cache';
+import { createCacheEngine, createMemoryStore, createRevalidateWebhook } from 'what-isr';
 import { createRequestHandler } from '../src/adapter/core.js';
 import { createActionHandler, action } from '../src/index.js';
 

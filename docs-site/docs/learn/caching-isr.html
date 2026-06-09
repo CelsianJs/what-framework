@@ -92,7 +92,7 @@
 
           <h2 id="model">The model</h2>
           <p>What's caching is <strong>origin-first</strong>. A render cache lives next to your server and does the full job: it serves fresh hits instantly, serves stale content while regenerating in the background, dedupes concurrent regenerations, and purges on demand. A CDN is <em>optional upside</em> — when present, the engine emits the right <code>Cache-Control</code> headers and fans purges out to it. Nothing about your code changes whether or not you have one.</p>
-<pre><code>import { createCacheEngine, createMemoryStore } from 'what-cache';
+<pre><code>import { createCacheEngine, createMemoryStore } from 'what-isr';
 
 const cache = createCacheEngine({ store: createMemoryStore() });</code></pre>
           <p>Swap the store without touching pages: <code>createMemoryStore()</code> (default, fast, single-process), <code>createFilesystemStore({ dir })</code> (survives restarts, multi-process), or <code>createRedisStore({ client })</code> (multi-instance).</p>
@@ -131,7 +131,7 @@ revalidateTag('posts');          // every entry tagged 'posts'</code></pre>
 
           <h2 id="poll">Poll regeneration</h2>
           <p>For data that drifts without an explicit trigger (an external feed, prices), set <code>pollInterval</code> or register a route with the scheduler. It re-renders on a timer with jitter (anti-herd), a global concurrency cap, and it joins the same in-flight lock so a tick during a live regeneration is a no-op.</p>
-<pre><code>import { createScheduler } from 'what-cache';
+<pre><code>import { createScheduler } from 'what-isr';
 
 const scheduler = createScheduler(cache);
 scheduler.register(
@@ -142,7 +142,7 @@ scheduler.register(
 
           <h2 id="webhook">Revalidation webhook</h2>
           <p>Let a CMS trigger purges over HTTP. Mount <code>createRevalidateWebhook</code> (the adapters expose it at <code>POST /__what_revalidate</code>) with a secret:</p>
-<pre><code>import { createRevalidateWebhook } from 'what-cache';
+<pre><code>import { createRevalidateWebhook } from 'what-isr';
 const webhook = createRevalidateWebhook(cache, { secret: process.env.WHAT_REVALIDATE_SECRET });
 
 // POST /__what_revalidate

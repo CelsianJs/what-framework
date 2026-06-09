@@ -1,4 +1,4 @@
-// what-cache — origin-first ISR engine for What Framework.
+// what-isr — origin-first ISR engine for What Framework.
 //
 // Works on ANY host with no CDN: the origin store does stale-while-revalidate,
 // on-demand purge (revalidatePath/revalidateTag), and poll regeneration. With a

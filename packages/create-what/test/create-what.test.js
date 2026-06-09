@@ -60,9 +60,9 @@ test('create-what --fullstack scaffolds a parseable SSR tree', async () => {
     assert.equal(result.status, 0, result.stderr);
     const root = join(cwd, 'fs-app');
 
-    // package.json: what-cache dep + a `start` script for the Node server.
+    // package.json: what-isr dep + a `start` script for the Node server.
     const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-    assert.equal(pkg.dependencies['what-cache'], expectedRange);
+    assert.equal(pkg.dependencies['what-isr'], expectedRange);
     assert.equal(pkg.scripts.start, 'node server.js');
 
     // The full-stack tree exists.

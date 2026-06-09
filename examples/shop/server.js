@@ -8,7 +8,7 @@ import {
   createMemoryStore,
   createRevalidateWebhook,
   createScheduler,
-} from 'what-cache';
+} from 'what-isr';
 import { routes } from './src/routes.js';
 
 const REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET || 'dev-secret';

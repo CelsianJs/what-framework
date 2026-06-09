@@ -562,7 +562,7 @@ export {
 } from './action-handler.js';
 
 // Revalidation registry — app code calls revalidatePath/revalidateTag; the
-// deploy adapter binds a what-cache engine via setRevalidationHandler.
+// deploy adapter binds a what-isr engine via setRevalidationHandler.
 export {
   revalidatePath,
   revalidateTag,
