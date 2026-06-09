@@ -183,7 +183,7 @@ function Hero() {
   return (
     <section class="hero">
       <div class="container">
-        <div class="hero-pill"><span class="dot"></span> what-react v0.1.0</div>
+        <div class="hero-pill"><span class="dot"></span> what-react v0.10.0</div>
         <h1><span class="grad">90+ React Libraries.</span><br />Zero Changes.</h1>
         <p class="hero-sub">
           What Framework's <code>what-react</code> compat layer lets you use the React ecosystem
