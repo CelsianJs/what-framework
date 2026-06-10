@@ -54,6 +54,34 @@ jobs:
       - name: Production build smoke gate (no blank-screen regression)
         run: npm run -s test:prod
 
+  scaffold-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The SPA production build resolves the `production` export condition
+      # to dist/*.min.js inside the packed tarballs, so build first.
+      - name: Build packages
+        run: npm run -s build
+
+      - name: Install Playwright Chromium (hydration checks)
+        run: npx playwright install --with-deps chromium
+
+      - name: Scaffold smoke (create-what -> install -> run -> hydrate, both templates)
+        env:
+          WHAT_SMOKE_REQUIRE_BROWSER: 1
+        run: npm run -s smoke:scaffold
+
   audit:
     runs-on: ubuntu-latest
     steps:

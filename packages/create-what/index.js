@@ -131,13 +131,17 @@ async function gatherOptions() {
     { label: 'Full-stack (SSR + file routes + loaders + actions + ISR)', value: 'fullstack' },
   ]);
 
-  reactCompat = await prompter.confirm('Add React library support? (what-react)');
+  // The full-stack template is buildless (native ESM served by server.js), so
+  // the Vite-based React-compat / CSS tooling options don't apply to it.
+  if (template !== 'fullstack') {
+    reactCompat = await prompter.confirm('Add React library support? (what-react)');
 
-  cssApproach = await prompter.select('CSS approach:', [
-    { label: 'None (vanilla CSS)', value: 'none' },
-    { label: 'Tailwind CSS v4', value: 'tailwind' },
-    { label: 'StyleX', value: 'stylex' },
-  ]);
+    cssApproach = await prompter.select('CSS approach:', [
+      { label: 'None (vanilla CSS)', value: 'none' },
+      { label: 'Tailwind CSS v4', value: 'tailwind' },
+      { label: 'StyleX', value: 'stylex' },
+    ]);
+  }
 
   prompter.close();
 
@@ -152,17 +156,28 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   const deps = {
     'what-framework': whatVersionRange,
   };
-  const devDeps = {
-    vite: '^6.0.0',
-    'what-compiler': whatVersionRange,
-    'what-devtools-mcp': whatVersionRange,
-    '@babel/core': '^7.23.0',
-  };
 
-  // Full-stack apps add the origin-first ISR engine + a Node server entry.
+  // Full-stack apps are buildless: server.js does SSR + ISR and serves the
+  // client entry as native ES modules, so there is no Vite/compiler toolchain.
+  // `npm run dev` runs the real app with auto-restart on change.
+  const devDeps = template === 'fullstack'
+    ? {
+        'what-devtools-mcp': whatVersionRange,
+        eslint: '^9.0.0',
+        'eslint-plugin-what': whatVersionRange,
+      }
+    : {
+        vite: '^6.0.0',
+        'what-compiler': whatVersionRange,
+        'what-devtools-mcp': whatVersionRange,
+        '@babel/core': '^7.23.0',
+        eslint: '^9.0.0',
+        'eslint-plugin-what': whatVersionRange,
+      };
+
   const scripts = template === 'fullstack'
-    ? { dev: 'vite', build: 'vite build', start: 'node server.js', preview: 'vite preview' }
-    : { dev: 'vite', build: 'vite build', preview: 'vite preview' };
+    ? { dev: 'node --watch server.js', start: 'node server.js', lint: 'eslint .' }
+    : { dev: 'vite', build: 'vite build', preview: 'vite preview', lint: 'eslint .' };
   if (template === 'fullstack') {
     deps['what-isr'] = whatVersionRange;
   }
@@ -822,10 +837,17 @@ output {
 }
 
 function generateReadme(packageName, { reactCompat, cssApproach, template }) {
-  let notes = `- Canonical package name is \`what-framework\`.
+  let notes = template === 'fullstack'
+    ? `- Canonical package name is \`what-framework\`.
+- Pages are authored with \`h()\` in plain .js so they run isomorphically (Node
+  SSR + browser hydration) with no compile step.
+- Event handlers accept both \`onClick\` and \`onclick\`.
+- Lint with \`npm run lint\` (eslint-plugin-what).`
+    : `- Canonical package name is \`what-framework\`.
 - Uses the What compiler for JSX transforms and automatic reactivity.
 - Vite is preconfigured; use \`npm run dev/build/preview\`.
 - Event handlers accept both \`onClick\` and \`onclick\`; docs and templates use \`onClick\`.
+- Lint with \`npm run lint\` (eslint-plugin-what).
 - Bun is also supported: \`bun create what@latest\`, \`bun run dev\`.`;
 
   if (reactCompat) {
@@ -848,17 +870,26 @@ function generateReadme(packageName, { reactCompat, cssApproach, template }) {
     return `# ${packageName}
 
 A full-stack What Framework app: file-routed SSR, server loaders, server
-actions, and origin-first ISR (stale-while-revalidate + on-demand revalidation +
-poll regeneration) — works on any host, no CDN required.
+actions, client hydration, and origin-first ISR (stale-while-revalidate +
+on-demand revalidation + poll regeneration) — works on any host, no CDN
+required. Buildless: the server serves the client entry and the framework as
+native ES modules, so there is no bundle step.
 
 ## Run
 
 \`\`\`bash
 npm install
-npm start        # full-stack SSR server → http://localhost:3000
+npm run dev      # SSR server with auto-restart on change → http://localhost:3000
+npm start        # same server, no watcher (production entry point)
 \`\`\`
 
-Or develop the client in isolation with \`npm run dev\` (Vite, http://localhost:5173).
+In production, set \`WHAT_REVALIDATE_SECRET\` (the server refuses to start
+without it when \`NODE_ENV=production\`):
+
+\`\`\`bash
+WHAT_REVALIDATE_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))") \\
+NODE_ENV=production npm start
+\`\`\`
 
 ## Structure
 
@@ -867,13 +898,17 @@ Or develop the client in isolation with \`npm run dev\` (Vite, http://localhost:
 - \`src/actions/*\` — server actions (mutations), served at \`/__what_action\`. Call
   \`revalidatePath\`/\`revalidateTag\` after a mutation to purge the ISR cache.
 - \`src/routes.js\` — the route table (loaders/getStaticPaths/page bound per route).
-- \`server.js\` — Node adapter + ISR engine + revalidate webhook + poll scheduler.
+- \`src/entry-client.js\` — client hydration entry: re-renders the matched page
+  with the server's loader data (\`#__what_data\`) and attaches interactivity.
+- \`server.js\` — Node adapter + ISR engine + revalidate webhook + poll scheduler
+  + static serving (client entry, framework modules, \`public/\`).
 - \`what.config.js\` — deploy adapter + ISR defaults.
 
 ### ISR cheat-sheet
 
 - \`page = { mode: 'static', revalidate: 60 }\` → cached, regenerated in the
-  background after 60s (stale-while-revalidate).
+  background after 60s (stale-while-revalidate). Check the \`X-What-Cache\`
+  response header: MISS on first hit, HIT after.
 - \`page = { mode: 'server' }\` → always fresh, never cached.
 - \`revalidatePath('/')\` / \`revalidateTag('posts')\` → on-demand purge.
 - \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` → CMS-triggered purge.
@@ -955,13 +990,18 @@ export const createPostAction = action(
 );
 `);
 
-  // Home page — static + ISR, lists posts via a loader.
+  // Home page — static + ISR, lists posts via a loader, plus a hydrated
+  // counter that proves the client entry attaches interactivity.
   writeFileSync(resolve(root, 'src', 'pages', 'home.js'), `// Home page.
 //   export const page   -> route config (JSON-safe: mode, revalidate, tags)
 //   export const loader -> runs on the server before render; result -> loaderData
 //   export default      -> the page component (runs once, no re-renders)
+//
+// This module is isomorphic: the server renders it to HTML, then
+// src/entry-client.js hydrates the same component in the browser (reusing the
+// server DOM and attaching the onclick handler + reactive text below).
 
-import { h, Head, useLoaderData } from 'what-framework';
+import { h, Head, signal, useLoaderData } from 'what-framework';
 import { listPosts } from '../db.js';
 
 export const page = { mode: 'static', revalidate: 60, tags: ['posts'] };
@@ -970,13 +1010,19 @@ export const loader = () => ({ posts: listPosts() });
 
 export default function Home() {
   const { posts } = useLoaderData();
+  const likes = signal(0, 'likes');
   return h('main', { class: 'container' },
     h(Head, {
       title: '${packageName}',
       meta: [{ name: 'description', content: 'A full-stack app built with What Framework' }],
     }),
     h('h1', {}, '${packageName}'),
-    h('p', {}, 'Server-rendered, ISR-cached, hydrated islands.'),
+    h('p', {}, 'Server-rendered, ISR-cached, hydrated on the client.'),
+    h('section', { class: 'like-demo' },
+      h('button', { onclick: () => likes(n => n + 1) }, 'Like'),
+      h('output', {}, () => String(likes())),
+      h('span', { class: 'hint' }, 'hydrated — this button works in the browser')
+    ),
     h('ul', {}, posts.map((p) =>
       h('li', { key: p.slug }, h('a', { href: \`/blog/\${p.slug}\` }, p.title))
     )),
@@ -1018,8 +1064,9 @@ export default function Post() {
 `);
 
   // /new — mode:'server' (never cached), posts to the createPost action.
-  writeFileSync(resolve(root, 'src', 'pages', 'new.js'), `// New-post form. mode:'server' so it's always fresh. The form posts to the
-// createPost server action; progressively enhanced (works as a plain POST).
+  writeFileSync(resolve(root, 'src', 'pages', 'new.js'), `// New-post form. mode:'server' so it's always fresh. src/entry-client.js
+// enhances the form: it submits to the createPost server action as JSON with
+// the X-What-Action header (the action protocol), then navigates to the post.
 
 import { h, Head } from 'what-framework';
 
@@ -1058,13 +1105,158 @@ export const routes = [
 ];
 `);
 
-  // Full-stack server: Node adapter + origin-first ISR + revalidate webhook +
-  // poll scheduler. Works on any host — no CDN required.
-  writeFileSync(resolve(root, 'server.js'), `// Full-stack server. \`node server.js\` → http://localhost:3000.
-// Wires the Node adapter + origin-first ISR engine + on-demand revalidation
-// webhook + poll scheduler. No CDN required.
+  // Client hydration entry — loaded by the SSR document (see server.js). Reuses
+  // the server-rendered DOM and attaches interactivity. No bundler involved:
+  // the browser resolves 'what-framework' through the import map server.js
+  // injects, and ./pages/* are served as plain ES modules.
+  writeFileSync(resolve(root, 'src', 'entry-client.js'), `// Client hydration entry.
+// The SSR document loads this as a native ES module. It matches the current
+// URL to a page component, re-runs it with the server's loader data (pages
+// call useLoaderData(), which reads the #__what_data payload the server
+// embedded), and hydrate() walks the existing server-rendered DOM — attaching
+// event handlers and reactive bindings instead of recreating elements.
+//
+// NOTE: import page modules directly, never ./routes.js — the route table also
+// imports the server actions, which pull in Node-only modules.
 
-import { createServer, createRequestHandler } from 'what-framework/server';
+import { h, hydrate } from 'what-framework';
+import Home from './pages/home.js';
+import Post from './pages/post.js';
+import NewPost from './pages/new.js';
+
+function matchPage(pathname) {
+  if (pathname === '/') return h(Home, {});
+  const post = pathname.match(/^\\/blog\\/([^/]+)\\/?$/);
+  if (post) return h(Post, { slug: decodeURIComponent(post[1]) });
+  if (pathname === '/new') return h(NewPost, {});
+  return null;
+}
+
+const vnode = matchPage(location.pathname);
+if (vnode) hydrate(vnode, document.body);
+
+// Progressive enhancement for server-action forms: submit as JSON to
+// /__what_action with the X-What-Action header (the served-action protocol),
+// then navigate to the result. The CSRF token comes from the double-submit
+// cookie the server sets on every HTML response (or the meta tag on
+// uncached pages) — same lookup the framework's own action() client uses.
+function csrfToken() {
+  const meta = document.querySelector('meta[name="what-csrf-token"]');
+  if (meta) return meta.getAttribute('content');
+  const match = document.cookie.match(/(?:^|;\\s*)what-csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+for (const form of document.querySelectorAll('form[data-action]')) {
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const args = Object.fromEntries(new FormData(form));
+    const headers = { 'content-type': 'application/json', 'x-what-action': form.dataset.action };
+    const token = csrfToken();
+    if (token) headers['x-csrf-token'] = token;
+    const res = await fetch('/__what_action', {
+      method: 'POST',
+      headers,
+      credentials: 'same-origin',
+      body: JSON.stringify({ args: [args] }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (res.ok) {
+      location.href = result.slug ? \`/blog/\${result.slug}\` : '/';
+    } else {
+      console.error('[what] action failed:', result.message || res.status);
+    }
+  });
+}
+`);
+
+  // Stylesheet for the SSR pages (linked from the document head in server.js).
+  writeFileSync(resolve(root, 'src', 'styles.css'), `:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #f4f6fb;
+  color: #0f172a;
+}
+
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem;
+}
+
+a {
+  color: #2563eb;
+}
+
+button {
+  border: 1px solid #9aa7bb;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 0.4rem 0.9rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #2563eb;
+}
+
+.like-demo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.like-demo output {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 700;
+}
+
+.like-demo .hint {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 420px;
+}
+
+input,
+textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #9aa7bb;
+  border-radius: 10px;
+  font: inherit;
+}
+`);
+
+  // Full-stack server: Node adapter + origin-first ISR + revalidate webhook +
+  // poll scheduler + static serving for the buildless client (native ESM).
+  writeFileSync(resolve(root, 'server.js'), `// Full-stack server. \`npm run dev\` (auto-restart) or \`node server.js\`
+// → http://localhost:3000. Wires the Node adapter + origin-first ISR engine +
+// on-demand revalidation webhook + poll scheduler. No CDN — and no bundler —
+// required: the client entry and the framework are served as native ES modules
+// (see the import map below).
+
+import http from 'node:http';
+import { randomBytes } from 'node:crypto';
+import { existsSync, statSync, createReadStream } from 'node:fs';
+import { extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequestHandler, toNodeListener } from 'what-framework/server';
 import {
   createCacheEngine,
   createMemoryStore,
@@ -1073,7 +1265,24 @@ import {
 } from 'what-isr';
 import { routes } from './src/routes.js';
 
-const REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET || 'dev-secret';
+const ROOT = fileURLToPath(new URL('.', import.meta.url));
+const isProd = process.env.NODE_ENV === 'production';
+
+// Secret for the on-demand revalidation webhook (POST /__what_revalidate).
+// Required in production; auto-generated per run in dev so there is never a
+// shared default secret.
+let REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET;
+if (!REVALIDATE_SECRET) {
+  if (isProd) {
+    console.error(
+      '[${packageName}] WHAT_REVALIDATE_SECRET must be set in production.\\n' +
+      \"  Generate one:  node -e \\\"console.log(require('node:crypto').randomBytes(24).toString('hex'))\\\"\"
+    );
+    process.exit(1);
+  }
+  REVALIDATE_SECRET = randomBytes(24).toString('hex');
+  console.log(\`[dev] WHAT_REVALIDATE_SECRET not set — generated for this run: \${REVALIDATE_SECRET}\`);
+}
 
 // Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})
 // to survive restarts, or createRedisStore({client}) for multi-instance.
@@ -1083,24 +1292,84 @@ const cache = createCacheEngine({ store: createMemoryStore() });
 const scheduler = createScheduler(cache);
 scheduler.register({ path: '/', query: {}, config: routes[0].page }, { intervalMs: 5 * 60 * 1000 });
 
+// The browser loads /src/entry-client.js as a native ES module; this import
+// map resolves its bare imports. Sources are served from node_modules below.
+const importMap = {
+  imports: {
+    'what-framework': '/node_modules/what-framework/src/index.js',
+    'what-core': '/node_modules/what-core/src/index.js',
+  },
+};
+
+const documentOptions = {
+  clientEntry: '/src/entry-client.js',
+  head:
+    \`<script type="importmap">\${JSON.stringify(importMap)}</script>\` +
+    '<link rel="stylesheet" href="/src/styles.css">' +
+    '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
+};
+
 export function createHandler() {
   return createRequestHandler({
     routes,
     cache,
     revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
-    document: { clientEntry: '/src/entry-client.js' },
+    document: documentOptions,
   });
 }
 
-// Started directly (node server.js), not when imported by tests.
+// --- Static files (client entry, page modules, framework sources, public/) ---
+
+const MIME = {
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+  '.woff2': 'font/woff2',
+};
+
+// Only these prefixes are served from the project root; anything else falls
+// back to public/ (favicon etc.) and then to the app handler.
+const SERVED_PREFIXES = ['/src/', '/node_modules/what-framework/', '/node_modules/what-core/'];
+
+function resolveStaticFile(pathname) {
+  if (pathname.includes('..') || pathname.includes('\\0')) return null;
+  const file = SERVED_PREFIXES.some((p) => pathname.startsWith(p))
+    ? resolve(join(ROOT, pathname))
+    : resolve(join(ROOT, 'public', pathname));
+  if (!file.startsWith(resolve(ROOT))) return null;
+  if (!existsSync(file) || !statSync(file).isFile()) return null;
+  return file;
+}
+
+// --- Start (node server.js / npm run dev), not when imported by tests ---
+
 if (import.meta.url === \`file://\${process.argv[1]}\`) {
-  const server = createServer({
-    routes,
-    cache,
-    scheduler,
-    revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
-    document: { clientEntry: '/src/entry-client.js' },
+  const app = toNodeListener(createHandler());
+
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+      const file = resolveStaticFile(pathname);
+      if (file) {
+        res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
+        if (req.method === 'HEAD') return res.end();
+        return createReadStream(file).pipe(res);
+      }
+    }
+    app(req, res);
   });
+
+  scheduler.start();
+  const stop = () => { try { scheduler.stop(); } catch {} server.close(); };
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
+
   const port = Number(process.env.PORT) || 3000;
   server.listen(port, () => console.log(\`${packageName} → http://localhost:\${port}\`));
 }
@@ -1357,8 +1626,10 @@ count(c => c + 1) // update
   // package.json
   writeFileSync(resolve(root, 'package.json'), generatePackageJson(packageName, options));
 
-  // index.html
-  writeFileSync(resolve(root, 'index.html'), generateIndexHtml(packageName));
+  // index.html (SPA only — the full-stack server renders its own document)
+  if (options.template !== 'fullstack') {
+    writeFileSync(resolve(root, 'index.html'), generateIndexHtml(packageName));
+  }
 
   // favicon
   writeFileSync(resolve(root, 'public', 'favicon.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -1373,8 +1644,35 @@ count(c => c + 1) // update
 </svg>
 `);
 
-  // vite.config.js
-  writeFileSync(resolve(root, 'vite.config.js'), generateViteConfig(options));
+  // vite.config.js (SPA only — the full-stack template is buildless)
+  if (options.template !== 'fullstack') {
+    writeFileSync(resolve(root, 'vite.config.js'), generateViteConfig(options));
+  }
+
+  // eslint.config.js — eslint-plugin-what flat config.
+  //   SPA: the What compiler handles event casing + reactive wrapping, so use
+  //        the `compiler` preset (the compiler-covered rules are off).
+  //   Fullstack: buildless h() authoring is the template's design, so use
+  //        `recommended` with the JSX-only h() rule disabled.
+  writeFileSync(resolve(root, 'eslint.config.js'), options.template === 'fullstack'
+    ? `import what from 'eslint-plugin-what';
+
+export default [
+  { ignores: ['node_modules'] },
+  what.configs.recommended,
+  // This template authors pages with h() on purpose (buildless, no compiler).
+  { rules: { 'what/no-h-in-user-code': 'off' } },
+];
+`
+    : `import what from 'eslint-plugin-what';
+
+export default [
+  { ignores: ['dist', 'node_modules'] },
+  // 'compiler' preset: this project uses the What compiler (via Vite), which
+  // handles event casing and reactive JSX wrapping automatically.
+  what.configs.compiler,
+];
+`);
 
   // tsconfig.json
   writeFileSync(resolve(root, 'tsconfig.json'), JSON.stringify({
@@ -1408,19 +1706,20 @@ count(c => c + 1) // update
     recommendations: [],
   }, null, 2) + '\n');
 
-  // src/main.jsx
-  writeFileSync(resolve(root, 'src', 'main.jsx'), generateMainJsx(options));
-
-  // Full-stack scaffold: file-routed SSR pages + server + ISR config.
+  // Full-stack scaffold: file-routed SSR pages + server + client entry + ISR
+  // config (writes its own src/styles.css). SPA scaffold: Vite entry + styles.
   if (options.template === 'fullstack') {
     generateFullstackFiles(root, packageName);
-  }
-
-  // src/styles.css
-  if (reactCompat && cssApproach === 'none') {
-    writeFileSync(resolve(root, 'src', 'styles.css'), generateStylesWithReactCompat());
   } else {
-    writeFileSync(resolve(root, 'src', 'styles.css'), generateStyles(options));
+    // src/main.jsx
+    writeFileSync(resolve(root, 'src', 'main.jsx'), generateMainJsx(options));
+
+    // src/styles.css
+    if (reactCompat && cssApproach === 'none') {
+      writeFileSync(resolve(root, 'src', 'styles.css'), generateStylesWithReactCompat());
+    } else {
+      writeFileSync(resolve(root, 'src', 'styles.css'), generateStyles(options));
+    }
   }
 
   // README.md
@@ -1440,7 +1739,11 @@ count(c => c + 1) // update
   console.log('\nNext steps:');
   console.log(`  cd ${root}`);
   console.log('  npm install');
-  console.log('  npm run dev\n');
+  if (options.template === 'fullstack') {
+    console.log('  npm run dev   # SSR + ISR server → http://localhost:3000\n');
+  } else {
+    console.log('  npm run dev\n');
+  }
 }
 
 main().catch(err => {
