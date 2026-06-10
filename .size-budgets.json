@@ -1,0 +1,13 @@
+{
+  "$comment": "Gzip byte ceilings for scripts/check-size.mjs (esbuild bundle, production condition, min+gzip). Measured 2026-06-09: core-counter 5651 B, scaffold-counter 5754 B (audit's real vite-scaffold counter measured 7.10 KB). Ceilings = measured reality + headroom; raise only deliberately, in the same PR as the growth.",
+  "scenarios": {
+    "core-counter": {
+      "limitGzipBytes": 6200,
+      "description": "what-core runtime imported by a typical h()-based counter app (production condition)"
+    },
+    "scaffold-counter": {
+      "limitGzipBytes": 7987,
+      "description": "create-what vanilla template counter (src/main.jsx equivalent) via what-framework + runtime JSX (production condition); ceiling 7.8 KB covers the audit-measured 7.10 KB real-scaffold build + ~10%"
+    }
+  }
+}
