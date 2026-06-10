@@ -24,77 +24,112 @@ function logGrouped(badge, badgeStyle, title, data) {
 export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
   // Never connect in production
   if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') {
-    return { disconnect() {}, isConnected: false, eventCount: 0 };
+    return { disconnect() {}, reconnect() {}, isConnected: false, eventCount: 0 };
   }
   try {
     if (import.meta?.env?.PROD) {
-      return { disconnect() {}, isConnected: false, eventCount: 0 };
+      return { disconnect() {}, reconnect() {}, isConnected: false, eventCount: 0 };
     }
   } catch {}
 
   let ws = null;
   let connected = false;
-  let reconnectTimer = null;
-  let reconnectDelay = 1000;
-  const MAX_RECONNECT_DELAY = 30000;
-  const pendingResponses = new Map();
+  let stopped = false;
+  let probeTimer = null;
+  // Probe back-off: first retry after 10s, then ×3 each time, capped at 5min.
+  // With no bridge running this yields probes at ~0s / 10s / 40s / 130s / 430s…
+  // — at most 3-4 quiet fetch attempts in the first two minutes, then near-silence.
+  const PROBE_DELAY_INITIAL = 10000;
+  const PROBE_DELAY_RECONNECT = 2000; // bridge restarts are usually fast
+  const PROBE_BACKOFF_FACTOR = 3;
+  const PROBE_DELAY_MAX = 300000;
+  let probeDelay = PROBE_DELAY_INITIAL;
   let eventCount = 0;
-  let hasLoggedDisconnect = false;
-  let reconnectAttempts = 0;
+  let hasLoggedMissingBridge = false;
+  let hasShownBanner = false;
   let unsubscribeFn = null;
   let flushEventBatch = null; // Hoisted — set during subscription, called by set-signal
   let discoveredToken = token;
   let discoveredPort = port;
 
-  // Startup banner
-  console.log(
-    '%c⚡ What DevTools MCP %c Client v0.2.0',
-    'background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;padding:4px 10px;border-radius:4px;font-weight:bold;font-size:13px',
-    'color:#a855f7;font-weight:bold'
-  );
-
-  // --- Token Auto-Discovery ---
-  // If no token is provided, try to discover it from the bridge's HTTP endpoint.
-  // The bridge serves GET http://localhost:{port+1}/__what_mcp_token
-  async function discoverToken() {
-    if (discoveredToken) return true; // Already have a token
-
-    const discoveryPort = port + 1;
+  // --- Quiet bridge probe (also discovers the token) ---
+  // We NEVER open a WebSocket until this HTTP probe succeeds. A failed
+  // WebSocket connection always prints an unsuppressible red error in the
+  // browser console; a failed fetch wrapped in catch() prints at most a single
+  // muted "Failed to load resource" network line — the quietest probe the
+  // platform allows. The bridge serves GET http://localhost:{port+1}/__what_mcp_token
+  // (loopback-origin gated), so a 200 here means the bridge is up AND gives us
+  // the token + actual WS port in one round-trip.
+  //
+  // Trade-off: if the discovery HTTP port (port+1) is occupied by another
+  // process while the WS port is free, we won't connect even with an explicit
+  // token. That edge case is rarer and cheaper than spamming every fresh app
+  // (the default state: no bridge running) with red WS errors.
+  async function probeBridge() {
     try {
-      const res = await fetch(`http://localhost:${discoveryPort}/__what_mcp_token`);
+      const res = await fetch(`http://localhost:${port + 1}/__what_mcp_token`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        discoveredToken = data.token;
+        if (data.token) discoveredToken = data.token;
         discoveredPort = data.wsPort || port;
-        log('MCP', BADGE, `Token discovered automatically from bridge`);
         return true;
       }
     } catch {
-      // Discovery endpoint not available — bridge may not be running yet
+      // Bridge not running — stay quiet; back-off handles retries.
     }
     return false;
   }
 
-  log('MCP', BADGE, `Connecting to bridge on ws://localhost:${port}`);
+  async function tryConnect() {
+    if (stopped) return;
+    const bridgeUp = await probeBridge();
+    if (stopped) return;
+    if (!bridgeUp) {
+      if (!hasLoggedMissingBridge) {
+        hasLoggedMissingBridge = true;
+        // Single muted line — the ONLY console-API message a fresh app sees.
+        console.info(
+          '%c[what]%c devtools bridge not detected — start what-devtools-mcp to enable agent debugging (retrying quietly in background)',
+          DIM, DIM
+        );
+      }
+      scheduleProbe();
+      return;
+    }
+    openSocket();
+  }
 
-  function connect() {
-    reconnectAttempts++;
+  function scheduleProbe() {
+    if (probeTimer || stopped) return;
+    probeTimer = setTimeout(() => {
+      probeTimer = null;
+      probeDelay = Math.min(probeDelay * PROBE_BACKOFF_FACTOR, PROBE_DELAY_MAX);
+      tryConnect();
+    }, probeDelay);
+  }
+
+  function openSocket() {
     try {
       const tokenParam = discoveredToken ? `?token=${encodeURIComponent(discoveredToken)}` : '';
       ws = new WebSocket(`ws://localhost:${discoveredPort}${tokenParam}`);
     } catch {
-      if (reconnectAttempts <= 1) {
-        log('MCP', BADGE_WARN, 'Bridge not available — retrying silently in background');
-      }
-      scheduleReconnect();
+      scheduleProbe();
       return;
     }
 
     ws.onopen = () => {
       connected = true;
-      reconnectDelay = 1000;
-      hasLoggedDisconnect = false;
-      reconnectAttempts = 0;
+      probeDelay = PROBE_DELAY_RECONNECT;
+      hasLoggedMissingBridge = false;
+      if (!hasShownBanner) {
+        hasShownBanner = true;
+        // Banner only once we KNOW the bridge exists — silent otherwise.
+        console.log(
+          '%c⚡ What DevTools MCP %c Client v0.2.0',
+          'background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;padding:4px 10px;border-radius:4px;font-weight:bold;font-size:13px',
+          'color:#a855f7;font-weight:bold'
+        );
+      }
       log('MCP', BADGE, '🟢 Connected to bridge — AI agent can now inspect this app');
 
       // Send initial snapshot
@@ -151,11 +186,12 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
     ws.onclose = () => {
       const wasConnected = connected;
       connected = false;
-      if (wasConnected && !hasLoggedDisconnect) {
-        hasLoggedDisconnect = true;
-        log('MCP', BADGE_WARN, '🔴 Disconnected from bridge — will reconnect silently');
+      if (wasConnected) {
+        log('MCP', BADGE_WARN, '🔴 Disconnected from bridge — will reconnect quietly in background');
+        // Bridge restarts are usually quick — retry fast, then back off.
+        probeDelay = PROBE_DELAY_RECONNECT;
       }
-      scheduleReconnect();
+      scheduleProbe();
     };
 
     ws.onerror = () => {
@@ -294,47 +330,47 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
     }
   }
 
-  function scheduleReconnect() {
-    if (reconnectTimer) return;
-    // After 5 failures, go very slow (30s) to avoid console spam
-    if (reconnectAttempts === 5 && !hasLoggedDisconnect) {
-      log('MCP', BADGE_WARN, `Bridge not available — will retry every 30s. Start the MCP server to connect.`);
-      hasLoggedDisconnect = true;
-    }
-    const delay = reconnectAttempts >= 5 ? MAX_RECONNECT_DELAY : reconnectDelay;
-    reconnectTimer = setTimeout(async () => {
-      reconnectTimer = null;
-      reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-      // Try to discover token before each reconnect attempt
-      // (bridge may have started since last attempt)
-      await discoverToken();
-      connect();
-    }, delay);
-  }
-
   function disconnect() {
+    stopped = true;
     if (unsubscribeFn) {
       unsubscribeFn();
       unsubscribeFn = null;
     }
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
+    if (probeTimer) {
+      clearTimeout(probeTimer);
+      probeTimer = null;
     }
     if (ws) {
       ws.onclose = null; // prevent reconnect
       ws.close();
       ws = null;
     }
+    if (connected) log('MCP', BADGE, 'Disconnected');
     connected = false;
-    log('MCP', BADGE, 'Disconnected');
   }
 
-  // Initial connect — try token discovery first, then connect
-  discoverToken().then(() => connect());
+  // Manual retry escape hatch — resets the back-off and probes immediately.
+  // Useful when the dev just started the bridge and doesn't want to wait
+  // out the back-off (or reload the page).
+  function reconnect() {
+    if (stopped || connected) return;
+    if (probeTimer) {
+      clearTimeout(probeTimer);
+      probeTimer = null;
+    }
+    probeDelay = PROBE_DELAY_INITIAL;
+    tryConnect();
+  }
+  if (typeof window !== 'undefined') {
+    window.__WHAT_MCP_RECONNECT__ = reconnect;
+  }
+
+  // Initial attempt — quiet probe first; WebSocket only if the bridge answers.
+  tryConnect();
 
   return {
     disconnect,
+    reconnect,
     get isConnected() { return connected; },
     get eventCount() { return eventCount; },
   };

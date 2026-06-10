@@ -9,6 +9,8 @@
  *   export default [what.configs.recommended];
  */
 
+import { createRequire } from 'node:module';
+
 import noSignalInEffectDeps from './rules/no-signal-in-effect-deps.js';
 import reactiveJsxChildren from './rules/reactive-jsx-children.js';
 import noSignalWriteInRender from './rules/no-signal-write-in-render.js';
@@ -19,10 +21,14 @@ import noHInUserCode from './rules/no-h-in-user-code.js';
 import signalCallInJsx from './rules/signal-call-in-jsx.js';
 import noSetInComputed from './rules/no-set-in-computed.js';
 
+// Read the real version from package.json so plugin meta never goes stale.
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
+
 const plugin = {
   meta: {
     name: 'eslint-plugin-what',
-    version: '0.6.0',
+    version: pkg.version,
   },
 
   rules: {
@@ -41,8 +47,28 @@ const plugin = {
 };
 
 // Flat config presets (ESLint 9+)
+//
+// Each preset is a COMPLETE standalone flat config entry: it carries its own
+// `files` glob and JSX-enabled language options, so
+// `export default [what.configs.recommended]` works with stock ESLint —
+// no extra parser setup required for .js/.jsx. (.ts/.tsx files match the glob
+// too, but TypeScript syntax additionally needs a TS parser config layered on
+// top, e.g. typescript-eslint.)
+
+const baseLanguageOptions = {
+  ecmaVersion: 'latest',
+  sourceType: 'module',
+  parserOptions: {
+    ecmaFeatures: { jsx: true },
+  },
+};
+
+const FILES = ['**/*.{js,jsx,ts,tsx}'];
 
 plugin.configs.recommended = {
+  name: 'what/recommended',
+  files: FILES,
+  languageOptions: baseLanguageOptions,
   plugins: { what: plugin },
   rules: {
     'what/no-signal-in-effect-deps': 'warn',
@@ -59,6 +85,9 @@ plugin.configs.recommended = {
 
 // Stricter config — all rules as errors + prefer-set
 plugin.configs.strict = {
+  name: 'what/strict',
+  files: FILES,
+  languageOptions: baseLanguageOptions,
   plugins: { what: plugin },
   rules: {
     'what/no-signal-in-effect-deps': 'error',
@@ -75,6 +104,9 @@ plugin.configs.strict = {
 
 // Config for projects using the What compiler (disables rules the compiler handles)
 plugin.configs.compiler = {
+  name: 'what/compiler',
+  files: FILES,
+  languageOptions: baseLanguageOptions,
   plugins: { what: plugin },
   rules: {
     'what/no-signal-in-effect-deps': 'warn',

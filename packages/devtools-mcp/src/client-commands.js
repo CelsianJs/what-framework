@@ -138,9 +138,16 @@ export async function handleExtendedCommand(command, args, devtools) {
       const segments = code.split('.');
       const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
       const PROTO_DENYLIST = new Set(['constructor', 'prototype', '__proto__']);
+      // Sensitive property paths: reads that exfiltrate secrets/state must
+      // require the explicit unsafe flag (document.cookie, window.localStorage...).
+      // Mirror of SENSITIVE_PATHS in tools-extended.js what_eval.
+      const SENSITIVE_PATHS = new Set([
+        'cookie', 'localStorage', 'sessionStorage', 'indexedDB', 'credentials',
+        'geolocation', 'clipboard', 'serviceWorker', 'caches', 'opener',
+      ]);
       const isSafeRead = segments.length >= 2 &&
         SAFE_GLOBALS.has(segments[0]) &&
-        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s));
+        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s) && !SENSITIVE_PATHS.has(s));
 
       if (!evalEnabled && !isSafeRead) {
         return {

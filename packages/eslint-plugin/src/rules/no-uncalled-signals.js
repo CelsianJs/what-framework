@@ -6,14 +6,16 @@
  *
  * Signals are functions — you must call them to read the value.
  * Using a signal without () gives you the function reference, which:
- * - Renders as "[Function]" in JSX
  * - Is always truthy in conditionals
  * - Produces wrong comparisons
+ * - Coerces to the function source in template literals
+ * - In JSX children it only works because the compiler auto-wraps it —
+ *   explicit () reads don't depend on that
  *
- * Bad:  <span>{count}</span>        → renders "[Function]"
  * Bad:  {isLoading && <Spinner />}  → always truthy
- * Bad:  {swr.data}                  → renders "[Function]"
- * Bad:  `Total: ${count}`           → "[Function]"
+ * Bad:  `Total: ${count}`           → function source, not the value
+ * Bad:  <span>{count}</span>        → implicit (relies on compiler auto-wrap)
+ * Bad:  {swr.data}                  → implicit (relies on compiler auto-wrap)
  *
  * Good: <span>{count()}</span>
  * Good: {isLoading() && <Spinner />}

@@ -1,18 +1,20 @@
 /**
  * Rule: what/signal-call-in-jsx
  *
- * Warn when a signal is used in JSX without calling it.
- * Signals are functions — using them without () in JSX renders "[Function]"
- * instead of the signal's value.
+ * Warn when a signal is used in JSX as a bare reference instead of being
+ * called. The What compiler auto-wraps bare signals ({count} works when the
+ * code is compiled), but explicit reads ({count()}) are clearer, lint-safe,
+ * and don't depend on compiler magic — e.g. they keep working in plain
+ * h()/runtime-only code paths.
  *
  * This rule specifically targets JSX expression containers, complementing
  * the broader no-uncalled-signals rule with JSX-specific messaging.
  *
- * Bad:  <span>{count}</span>          — renders "[Function]"
- * Bad:  <p>{isLoading && <Spinner />}</p> — always truthy
+ * Implicit: <span>{count}</span>          — relies on compiler auto-wrapping
+ * Bad:      <p>{isLoading && <Spinner />}</p> — signal fn is always truthy
  *
- * Good: <span>{count()}</span>
- * Good: <p>{isLoading() && <Spinner />}</p>
+ * Explicit: <span>{count()}</span>
+ * Good:     <p>{isLoading() && <Spinner />}</p>
  */
 
 import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
@@ -26,11 +28,11 @@ export default {
     },
     messages: {
       signalNotCalledInJsx:
-        '"{{name}}" is a signal used in JSX without calling it. ' +
-        'Use {{{name}}()} to read the value, or the JSX will render "[Function]".',
+        '"{{name}}" is a signal used in JSX as a bare reference. ' +
+        'Prefer {{{name}}()} for an explicit read — bare signals rely on the compiler auto-wrapping them.',
       signalNotCalledInJsxLogical:
         '"{{name}}" is a signal used in a JSX conditional without calling it. ' +
-        'Signals are always truthy — use {{{name}}() && ...} instead.',
+        'A signal function is always truthy — use {{{name}}() && ...} instead.',
     },
     schema: [],
   },

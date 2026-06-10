@@ -19,6 +19,11 @@ let signalId = 0;
 let effectId = 0;
 let componentId = 0;
 
+// what-core's installSignalReadGuardrail, captured when the core module is
+// wired up in installDevTools(). Dev-only: warns when a signal is coerced
+// to a string/number without being called (e.g. `Total: ${count}`).
+let coreSignalReadGuardrail = null;
+
 // Registries
 const signals = new Map();    // id → { name, ref, createdAt, internal }
 const effects = new Map();    // id → { name, createdAt, depSignalIds, runCount, lastRunAt }
@@ -82,6 +87,29 @@ function attributeToComponent() {
     }
   }
   return null;
+}
+
+// --- Self-tracking suppression ---
+// Devtools UI rendered INSIDE the inspected app (the DevPanel) must not
+// register its own signals/effects: panel-internal registrations emit
+// devtools events, the panel reacts by updating its snapshot signal, the
+// resulting re-render creates more effects, which emit again — an unbounded
+// feedback loop that wedges and crashes the page. Re-entrant (counter).
+let suppressDepth = 0;
+
+/**
+ * Run fn with devtools registration suppressed (exception-safe).
+ * Signals/effects/components created inside fn are invisible to devtools.
+ * Does NOT affect what-core's reactive dependency tracking.
+ * @internal Used by DevPanel; exported for devtools-adjacent UIs and tests.
+ */
+export function _suppressDevtools(fn) {
+  suppressDepth++;
+  try {
+    return fn();
+  } finally {
+    suppressDepth--;
+  }
 }
 
 // Error log (capped at 100)
@@ -184,7 +212,7 @@ export function safeSerialize(value, depth = 0, seen) {
  * Called from reactive.js __DEV__ hooks.
  */
 export function registerSignal(sig, name) {
-  if (!installed) return;
+  if (!installed || suppressDepth > 0) return;
   const id = ++signalId;
   const entry = {
     id,
@@ -200,6 +228,11 @@ export function registerSignal(sig, name) {
   sig._devId = id;
   // Reverse lookup for O(1) effect dep resolution
   if (sig._subs) subsToSignalId.set(sig._subs, id);
+  // Dev guardrail: warn when this signal is string/number-coerced without
+  // being called (catches `Total: ${count}` — should be `${count()}`).
+  if (coreSignalReadGuardrail) {
+    try { coreSignalReadGuardrail(sig, entry.name); } catch {}
+  }
   emit('signal:created', entry);
   return id;
 }
@@ -232,7 +265,7 @@ export function unregisterSignal(sig) {
  * Register an effect with the devtools.
  */
 export function registerEffect(e, name) {
-  if (!installed) return;
+  if (!installed || suppressDepth > 0) return;
   const id = ++effectId;
   const entry = {
     id,
@@ -322,7 +355,7 @@ function captureError(err, context) {
  * (see what_components / what_explain) so agents re-query before using IDs.
  */
 export function registerComponent(name, element, parentDevId) {
-  if (!installed) return;
+  if (!installed || suppressDepth > 0) return;
   const id = ++componentId;
   const entry = {
     id,
@@ -457,6 +490,11 @@ export function installDevTools(core) {
   // Wire into what-core's reactive system
   function installInto(mod) {
     if (!mod) return;
+    // Capture the guardrail BEFORE hooks go live so the very first
+    // registrations (and the pre-install drain below) get wrapped too.
+    if (typeof mod.installSignalReadGuardrail === 'function') {
+      coreSignalReadGuardrail = mod.installSignalReadGuardrail;
+    }
     if (mod.__setDevToolsHooks) mod.__setDevToolsHooks(hooks);
     if (typeof window !== 'undefined') window.__WHAT_CORE__ = mod;
 
