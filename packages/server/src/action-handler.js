@@ -32,6 +32,36 @@ function jsonResponse(status, bodyObj) {
   };
 }
 
+function htmlResponse(status, message) {
+  return {
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+    body: `<!DOCTYPE html><html><body><h1>${status}</h1><p>${String(message)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p></body></html>`,
+  };
+}
+
+// Resolve a safe local redirect target for the form (POST/redirect/GET) path.
+// `_redirect` must be a local path ("/x", never "//evil"); the Referer header
+// (an absolute URL) is reduced to its path + query. Falls back to '/'.
+function safeRedirectTarget(form, headers) {
+  const explicit = form && form._redirect;
+  if (typeof explicit === 'string' && explicit.startsWith('/') && !explicit.startsWith('//')) {
+    return explicit;
+  }
+  const referer = headers.referer || headers.referrer;
+  if (referer) {
+    try {
+      const u = new URL(referer, 'http://localhost');
+      if (u.pathname.startsWith('/') && !u.pathname.startsWith('//')) return u.pathname + u.search;
+    } catch { /* fall through */ }
+  }
+  return '/';
+}
+
+// Reserved form fields consumed by the framework (not passed to the action).
+const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', '_redirect']);
+
 /**
  * Framework-agnostic action dispatcher.
  *
@@ -41,7 +71,24 @@ function jsonResponse(status, bodyObj) {
  *   - basePath: string — defaults to '/__what_action' (used by the adapters).
  *
  * Returns: async (reqLike) -> { status, headers, body:string }
- *   reqLike: { method, headers, body }  where body is the parsed JSON ({ args }).
+ *   reqLike: { method, headers, body, query? }
+ *
+ * Two request shapes are accepted:
+ *
+ * 1. JSON + header (fetch clients — what the `action()` client wrapper sends):
+ *    POST with `X-What-Action: <id>` header, JSON body `{ args: [...] }`,
+ *    CSRF token in the `X-CSRF-Token` header. Responds with JSON.
+ *
+ * 2. Plain HTML form post (progressive enhancement — works without JS):
+ *    POST with `Content-Type: application/x-www-form-urlencoded` and NO
+ *    X-What-Action header. `body` is the parsed form fields object.
+ *    - action id:   `_action` (or `data-action`) hidden field, or `?action=`
+ *                   query param (reqLike.query.action)
+ *    - CSRF token:  `_csrf` hidden field
+ *    - redirect:    `_redirect` hidden field (local path), else Referer, else '/'
+ *    The action receives ONE argument: the form fields object (reserved
+ *    fields stripped). Success responds 303 See Other (POST/redirect/GET);
+ *    failures respond with an HTML error page and the matching status.
  */
 export function createActionHandler(options = {}) {
   const { getCsrfToken, skipCsrf = false } = options;
@@ -53,21 +100,70 @@ export function createActionHandler(options = {}) {
     }
 
     const headers = lowerHeaders(reqLike.headers);
-    const actionId = headers['x-what-action'];
-    if (!actionId) {
-      return jsonResponse(400, { message: 'Missing X-What-Action header' });
-    }
-
-    const body = reqLike.body || {};
-    const args = body.args;
+    const headerActionId = headers['x-what-action'];
+    const contentType = headers['content-type'] || '';
+    const isFormPost = !headerActionId && contentType.includes('application/x-www-form-urlencoded');
 
     const sessionCsrfToken = skipCsrf
       ? undefined
       : (getCsrfToken ? await getCsrfToken(reqLike) : undefined);
 
+    // --- Plain HTML form post (progressive enhancement) ---
+    if (isFormPost) {
+      const form = reqLike.body || {};
+      const actionId = form._action || form['data-action'] || (reqLike.query && reqLike.query.action);
+      if (!actionId) {
+        return htmlResponse(400, 'Missing action name (add a hidden "_action" field or ?action= query param)');
+      }
+
+      // CSRF token travels in the `_csrf` form field for plain forms; map it
+      // to the header slot handleActionRequest validates against.
+      const formHeaders = { ...headers };
+      if (form._csrf && !formHeaders['x-csrf-token']) formHeaders['x-csrf-token'] = String(form._csrf);
+
+      if (!skipCsrf && getCsrfToken && !sessionCsrfToken) {
+        // CSRF is configured but this client has no token (e.g. no cookie yet).
+        return htmlResponse(403, 'Missing CSRF token');
+      }
+
+      const data = {};
+      for (const [k, v] of Object.entries(form)) {
+        if (!RESERVED_FORM_FIELDS.has(k)) data[k] = v;
+      }
+
+      const result = await handleActionRequest(
+        { headers: formHeaders },
+        actionId,
+        [data],
+        { csrfToken: sessionCsrfToken, skipCsrf }
+      );
+
+      if (result.status === 200) {
+        return {
+          status: 303,
+          headers: { location: safeRedirectTarget(form, headers) },
+          body: '',
+        };
+      }
+      return htmlResponse(result.status, (result.body && result.body.message) || 'Action failed');
+    }
+
+    // --- JSON + X-What-Action header (fetch clients) ---
+    if (!headerActionId) {
+      return jsonResponse(400, { message: 'Missing X-What-Action header' });
+    }
+
+    if (!skipCsrf && getCsrfToken && !sessionCsrfToken) {
+      // CSRF configured, but the client presented no session token (no cookie).
+      return jsonResponse(403, { message: 'Missing CSRF token' });
+    }
+
+    const body = reqLike.body || {};
+    const args = body.args;
+
     const result = await handleActionRequest(
       { headers },
-      actionId,
+      headerActionId,
       args,
       { csrfToken: sessionCsrfToken, skipCsrf }
     );
@@ -84,27 +180,44 @@ export function nodeActionMiddleware(options = {}) {
   const handle = createActionHandler(options);
 
   return async function middleware(req, res, next) {
-    const url = (req.url || '').split('?')[0];
+    const [url, search] = (req.url || '').split('?');
     if (url !== basePath || (req.method || '').toUpperCase() !== 'POST') {
       return next ? next() : undefined;
     }
 
     let body;
     try {
-      body = await readJsonBody(req);
+      const raw = await readRawBody(req);
+      body = parseActionBody(raw, req.headers['content-type'] || '');
     } catch (err) {
       res.writeHead(err.code === 'BODY_TOO_LARGE' ? 413 : 400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ message: err.code === 'BODY_TOO_LARGE' ? 'Payload too large' : 'Invalid JSON body' }));
+      res.end(JSON.stringify({ message: err.code === 'BODY_TOO_LARGE' ? 'Payload too large' : 'Invalid request body' }));
       return;
     }
 
-    const out = await handle({ method: req.method, headers: req.headers, body });
+    const query = Object.fromEntries(new URLSearchParams(search || ''));
+    const out = await handle({ method: req.method, headers: req.headers, body, query });
     res.writeHead(out.status, out.headers);
     res.end(out.body);
   };
 }
 
-function readJsonBody(req) {
+/** Parse an action request body by content type: form-urlencoded -> fields object, else JSON. */
+export function parseActionBody(raw, contentType) {
+  if ((contentType || '').includes('application/x-www-form-urlencoded')) {
+    const fields = {};
+    for (const [k, v] of new URLSearchParams(String(raw))) {
+      if (fields[k] === undefined) fields[k] = v;
+      else if (Array.isArray(fields[k])) fields[k].push(v);
+      else fields[k] = [fields[k], v];
+    }
+    return fields;
+  }
+  if (raw == null || raw === '') return {};
+  return JSON.parse(String(raw));
+}
+
+function readRawBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -120,12 +233,8 @@ function readJsonBody(req) {
       chunks.push(chunk);
     });
     req.on('end', () => {
-      if (chunks.length === 0) return resolve({});
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-      } catch (e) {
-        reject(e);
-      }
+      if (chunks.length === 0) return resolve('');
+      resolve(Buffer.concat(chunks).toString('utf8'));
     });
     req.on('error', reject);
   });
@@ -139,11 +248,16 @@ export function fetchActionHandler(options = {}) {
   return async function (request) {
     let body = {};
     try {
-      body = await request.json();
+      const raw = await request.text();
+      body = parseActionBody(raw, request.headers.get('content-type') || '');
     } catch {
       body = {};
     }
-    const out = await handle({ method: request.method, headers: request.headers, body });
+    let query = {};
+    try {
+      query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
+    } catch { /* no query */ }
+    const out = await handle({ method: request.method, headers: request.headers, body, query });
     return new Response(out.body, { status: out.status, headers: out.headers });
   };
 }

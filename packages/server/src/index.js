@@ -5,6 +5,7 @@
 import { h, runWithServerContext, beginHeadCollection, endHeadCollection } from 'what-core';
 import { serializeState } from './serialize.js';
 import { getIslandStoresSnapshot } from './islands.js';
+import { csrfMetaTag } from './actions.js';
 
 // Build a fresh render-scoped server context (head sink, loader data, resources).
 function createRenderContext(loaderData) {
@@ -253,7 +254,11 @@ function wrapHtmlDocument({ body, head, payload, options = {} }) {
   const clientScript = options.clientEntry
     ? `<script type="module" src="${escapeHtml(options.clientEntry)}"></script>`
     : '';
-  const extraHead = options.head || '';
+  // CSRF auto-provisioning: when the caller (e.g. the deploy adapter with
+  // default-on CSRF) passes the per-request token, embed it as the meta tag
+  // the client action() wrapper and plain <form> posts read it from.
+  const csrfHead = options.csrfToken ? csrfMetaTag(options.csrfToken) : '';
+  const extraHead = csrfHead + (options.head || '');
   const bodyClass = options.bodyClass ? ` class="${escapeHtml(options.bodyClass)}"` : '';
   return (
     `<!DOCTYPE html><html lang="${escapeHtml(lang)}"><head>` +
@@ -476,12 +481,26 @@ function _resolveInnerHTML(props) {
   return null;
 }
 
+// Attribute NAMES are emitted verbatim into the HTML, so they must be
+// validated (values are escaped, names cannot be). Anything outside this
+// pattern (spaces, quotes, equals, ...) could otherwise inject attributes:
+//   h('div', { 'x" onload="alert(1)': '' })  ->  <div x" onload="alert(1)>
+// Allows letters, digits, '_', ':', '.', '-' — covers data-*, aria-*,
+// xlink:href, SVG names like stroke-width, and namespaced attributes.
+const SAFE_ATTR_NAME = /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/;
+
 function renderAttrs(props) {
   let out = '';
   for (const [key, val] of Object.entries(props)) {
     if (key === 'key' || key === 'ref' || key === 'children' || key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
     if (key.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
     if (val === false || val == null) continue;
+    if (!SAFE_ATTR_NAME.test(key)) {
+      if (_isDevMode) {
+        console.warn(`[what-server] Skipping invalid attribute name in SSR: ${JSON.stringify(key)}`);
+      }
+      continue;
+    }
 
     if (key === 'className' || key === 'class') {
       out += ` class="${escapeHtml(String(val))}"`;

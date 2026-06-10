@@ -64,9 +64,17 @@ describe('shop e2e', () => {
     await get('/');                                     // cache storefront
     assert.equal((await get('/')).cache, 'HIT');
 
+    // CSRF is on by default: present the auto-provisioned cookie token
+    // (double-submit) exactly like the in-page fetch client does.
+    const csrf = 'e2e-csrf-token-shop';
     const res = await fetch(base + '/__what_action', {
       method: 'POST',
-      headers: { 'x-what-action': 'addToCart', 'content-type': 'application/json' },
+      headers: {
+        'x-what-action': 'addToCart',
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        cookie: `what-csrf=${csrf}`,
+      },
       body: JSON.stringify({ args: [{ id: 'mug' }] }),
     });
     assert.equal(res.status, 200);

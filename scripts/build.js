@@ -40,6 +40,10 @@ const packages = [
     name: 'router',
     entries: [
       { input: 'src/index.js', outputBase: 'index' },
+      // what-router/match is a public subpath (exports map references
+      // dist/match.min.js) consumed by what-server's deploy adapters — it
+      // MUST be built or `--conditions=production` resolution dangles.
+      { input: 'src/match.js', outputBase: 'match' },
     ],
     external: ['what-core'],
   },
