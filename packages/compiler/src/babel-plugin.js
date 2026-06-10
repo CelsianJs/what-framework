@@ -1861,6 +1861,65 @@ export default function whatBabelPlugin({ types: t }) {
     ]));
   }
 
+  // A fragment-as-root returns an array (or single value) that the runtime
+  // mounts element-by-element (createDOM / insert). Unlike the element-child
+  // path there's no host element to _$insert into with a marker, so reactive
+  // children must instead be emitted as `() => expr` arrows — the runtime's
+  // createDOM/insert treat a function array-item as a reactive binding (it
+  // wraps it in an effect with comment markers). Without this, a bare dynamic
+  // expression like `{count()}` is evaluated exactly once and never updates.
+  //
+  // This applies the SAME lowering the element-child expression path uses:
+  //  - tryLowerMapToMapArray for keyed `items().map(...)` → _$mapArray
+  //  - memoizeBranchCondition for reactive ternary/&&/|| (node-identity stable
+  //    branches: the taken branch's DOM is only rebuilt when the condition
+  //    actually flips, not on every read of a signal the condition touches)
+  //  - reactive expressions wrapped in `() =>` so the runtime tracks them
+  // Memo (_$memo) declarations are pushed into state._pendingSetup, which
+  // transformJsxRoot drains into the enclosing scope. (SPRINT v0.11)
+  function lowerFragmentExprChild(expr, state) {
+    if (!state._pendingSetup) state._pendingSetup = [];
+    const setup = state._pendingSetup;
+
+    // Auto-lower .map() to mapArray when the callback returns keyed JSX.
+    const mapResult = tryLowerMapToMapArray(expr, state);
+    if (mapResult) {
+      state.needsMapArray = true;
+      // A bare _$mapArray(...) is a self-managing inserter and an arrow is
+      // already reactive — emit as-is. A ternary/logical wrapping the call
+      // keeps its condition reactive via a () => wrapper (and memoization).
+      const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) &&
+        (mapResult.callee.name === '_$mapArray' || mapResult.callee.name === 'mapArray');
+      const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+      if (isArrowAlready && t.isExpression(mapResult.body)) {
+        mapResult.body = memoizeBranchCondition(mapResult.body, setup, state);
+        return mapResult;
+      }
+      if (isBareMapArray) return mapResult;
+      const memoized = memoizeBranchCondition(mapResult, setup, state);
+      return t.arrowFunctionExpression([], memoized);
+    }
+
+    // mapArray() calls are self-managing inserters — pass directly.
+    const isMapArrayCall = t.isCallExpression(expr) && t.isIdentifier(expr.callee) &&
+      (expr.callee.name === 'mapArray' || expr.callee.name === '_$mapArray');
+    if (isMapArrayCall) {
+      state.needsMapArray = true;
+      if (expr.callee.name === 'mapArray') expr.callee.name = '_$mapArray';
+      return expr;
+    }
+
+    if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+      // Branch memoization (C1): conditional/logical children only rebuild the
+      // taken branch's DOM when the condition actually flips.
+      expr = memoizeBranchCondition(expr, setup, state);
+      return t.arrowFunctionExpression([], expr);
+    }
+
+    // Static — emit verbatim.
+    return expr;
+  }
+
   function transformFragmentFineGrained(path, state) {
     const { node } = path;
     const children = node.children;
@@ -1872,7 +1931,7 @@ export default function whatBabelPlugin({ types: t }) {
         if (text) transformed.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
-          transformed.push(child.expression);
+          transformed.push(lowerFragmentExprChild(child.expression, state));
         }
       } else if (t.isJSXElement(child)) {
         transformed.push(transformElementFineGrained({ node: child }, state));

@@ -1386,6 +1386,34 @@ function whatBabelPlugin({ types: t }) {
       )
     ]));
   }
+  function lowerFragmentExprChild(expr, state) {
+    if (!state._pendingSetup) state._pendingSetup = [];
+    const setup = state._pendingSetup;
+    const mapResult = tryLowerMapToMapArray(expr, state);
+    if (mapResult) {
+      state.needsMapArray = true;
+      const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) && (mapResult.callee.name === "_$mapArray" || mapResult.callee.name === "mapArray");
+      const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+      if (isArrowAlready && t.isExpression(mapResult.body)) {
+        mapResult.body = memoizeBranchCondition(mapResult.body, setup, state);
+        return mapResult;
+      }
+      if (isBareMapArray) return mapResult;
+      const memoized = memoizeBranchCondition(mapResult, setup, state);
+      return t.arrowFunctionExpression([], memoized);
+    }
+    const isMapArrayCall = t.isCallExpression(expr) && t.isIdentifier(expr.callee) && (expr.callee.name === "mapArray" || expr.callee.name === "_$mapArray");
+    if (isMapArrayCall) {
+      state.needsMapArray = true;
+      if (expr.callee.name === "mapArray") expr.callee.name = "_$mapArray";
+      return expr;
+    }
+    if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+      expr = memoizeBranchCondition(expr, setup, state);
+      return t.arrowFunctionExpression([], expr);
+    }
+    return expr;
+  }
   function transformFragmentFineGrained(path, state) {
     const { node } = path;
     const children = node.children;
@@ -1396,7 +1424,7 @@ function whatBabelPlugin({ types: t }) {
         if (text) transformed.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
-          transformed.push(child.expression);
+          transformed.push(lowerFragmentExprChild(child.expression, state));
         }
       } else if (t.isJSXElement(child)) {
         transformed.push(transformElementFineGrained({ node: child }, state));

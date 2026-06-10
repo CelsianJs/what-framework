@@ -424,10 +424,17 @@ export function mapArray(source, mapFn, options) {
 
     effect(() => {
       const newItems = source() || [];
+      // Resolve the LIVE parent from the end marker each run. When this inserter
+      // is mounted at a fragment-as-root (`<>{items().map(...)}</>`), createDOM
+      // calls it against a throwaway DocumentFragment which is then appended to
+      // the real container — the marker (and existing rows) move with it, so the
+      // captured `parent` goes stale. endMarker.parentNode always reflects where
+      // the list currently lives. Falls back to the captured parent pre-mount.
+      const liveParent = endMarker.parentNode || parent;
       if (keyFn) {
-        reconcileKeyed(parent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedState);
+        reconcileKeyed(liveParent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedState);
       } else {
-        reconcileList(parent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn);
+        reconcileList(liveParent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn);
       }
       // Save a snapshot of items for next diff. Use slice() to defend against
       // in-place mutation, but skip for empty arrays (common clear case).
@@ -1251,12 +1258,9 @@ export function spread(el, props) {
           else el.className = cls;
         });
       } else if (key === 'style' && typeof value() === 'object') {
-        el._propEffects[key] = effect(() => {
-          const styles = value();
-          for (const prop in styles) {
-            el.style[prop] = styles[prop] ?? '';
-          }
-        });
+        // Route through setStyle so stale object keys are cleared between
+        // re-evaluations (el._lastStyleObj diffing).
+        el._propEffects[key] = effect(() => { setStyle(el, value()); });
       } else {
         el._propEffects[key] = effect(() => { setProp(el, key, value()); });
       }
@@ -1339,13 +1343,8 @@ export function setProp(el, key, value) {
       }
     }
   } else if (key === 'style') {
-    if (typeof value === 'string') {
-      el.style.cssText = value;
-    } else if (typeof value === 'object') {
-      for (const prop in value) {
-        el.style[prop] = value[prop] ?? '';
-      }
-    }
+    // Delegate to setStyle so the object form clears stale keys (el._lastStyleObj).
+    setStyle(el, value);
   } else if (key.startsWith('data-') || key.startsWith('aria-')) {
     el.setAttribute(key, value);
   } else if (typeof value === 'boolean') {
@@ -1398,13 +1397,27 @@ export function setStyle(el, value) {
   if (typeof value === 'function') return _wrapPropAccessor(el, 'style', value, setStyle);
   if (typeof value === 'string') {
     el.style.cssText = value;
+    // cssText fully replaces inline styles — drop any tracked object so a later
+    // object form starts clean rather than diffing against stale keys.
+    el._lastStyleObj = null;
   } else if (value && typeof value === 'object') {
     const style = el.style;
+    // Clear properties present in the previously-applied object but absent from
+    // the new one. Without this, `style={() => cond() ? {color, fontWeight} :
+    // {color}}` would leave fontWeight set after flipping to the second object.
+    const prev = el._lastStyleObj;
+    if (prev) {
+      for (const prop in prev) {
+        if (!(prop in value)) style[prop] = '';
+      }
+    }
     for (const prop in value) {
       style[prop] = value[prop] ?? '';
     }
+    el._lastStyleObj = value;
   } else if (value == null) {
     el.style.cssText = '';
+    el._lastStyleObj = null;
   }
 }
 
@@ -1754,12 +1767,8 @@ function hydrateElementProps(el, props) {
       if (key === 'class' || key === 'className') {
         effect(() => { el.className = value() || ''; });
       } else if (key === 'style' && typeof value() === 'object') {
-        effect(() => {
-          const styles = value();
-          for (const prop in styles) {
-            el.style[prop] = styles[prop] ?? '';
-          }
-        });
+        // Route through setStyle so stale object keys are cleared (el._lastStyleObj).
+        effect(() => { setStyle(el, value()); });
       } else {
         effect(() => { setProp(el, key, value()); });
       }

@@ -51,7 +51,7 @@ async function compileAndLoad(source) {
   return import(pathToFileURL(file).href);
 }
 
-const { flushSync } = await import(pathToFileURL(CORE_INDEX).href);
+const { flushSync, mount } = await import(pathToFileURL(CORE_INDEX).href);
 
 function captureWarns(fn) {
   const warns = [];
@@ -282,5 +282,108 @@ describe('C2: specialized setters keep security + controlled-input semantics', (
     assert.equal(input.value, 'Y');
     assert.equal(input.checked, true, 'checked drives the live property');
     el.remove();
+  });
+});
+
+describe('Fragment-as-root: dynamic expression children stay reactive (MEDIUM)', () => {
+  // Before the fix, transformFragmentFineGrained pushed JSXExpressionContainer
+  // children verbatim (no () => wrapper, no memo, no map lowering), so
+  // <>{count()}</> rendered once and never updated.
+  it('reactive text fragment child updates on signal change', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const count = signal(0);
+      export function App() {
+        return <>{count()}</>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mount(mod.App(), host);
+
+    assert.match(host.textContent, /0/, 'initial fragment text rendered');
+    mod.count(5);
+    flushSync();
+    assert.match(host.textContent, /5/, 'fragment dynamic text updated on signal write');
+    assert.doesNotMatch(host.textContent, /0/);
+    host.remove();
+  });
+
+  it('reactive text fragment child mixed with a static sibling updates', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const n = signal(1);
+      export function App() {
+        return <><span class="label">v=</span>{n()}</>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mount(mod.App(), host);
+
+    assert.equal(host.querySelector('.label').textContent, 'v=');
+    assert.match(host.textContent, /v=1/);
+    mod.n(42);
+    flushSync();
+    assert.match(host.textContent, /v=42/, 'dynamic sibling updated; static sibling preserved');
+    host.remove();
+  });
+
+  it('ternary fragment child: non-flip signal write does NOT recreate branch DOM', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const count = signal(6);
+      export function App() {
+        return <>{count() > 5 ? <strong>big {count()}</strong> : <em>small</em>}</>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mount(mod.App(), host);
+
+    const firstStrong = host.querySelector('strong');
+    assert.ok(firstStrong, 'taken branch rendered in fragment');
+    assert.match(firstStrong.textContent, /big 6/);
+
+    // Non-flip 6 -> 7 (still > 5): same node (memoizeBranchCondition applied).
+    mod.count(7);
+    flushSync();
+    assert.strictEqual(host.querySelector('strong'), firstStrong,
+      'fragment ternary branch DOM recreated on a non-flip update');
+    assert.match(firstStrong.textContent, /big 7/, 'fine-grained text inside fragment branch updates');
+
+    // Flip 7 -> 3: branch swaps.
+    mod.count(3);
+    flushSync();
+    assert.equal(host.querySelector('strong'), null);
+    assert.ok(host.querySelector('em'), 'alternate fragment branch rendered after flip');
+    host.remove();
+  });
+
+  it('keyed map fragment child lowers to _$mapArray and reconciles', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const items = signal([{ id: 1, t: 'a' }, { id: 2, t: 'b' }]);
+      export function App() {
+        return <>{items().map(i => <li key={i.id}>{i.t}</li>)}</>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mount(mod.App(), host);
+
+    let lis = host.querySelectorAll('li');
+    assert.equal(lis.length, 2);
+    assert.equal(lis[0].textContent, 'a');
+    const firstLi = lis[0];
+
+    // Append: keyed reconciliation must reuse the existing first <li> node.
+    mod.items(prev => [...prev, { id: 3, t: 'c' }]);
+    flushSync();
+    lis = host.querySelectorAll('li');
+    assert.equal(lis.length, 3, 'fragment map reconciled to 3 items');
+    assert.strictEqual(lis[0], firstLi, 'keyed map reused existing node (proves _$mapArray)');
+    assert.equal(lis[2].textContent, 'c');
+    host.remove();
   });
 });

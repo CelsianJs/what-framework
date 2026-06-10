@@ -140,6 +140,22 @@ export function createDOM(vnode, parent, isSvg) {
     return vnode;
   }
 
+  // Self-managing list inserter (mapArray) — it owns its own end marker and
+  // reconciliation effect and expects to be called as (parent, marker), NOT as
+  // a zero-arg reactive accessor. Reached when a keyed `.map()` is the child of
+  // a fragment-as-root (e.g. `<>{items().map(...)}</>`), which the compiler
+  // lowers to a bare `_$mapArray(...)`. Without this special-case the generic
+  // function branch below would call vnode() with no parent and throw.
+  if (typeof vnode === 'function' && vnode._mapArray) {
+    const frag = document.createDocumentFragment();
+    const endMarker = document.createComment('/list-frag');
+    frag.appendChild(endMarker);
+    // The inserter inserts its content before `endMarker` within `frag`; once
+    // `frag` is appended to the real DOM the nodes (and endMarker) carry over.
+    vnode(frag, endMarker);
+    return frag;
+  }
+
   // Reactive function child — use comment markers (no wrapper element)
   // to avoid polluting the DOM and breaking CSS selectors like :first-child.
   if (typeof vnode === 'function') {
