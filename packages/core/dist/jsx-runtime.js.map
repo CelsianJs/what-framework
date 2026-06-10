@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../src/jsx-runtime.js"],
-  "sourcesContent": ["// What Framework \u2014 JSX Automatic Runtime\n// Used by: jsxImportSource: \"what-framework\" (or \"what-core\")\n// Vite/esbuild import this automatically when using the \"react-jsx\" transform.\n\nimport { h, Fragment } from './h.js';\n\nexport { Fragment };\n\n// Automatic JSX transform signature: jsx(type, { children, ...props }, key)\n// What's h() signature: h(type, props, ...children)\nexport function jsx(type, props, key) {\n  if (props == null) return h(type, null);\n  const { children, ...rest } = props;\n  if (key !== undefined) rest.key = key;\n  if (children === undefined) return h(type, rest);\n  if (Array.isArray(children)) return h(type, rest, ...children);\n  return h(type, rest, children);\n}\n\n// jsxs = jsx for static children (multiple). Same behavior for What.\nexport const jsxs = jsx;\n"],
-  "mappings": ";;;;;;AAUO,SAAS,IAAI,MAAM,OAAO,KAAK;AACpC,MAAI,SAAS,KAAM,QAAO,EAAE,MAAM,IAAI;AACtC,QAAM,EAAE,UAAU,GAAG,KAAK,IAAI;AAC9B,MAAI,QAAQ,OAAW,MAAK,MAAM;AAClC,MAAI,aAAa,OAAW,QAAO,EAAE,MAAM,IAAI;AAC/C,MAAI,MAAM,QAAQ,QAAQ,EAAG,QAAO,EAAE,MAAM,MAAM,GAAG,QAAQ;AAC7D,SAAO,EAAE,MAAM,MAAM,QAAQ;AAC/B;AAGO,IAAM,OAAO;",
-  "names": []
-}

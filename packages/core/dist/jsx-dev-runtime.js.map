@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../src/jsx-dev-runtime.js"],
-  "sourcesContent": ["// What Framework \u2014 JSX Dev Runtime\n// Same as jsx-runtime but used in development mode by Vite.\n\nimport { h, Fragment } from './h.js';\n\nexport { Fragment };\n\nexport function jsxDEV(type, props, key) {\n  if (props == null) return h(type, null);\n  const { children, ...rest } = props;\n  if (key !== undefined) rest.key = key;\n  if (children === undefined) return h(type, rest);\n  if (Array.isArray(children)) return h(type, rest, ...children);\n  return h(type, rest, children);\n}\n\n// Also export jsx/jsxs for compatibility \u2014 some bundlers use these even in dev\nexport const jsx = jsxDEV;\nexport const jsxs = jsxDEV;\n"],
-  "mappings": ";;;;;;AAOO,SAAS,OAAO,MAAM,OAAO,KAAK;AACvC,MAAI,SAAS,KAAM,QAAO,EAAE,MAAM,IAAI;AACtC,QAAM,EAAE,UAAU,GAAG,KAAK,IAAI;AAC9B,MAAI,QAAQ,OAAW,MAAK,MAAM;AAClC,MAAI,aAAa,OAAW,QAAO,EAAE,MAAM,IAAI;AAC/C,MAAI,MAAM,QAAQ,QAAQ,EAAG,QAAO,EAAE,MAAM,MAAM,GAAG,QAAQ;AAC7D,SAAO,EAAE,MAAM,MAAM,QAAQ;AAC/B;AAGO,IAAM,MAAM;AACZ,IAAM,OAAO;",
-  "names": []
-}
