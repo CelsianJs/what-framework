@@ -50,9 +50,13 @@ jobs:
 
       # The lib fixture is gitignored and not a workspace member — install it here so
       # the compat pillar is actually exercised (the test FAILS, not skips, with the flag set).
+      # --legacy-peer-deps: the tests alias bare 'react'/'react-dom' imports to what-react
+      # (test/_helpers/react-alias-loader.mjs), so the real react package is never used and
+      # strict peer resolution over the ~100-lib unlocked fixture only breaks on upstream
+      # churn (e.g. react-intl@8.1.4 pins peer react@19 while react-beautiful-dnd caps at 18).
       - name: Install compat-lib fixture
         working-directory: packages/react-compat/test/app
-        run: npm install --no-save zustand @tanstack/react-query react-hook-form react-hot-toast @headlessui/react framer-motion
+        run: npm install --no-save --legacy-peer-deps zustand @tanstack/react-query react-hook-form react-hot-toast @headlessui/react framer-motion
 
       - name: Run guarded compat-lib tests
         working-directory: packages/react-compat
