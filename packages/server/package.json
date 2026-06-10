@@ -22,7 +22,7 @@
   },
   "files": [
     "src",
-    "dist",
+    "dist/**/*.min.js",
     "index.d.ts"
   ],
   "sideEffects": false,

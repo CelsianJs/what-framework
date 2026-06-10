@@ -5,18 +5,18 @@
 // Outputs both .js (ESM) and .min.js (minified) with source maps.
 
 import { build } from 'esbuild';
-import { readFileSync, mkdirSync, existsSync, statSync } from 'fs';
+import { mkdirSync, existsSync, statSync, rmSync } from 'fs';
 import { join, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const root = resolve(__dirname, '..');
 
-console.log('\n  Building What Framework with esbuild...\n');
-
 // Package build configurations
 // Each entry: { name, entries: [{ input, outputBase }], external }
-const packages = [
+// Exported so scripts/check-publish-surface.mjs can derive the per-package
+// dist allowlist from the same source of truth.
+export const packages = [
   {
     name: 'core',
     entries: [
@@ -92,12 +92,18 @@ const packages = [
   },
 ];
 
+async function runBuild() {
+console.log('\n  Building What Framework with esbuild...\n');
+
 let totalBundle = 0;
 let totalMinified = 0;
 
 for (const pkg of packages) {
   const pkgDir = join(root, 'packages', pkg.name);
   const distDir = join(pkgDir, 'dist');
+  // Clean before every build so dist/ is reproducible — stale chunk-<hash>
+  // generations and orphaned entries must never accumulate (and never ship).
+  rmSync(distDir, { recursive: true, force: true });
   mkdirSync(distDir, { recursive: true });
 
   let pkgBundle = 0;
@@ -126,7 +132,10 @@ for (const pkg of packages) {
       // Readable bundle: dist/<name>.js + shared chunk-<hash>.js
       await build({ ...common, minify: false, entryNames: '[name]', chunkNames: 'chunk-[hash]' });
       // Minified bundle: dist/<name>.min.js + shared chunk-<hash>.min.js
-      await build({ ...common, minify: true, entryNames: '[name].min', chunkNames: 'chunk-[hash].min' });
+      // sourcemap 'external': emit .map locally but no sourceMappingURL comment —
+      // only *.min.js ships to npm (package.json `files`), so a linked map would
+      // be a dangling 404 for CDN consumers.
+      await build({ ...common, minify: true, sourcemap: 'external', entryNames: '[name].min', chunkNames: 'chunk-[hash].min' });
 
       for (const entry of pkg.entries) {
         const bundlePath = join(distDir, `${entry.outputBase}.js`);
@@ -168,14 +177,15 @@ for (const pkg of packages) {
         logLevel: 'silent',
       });
 
-      // Minified bundle
+      // Minified bundle (map emitted locally, but without a sourceMappingURL
+      // comment — maps are excluded from the npm payload)
       await build({
         entryPoints: [entryPath],
         outfile: join(distDir, `${entry.outputBase}.min.js`),
         bundle: true,
         format: 'esm',
         platform: 'browser',
-        sourcemap: true,
+        sourcemap: 'external',
         treeShaking: true,
         external: pkg.external,
         minify: true,
@@ -213,8 +223,15 @@ console.log(
   `\n  Total:  bundle ${formatSize(totalBundle)}  min ${formatSize(totalMinified)}  (${totalRatio}% minification)`
 );
 console.log('  Done!\n');
+}
 
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   return (bytes / 1024).toFixed(1) + ' kB';
+}
+
+// Only build when executed directly (`node scripts/build.js`) — importing this
+// module (e.g. from check-publish-surface.mjs) must be side-effect free.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await runBuild();
 }

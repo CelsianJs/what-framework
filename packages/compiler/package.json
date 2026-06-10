@@ -42,7 +42,7 @@
   },
   "files": [
     "src",
-    "dist"
+    "dist/**/*.min.js"
   ],
   "devDependencies": {
     "@babel/core": "^7.23.0",
