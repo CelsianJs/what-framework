@@ -895,7 +895,7 @@
           <p>AI agents inspect every signal, effect, and component in a running app via the Model Context Protocol. Live state, dependency graphs, performance data -- all queryable.</p>
           <div class="feature-code">
 <pre><span class="comment">// Agent calls MCP tool:</span>
-<span class="function">what_devtools.getSignals</span>()
+<span class="function">what_signals</span>({ <span class="attr">filter</span>: <span class="string">"count|doubled"</span> })
 <span class="comment">// Returns:</span>
 { <span class="attr">count</span>: { <span class="attr">value</span>: <span class="number">5</span>, <span class="attr">subscribers</span>: <span class="number">2</span> },
   <span class="attr">doubled</span>: { <span class="attr">value</span>: <span class="number">10</span>, <span class="attr">type</span>: <span class="string">"computed"</span> } }</pre>
@@ -1017,7 +1017,7 @@
             <span class="code-filename">MCP DevTools Response</span>
           </div>
           <div class="code-body">
-<pre><span class="comment">// what_devtools.inspectComponent("TodoApp")</span>
+<pre><span class="comment">// what_explain({ componentId }) — TodoApp</span>
 {
   <span class="attr">"component"</span>: <span class="string">"TodoApp"</span>,
   <span class="attr">"signals"</span>: {
@@ -1060,7 +1060,7 @@
 {
   <span class="attr">"what-devtools"</span>: {
     <span class="attr">"command"</span>: <span class="string">"npx"</span>,
-    <span class="attr">"args"</span>: [<span class="string">"what-devtools"</span>, <span class="string">"--mcp"</span>],
+    <span class="attr">"args"</span>: [<span class="string">"what-devtools-mcp"</span>],
     <span class="attr">"env"</span>: { <span class="attr">"PORT"</span>: <span class="string">"3001"</span> }
   }
 }</pre>
@@ -1076,7 +1076,7 @@
   <span class="attr">"mcpServers"</span>: {
     <span class="attr">"what-devtools"</span>: {
       <span class="attr">"command"</span>: <span class="string">"npx"</span>,
-      <span class="attr">"args"</span>: [<span class="string">"what-devtools"</span>, <span class="string">"--mcp"</span>]
+      <span class="attr">"args"</span>: [<span class="string">"what-devtools-mcp"</span>]
     }
   }
 }</pre>
@@ -1157,7 +1157,7 @@
               <td><span class="cross">No</span></td>
             </tr>
             <tr>
-              <td>Runtime Size</td>
+              <td>Runtime Size<sup>*</sup></td>
               <td class="highlight-col"><span class="check">~8KB</span></td>
               <td><span class="cross">~44KB</span></td>
               <td><span class="check">~8KB</span></td>
@@ -1166,6 +1166,7 @@
           </tbody>
         </table>
       </div>
+      <p class="animate-in delay-2" style="margin-top: 1rem; font-size: 0.8rem; opacity: 0.6;"><sup>*</sup> Minimal-runtime gzipped size. Real-world app bundles vary by features used and differ between frameworks at app scale — these figures don't imply byte-for-byte parity.</p>
     </div>
   </section>
 

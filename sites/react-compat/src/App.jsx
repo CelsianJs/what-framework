@@ -184,7 +184,7 @@ function Hero() {
     <section class="hero">
       <div class="container">
         <div class="hero-pill"><span class="dot"></span> what-react v0.10.0</div>
-        <h1><span class="grad">Your React Libraries.</span><br />Zero Changes.</h1>
+        <h1><span class="grad">Most React Libraries.</span><br />No Code Changes.</h1>
         <p class="hero-sub">
           What Framework's <code>what-react</code> compat layer lets you use the React ecosystem
           on a signals-powered engine. Same imports. Same API. Faster runtime.
@@ -192,7 +192,7 @@ function Hero() {
         <div class="stats-bar">
           <Counter target={pkgs.filter((p) => p.s === 'pass').length} suffix="" colorClass="c-blue">Verified Working</Counter>
           <Counter target={pkgs.length} suffix="" colorClass="c-cyan">Libraries Tracked</Counter>
-          <Counter target={0} suffix="" colorClass="c-purple">Lines Changed</Counter>
+          <Counter target={0} suffix="" colorClass="c-purple">Lines Changed (Same Imports)</Counter>
           <Counter target={500} suffix="M+" colorClass="c-green">Ecosystem Downloads/wk</Counter>
         </div>
       </div>
@@ -277,7 +277,7 @@ function HowItWorks() {
               <div class="step-n">4</div>
               <div class="step-body">
                 <h3>Ship it</h3>
-                <p>Your existing React code, tests, and libraries all work. Only the runtime changed.</p>
+                <p>Most existing React code, tests, and libraries work unchanged — same imports, same API. Only the runtime changed. (Some React 18 concurrent features degrade; see limitations.)</p>
               </div>
             </div>
           </div>
@@ -320,7 +320,7 @@ function Architecture() {
         <div class="reveal" ref={headerRef}>
           <div class="section-label">Architecture</div>
           <h2 class="section-title">Not a Shim. A Runtime.</h2>
-          <p class="section-desc">Every React API, reimplemented from scratch on signals. Class components, portals, context, Suspense — all of it.</p>
+          <p class="section-desc">The React API, reimplemented on signals. Class components, portals, context, and minimal Suspense — same imports, same API.</p>
         </div>
         <div class="arch-grid">
           <div class="reveal" ref={featRef}>
@@ -357,7 +357,7 @@ function Architecture() {
                 <div class="arch-feat-icon">&#x1F504;</div>
                 <div>
                   <h4>React 18 APIs</h4>
-                  <p>useSyncExternalStore, useTransition, useDeferredValue, useId, Suspense, and lazy loading.</p>
+                  <p>useSyncExternalStore, useId, lazy loading, plus minimal Suspense (fallback swap). useTransition / useDeferredValue are supported but synchronous (non-concurrent).</p>
                 </div>
               </div>
             </div>
@@ -376,10 +376,11 @@ function Architecture() {
 <span class="key">useContext</span>, <span class="key">useReducer</span>,
 <span class="key">useImperativeHandle</span>, <span class="key">useId</span>,
 <span class="key">useSyncExternalStore</span>,
-<span class="key">useTransition</span>, <span class="key">useDeferredValue</span>,
+<span class="key">useTransition</span>, <span class="key">useDeferredValue</span>, <span class="cm">// synchronous (non-concurrent)</span>
 
 <span class="cm">// Components</span>
-<span class="key">Fragment</span>, <span class="key">Suspense</span>, <span class="key">StrictMode</span>,
+<span class="key">Fragment</span>, <span class="key">Suspense</span>, <span class="cm">// minimal (fallback swap)</span>
+<span class="key">StrictMode</span>,
 <span class="key">Component</span>, <span class="key">PureComponent</span>,
 
 <span class="cm">// Functions</span>
@@ -423,12 +424,13 @@ function Benchmarks() {
     return () => obs.disconnect();
   }, []);
 
+  // Honest, internal relative measurement from benchmark/krausest/RESULTS.md.
+  // geometric mean vs vanilla JS in a krausest-style keyed harness (lower is better).
   const benchmarks = [
-    { x: '2.5x', lib: 'Zustand', met: 'Store updates/sec' },
-    { x: '3.5x', lib: 'React Hook Form', met: 'Form reset speed' },
-    { x: '2.8x', lib: 'TanStack Table', met: 'Row creation speed' },
-    { x: '3.0x', lib: 'Jotai', met: 'Atom updates/sec' },
-    { x: '10x', lib: 'TanStack Virtual', met: 'Scroll performance' },
+    { x: '1.00x', lib: 'Vanilla JS', met: 'Baseline (geomean vs vanilla)' },
+    { x: '1.06x', lib: 'What', met: 'Geomean vs vanilla' },
+    { x: '1.13x', lib: 'React', met: 'Geomean vs vanilla' },
+    { x: '1.15x', lib: 'Solid', met: 'Geomean vs vanilla' },
   ];
 
   return (
@@ -436,8 +438,8 @@ function Benchmarks() {
       <div class="container">
         <div class="reveal" ref={headerRef}>
           <div class="section-label">Performance</div>
-          <h2 class="section-title">Faster Than React.<br />With React Libraries.</h2>
-          <p class="section-desc" style="margin: 0 auto;">Same libraries, same API. Signals instead of virtual DOM diffing.</p>
+          <h2 class="section-title">Signals, Not Diffing.</h2>
+          <p class="section-desc" style="margin: 0 auto;">In our own krausest-style keyed benchmark, What's engine geomeans 1.06x vanilla JS — ahead of React (1.13x) and Solid (1.15x) in the same harness. This is an internal relative measurement, not the official js-framework-benchmark: no CPU throttling, fewer samples, in-page timing. Use it for relative ordering only.</p>
         </div>
         <div class="bench-cards stagger" ref={cardsRef}>
           {benchmarks.map(b => (

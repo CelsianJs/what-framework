@@ -19,8 +19,8 @@ fixing issues in a single pass — while staying small, fast, and pleasant for h
    create targeted DOM effects, so an update touches only the nodes that changed — no diff,
    no re-render, no dependency arrays. This is both faster and easier to reason about.
 
-3. **Errors should be fixes, not stack traces.** Every framework error returns JSON with a
-   code, a human message, a suggested fix, and a code example. An agent (or a human) can act
+3. **Errors should be fixes, not stack traces.** Core runtime errors carry a code, message,
+   suggested fix, and code example, and serialize to JSON. An agent (or a human) can act
    on it without spelunking.
 
 4. **Small API surface, no magic.** `signal`, `computed`, `effect`, `batch`, components as
