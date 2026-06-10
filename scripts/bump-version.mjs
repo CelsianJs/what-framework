@@ -83,5 +83,17 @@ for (const { file, json } of manifests) {
   console.log(`  ${json.name.padEnd(24)} -> ${next}`);
 }
 
+// Keep the hardcoded VERSION constant in agent-context.js in sync (guarded by a
+// version-match test in packages/core/test/guardrails.test.js — would fail CI otherwise).
+const agentCtx = join(pkgsDir, 'core', 'src', 'agent-context.js');
+if (existsSync(agentCtx)) {
+  const src = readFileSync(agentCtx, 'utf8');
+  const updated = src.replace(/const VERSION = '[^']*';/, `const VERSION = '${next}';`);
+  if (updated !== src) {
+    if (!dry) writeFileSync(agentCtx, updated);
+    console.log(`  ${'agent-context.js VERSION'.padEnd(24)} -> ${next}`);
+  }
+}
+
 console.log(`\n[bump] ${manifests.length} packages set to ${next}; ${changedRanges} internal ^ranges retargeted to ${newRange}.`);
 if (dry) console.log('[bump] dry run — no files written.');
