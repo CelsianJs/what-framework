@@ -1440,7 +1440,7 @@ const SERVED_PREFIXES = [
 ];
 
 function resolveStaticFile(pathname) {
-  if (pathname.includes('..') || pathname.includes('\\0')) return null;
+  if (pathname.includes('..') || pathname.includes('\0')) return null;
   const allowed = SERVED_FILES.has(pathname) || SERVED_PREFIXES.some((p) => pathname.startsWith(p));
   const file = allowed
     ? resolve(join(ROOT, pathname))

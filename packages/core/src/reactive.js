@@ -7,10 +7,26 @@
 // - Ownership tree: createRoot children auto-dispose when parent disposes
 // - Performance: cached levels, lazy sort, fast-path notify, minimal allocation
 
-// Dev-mode flag — build tools can dead-code-eliminate when false
-export const __DEV__ = typeof process !== 'undefined'
-  ? process.env?.NODE_ENV !== 'production'
-  : true;
+// Dev-mode flag — `if (__DEV__)` branches dead-code-eliminate when this is false.
+//
+// Resolution order (first definitive signal wins; PRODUCTION-SAFE default):
+//   1. globalThis.__WHAT_DEV__ — explicit boolean override for browser tooling
+//      (e.g. the playground can force dev mode without a bundler env).
+//   2. import.meta.env.DEV     — Vite & modern bundlers statically replace this,
+//      so production builds fully strip every dev branch.
+//   3. process.env.NODE_ENV    — Node / webpack / esbuild `define`.
+//   4. false                   — a raw browser bundle with NO build signal must
+//      default to PRODUCTION. (Previously defaulted to `true`, so EVERY browser
+//      bundle ran in dev mode: perf/size tax + the spurious internal
+//      `template()` XSS warning surfacing on production sites. AUDIT 2026-06-10.)
+export const __DEV__ =
+  (typeof globalThis !== 'undefined' && typeof globalThis.__WHAT_DEV__ === 'boolean')
+    ? globalThis.__WHAT_DEV__
+    : (import.meta && import.meta.env)
+      ? !!import.meta.env.DEV
+      : (typeof process !== 'undefined' && process.env)
+        ? process.env.NODE_ENV !== 'production'
+        : false;
 
 // DevTools hooks — set by what-devtools when installed.
 // These are no-ops in production (dead-code eliminated with __DEV__).

@@ -18,7 +18,7 @@
 - **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
 - **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — Fine-grained, no VDOM. Measured, tree-shaken + gzipped: a counter ≈6KB, a typical app ≈8KB. Minimal dependencies, fully tree-shakeable
+- **Small & Fast** — Fine-grained, no VDOM. Measured (production build, min+gzip, via `npm run check:size`): the reactive core in a counter app is ~5.5KB; a typical app ~8KB. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
