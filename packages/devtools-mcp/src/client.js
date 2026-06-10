@@ -21,7 +21,7 @@ function logGrouped(badge, badgeStyle, title, data) {
   console.groupEnd();
 }
 
-export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
+export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' } = {}) {
   // Never connect in production
   if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') {
     return { disconnect() {}, reconnect() {}, isConnected: false, eventCount: 0 };
@@ -57,15 +57,43 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
   // WebSocket connection always prints an unsuppressible red error in the
   // browser console; a failed fetch wrapped in catch() prints at most a single
   // muted "Failed to load resource" network line — the quietest probe the
-  // platform allows. The bridge serves GET http://localhost:{port+1}/__what_mcp_token
-  // (loopback-origin gated), so a 200 here means the bridge is up AND gives us
-  // the token + actual WS port in one round-trip.
+  // platform allows.
   //
-  // Trade-off: if the discovery HTTP port (port+1) is occupied by another
-  // process while the WS port is free, we won't connect even with an explicit
-  // token. That edge case is rarer and cheaper than spamming every fresh app
-  // (the default state: no bridge running) with red WS errors.
+  // Two probe modes:
+  //
+  // 1. Same-origin discovery (preferred — `discoveryUrl`, set by the Vite
+  //    plugin): the dev server proxies the bridge probe Node-side, so a
+  //    missing bridge produces ZERO console output — the dev server itself is
+  //    up, so there is no network-layer ERR_CONNECTION_REFUSED line either.
+  //
+  // 2. Direct probe of GET http://localhost:{port+1}/__what_mcp_token
+  //    (loopback-origin gated; a 200 means the bridge is up AND returns the
+  //    token + actual WS port in one round-trip). Even wrapped in catch(),
+  //    the browser's network layer logs net::ERR_CONNECTION_REFUSED for every
+  //    failed attempt — unsuppressible from JS — so this mode only runs when
+  //    a bridge is actually expected (explicit token, or the
+  //    window.__WHAT_DEVTOOLS_DEBUG__ flag). See `pollEnabled` below.
+  //
+  // Trade-off (direct mode): if the discovery HTTP port (port+1) is occupied
+  // by another process while the WS port is free, we won't connect even with
+  // an explicit token. That edge case is rarer and cheaper than spamming
+  // every fresh app (the default state: no bridge running) with red WS errors.
   async function probeBridge() {
+    if (discoveryUrl) {
+      try {
+        const res = await fetch(discoveryUrl, { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.bridge) return false;
+          if (data.token) discoveredToken = data.token;
+          discoveredPort = data.wsPort || port;
+          return true;
+        }
+      } catch {
+        // Dev server unreachable (page about to die) — stay quiet.
+      }
+      return false;
+    }
     try {
       const res = await fetch(`http://localhost:${port + 1}/__what_mcp_token`, { cache: 'no-store' });
       if (res.ok) {
@@ -351,7 +379,8 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
 
   // Manual retry escape hatch — resets the back-off and probes immediately.
   // Useful when the dev just started the bridge and doesn't want to wait
-  // out the back-off (or reload the page).
+  // out the back-off (or reload the page). Also the opt-in for clients that
+  // start dormant (see pollEnabled below).
   function reconnect() {
     if (stopped || connected) return;
     if (probeTimer) {
@@ -365,8 +394,22 @@ export function connectDevToolsMCP({ port = 9229, token = '' } = {}) {
     window.__WHAT_MCP_RECONNECT__ = reconnect;
   }
 
+  // Direct cross-origin polling logs net::ERR_CONNECTION_REFUSED from the
+  // browser's network layer on every attempt when no bridge runs — JS cannot
+  // suppress it, and a fresh scaffold (no bridge) saw that on every load.
+  // So without a same-origin discoveryUrl, only poll when a bridge is
+  // actually expected: an explicit token was provided, or the developer set
+  // window.__WHAT_DEVTOOLS_DEBUG__ = true. Otherwise stay dormant — zero
+  // network traffic, zero console output — until reconnect() opts in
+  // (window.__WHAT_MCP_RECONNECT__() from the console works too).
+  const pollEnabled = Boolean(
+    discoveryUrl
+    || token
+    || (typeof window !== 'undefined' && window.__WHAT_DEVTOOLS_DEBUG__)
+  );
+
   // Initial attempt — quiet probe first; WebSocket only if the bridge answers.
-  tryConnect();
+  if (pollEnabled) tryConnect();
 
   return {
     disconnect,
