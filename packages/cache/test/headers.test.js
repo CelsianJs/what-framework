@@ -31,4 +31,18 @@ describe('buildCacheHeaders', () => {
   it('always reports the cache status', () => {
     assert.equal(buildCacheHeaders({ maxAge: 30, swrWindow: 30 }, {}, 'STALE')['X-What-Cache'], 'STALE');
   });
+
+  it('emits no-store for non-200 entries even on static routes (404/500 never CDN-cached)', () => {
+    for (const status of [404, 500]) {
+      const h = buildCacheHeaders({ maxAge: 60, swrWindow: 600, tags: ['posts'], status }, { mode: 'static' }, 'MISS');
+      assert.match(h['Cache-Control'], /no-store/, `status ${status} must be no-store`);
+      assert.match(h['Cache-Control'], /private/);
+      assert.equal(h['Cache-Tag'], undefined, 'no purge tags on uncacheable responses');
+    }
+  });
+
+  it('an explicit status 200 stays cacheable', () => {
+    const h = buildCacheHeaders({ maxAge: 60, swrWindow: 600, tags: [], status: 200 }, { mode: 'static' }, 'MISS');
+    assert.match(h['Cache-Control'], /s-maxage=60/);
+  });
 });

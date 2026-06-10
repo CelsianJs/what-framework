@@ -78,6 +78,68 @@ describe('ISR engine', () => {
     assert.match(r.html, /render#2/);
   });
 
+  it('never caches non-200 renders (soft-404s re-render on every request)', async () => {
+    let t = 0; const now = () => t;
+    let renders = 0;
+    const render = async () => {
+      renders++;
+      return { html: '<p>Not found</p>', head: '', state: null, tags: [], status: 404 };
+    };
+    const store = createMemoryStore();
+    const engine = createCacheEngine({ store, render, now });
+    const route = { path: '/blog/nope', query: {}, config: { mode: 'static', revalidate: 60, swr: 600 } };
+
+    const r1 = await engine.handle(route);
+    assert.equal(r1.status, 404, 'real status passes through');
+    assert.equal(r1.cacheStatus, 'MISS');
+    assert.match(r1.headers['Cache-Control'], /no-store/, '404 must not be CDN-cacheable');
+    assert.deepEqual(await store.keys(), [], '404 entry must not be stored');
+
+    const r2 = await engine.handle(route);
+    assert.equal(r2.cacheStatus, 'MISS', 'no HIT for a 404 — re-rendered');
+    assert.equal(r2.status, 404);
+    assert.equal(renders, 2, 'each request re-renders; nothing was cached');
+  });
+
+  it('never caches 5xx renders either', async () => {
+    const store = createMemoryStore();
+    const engine = createCacheEngine({
+      store,
+      render: async () => ({ html: '<p>boom</p>', status: 500, tags: [] }),
+      now: () => 0,
+    });
+    const route = { path: '/err', query: {}, config: { mode: 'static', revalidate: 60 } };
+    const r = await engine.handle(route);
+    assert.equal(r.status, 500);
+    assert.deepEqual(await store.keys(), []);
+  });
+
+  it('a non-200 background regeneration leaves the cached 200 entry intact', async () => {
+    let t = 1_000_000; const now = () => t;
+    let renders = 0;
+    const render = async () => {
+      renders++;
+      return renders === 1
+        ? { html: '<p>good</p>', head: '', state: null, tags: [] }          // 200
+        : { html: '<p>Not found</p>', head: '', state: null, tags: [], status: 404 };
+    };
+    const store = createMemoryStore();
+    const engine = createCacheEngine({ store, render, now });
+    const route = { path: '/p', query: {}, config: { mode: 'static', revalidate: 60, swr: 600 } };
+
+    await engine.handle(route);             // cache the 200
+    t += 120_000;                           // stale, within swr
+    const r = await engine.handle(route);   // serves stale, regen → 404 in background
+    assert.equal(r.cacheStatus, 'STALE');
+    await new Promise((res) => setTimeout(res, 20));
+    assert.equal(renders, 2, 'background regeneration ran');
+    const [key] = await store.keys();
+    assert.ok(key, 'good entry still stored');
+    const entry = await store.get(key);
+    assert.match(entry.html, /good/, '404 regen must not overwrite the cached 200');
+    assert.equal(entry.status, 200);
+  });
+
   it('stale-if-error serves stale when regeneration throws', async () => {
     let t = 0; const now = () => t;
     let calls = 0;
