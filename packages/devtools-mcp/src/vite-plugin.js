@@ -41,10 +41,45 @@ const RESOLVED_BOOTSTRAP_ID = '\0' + VIRTUAL_BOOTSTRAP_ID;
 // Vite encodes `\0` as `__x00__` in `/@id/` URLs — stable since Vite 2 (2021).
 const BROWSER_BOOTSTRAP_URL = '/@id/__x00__' + VIRTUAL_BOOTSTRAP_ID;
 
+// Same-origin discovery endpoint served by the dev server (see configureServer).
+// The browser polls THIS instead of the bridge's cross-origin port directly:
+// a failed cross-origin fetch logs net::ERR_CONNECTION_REFUSED in the console
+// on every fresh scaffold (no bridge running) — unsuppressible from JS. The
+// dev server itself is always up while the page is open, so polling it never
+// produces console noise; the bridge probe happens Node-side instead.
+export const DISCOVERY_PATH = '/__what_mcp_discovery';
+
 export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
   return {
     name: 'what-devtools-mcp',
     apply: 'serve',
+
+    // Node-side bridge probe, exposed same-origin to the browser client.
+    // Responds { bridge: false } when no bridge is running (quietly), or
+    // { bridge: true, token, wsPort } when it is — one round-trip discovery.
+    configureServer(server) {
+      server.middlewares.use(DISCOVERY_PATH, async (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store');
+        try {
+          const probe = await fetch(`http://127.0.0.1:${port + 1}/__what_mcp_token`, {
+            signal: AbortSignal.timeout(1000),
+          });
+          if (probe.ok) {
+            const data = await probe.json();
+            res.end(JSON.stringify({
+              bridge: true,
+              token: data.token || '',
+              wsPort: data.wsPort || port,
+            }));
+            return;
+          }
+        } catch {
+          // Bridge not running — the normal state for a fresh scaffold.
+        }
+        res.end(JSON.stringify({ bridge: false }));
+      });
+    },
 
     // Resolve the virtual module so Vite knows we own it.
     resolveId(id) {
@@ -66,7 +101,7 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
         `import { installDevTools } from 'what-devtools';`,
         `import { connectDevToolsMCP } from 'what-devtools-mcp/client';`,
         `installDevTools(core);`,
-        `connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)} });`,
+        `connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)}, discoveryUrl: ${JSON.stringify(DISCOVERY_PATH)} });`,
       ].join('\n');
     },
 

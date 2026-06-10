@@ -17,6 +17,41 @@ import { setupErrorOverlay } from './error-overlay.js';
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
 
+/**
+ * Shape the "preserve JSX" transform config for the running Vite version.
+ *
+ * Vite ≤7 transforms with esbuild and takes `esbuild: { jsx: 'preserve' }`.
+ * Vite 8 (rolldown-based) transforms with oxc; the `esbuild` key still works
+ * but prints a deprecation warning on every dev/build run
+ * ("'esbuild' option ... is deprecated, please use 'oxc' instead"), so we
+ * emit `oxc: { jsx: 'preserve' }` there instead.
+ *
+ * Detection (either signal selects oxc):
+ *  - feature: rolldown-vite exposes `this.meta.rolldownVersion` to plugins —
+ *    the most reliable signal, also covers `rolldown-vite` aliased as vite 7.
+ *  - version: `import('vite')` exports `version`; major ≥ 8 means rolldown.
+ *
+ * Exported for unit tests.
+ */
+export function jsxPreserveConfig({ rolldownVersion, viteVersion } = {}) {
+  const major = parseInt(String(viteVersion ?? ''), 10);
+  const useOxc = Boolean(rolldownVersion) || (Number.isFinite(major) && major >= 8);
+  return useOxc
+    ? { oxc: { jsx: 'preserve' } }
+    : { esbuild: { jsx: 'preserve' } };
+}
+
+// Resolved once per process — the Vite version can't change mid-run.
+let viteVersionPromise = null;
+function detectViteVersion() {
+  if (!viteVersionPromise) {
+    viteVersionPromise = import('vite')
+      .then((vite) => vite.version || '')
+      .catch(() => ''); // vite not resolvable (tests) — esbuild fallback
+  }
+  return viteVersionPromise;
+}
+
 // Pattern: exported function starting with uppercase = component
 const COMPONENT_EXPORT_RE = /export\s+(?:default\s+)?function\s+([A-Z]\w*)/;
 // Pattern: files that are likely signal/store/utility files
@@ -177,7 +212,7 @@ export default function whatVitePlugin(options = {}) {
     },
 
     // Configure for development
-    config(config, { mode, command }) {
+    async config(config, { mode, command }) {
       // SPRINT v0.11 C7: make the `production` exports condition reachable.
       // what-framework/what-core ship pre-minified production bundles behind
       // the `production` condition in their exports maps, but Vite's default
@@ -196,12 +231,16 @@ export default function whatVitePlugin(options = {}) {
       //    of the defaults), so import/browser/default resolution for other
       //    packages is unaffected.
       const useProdCondition = command === 'build' && mode === 'production' && prodBundles;
+      // Preserve JSX so our babel plugin handles it — don't let the bundler's
+      // built-in transformer (esbuild on Vite ≤7, oxc on Vite 8+) touch it.
+      // jsxPreserveConfig picks the right option key for the running version.
+      const jsxPreserve = jsxPreserveConfig({
+        rolldownVersion: this?.meta?.rolldownVersion,
+        viteVersion: await detectViteVersion(),
+      });
       return {
         ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),
-        esbuild: {
-          // Preserve JSX so our babel plugin handles it -- don't let esbuild transform it
-          jsx: 'preserve',
-        },
+        ...jsxPreserve,
         optimizeDeps: {
           // Exclude framework packages from Vite's dependency pre-bundling.
           //

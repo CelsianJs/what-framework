@@ -174,6 +174,18 @@ installDevTools(core);
 connectDevToolsMCP({ port: 9229 });
 ```
 
+Without the Vite plugin the client starts **dormant** — it does not poll for a
+bridge, so apps with no bridge running produce zero console/network noise.
+To activate it, do one of:
+
+- pass an explicit `token` (e.g. from `WHAT_MCP_TOKEN`): `connectDevToolsMCP({ token })`
+- set `window.__WHAT_DEVTOOLS_DEBUG__ = true` before calling it
+- call `window.__WHAT_MCP_RECONNECT__()` from the browser console after starting the bridge
+
+The Vite plugin doesn't need any of this: it serves a same-origin
+`/__what_mcp_discovery` endpoint and the client polls that quietly, so the
+bridge is discovered automatically whenever it's running.
+
 ## Configuration
 
 | Option | Default | Description |
