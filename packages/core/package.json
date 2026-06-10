@@ -1,6 +1,6 @@
 {
   "name": "what-core",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "What Framework - Signal-based UI framework built for AI agents",
   "type": "module",
   "main": "src/index.js",

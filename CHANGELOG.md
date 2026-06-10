@@ -2,6 +2,48 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.11.1] - 2026-06-10 — Audit fixes: release hygiene, scaffold security, browser production mode
+
+A focused follow-up to 0.11.0 from a full public-surface + engineering audit.
+All 14 packages move to 0.11.1 together (fixed-group release). No API changes.
+
+### Fixed
+- **`what-framework-cli init` produced a non-working scaffold** — it generated
+  only `package.json` + config, with scripts calling a `what` bin no dependency
+  provided. `init` now delegates to the create-what scaffolder and produces a
+  runnable app (regression-tested so a phantom-bin script can't return).
+- **Fullstack template served all of `/src/` over HTTP** — `src/db.js` and
+  `src/actions/**` (server-only code) were fetchable in dev *and* prod. Static
+  serving is now deny-by-default: only client assets resolve; server-only
+  modules 404. Verified against a path-traversal/encoding attack battery.
+- **Production bundles ran in dev mode in the browser** — `__DEV__` defaulted to
+  `true` whenever there was no `process` global (i.e. every browser), shipping
+  dev warnings/guards and surfacing a spurious internal `template()` XSS warning
+  on production sites. `__DEV__` now resolves production-safe
+  (`globalThis.__WHAT_DEV__` › `import.meta.env.DEV` › `process.env.NODE_ENV` ›
+  `false`); production builds dead-code-eliminate all dev branches.
+- **No-JS form submission failed** — SSR forms omitted the `_action`/CSRF inputs
+  the server required; the server now also accepts the CSRF token from the form
+  body, so rendered forms submit without JavaScript.
+- **Unknown routes returned cacheable soft-404s** — now real `404`s with
+  `no-store`, never ISR-cached.
+
+### Changed
+- **Playground teaches JSX, not `h()`** — examples are authored in JSX and
+  compiled in-browser by the real What compiler (added a "view compiled output"
+  toggle). Previously 238 hand-written `h()` calls.
+- **Docs & marketing sites** — working docs search (`/` + Cmd-K), honest
+  react-compat hero, build-time version badges, favicons; one consistent version
+  across every surface (was three).
+- **Release hygiene is now mechanical** — `bump-version` sweeps version strings,
+  the CHANGELOG stub, and the SECURITY window so versions can't drift again.
+
+### Build & publish
+- **what-core npm payload 4.2 MB → 423 KB** (clean `dist/` before build, ship
+  only `dist/**/*.min.js`, no sourcemaps in the tarball); new size-budget CI gate.
+- Compiler Vite 8 support (`oxc`), MCP `--help` on both bins, and the
+  devtools-mcp `localhost:9230` console-noise fix (same-origin discovery).
+
 ## [0.11.0] - 2026-06-09 — React compat that actually runs React libraries, fullstack scaffold, compiler perf
 
 All 14 packages move to 0.11.0 together (fixed-group release). The test suite
