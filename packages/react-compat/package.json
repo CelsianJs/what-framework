@@ -5,6 +5,9 @@
   "type": "module",
   "sideEffects": false,
   "main": "src/index.js",
+  "scripts": {
+    "test": "node --test 'test/*.test.js'"
+  },
   "exports": {
     ".": "./src/index.js",
     "./dom": "./src/dom.js",

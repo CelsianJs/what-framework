@@ -54,6 +54,25 @@ if (!window.Element.prototype.scrollIntoView) {
 const APP_MODULES = new URL('./app/node_modules/', import.meta.url);
 const hasLibs = existsSync(fileURLToPath(new URL('zustand', APP_MODULES)));
 const lib = (p) => import(new URL(p, APP_MODULES).href);
+
+// CI enforcement gate: the library-compat fixture (test/app/node_modules) is
+// gitignored and NOT a workspace member, so a fresh CI checkout has no libs and
+// these tests would silently SKIP — letting the headline "real React libs work"
+// pillar rot to 0/6 unnoticed. When WHAT_REQUIRE_COMPAT_LIBS=1 is set, a missing
+// fixture is a HARD FAILURE instead of a skip, so CI can guarantee the libs are
+// actually exercised. Local dev without the fixture still skips gracefully.
+const REQUIRE_LIBS = process.env.WHAT_REQUIRE_COMPAT_LIBS === '1';
+if (REQUIRE_LIBS && !hasLibs) {
+  // A bare throw at module top-level marks this test file as failed in node:test,
+  // which is exactly what we want CI to see.
+  throw new Error(
+    'WHAT_REQUIRE_COMPAT_LIBS=1 but the library fixture is missing: ' +
+    fileURLToPath(APP_MODULES) +
+    '\nInstall the compat-lib subset into packages/react-compat/test/app before running ' +
+    '(e.g. `npm install` in test/app, or the CI step that installs ' +
+    'zustand @tanstack/react-query react-hook-form react-hot-toast @headlessui/react).',
+  );
+}
 const skip = hasLibs ? false : 'test/app/node_modules not installed (run npm install in packages/react-compat/test/app)';
 
 const React = await import('../src/index.js');
@@ -275,4 +294,49 @@ test('@headlessui/react: Switch toggles', { skip }, async () => {
   act(() => container.querySelector('#sw').click());
   await settle(4);
   assert.equal(container.querySelector('output').textContent, 'on');
+});
+
+// ---------------------------------------------------------------
+// framer-motion
+// ---------------------------------------------------------------
+// Previously this lib was only verified via the browser acceptance fixture, so
+// it was UNGUARDED in CI. It actually runs fine in jsdom with the RAF /
+// ResizeObserver / IntersectionObserver / matchMedia stubs above. We assert the
+// parts jsdom can drive deterministically: motion.* components mount and render
+// their children, props gate which element is present, and conditional
+// rendering inside AnimatePresence reacts to state. We do NOT assert on the
+// exit-animation teardown — AnimatePresence keeps the exiting node until its
+// exit animation *completes*, which jsdom's fake RAF never actually advances,
+// so that timing isn't reproducible here (it's covered by the browser fixture).
+
+test('framer-motion: motion.* mounts, renders children, conditional add re-renders', { skip }, async () => {
+  const { motion, AnimatePresence } = await lib('framer-motion/dist/es/index.mjs');
+  // `motion` is a Proxy wrapping a function target, so typeof is 'function'.
+  assert.ok(motion && typeof motion.div === 'function', 'motion proxy imported (motion.div is a component)');
+  assert.ok(AnimatePresence, 'AnimatePresence imported');
+
+  function App() {
+    const [extra, setExtra] = useState(false);
+    return h('div', null,
+      h('button', { onClick: () => setExtra(true) }, 'add'),
+      h(AnimatePresence, null,
+        h(motion.div, { key: 'a', id: 'box-a', initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }, 'Box A'),
+        extra && h(motion.div, { key: 'b', id: 'box-b', initial: { opacity: 0 }, animate: { opacity: 1 } }, 'Box B'),
+      ),
+    );
+  }
+
+  const { container } = mount(h(App));
+  await settle(6);
+  const boxA = container.querySelector('#box-a');
+  assert.ok(boxA, 'motion.div mounted');
+  assert.equal(boxA.tagName.toLowerCase(), 'div', 'motion.div renders a real <div>');
+  assert.equal(boxA.textContent, 'Box A', 'motion.div renders its children');
+  assert.equal(container.querySelector('#box-b'), null, 'second motion.div absent before state change');
+
+  act(() => container.querySelector('button').click());
+  await settle(8);
+  const boxB = container.querySelector('#box-b');
+  assert.ok(boxB, 'conditional motion.div appears after state update');
+  assert.equal(boxB.textContent, 'Box B', 'newly-added motion.div renders children');
 });

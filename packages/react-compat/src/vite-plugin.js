@@ -50,6 +50,56 @@ const KNOWN_REACT_PACKAGES = [
   'use-sync-external-store', 'immer',
 ];
 
+// Pure-CJS transitive utilities that do NOT import 'react' themselves (they
+// touch react-is / symbols / DOM only). They must stay IN Vite's optimizeDeps
+// so esbuild pre-bundles them and synthesizes the ESM default/named exports
+// that React UI libs import (e.g. `import hoistStatics from 'hoist-non-react-statics'`).
+//
+// If these are excluded (or left un-pre-bundled), Vite serves the raw CJS file
+// and the browser throws "does not provide an export named 'default'", which
+// blank-screens the whole app. This is exactly what happens with react-select
+// and @emotion/* — their CJS dep chain pulls in hoist-non-react-statics.
+//
+// These carry NO dual-React-instance risk: none of them `require('react')`,
+// so there is no second copy of React/hooks to worry about. The react→what-react
+// alias still applies to anything that DOES import 'react'.
+const PURE_CJS_INTEROP_DEPS = [
+  'hoist-non-react-statics',
+  'react-is',
+  'prop-types',
+  'memoize-one',
+  'use-isomorphic-layout-effect',
+  'shallowequal',
+  'stylis',
+  'react-fast-compare',
+  'warning',
+  'invariant',
+  'object-assign',
+  'classnames',
+  'tiny-invariant',
+  'tiny-warning',
+  'dom-helpers',
+];
+
+/**
+ * Detect which of the pure-CJS interop deps are actually installed, so we only
+ * ask Vite to pre-bundle ones that resolve (an `include` for a missing dep is a
+ * hard error in Vite).
+ */
+function detectInstalledInteropDeps(projectRoot) {
+  const installed = [];
+  for (const pkg of PURE_CJS_INTEROP_DEPS) {
+    try {
+      const require = createRequire(projectRoot + '/');
+      require.resolve(pkg);
+      installed.push(pkg);
+    } catch {
+      // Not installed (it's transitive and may not be hoisted), skip.
+    }
+  }
+  return installed;
+}
+
 /**
  * Resolve the directory of a package from the user's project
  */
@@ -136,14 +186,23 @@ export function reactCompat(options = {}) {
 
       // Auto-detect installed React ecosystem packages
       const autoExclude = autoDetect ? detectInstalledReactPackages(root) : [];
+
+      // Pure-CJS utilities that MUST be pre-bundled for ESM interop (so their
+      // `import x from 'cjs-only-pkg'` consumers don't blank-screen). Only the
+      // ones actually resolvable get included.
+      const interopInclude = autoDetect ? detectInstalledInteropDeps(root) : [];
+      const includeSet = new Set(interopInclude);
+
       const allExclude = [
         'what-core', 'what-react',
         'react', 'react-dom',
         ...autoExclude,
         ...exclude,
       ];
-      // Deduplicate
-      const uniqueExclude = [...new Set(allExclude)];
+      // Deduplicate, and make sure nothing we explicitly want pre-bundled
+      // (interop deps) leaks back into the exclude list.
+      const uniqueExclude = [...new Set(allExclude)].filter((p) => !includeSet.has(p));
+      const uniqueInclude = [...includeSet];
 
       // Build alias map
       const aliases = {
@@ -180,6 +239,7 @@ export function reactCompat(options = {}) {
         },
         optimizeDeps: {
           exclude: uniqueExclude,
+          include: uniqueInclude,
         },
       };
     },
@@ -187,7 +247,8 @@ export function reactCompat(options = {}) {
     configResolved(config) {
       // Log what we set up
       const excluded = config.optimizeDeps?.exclude?.length || 0;
-      console.log(`\n  ⚡ what-react compat active — ${excluded} packages excluded from pre-bundling\n`);
+      const included = config.optimizeDeps?.include?.length || 0;
+      console.log(`\n  ⚡ what-react compat active — ${excluded} packages excluded from pre-bundling` + (included ? `, ${included} pure-CJS deps pre-bundled for interop` : '') + `\n`);
     },
   };
 }
