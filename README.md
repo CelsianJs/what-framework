@@ -75,7 +75,7 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 
 ## Packages
 
-All 14 packages publish together at the same version (currently **0.10.0**).
+All 14 packages publish together at the same version — see [CHANGELOG.md](CHANGELOG.md) for the current release.
 
 | Package | Description |
 |---|---|
@@ -100,8 +100,17 @@ The umbrella `what-framework` exposes subpaths: `what-framework/router`, `/serve
 ## Manual Setup
 
 ```bash
+npm init -y
 npm install what-framework what-compiler
 npm install -D vite
+```
+
+Set `"type": "module"` in `package.json` — `what-compiler/vite` is ESM-only, and Vite can't resolve it from a CommonJS project:
+
+```json
+{
+  "type": "module"
+}
 ```
 
 ```js
@@ -113,6 +122,8 @@ export default defineConfig({
   plugins: [what()],
 });
 ```
+
+Run the dev server with `npx vite` (open `http://localhost:5173`), and build with `npx vite build`.
 
 Bun works too: `bun create what@latest` and `bun run dev`.
 
@@ -148,7 +159,7 @@ release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DE
 - [Vision](VISION.md) -- what What is and why
 - [Deployments](DEPLOYMENTS.md) -- where everything lives and how it ships
 - [Security Policy](SECURITY.md) -- reporting + supported versions
-- [Agent Guide](.internal/Agents.md) -- MCP, patterns, mistakes
+- [Agent Guide](CLAUDE.md) -- MCP, patterns, mistakes
 - [Getting Started](/GETTING-STARTED.md) -- Setup for agents and developers
 - [Quick Start](/docs/QUICKSTART.md) -- Tutorial
 - [API Reference](/docs/API.md) -- Full API

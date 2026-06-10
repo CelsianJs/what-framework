@@ -2,7 +2,7 @@
 
 The first framework built for AI agents. Small API, MCP DevTools, structured errors, compiler guardrails.
 
-> **Try it now** -- no install required: [playground-lilac-five.vercel.app](https://playground-lilac-five.vercel.app)
+> **Try it now** -- no install required: [playground.whatfw.com](https://playground.whatfw.com)
 
 ## For AI Agents (Claude Code, Cursor, etc.)
 
@@ -66,11 +66,12 @@ Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`,
 
 ### Step 4: Read the Agent Guide
 
-See `/.internal/Agents.md` for the complete agent coding reference:
-- 10 copy-paste patterns
-- MCP tools reference with examples
-- Top 10 agent mistakes
-- Decision matrices
+See [`CLAUDE.md`](CLAUDE.md) for the complete agent coding reference:
+- Writing-code patterns (signals, lists, scope)
+- MCP tools reference with examples and decision tree
+- Diagnostic-output guide and troubleshooting
+
+For best practices and common pitfalls, see [`docs/AGENT-PATTERNS.md`](docs/AGENT-PATTERNS.md).
 
 ---
 
@@ -99,6 +100,20 @@ npm init -y
 npm install what-framework what-compiler
 npm install -D vite
 ```
+
+Then set `"type": "module"` in the generated `package.json` (and add a `dev` script while you're there):
+
+```json
+{
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  }
+}
+```
+
+This step is required: `what-compiler/vite` is ESM-only, and without `"type": "module"` Vite fails with `Failed to resolve "what-compiler/vite". This package is ESM only`.
 
 ```js
 // vite.config.js
@@ -147,6 +162,14 @@ function App() {
 
 mount(<App />, '#app');
 ```
+
+Run it:
+
+```bash
+npx vite        # or: npm run dev
+```
+
+Open `http://localhost:5173`. Build for production with `npx vite build`.
 
 ### 3. Important Defaults
 
@@ -224,4 +247,4 @@ Wrap dialog body with `<FocusTrap>`.
 - `/docs/API.md` -- Full API reference
 - `/docs/GOTCHAS.md` -- Common mistakes
 - `/docs/STYLING.md` -- Styling guide
-- `/.internal/Agents.md` -- Agent coding guide
+- `/CLAUDE.md` -- Agent coding guide
