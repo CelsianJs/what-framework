@@ -79,7 +79,9 @@ function safeRedirectTarget(form, headers) {
 }
 
 // Reserved form fields consumed by the framework (not passed to the action).
-const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', '_redirect']);
+// `what-csrf-token` is an alias for `_csrf` matching the <meta name="what-csrf-token">
+// tag SSR pages embed, so templates can reuse one name for both surfaces.
+const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect']);
 
 /**
  * Framework-agnostic action dispatcher.
@@ -103,7 +105,8 @@ const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', '_redir
  *    X-What-Action header. `body` is the parsed form fields object.
  *    - action id:   `_action` (or `data-action`) hidden field, or `?action=`
  *                   query param (reqLike.query.action)
- *    - CSRF token:  `_csrf` hidden field
+ *    - CSRF token:  `_csrf` (or `what-csrf-token`) hidden field; an
+ *                   `x-csrf-token` HEADER wins when both are present
  *    - redirect:    `_redirect` hidden field (local path), else Referer, else '/'
  *    The action receives ONE argument: the form fields object (reserved
  *    fields stripped). Success responds 303 See Other (POST/redirect/GET);
@@ -135,10 +138,12 @@ export function createActionHandler(options = {}) {
         return htmlResponse(400, 'Missing action name (add a hidden "_action" field or ?action= query param)');
       }
 
-      // CSRF token travels in the `_csrf` form field for plain forms; map it
-      // to the header slot handleActionRequest validates against.
+      // CSRF token travels in the `_csrf` (or `what-csrf-token`) form field
+      // for plain forms; map it to the header slot handleActionRequest
+      // validates against. The header wins when both are present.
       const formHeaders = { ...headers };
-      if (form._csrf && !formHeaders['x-csrf-token']) formHeaders['x-csrf-token'] = String(form._csrf);
+      const bodyToken = form._csrf ?? form['what-csrf-token'];
+      if (bodyToken && !formHeaders['x-csrf-token']) formHeaders['x-csrf-token'] = String(bodyToken);
 
       if (!skipCsrf && getCsrfToken && !sessionCsrfToken) {
         // CSRF is configured but this client has no token (e.g. no cookie yet).

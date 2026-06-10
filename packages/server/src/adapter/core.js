@@ -70,7 +70,8 @@ function defaultRenderRoute(documentOptions) {
  *     token for hidden form fields (cached/ISR pages rely on the cookie only,
  *     so a per-user token is never baked into shared cache entries).
  *   - POST /__what_action validates the client token (X-CSRF-Token header for
- *     fetch clients, `_csrf` form field for plain HTML forms) against the cookie.
+ *     fetch clients, `_csrf` or `what-csrf-token` form field for plain HTML
+ *     forms — the header wins when both are present) against the cookie.
  *
  * Opt out with `csrf: false` (e.g. token-authed APIs behind another gateway),
  * or take full control by passing your own `actionHandler` — a custom handler
@@ -78,7 +79,8 @@ function defaultRenderRoute(documentOptions) {
  *
  * Plain HTML form posts (progressive enhancement, no JS) are accepted on
  * /__what_action as application/x-www-form-urlencoded — see createActionHandler
- * in action-handler.js for the field contract (_action, _csrf, _redirect).
+ * in action-handler.js for the field contract (_action, _csrf/what-csrf-token,
+ * _redirect).
  */
 export function createRequestHandler(options = {}) {
   const {

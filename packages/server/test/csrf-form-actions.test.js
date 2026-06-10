@@ -83,6 +83,39 @@ describe('createActionHandler — plain HTML form post fallback', () => {
     assert.match(res.headers['content-type'], /text\/html/);
   });
 
+  it('accepts the CSRF token from the what-csrf-token field (meta-tag name alias)', async () => {
+    received.length = 0;
+    const res = await formHandle()(formReq({
+      fields: { _action: 'form-save', 'what-csrf-token': TOKEN, title: 'no-js form' },
+    }));
+    assert.equal(res.status, 303);
+    // Alias is a reserved field — stripped from the action's data object
+    assert.deepEqual(received[0], { title: 'no-js form' });
+  });
+
+  it('rejects a wrong what-csrf-token field (403)', async () => {
+    const res = await formHandle()(formReq({
+      fields: { _action: 'form-save', 'what-csrf-token': 'tok-XXXX-bbbb-cccc' },
+    }));
+    assert.equal(res.status, 403);
+  });
+
+  it('x-csrf-token header wins over a wrong body field (header path unchanged)', async () => {
+    const res = await formHandle()(formReq({
+      fields: { _action: 'form-save', 'what-csrf-token': 'tok-XXXX-bbbb-cccc' },
+      headers: { 'x-csrf-token': TOKEN },
+    }));
+    assert.equal(res.status, 303);
+  });
+
+  it('a wrong header is NOT rescued by a correct body field (header wins both ways)', async () => {
+    const res = await formHandle()(formReq({
+      fields: { _action: 'form-save', 'what-csrf-token': TOKEN },
+      headers: { 'x-csrf-token': 'tok-XXXX-bbbb-cccc' },
+    }));
+    assert.equal(res.status, 403);
+  });
+
   it('rejects a form post with a wrong _csrf token (403)', async () => {
     const res = await formHandle()(formReq({
       fields: { _action: 'form-save', _csrf: 'tok-XXXX-bbbb-cccc' },
@@ -212,6 +245,22 @@ describe('createRequestHandler — CSRF on by default', () => {
         referer: 'http://x/contact',
       },
       body: new URLSearchParams({ _action: 'form-save', _csrf: TOKEN, name: 'kirby' }).toString(),
+      redirect: 'manual',
+    }));
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get('location'), '/contact');
+  });
+
+  it('accepts a plain HTML form post end-to-end with the what-csrf-token field name', async () => {
+    const handle = createRequestHandler({ routes });
+    const res = await handle(new Request('http://x/__what_action', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `what-csrf=${TOKEN}`,
+        referer: 'http://x/contact',
+      },
+      body: new URLSearchParams({ _action: 'form-save', 'what-csrf-token': TOKEN, name: 'kirby' }).toString(),
       redirect: 'manual',
     }));
     assert.equal(res.status, 303);
