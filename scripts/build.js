@@ -88,7 +88,10 @@ export const packages = [
       { input: 'src/runtime.js', outputBase: 'runtime' },
       { input: 'src/file-router.js', outputBase: 'file-router' },
     ],
-    external: ['@babel/core', 'what-core', 'fs', 'path', 'url'],
+    // 'vite' is the host tool — the vite-plugin's dynamic import('vite')
+    // (version detection) must stay external or esbuild drags all of
+    // vite+esbuild into the bundle and these entries fail to build.
+    external: ['@babel/core', 'what-core', 'vite', 'fs', 'path', 'url'],
   },
 ];
 
