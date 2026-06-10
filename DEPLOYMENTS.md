@@ -14,34 +14,47 @@ removed in favor of this file.
 
 ---
 
-## Websites
+## Websites — authoritative map (every marketing domain we own)
 
-Each row is a separate Vercel project pointing at the same GitHub repo, distinguished by
-**Root Directory**. Production branch is `main`; every push to `main` triggers an automatic
-production deploy (and PRs get preview deploys).
+**This table is the single source of truth. Never guess where a site deploys — look here.**
 
-| Domain | Source (Root Directory) | Build | Output | What it is |
-|---|---|---|---|---|
-| **whatfw.com** | `docs-site/` | static (no build) | `.` | Marketing home + docs (static HTML, `trailingSlash: true`) |
-| **whatfw.com/docs** | `docs-site/docs/` | static | `.` | Docs section (served under the same site) |
-| **playground.whatfw.com** | `sites/playground/` | `npm run build` (Vite) | `dist/` | Live in-browser playground (runtime via CDN) |
-| **react.whatfw.com** | `sites/react-compat/` | `npm run build` (Vite) | `dist/` | React-compat demo (`what-react`) |
-| **benchmarks.whatfw.com** | `sites/benchmarks/` | static (no build) | `.` | Benchmark results (`results.json` + static page) |
+All sites are **separate Vercel projects** on the **`zvn-dev` team** (`team_zCLdY1qPIO8Foz3XjEbNkGBg`),
+each connected to the **same** GitHub repo `CelsianJs/what-framework` via the native GitHub App
+integration and distinguished by **Root Directory**. Production branch is `main`: **every push to
+`main` auto-deploys all of them** (PRs get preview deploys). No tokens involved in this path.
 
-**Not deployed:** `sites/showcase/` (`what-showcase`) is a **local-only** showcase — it has
-only a `dev` script (`serve.js`) and is not a Vercel project. Run it locally with
-`npm run dev` from that directory.
+| Domain | Vercel project (name · ID) | Root Directory | Build → Output | `vercel.json` | Verify live |
+|---|---|---|---|---|---|
+| **whatfw.com** (+ `/docs`) | `docs-site` · `prj_ep4dUv055n8Jkd5S6Yv4xF7KLvjw` | `docs-site/` | `npm run build` → `dist/` (`trailingSlash`) | `docs-site/vercel.json` | `curl -s https://whatfw.com \| grep what-devtools-mcp` |
+| **react.whatfw.com** | `react-compat` · `prj_xg7dy7zvoDxBPTdPOMSG9JlGQ86B` | `sites/react-compat/` | `npm run build` (Vite) → `dist/` | `sites/react-compat/vercel.json` | SPA — browser-check the `<h1>` ("Most React Libraries.") |
+| **playground.whatfw.com** | `playground` · `prj_oWjJlPUmtjMGV8SeZpsBNV40sGsl` | `sites/playground/` | `npm run build` (Vite) → `dist/` | `sites/playground/vercel.json` | `curl -sI https://playground.whatfw.com` → 200 |
+| **benchmarks.whatfw.com** | `benchmarks` · `prj_hGXzCgoZW4eY5NtyB0AWSjjGNVxC` | `sites/benchmarks/` | static (no build) → `.` | none (auto-detect) | `curl -s https://benchmarks.whatfw.com/results.json` |
 
-### How a site deploy happens (native integration)
-1. Vercel project is connected to `CelsianJs/what-framework` (GitHub App integration).
-2. Project **Settings → Root Directory** is set to the path above.
-3. Production branch is `main`; build command / output dir come from each site's
-   `vercel.json` (or Vercel auto-detection for the static sites).
-4. `git push` to `main` → Vercel builds and deploys automatically. No secrets in CI for this
-   path.
+Notes:
+- **whatfw.com is NOT a no-build static site anymore.** Since the docs-site→What SSG rebuild it
+  builds via `npm run build` → `dist/` (was previously raw static HTML; update any old notes that
+  still say "static/no build").
+- `/docs` is served by the **same** `docs-site` project (a subpath, not its own project).
+- The repo-root `.vercel/project.json` points at a legacy **`what-fw`** project
+  (`prj_B08UghZUQ0FVwvezeWd45CL6knyk`) that is **not** a marketing domain — ignore it.
+- **Not deployed:** `sites/showcase/` (`what-showcase`) is local-only (`serve.js`, no Vercel project).
 
-> Vite sites (`playground`, `react-compat`) **must build on Vercel** — their `dist/` is
-> gitignored and not committed.
+### Cached project links (so `vercel`/MCP calls don't guess)
+Each site dir has a committed `.vercel/project.json` with its `projectId` + `orgId`. The
+`react-compat` / `playground` `dist/` are gitignored and **must build on Vercel** (not committed).
+
+### How a site deploy happens
+1. Vercel project connected to `CelsianJs/what-framework` (GitHub App).
+2. **Settings → Root Directory** set to the path above; production branch `main`.
+3. Build command / output come from each site's `vercel.json` (or auto-detect for `benchmarks`).
+4. `git push origin main` → Vercel builds + deploys every connected project automatically.
+
+### Did my push actually ship? (don't shoot in the dark)
+- **CLI:** `gh api repos/CelsianJs/what-framework/commits/main --jq .sha` → compare to the live deploy.
+- **MCP / dashboard:** list deployments for the project ID above and confirm the newest is
+  `state: READY`, `target: production`, and `githubCommitSha` = your latest `main` SHA.
+- **Content check:** SPA sites (react-compat/playground) are client-rendered — `curl` of the HTML
+  won't show hero text; grep the built `/assets/index-*.js` bundle or browser-render the page.
 
 ---
 
@@ -60,7 +73,7 @@ Each adapter is verified by `packages/server/test/deploy-readiness.test.js`.
 
 ## npm packages
 
-All 14 packages are published together at the same version (currently **0.10.0**). See
+All 14 packages are published together at the same version (currently **0.11.0**). See
 [`README.md`](README.md#packages) for the full package table.
 
 ### Release commands (local)
@@ -81,8 +94,14 @@ triggered manually (`workflow_dispatch`) with inputs:
 - `deploy_web` (default true) — run the legacy Vercel deploy script (see below)
 - `npm_tag` (default `latest`), `deploy_targets`, `dry_run`
 
-npm auth uses the `NPM_TOKEN` repo secret. **Use a classic Automation token (no expiry)** —
-granular/expiring tokens die roughly weekly and cause `404` on publish.
+npm auth uses the `NPM_TOKEN` repo secret. **The account has 2FA-required-for-publish, so the
+token MUST bypass 2FA** — use a classic **Automation** token (bypasses 2FA by design, no expiry)
+or a **Granular Access token with "Bypass 2FA" enabled** + publish rights on the `what-*` packages.
+A plain publish/granular token without 2FA-bypass fails every package with
+`npm error 403 … Two-factor authentication … is required to publish` (observed on the v0.11.0 CI
+run — 0/14 published). The publish script is idempotent + dependency-ordered, so once the token is
+fixed a re-run publishes everything cleanly. (Historically an *expiring* token also caused weekly
+`404`s — a no-expiry Automation token avoids both failure modes.)
 
 ### Legacy token-based site deploy (`scripts/deploy-vercel.mjs`)
 The workflow's `deploy_web` step runs `scripts/deploy-vercel.mjs`, which does `vercel deploy
