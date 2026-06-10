@@ -53,15 +53,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify quality gates
+      - name: Verify quality gates (correctness — blocking)
+        # Every correctness gate from release:verify EXCEPT bench:gate. The
+        # checked-in perf baselines are recorded on fast local hardware (M3 Max);
+        # GitHub shared runners are several× slower on some microbenchmarks
+        # (e.g. `batch() 100 writes`), so bench:gate false-fails here and must
+        # not block a publish. Perf is still gated strictly by the dedicated
+        # `bench-gate` job in ci.yml and by `release:verify` on local hardware.
+        run: |
+          npm run -s hygiene:publish
+          npm run -s test
+          npm run -s build
+          npm run -s hygiene:publish
+          npm run -s check:size
+          npm run -s test:prod
+          npm run -s smoke:scaffold
+
+      - name: Benchmark gate (perf — non-blocking signal)
+        continue-on-error: true
         env:
-          # GitHub-hosted runners are slower/noisier than the checked-in local
-          # baselines; use the same catastrophic-regression tolerance as the
-          # dedicated bench-gate CI job so release:verify's bench:gate doesn't
-          # fail on hardware noise (it stays strict for local release checks).
           WHAT_BENCH_TOLERANCE_CORE: 0.80
           WHAT_BENCH_TOLERANCE_DX: 0.85
-        run: npm run -s release:verify
+        run: npm run -s bench:gate
 
       - name: Publish npm packages
         if: ${{ inputs.publish_packages }}
