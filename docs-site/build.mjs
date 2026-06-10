@@ -158,7 +158,7 @@ function buildSection({ dirRel, base, navSection }) {
 // reset dist, copy shared assets
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
-for (const a of ['design-system.css', 'theme.js', 'docs/styles.css', 'docs/copy-code.js']) copyAsset(a);
+for (const a of ['design-system.css', 'theme.js', 'docs/styles.css', 'docs/copy-code.js', 'llms.txt', 'llms-full.txt']) copyAsset(a);
 
 // Bundle the REAL What framework as a browser global for the live demos.
 await esbuild.build({

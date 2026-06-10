@@ -33,8 +33,9 @@ fixing issues in a single pass — while staying small, fast, and pleasant for h
   inspect every signal, effect, component, and DOM node in a *running* app: dependency
   graphs, signal traces, performance hot-spots, live snapshots. This is the headline
   differentiator.
-- **Structured errors + guardrails** — runtime catches infinite loops, missing cleanup, XSS,
-  and signal misuse at dev time, and returns actionable JSON.
+- **Structured errors + guardrails** — at dev time the runtime catches infinite effect loops,
+  refuses unsafe `innerHTML`, and warns on signal misuse; lint rules cover the rest. Core
+  errors carry actionable JSON with a code, fix, and example.
 - **Compiler intelligence** — `what-compiler` lowers JSX to fine-grained DOM ops with keyed
   list reconciliation, no VDOM.
 - **Full-stack, not just a view layer** (as of v0.10) — file-routed SSR with co-located

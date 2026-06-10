@@ -47,7 +47,7 @@ Your component function executes a single time and returns real DOM nodes. Every
 |                                                      |
 |  +--------------------------------------------------+ |
 |  |           MCP DevTools Bridge                    | |
-|  |  18 tools: signals, effects, components, DOM,    | |
+|  |  29 tools: signals, effects, components, DOM,    | |
 |  |  cache, errors, dependency graph, diagnostics    | |
 |  +--------------------------------------------------+ |
 |                                                      |
@@ -302,7 +302,7 @@ The bridge:
 1. Receives state snapshots (signals, effects, components) from the browser client
 2. Stores an event log and error log
 3. Forwards commands from the agent to the browser (eval, navigate, set-signal, etc.)
-4. Exposes 18 MCP tools for agents to query and manipulate app state
+4. Exposes 29 MCP tools for agents to query and manipulate app state
 
 See `/docs/MCP-DEVTOOLS.md` for the complete tool reference.
 
@@ -330,11 +330,11 @@ packages/
 +-- compiler/           Babel plugin: JSX -> template() + insert() + effect()
 +-- router/             Client-side routing (Router, Link, navigate, guards)
 +-- server/             SSR, SSG, islands hydration, server actions
-+-- react-compat/       React compatibility layer (49 packages confirmed working)
++-- react-compat/       React compatibility layer (see REACT-COMPAT.md for the tested matrix)
 +-- devtools/           Browser DevTools extension
-+-- devtools-mcp/       MCP-based AI debugging bridge (18 tools)
++-- devtools-mcp/       MCP-based AI debugging bridge (29 tools)
 +-- eslint-plugin/      Lint rules for What Framework patterns
-+-- mcp-server/         MCP documentation server (13 tools)
++-- mcp-server/         MCP documentation server (deprecated — see what-devtools-mcp)
 +-- cli/                Development tools (dev, build, preview, generate)
 +-- create-what/        Project scaffolding (npx create-what my-app)
 ```

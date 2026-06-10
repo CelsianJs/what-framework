@@ -907,7 +907,7 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
           <h3>Structured Errors</h3>
-          <p>Every error returns JSON with an error code, human message, suggested fix, and code example. Agents parse, understand, and fix errors in a single pass.</p>
+          <p>Core runtime errors carry an error code, human message, suggested fix, and code example, and serialize to JSON. Agents parse, understand, and fix them in a single pass.</p>
           <div class="feature-code">
 <pre>{ <span class="attr">code</span>: <span class="string">"SIGNAL_READ_OUTSIDE_TRACKING"</span>,
   <span class="attr">message</span>: <span class="string">"Signal read outside reactive scope"</span>,
@@ -921,7 +921,7 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
           <h3>Agent Guardrails</h3>
-          <p>Runtime catches infinite loops, missing effect cleanup, XSS via innerHTML, and signal misuse before they hit production. The framework protects agents from common mistakes.</p>
+          <p>In dev mode the runtime catches infinite effect loops, refuses unsafe <code>innerHTML</code>, and warns on signal misuse. Lint rules catch the rest before they hit production.</p>
           <div class="feature-code">
 <pre><span class="comment">// Runtime catches this automatically:</span>
 <span class="function">effect</span>(() <span class="operator">=&gt;</span> {
@@ -952,7 +952,7 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           </div>
           <h3>Small &amp; Fast</h3>
-          <p>~15 core APIs. ~8KB typical-app runtime. Zero dependencies. Tree-shakeable. Agents generate less code, ship smaller bundles, and reason about a smaller API surface.</p>
+          <p>A small reactive core — <code>signal</code>, <code>computed</code>, <code>effect</code>, <code>batch</code> — plus opt-in modules. ~8KB typical-app runtime, minimal dependencies, tree-shakeable. Agents generate less code, ship smaller bundles, and reason about a smaller API surface.</p>
           <div class="feature-code">
 <pre><span class="comment">// The full API an agent needs to learn:</span>
 <span class="keyword">import</span> { signal, computed, effect,
@@ -1123,7 +1123,7 @@
             </tr>
             <tr>
               <td>Runtime Guardrails</td>
-              <td class="highlight-col"><span class="check">Loops, XSS, cleanup</span></td>
+              <td class="highlight-col"><span class="check">Loops, XSS, signal misuse</span></td>
               <td><span class="partial">StrictMode</span></td>
               <td><span class="cross">Minimal</span></td>
               <td><span class="cross">Minimal</span></td>
@@ -1151,7 +1151,7 @@
             </tr>
             <tr>
               <td>React Library Compat</td>
-              <td class="highlight-col"><span class="check">90+ via what-react</span></td>
+              <td class="highlight-col"><span class="check">Via what-react</span></td>
               <td><span class="check">Native</span></td>
               <td><span class="cross">No</span></td>
               <td><span class="cross">No</span></td>
@@ -1197,7 +1197,7 @@
         </a>
         <a href="https://react.whatfw.com" class="eco-card animate-in delay-2">
           <div class="eco-card-name">what-react</div>
-          <p>React compatibility layer. 90+ React libraries working with zero code changes.</p>
+          <p>React compatibility layer. Run React ecosystem libraries with little or no code change.</p>
         </a>
         <a href="/docs/learn/" class="eco-card animate-in delay-3">
           <div class="eco-card-name">create-what</div>
@@ -1221,16 +1221,16 @@
           <div class="stat-label">Gzipped runtime</div>
         </div>
         <div class="stat animate-in delay-2">
-          <div class="stat-value stat-value-orange">~15</div>
-          <div class="stat-label">Core APIs</div>
+          <div class="stat-value stat-value-orange">4</div>
+          <div class="stat-label">Core primitives</div>
         </div>
         <div class="stat animate-in delay-3">
-          <div class="stat-value">750+</div>
+          <div class="stat-value">1000+</div>
           <div class="stat-label">Tests passing</div>
         </div>
         <div class="stat animate-in delay-4">
-          <div class="stat-value stat-value-orange">90+</div>
-          <div class="stat-label">React libs compatible</div>
+          <div class="stat-value stat-value-orange">29</div>
+          <div class="stat-label">MCP devtools</div>
         </div>
       </div>
     </div>
