@@ -1,0 +1,10 @@
+import { _$template, effect as _$effect, setProp as _$setProp } from "what-framework/render";
+const _tmpl$0 = /* @__PURE__ */_$template("<svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M4 12h16\"></path></svg>");
+import { signal } from 'what-framework';
+export function Icon() {
+  const active = signal(false);
+  const _el$0 = _tmpl$0();
+  const _el$1 = _el$0.firstChild;
+  _$effect(() => _$setProp(_el$1, "fill", active() ? 'red' : 'gray'));
+  return _el$0;
+}

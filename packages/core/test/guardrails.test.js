@@ -7,10 +7,11 @@ import assert from 'node:assert/strict';
 import {
   configureGuardrails,
   getGuardrailConfig,
+  installSignalReadGuardrail,
   checkComponentName,
   validateImports,
 } from '../src/guardrails.js';
-import { clearCollectedErrors } from '../src/errors.js';
+import { clearCollectedErrors, getCollectedErrors } from '../src/errors.js';
 
 describe('guardrails', () => {
   beforeEach(() => {
@@ -18,7 +19,6 @@ describe('guardrails', () => {
     // Reset guardrails to defaults
     configureGuardrails({
       signalReadDetection: true,
-      effectCycleDetection: true,
       componentNaming: true,
       importValidation: true,
     });
@@ -28,7 +28,6 @@ describe('guardrails', () => {
     it('returns default config', () => {
       const config = getGuardrailConfig();
       assert.equal(config.signalReadDetection, true);
-      assert.equal(config.effectCycleDetection, true);
       assert.equal(config.componentNaming, true);
       assert.equal(config.importValidation, true);
     });
@@ -38,6 +37,85 @@ describe('guardrails', () => {
       const config = getGuardrailConfig();
       assert.equal(config.componentNaming, false);
       assert.equal(config.signalReadDetection, true); // unchanged
+    });
+  });
+
+  describe('installSignalReadGuardrail', () => {
+    // Use a plain accessor as a stand-in for a signal: the guardrail only
+    // needs a callable that returns the current value.
+    function fakeSignal(value) {
+      const fn = () => value;
+      return fn;
+    }
+
+    function withMutedWarn(run) {
+      const orig = console.warn;
+      const warnings = [];
+      console.warn = (...args) => warnings.push(args.join(' '));
+      try {
+        run(warnings);
+      } finally {
+        console.warn = orig;
+      }
+      return warnings;
+    }
+
+    it('returns the same signal function', () => {
+      const sig = fakeSignal(1);
+      withMutedWarn(() => {
+        assert.equal(installSignalReadGuardrail(sig, 'count'), sig);
+      });
+    });
+
+    it('warns on string coercion and still yields the value', () => {
+      const sig = installSignalReadGuardrail(fakeSignal(42), 'count');
+      const warnings = withMutedWarn(() => {
+        assert.equal(`Total: ${sig}`, 'Total: 42');
+      });
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0].includes('count'), `warning should name the signal: ${warnings[0]}`);
+      const collected = getCollectedErrors();
+      assert.ok(collected.some(e => e.code === 'ERR_MISSING_SIGNAL_READ'),
+        'coercion should collect ERR_MISSING_SIGNAL_READ');
+    });
+
+    it('warns on numeric coercion and still yields the value', () => {
+      const sig = installSignalReadGuardrail(fakeSignal(10), 'count');
+      const warnings = withMutedWarn(() => {
+        assert.equal(sig + 5, 15);
+        assert.equal(sig > 5, true);
+      });
+      assert.ok(warnings.length >= 2);
+      assert.ok(getCollectedErrors().some(e => e.code === 'ERR_MISSING_SIGNAL_READ'));
+    });
+
+    it('does not warn on a normal call', () => {
+      const sig = installSignalReadGuardrail(fakeSignal(7), 'count');
+      const warnings = withMutedWarn(() => {
+        assert.equal(sig(), 7);
+      });
+      assert.equal(warnings.length, 0);
+      assert.equal(getCollectedErrors().length, 0);
+    });
+
+    it('respects disabled config (signal left untouched)', () => {
+      configureGuardrails({ signalReadDetection: false });
+      const sig = fakeSignal(3);
+      const before = sig.toString;
+      installSignalReadGuardrail(sig, 'count');
+      assert.equal(sig.toString, before, 'toString must not be overridden when disabled');
+    });
+  });
+
+  describe('agent context version', () => {
+    it('__WHAT_AGENT__.version matches package.json (no stale hardcoded version)', async () => {
+      const { installAgentContext } = await import('../src/agent-context.js');
+      const { readFile } = await import('node:fs/promises');
+      const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+      installAgentContext();
+      assert.ok(globalThis.__WHAT_AGENT__, 'installAgentContext should set the global in dev');
+      assert.equal(globalThis.__WHAT_AGENT__.version, pkg.version);
+      delete globalThis.__WHAT_AGENT__;
     });
   });
 

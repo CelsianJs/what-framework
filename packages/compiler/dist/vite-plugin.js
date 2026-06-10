@@ -577,7 +577,7 @@ function whatBabelPlugin({ types: t }) {
         t.variableDeclarator(t.identifier(elId), t.callExpression(t.identifier(tmplId), []))
       ])
     ];
-    applyDynamicAttrs(statements, elId, attributes, state);
+    applyDynamicAttrs(statements, elId, attributes, state, tagName);
     applyDynamicChildren(statements, elId, children, node, state);
     if (!state._pendingSetup) state._pendingSetup = [];
     state._pendingSetup.push(...statements);
@@ -620,14 +620,47 @@ function whatBabelPlugin({ types: t }) {
     const propsExpr = props.length > 0 ? t.objectExpression(props) : t.nullLiteral();
     return t.callExpression(t.identifier("h"), [t.stringLiteral(tagName), propsExpr, ...transformedChildren]);
   }
-  function applyDynamicAttrs(statements, elId, attributes, state) {
+  const VALUE_PROP_TAGS = /* @__PURE__ */ new Set(["input", "textarea", "select", "option"]);
+  function applyDynamicAttrs(statements, elId, attributes, state, tagName) {
     function buildSetPropCall(propName, valueExpr) {
+      if (propName === "class") {
+        state.needsSetClass = true;
+        return t.callExpression(t.identifier("_$setClass"), [t.identifier(elId), valueExpr]);
+      }
+      if (propName === "style") {
+        state.needsSetStyle = true;
+        return t.callExpression(t.identifier("_$setStyle"), [t.identifier(elId), valueExpr]);
+      }
+      if (propName === "value" && tagName && VALUE_PROP_TAGS.has(tagName)) {
+        state.needsSetValue = true;
+        return t.callExpression(t.identifier("_$setValue"), [t.identifier(elId), valueExpr]);
+      }
+      if (propName === "checked" && tagName === "input") {
+        state.needsSetChecked = true;
+        return t.callExpression(t.identifier("_$setChecked"), [t.identifier(elId), valueExpr]);
+      }
+      if (propName.startsWith("data-") || propName.startsWith("aria-")) {
+        state.needsSetAttr = true;
+        return t.callExpression(t.identifier("_$setAttr"), [
+          t.identifier(elId),
+          t.stringLiteral(propName),
+          valueExpr
+        ]);
+      }
       state.needsSetProp = true;
       return t.callExpression(t.identifier("_$setProp"), [
         t.identifier(elId),
         t.stringLiteral(propName),
         valueExpr
       ]);
+    }
+    let delegateInitEmitted = false;
+    function emitDelegateInit() {
+      if (delegateInitEmitted) return;
+      delegateInitEmitted = true;
+      statements.push(
+        t.expressionStatement(t.callExpression(t.identifier("_$delegate$"), []))
+      );
     }
     for (const attr of attributes) {
       if (t.isJSXSpreadAttribute(attr)) {
@@ -669,6 +702,7 @@ function whatBabelPlugin({ types: t }) {
           state.needsDelegation = true;
           if (!state.delegatedEvents) state.delegatedEvents = /* @__PURE__ */ new Set();
           state.delegatedEvents.add(event);
+          emitDelegateInit();
           statements.push(
             t.expressionStatement(
               t.assignmentExpression(
@@ -812,6 +846,50 @@ function whatBabelPlugin({ types: t }) {
       }
     }
   }
+  function buildsDOM(node) {
+    if (!node || typeof node !== "object") return false;
+    if (Array.isArray(node)) return node.some(buildsDOM);
+    if (node.type === "JSXElement" || node.type === "JSXFragment") return true;
+    if (node.type === "CallExpression" && node.callee && node.callee.type === "Identifier" && (node.callee.name === "_$mapArray" || node.callee.name === "mapArray")) {
+      return true;
+    }
+    for (const key of Object.keys(node)) {
+      if (key === "loc" || key === "start" || key === "end" || key === "leadingComments" || key === "trailingComments" || key === "innerComments") continue;
+      const v = node[key];
+      if (v && typeof v === "object" && buildsDOM(v)) return true;
+    }
+    return false;
+  }
+  function memoizeBranchCondition(expr, statements, state) {
+    let testExpr = null;
+    let isTernary = false;
+    if (t.isConditionalExpression(expr)) {
+      testExpr = expr.test;
+      isTernary = true;
+    } else if (t.isLogicalExpression(expr) && (expr.operator === "&&" || expr.operator === "||")) {
+      testExpr = expr.left;
+    } else {
+      return expr;
+    }
+    if (!isPotentiallyReactive(testExpr, state.signalNames, state.importedIdentifiers)) return expr;
+    const branches = isTernary ? [expr.consequent, expr.alternate] : [expr.right];
+    if (!branches.some(buildsDOM)) return expr;
+    const condId = state.nextMemoId();
+    state.needsMemo = true;
+    const memoBody = isTernary ? t.unaryExpression("!", t.unaryExpression("!", testExpr)) : testExpr;
+    statements.push(
+      t.variableDeclaration("const", [
+        t.variableDeclarator(
+          t.identifier(condId),
+          t.callExpression(t.identifier("_$memo"), [
+            t.arrowFunctionExpression([], memoBody)
+          ])
+        )
+      ])
+    );
+    const condRead = t.callExpression(t.identifier(condId), []);
+    return isTernary ? t.conditionalExpression(condRead, expr.consequent, expr.alternate) : t.logicalExpression(expr.operator, condRead, expr.right);
+  }
   function applyDynamicChildren(statements, elId, children, parentNode, state) {
     const entries = [];
     let childIndex = 0;
@@ -884,11 +962,16 @@ function whatBabelPlugin({ types: t }) {
         let expr = entry.child.expression;
         const marker = getMarker(entry.childIndex);
         state.needsInsert = true;
-        const mapResult = tryLowerMapToMapArray(expr, state);
+        let mapResult = tryLowerMapToMapArray(expr, state);
         if (mapResult) {
           state.needsMapArray = true;
           const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) && (mapResult.callee.name === "_$mapArray" || mapResult.callee.name === "mapArray");
           const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+          if (isArrowAlready && t.isExpression(mapResult.body)) {
+            mapResult.body = memoizeBranchCondition(mapResult.body, statements, state);
+          } else if (!isBareMapArray && !isArrowAlready) {
+            mapResult = memoizeBranchCondition(mapResult, statements, state);
+          }
           const insertArg = isBareMapArray || isArrowAlready ? mapResult : t.arrowFunctionExpression([], mapResult);
           statements.push(
             t.expressionStatement(
@@ -917,6 +1000,7 @@ function whatBabelPlugin({ types: t }) {
           continue;
         }
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+          expr = memoizeBranchCondition(expr, statements, state);
           const insertCall = t.callExpression(t.identifier("_$insert"), [
             t.identifier(elId),
             t.arrowFunctionExpression([], expr),
@@ -974,7 +1058,7 @@ function whatBabelPlugin({ types: t }) {
             ])
           );
         }
-        applyDynamicAttrs(statements, childElRef, entry.child.openingElement.attributes, state);
+        applyDynamicAttrs(statements, childElRef, entry.child.openingElement.attributes, state, entry.child.openingElement.name.name);
         applyDynamicChildren(statements, childElRef, entry.child.children, entry.child, state);
         continue;
       }
@@ -982,8 +1066,9 @@ function whatBabelPlugin({ types: t }) {
         for (const fChild of entry.child.children) {
           if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
             state.needsInsert = true;
-            const expr = fChild.expression;
+            let expr = fChild.expression;
             if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+              expr = memoizeBranchCondition(expr, statements, state);
               statements.push(
                 t.expressionStatement(
                   t.callExpression(t.identifier("_$insert"), [
@@ -1276,8 +1361,26 @@ function whatBabelPlugin({ types: t }) {
       condition = whenExpr;
     }
     const vId = path3.scope ? path3.scope.generateUidIdentifier("v") : t.identifier("_v");
-    const consequent = t.isFunction(contentExpr) ? t.callExpression(contentExpr, [t.cloneNode(vId)]) : contentExpr;
+    const contentIsFn = t.isFunction(contentExpr);
+    const consequent = contentIsFn ? t.callExpression(contentExpr, [t.cloneNode(vId)]) : contentExpr;
     const alternate = fallbackExpr || t.nullLiteral();
+    if (isPotentiallyReactive(condition, state.signalNames, state.importedIdentifiers)) {
+      const condId = state.nextMemoId();
+      state.needsMemo = true;
+      const memoBody = contentIsFn ? condition : t.unaryExpression("!", t.unaryExpression("!", condition));
+      if (!state._pendingSetup) state._pendingSetup = [];
+      state._pendingSetup.push(
+        t.variableDeclaration("const", [
+          t.variableDeclarator(
+            t.identifier(condId),
+            t.callExpression(t.identifier("_$memo"), [
+              t.arrowFunctionExpression([], memoBody)
+            ])
+          )
+        ])
+      );
+      condition = t.callExpression(t.identifier(condId), []);
+    }
     return t.arrowFunctionExpression([], t.blockStatement([
       t.variableDeclaration("const", [
         t.variableDeclarator(vId, condition)
@@ -1317,6 +1420,46 @@ function whatBabelPlugin({ types: t }) {
     state.templates.push({ id, html });
     return id;
   }
+  function transformJsxRoot(path3, state, transform) {
+    const scope = path3.scope;
+    let cache = state._signalNamesCache;
+    if (!cache) cache = state._signalNamesCache = /* @__PURE__ */ new WeakMap();
+    let names = cache.get(scope);
+    if (!names) {
+      names = collectSignalNamesFromScope(path3);
+      cache.set(scope, names);
+    }
+    state.signalNames = names;
+    state._pendingSetup = [];
+    const transformed = transform(path3, state);
+    const pending = state._pendingSetup;
+    state._pendingSetup = [];
+    if (pending.length > 0) {
+      let stmtPath = path3;
+      let crossedFunctionBoundary = false;
+      while (stmtPath && !stmtPath.isStatement()) {
+        if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
+          crossedFunctionBoundary = true;
+        }
+        stmtPath = stmtPath.parentPath;
+      }
+      const inStatementList = stmtPath && stmtPath.isStatement() && (stmtPath.listKey === "body" || stmtPath.listKey === "consequent") && Array.isArray(stmtPath.container);
+      if (inStatementList && !crossedFunctionBoundary) {
+        stmtPath.insertBefore(pending);
+        path3.replaceWith(transformed);
+      } else {
+        pending.push(t.returnStatement(transformed));
+        path3.replaceWith(
+          t.callExpression(
+            t.arrowFunctionExpression([], t.blockStatement(pending)),
+            []
+          )
+        );
+      }
+    } else {
+      path3.replaceWith(transformed);
+    }
+  }
   return {
     name: "what-jsx-transform",
     visitor: {
@@ -1328,6 +1471,12 @@ function whatBabelPlugin({ types: t }) {
           state.needsMapArray = false;
           state.needsSpread = false;
           state.needsSetProp = false;
+          state.needsMemo = false;
+          state.needsSetClass = false;
+          state.needsSetStyle = false;
+          state.needsSetAttr = false;
+          state.needsSetValue = false;
+          state.needsSetChecked = false;
           state.needsH = false;
           state.needsCreateComponent = false;
           state.needsFragment = false;
@@ -1338,8 +1487,10 @@ function whatBabelPlugin({ types: t }) {
           state.templateMap = /* @__PURE__ */ new Map();
           state.templateCount = 0;
           state._varCounter = 0;
+          state._memoCounter = 0;
           state._pendingSetup = [];
           state.nextVarId = () => `_el$${state._varCounter++}`;
+          state.nextMemoId = () => `_c$${state._memoCounter++}`;
           state.signalNames = /* @__PURE__ */ new Set();
           state.importedIdentifiers = /* @__PURE__ */ new Set();
           for (const node of path3.node.body) {
@@ -1395,20 +1546,19 @@ function whatBabelPlugin({ types: t }) {
         },
         exit(path3, state) {
           for (const tmpl of state.templates.reverse()) {
+            const tmplCall = t.callExpression(t.identifier("_$template"), [t.stringLiteral(tmpl.html)]);
+            t.addComment(tmplCall, "leading", " @__PURE__ ");
             path3.unshiftContainer(
               "body",
               t.variableDeclaration("const", [
-                t.variableDeclarator(
-                  t.identifier(tmpl.id),
-                  t.callExpression(t.identifier("_$template"), [t.stringLiteral(tmpl.html)])
-                )
+                t.variableDeclarator(t.identifier(tmpl.id), tmplCall)
               ])
             );
           }
           const fgSpecifiers = [];
           if (state.needsTemplate) {
             fgSpecifiers.push(
-              t.importSpecifier(t.identifier("_$template"), t.identifier("template"))
+              t.importSpecifier(t.identifier("_$template"), t.identifier("_$template"))
             );
           }
           if (state.needsInsert) {
@@ -1434,6 +1584,36 @@ function whatBabelPlugin({ types: t }) {
           if (state.needsSetProp) {
             fgSpecifiers.push(
               t.importSpecifier(t.identifier("_$setProp"), t.identifier("setProp"))
+            );
+          }
+          if (state.needsMemo) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier("_$memo"), t.identifier("memo"))
+            );
+          }
+          if (state.needsSetClass) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier("_$setClass"), t.identifier("setClass"))
+            );
+          }
+          if (state.needsSetStyle) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier("_$setStyle"), t.identifier("setStyle"))
+            );
+          }
+          if (state.needsSetAttr) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier("_$setAttr"), t.identifier("setAttr"))
+            );
+          }
+          if (state.needsSetValue) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier("_$setValue"), t.identifier("setValue"))
+            );
+          }
+          if (state.needsSetChecked) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier("_$setChecked"), t.identifier("setChecked"))
             );
           }
           if (state.needsCreateComponent) {
@@ -1493,58 +1673,36 @@ function whatBabelPlugin({ types: t }) {
             const eventArray = t.arrayExpression(
               [...state.delegatedEvents].map((e) => t.stringLiteral(e))
             );
-            path3.pushContainer(
-              "body",
-              t.expressionStatement(
-                t.callExpression(t.identifier("_$delegateEvents"), [eventArray])
-              )
+            const helperFn = t.functionDeclaration(
+              t.identifier("_$delegate$"),
+              [],
+              t.blockStatement([
+                t.ifStatement(
+                  t.identifier("_$delegated$"),
+                  t.returnStatement()
+                ),
+                t.expressionStatement(
+                  t.assignmentExpression("=", t.identifier("_$delegated$"), t.booleanLiteral(true))
+                ),
+                t.expressionStatement(
+                  t.callExpression(t.identifier("_$delegateEvents"), [eventArray])
+                )
+              ])
             );
+            path3.unshiftContainer("body", [
+              t.variableDeclaration("let", [
+                t.variableDeclarator(t.identifier("_$delegated$"), t.booleanLiteral(false))
+              ]),
+              helperFn
+            ]);
           }
         }
       },
       JSXElement(path3, state) {
-        const scope = path3.scope;
-        let cache = state._signalNamesCache;
-        if (!cache) cache = state._signalNamesCache = /* @__PURE__ */ new WeakMap();
-        let names = cache.get(scope);
-        if (!names) {
-          names = collectSignalNamesFromScope(path3);
-          cache.set(scope, names);
-        }
-        state.signalNames = names;
-        state._pendingSetup = [];
-        const transformed = transformElementFineGrained(path3, state);
-        const pending = state._pendingSetup;
-        state._pendingSetup = [];
-        if (pending.length > 0) {
-          let stmtPath = path3;
-          let crossedFunctionBoundary = false;
-          while (stmtPath && !stmtPath.isStatement()) {
-            if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
-              crossedFunctionBoundary = true;
-            }
-            stmtPath = stmtPath.parentPath;
-          }
-          const inStatementList = stmtPath && stmtPath.isStatement() && (stmtPath.listKey === "body" || stmtPath.listKey === "consequent") && Array.isArray(stmtPath.container);
-          if (inStatementList && !crossedFunctionBoundary) {
-            stmtPath.insertBefore(pending);
-            path3.replaceWith(transformed);
-          } else {
-            pending.push(t.returnStatement(transformed));
-            path3.replaceWith(
-              t.callExpression(
-                t.arrowFunctionExpression([], t.blockStatement(pending)),
-                []
-              )
-            );
-          }
-        } else {
-          path3.replaceWith(transformed);
-        }
+        transformJsxRoot(path3, state, transformElementFineGrained);
       },
       JSXFragment(path3, state) {
-        const transformed = transformFragmentFineGrained(path3, state);
-        path3.replaceWith(transformed);
+        transformJsxRoot(path3, state, transformFragmentFineGrained);
       }
     }
   };
@@ -2189,7 +2347,12 @@ function whatVitePlugin(options = {}) {
     // Pages directory (relative to project root)
     pages = "src/pages",
     // HMR: enabled by default in dev, disabled in production
-    hot = !production
+    hot = !production,
+    // Resolve the `production` exports condition (dist/*.min.js — pre-minified,
+    // dev warnings compiled out) during `vite build`. Set to false to build
+    // against package sources instead — needed e.g. in a monorepo where
+    // workspace-linked dist/ output may be stale or absent. See config() below.
+    prodBundles = true
   } = options;
   let rootDir = "";
   let pagesDir = "";
@@ -2244,6 +2407,13 @@ function whatVitePlugin(options = {}) {
         const result = transformSync(code, {
           filename: id,
           sourceMaps,
+          // Hermetic transform (SPRINT v0.11 C7): never load the project's
+          // babel.config.js/.babelrc. A user's React preset or unrelated
+          // plugins corrupting What's JSX output is a debugging nightmare —
+          // and scanning the disk for config files on every transform is
+          // wasted I/O in dev.
+          configFile: false,
+          babelrc: false,
           plugins: [
             [whatBabelPlugin, { production }]
           ],
@@ -2287,8 +2457,10 @@ function whatVitePlugin(options = {}) {
       return;
     },
     // Configure for development
-    config(config, { mode }) {
+    config(config, { mode, command }) {
+      const useProdCondition = command === "build" && mode === "production" && prodBundles;
       return {
+        ...useProdCondition ? { resolve: { conditions: ["production"] } } : {},
         esbuild: {
           // Preserve JSX so our babel plugin handles it -- don't let esbuild transform it
           jsx: "preserve"

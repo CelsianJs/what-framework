@@ -1,0 +1,17 @@
+import { _$template, insert as _$insert, mapArray as _$mapArray } from "what-framework/render";
+const _tmpl$0 = /* @__PURE__ */_$template("<ul class=\"todos\"><!--$--></ul>");
+const _tmpl$1 = /* @__PURE__ */_$template("<li><!--$--></li>");
+import { signal } from 'what-framework';
+export function TodoList() {
+  const todos = signal([]);
+  const _el$0 = _tmpl$0();
+  _$insert(_el$0, _$mapArray(() => todos(), todo => (() => {
+    const _el$1 = _tmpl$1();
+    _$insert(_el$1, todo.title, _el$1.firstChild);
+    return _el$1;
+  })(), {
+    key: todo => todo.id,
+    raw: true
+  }), _el$0.firstChild);
+  return _el$0;
+}

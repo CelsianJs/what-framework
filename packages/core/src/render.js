@@ -2,9 +2,13 @@
 // Solid-style rendering: components run once, signals create individual DOM effects.
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
-import { effect, untrack, createRoot, _createItemScope, signal, __DEV__ } from './reactive.js';
+import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack, _setSelectValue } from './dom.js';
 export { effect, untrack };
+// Re-export memo for compiled output (branch memoization: the compiler emits
+// _$memo(() => cond) so conditional branches only re-create DOM when the
+// condition value actually changes, not on every dependency write).
+export { memo };
 
 // --- Generic text insertion hook ---
 // External text engines (e.g., what-text) register a callback here via
@@ -173,41 +177,44 @@ export function insert(parent, child, marker) {
   }
 
   if (typeof child === 'function') {
-    // Fast path: if the first evaluation returns a string/number, optimistically
-    // create a text node for direct updates. If the value type changes later
-    // (e.g., text -> vnode), fall back to full reconcileInsert.
-    const first = child();
-    const t = typeof first;
-    if (t === 'string' || t === 'number') {
-      const textNode = document.createTextNode(String(first));
-      const m = marker || null;
-      if (m) parent.insertBefore(textNode, m);
-      else parent.appendChild(textNode);
-      if (_onTextInsert) _onTextInsert(parent, String(first));
-      let current = textNode;
-      let isTextFastPath = true;
-      effect(() => {
-        const val = child();
-        const vt = typeof val;
-        if (isTextFastPath && (vt === 'string' || vt === 'number')) {
-          // Fast path: still text — update data directly (no allocations)
-          const str = String(val);
-          if (textNode.data !== str) textNode.data = str;
-          if (_onTextInsert) _onTextInsert(parent, str);
-        } else {
-          // Type changed — fall back to full reconcile
-          isTextFastPath = false;
-          current = reconcileInsert(parent, val, current, m);
-        }
-      });
-      return textNode;
-    }
-    // General path for non-text reactive children (first value was null/vnode/array).
-    // Let the effect handle both the initial insert and subsequent updates to avoid
-    // double-evaluating child() (which would create components twice on mount).
+    // Single-evaluation mount: child() is evaluated exactly ONCE at mount,
+    // inside the effect (so signal reads are tracked). The first run decides
+    // between the text fast path (direct textNode.data updates, zero
+    // allocations) and the general reconcile path. Previously the first
+    // evaluation happened outside the effect to pick the path, then the
+    // effect's first run re-evaluated child() — creating components twice
+    // on mount for non-text children. (SPRINT v0.11 C3)
+    const m = marker || null;
     let current = null;
+    let textNode = null; // non-null while on the text fast path
+    let mounted = false;
     effect(() => {
-      current = reconcileInsert(parent, child(), current, marker || null);
+      const val = child();
+      const vt = typeof val;
+      if (!mounted) {
+        // First run — mount
+        mounted = true;
+        if (vt === 'string' || vt === 'number') {
+          textNode = document.createTextNode(String(val));
+          if (m) parent.insertBefore(textNode, m);
+          else parent.appendChild(textNode);
+          if (_onTextInsert) _onTextInsert(parent, String(val));
+          current = textNode;
+        } else {
+          current = reconcileInsert(parent, val, null, m);
+        }
+        return;
+      }
+      if (textNode !== null && (vt === 'string' || vt === 'number')) {
+        // Fast path: still text — update data directly (no allocations)
+        const str = String(val);
+        if (textNode.data !== str) textNode.data = str;
+        if (_onTextInsert) _onTextInsert(parent, str);
+        return;
+      }
+      // Type changed (or never was text) — full reconcile
+      textNode = null;
+      current = reconcileInsert(parent, val, current, m);
     });
     return current;
   }
@@ -1355,6 +1362,85 @@ export function setProp(el, key, value) {
   }
 }
 
+// --- Specialized attribute setters (SPRINT v0.11 C2) ---
+// The compiler statically knows most attribute names, so it emits direct calls
+// to these monomorphic helpers instead of routing everything through the
+// generic setProp() dispatcher (which re-checks ref/key/url/class/style/...
+// string-compares on every reactive update). setProp() remains the target for
+// spreads, URL attributes (href/src/action — sanitization lives there) and any
+// name the compiler can't classify.
+//
+// Function values are reactive ACCESSORS (e.g. `value={() => user().name}`),
+// exactly like setProp treats them: wrap in an effect that re-applies the
+// resolved value, with the disposer registered on el._propEffects so
+// disposeTree() tears it down on unmount.
+
+function _wrapPropAccessor(el, key, accessor, apply) {
+  if (!el._propEffects) el._propEffects = {};
+  if (el._propEffects[key]) {
+    try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+  }
+  el._propEffects[key] = effect(() => apply(el, accessor()));
+}
+
+// class / className — hottest dynamic attribute in real apps.
+export function setClass(el, value) {
+  if (typeof value === 'function') return _wrapPropAccessor(el, 'class', value, setClass);
+  if (_hasSVGElement && el instanceof SVGElement) {
+    el.setAttribute('class', value || '');
+  } else {
+    el.className = value || '';
+  }
+}
+
+// style — string (cssText) or object form.
+export function setStyle(el, value) {
+  if (typeof value === 'function') return _wrapPropAccessor(el, 'style', value, setStyle);
+  if (typeof value === 'string') {
+    el.style.cssText = value;
+  } else if (value && typeof value === 'object') {
+    const style = el.style;
+    for (const prop in value) {
+      style[prop] = value[prop] ?? '';
+    }
+  } else if (value == null) {
+    el.style.cssText = '';
+  }
+}
+
+// Plain attribute set — used for data-*/aria-* (statically recognizable).
+// null/undefined removes the attribute (previously setProp stringified them
+// to "null"/"undefined" — removal is the correct semantic). Booleans are
+// stringified ("true"/"false") because aria-* boolean strings are meaningful.
+export function setAttr(el, name, value) {
+  if (typeof value === 'function') {
+    return _wrapPropAccessor(el, name, value, (e2, v) => setAttr(e2, name, v));
+  }
+  if (value == null) el.removeAttribute(name);
+  else el.setAttribute(name, value);
+}
+
+// value — controlled-input property set. <select> keeps multi/deferred-option
+// handling; other elements get a guarded property write (the !== guard avoids
+// resetting the caret position in focused inputs on unrelated re-runs).
+export function setValue(el, value) {
+  if (typeof value === 'function') return _wrapPropAccessor(el, 'value', value, setValue);
+  if (el.tagName === 'SELECT') {
+    _setSelectValue(el, value);
+    return;
+  }
+  const str = value == null ? '' : String(value);
+  if (el.value !== str) el.value = str;
+}
+
+// checked — live property write (matches bind:checked). The old generic path
+// used setAttribute('checked'), which only sets the DEFAULT-checked state and
+// stops reflecting once the user has toggled the input.
+export function setChecked(el, value) {
+  if (typeof value === 'function') return _wrapPropAccessor(el, 'checked', value, setChecked);
+  el.checked = !!value;
+}
+
 // --- delegateEvents(eventNames) ---
 // Event delegation: common events handled at document level.
 // Handlers stored as el.$$click, el.$$input, etc.
@@ -1370,6 +1456,15 @@ export function delegateEvents(eventNames) {
     document.addEventListener(name, (e) => {
       let node = e.target;
       const key = '$$' + name;
+
+      // Shim e.currentTarget so handlers see the element the (virtual) listener
+      // is attached to — not `document` — during the ancestor walk. Mirrors
+      // Solid's delegation shim. configurable so nested dispatch can redefine.
+      // (SPRINT v0.11 C9)
+      Object.defineProperty(e, 'currentTarget', {
+        configurable: true,
+        get() { return node || document; },
+      });
 
       // Walk up the DOM tree looking for handlers
       while (node) {

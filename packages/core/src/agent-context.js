@@ -6,8 +6,9 @@ import { __DEV__ } from './reactive.js';
 import { getCollectedErrors } from './errors.js';
 
 // --- Version ---
-// Read from package.json at build time; fallback to runtime constant.
-const VERSION = '0.6.0';
+// Keep in sync with packages/core/package.json (checked by
+// core/test/guardrails.test.js so it can't silently go stale again).
+const VERSION = '0.10.0';
 
 // --- Component Registry ---
 // Tracks mounted components for agent inspection.

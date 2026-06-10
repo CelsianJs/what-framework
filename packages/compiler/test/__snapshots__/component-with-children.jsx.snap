@@ -1,0 +1,20 @@
+import { _$template, insert as _$insert, _$createComponent } from "what-framework/render";
+const _tmpl$0 = /* @__PURE__ */_$template("<main class=\"layout\"><!--$--></main>");
+const _tmpl$1 = /* @__PURE__ */_$template("<h1><!--$--></h1>");
+const _tmpl$2 = /* @__PURE__ */_$template("<p>Welcome</p>");
+import { signal } from 'what-framework';
+function Layout({
+  children
+}) {
+  const _el$0 = _tmpl$0();
+  _$insert(_el$0, () => children, _el$0.firstChild);
+  return _el$0;
+}
+export function Page() {
+  const title = signal('Home');
+  const _el$1 = _tmpl$1();
+  _$insert(_el$1, () => title(), _el$1.firstChild);
+  return _$createComponent(Layout, {
+    theme: "dark"
+  }, [_el$1, _tmpl$2()]);
+}
