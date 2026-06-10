@@ -183,11 +183,12 @@ function Hero() {
   return (
     <section class="hero">
       <div class="container">
-        <div class="hero-pill"><span class="dot"></span> what-react v0.10.0</div>
-        <h1><span class="grad">Most React Libraries.</span><br />No Code Changes.</h1>
+        <div class="hero-pill"><span class="dot"></span> what-react v{__WHAT_REACT_VERSION__}</div>
+        <h1><span class="grad">Your React Libraries.</span><br />Same Imports.</h1>
         <p class="hero-sub">
-          What Framework's <code>what-react</code> compat layer lets you use the React ecosystem
-          on a signals-powered engine. Same imports. Same API. Faster runtime.
+          What Framework's <code>what-react</code> compat layer reimplements React's public API
+          on a signals-powered engine. Every library below earned its badge in a real app —
+          verified working, or tracked until it is.
         </p>
         <div class="stats-bar">
           <Counter target={pkgs.filter((p) => p.s === 'pass').length} suffix="" colorClass="c-blue">Verified Working</Counter>

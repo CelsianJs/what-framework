@@ -119,10 +119,44 @@ function rewriteLinks(html, base) {
     .replace(/href="\.\.\/"/g, `href="/docs"`);
 }
 
+// ---------------------------------------------------------------------------
+// Search index — extracted from each page's <main> at build time and written
+// to dist/search-index.json. docs/search.js queries it client-side (T6-03).
+// ---------------------------------------------------------------------------
+const SEARCH_INDEX = [];
+
+function decodeEntities(s) {
+  return s
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&middot;/g, '·')
+    .replace(/&rarr;/g, '→').replace(/&amp;/g, '&');
+}
+
+function textify(html) {
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+  ).replace(/\s+/g, ' ').trim();
+}
+
+function indexPage({ route, title, section, layoutInner }) {
+  const ms = layoutInner.indexOf('<main');
+  const me = layoutInner.indexOf('</main>');
+  let main = ms >= 0 && me > ms
+    ? layoutInner.slice(layoutInner.indexOf('>', ms) + 1, me)
+    : layoutInner;
+  main = main.replace(/<aside class="toc">[\s\S]*?<\/aside>/, ' '); // skip the TOC
+  const headings = [...main.matchAll(/<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/g)].map((m) => textify(m[2]));
+  SEARCH_INDEX.push({ route, title, section, headings, text: textify(main).slice(0, 6000) });
+}
+
 const HEAD = (title) => `<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} — What Framework</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -179,14 +213,12 @@ function buildSection({ dirRel, base, navSection }) {
       continue;
     }
     const { title, layoutInner, trailing } = extract(src);
+    const rewritten = rewriteLinks(layoutInner, base);
+    indexPage({ route, title, section: navSection[0].toUpperCase() + navSection.slice(1), layoutInner: rewritten });
     const html = renderPage({
       title,
       navSection,
-      // data-pagefind-body scopes the search index to the article content
-      // (sidebar/nav/toc excluded); only section pages carry it, so only
-      // they are indexed.
-      layoutInner: rewriteLinks(layoutInner, base)
-        .replace('<main class="content">', '<main class="content" data-pagefind-body>'),
+      layoutInner: rewritten,
       trailing: useRealWhat(rewriteLinks(trailing, base)),
     });
     write(route, html);
@@ -198,7 +230,7 @@ function buildSection({ dirRel, base, navSection }) {
 // reset dist, copy shared assets
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
-for (const a of ['design-system.css', 'theme.js', 'docs/styles.css', 'docs/copy-code.js', 'docs/search.js', 'llms.txt', 'llms-full.txt']) copyAsset(a);
+for (const a of ['design-system.css', 'theme.js', 'favicon.svg', 'docs/styles.css', 'docs/copy-code.js', 'docs/search.js', 'llms.txt', 'llms-full.txt']) copyAsset(a);
 
 // Bundle the REAL What framework as a browser global for the live demos.
 await esbuild.build({
@@ -220,6 +252,9 @@ for (const s of SECTIONS) {
   total += n;
   console.log(`✓ ${s.navSection}: ${n} pages`);
 }
+
+writeFileSync(join(DIST, 'search-index.json'), JSON.stringify(SEARCH_INDEX));
+console.log(`✓ search-index.json (${SEARCH_INDEX.length} pages indexed)`);
 
 // Standalone pages (home, docs landing) — no shared layout/sidebar. Preserve the
 // full <head> (meta/OG/title) and <body> verbatim; rewrite asset + .html links to
@@ -261,6 +296,8 @@ buildStandalone({
     [/href="\.\/styles\.css"/g, 'href="/docs/styles.css"'],
     [/src="\.\.\/theme\.js"/g, 'src="/theme.js"'],
     [/src="\.\/copy-code\.js"/g, 'src="/docs/copy-code.js"'],
+    [/src="\.\/search\.js"/g, 'src="/docs/search.js"'],
+    [/href="\.\.\/favicon\.svg"/g, 'href="/favicon.svg"'],
   ],
   bodyReplaces: [
     [/href="\.\/(learn|reference|tutorial)\//g, 'href="/docs/$1/'],
