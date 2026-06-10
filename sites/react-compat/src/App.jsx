@@ -184,14 +184,14 @@ function Hero() {
     <section class="hero">
       <div class="container">
         <div class="hero-pill"><span class="dot"></span> what-react v0.10.0</div>
-        <h1><span class="grad">90+ React Libraries.</span><br />Zero Changes.</h1>
+        <h1><span class="grad">Your React Libraries.</span><br />Zero Changes.</h1>
         <p class="hero-sub">
           What Framework's <code>what-react</code> compat layer lets you use the React ecosystem
           on a signals-powered engine. Same imports. Same API. Faster runtime.
         </p>
         <div class="stats-bar">
-          <Counter target={90} suffix="" colorClass="c-blue">Confirmed Working</Counter>
-          <Counter target={96} suffix="+" colorClass="c-cyan">Total Compatible</Counter>
+          <Counter target={pkgs.filter((p) => p.s === 'pass').length} suffix="" colorClass="c-blue">Verified Working</Counter>
+          <Counter target={pkgs.length} suffix="" colorClass="c-cyan">Libraries Tracked</Counter>
           <Counter target={0} suffix="" colorClass="c-purple">Lines Changed</Counter>
           <Counter target={500} suffix="M+" colorClass="c-green">Ecosystem Downloads/wk</Counter>
         </div>

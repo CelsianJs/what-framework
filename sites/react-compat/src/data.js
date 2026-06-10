@@ -1,128 +1,123 @@
-// Package data — 90 confirmed + 1 partial + 5 expected
+// Package compatibility data.
+//
+// HONESTY POLICY (2026-06-09): `s: 'pass'` is reserved for libraries verified
+// end-to-end on the CURRENT compat runtime (what-react ≥ 0.11 rework) in a real
+// browser + jsdom CI tests. Everything else is `'untested'` — earlier claims
+// were made against the pre-rework runtime (accessor-returning hooks) and are
+// not trustworthy. See REACT-COMPAT.md for the verification method per entry.
 export const pkgs = [
-  // State Management
-  { n: 'Zustand', d: '19.1M', c: 'State Management', s: 'pass', t: 'Benchmarked 2.5x faster' },
-  { n: 'Jotai', d: '2.7M', c: 'State Management', s: 'pass', t: 'Benchmarked 3x faster atoms' },
-  { n: 'Redux Toolkit + react-redux', d: '15.8M', c: 'State Management', s: 'pass', t: 'Full store + dispatch' },
-  { n: 'Immer', d: '26.8M', c: 'State Management', s: 'pass', t: 'produce() with useState' },
-  { n: 'valtio', d: '546K', c: 'State Management', s: 'pass', t: 'Proxy state + useSnapshot' },
+  // ── Verified 2026-06-09 ── real browser (Chromium via Vite + reactCompat())
+  // AND jsdom CI tests (packages/react-compat/test/libs.test.js)
+  { n: 'Zustand', d: '19.1M', c: 'State Management', s: 'pass', t: 'Selectors return values, actions re-render UI (verified 2026-06-09)' },
+  { n: 'TanStack React Query', d: '12.3M', c: 'Data Fetching', s: 'pass', t: 'useQuery + useMutation + QueryClientProvider (verified 2026-06-09)' },
+  { n: 'React Hook Form', d: '15.8M', c: 'Forms', s: 'pass', t: 'register, submit, validation errors, focus-on-error (verified 2026-06-09)' },
+  { n: 'React Hot Toast', d: '1.6M', c: 'Notifications', s: 'pass', t: 'Toaster + toast(), enter/exit animations (verified 2026-06-09)' },
+  { n: 'Headless UI', d: '4.2M', c: 'UI Components', s: 'pass', t: 'Menu open/select/close with ARIA, Switch (verified 2026-06-09)' },
+  { n: 'Framer Motion', d: '9M', c: 'Animation', s: 'pass', t: 'animate, AnimatePresence enter/exit (browser-verified 2026-06-09)' },
 
-  // Routing
-  { n: 'React Router v6', d: '20.8M', c: 'Routing', s: 'pass', t: 'Routes, useNavigate, Outlet' },
+  // ── Untested on the current runtime ──
+  // These rendered on the pre-0.11 compat layer in earlier harness runs, but
+  // have NOT been re-verified against the reworked runtime. Treat as unknown.
+  { n: 'Jotai', d: '2.7M', c: 'State Management', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'Redux Toolkit + react-redux', d: '15.8M', c: 'State Management', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'Immer', d: '26.8M', c: 'State Management', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'valtio', d: '546K', c: 'State Management', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // UI Components
-  { n: 'Radix UI', d: '19M', c: 'UI Components', s: 'pass', t: 'Dialog, Dropdown, Tooltip, etc.' },
-  { n: 'MUI (Material UI)', d: '4.2M', c: 'UI Components', s: 'pass', t: 'Button, TextField, Alert, Badge, Switch' },
-  { n: 'Ant Design', d: '1.6M', c: 'UI Components', s: 'pass', t: 'Table, Form, Button, Layout' },
-  { n: 'Headless UI', d: '4.2M', c: 'UI Components', s: 'pass', t: 'Menu, Dialog, Listbox, Switch' },
-  { n: 'cmdk', d: '8.4M', c: 'UI Components', s: 'pass', t: 'Radix-based command palette' },
-  { n: 'vaul', d: '6.9M', c: 'UI Components', s: 'pass', t: 'Radix-based drawer component' },
-  { n: 'react-day-picker', d: '9.8M', c: 'UI Components', s: 'pass', t: 'Full calendar grid + navigation' },
-  { n: 'embla-carousel-react', d: '6.5M', c: 'UI Components', s: 'pass', t: 'Carousel hook + slides' },
-  { n: 'react-colorful', d: '3.6M', c: 'UI Components', s: 'pass', t: 'Color picker + hue slider' },
-  { n: '@floating-ui/react', d: '10.7M', c: 'UI Components', s: 'pass', t: 'useFloating tooltip positioning' },
-  { n: 'react-popper', d: '4.7M', c: 'UI Components', s: 'pass', t: 'Popper.js integration' },
-  { n: 'react-tooltip', d: '1.6M', c: 'UI Components', s: 'pass', t: 'Tooltip component, hover trigger' },
-  { n: 'downshift', d: '1.5M', c: 'UI Components', s: 'pass', t: 'Accessible combobox primitive' },
-  { n: 'react-modal', d: '1.3M', c: 'UI Components', s: 'pass', t: 'Accessible modal dialog' },
-  { n: 'react-tabs', d: '900K', c: 'UI Components', s: 'pass', t: 'Accessible tabs component' },
-  { n: 'react-paginate', d: '800K', c: 'UI Components', s: 'pass', t: 'Pagination with page controls' },
-  { n: 'react-slick', d: '1.2M', c: 'UI Components', s: 'pass', t: 'Carousel/slider with dots' },
-  { n: 'react-loading-skeleton', d: '1M', c: 'UI Components', s: 'pass', t: 'Skeleton loading screens' },
-  { n: 'react-spinners', d: '800K', c: 'UI Components', s: 'pass', t: 'ClipLoader, BeatLoader, PulseLoader' },
-  { n: 'react-resizable-panels', d: '4.6M', c: 'UI Components', s: 'pass', t: 'Resizable panel groups' },
-  { n: 'input-otp', d: '1.4M', c: 'UI Components', s: 'pass', t: 'OTP input with slots render' },
+  { n: 'React Router v6', d: '20.8M', c: 'Routing', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // Data Fetching
-  { n: 'TanStack React Query', d: '12.3M', c: 'Data Fetching', s: 'pass', t: 'useQuery, useMutation' },
-  { n: 'SWR', d: '1.2M', c: 'Data Fetching', s: 'pass', t: 'useSWR hook' },
+  { n: 'Radix UI', d: '19M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'MUI (Material UI)', d: '4.2M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'Ant Design', d: '1.6M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'cmdk', d: '8.4M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'vaul', d: '6.9M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-day-picker', d: '9.8M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'embla-carousel-react', d: '6.5M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-colorful', d: '3.6M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@floating-ui/react', d: '10.7M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-popper', d: '4.7M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-tooltip', d: '1.6M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'downshift', d: '1.5M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-modal', d: '1.3M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-tabs', d: '900K', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-paginate', d: '800K', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-slick', d: '1.2M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-loading-skeleton', d: '1M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-spinners', d: '800K', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-resizable-panels', d: '4.6M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'input-otp', d: '1.4M', c: 'UI Components', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // Tables & Virtualization
-  { n: 'TanStack Table', d: '5.3M', c: 'Tables', s: 'pass', t: 'Benchmarked 2.8x faster create' },
-  { n: 'TanStack Virtual', d: '2.8M', c: 'Tables', s: 'pass', t: 'Benchmarked 10x faster scroll' },
-  { n: 'AG Grid', d: '665K', c: 'Tables', s: 'pass', t: 'Full data grid, row/col defs' },
-  { n: 'react-virtuoso', d: '650K', c: 'Tables', s: 'pass', t: 'Virtualized list, 200+ items' },
+  { n: 'SWR', d: '1.2M', c: 'Data Fetching', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // Forms
-  { n: 'React Hook Form', d: '15.8M', c: 'Forms', s: 'pass', t: 'Benchmarked 3.5x faster reset' },
-  { n: 'Formik', d: '3.4M', c: 'Forms', s: 'pass', t: 'Full form library + validation' },
-  { n: 'react-dropzone', d: '7.2M', c: 'Forms', s: 'pass', t: 'useDropzone hook, drag-and-drop' },
-  { n: 'react-number-format', d: '2.9M', c: 'Forms', s: 'pass', t: 'NumericFormat, thousand separator' },
-  { n: 'React Select', d: '5.1M', c: 'Forms', s: 'pass', t: 'Searchable dropdown, custom styles' },
-  { n: 'React DatePicker', d: '2.7M', c: 'Forms', s: 'pass', t: 'Calendar date selection' },
-  { n: 'react-textarea-autosize', d: '1.5M', c: 'Forms', s: 'pass', t: 'Auto-resizing textarea' },
-  { n: '@tanstack/react-form', d: '300K', c: 'Forms', s: 'pass', t: 'Headless form with field API' },
+  { n: 'TanStack Table', d: '5.3M', c: 'Tables', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'TanStack Virtual', d: '2.8M', c: 'Tables', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'AG Grid', d: '665K', c: 'Tables', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-virtuoso', d: '650K', c: 'Tables', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-window v2', d: '4.2M', c: 'Tables', s: 'untested', t: 'Crashed on the old runtime; not yet re-tested' },
 
-  // Charts
-  { n: 'Recharts', d: '13.8M', c: 'Charts', s: 'pass', t: 'LineChart, XAxis, YAxis, CartesianGrid' },
-  { n: 'react-chartjs-2', d: '2M', c: 'Charts', s: 'pass', t: 'Bar chart via Chart.js' },
+  { n: 'Formik', d: '3.4M', c: 'Forms', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-dropzone', d: '7.2M', c: 'Forms', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-number-format', d: '2.9M', c: 'Forms', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'React Select', d: '5.1M', c: 'Forms', s: 'untested', t: 'Errored on the old runtime; not yet re-tested' },
+  { n: 'React DatePicker', d: '2.7M', c: 'Forms', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-textarea-autosize', d: '1.5M', c: 'Forms', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@tanstack/react-form', d: '300K', c: 'Forms', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // Animation
-  { n: 'Framer Motion', d: '9M', c: 'Animation', s: 'pass', t: 'Full API — animate, variants, exit' },
-  { n: 'React Spring', d: '2.5M', c: 'Animation', s: 'pass', t: 'Springs, trails, transitions' },
-  { n: 'react-transition-group', d: '22M', c: 'Animation', s: 'pass', t: 'CSSTransition with nodeRef' },
-  { n: 'react-countup', d: '350K', c: 'Animation', s: 'pass', t: 'Animated number counter' },
-  { n: 'react-fast-marquee', d: '500K', c: 'Animation', s: 'pass', t: 'Marquee/ticker animation' },
-  { n: 'react-type-animation', d: '400K', c: 'Animation', s: 'pass', t: 'Typewriter text effect' },
-  { n: 'react-confetti', d: '300K', c: 'Animation', s: 'pass', t: 'Confetti particle animation' },
+  { n: 'Recharts', d: '13.8M', c: 'Charts', s: 'untested', t: 'Render-looped on the old runtime; not yet re-tested' },
+  { n: 'react-chartjs-2', d: '2M', c: 'Charts', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'victory', d: '360K', c: 'Charts', s: 'untested', t: 'Never tested' },
+  { n: 'react-apexcharts', d: '700K', c: 'Charts', s: 'untested', t: 'Never tested' },
+  { n: 'nivo', d: '350K', c: 'Charts', s: 'untested', t: 'Never tested' },
 
-  // CSS-in-JS
-  { n: '@emotion/react', d: '13.4M', c: 'CSS-in-JS', s: 'pass', t: 'css() object styles, theme context' },
-  { n: '@emotion/styled', d: '9.3M', c: 'CSS-in-JS', s: 'pass', t: 'styled.div, template literals' },
-  { n: 'styled-components', d: '7.8M', c: 'CSS-in-JS', s: 'pass', t: 'v6, transient $props' },
-  { n: 'Tailwind CSS v4', d: '40M+', c: 'CSS-in-JS', s: 'pass', t: '@tailwindcss/vite, all utilities' },
+  { n: 'React Spring', d: '2.5M', c: 'Animation', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-transition-group', d: '22M', c: 'Animation', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-countup', d: '350K', c: 'Animation', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-fast-marquee', d: '500K', c: 'Animation', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-type-animation', d: '400K', c: 'Animation', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-confetti', d: '300K', c: 'Animation', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-lottie-player', d: '300K', c: 'Animation', s: 'untested', t: 'Never tested' },
 
-  // Drag & Drop
-  { n: 'dnd-kit', d: '8.4M', c: 'Drag & Drop', s: 'pass', t: 'DndContext, useSortable' },
-  { n: 'react-beautiful-dnd', d: '3M', c: 'Drag & Drop', s: 'pass', t: 'DragDropContext, Droppable, Draggable' },
-  { n: 'react-dnd', d: '2.5M', c: 'Drag & Drop', s: 'pass', t: 'useDrag, useDrop, HTML5Backend' },
-  { n: 'react-draggable', d: '4M', c: 'Drag & Drop', s: 'pass', t: 'Draggable, position tracking' },
-  { n: 'react-resizable', d: '2.2M', c: 'Drag & Drop', s: 'pass', t: 'ResizableBox, min/max constraints' },
+  { n: '@emotion/react', d: '13.4M', c: 'CSS-in-JS', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@emotion/styled', d: '9.3M', c: 'CSS-in-JS', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'styled-components', d: '7.8M', c: 'CSS-in-JS', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'Tailwind CSS v4', d: '40M+', c: 'CSS-in-JS', s: 'untested', t: 'Build-time CSS; independent of the runtime but not re-verified' },
 
-  // Notifications
-  { n: 'sonner', d: '9.9M', c: 'Notifications', s: 'pass', t: 'Toaster + toast() API, portals' },
-  { n: 'React Hot Toast', d: '1.6M', c: 'Notifications', s: 'pass', t: 'Lightweight toast() API' },
-  { n: 'React Toastify', d: '2.6M', c: 'Notifications', s: 'pass', t: 'ToastContainer + rich options' },
-  { n: 'notistack', d: '1.2M', c: 'Notifications', s: 'pass', t: 'SnackbarProvider, useSnackbar' },
+  { n: 'dnd-kit', d: '8.4M', c: 'Drag & Drop', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-beautiful-dnd', d: '3M', c: 'Drag & Drop', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-dnd', d: '2.5M', c: 'Drag & Drop', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-draggable', d: '4M', c: 'Drag & Drop', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-resizable', d: '2.2M', c: 'Drag & Drop', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // Icons
-  { n: 'React Icons', d: '5M', c: 'Icons', s: 'pass', t: 'All icon packs (FA, MD, etc.)' },
-  { n: 'lucide-react', d: '5.2M', c: 'Icons', s: 'pass', t: 'Home, Settings, Search, Star, Heart' },
-  { n: '@heroicons/react', d: '2.1M', c: 'Icons', s: 'pass', t: 'Beaker, Arrow, Home icons' },
-  { n: '@radix-ui/react-icons', d: '2M', c: 'Icons', s: 'pass', t: 'Face, Gear, Rocket icons' },
-  { n: '@phosphor-icons/react', d: '500K', c: 'Icons', s: 'pass', t: 'Lightning, Heart, Star + weights' },
-  { n: '@mui/icons-material', d: '3.5M', c: 'Icons', s: 'pass', t: 'Home, Settings, Search icons' },
+  { n: 'sonner', d: '9.9M', c: 'Notifications', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'React Toastify', d: '2.6M', c: 'Notifications', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'notistack', d: '1.2M', c: 'Notifications', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // Content & Utilities
-  { n: 'clsx', d: '17.1M', c: 'Utilities', s: 'pass', t: 'Class string builder utility' },
-  { n: 'classnames', d: '13M', c: 'Utilities', s: 'pass', t: 'Class string builder utility' },
-  { n: 'React Markdown', d: '2.4M', c: 'Utilities', s: 'pass', t: 'Markdown to React elements' },
-  { n: 'react-i18next', d: '4.5M', c: 'Utilities', s: 'pass', t: 'useTranslation hook' },
-  { n: 'React Helmet', d: '2.3M', c: 'Utilities', s: 'pass', t: 'Document head management' },
-  { n: 'react-syntax-highlighter', d: '4.3M', c: 'Utilities', s: 'pass', t: 'Syntax-highlighted code blocks' },
-  { n: 'react-copy-to-clipboard', d: '1.8M', c: 'Utilities', s: 'pass', t: 'Clipboard API wrapper' },
-  { n: 'react-player', d: '1.5M', c: 'Utilities', s: 'pass', t: 'Media player, canPlay API' },
-  { n: 'usehooks-ts', d: '2.6M', c: 'Utilities', s: 'pass', t: 'useBoolean, useLocalStorage' },
-  { n: 'react-use', d: '2.8M', c: 'Utilities', s: 'pass', t: 'useToggle, useWindowSize, useMouse' },
-  { n: '@uidotdev/usehooks', d: '800K', c: 'Utilities', s: 'pass', t: 'useToggle hooks collection' },
-  { n: 'react-error-boundary', d: '4.8M', c: 'Utilities', s: 'pass', t: 'ErrorBoundary component' },
-  { n: 'react-intersection-observer', d: '3.2M', c: 'Utilities', s: 'pass', t: 'useInView IntersectionObserver' },
-  { n: 'react-hotkeys-hook', d: '1.7M', c: 'Utilities', s: 'pass', t: 'useHotkeys keyboard shortcuts' },
-  { n: 'use-debounce', d: '1.5M', c: 'Utilities', s: 'pass', t: 'useDebouncedCallback hook' },
-  { n: 'react-responsive', d: '1.2M', c: 'Utilities', s: 'pass', t: 'useMediaQuery hook' },
-  { n: 'react-scroll', d: '800K', c: 'Utilities', s: 'pass', t: 'Smooth scroll Link + Element' },
-  { n: 'react-qr-code', d: '300K', c: 'Utilities', s: 'pass', t: 'SVG QR code generator' },
-  { n: 'react-json-view-lite', d: '200K', c: 'Utilities', s: 'pass', t: 'JSON tree viewer' },
+  { n: 'React Icons', d: '5M', c: 'Icons', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'lucide-react', d: '5.2M', c: 'Icons', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@heroicons/react', d: '2.1M', c: 'Icons', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@radix-ui/react-icons', d: '2M', c: 'Icons', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@phosphor-icons/react', d: '500K', c: 'Icons', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@mui/icons-material', d: '3.5M', c: 'Icons', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
 
-  // Partial
-  { n: 'react-window v2', d: '4.2M', c: 'Tables', s: 'partial', t: 'Import OK, render crashes on null ref' },
-
-  // Expected Compatible (not yet tested live)
-  { n: 'victory', d: '360K', c: 'Charts', s: 'expected', t: 'Composable chart components' },
-  { n: 'react-apexcharts', d: '700K', c: 'Charts', s: 'expected', t: 'ApexCharts React wrapper' },
-  { n: 'nivo', d: '350K', c: 'Charts', s: 'expected', t: 'Data visualization components' },
-  { n: 'react-lottie-player', d: '300K', c: 'Animation', s: 'expected', t: 'Lottie animation player' },
-  { n: 'react-aria-components', d: '500K', c: 'UI Components', s: 'expected', t: 'Adobe accessible primitives' },
+  { n: 'clsx', d: '17.1M', c: 'Utilities', s: 'untested', t: 'Pure utility (no React runtime surface) but not re-verified' },
+  { n: 'classnames', d: '13M', c: 'Utilities', s: 'untested', t: 'Pure utility (no React runtime surface) but not re-verified' },
+  { n: 'React Markdown', d: '2.4M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-i18next', d: '4.5M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'React Helmet', d: '2.3M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-syntax-highlighter', d: '4.3M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-copy-to-clipboard', d: '1.8M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-player', d: '1.5M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'usehooks-ts', d: '2.6M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-use', d: '2.8M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: '@uidotdev/usehooks', d: '800K', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-error-boundary', d: '4.8M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-intersection-observer', d: '3.2M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-hotkeys-hook', d: '1.7M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'use-debounce', d: '1.5M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-responsive', d: '1.2M', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-scroll', d: '800K', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-qr-code', d: '300K', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-json-view-lite', d: '200K', c: 'Utilities', s: 'untested', t: 'Not yet re-verified on the reworked runtime' },
+  { n: 'react-aria-components', d: '500K', c: 'UI Components', s: 'untested', t: 'Never tested' },
 ];
 
 // npm package name mapping
@@ -209,6 +204,6 @@ export function npmPkg(name) {
 
 export const categories = ['All', ...new Set(pkgs.map(p => p.c))];
 
-export const sortOrder = { pass: 0, partial: 1, expected: 2, investigating: 3 };
-export const badgeMap = { pass: 'badge-pass', partial: 'badge-partial', investigating: 'badge-wip', expected: 'badge-expected' };
-export const labelMap = { pass: 'Confirmed', partial: 'Partial', investigating: 'Investigating', expected: 'Expected' };
+export const sortOrder = { pass: 0, partial: 1, untested: 2, expected: 3, investigating: 4 };
+export const badgeMap = { pass: 'badge-pass', partial: 'badge-partial', investigating: 'badge-wip', expected: 'badge-expected', untested: 'badge-expected' };
+export const labelMap = { pass: 'Verified', partial: 'Partial', investigating: 'Investigating', expected: 'Expected', untested: 'Untested' };

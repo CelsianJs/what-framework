@@ -1,34 +1,45 @@
 /**
  * what-react/dom — ReactDOM compatibility layer
  *
- * Implements ReactDOM's public API using What's mount() and rendering.
+ * Renders through what-react's compat runtime (React semantics: re-renders,
+ * keyed reconciliation, value hooks). Native What vnodes inside the tree are
+ * delegated to what-core automatically by the runtime.
  */
 
-import { mount as whatMount, h, Fragment } from 'what-core';
-import { flushSync as whatFlushSync } from 'what-core';
+import {
+  mountRoot,
+  patchRoot,
+  unmountRoot,
+  flushUpdates,
+  _flushPassive,
+} from './runtime.js';
 
 // ---- createRoot (React 18) ----
 
 export function createRoot(container) {
-  let unmount = null;
+  let root = null;
 
   return {
     render(element) {
-      if (unmount) unmount();
-      unmount = whatMount(element, container);
+      if (root) {
+        patchRoot(root, element);
+      } else {
+        container.textContent = '';
+        root = mountRoot(element, container);
+      }
     },
     unmount() {
-      if (unmount) {
-        unmount();
-        unmount = null;
+      if (root) {
+        unmountRoot(root);
+        root = null;
       }
-      container.innerHTML = '';
+      container.textContent = '';
     },
   };
 }
 
 // ---- hydrateRoot ----
-// Basic implementation — mounts fresh (true hydration would reuse existing DOM)
+// No true hydration — replaces server-rendered content with a fresh mount.
 
 export function hydrateRoot(container, initialChildren) {
   const root = createRoot(container);
@@ -38,8 +49,14 @@ export function hydrateRoot(container, initialChildren) {
 
 // ---- render (React 17 legacy) ----
 
+const legacyRoots = new WeakMap();
+
 export function render(element, container, callback) {
-  const root = createRoot(container);
+  let root = legacyRoots.get(container);
+  if (!root) {
+    root = createRoot(container);
+    legacyRoots.set(container, root);
+  }
   root.render(element);
   if (callback) queueMicrotask(callback);
   return root;
@@ -48,53 +65,59 @@ export function render(element, container, callback) {
 // ---- unmountComponentAtNode (React 17 legacy) ----
 
 export function unmountComponentAtNode(container) {
+  const root = legacyRoots.get(container);
+  if (root) {
+    root.unmount();
+    legacyRoots.delete(container);
+    return true;
+  }
   container.innerHTML = '';
   return true;
 }
 
 // ---- createPortal ----
+// The compat runtime recognizes '__portal' vnodes and renders children into
+// the target container while keeping context/ownership from the React tree.
 
 export function createPortal(children, container, key) {
-  // Create a vnode that the core reconciler recognizes as a portal.
-  // Core's createDOM routes '__portal' tagged vnodes to the internal portal handler,
-  // which renders children into the target container and returns a placeholder comment.
-  const portal = {
+  return {
     tag: '__portal',
+    type: '__portal',
     props: { container, key },
     children: Array.isArray(children) ? children : [children],
-    key: key || null,
+    key: key ?? null,
     _vnode: true,
+    _compat: true,
   };
-
-  return portal;
 }
 
 // ---- flushSync ----
 
 export function flushSync(fn) {
-  if (fn) fn();
-  whatFlushSync();
+  let result;
+  if (fn) result = fn();
+  flushUpdates();
+  _flushPassive();
+  flushUpdates();
+  return result;
 }
 
 // ---- findDOMNode (deprecated but needed for legacy packages) ----
 
 export function findDOMNode(component) {
   if (component == null) return null;
-  // If it's already a DOM node, return it
-  if (component instanceof HTMLElement) return component;
-  // Class component instance — look for _domNode or _container
+  if (typeof Element !== 'undefined' && component instanceof Element) return component;
   if (component._domNode) return component._domNode;
-  // If the component has a ref attached, try that
-  if (component._ref?.current instanceof HTMLElement) return component._ref.current;
-  // what-c wrapper element — return the first child
-  if (component instanceof Element) return component;
+  if (component._ref && component._ref.current instanceof Element) return component._ref.current;
   return null;
 }
 
 // ---- batching ----
 
 export function unstable_batchedUpdates(fn) {
-  fn();
+  const result = fn();
+  flushUpdates();
+  return result;
 }
 
 // ---- Version ----

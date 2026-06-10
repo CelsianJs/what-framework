@@ -1,3 +1,8 @@
+ > **STALE (2026-06-09):** these findings were collected against the PRE-rework
+> compat layer. The runtime was rewritten in the v0.11 sprint (value hooks,
+> re-renders, reconciliation, working context) — see the root `REACT-COMPAT.md`
+> for current, verified behavior. Kept for historical context only.
+
 # what-react: React Compatibility Layer -- Engineering Findings
 
 **Date:** February 18, 2026

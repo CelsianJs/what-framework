@@ -1,192 +1,172 @@
 /**
  * what-react — React compatibility layer for What Framework
  *
- * Implements React's public API using What's signals + reconciler.
- * Alias "react" → "what-react" in your bundler to use React libraries.
+ * Implements React's public API on top of a dedicated compat runtime
+ * (src/runtime.js) that provides REAL React semantics:
+ * - hooks return VALUES (not signal accessors),
+ * - components re-render on state change,
+ * - re-render output is reconciled (keyed diff) so DOM and child component
+ *   state are preserved.
  *
- * What's existing hooks already have positional tracking (hookIndex/hooks[]),
- * so most hooks are thin re-exports. The main work is bridging createElement,
- * forwardRef, Children, class components, and React-specific APIs.
+ * Alias "react" → "what-react" in your bundler to use React libraries
+ * (see the reactCompat() vite plugin: what-react/vite).
+ *
+ * What's own components are unaffected: vnodes not created by this module are
+ * delegated to what-core's run-once renderer, and compat components embedded
+ * in native What trees render through a run-once bridge component.
  */
 
+import { Fragment as WhatFragment } from 'what-core';
+import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, runInCommit } from './runtime.js';
 import {
-  h,
-  Fragment as WhatFragment,
-  signal,
-  effect,
-  computed,
-  batch,
-  flushSync as whatFlushSync,
-  untrack,
-  memo as whatMemo,
-  lazy as whatLazy,
-  Suspense as WhatSuspense,
-  ErrorBoundary as WhatErrorBoundary,
-  useState as whatUseState,
-  useEffect as whatUseEffect,
-  useMemo as whatUseMemo,
-  useCallback as whatUseCallback,
-  useRef as whatUseRef,
-  useContext as whatUseContext,
-  useReducer as whatUseReducer,
-  createContext as whatCreateContext,
-  onMount,
-  onCleanup,
-} from 'what-core';
+  useState,
+  useReducer,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useInsertionEffect,
+  useImperativeHandle,
+  useContext,
+  createContext,
+  useSyncExternalStore,
+  useTransition,
+  useDeferredValue,
+  startTransition,
+  useId,
+  useDebugValue,
+  use,
+} from './hooks.js';
 
-// ---- Re-export What's hooks with React-compatible names ----
+// ---- Re-export hooks ----
 
-export const useState = whatUseState;
-export const useEffect = whatUseEffect;
-export const useMemo = whatUseMemo;
-export const useCallback = whatUseCallback;
-export const useRef = whatUseRef;
-export const useContext = whatUseContext;
-export const useReducer = whatUseReducer;
-export const createContext = whatCreateContext;
+export {
+  useState,
+  useReducer,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useInsertionEffect,
+  useImperativeHandle,
+  useContext,
+  createContext,
+  useSyncExternalStore,
+  useTransition,
+  useDeferredValue,
+  startTransition,
+  useId,
+  useDebugValue,
+  use,
+};
+
 export const Fragment = WhatFragment;
-export const Suspense = WhatSuspense;
-export const memo = whatMemo;
-export const lazy = whatLazy;
 
-// ---- Class component wrapper ----
-
-const classWrapperCache = new WeakMap();
+// ---- Class components ----
 
 function isClassComponent(type) {
   return (
     typeof type === 'function' &&
-    (type.prototype?.isReactComponent || type.prototype?.render)
+    type.prototype != null &&
+    (type.prototype.isReactComponent || typeof type.prototype.render === 'function')
   );
 }
 
-// Max re-renders per component per frame to prevent infinite loops
-const MAX_RENDERS_PER_FRAME = 50;
+const classWrapperCache = new WeakMap();
 
 function getClassWrapper(ClassComp) {
   let wrapper = classWrapperCache.get(ClassComp);
   if (wrapper) return wrapper;
 
+  const isErrorBoundary =
+    typeof ClassComp.getDerivedStateFromError === 'function' ||
+    typeof ClassComp.prototype.componentDidCatch === 'function';
+
   wrapper = function ClassComponentWrapper(props) {
-    const instanceRef = whatUseRef(null);
-    const [renderCount, forceRender] = whatUseState(0);
-    const renderGuardRef = whatUseRef({ count: 0, frame: 0 });
+    const instanceRef = useRef(null);
+    const [, forceRender] = useReducer((c) => c + 1, 0);
 
-    // Render cycle guard — prevent infinite re-render loops
-    const currentFrame = renderGuardRef.current.frame;
-    if (typeof requestAnimationFrame !== 'undefined') {
-      renderGuardRef.current.count++;
-      if (renderGuardRef.current.count > MAX_RENDERS_PER_FRAME) {
-        console.error(`[what-react] Max re-renders exceeded for ${ClassComp.displayName || ClassComp.name || 'ClassComponent'}. Possible infinite loop.`);
-        return null;
-      }
-      // Reset count on next frame
-      if (renderGuardRef.current._raf === undefined) {
-        renderGuardRef.current._raf = requestAnimationFrame(() => {
-          renderGuardRef.current.count = 0;
-          renderGuardRef.current.frame++;
-          renderGuardRef.current._raf = undefined;
-        });
-      }
-    }
-
-    // Apply defaultProps
     let mergedProps = props;
     if (ClassComp.defaultProps) {
       mergedProps = { ...ClassComp.defaultProps, ...props };
     }
 
     if (instanceRef.current === null) {
-      // Initialize state from constructor
       const instance = new ClassComp(mergedProps);
-
-      // Apply getDerivedStateFromProps on initial render
-      if (ClassComp.getDerivedStateFromProps) {
-        const derived = ClassComp.getDerivedStateFromProps(mergedProps, instance.state);
-        if (derived !== null && derived !== undefined) {
-          instance.state = { ...instance.state, ...derived };
-        }
-      }
-
-      // Throttle forceUpdate — coalesce rapid setState calls
-      let updateScheduled = false;
-      instance._forceUpdate = () => {
-        if (!updateScheduled) {
-          updateScheduled = true;
-          queueMicrotask(() => {
-            updateScheduled = false;
-            forceRender(c => c + 1);
-          });
-        }
-      };
+      if (instance.state === undefined) instance.state = {};
+      instance._forceUpdate = forceRender;
       instanceRef.current = instance;
     }
 
     const instance = instanceRef.current;
     instance.props = mergedProps;
 
-    // Apply getDerivedStateFromProps on every render (React semantics)
+    // getDerivedStateFromProps runs before every render (React semantics)
     if (ClassComp.getDerivedStateFromProps) {
       const derived = ClassComp.getDerivedStateFromProps(mergedProps, instance.state);
-      if (derived !== null && derived !== undefined) {
+      if (derived != null) {
         instance.state = { ...instance.state, ...derived };
       }
     }
 
-    // Static contextType support — inject this.context from nearest provider
-    if (ClassComp.contextType && ClassComp.contextType._whatContext) {
-      try {
-        instance.context = whatUseContext(ClassComp.contextType);
-      } catch (e) {
-        // Context not available — leave as undefined
+    // static contextType — inject this.context from the nearest provider
+    if (ClassComp.contextType) {
+      instance.context = useContext(ClassComp.contextType);
+    }
+
+    // Error boundary registration (componentDidCatch / getDerivedStateFromError)
+    if (isErrorBoundary) {
+      const inst = _getCurrentInstance();
+      if (inst && !inst._errorHandler) {
+        inst._errorHandler = (error) => {
+          if (ClassComp.getDerivedStateFromError) {
+            const derived = ClassComp.getDerivedStateFromError(error);
+            if (derived != null) instance.state = { ...instance.state, ...derived };
+          }
+          if (instance.componentDidCatch) {
+            try { instance.componentDidCatch(error, { componentStack: '' }); } catch (e) { /* boundary error */ }
+          }
+          forceRender();
+        };
       }
     }
 
-    // componentDidMount / componentWillUnmount lifecycle
-    whatUseEffect(() => {
+    // componentDidMount / componentWillUnmount
+    useEffect(() => {
       instance._mounted = true;
-      if (instance.componentDidMount) {
-        instance.componentDidMount();
-      }
+      if (instance.componentDidMount) instance.componentDidMount();
       return () => {
         instance._mounted = false;
-        if (instance.componentWillUnmount) {
-          instance.componentWillUnmount();
-        }
+        if (instance.componentWillUnmount) instance.componentWillUnmount();
       };
     }, []);
 
-    // componentDidUpdate + getSnapshotBeforeUpdate
-    const prevRef = whatUseRef({ props: null, state: null, rendered: false, snapshot: undefined });
-    whatUseEffect(() => {
-      if (!prevRef.current.rendered) {
-        prevRef.current = { props: mergedProps, state: instance.state, rendered: true, snapshot: undefined };
-        return;
-      }
+    // componentDidUpdate (+ getSnapshotBeforeUpdate approximation)
+    const prevRef = useRef(null);
+    const snapshot = (prevRef.current && instance.getSnapshotBeforeUpdate)
+      ? instance.getSnapshotBeforeUpdate(prevRef.current.props, prevRef.current.state)
+      : undefined;
+    useLayoutEffect(() => {
       const prev = prevRef.current;
-      prevRef.current = { props: mergedProps, state: instance.state, rendered: true, snapshot: undefined };
-      if (instance.componentDidUpdate) {
-        instance.componentDidUpdate(prev.props, prev.state, prev.snapshot);
+      prevRef.current = { props: mergedProps, state: instance.state };
+      if (prev && instance.componentDidUpdate) {
+        instance.componentDidUpdate(prev.props, prev.state, snapshot);
       }
-    }, [mergedProps, renderCount]);
+    });
 
-    // getSnapshotBeforeUpdate — capture before DOM updates
-    // We approximate by calling it synchronously before render returns
-    if (instance.getSnapshotBeforeUpdate && prevRef.current.rendered) {
-      prevRef.current.snapshot = instance.getSnapshotBeforeUpdate(
-        prevRef.current.props, prevRef.current.state
-      );
-    }
+    // shouldComponentUpdate is intentionally not consulted — the compat
+    // runtime always re-renders on parent cascade; use React.memo to skip.
 
     return instance.render();
   };
 
-  // Preserve static properties and displayName
   wrapper.displayName = ClassComp.displayName || ClassComp.name || 'ClassComponent';
-  // Copy static properties (getDerivedStateFromProps, defaultProps, contextType, etc.)
+  // Copy static properties (defaultProps, contextType, custom statics)
   for (const key of Object.getOwnPropertyNames(ClassComp)) {
     if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments') {
-      try { wrapper[key] = ClassComp[key]; } catch (e) {}
+      try { wrapper[key] = ClassComp[key]; } catch (e) { /* read-only static */ }
     }
   }
 
@@ -196,27 +176,43 @@ function getClassWrapper(ClassComp) {
 
 // ---- createElement ----
 
+const EMPTY_CHILDREN = [];
+
+// Flatten nested arrays but PRESERVE holes (null/false/true) so child slot
+// positions stay stable across conditional renders (React semantics).
+function flattenChildren(children, out) {
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (Array.isArray(child)) flattenChildren(child, out);
+    else out.push(child);
+  }
+  return out;
+}
+
 export function createElement(type, props, ...children) {
   if (props == null) props = {};
 
-  // Wrap class components so What's reconciler can call them as functions
-  if (isClassComponent(type)) {
-    type = getClassWrapper(type);
+  // Resolve the render target and vnode tag:
+  // - vnode.type stays the ORIGINAL component (libraries compare element.type)
+  // - vnode.tag is the What-native bridge so core's renderer can also render
+  //   compat vnodes; the compat runtime unwraps tag._compatType.
+  let tag = type;
+  if (typeof type === 'function') {
+    const renderType = isClassComponent(type) ? getClassWrapper(type) : type;
+    tag = getBridge(renderType);
+  } else if (typeof type !== 'string') {
+    console.error('[what-react] createElement: invalid element type:', type);
   }
 
-  // React libraries sometimes pass children via props instead of as spread args
-  // (e.g., React Router's createElement(Router, { children, location, ... })).
-  // Move props.children into the spread children array so h() puts them
-  // in vnode.children — otherwise the reconciler overwrites props.children.
-  if (children.length === 0 && props.children !== undefined) {
-    const pc = props.children;
-    children = Array.isArray(pc) ? pc : [pc];
+  const rawKids = children.length > 0
+    ? children
+    : (props.children !== undefined ? [props.children] : EMPTY_CHILDREN);
+  const kids = rawKids.length > 0 ? flattenChildren(rawKids, []) : EMPTY_CHILDREN;
+
+  // Normalize className → class, htmlFor → for on host elements so vnodes
+  // also render correctly through what-core's renderer (interop path).
+  if (typeof type === 'string' && ('className' in props || 'htmlFor' in props)) {
     props = { ...props };
-    delete props.children;
-  }
-
-  // Normalize className → class, htmlFor → for for HTML elements
-  if (typeof type === 'string') {
     if ('className' in props) {
       props.class = props.className;
       delete props.className;
@@ -227,29 +223,33 @@ export function createElement(type, props, ...children) {
     }
   }
 
-  // Keep ref in props — What's reconciler handles ref for HTML elements,
-  // and forwardRef components extract it from props. No need to strip.
-
-  const vnode = children.length <= 1
-    ? h(type, props, children[0])
-    : h(type, props, ...children);
-
-  // Alias tag → type so React libraries can access element.type
-  vnode.type = vnode.tag;
-
-  // Mirror children into props for React compat — React libraries read
-  // element.props.children (e.g., React Router's createRoutesFromChildren)
-  if (vnode.children.length > 0) {
-    vnode.props = { ...vnode.props };
-    vnode.props.children = vnode.children.length === 1
-      ? vnode.children[0]
-      : vnode.children;
+  const key = props.key !== undefined ? props.key : null;
+  let finalProps = props;
+  if (props.key !== undefined) {
+    finalProps = { ...props };
+    delete finalProps.key;
   }
 
-  return vnode;
+  // Mirror children into props.children — React libraries read element.props.children
+  if (kids.length > 0) {
+    if (finalProps === props) finalProps = { ...props };
+    finalProps.children = kids.length === 1 ? kids[0] : kids;
+  }
+
+  return {
+    tag,
+    type,
+    props: finalProps,
+    children: kids,
+    key,
+    _vnode: true,
+    _compat: true,
+  };
 }
 
 // ---- forwardRef ----
+// ref stays in props (React 19-style); forwardRef components receive it as
+// the second argument.
 
 export function forwardRef(render) {
   function ForwardRefComponent(props) {
@@ -267,6 +267,54 @@ export function forwardRef(render) {
 export function createRef() {
   return { current: null };
 }
+
+// ---- memo ----
+// Real memo semantics: the compat runtime skips re-render when props compare
+// equal (default: shallow equality) and no self-update is pending.
+
+export function memo(Component, areEqual) {
+  const render = isClassComponent(Component) ? getClassWrapper(Component) : Component;
+  function Memoized(props) {
+    return render(props);
+  }
+  Memoized.displayName = `Memo(${Component.displayName || Component.name || 'Anonymous'})`;
+  Memoized._memoCompare = areEqual || shallowEqual;
+  Memoized._memoType = Component;
+  return Memoized;
+}
+
+// ---- lazy / Suspense ----
+
+export function lazy(loader) {
+  let Component = null;
+  let promise = null;
+  let error = null;
+
+  function LazyComponent(props) {
+    if (error) throw error;
+    if (Component) return createElement(Component, props);
+    if (!promise) {
+      promise = loader().then(
+        (mod) => { Component = (mod && mod.default) || mod; },
+        (err) => { error = err; },
+      );
+    }
+    throw promise; // caught by the nearest Suspense boundary
+  }
+  LazyComponent.displayName = 'Lazy';
+  LazyComponent._lazy = true;
+  return LazyComponent;
+}
+
+export function Suspense(props) {
+  const inst = _getCurrentInstance();
+  if (inst) inst._isSuspense = true;
+  if (inst && inst._suspendCount > 0) {
+    return props.fallback !== undefined ? props.fallback : null;
+  }
+  return props.children;
+}
+Suspense.displayName = 'Suspense';
 
 // ---- Children utilities ----
 
@@ -290,13 +338,13 @@ export const Children = {
   count(children) {
     if (children == null) return 0;
     const arr = Array.isArray(children) ? children : [children];
-    return arr.flat(Infinity).filter(c => c != null && c !== false && c !== true).length;
+    return arr.flat(Infinity).filter((c) => c != null && c !== false && c !== true).length;
   },
 
   toArray(children) {
     if (children == null) return [];
     const arr = Array.isArray(children) ? children : [children];
-    return arr.flat(Infinity).filter(c => c != null && c !== false && c !== true);
+    return arr.flat(Infinity).filter((c) => c != null && c !== false && c !== true);
   },
 
   only(children) {
@@ -313,27 +361,29 @@ export const Children = {
 export function cloneElement(element, props, ...children) {
   if (!element) return element;
 
-  // Handle both vnode objects and plain React-style elements
-  const tag = element.tag || element.type;
+  const type = element.type !== undefined ? element.type : element.tag;
   const oldProps = element.props || {};
   const oldChildren = element.children || [];
   const oldKey = element.key;
   const oldRef = oldProps.ref;
 
-  if (!tag) return element;
+  if (!type) return element;
 
   const newProps = { ...oldProps, ...props };
-  // Preserve ref from old element if not overridden
   if (props && props.ref !== undefined) {
     newProps.ref = props.ref;
   } else if (oldRef !== undefined) {
     newProps.ref = oldRef;
   }
   const newChildren = children.length > 0 ? children : oldChildren;
-  const newKey = props?.key !== undefined ? props.key : oldKey;
-  if (newKey !== undefined) newProps.key = newKey;
+  const newKey = props && props.key !== undefined ? props.key : oldKey;
+  if (newKey != null) newProps.key = newKey;
+  else delete newProps.key;
 
-  return createElement(tag, newProps, ...([].concat(newChildren || [])));
+  // Don't double-pass children via props
+  if (children.length > 0) delete newProps.children;
+
+  return createElement(type, newProps, ...[].concat(newChildren || []));
 }
 
 // ---- createFactory (deprecated but used by some libraries) ----
@@ -354,221 +404,54 @@ export function isValidElement(object) {
   );
 }
 
-// ---- useLayoutEffect ----
-// Must run synchronously after DOM mutations but before paint.
-// We use queueMicrotask for layout-level timing (runs before next rAF).
-
-export function useLayoutEffect(fn, deps) {
-  const hookRef = whatUseRef({ deps: undefined, cleanup: null });
-
-  const hook = hookRef.current;
-
-  if (_depsChanged(hook.deps, deps)) {
-    // Run synchronously via microtask — before next paint but after DOM mutations
-    queueMicrotask(() => {
-      if (hook.cleanup) {
-        try { hook.cleanup(); } catch (e) { /* cleanup error */ }
-        hook.cleanup = null;
-      }
-      const result = fn();
-      if (typeof result === 'function') {
-        hook.cleanup = result;
-      }
-    });
-    hook.deps = deps;
-  }
-
-  // Register cleanup on unmount
-  onCleanup(() => {
-    if (hook.cleanup) {
-      try { hook.cleanup(); } catch (e) { /* cleanup error */ }
-      hook.cleanup = null;
-    }
-  });
-}
-
-// ---- useInsertionEffect ----
-// React 18 hook for CSS-in-JS libraries. Runs synchronously before layout effects.
-// We run it immediately (synchronously) during render to ensure it runs before
-// useLayoutEffect's microtask and useEffect's async scheduling.
-
-export function useInsertionEffect(fn, deps) {
-  const hookRef = whatUseRef({ deps: undefined, cleanup: null });
-
-  const hook = hookRef.current;
-
-  if (_depsChanged(hook.deps, deps)) {
-    // Run synchronously — before layout effects
-    if (hook.cleanup) {
-      try { hook.cleanup(); } catch (e) { /* cleanup error */ }
-      hook.cleanup = null;
-    }
-    const result = fn();
-    if (typeof result === 'function') {
-      hook.cleanup = result;
-    }
-    hook.deps = deps;
-  }
-
-  // Register cleanup on unmount
-  onCleanup(() => {
-    if (hook.cleanup) {
-      try { hook.cleanup(); } catch (e) { /* cleanup error */ }
-      hook.cleanup = null;
-    }
-  });
-}
-
-// ---- useImperativeHandle ----
-
-export function useImperativeHandle(ref, createHandle, deps) {
-  useLayoutEffect(() => {
-    if (typeof ref === 'function') {
-      const handle = createHandle();
-      ref(handle);
-      return () => ref(null);
-    } else if (ref && typeof ref === 'object') {
-      const handle = createHandle();
-      ref.current = handle;
-      return () => { ref.current = null; };
-    }
-  }, deps);
-}
-
-// ---- useId ----
-let idCounter = 0;
-export function useId() {
-  const ref = whatUseRef(null);
-  if (ref.current === null) {
-    ref.current = ':w' + (++idCounter).toString(36) + ':';
-  }
-  return ref.current;
-}
-
-// ---- useDebugValue ----
-export function useDebugValue() {}
-
-// ---- useSyncExternalStore ----
-// Uses a signal internally so that consumers get reactive updates.
-// The signal is initialized with getSnapshot(), and updated via the store's
-// subscribe callback. The returned signal function integrates with What's
-// fine-grained reactivity — reading it inside an effect auto-tracks the dependency.
-
-export function useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot) {
-  // Create a signal initialized with the current snapshot
-  const storeSignal = whatUseRef(null);
-  if (storeSignal.current === null) {
-    storeSignal.current = signal(getSnapshot());
-  }
-
-  const sig = storeSignal.current;
-
-  // Subscribe to the store, updating the signal when the store changes.
-  // onCleanup handles unsubscription on unmount.
-  whatUseEffect(() => {
-    const handleChange = () => {
-      const next = getSnapshot();
-      const prev = sig.peek();
-      if (!Object.is(prev, next)) {
-        sig.set(next);
-      }
-    };
-    // Sync in case store changed between render and effect
-    handleChange();
-    const unsubscribe = subscribe(handleChange);
-    return unsubscribe;
-  }, [subscribe, getSnapshot]);
-
-  // Return the signal function itself. In the run-once model, returning sig()
-  // would capture a snapshot that never updates. Returning the signal function
-  // lets the fine-grained runtime track it reactively when used in JSX.
-  return sig;
-}
-
-// ---- useTransition ----
-
-export function useTransition() {
-  const [isPending, setIsPending] = whatUseState(false);
-
-  function startTransitionFn(fn) {
-    setIsPending(true);
-    queueMicrotask(() => {
-      batch(() => {
-        fn();
-        setIsPending(false);
-      });
-    });
-  }
-
-  return [isPending, startTransitionFn];
-}
-
-// ---- useDeferredValue ----
-
-export function useDeferredValue(value) {
-  const [deferred, setDeferred] = whatUseState(value);
-
-  whatUseEffect(() => {
-    setDeferred(value);
-  }, [value]);
-
-  return deferred;
-}
-
-// ---- startTransition (module-level) ----
-
-export function startTransition(fn) {
-  queueMicrotask(() => {
-    batch(fn);
-  });
-}
-
 // ---- StrictMode ----
 
-export function StrictMode({ children }) {
-  return children;
+export function StrictMode(props) {
+  return props.children;
+}
+StrictMode.displayName = 'StrictMode';
+
+// ---- act (testing helper) ----
+// Runs the callback, then synchronously drains renders + effects.
+
+export function act(callback) {
+  const result = callback && callback();
+  if (result && typeof result.then === 'function') {
+    return result.then(() => { _drainAll(); });
+  }
+  _drainAll();
+  return { then(resolve) { _drainAll(); if (resolve) resolve(); } };
 }
 
 // ---- Component / PureComponent ----
-// Use function constructors (not native classes) so that transpiled code
-// using Component.call(this, props) works alongside native class extends.
+// Function constructors (not native classes) so transpiled code using
+// Component.call(this, props) works alongside native class extends.
 
 export function Component(props) {
   this.props = props;
   this.state = {};
-  this._stateSignal = null;
   this._mounted = false;
   this._forceUpdate = null;
 }
 
 Component.prototype.isReactComponent = {};
 
-Component.prototype.setState = function(update, callback) {
+Component.prototype.setState = function (update, callback) {
   const nextState = typeof update === 'function'
     ? { ...this.state, ...update(this.state, this.props) }
     : { ...this.state, ...update };
 
   this.state = nextState;
-
-  if (this._forceUpdate) {
-    this._forceUpdate();
-  }
-
-  if (callback) {
-    queueMicrotask(callback);
-  }
+  if (this._forceUpdate) this._forceUpdate();
+  if (callback) queueMicrotask(callback);
 };
 
-Component.prototype.forceUpdate = function(callback) {
-  if (this._forceUpdate) {
-    this._forceUpdate();
-  }
-  if (callback) {
-    queueMicrotask(callback);
-  }
+Component.prototype.forceUpdate = function (callback) {
+  if (this._forceUpdate) this._forceUpdate();
+  if (callback) queueMicrotask(callback);
 };
 
-Component.prototype.render = function() {
+Component.prototype.render = function () {
   return null;
 };
 
@@ -580,21 +463,7 @@ PureComponent.prototype = Object.create(Component.prototype);
 PureComponent.prototype.constructor = PureComponent;
 PureComponent.prototype.isPureReactComponent = true;
 
-PureComponent.prototype.shouldComponentUpdate = function(nextProps, nextState) {
-  return !shallowEqual(this.props, nextProps) || !shallowEqual(this.state, nextState);
-};
-
 // ---- Internal helpers ----
-
-function _depsChanged(oldDeps, newDeps) {
-  if (oldDeps === undefined) return true;
-  if (!oldDeps || !newDeps) return true;
-  if (oldDeps.length !== newDeps.length) return true;
-  for (let i = 0; i < oldDeps.length; i++) {
-    if (!Object.is(oldDeps[i], newDeps[i])) return true;
-  }
-  return false;
-}
 
 function shallowEqual(a, b) {
   if (Object.is(a, b)) return true;
@@ -608,34 +477,43 @@ function shallowEqual(a, b) {
   return true;
 }
 
+// ---- flushSync re-export (some libraries import it from 'react') ----
+
+export { flushUpdates as unstable_flushUpdates };
+
 // ---- React internals that some libraries check ----
+
 export const __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED = {
   ReactCurrentOwner: { current: null },
   ReactCurrentDispatcher: { current: null },
 };
 
 // ---- Version ----
+
 export const version = '18.3.1';
 
 // ---- Default export (import * as React from 'react') ----
+
 const React = {
-  useState: whatUseState,
-  useEffect: whatUseEffect,
+  useState,
+  useReducer,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
   useLayoutEffect,
   useInsertionEffect,
-  useMemo: whatUseMemo,
-  useCallback: whatUseCallback,
-  useRef: whatUseRef,
-  useContext: whatUseContext,
-  useReducer: whatUseReducer,
   useImperativeHandle,
-  useId,
-  useDebugValue,
+  useContext,
+  createContext,
   useSyncExternalStore,
   useTransition,
   useDeferredValue,
+  startTransition,
+  useId,
+  useDebugValue,
+  use,
   createElement,
-  createContext: whatCreateContext,
   createRef,
   createFactory,
   forwardRef,
@@ -643,13 +521,13 @@ const React = {
   isValidElement,
   Component,
   PureComponent,
-  Fragment: WhatFragment,
-  Suspense: WhatSuspense,
+  Fragment,
+  Suspense,
   StrictMode,
-  memo: whatMemo,
-  lazy: whatLazy,
+  memo,
+  lazy,
+  act,
   Children,
-  startTransition,
   version,
   __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED,
 };
