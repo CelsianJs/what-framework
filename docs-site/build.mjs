@@ -13,9 +13,43 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const DIST = join(ROOT, 'dist');
 
 // ---------------------------------------------------------------------------
+// Version — read from the framework source of truth at BUILD time so the nav
+// badge / footer can never drift from the released package again (audit #5).
+// ---------------------------------------------------------------------------
+function readVersion() {
+  const candidates = [
+    join(ROOT, '..', 'packages', 'what', 'package.json'), // monorepo source of truth
+    join(ROOT, '..', 'package.json'),                     // repo root fallback
+    join(ROOT, 'node_modules', 'what-framework', 'package.json'), // standalone fallback
+  ];
+  for (const p of candidates) {
+    try {
+      const { version } = JSON.parse(readFileSync(p, 'utf8'));
+      if (version) return version;
+    } catch { /* try next */ }
+  }
+  throw new Error('docs-site build: could not resolve what-framework version');
+}
+const VERSION = readVersion();
+
+// ---------------------------------------------------------------------------
 // Shared chrome
 // ---------------------------------------------------------------------------
-const BADGE = 'v0.10.0';
+const BADGE = `v${VERSION}`;
+
+// Stamp any hardcoded version badge / footer version in preserved page content
+// with the build-time version. Targeted (badge + footer only) so prose like
+// "React Router v6" is never touched.
+function stampVersion(html) {
+  return html
+    .replace(/(<span class="logo-badge">)v[^<]+(<\/span>)/g, `$1${BADGE}$2`)
+    .replace(/(<div class="footer-meta">)v[^\s<&]+/g, `$1${BADGE}`);
+}
+const SEARCH_BOX = `<button class="search-placeholder" type="button" aria-label="Search docs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Search docs...
+        <span class="search-shortcut">/</span>
+      </button>`;
 const THEME_TOGGLE = `<button class="theme-toggle" aria-label="Toggle theme">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
@@ -39,6 +73,7 @@ ${links}
       </div>
     </div>
     <div class="nav-right">
+      ${SEARCH_BOX}
       ${THEME_TOGGLE}
     </div>
   `;
@@ -94,6 +129,7 @@ const HEAD = (title) => `<head>
   <link rel="stylesheet" href="/docs/styles.css">
   <script src="/theme.js"></script>
   <script src="/docs/copy-code.js"></script>
+  <script src="/docs/search.js" defer></script>
 </head>`;
 
 // ---------------------------------------------------------------------------
@@ -116,7 +152,7 @@ ${body}
 function write(routePath, html) {
   const dir = join(DIST, routePath.replace(/^\//, ''));
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'index.html'), html);
+  writeFileSync(join(dir, 'index.html'), stampVersion(html));
 }
 
 function copyAsset(rel) {
@@ -146,7 +182,11 @@ function buildSection({ dirRel, base, navSection }) {
     const html = renderPage({
       title,
       navSection,
-      layoutInner: rewriteLinks(layoutInner, base),
+      // data-pagefind-body scopes the search index to the article content
+      // (sidebar/nav/toc excluded); only section pages carry it, so only
+      // they are indexed.
+      layoutInner: rewriteLinks(layoutInner, base)
+        .replace('<main class="content">', '<main class="content" data-pagefind-body>'),
       trailing: useRealWhat(rewriteLinks(trailing, base)),
     });
     write(route, html);
@@ -158,7 +198,7 @@ function buildSection({ dirRel, base, navSection }) {
 // reset dist, copy shared assets
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
-for (const a of ['design-system.css', 'theme.js', 'docs/styles.css', 'docs/copy-code.js', 'llms.txt', 'llms-full.txt']) copyAsset(a);
+for (const a of ['design-system.css', 'theme.js', 'docs/styles.css', 'docs/copy-code.js', 'docs/search.js', 'llms.txt', 'llms-full.txt']) copyAsset(a);
 
 // Bundle the REAL What framework as a browser global for the live demos.
 await esbuild.build({
