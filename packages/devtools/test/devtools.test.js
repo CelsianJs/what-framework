@@ -1,34 +1,34 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
+import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
+import { createServer } from 'vite';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PORT = 4599;
-const URL = `http://localhost:${PORT}/fixture.html`;
+// Ephemeral OS-assigned port (see before hook) — a fixed port made the suite
+// cancel itself whenever a concurrent test run (or stale server) held it.
+let URL;
 
-let viteProcess;
+let viteServer;
 let browser;
 let page;
 
-// Wait for Vite to be ready
-function waitForServer(url, timeout = 30000) {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const check = () => {
-      fetch(url).then(r => {
-        if (r.ok) resolve();
-        else if (Date.now() - start > timeout) reject(new Error('Server timeout'));
-        else setTimeout(check, 300);
-      }).catch(() => {
-        if (Date.now() - start > timeout) reject(new Error('Server timeout'));
-        else setTimeout(check, 300);
-      });
-    };
-    check();
-  });
+// Skip gracefully when the Playwright browser isn't installed (e.g. a fresh
+// `npm test` without `npx playwright install chromium`). Without this guard
+// the `before` hook throws and node:test cancels every subtest with
+// "test did not finish before its parent and was cancelled", which poisons
+// the whole repo's test output. Mirrors devtools-mcp/test/e2e.test.js.
+let browserAvailable = false;
+try {
+  browserAvailable = existsSync(chromium.executablePath());
+} catch {
+  browserAvailable = false;
+}
+const browserDescribe = browserAvailable ? describe : describe.skip;
+if (!browserAvailable) {
+  console.warn('[what] Skipping devtools browser tests: Chromium not installed (run `npx playwright install chromium`).');
 }
 
 // Helper: safely extract snapshot data without circular refs
@@ -43,18 +43,20 @@ const safeSnapshot = `(() => {
   };
 })()`;
 
-describe('what-devtools', () => {
+browserDescribe('what-devtools', () => {
   before(async () => {
-    // Start Vite dev server
-    const repoRoot = resolve(__dirname, '..', '..', '..');
-    viteProcess = spawn('npx', ['vite', '--config', resolve(__dirname, 'vite.config.js')], {
-      cwd: repoRoot,
-      stdio: 'pipe',
-      env: { ...process.env, NODE_ENV: 'development' },
+    // Start Vite dev server in-process (no child process to orphan: the old
+    // `spawn('npx', ['vite', ...])` setup could hang teardown forever when the
+    // process exited before `after` attached its 'exit' listener).
+    viteServer = await createServer({
+      configFile: resolve(__dirname, 'vite.config.js'),
+      logLevel: 'silent',
+      // Ephemeral port: collision-proof under parallel `npm test` runs.
+      server: { port: 0, strictPort: false },
     });
-
-    // Wait for server
-    await waitForServer(URL);
+    await viteServer.listen();
+    const port = viteServer.httpServer.address().port;
+    URL = `http://localhost:${port}/fixture.html`;
 
     // Launch browser
     browser = await chromium.launch();
@@ -63,10 +65,7 @@ describe('what-devtools', () => {
 
   after(async () => {
     if (browser) await browser.close();
-    if (viteProcess) {
-      viteProcess.kill('SIGTERM');
-      await new Promise(r => viteProcess.on('exit', r));
-    }
+    if (viteServer) await viteServer.close();
   });
 
   test('app renders and devtools install', async () => {
@@ -165,7 +164,13 @@ describe('what-devtools', () => {
     // Open the panel
     const wButton = await page.locator('button:has-text("W")').first();
     await wButton.click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
+
+    // Switch to the Signals tab (signal names only render there —
+    // the default Overview tab shows counts, not names)
+    const signalsTab = page.locator('button:has-text("Signals")').first();
+    await signalsTab.click();
+    await page.waitForTimeout(300);
 
     // Check signal names are visible in the panel
     const hasSignalText = await page.evaluate(() => {

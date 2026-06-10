@@ -1,3 +1,8 @@
+ > **STALE (2026-06-09):** this document describes the PRE-rework compat layer
+> (hooks re-exporting what-core's accessor hooks, no re-renders). The runtime
+> was rewritten in the v0.11 sprint — see `src/runtime.js` and the root
+> `REACT-COMPAT.md` for current behavior. Kept for historical context only.
+
 # React Compat Layer — Technical Notes
 
 ## How It Works (User-Facing)

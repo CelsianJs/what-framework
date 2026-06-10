@@ -1,0 +1,18 @@
+/* Minimal bootstrap-equivalent styling, identical for every framework so
+   style/layout/paint cost is constant across implementations. */
+body { font: 14px/1.42857 "Helvetica Neue", Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 8px; background: #fff; }
+.container { max-width: 1170px; margin: 0 auto; }
+.jumbotron { background: #eee; padding: 24px; margin-bottom: 16px; border-radius: 6px; }
+.row { display: flex; flex-wrap: wrap; }
+.col-md-6 { flex: 0 0 50%; box-sizing: border-box; }
+.col-sm-6 { flex: 0 0 50%; padding: 2px; box-sizing: border-box; }
+h1 { font-size: 28px; margin: 0 0 10px; }
+table { width: 100%; border-collapse: collapse; }
+.table-striped tbody tr:nth-of-type(odd) { background: rgba(0, 0, 0, 0.05); }
+tr.danger { background: #f2dede; }
+td { padding: 8px; border-top: 1px solid #ddd; }
+a { color: #337ab7; text-decoration: none; cursor: pointer; }
+.btn { display: block; width: 100%; padding: 6px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
+.btn-primary { color: #fff; background: #337ab7; border-color: #2e6da4; }
+.glyphicon-remove::before { content: "\2715"; }
+.preloadicon { display: none; }

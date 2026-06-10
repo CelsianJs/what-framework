@@ -1,5 +1,25 @@
 # what-mcp
 
+> ## ⚠️ DEPRECATED
+>
+> **This package is deprecated and no longer maintained. Use [`what-devtools-mcp`](https://www.npmjs.com/package/what-devtools-mcp) instead** — the unified MCP server that includes everything this package offered (documentation tools) plus live runtime debugging (signals, components, dependency graphs, screenshots).
+>
+> Migration:
+>
+> ```diff
+> {
+>   "mcpServers": {
+>     "what-framework": {
+>       "command": "npx",
+> -     "args": ["what-mcp"]
+> +     "args": ["what-devtools-mcp"]
+>     }
+>   }
+> }
+> ```
+>
+> No other changes are required — `what-devtools-mcp` is a superset of this server's tools. This package prints a deprecation warning at startup and will receive no further updates.
+
 [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for [What Framework](https://whatfw.com). Gives AI assistants access to What Framework documentation, API references, and code examples.
 
 ## Install

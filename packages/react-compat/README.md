@@ -1,8 +1,8 @@
 # what-react
 
-React compatibility layer for [What Framework](https://whatfw.com). Use React ecosystem libraries with What's signal-based engine under the hood -- zero code changes required.
+React compatibility layer for [What Framework](https://whatfw.com). Run React ecosystem libraries on What — `what-react` ships a dedicated React-semantics runtime (value-returning hooks, re-renders with keyed reconciliation, working context) that coexists with What's run-once signal engine.
 
-**90+ React libraries confirmed working**, including zustand, @tanstack/react-query, react-hook-form, framer-motion, @radix-ui, react-select, react-router, and many more.
+**Verified end-to-end (2026-06-09, real browser + jsdom CI):** zustand, @tanstack/react-query, react-hook-form, react-hot-toast, @headlessui/react, framer-motion. Other libraries are untested on the current runtime — see [REACT-COMPAT.md](https://github.com/CelsianJs/what-framework/blob/main/REACT-COMPAT.md) for the full verified matrix, method, and known limitations.
 
 ## Install
 
@@ -75,22 +75,23 @@ function Todos() {
 
 ## How It Works
 
-`what-react` implements React's public API using What's signals and reconciler:
+`what-react` ships its own React-semantics runtime (`src/runtime.js`) — what-core is not modified:
 
-- `useState`, `useEffect`, `useMemo`, etc. map to What's hook system
-- `createElement` maps to What's `h()` hyperscript
-- Class components (`Component`, `PureComponent`) are wrapped as function components
-- `createRoot` / `render` map to What's `mount()`
-- `createPortal` creates portal vnodes handled by What's reconciler
-- `forwardRef`, `cloneElement`, `Children`, `createContext` all implemented
+- Hooks return **values** (`useState` → `[value, setState]`, `useMemo` → the value) with React's deps/cleanup semantics
+- Components **re-render** on state change; output is reconciled with a keyed, type-matched diff, so DOM elements and child component state are preserved
+- `createContext` / `useContext` propagate real values through the component tree (nested providers, memo-bailout propagation)
+- Element refs attach after DOM insertion; `useLayoutEffect` is synchronous at commit; `useEffect` is async; children's effects run before the parent's
+- Class components (`Component`, `PureComponent`) are wrapped as function components (state, lifecycle, error boundaries, `contextType`)
+- `createPortal`, `lazy` + minimal `Suspense`, `React.memo` with real skip semantics
+- Compat semantics apply ONLY to elements created via what-react's `createElement`/JSX runtime — native What components keep their run-once signal semantics, in both directions (What-inside-React and React-inside-What)
 
-The key insight: React libraries import `react` and call its hooks. By aliasing `react` to `what-react`, those hooks execute on What's signal engine instead. The library never knows the difference.
+React libraries import `react` and call its hooks. By aliasing `react` to `what-react`, those hooks execute on this runtime. SSR of compat components is not supported (browser/jsdom only) — see REACT-COMPAT.md for the full limitations list.
 
 ## What's Implemented
 
 ### React (index.js)
 
-`useState`, `useEffect`, `useLayoutEffect`, `useInsertionEffect`, `useMemo`, `useCallback`, `useRef`, `useContext`, `useReducer`, `useImperativeHandle`, `useId`, `useDebugValue`, `useSyncExternalStore`, `useTransition`, `useDeferredValue`, `createElement`, `createContext`, `createRef`, `createFactory`, `forwardRef`, `cloneElement`, `isValidElement`, `Component`, `PureComponent`, `Fragment`, `Suspense`, `StrictMode`, `memo`, `lazy`, `Children`, `startTransition`
+`useState`, `useEffect`, `useLayoutEffect`, `useInsertionEffect`, `useMemo`, `useCallback`, `useRef`, `useContext`, `useReducer`, `useImperativeHandle`, `useId`, `useDebugValue`, `useSyncExternalStore`, `useTransition`, `useDeferredValue`, `use`, `createElement`, `createContext`, `createRef`, `createFactory`, `forwardRef`, `cloneElement`, `isValidElement`, `Component`, `PureComponent`, `Fragment`, `Suspense`, `StrictMode`, `memo`, `lazy`, `act`, `Children`, `startTransition`
 
 ### ReactDOM (dom.js)
 

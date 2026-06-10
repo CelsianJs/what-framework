@@ -20,12 +20,25 @@
  */
 
 import { signal, effect, onCleanup } from 'what-core';
-import { subscribe, getSnapshot, getErrors, installDevTools } from './index.js';
+import { subscribe, getSnapshot, getErrors, installDevTools, _suppressDevtools } from './index.js';
 
 export function DevPanel() {
   // Auto-install devtools if not already done
   installDevTools();
 
+  // The panel's ENTIRE body runs with devtools registration suppressed —
+  // the panel must not appear in its own signal/effect lists. More
+  // importantly: if panel-internal effects registered, every panel re-render
+  // would emit effect:created events, the subscribe() callback below would
+  // write `snapshot`, that write would re-render the panel, creating more
+  // effects → an unbounded feedback loop that crashes the page.
+  // The two bindings that (re)create DOM subtrees after mount (the isOpen
+  // panel toggle and the tab-content switch) carry their own _suppressDevtools
+  // wrappers, because their re-runs happen outside this bracket.
+  return _suppressDevtools(() => DevPanelBody());
+}
+
+function DevPanelBody() {
   const isOpen = signal(false);
   const activeTab = signal('overview');
   const snapshot = signal(getSnapshot());
@@ -291,7 +304,11 @@ export function DevPanel() {
   };
 
   return (
-    <>
+    // display:contents wrapper instead of a fragment — the babel plugin
+    // currently miscompiles top-level fragments whose element children carry
+    // event handlers (it references _el$N bindings it never emits). The
+    // wrapper is layout-neutral; both children are position:fixed anyway.
+    <div style="display:contents">
       {/* Toggle button with health indicator */}
       <button
         onclick={() => isOpen((v) => !v)}
@@ -312,9 +329,11 @@ export function DevPanel() {
         W
       </button>
 
-      {/* Panel -- conditionally rendered */}
+      {/* Panel -- conditionally rendered. _suppressDevtools: opening the
+          panel instantiates this whole subtree (dozens of bindings) — none
+          of them may register with devtools (see DevPanel docblock). */}
       {() =>
-        isOpen() ? (
+        _suppressDevtools(() => isOpen() ? (
           <div style={PANEL_STYLE}>
             {/* Header */}
             <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #2a2a4a;background:#16163a;">
@@ -373,9 +392,10 @@ export function DevPanel() {
               </button>
             </div>
 
-            {/* Content */}
+            {/* Content. _suppressDevtools: tab switches and snapshot
+                updates rebuild this subtree — keep it out of devtools. */}
             <div style="overflow-y:auto;flex:1;">
-              {() => {
+              {() => _suppressDevtools(() => {
                 const tab = activeTab();
                 if (tab === 'overview') return renderOverview();
                 if (tab === 'signals') return renderSignals();
@@ -383,12 +403,12 @@ export function DevPanel() {
                 if (tab === 'components') return renderComponents();
                 if (tab === 'errors') return renderErrors();
                 return renderOverview();
-              }}
+              })}
             </div>
           </div>
-        ) : null
+        ) : null)
       }
-    </>
+    </div>
   );
 }
 

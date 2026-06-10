@@ -1033,7 +1033,7 @@ server.prompt(
         type: 'text',
         text: `# WhatFW MCP DevTools — Quick Reference
 
-You have access to 28 MCP tools for inspecting and debugging a live What Framework app running in the browser.
+You have access to 29 MCP tools for inspecting and debugging a live What Framework app running in the browser.
 
 ## Connection Check
 Always start with: \`what_connection_status\` — confirms the browser is connected and shows signal/effect/component counts.

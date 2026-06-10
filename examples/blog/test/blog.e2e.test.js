@@ -53,9 +53,17 @@ describe('blog e2e', () => {
     const cachedAgain = await get('/');
     assert.equal(cachedAgain.cache, 'HIT');
 
+    // CSRF is on by default: present the auto-provisioned cookie token
+    // (double-submit) exactly like the in-page fetch client does.
+    const csrf = 'e2e-csrf-token-blog';
     const res = await fetch(base + '/__what_action', {
       method: 'POST',
-      headers: { 'x-what-action': 'createPost', 'content-type': 'application/json' },
+      headers: {
+        'x-what-action': 'createPost',
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        cookie: `what-csrf=${csrf}`,
+      },
       body: JSON.stringify({ args: [{ title: 'Fresh Post', body: 'new content' }] }),
     });
     assert.equal(res.status, 200);

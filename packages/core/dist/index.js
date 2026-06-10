@@ -13,7 +13,7 @@ import {
   spread,
   svgTemplate,
   template
-} from "./chunk-M7UEET5O.js";
+} from "./chunk-H3GA34JK.js";
 import {
   ErrorBoundary,
   For,
@@ -50,7 +50,7 @@ import {
   useClickOutside,
   useLocalStorage,
   useMediaQuery
-} from "./chunk-AW3BAPIK.js";
+} from "./chunk-GZRA4IAJ.js";
 import {
   Fragment,
   h,
@@ -3074,7 +3074,6 @@ function classifyError(err, context = {}) {
 // packages/core/src/guardrails.js
 var guardrails = {
   signalReadDetection: true,
-  effectCycleDetection: true,
   componentNaming: true,
   importValidation: true
 };
@@ -3086,7 +3085,6 @@ function getGuardrailConfig() {
 }
 function installSignalReadGuardrail(signalFn, debugName) {
   if (!__DEV__ || !guardrails.signalReadDetection) return signalFn;
-  const originalToString = signalFn.toString;
   signalFn.toString = function() {
     const err = createWhatError("MISSING_SIGNAL_READ", {
       signalName: debugName || "(unnamed)"
@@ -3322,7 +3320,7 @@ function levenshtein(a, b) {
 }
 
 // packages/core/src/agent-context.js
-var VERSION = "0.6.0";
+var VERSION = "0.10.0";
 var mountedComponents = [];
 function registerComponent(component) {
   if (!__DEV__) return;

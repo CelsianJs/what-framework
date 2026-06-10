@@ -412,6 +412,61 @@ describe('audit fixes', () => {
       const out = await call(client, 'what_eval', { code: 'document' });
       assert.ok(out.error, 'single segment needs >= 2 segments');
     });
+
+    // --- Sensitive property paths (secrets/state exfiltration) ---
+    // These pass the structural safe-read check (dotted idents on a safe
+    // global) but must still require WHAT_UNSAFE_EVAL. Regression guard for
+    // the document.cookie leak.
+
+    it('rejects document.cookie without WHAT_UNSAFE_EVAL', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'document.cookie' });
+      assert.ok(out.error, 'document.cookie must be rejected in safe mode');
+    });
+
+    it('rejects window.localStorage', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window.localStorage' });
+      assert.ok(out.error);
+    });
+
+    it('rejects window.sessionStorage', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window.sessionStorage' });
+      assert.ok(out.error);
+    });
+
+    it('rejects window.indexedDB', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window.indexedDB' });
+      assert.ok(out.error);
+    });
+
+    it('rejects navigator.credentials', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'navigator.credentials' });
+      assert.ok(out.error);
+    });
+
+    it('rejects nested sensitive segment (window.document.cookie)', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window.document.cookie' });
+      assert.ok(out.error, 'denylist must apply to every segment, not just the second');
+    });
+
+    it('rejects window.opener', async () => {
+      ({ client, server } = await setup());
+      const out = await call(client, 'what_eval', { code: 'window.opener' });
+      assert.ok(out.error);
+    });
+
+    it('still allows document.title after denylist addition', async () => {
+      ({ client, server } = await setup({
+        sendCommand: async () => ({ result: 'My App', type: 'string', executionTime: 0 }),
+      }));
+      const out = await call(client, 'what_eval', { code: 'document.title' });
+      assert.ok(!out.error, `should be allowed: ${out.error}`);
+    });
   });
 
   describe('P2-8 — new lint rules', () => {

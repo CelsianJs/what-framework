@@ -36,7 +36,7 @@ Add to your MCP client configuration:
 }
 ```
 
-The `what-devtools-mcp` server provides 18 live debugging tools.
+The `what-devtools-mcp` server provides 29 live debugging tools.
 
 ### Step 2: Create a Project
 
@@ -62,7 +62,7 @@ export default defineConfig({
 });
 ```
 
-Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`, and 15 other tools to inspect the running app.
+Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`, and 26 other tools to inspect the running app.
 
 ### Step 4: Read the Agent Guide
 

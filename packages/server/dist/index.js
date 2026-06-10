@@ -426,6 +426,39 @@ function jsonResponse(status, bodyObj) {
     body: JSON.stringify(bodyObj)
   };
 }
+function htmlResponse(status, message) {
+  return {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8" },
+    body: `<!DOCTYPE html><html><body><h1>${status}</h1><p>${String(message).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p></body></html>`
+  };
+}
+function safeLocalPath(value) {
+  if (typeof value !== "string" || !value.startsWith("/")) return null;
+  if (/^[/\\]{2}/.test(value) || value.includes("\\")) return null;
+  try {
+    const u = new URL(value, "http://localhost");
+    if (u.origin !== "http://localhost") return null;
+    return u.pathname + u.search;
+  } catch {
+    return null;
+  }
+}
+function safeRedirectTarget(form, headers) {
+  const explicit = safeLocalPath(form && form._redirect);
+  if (explicit) return explicit;
+  const referer = headers.referer || headers.referrer;
+  if (referer) {
+    try {
+      const u = new URL(referer, "http://localhost");
+      const path = safeLocalPath(u.pathname + u.search);
+      if (path) return path;
+    } catch {
+    }
+  }
+  return "/";
+}
+var RESERVED_FORM_FIELDS = /* @__PURE__ */ new Set(["_action", "data-action", "_csrf", "_redirect"]);
 function createActionHandler(options = {}) {
   const { getCsrfToken: getCsrfToken2, skipCsrf = false } = options;
   return async function handle(reqLike) {
@@ -434,16 +467,51 @@ function createActionHandler(options = {}) {
       return jsonResponse(405, { message: "Method Not Allowed" });
     }
     const headers = lowerHeaders(reqLike.headers);
-    const actionId = headers["x-what-action"];
-    if (!actionId) {
+    const headerActionId = headers["x-what-action"];
+    const contentType = headers["content-type"] || "";
+    const isFormPost = !headerActionId && contentType.includes("application/x-www-form-urlencoded");
+    const sessionCsrfToken = skipCsrf ? void 0 : getCsrfToken2 ? await getCsrfToken2(reqLike) : void 0;
+    if (isFormPost) {
+      const form = reqLike.body || {};
+      const actionId = form._action || form["data-action"] || reqLike.query && reqLike.query.action;
+      if (!actionId) {
+        return htmlResponse(400, 'Missing action name (add a hidden "_action" field or ?action= query param)');
+      }
+      const formHeaders = { ...headers };
+      if (form._csrf && !formHeaders["x-csrf-token"]) formHeaders["x-csrf-token"] = String(form._csrf);
+      if (!skipCsrf && getCsrfToken2 && !sessionCsrfToken) {
+        return htmlResponse(403, "Missing CSRF token");
+      }
+      const data = {};
+      for (const [k, v] of Object.entries(form)) {
+        if (!RESERVED_FORM_FIELDS.has(k)) data[k] = v;
+      }
+      const result2 = await handleActionRequest(
+        { headers: formHeaders },
+        actionId,
+        [data],
+        { csrfToken: sessionCsrfToken, skipCsrf }
+      );
+      if (result2.status === 200) {
+        return {
+          status: 303,
+          headers: { location: safeRedirectTarget(form, headers) },
+          body: ""
+        };
+      }
+      return htmlResponse(result2.status, result2.body && result2.body.message || "Action failed");
+    }
+    if (!headerActionId) {
       return jsonResponse(400, { message: "Missing X-What-Action header" });
+    }
+    if (!skipCsrf && getCsrfToken2 && !sessionCsrfToken) {
+      return jsonResponse(403, { message: "Missing CSRF token" });
     }
     const body = reqLike.body || {};
     const args = body.args;
-    const sessionCsrfToken = skipCsrf ? void 0 : getCsrfToken2 ? await getCsrfToken2(reqLike) : void 0;
     const result = await handleActionRequest(
       { headers },
-      actionId,
+      headerActionId,
       args,
       { csrfToken: sessionCsrfToken, skipCsrf }
     );
@@ -454,24 +522,70 @@ function nodeActionMiddleware(options = {}) {
   const basePath = options.basePath || DEFAULT_BASE_PATH;
   const handle = createActionHandler(options);
   return async function middleware(req, res, next) {
-    const url = (req.url || "").split("?")[0];
+    const [url, search] = (req.url || "").split("?");
     if (url !== basePath || (req.method || "").toUpperCase() !== "POST") {
       return next ? next() : void 0;
     }
     let body;
     try {
-      body = await readJsonBody(req);
+      const raw = await readRawBody(req);
+      body = parseActionBody(raw, req.headers["content-type"] || "");
     } catch (err) {
       res.writeHead(err.code === "BODY_TOO_LARGE" ? 413 : 400, { "content-type": "application/json" });
-      res.end(JSON.stringify({ message: err.code === "BODY_TOO_LARGE" ? "Payload too large" : "Invalid JSON body" }));
+      res.end(JSON.stringify({ message: err.code === "BODY_TOO_LARGE" ? "Payload too large" : "Invalid request body" }));
       return;
     }
-    const out = await handle({ method: req.method, headers: req.headers, body });
+    const query = Object.fromEntries(new URLSearchParams(search || ""));
+    const out = await handle({ method: req.method, headers: req.headers, body, query });
     res.writeHead(out.status, out.headers);
     res.end(out.body);
   };
 }
-function readJsonBody(req) {
+function parseActionBody(raw, contentType) {
+  if ((contentType || "").includes("application/x-www-form-urlencoded")) {
+    const fields = {};
+    for (const [k, v] of new URLSearchParams(String(raw))) {
+      if (fields[k] === void 0) fields[k] = v;
+      else if (Array.isArray(fields[k])) fields[k].push(v);
+      else fields[k] = [fields[k], v];
+    }
+    return fields;
+  }
+  if (raw == null || raw === "") return {};
+  return JSON.parse(String(raw));
+}
+async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) {
+    return { tooLarge: true };
+  }
+  const body = request.body;
+  if (!body || typeof body.getReader !== "function") {
+    const raw = await request.text();
+    if (Buffer.byteLength(raw, "utf8") > limit) return { tooLarge: true };
+    return { raw };
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      size += value.byteLength;
+      if (size > limit) {
+        try {
+          await reader.cancel();
+        } catch {
+        }
+        return { tooLarge: true };
+      }
+      chunks.push(value);
+    }
+  }
+  return { raw: Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8") };
+}
+function readRawBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -487,12 +601,8 @@ function readJsonBody(req) {
       chunks.push(chunk);
     });
     req.on("end", () => {
-      if (chunks.length === 0) return resolve({});
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      } catch (e) {
-        reject(e);
-      }
+      if (chunks.length === 0) return resolve("");
+      resolve(Buffer.concat(chunks).toString("utf8"));
     });
     req.on("error", reject);
   });
@@ -502,11 +612,23 @@ function fetchActionHandler(options = {}) {
   return async function(request) {
     let body = {};
     try {
-      body = await request.json();
+      const read = await readFetchBodyCapped(request);
+      if (read.tooLarge) {
+        return new Response(JSON.stringify({ message: "Payload too large" }), {
+          status: 413,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      body = parseActionBody(read.raw, request.headers.get("content-type") || "");
     } catch {
       body = {};
     }
-    const out = await handle({ method: request.method, headers: request.headers, body });
+    let query = {};
+    try {
+      query = Object.fromEntries(new URL(request.url, "http://localhost").searchParams);
+    } catch {
+    }
+    const out = await handle({ method: request.method, headers: request.headers, body, query });
     return new Response(out.body, { status: out.status, headers: out.headers });
   };
 }
@@ -515,6 +637,7 @@ function fetchActionHandler(options = {}) {
 import { matchRoute, parseQuery } from "what-router/match";
 var ACTION_PATH = "/__what_action";
 var REVALIDATE_PATH = "/__what_revalidate";
+var CSRF_COOKIE = "what-csrf";
 function headersToObject(headers) {
   const out = {};
   if (headers && typeof headers.forEach === "function") headers.forEach((v, k) => {
@@ -522,7 +645,21 @@ function headersToObject(headers) {
   });
   return out;
 }
-async function readJsonBody2(request) {
+function readCookie(cookieHeader, name) {
+  if (!cookieHeader) return null;
+  const match = String(cookieHeader).match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+async function readActionBody(request) {
+  try {
+    const read = await readFetchBodyCapped(request);
+    if (read.tooLarge) return { tooLarge: true };
+    return parseActionBody(read.raw, request.headers.get("content-type") || "");
+  } catch {
+    return {};
+  }
+}
+async function readJsonBody(request) {
   try {
     return await request.json();
   } catch {
@@ -533,7 +670,8 @@ function defaultRenderRoute(documentOptions) {
   return async function renderRoute(routeMatch) {
     const { route, params, query, request } = routeMatch;
     const pageModule = { default: route.component, loader: route.loader };
-    const html = await renderDocument(pageModule, { params, query, request }, documentOptions);
+    const opts = routeMatch.csrfToken ? { ...documentOptions, csrfToken: routeMatch.csrfToken } : documentOptions;
+    const html = await renderDocument(pageModule, { params, query, request }, opts);
     return {
       html,
       status: 200,
@@ -547,12 +685,16 @@ function createRequestHandler(options = {}) {
     routes = [],
     cache,
     render,
-    actionHandler = createActionHandler({ skipCsrf: true }),
     revalidateWebhook,
     document: documentOptions = {},
     notFound,
-    basePath = ""
+    basePath = "",
+    csrf = true
   } = options;
+  const autoCsrf = csrf !== false && !options.actionHandler;
+  const actionHandler = options.actionHandler || createActionHandler(
+    autoCsrf ? { getCsrfToken: (reqLike) => readCookie(reqLike.headers && reqLike.headers.cookie, CSRF_COOKIE) } : { skipCsrf: true }
+  );
   const renderRoute = render || defaultRenderRoute(documentOptions);
   if (cache && (cache.revalidatePath || cache.revalidateTag)) {
     setRevalidationHandler({
@@ -565,12 +707,38 @@ function createRequestHandler(options = {}) {
     let pathname = url.pathname;
     if (basePath && pathname.startsWith(basePath)) pathname = pathname.slice(basePath.length) || "/";
     if (request.method === "POST" && pathname === ACTION_PATH) {
-      const body = await readJsonBody2(request);
-      const out2 = await actionHandler({ method: "POST", headers: headersToObject(request.headers), body });
+      const body = await readActionBody(request);
+      if (body && body.tooLarge) {
+        return new Response(JSON.stringify({ message: "Payload too large" }), {
+          status: 413,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      const out2 = await actionHandler({
+        method: "POST",
+        headers: headersToObject(request.headers),
+        body,
+        query: Object.fromEntries(url.searchParams)
+      });
       return new Response(out2.body, { status: out2.status, headers: out2.headers });
     }
+    let csrfToken = null;
+    let csrfSetCookie = null;
+    if (autoCsrf) {
+      csrfToken = readCookie(headersToObject(request.headers).cookie, CSRF_COOKIE);
+      if (!csrfToken) {
+        csrfToken = generateCsrfToken();
+        const reqHeaders = headersToObject(request.headers);
+        const isHttps = reqHeaders["x-forwarded-proto"] === "https" || url.protocol === "https:" || false;
+        csrfSetCookie = `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}; Path=/; SameSite=Lax` + (isHttps ? "; Secure" : "");
+      }
+    }
+    const withCsrfCookie = (headers2) => {
+      if (csrfSetCookie) headers2["set-cookie"] = csrfSetCookie;
+      return headers2;
+    };
     if (request.method === "POST" && pathname === REVALIDATE_PATH && revalidateWebhook) {
-      const body = await readJsonBody2(request);
+      const body = await readJsonBody(request);
       const out2 = await revalidateWebhook({ headers: headersToObject(request.headers), body });
       return new Response(JSON.stringify(out2.body), {
         status: out2.status,
@@ -580,7 +748,7 @@ function createRequestHandler(options = {}) {
     const matched = matchRoute(pathname, routes);
     if (!matched) {
       const html = notFound ? notFound() : "<!DOCTYPE html><html><body><h1>404 \u2014 Not Found</h1></body></html>";
-      return new Response(html, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
+      return new Response(html, { status: 404, headers: withCsrfCookie({ "content-type": "text/html; charset=utf-8" }) });
     }
     const { route, params } = matched;
     const config = route.page || { mode: route.mode || "client" };
@@ -589,11 +757,12 @@ function createRequestHandler(options = {}) {
       const result = await cache.handle(routeMatch, () => renderRoute(routeMatch));
       return new Response(result.html, {
         status: result.status || 200,
-        headers: { "content-type": "text/html; charset=utf-8", ...result.headers || {} }
+        headers: withCsrfCookie({ "content-type": "text/html; charset=utf-8", ...result.headers || {} })
       });
     }
+    if (csrfToken) routeMatch.csrfToken = csrfToken;
     const out = await renderRoute(routeMatch);
-    const headers = { "content-type": "text/html; charset=utf-8" };
+    const headers = withCsrfCookie({ "content-type": "text/html; charset=utf-8" });
     if (config.mode === "server") headers["Cache-Control"] = "private, no-store";
     return new Response(out.html, { status: out.status || 200, headers });
   };
@@ -719,16 +888,51 @@ function createCloudflareHandler(options = {}) {
 function createVercelHandler(options = {}) {
   return createRequestHandler(options);
 }
-async function buildVercelOutput({ outDir = ".vercel/output", functionName = "render" } = {}) {
-  const { mkdir: mkdir2, writeFile: writeFile2 } = await import("node:fs/promises");
-  const { join: join2 } = await import("node:path");
+async function buildVercelOutput({
+  outDir = ".vercel/output",
+  functionName = "render",
+  runtime = "nodejs22.x",
+  files = null,
+  handler = "index.mjs",
+  staticDir = null
+} = {}) {
+  const { mkdir: mkdir2, writeFile: writeFile2, cp } = await import("node:fs/promises");
+  const { join: join2, dirname } = await import("node:path");
   await mkdir2(outDir, { recursive: true });
   const config = {
     version: 3,
-    routes: [{ src: "/.*", dest: `/${functionName}` }]
+    routes: [
+      // CDN-served static assets win before the render function runs.
+      { handle: "filesystem" },
+      { src: "/.*", dest: `/${functionName}` }
+    ]
   };
   await writeFile2(join2(outDir, "config.json"), JSON.stringify(config, null, 2));
-  return { config, outDir };
+  if (staticDir) {
+    await cp(staticDir, join2(outDir, "static"), { recursive: true });
+  }
+  let functionDir = null;
+  if (files && typeof files === "object") {
+    functionDir = join2(outDir, "functions", `${functionName}.func`);
+    await mkdir2(functionDir, { recursive: true });
+    const vcConfig = {
+      runtime,
+      handler,
+      launcherType: "Nodejs",
+      shouldAddHelpers: false,
+      supportsResponseStreaming: true
+    };
+    await writeFile2(join2(functionDir, ".vc-config.json"), JSON.stringify(vcConfig, null, 2));
+    for (const [rel, contents] of Object.entries(files)) {
+      const dest = join2(functionDir, rel);
+      await mkdir2(dirname(dest), { recursive: true });
+      await writeFile2(dest, contents);
+    }
+    if (!(handler in files)) {
+      console.warn(`[what-server] buildVercelOutput: files does not include the handler entry "${handler}" \u2014 the deploy will 500 until your build emits it.`);
+    }
+  }
+  return { config, outDir, functionDir };
 }
 
 // packages/server/src/index.js
@@ -891,7 +1095,8 @@ function wrapHtmlDocument({ body, head, payload, options = {} }) {
   const lang = options.lang || "en";
   const dataScript = `<script id="__what_data" type="application/json">${serializeState(payload)}<\/script>`;
   const clientScript = options.clientEntry ? `<script type="module" src="${escapeHtml(options.clientEntry)}"><\/script>` : "";
-  const extraHead = options.head || "";
+  const csrfHead = options.csrfToken ? csrfMetaTag(options.csrfToken) : "";
+  const extraHead = csrfHead + (options.head || "");
   const bodyClass = options.bodyClass ? ` class="${escapeHtml(options.bodyClass)}"` : "";
   return `<!DOCTYPE html><html lang="${escapeHtml(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${head || ""}${extraHead}</head><body${bodyClass}>${body}${dataScript}${clientScript}</body></html>`;
 }
@@ -1046,12 +1251,19 @@ function _resolveInnerHTML(props) {
   }
   return null;
 }
+var SAFE_ATTR_NAME = /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/;
 function renderAttrs(props) {
   let out = "";
   for (const [key, val] of Object.entries(props)) {
     if (key === "key" || key === "ref" || key === "children" || key === "dangerouslySetInnerHTML" || key === "innerHTML") continue;
     if (key.startsWith("on") && key.length > 2) continue;
     if (val === false || val == null) continue;
+    if (!SAFE_ATTR_NAME.test(key)) {
+      if (_isDevMode) {
+        console.warn(`[what-server] Skipping invalid attribute name in SSR: ${JSON.stringify(key)}`);
+      }
+      continue;
+    }
     if (key === "className" || key === "class") {
       out += ` class="${escapeHtml(String(val))}"`;
     } else if (key === "style" && typeof val === "object") {

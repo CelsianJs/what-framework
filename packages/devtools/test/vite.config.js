@@ -31,10 +31,17 @@ export default defineConfig({
   root: __dirname,
   resolve: {
     alias: {
+      // Subpath aliases MUST come before the bare 'what-core' alias —
+      // @rollup/plugin-alias prefix-matches, so the bare alias alone would
+      // rewrite 'what-core/render' to '<core>/src/index.js/render'.
+      'what-core/render': pkgs('core', 'src', 'render.js'),
+      'what-core/jsx-runtime': pkgs('core', 'src', 'jsx-runtime.js'),
+      'what-core/jsx-dev-runtime': pkgs('core', 'src', 'jsx-dev-runtime.js'),
+      'what-core/testing': pkgs('core', 'src', 'testing.js'),
       'what-core': pkgs('core', 'src', 'index.js'),
       'what-devtools/panel': pkgs('devtools', 'src', 'DevPanel.jsx'),
       'what-devtools': pkgs('devtools', 'src', 'index.js'),
     },
   },
-  server: { port: 4599, strictPort: true },
+  server: { port: 4901, strictPort: true }, // Track E port range (4900-4999)
 });

@@ -15,8 +15,8 @@
 ## Why What?
 
 - **MCP DevTools** — AI agents inspect every signal, effect, and component in a running app via the Model Context Protocol
-- **Structured Errors** — Every error returns JSON with code, message, suggested fix, and code example. Agents parse and fix in one pass
-- **Agent Guardrails** — Runtime catches infinite loops, missing cleanup, XSS, and signal misuse before they ship
+- **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
+- **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
 - **Small & Fast** — Fine-grained, no VDOM. Measured, tree-shaken + gzipped: a counter ≈6KB, a typical app ≈8KB. Minimal dependencies, fully tree-shakeable
 
@@ -89,8 +89,8 @@ All 14 packages publish together at the same version (currently **0.10.0**).
 | `create-what` | Project scaffolder (`npm create what@latest`) |
 | `what-framework-cli` | CLI — dev server, build, deploy tools (`what dev/build/start`) |
 | `what-devtools` | Browser dev panel (signal inspector, component tree) |
-| `what-devtools-mcp` | MCP server bridging AI agents to live app state |
-| `what-mcp` | MCP server for docs & framework assistance |
+| `what-devtools-mcp` | MCP server bridging AI agents to live app state — 29 live debugging tools |
+| `what-mcp` | **Deprecated** — docs/assistance MCP server, superseded by `what-devtools-mcp` |
 | `what-react` | React compatibility layer (use React-ecosystem packages) |
 | `eslint-plugin-what` | ESLint rules — catch signal bugs, enforce patterns |
 
@@ -122,13 +122,13 @@ What Framework ships an MCP server for AI-assisted development. 29 live debuggin
 
 ## React Compatibility
 
-Use 90+ React ecosystem libraries with `what-react`. This is a secondary feature -- native What Framework APIs are preferred for new code.
+Run many React ecosystem libraries with `what-react`. This is a secondary feature — native What Framework APIs are preferred for new code.
 
 ```bash
 npm install what-react
 ```
 
-See `/REACT-COMPAT.md` for the full compatibility matrix.
+See [`/REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix — the verified list of libraries is the source of truth.
 
 ## Where everything lives & deploys
 

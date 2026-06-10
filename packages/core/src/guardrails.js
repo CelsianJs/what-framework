@@ -10,7 +10,6 @@ import { createWhatError, collectError } from './errors.js';
 
 const guardrails = {
   signalReadDetection: true,
-  effectCycleDetection: true,
   componentNaming: true,
   importValidation: true,
 };
@@ -25,16 +24,19 @@ export function getGuardrailConfig() {
 
 // --- Guardrail 1: Signal Read Detection ---
 // Detect when a signal function reference is used where its value was intended.
-// This catches the pattern: <span>{count}</span> (should be count())
+// This catches patterns like `Total: ${count}` or `count > 5` (should be count()).
 //
-// At runtime, we can detect this when a signal is coerced to string (via toString/valueOf)
-// and warn that it should be called.
+// At runtime, we detect this when a signal is coerced to a string or number
+// (via toString/valueOf) and warn that it should be called.
+//
+// Wiring: what-devtools calls this for every signal it registers (dev only),
+// so any app with devtools installed gets the guardrail automatically.
+// It can also be called manually: installSignalReadGuardrail(sig, 'name').
 
 export function installSignalReadGuardrail(signalFn, debugName) {
   if (!__DEV__ || !guardrails.signalReadDetection) return signalFn;
 
   // Override toString to catch template literal coercion
-  const originalToString = signalFn.toString;
   signalFn.toString = function () {
     const err = createWhatError('MISSING_SIGNAL_READ', {
       signalName: debugName || '(unnamed)',
@@ -58,47 +60,16 @@ export function installSignalReadGuardrail(signalFn, debugName) {
   return signalFn;
 }
 
-// --- Guardrail 2: Enhanced Effect Cycle Detection ---
-// Track which signals an effect reads AND writes.
-// If an effect writes to a signal it reads, warn about the specific cycle.
+// NOTE: an "effect cycle detection" guardrail (trackEffectSignalWrite /
+// checkEffectCycle) used to live here, exported but never called by anything
+// — it was removed in v0.11 rather than shipped as a dead API. Reviving it
+// requires hooks inside reactive.js: (1) a call on every signal WRITE while
+// an effect is the active listener (to attribute writes to effects), and
+// (2) a post-run callback with the effect's tracked read-set (to intersect
+// reads with writes). reactive.js already detects runaway cascades at flush
+// time (iteration cap), which covers the practical failure mode.
 
-const effectWriteTracking = new WeakMap(); // effect -> Set of signal debug names
-
-export function trackEffectSignalWrite(effectRef, signalDebugName) {
-  if (!__DEV__ || !guardrails.effectCycleDetection) return;
-
-  if (!effectWriteTracking.has(effectRef)) {
-    effectWriteTracking.set(effectRef, new Set());
-  }
-  effectWriteTracking.get(effectRef).add(signalDebugName);
-}
-
-export function checkEffectCycle(effectRef, readSignals) {
-  if (!__DEV__ || !guardrails.effectCycleDetection) return null;
-
-  const writes = effectWriteTracking.get(effectRef);
-  if (!writes || writes.size === 0) return null;
-
-  const overlapping = [];
-  for (const sigName of readSignals) {
-    if (writes.has(sigName)) {
-      overlapping.push(sigName);
-    }
-  }
-
-  if (overlapping.length > 0) {
-    const err = createWhatError('INFINITE_EFFECT', {
-      effectName: effectRef.fn?.name || '(anonymous)',
-      signalName: overlapping.join(', '),
-    });
-    collectError(err);
-    return err;
-  }
-
-  return null;
-}
-
-// --- Guardrail 3: Component Naming ---
+// --- Guardrail 2: Component Naming ---
 // Warn if a component function is not PascalCase.
 
 export function checkComponentName(name) {
@@ -119,7 +90,7 @@ function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-// --- Guardrail 4: Import Validation ---
+// --- Guardrail 3: Import Validation ---
 // Verify that all named imports from 'what-framework' are valid exports.
 
 const VALID_EXPORTS = new Set([

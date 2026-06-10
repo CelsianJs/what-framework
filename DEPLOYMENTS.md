@@ -45,6 +45,19 @@ only a `dev` script (`serve.js`) and is not a Vercel project. Run it locally wit
 
 ---
 
+## Deploying apps built WITH What (the adapters)
+
+This file covers the framework's own sites/packages. To deploy an **app built
+with What**, use the `what-server` deploy adapters — Node (`createServer`),
+static export (`exportStatic`), Vercel (`createVercelHandler` +
+`buildVercelOutput`, Build Output API v3), and Cloudflare Workers
+(`createCloudflareHandler`, ES module worker). All four wrap the same
+Web-Fetch core, with CSRF protection on by default. Step-by-step instructions:
+[`packages/server/README.md` → "Deploying"](packages/server/README.md#deploying).
+Each adapter is verified by `packages/server/test/deploy-readiness.test.js`.
+
+---
+
 ## npm packages
 
 All 14 packages are published together at the same version (currently **0.10.0**). See

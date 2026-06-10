@@ -1,0 +1,9 @@
+import { _$template, spread as _$spread } from "what-framework/render";
+const _tmpl$0 = /* @__PURE__ */_$template("<div><h2>title</h2></div>");
+export function Card(props) {
+  const _el$0 = _tmpl$0();
+  _$spread(_el$0, props);
+  const _el$1 = _el$0.firstChild;
+  _$spread(_el$1, props.headerProps);
+  return _el$0;
+}

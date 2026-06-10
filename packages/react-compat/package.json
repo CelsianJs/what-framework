@@ -1,9 +1,13 @@
 {
   "name": "what-react",
   "version": "0.10.0",
-  "description": "React compatibility layer for What Framework — use React packages with signals under the hood",
+  "description": "React compatibility layer for What Framework — real React semantics (value hooks, re-renders, context) on a dedicated compat runtime",
   "type": "module",
+  "sideEffects": false,
   "main": "src/index.js",
+  "scripts": {
+    "test": "node --test 'test/*.test.js'"
+  },
   "exports": {
     ".": "./src/index.js",
     "./dom": "./src/dom.js",

@@ -110,8 +110,19 @@ describe('createActionHandler (core)', () => {
     assert.equal(res.status, 403);
   });
 
-  it('fails closed (500) when CSRF is required but no session token is configured', async () => {
+  it('rejects with 403 when CSRF is configured but the client has no session token (e.g. no cookie)', async () => {
     const handle = createActionHandler({ getCsrfToken: () => undefined });
+    const res = await handle({
+      method: 'POST',
+      headers: { 'x-what-action': 'sum', 'x-csrf-token': 'whatever' },
+      body: { args: [1, 1] },
+    });
+    assert.equal(res.status, 403);
+    assert.match(JSON.parse(res.body).message, /Missing CSRF token/);
+  });
+
+  it('fails closed (500) when CSRF is required but no token provider is configured at all', async () => {
+    const handle = createActionHandler({}); // no getCsrfToken, no skipCsrf
     const res = await handle({
       method: 'POST',
       headers: { 'x-what-action': 'sum', 'x-csrf-token': 'whatever' },

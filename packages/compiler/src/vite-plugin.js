@@ -36,6 +36,11 @@ export default function whatVitePlugin(options = {}) {
     pages = 'src/pages',
     // HMR: enabled by default in dev, disabled in production
     hot = !production,
+    // Resolve the `production` exports condition (dist/*.min.js — pre-minified,
+    // dev warnings compiled out) during `vite build`. Set to false to build
+    // against package sources instead — needed e.g. in a monorepo where
+    // workspace-linked dist/ output may be stale or absent. See config() below.
+    prodBundles = true,
   } = options;
 
   let rootDir = '';
@@ -105,6 +110,13 @@ export default function whatVitePlugin(options = {}) {
         const result = transformSync(code, {
           filename: id,
           sourceMaps,
+          // Hermetic transform (SPRINT v0.11 C7): never load the project's
+          // babel.config.js/.babelrc. A user's React preset or unrelated
+          // plugins corrupting What's JSX output is a debugging nightmare —
+          // and scanning the disk for config files on every transform is
+          // wasted I/O in dev.
+          configFile: false,
+          babelrc: false,
           plugins: [
             [whatBabelPlugin, { production }]
           ],
@@ -165,8 +177,27 @@ export default function whatVitePlugin(options = {}) {
     },
 
     // Configure for development
-    config(config, { mode }) {
+    config(config, { mode, command }) {
+      // SPRINT v0.11 C7: make the `production` exports condition reachable.
+      // what-framework/what-core ship pre-minified production bundles behind
+      // the `production` condition in their exports maps, but Vite's default
+      // resolve conditions never include `production` — so production builds
+      // silently shipped the dev source (larger, with dev-only warnings).
+      //
+      // Guard rationale (documented choice):
+      //  - Only during `vite build` in production mode — dev always uses src
+      //    so the dev server, HMR, and devtools see un-minified modules.
+      //  - Opt-out via `what({ prodBundles: false })` — in a monorepo with
+      //    workspace-linked packages, dist/ can be stale (or missing before
+      //    the first `npm run build`), and resolving `production` there would
+      //    bundle outdated framework code. Apps installing from npm always
+      //    have dist/ in sync with the published package, so the default is on.
+      //  - `resolve.conditions` is ADDITIVE in Vite (extra conditions on top
+      //    of the defaults), so import/browser/default resolution for other
+      //    packages is unaffected.
+      const useProdCondition = command === 'build' && mode === 'production' && prodBundles;
       return {
+        ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),
         esbuild: {
           // Preserve JSX so our babel plugin handles it -- don't let esbuild transform it
           jsx: 'preserve',

@@ -287,6 +287,8 @@ function _updateLevel(e) {
 // Runs a function, auto-tracking signal reads. Re-runs when deps change.
 // Returns a dispose function.
 
+const _noopDispose = () => {};
+
 export function effect(fn, opts) {
   const e = _createEffect(fn);
   e._level = 1;
@@ -303,6 +305,26 @@ export function effect(fn, opts) {
   _updateLevel(e);
   // Mark as stable after first run — subsequent re-runs skip cleanup/re-subscribe
   if (opts?.stable) e._stable = true;
+
+  // Zero-dependency release (SPRINT v0.11 C4): an effect that tracked zero
+  // signals on its first run can never be notified again — re-tracking only
+  // happens during a re-run, and a re-run requires a notification from a
+  // subscribed signal. The compiler conservatively wraps destructured props /
+  // imported accessors in effects; when those turn out to be plain values the
+  // effect is one-shot. If it also registered no cleanup, release it now:
+  // no dispose closure, no owner registration, nothing retained.
+  // - Effects that returned a cleanup keep full registration so the cleanup
+  //   still runs on owner disposal.
+  // - onCleanup() callbacks register with currentRoot directly (not with the
+  //   effect), so they are unaffected by this release.
+  // - untrack()/peek() reads inside the fn produce zero deps by design — the
+  //   effect could never re-fire anyway, so releasing is safe.
+  if (e.deps.length === 0 && e._cleanup === null) {
+    e.disposed = true;
+    if (__DEV__ && __devtools) __devtools.onEffectDispose(e);
+    return _noopDispose;
+  }
+
   const dispose = () => _disposeEffect(e);
   // Register with current root for automatic cleanup
   if (currentRoot) {

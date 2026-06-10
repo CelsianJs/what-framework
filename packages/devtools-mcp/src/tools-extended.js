@@ -434,9 +434,16 @@ export function registerExtendedTools(server, bridge) {
       const segments = trimmed.split('.');
       const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
       const PROTO_DENYLIST = new Set(['constructor', 'prototype', '__proto__']);
+      // Sensitive property paths: reads that exfiltrate secrets/state must
+      // require the explicit unsafe flag (document.cookie, window.localStorage,
+      // navigator.credentials...). Mirror of SENSITIVE_PATHS in client-commands.js.
+      const SENSITIVE_PATHS = new Set([
+        'cookie', 'localStorage', 'sessionStorage', 'indexedDB', 'credentials',
+        'geolocation', 'clipboard', 'serviceWorker', 'caches', 'opener',
+      ]);
       const isSafeRead = segments.length >= 2 &&
         SAFE_GLOBALS.has(segments[0]) &&
-        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s));
+        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s) && !SENSITIVE_PATHS.has(s));
 
       if (!unsafeEvalEnabled && !isSafeRead) {
         return errorResponse(

@@ -26,17 +26,20 @@ function compile(source) {
 // =====================================================
 
 describe('<Show> transform', () => {
-  it('hoists `when` into a local so it is evaluated once per re-run', () => {
+  it('hoists `when` into a memoized local so it is evaluated once per re-run', () => {
     const code = compile(`
       const cond = signal(false);
       function App() {
         return <Show when={cond}>{(v) => <p>{v}</p>}</Show>;
       }
     `);
-    // Body must contain a `const _v... = cond()` (or similar local capture),
-    // and the consequent must reference that local — NOT call cond() twice.
-    assert.match(code, /const\s+_v\w*\s*=\s*cond\(\)/,
-      'should hoist cond() call into a local');
+    // The reactive condition is routed through an equality-gated memo (C1
+    // branch memoization) — render-fn children get the VALUE memo (no !!).
+    assert.match(code, /_\$memo\(\(\)\s*=>\s*cond\(\)\)/,
+      'should memoize cond() (value-gated for render-fn children)');
+    // The Show body reads the memo into a local — NOT cond() twice.
+    assert.match(code, /const\s+_v\w*\s*=\s*_c\$\d+\(\)/,
+      'should capture the memo read into a local');
     // Count cond() occurrences inside the Show output — must be exactly 1.
     const condCalls = code.match(/cond\(\)/g) || [];
     assert.equal(condCalls.length, 1, `expected exactly one cond() call, got ${condCalls.length}`);
@@ -49,7 +52,9 @@ describe('<Show> transform', () => {
         return <Show when={isOpen}>hello</Show>;
       }
     `);
-    assert.match(code, /const\s+_v\w*\s*=\s*isOpen\(\)/);
+    // Static children → truthiness-gated memo: _$memo(() => !!isOpen())
+    assert.match(code, /_\$memo\(\(\)\s*=>\s*!!isOpen\(\)\)/);
+    assert.match(code, /const\s+_v\w*\s*=\s*_c\$\d+\(\)/);
   });
 
   it('supports identifier `when` from imports (treated as signal accessor)', () => {
@@ -59,7 +64,8 @@ describe('<Show> transform', () => {
         return <Show when={isOpen}>hello</Show>;
       }
     `);
-    assert.match(code, /const\s+_v\w*\s*=\s*isOpen\(\)/);
+    assert.match(code, /_\$memo\(\(\)\s*=>\s*!!isOpen\(\)\)/);
+    assert.match(code, /const\s+_v\w*\s*=\s*_c\$\d+\(\)/);
   });
 
   it('does NOT invoke a member-expression `when` (plain boolean)', () => {
@@ -80,9 +86,9 @@ describe('<Show> transform', () => {
         return <Show when={x() > 5}>big</Show>;
       }
     `);
-    // The whole expression `x() > 5` should be the condition; no extra
+    // The whole expression `x() > 5` is the (memoized) condition; no extra
     // outer call wrapping it.
-    assert.match(code, /const\s+_v\w*\s*=\s*x\(\)\s*>\s*5/);
+    assert.match(code, /_\$memo\(\(\)\s*=>\s*!!\(x\(\)\s*>\s*5\)\)/);
     // Specifically no `(x() > 5)()` pattern.
     assert.doesNotMatch(code, /\(x\(\)\s*>\s*5\)\s*\(/);
   });
@@ -373,12 +379,16 @@ describe('nested <Show> variable scoping', () => {
     // Both Shows hoist a condition variable. They may reuse the same name
     // (_v) since the inner one is in a nested scope (IIFE). The key check
     // is that both conditions are captured into locals — not evaluated twice.
-    const condCaptures = code.match(/const\s+_v\w*\s*=\s*\w+\(\)/g) || [];
+    // With branch memoization (C1) the local reads a distinct memo accessor.
+    const condCaptures = code.match(/const\s+_v\w*\s*=\s*_c\$\d+\(\)/g) || [];
     assert.ok(condCaptures.length >= 2,
       `both nested Shows should hoist their condition, got: ${condCaptures.join('; ')}`);
-    // Verify the outer captures a() and inner captures b()
-    assert.ok(condCaptures.some(c => /a\(\)/.test(c)), 'outer Show captures a()');
-    assert.ok(condCaptures.some(c => /b\(\)/.test(c)), 'inner Show captures b()');
+    // Verify each signal is memoized exactly once and the memo names differ.
+    // (The memo is !!-gated for static children; value-gated when the content
+    // is a function — the inner Show transform produces a function.)
+    const memos = code.match(/_c\$\d+\s*=\s*_\$memo\(\(\)\s*=>\s*(?:!!)?(?:a|b)\(\)\)/g) || [];
+    assert.ok(memos.some(m => /\ba\(\)/.test(m)), 'outer Show memoizes a()');
+    assert.ok(memos.some(m => /\bb\(\)/.test(m)), 'inner Show memoizes b()');
   });
 });
 

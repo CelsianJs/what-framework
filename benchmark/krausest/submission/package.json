@@ -1,0 +1,27 @@
+{
+  "name": "js-framework-benchmark-what",
+  "version": "0.10.0",
+  "description": "What Framework keyed benchmark implementation",
+  "type": "module",
+  "js-framework-benchmark": {
+    "frameworkVersionFromPackage": "what-framework",
+    "customURL": "/frameworks/keyed/what/dist"
+  },
+  "scripts": {
+    "build-dev": "vite build --mode development",
+    "build-prod": "vite build"
+  },
+  "license": "MIT",
+  "homepage": "https://whatfw.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CelsianJs/what-framework"
+  },
+  "dependencies": {
+    "what-framework": "^0.10.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1",
+    "what-compiler": "^0.10.0"
+  }
+}

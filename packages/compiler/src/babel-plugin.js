@@ -773,7 +773,7 @@ export default function whatBabelPlugin({ types: t }) {
     ];
 
     // Apply dynamic attributes and events
-    applyDynamicAttrs(statements, elId, attributes, state);
+    applyDynamicAttrs(statements, elId, attributes, state, tagName);
 
     // Handle dynamic children
     applyDynamicChildren(statements, elId, children, node, state);
@@ -829,14 +829,69 @@ export default function whatBabelPlugin({ types: t }) {
     return t.callExpression(t.identifier('h'), [t.stringLiteral(tagName), propsExpr, ...transformedChildren]);
   }
 
-  function applyDynamicAttrs(statements, elId, attributes, state) {
+  // Tags where `value` / `checked` are live DOM properties the user expects a
+  // dynamic binding to drive (input.value, select.value, input.checked, ...).
+  // Other tags keep the generic setProp path (e.g. <div value={x}> sets an
+  // attribute, <li value={n}> hits the `key in el` property branch).
+  const VALUE_PROP_TAGS = new Set(['input', 'textarea', 'select', 'option']);
+
+  function applyDynamicAttrs(statements, elId, attributes, state, tagName) {
+    // Specialized monomorphic setters for statically-known attribute names
+    // (SPRINT v0.11 C2). The generic _$setProp re-dispatches on the key string
+    // (ref/key/url/class/style/innerHTML/boolean/...) on EVERY reactive update;
+    // when the compiler knows the name it emits the direct helper instead.
+    // SECURITY: URL attributes (href/src/action/formaction) and innerHTML/
+    // dangerouslySetInnerHTML intentionally fall through to _$setProp — URL
+    // sanitization and the { __html } enforcement live there.
     function buildSetPropCall(propName, valueExpr) {
+      if (propName === 'class') {
+        // normalizeAttrName already mapped className → class
+        state.needsSetClass = true;
+        return t.callExpression(t.identifier('_$setClass'), [t.identifier(elId), valueExpr]);
+      }
+      if (propName === 'style') {
+        state.needsSetStyle = true;
+        return t.callExpression(t.identifier('_$setStyle'), [t.identifier(elId), valueExpr]);
+      }
+      if (propName === 'value' && tagName && VALUE_PROP_TAGS.has(tagName)) {
+        state.needsSetValue = true;
+        return t.callExpression(t.identifier('_$setValue'), [t.identifier(elId), valueExpr]);
+      }
+      if (propName === 'checked' && tagName === 'input') {
+        // Live property write — matches bind:checked semantics. (The old
+        // setAttribute('checked') path only set the DEFAULT-checked state,
+        // which stops reflecting once the user has toggled the input.)
+        // A helper (not a raw `.checked =`) so function values still get
+        // reactive-accessor treatment, like every other setter.
+        state.needsSetChecked = true;
+        return t.callExpression(t.identifier('_$setChecked'), [t.identifier(elId), valueExpr]);
+      }
+      if (propName.startsWith('data-') || propName.startsWith('aria-')) {
+        state.needsSetAttr = true;
+        return t.callExpression(t.identifier('_$setAttr'), [
+          t.identifier(elId),
+          t.stringLiteral(propName),
+          valueExpr
+        ]);
+      }
       state.needsSetProp = true;
       return t.callExpression(t.identifier('_$setProp'), [
         t.identifier(elId),
         t.stringLiteral(propName),
         valueExpr
       ]);
+    }
+
+    // Lazy delegation init (C6): the first element of a module that assigns a
+    // delegated `$$event` handler also calls the once-guarded _$delegate$()
+    // helper at construction time. Emitted at most once per element.
+    let delegateInitEmitted = false;
+    function emitDelegateInit() {
+      if (delegateInitEmitted) return;
+      delegateInitEmitted = true;
+      statements.push(
+        t.expressionStatement(t.callExpression(t.identifier('_$delegate$'), []))
+      );
     }
 
     for (const attr of attributes) {
@@ -887,6 +942,7 @@ export default function whatBabelPlugin({ types: t }) {
           state.needsDelegation = true;
           if (!state.delegatedEvents) state.delegatedEvents = new Set();
           state.delegatedEvents.add(event);
+          emitDelegateInit();
           statements.push(
             t.expressionStatement(
               t.assignmentExpression('=',
@@ -1045,6 +1101,99 @@ export default function whatBabelPlugin({ types: t }) {
     }
   }
 
+  // =====================================================
+  // Branch Memoization (SPRINT v0.11 C1)
+  // =====================================================
+  // `_$insert(el, () => cond() ? <A/> : <B/>)` re-creates the taken branch's
+  // DOM tree (and re-registers every effect inside it) on EVERY re-evaluation
+  // of the insert effect — including writes to signals read by the condition
+  // that do NOT flip which branch is taken (e.g. `count() > 5` while count
+  // goes 6 → 7). Solid solves this by memoizing the condition: route the
+  // condition through an eager, equality-gated memo so the insert effect
+  // depends on the *memo* instead of the raw signals:
+  //
+  //   const _c$0 = _$memo(() => !!(count() > 5));
+  //   _$insert(_el$, () => _c$0() ? <A/> : <B/>, marker);
+  //
+  // The memo re-evaluates on every count write, but only NOTIFIES when its
+  // value changes — so branch DOM is recreated exactly on real flips.
+  //
+  // Semantics preserved:
+  //  - Ternary tests only matter for truthiness → memoize `!!test`.
+  //  - `a && b` / `a || b` render the LEFT operand's VALUE when it
+  //    short-circuits (`{0 && <div/>}` renders "0"), so the left side is
+  //    memoized by value (Object.is) — never coerced.
+  //  - Branch-internal reactivity (signals read inside <A/>) is fine-grained
+  //    and unaffected; plain-value branches read in the insert arrow are
+  //    still tracked by the insert effect directly.
+
+  // Does this expression produce DOM when evaluated? (raw JSX still present at
+  // this stage, or an already-lowered _$mapArray list). Only then is branch
+  // memoization worth the extra memo node.
+  function buildsDOM(node) {
+    if (!node || typeof node !== 'object') return false;
+    if (Array.isArray(node)) return node.some(buildsDOM);
+    if (node.type === 'JSXElement' || node.type === 'JSXFragment') return true;
+    if (node.type === 'CallExpression' && node.callee &&
+        node.callee.type === 'Identifier' &&
+        (node.callee.name === '_$mapArray' || node.callee.name === 'mapArray')) {
+      return true;
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'loc' || key === 'start' || key === 'end' || key === 'leadingComments' ||
+          key === 'trailingComments' || key === 'innerComments') continue;
+      const v = node[key];
+      if (v && typeof v === 'object' && buildsDOM(v)) return true;
+    }
+    return false;
+  }
+
+  // If `expr` is a conditional (ternary / && / ||) with a reactive test and a
+  // DOM-producing branch, hoist the test into `const _c$N = _$memo(...)` (pushed
+  // onto `statements`) and return the expression rewritten to read the memo.
+  // Otherwise returns `expr` unchanged.
+  function memoizeBranchCondition(expr, statements, state) {
+    let testExpr = null;
+    let isTernary = false;
+    if (t.isConditionalExpression(expr)) {
+      testExpr = expr.test;
+      isTernary = true;
+    } else if (t.isLogicalExpression(expr) && (expr.operator === '&&' || expr.operator === '||')) {
+      testExpr = expr.left;
+    } else {
+      return expr;
+    }
+
+    if (!isPotentiallyReactive(testExpr, state.signalNames, state.importedIdentifiers)) return expr;
+
+    const branches = isTernary ? [expr.consequent, expr.alternate] : [expr.right];
+    if (!branches.some(buildsDOM)) return expr;
+
+    const condId = state.nextMemoId();
+    state.needsMemo = true;
+    // Ternary: only truthiness matters in test position → gate on !!test so
+    // value changes that don't flip truthiness (5 → 6) never notify.
+    // Logical: the left VALUE is rendered on short-circuit → gate on the value.
+    const memoBody = isTernary
+      ? t.unaryExpression('!', t.unaryExpression('!', testExpr))
+      : testExpr;
+    statements.push(
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier(condId),
+          t.callExpression(t.identifier('_$memo'), [
+            t.arrowFunctionExpression([], memoBody)
+          ])
+        )
+      ])
+    );
+
+    const condRead = t.callExpression(t.identifier(condId), []);
+    return isTernary
+      ? t.conditionalExpression(condRead, expr.consequent, expr.alternate)
+      : t.logicalExpression(expr.operator, condRead, expr.right);
+  }
+
   function applyDynamicChildren(statements, elId, children, parentNode, state) {
     // Two-pass approach: first collect all children needing DOM references,
     // then pre-capture markers before any _$insert() calls shift indices.
@@ -1153,7 +1302,7 @@ export default function whatBabelPlugin({ types: t }) {
 
         // Auto-lower .map() to mapArray when the callback returns keyed JSX.
         // Pattern: source().map(item => <Comp key={...} />) or source().map((item, i) => ...)
-        const mapResult = tryLowerMapToMapArray(expr, state);
+        let mapResult = tryLowerMapToMapArray(expr, state);
         if (mapResult) {
           state.needsMapArray = true;
           // A bare _$mapArray(...) call is a self-managing inserter (it tracks
@@ -1166,6 +1315,15 @@ export default function whatBabelPlugin({ types: t }) {
           const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) &&
             (mapResult.callee.name === '_$mapArray' || mapResult.callee.name === 'mapArray');
           const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+          // Branch memoization (C1): when the lowered result is a conditional
+          // around the list (cond ? _$mapArray(...) : fallback), memoize the
+          // condition so non-flip writes don't tear down and recreate the
+          // entire list inserter.
+          if (isArrowAlready && t.isExpression(mapResult.body)) {
+            mapResult.body = memoizeBranchCondition(mapResult.body, statements, state);
+          } else if (!isBareMapArray && !isArrowAlready) {
+            mapResult = memoizeBranchCondition(mapResult, statements, state);
+          }
           const insertArg = (isBareMapArray || isArrowAlready)
             ? mapResult
             : t.arrowFunctionExpression([], mapResult);
@@ -1200,6 +1358,9 @@ export default function whatBabelPlugin({ types: t }) {
         }
 
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+          // Branch memoization (C1): conditional children only rebuild branch
+          // DOM when the condition actually flips.
+          expr = memoizeBranchCondition(expr, statements, state);
           const insertCall = t.callExpression(t.identifier('_$insert'), [
             t.identifier(elId),
             t.arrowFunctionExpression([], expr),
@@ -1258,7 +1419,7 @@ export default function whatBabelPlugin({ types: t }) {
             ])
           );
         }
-        applyDynamicAttrs(statements, childElRef, entry.child.openingElement.attributes, state);
+        applyDynamicAttrs(statements, childElRef, entry.child.openingElement.attributes, state, entry.child.openingElement.name.name);
         applyDynamicChildren(statements, childElRef, entry.child.children, entry.child, state);
         continue;
       }
@@ -1267,8 +1428,9 @@ export default function whatBabelPlugin({ types: t }) {
         for (const fChild of entry.child.children) {
           if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
             state.needsInsert = true;
-            const expr = fChild.expression;
+            let expr = fChild.expression;
             if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+              expr = memoizeBranchCondition(expr, statements, state); // (C1)
               statements.push(
                 t.expressionStatement(
                   t.callExpression(t.identifier('_$insert'), [
@@ -1654,10 +1816,40 @@ export default function whatBabelPlugin({ types: t }) {
       ? path.scope.generateUidIdentifier('v')
       : t.identifier('_v');
 
-    const consequent = t.isFunction(contentExpr)
+    const contentIsFn = t.isFunction(contentExpr);
+    const consequent = contentIsFn
       ? t.callExpression(contentExpr, [t.cloneNode(vId)])
       : contentExpr;
     const alternate = fallbackExpr || t.nullLiteral();
+
+    // Branch memoization (SPRINT v0.11 C1): route a reactive `when` through an
+    // equality-gated memo so the insert effect only re-fires (recreating the
+    // taken branch's DOM) when the condition actually changes — not on every
+    // write to a signal the condition happens to read.
+    //  - Render-function children receive the resolved value (`{v => ...}`),
+    //    so the memo is VALUE-gated (Object.is): identity changes re-render,
+    //    matching pre-memo semantics.
+    //  - Static children only use the value for truthiness → gate on !!cond
+    //    so e.g. `when={items().length}` doesn't re-render on 2 → 3.
+    if (isPotentiallyReactive(condition, state.signalNames, state.importedIdentifiers)) {
+      const condId = state.nextMemoId();
+      state.needsMemo = true;
+      const memoBody = contentIsFn
+        ? condition
+        : t.unaryExpression('!', t.unaryExpression('!', condition));
+      if (!state._pendingSetup) state._pendingSetup = [];
+      state._pendingSetup.push(
+        t.variableDeclaration('const', [
+          t.variableDeclarator(
+            t.identifier(condId),
+            t.callExpression(t.identifier('_$memo'), [
+              t.arrowFunctionExpression([], memoBody)
+            ])
+          )
+        ])
+      );
+      condition = t.callExpression(t.identifier(condId), []);
+    }
 
     return t.arrowFunctionExpression([], t.blockStatement([
       t.variableDeclaration('const', [
@@ -1667,6 +1859,65 @@ export default function whatBabelPlugin({ types: t }) {
         t.conditionalExpression(t.cloneNode(vId), consequent, alternate)
       )
     ]));
+  }
+
+  // A fragment-as-root returns an array (or single value) that the runtime
+  // mounts element-by-element (createDOM / insert). Unlike the element-child
+  // path there's no host element to _$insert into with a marker, so reactive
+  // children must instead be emitted as `() => expr` arrows — the runtime's
+  // createDOM/insert treat a function array-item as a reactive binding (it
+  // wraps it in an effect with comment markers). Without this, a bare dynamic
+  // expression like `{count()}` is evaluated exactly once and never updates.
+  //
+  // This applies the SAME lowering the element-child expression path uses:
+  //  - tryLowerMapToMapArray for keyed `items().map(...)` → _$mapArray
+  //  - memoizeBranchCondition for reactive ternary/&&/|| (node-identity stable
+  //    branches: the taken branch's DOM is only rebuilt when the condition
+  //    actually flips, not on every read of a signal the condition touches)
+  //  - reactive expressions wrapped in `() =>` so the runtime tracks them
+  // Memo (_$memo) declarations are pushed into state._pendingSetup, which
+  // transformJsxRoot drains into the enclosing scope. (SPRINT v0.11)
+  function lowerFragmentExprChild(expr, state) {
+    if (!state._pendingSetup) state._pendingSetup = [];
+    const setup = state._pendingSetup;
+
+    // Auto-lower .map() to mapArray when the callback returns keyed JSX.
+    const mapResult = tryLowerMapToMapArray(expr, state);
+    if (mapResult) {
+      state.needsMapArray = true;
+      // A bare _$mapArray(...) is a self-managing inserter and an arrow is
+      // already reactive — emit as-is. A ternary/logical wrapping the call
+      // keeps its condition reactive via a () => wrapper (and memoization).
+      const isBareMapArray = t.isCallExpression(mapResult) && t.isIdentifier(mapResult.callee) &&
+        (mapResult.callee.name === '_$mapArray' || mapResult.callee.name === 'mapArray');
+      const isArrowAlready = t.isArrowFunctionExpression(mapResult);
+      if (isArrowAlready && t.isExpression(mapResult.body)) {
+        mapResult.body = memoizeBranchCondition(mapResult.body, setup, state);
+        return mapResult;
+      }
+      if (isBareMapArray) return mapResult;
+      const memoized = memoizeBranchCondition(mapResult, setup, state);
+      return t.arrowFunctionExpression([], memoized);
+    }
+
+    // mapArray() calls are self-managing inserters — pass directly.
+    const isMapArrayCall = t.isCallExpression(expr) && t.isIdentifier(expr.callee) &&
+      (expr.callee.name === 'mapArray' || expr.callee.name === '_$mapArray');
+    if (isMapArrayCall) {
+      state.needsMapArray = true;
+      if (expr.callee.name === 'mapArray') expr.callee.name = '_$mapArray';
+      return expr;
+    }
+
+    if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+      // Branch memoization (C1): conditional/logical children only rebuild the
+      // taken branch's DOM when the condition actually flips.
+      expr = memoizeBranchCondition(expr, setup, state);
+      return t.arrowFunctionExpression([], expr);
+    }
+
+    // Static — emit verbatim.
+    return expr;
   }
 
   function transformFragmentFineGrained(path, state) {
@@ -1680,7 +1931,7 @@ export default function whatBabelPlugin({ types: t }) {
         if (text) transformed.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
-          transformed.push(child.expression);
+          transformed.push(lowerFragmentExprChild(child.expression, state));
         }
       } else if (t.isJSXElement(child)) {
         transformed.push(transformElementFineGrained({ node: child }, state));
@@ -1704,6 +1955,93 @@ export default function whatBabelPlugin({ types: t }) {
     return id;
   }
 
+  // Shared driver for top-level JSX roots (elements AND fragments).
+  //
+  // transformElementFineGrained does NOT emit IIFEs: it pushes setup
+  // statements (`const _el$N = _tmpl$X(); _el$N.$$click = ...; _$insert(...)`)
+  // into state._pendingSetup and returns the bare `_el$N` identifier. Whoever
+  // visits the JSX root is responsible for draining _pendingSetup and placing
+  // those statements somewhere the returned reference can see them.
+  //
+  // The JSXElement visitor always did this; the JSXFragment visitor did not,
+  // so fragments whose element children had dynamic parts (event handlers,
+  // dynamic attrs/children) compiled to references to _el$N variables that
+  // were never declared — a runtime ReferenceError. Both visitors now share
+  // this driver. (SPRINT v0.11: composes with C1 branch memoization and C2
+  // specialized setters — memo/setter statements ride in _pendingSetup too.)
+  function transformJsxRoot(path, state, transform) {
+    // FIX-1: Use scope-aware signal detection instead of file-global.
+    // Memoize per Babel scope: every JSX root in the same scope yields the
+    // same signal-name set, so without this the full scope-chain walk ran
+    // once per element — O(n²) compile time for a large single component.
+    // (AUDIT-2026-06-06 H2)
+    const scope = path.scope;
+    let cache = state._signalNamesCache;
+    if (!cache) cache = state._signalNamesCache = new WeakMap();
+    let names = cache.get(scope);
+    if (!names) {
+      names = collectSignalNamesFromScope(path);
+      cache.set(scope, names);
+    }
+    state.signalNames = names;
+    state._pendingSetup = [];
+    const transformed = transform(path, state);
+    const pending = state._pendingSetup;
+    state._pendingSetup = [];
+
+    if (pending.length > 0) {
+      // Find the enclosing statement to hoist setup before it,
+      // but only if it's in the SAME function scope. Crossing into
+      // an inner arrow/function (e.g., .map(item => <JSX/>)) would
+      // hoist references to closure variables out of scope.
+      let stmtPath = path;
+      let crossedFunctionBoundary = false;
+      while (stmtPath && !stmtPath.isStatement()) {
+        if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
+          crossedFunctionBoundary = true;
+        }
+        stmtPath = stmtPath.parentPath;
+      }
+      // We can safely hoist setup as siblings of `stmtPath` ONLY if
+      // `stmtPath` lives inside a statement list (BlockStatement.body or
+      // Program.body). For single-statement positions like
+      // `if (cond) return <jsx/>;` or `while (x) return <jsx/>;`,
+      // Babel's `insertBefore` wraps the parent into a block lazily and
+      // multi-statement inserts end up split across scopes, leaving the
+      // `_$insert(_el$N, ...)` call outside the block that declares
+      // `const _el$N`. This is a TDZ/ReferenceError at runtime.
+      //
+      // To guarantee that ALL setup statements and the returned reference
+      // share one lexical block, require that `stmtPath.listKey` points
+      // at a statement list. Otherwise fall through to the IIFE path,
+      // which is always safe.
+      const inStatementList =
+        stmtPath
+        && stmtPath.isStatement()
+        && (stmtPath.listKey === 'body' || stmtPath.listKey === 'consequent')
+        && Array.isArray(stmtPath.container);
+      if (inStatementList && !crossedFunctionBoundary) {
+        // Same function scope — safe to hoist setup before the enclosing
+        // statement. Works for return statements too: `insertBefore`
+        // places setup above `return <jsx/>` without wrapping in an IIFE.
+        stmtPath.insertBefore(pending);
+        path.replaceWith(transformed);
+      } else {
+        // Crossed a function boundary or no enclosing statement found —
+        // fall back to IIFE so closure variables remain in scope.
+        pending.push(t.returnStatement(transformed));
+        path.replaceWith(
+          t.callExpression(
+            t.arrowFunctionExpression([], t.blockStatement(pending)),
+            []
+          )
+        );
+      }
+    } else {
+      path.replaceWith(transformed);
+    }
+  }
+
   // =====================================================
   // Plugin entry
   // =====================================================
@@ -1721,6 +2059,12 @@ export default function whatBabelPlugin({ types: t }) {
           state.needsMapArray = false;
           state.needsSpread = false;
           state.needsSetProp = false;
+          state.needsMemo = false;      // branch memoization (C1)
+          state.needsSetClass = false;  // specialized setters (C2)
+          state.needsSetStyle = false;
+          state.needsSetAttr = false;
+          state.needsSetValue = false;
+          state.needsSetChecked = false;
           state.needsH = false;
           state.needsCreateComponent = false;
           state.needsFragment = false;
@@ -1731,8 +2075,10 @@ export default function whatBabelPlugin({ types: t }) {
           state.templateMap = new Map(); // html → template id (deduplication)
           state.templateCount = 0;
           state._varCounter = 0;
+          state._memoCounter = 0;
           state._pendingSetup = [];
           state.nextVarId = () => `_el$${state._varCounter++}`;
+          state.nextMemoId = () => `_c$${state._memoCounter++}`;
 
           // Collect signal names for smart reactivity detection
           state.signalNames = new Set();
@@ -1811,12 +2157,14 @@ export default function whatBabelPlugin({ types: t }) {
         exit(path, state) {
           // Insert template declarations at top of program (hoisted to module scope)
           for (const tmpl of state.templates.reverse()) {
+            // /* @__PURE__ */ marks the hoisted call as side-effect-free so
+            // bundlers (esbuild/rollup/terser) can drop templates whose
+            // components are tree-shaken away. (SPRINT v0.11 C6)
+            const tmplCall = t.callExpression(t.identifier('_$template'), [t.stringLiteral(tmpl.html)]);
+            t.addComment(tmplCall, 'leading', ' @__PURE__ ');
             path.unshiftContainer('body',
               t.variableDeclaration('const', [
-                t.variableDeclarator(
-                  t.identifier(tmpl.id),
-                  t.callExpression(t.identifier('_$template'), [t.stringLiteral(tmpl.html)])
-                )
+                t.variableDeclarator(t.identifier(tmpl.id), tmplCall)
               ])
             );
           }
@@ -1824,8 +2172,13 @@ export default function whatBabelPlugin({ types: t }) {
           // Build fine-grained imports
           const fgSpecifiers = [];
           if (state.needsTemplate) {
+            // Import the compiler-internal `_$template` export, NOT the public
+            // `template` export. The public one warns in dev ("template() is a
+            // compiler internal... XSS") — compiled output must never trip that
+            // guard; the warning exists for *hand-written* template() calls
+            // with dynamic strings. (SPRINT v0.11 C5)
             fgSpecifiers.push(
-              t.importSpecifier(t.identifier('_$template'), t.identifier('template'))
+              t.importSpecifier(t.identifier('_$template'), t.identifier('_$template'))
             );
           }
           if (state.needsInsert) {
@@ -1851,6 +2204,36 @@ export default function whatBabelPlugin({ types: t }) {
           if (state.needsSetProp) {
             fgSpecifiers.push(
               t.importSpecifier(t.identifier('_$setProp'), t.identifier('setProp'))
+            );
+          }
+          if (state.needsMemo) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$memo'), t.identifier('memo'))
+            );
+          }
+          if (state.needsSetClass) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$setClass'), t.identifier('setClass'))
+            );
+          }
+          if (state.needsSetStyle) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$setStyle'), t.identifier('setStyle'))
+            );
+          }
+          if (state.needsSetAttr) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$setAttr'), t.identifier('setAttr'))
+            );
+          }
+          if (state.needsSetValue) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$setValue'), t.identifier('setValue'))
+            );
+          }
+          if (state.needsSetChecked) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$setChecked'), t.identifier('setChecked'))
             );
           }
           if (state.needsCreateComponent) {
@@ -1916,96 +2299,57 @@ export default function whatBabelPlugin({ types: t }) {
             addCoreImports(path, t, coreSpecifiers);
           }
 
-          // Emit event delegation setup call if any delegated events were used
+          // Emit LAZY event delegation setup if any delegated events were used.
+          // Previously this was a bare module-top-level `_$delegateEvents([...])`
+          // call — a side effect that (a) prevented bundlers from tree-shaking
+          // modules whose components are never used, and (b) attached document
+          // listeners at import time even when no component ever mounted.
+          // Instead we emit a once-guarded helper that each element setup calls
+          // at construction time; unused modules carry only dead declarations
+          // that DCE removes. (SPRINT v0.11 C6)
           if (state.needsDelegation && state.delegatedEvents && state.delegatedEvents.size > 0) {
             const eventArray = t.arrayExpression(
               [...state.delegatedEvents].map(e => t.stringLiteral(e))
             );
-            path.pushContainer('body',
-              t.expressionStatement(
-                t.callExpression(t.identifier('_$delegateEvents'), [eventArray])
-              )
+            // function _$delegate$() { if (_$delegated$) return; _$delegated$ = true; _$delegateEvents([...]); }
+            const helperFn = t.functionDeclaration(
+              t.identifier('_$delegate$'),
+              [],
+              t.blockStatement([
+                t.ifStatement(
+                  t.identifier('_$delegated$'),
+                  t.returnStatement()
+                ),
+                t.expressionStatement(
+                  t.assignmentExpression('=', t.identifier('_$delegated$'), t.booleanLiteral(true))
+                ),
+                t.expressionStatement(
+                  t.callExpression(t.identifier('_$delegateEvents'), [eventArray])
+                ),
+              ])
             );
+            // Unshift so `let _$delegated$ = false` executes before any
+            // top-level component construction (e.g. a same-module mount()).
+            path.unshiftContainer('body', [
+              t.variableDeclaration('let', [
+                t.variableDeclarator(t.identifier('_$delegated$'), t.booleanLiteral(false))
+              ]),
+              helperFn,
+            ]);
           }
         }
       },
 
       JSXElement(path, state) {
-        // FIX-1: Use scope-aware signal detection instead of file-global.
-        // Memoize per Babel scope: every JSXElement in the same scope yields the
-        // same signal-name set, so without this the full scope-chain walk ran
-        // once per element — O(n²) compile time for a large single component.
-        // (AUDIT-2026-06-06 H2)
-        const scope = path.scope;
-        let cache = state._signalNamesCache;
-        if (!cache) cache = state._signalNamesCache = new WeakMap();
-        let names = cache.get(scope);
-        if (!names) {
-          names = collectSignalNamesFromScope(path);
-          cache.set(scope, names);
-        }
-        state.signalNames = names;
-        state._pendingSetup = [];
-        const transformed = transformElementFineGrained(path, state);
-        const pending = state._pendingSetup;
-        state._pendingSetup = [];
-
-        if (pending.length > 0) {
-          // Find the enclosing statement to hoist setup before it,
-          // but only if it's in the SAME function scope. Crossing into
-          // an inner arrow/function (e.g., .map(item => <JSX/>)) would
-          // hoist references to closure variables out of scope.
-          let stmtPath = path;
-          let crossedFunctionBoundary = false;
-          while (stmtPath && !stmtPath.isStatement()) {
-            if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
-              crossedFunctionBoundary = true;
-            }
-            stmtPath = stmtPath.parentPath;
-          }
-          // We can safely hoist setup as siblings of `stmtPath` ONLY if
-          // `stmtPath` lives inside a statement list (BlockStatement.body or
-          // Program.body). For single-statement positions like
-          // `if (cond) return <jsx/>;` or `while (x) return <jsx/>;`,
-          // Babel's `insertBefore` wraps the parent into a block lazily and
-          // multi-statement inserts end up split across scopes, leaving the
-          // `_$insert(_el$N, ...)` call outside the block that declares
-          // `const _el$N`. This is a TDZ/ReferenceError at runtime.
-          //
-          // To guarantee that ALL setup statements and the returned reference
-          // share one lexical block, require that `stmtPath.listKey` points
-          // at a statement list. Otherwise fall through to the IIFE path,
-          // which is always safe.
-          const inStatementList =
-            stmtPath
-            && stmtPath.isStatement()
-            && (stmtPath.listKey === 'body' || stmtPath.listKey === 'consequent')
-            && Array.isArray(stmtPath.container);
-          if (inStatementList && !crossedFunctionBoundary) {
-            // Same function scope — safe to hoist setup before the enclosing
-            // statement. Works for return statements too: `insertBefore`
-            // places setup above `return <jsx/>` without wrapping in an IIFE.
-            stmtPath.insertBefore(pending);
-            path.replaceWith(transformed);
-          } else {
-            // Crossed a function boundary or no enclosing statement found —
-            // fall back to IIFE so closure variables remain in scope.
-            pending.push(t.returnStatement(transformed));
-            path.replaceWith(
-              t.callExpression(
-                t.arrowFunctionExpression([], t.blockStatement(pending)),
-                []
-              )
-            );
-          }
-        } else {
-          path.replaceWith(transformed);
-        }
+        transformJsxRoot(path, state, transformElementFineGrained);
       },
 
       JSXFragment(path, state) {
-        const transformed = transformFragmentFineGrained(path, state);
-        path.replaceWith(transformed);
+        // Fragments share the element driver: their element children push
+        // `const _el$N = ...` setup into _pendingSetup, which MUST be drained
+        // here (hoisted or IIFE-wrapped) or the emitted `_el$N` references
+        // are never declared (ReferenceError at runtime).
+        transformJsxRoot(path, state, transformFragmentFineGrained);
       }
     }
   };

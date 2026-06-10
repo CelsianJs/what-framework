@@ -30,7 +30,7 @@ if (!global.customElements) {
 const { signal, computed, effect, batch, flushSync, createRoot, onCleanup: onRootCleanup } = await import('../src/reactive.js');
 const { h, Fragment } = await import('../src/h.js');
 const { mount, createDOM, disposeTree, getCurrentComponent } = await import('../src/dom.js');
-const { template, insert, mapArray, hydrate, isHydrating } = await import('../src/render.js');
+const { template, insert, mapArray, hydrate, isHydrating, setStyle } = await import('../src/render.js');
 const {
   useState,
   useEffect,
@@ -867,6 +867,59 @@ describe('Integration: Reactive props', () => {
     await flush();
 
     assert.equal(el.style.color, 'blue');
+  });
+
+  it('reactive style object clears stale properties dropped between objects', async () => {
+    const container = getContainer();
+    const cond = signal(true);
+
+    function App() {
+      return h('div', {
+        id: 'stale-style',
+        style: () => cond()
+          ? { color: 'red', fontWeight: 'bold' }
+          : { color: 'blue' }
+      }, 'styled');
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    const el = container.querySelector('#stale-style');
+    assert.equal(el.style.color, 'red');
+    assert.equal(el.style.fontWeight, 'bold');
+
+    // Flip to an object WITHOUT fontWeight — the stale key must be cleared.
+    cond(false);
+    await flush();
+
+    assert.equal(el.style.color, 'blue');
+    assert.equal(el.style.fontWeight, '', 'fontWeight from the prior object must be removed');
+  });
+
+  it('setStyle: object form removes keys absent from the new object (direct)', () => {
+    const el = document.createElement('div');
+    setStyle(el, { color: 'red', fontWeight: 'bold', margin: '4px' });
+    assert.equal(el.style.color, 'red');
+    assert.equal(el.style.fontWeight, 'bold');
+    assert.equal(el.style.margin, '4px');
+
+    // New object drops fontWeight and margin, keeps/changes color.
+    setStyle(el, { color: 'green' });
+    assert.equal(el.style.color, 'green');
+    assert.equal(el.style.fontWeight, '', 'dropped fontWeight cleared');
+    assert.equal(el.style.margin, '', 'dropped margin cleared');
+
+    // A cssText string fully replaces inline styles and resets object tracking.
+    setStyle(el, 'padding: 2px');
+    assert.equal(el.style.color, '', 'cssText replaced prior inline styles');
+    assert.equal(el.style.padding, '2px');
+    // A following object applies its own keys; cssText-set keys are NOT tracked
+    // as a prior object, so they persist (cssText owns them) — only keys from a
+    // prior OBJECT are diffed/cleared. This matches the intended scope of the fix.
+    setStyle(el, { color: 'black' });
+    assert.equal(el.style.color, 'black');
+    assert.equal(el.style.padding, '2px', 'cssText-set padding persists (not object-tracked)');
   });
 });
 

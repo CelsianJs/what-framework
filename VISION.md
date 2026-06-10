@@ -19,8 +19,8 @@ fixing issues in a single pass — while staying small, fast, and pleasant for h
    create targeted DOM effects, so an update touches only the nodes that changed — no diff,
    no re-render, no dependency arrays. This is both faster and easier to reason about.
 
-3. **Errors should be fixes, not stack traces.** Every framework error returns JSON with a
-   code, a human message, a suggested fix, and a code example. An agent (or a human) can act
+3. **Errors should be fixes, not stack traces.** Core runtime errors carry a code, message,
+   suggested fix, and code example, and serialize to JSON. An agent (or a human) can act
    on it without spelunking.
 
 4. **Small API surface, no magic.** `signal`, `computed`, `effect`, `batch`, components as
@@ -33,8 +33,9 @@ fixing issues in a single pass — while staying small, fast, and pleasant for h
   inspect every signal, effect, component, and DOM node in a *running* app: dependency
   graphs, signal traces, performance hot-spots, live snapshots. This is the headline
   differentiator.
-- **Structured errors + guardrails** — runtime catches infinite loops, missing cleanup, XSS,
-  and signal misuse at dev time, and returns actionable JSON.
+- **Structured errors + guardrails** — at dev time the runtime catches infinite effect loops,
+  refuses unsafe `innerHTML`, and warns on signal misuse; lint rules cover the rest. Core
+  errors carry actionable JSON with a code, fix, and example.
 - **Compiler intelligence** — `what-compiler` lowers JSX to fine-grained DOM ops with keyed
   list reconciliation, no VDOM.
 - **Full-stack, not just a view layer** (as of v0.10) — file-routed SSR with co-located

@@ -36,12 +36,12 @@ export default [
 Catches the #1 mistake for new developers: using a signal reference instead of calling it. Signals are functions -- you must call them to read the value.
 
 ```jsx
-// Bad -- renders "[Function]", conditionals always truthy
+// Bad -- conditionals are always truthy; bare JSX reads rely on compiler auto-wrapping
 <span>{count}</span>
 {isLoading && <Spinner />}
 <span>{swr.data}</span>
 
-// Good
+// Good -- explicit reads work everywhere, compiler or not
 <span>{count()}</span>
 {isLoading() && <Spinner />}
 <span>{swr.data()}</span>

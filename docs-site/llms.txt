@@ -1,0 +1,39 @@
+# What Framework
+
+> What is a signal-based reactive web framework built for AI agents. Components run once — no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect every signal, effect, and component in a running app, and core runtime errors are structured with a code, fix, and example so agents can repair them in one pass.
+
+Key facts an agent should know before writing code:
+
+- State is a `signal(initialValue, 'debugName')`. Read with `count()`, write with `count(5)` or `count(c => c + 1)` (also `count.set(...)`).
+- Components run **once**. The function body never re-executes — signals create fine-grained DOM effects instead of re-rendering.
+- `computed()` is lazy, cached derived state. `effect()` auto-tracks signal reads (no dependency array). `batch()` flushes effects once.
+- Import everything from `'what-framework'` (the umbrella package re-exports the core).
+- Native What APIs are preferred. `what-react` is a secondary compatibility layer for the React ecosystem.
+
+## Start here
+
+- [Getting Started](https://github.com/CelsianJs/what-framework/blob/main/GETTING-STARTED.md): Setup for agents and developers, including MCP wiring.
+- [Quick Start tutorial](https://whatfw.com/docs/learn/): Build your first app and learn the core mental model.
+- [Tic-Tac-Toe tutorial](https://whatfw.com/docs/tutorial/): A complete app built step by step.
+- [Signals](https://whatfw.com/docs/learn/signals.html): Fine-grained reactivity — the central concept.
+
+## Reference
+
+- [API reference](https://github.com/CelsianJs/what-framework/blob/main/docs/API.md): Full public API.
+- [Architecture](https://github.com/CelsianJs/what-framework/blob/main/docs/ARCHITECTURE.md): How the compiler, runtime, and MCP bridge fit together.
+- [TypeScript](https://github.com/CelsianJs/what-framework/blob/main/docs/TYPESCRIPT.md): Types and editor setup.
+- [Styling](https://github.com/CelsianJs/what-framework/blob/main/docs/STYLING.md): CSS, Tailwind, and StyleX options.
+
+## For AI agents
+
+- [Agent patterns](https://github.com/CelsianJs/what-framework/blob/main/docs/AGENT-PATTERNS.md): Ten copy-paste patterns for writing, debugging, and maintaining What code.
+- [MCP DevTools](https://github.com/CelsianJs/what-framework/blob/main/docs/MCP-DEVTOOLS.md): The 29-tool MCP server for inspecting a running app in real time.
+- [Gotchas](https://github.com/CelsianJs/what-framework/blob/main/docs/GOTCHAS.md): Common mistakes and how to avoid them.
+- [Migration from React](https://github.com/CelsianJs/what-framework/blob/main/docs/MIGRATION-FROM-REACT.md): Mapping React idioms to What.
+
+## Optional
+
+- [Effect timing](https://github.com/CelsianJs/what-framework/blob/main/docs/EFFECT-TIMING.md): When effects run and how batching works.
+- [Text engine](https://github.com/CelsianJs/what-framework/blob/main/docs/TEXT-ENGINE.md): The optional `what-text` engine.
+- [Ecosystem roadmap](https://github.com/CelsianJs/what-framework/blob/main/docs/ECOSYSTEM-PLAN.md): Planned packages.
+- [llms-full.txt](https://whatfw.com/llms-full.txt): Expanded version with inline quickstart, signals API, common errors, and MCP usage.
