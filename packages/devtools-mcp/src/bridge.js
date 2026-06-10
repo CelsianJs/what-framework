@@ -13,7 +13,7 @@ import { join } from 'path';
 const MAX_EVENT_LOG = 1000;
 const MAX_ERROR_LOG = 100;
 
-export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
+export function createBridge({ port = 9229, host = '127.0.0.1', onError } = {}) {
   let latestSnapshot = null;
   const eventLog = [];
   const errorLog = [];
@@ -59,6 +59,30 @@ export function createBridge({ port = 9229, host = '127.0.0.1' } = {}) {
       return false;
     }
   }});
+
+  // The WebSocketServer binds the port immediately on construction. Without an
+  // 'error' listener, an EADDRINUSE (very likely — 9229 is also Node's default
+  // --inspect port) is emitted as an unhandled 'error' event, which an
+  // EventEmitter rethrows and hard-crashes the whole process. The bridge IS the
+  // server, so unlike the optional HTTP discovery port we cannot silently carry
+  // on with a dead WS server. Strategy: gracefully exit(0) with an actionable
+  // message so the launcher (e.g. `what dev`) sees a clean shutdown rather than
+  // an uncaught-exception stack trace. Callers (tests) can pass `onError` to
+  // intercept instead of exiting.
+  wss.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      const inspectNote = port === 9229 ? ' (note: 9229 is also Node\'s default --inspect port)' : '';
+      console.error(`[what-devtools-mcp] port ${port} in use — set WHAT_MCP_PORT to a free port or stop the process using it${inspectNote}.`);
+    } else {
+      console.error(`[what-devtools-mcp] bridge WebSocket server error: ${err && err.message ? err.message : err}`);
+    }
+    if (typeof onError === 'function') {
+      onError(err);
+    } else {
+      // Graceful exit: the bridge cannot function without its WS port.
+      process.exit(0);
+    }
+  });
 
   // --- Token Discovery ---
   // Two mechanisms so the browser client can find the token automatically:

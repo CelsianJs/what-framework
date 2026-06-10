@@ -187,4 +187,26 @@ describe('WebSocket Bridge', () => {
     assert.equal(typeof bridge.authToken, 'string');
     assert.ok(bridge.authToken.length >= 32, 'authToken should be at least 32 chars');
   });
+
+  it('does not crash the process when the WS port is already in use (EADDRINUSE)', async () => {
+    // First bridge binds TEST_PORT successfully.
+    bridge = createBridge({ port: TEST_PORT });
+
+    // Second bridge tries the same port → EADDRINUSE. Without an 'error'
+    // listener the EventEmitter would rethrow and hard-crash the process.
+    // The onError hook lets us assert graceful handling instead of exit(0).
+    const err = await new Promise((resolve) => {
+      const second = createBridge({ port: TEST_PORT, onError: resolve });
+      // Keep a handle so it gets closed even if onError never fires.
+      second.close = second.close || (() => {});
+    });
+
+    assert.equal(err.code, 'EADDRINUSE', 'should report EADDRINUSE');
+    // Original bridge must still be healthy and serving.
+    assert.equal(bridge.isConnected(), false);
+    client = connectWithToken(bridge, TEST_PORT);
+    await waitForOpen(client);
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(bridge.isConnected(), true, 'original bridge still serves after collision');
+  });
 });
