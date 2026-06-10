@@ -33,6 +33,33 @@ jobs:
       - name: Test
         run: npm run -s test
 
+  react-compat-libs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The lib fixture is gitignored and not a workspace member — install it here so
+      # the compat pillar is actually exercised (the test FAILS, not skips, with the flag set).
+      - name: Install compat-lib fixture
+        working-directory: packages/react-compat/test/app
+        run: npm install --no-save zustand @tanstack/react-query react-hook-form react-hot-toast @headlessui/react framer-motion
+
+      - name: Run guarded compat-lib tests
+        working-directory: packages/react-compat
+        env:
+          WHAT_REQUIRE_COMPAT_LIBS: '1'
+        run: node --test 'test/libs.test.js'
+
   build:
     runs-on: ubuntu-latest
     steps:
