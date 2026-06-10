@@ -42,18 +42,37 @@ function htmlResponse(status, message) {
 }
 
 // Resolve a safe local redirect target for the form (POST/redirect/GET) path.
-// `_redirect` must be a local path ("/x", never "//evil"); the Referer header
-// (an absolute URL) is reduced to its path + query. Falls back to '/'.
-function safeRedirectTarget(form, headers) {
-  const explicit = form && form._redirect;
-  if (typeof explicit === 'string' && explicit.startsWith('/') && !explicit.startsWith('//')) {
-    return explicit;
+// `_redirect` must be a same-origin local path ("/x"); protocol-relative
+// ("//evil"), backslash-smuggled ("/\evil", "/\\evil") and absolute
+// ("https://evil") targets are rejected. The Referer header (an absolute URL)
+// is reduced to its path + query. Falls back to '/'.
+//
+// Backslashes matter: browsers and `new URL()` treat "\" like "/", so
+// "/\evil.com" canonicalizes to http://evil.com (an open redirect). We reject
+// anything starting with two slash-or-backslash chars or containing a
+// backslash, then canonicalize via URL and require the localhost origin.
+function safeLocalPath(value) {
+  if (typeof value !== 'string' || !value.startsWith('/')) return null;
+  // Reject protocol-relative / backslash-smuggled targets up front.
+  if (/^[/\\]{2}/.test(value) || value.includes('\\')) return null;
+  try {
+    const u = new URL(value, 'http://localhost');
+    if (u.origin !== 'http://localhost') return null;
+    return u.pathname + u.search;
+  } catch {
+    return null;
   }
+}
+
+function safeRedirectTarget(form, headers) {
+  const explicit = safeLocalPath(form && form._redirect);
+  if (explicit) return explicit;
   const referer = headers.referer || headers.referrer;
   if (referer) {
     try {
       const u = new URL(referer, 'http://localhost');
-      if (u.pathname.startsWith('/') && !u.pathname.startsWith('//')) return u.pathname + u.search;
+      const path = safeLocalPath(u.pathname + u.search);
+      if (path) return path;
     } catch { /* fall through */ }
   }
   return '/';
@@ -217,6 +236,49 @@ export function parseActionBody(raw, contentType) {
   return JSON.parse(String(raw));
 }
 
+/**
+ * Read a Web Fetch `Request` body as text with the same MAX_BODY_BYTES cap the
+ * Node middleware enforces. Used by the adapter/edge entry points (Vercel /
+ * Cloudflare / Node-adapter) so all three share one DoS guard.
+ *
+ * Returns { raw } on success or { tooLarge: true } when the cap is exceeded —
+ * checked first via Content-Length, then enforced while streaming (chunked /
+ * spoofed Content-Length can't bypass it).
+ *
+ * @param {Request} request
+ * @param {number} [limit=MAX_BODY_BYTES]
+ */
+export async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
+  const declared = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > limit) {
+    return { tooLarge: true };
+  }
+  const body = request.body;
+  // No stream available (or env without ReadableStream): fall back to text()
+  // but still re-check the resulting size against the cap.
+  if (!body || typeof body.getReader !== 'function') {
+    const raw = await request.text();
+    if (Buffer.byteLength(raw, 'utf8') > limit) return { tooLarge: true };
+    return { raw };
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      size += value.byteLength;
+      if (size > limit) {
+        try { await reader.cancel(); } catch { /* ignore */ }
+        return { tooLarge: true };
+      }
+      chunks.push(value);
+    }
+  }
+  return { raw: Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8') };
+}
+
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -248,8 +310,14 @@ export function fetchActionHandler(options = {}) {
   return async function (request) {
     let body = {};
     try {
-      const raw = await request.text();
-      body = parseActionBody(raw, request.headers.get('content-type') || '');
+      const read = await readFetchBodyCapped(request);
+      if (read.tooLarge) {
+        return new Response(JSON.stringify({ message: 'Payload too large' }), {
+          status: 413,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      body = parseActionBody(read.raw, request.headers.get('content-type') || '');
     } catch {
       body = {};
     }

@@ -433,16 +433,26 @@ function htmlResponse(status, message) {
     body: `<!DOCTYPE html><html><body><h1>${status}</h1><p>${String(message).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p></body></html>`
   };
 }
-function safeRedirectTarget(form, headers) {
-  const explicit = form && form._redirect;
-  if (typeof explicit === "string" && explicit.startsWith("/") && !explicit.startsWith("//")) {
-    return explicit;
+function safeLocalPath(value) {
+  if (typeof value !== "string" || !value.startsWith("/")) return null;
+  if (/^[/\\]{2}/.test(value) || value.includes("\\")) return null;
+  try {
+    const u = new URL(value, "http://localhost");
+    if (u.origin !== "http://localhost") return null;
+    return u.pathname + u.search;
+  } catch {
+    return null;
   }
+}
+function safeRedirectTarget(form, headers) {
+  const explicit = safeLocalPath(form && form._redirect);
+  if (explicit) return explicit;
   const referer = headers.referer || headers.referrer;
   if (referer) {
     try {
       const u = new URL(referer, "http://localhost");
-      if (u.pathname.startsWith("/") && !u.pathname.startsWith("//")) return u.pathname + u.search;
+      const path = safeLocalPath(u.pathname + u.search);
+      if (path) return path;
     } catch {
     }
   }
@@ -544,6 +554,37 @@ function parseActionBody(raw, contentType) {
   if (raw == null || raw === "") return {};
   return JSON.parse(String(raw));
 }
+async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) {
+    return { tooLarge: true };
+  }
+  const body = request.body;
+  if (!body || typeof body.getReader !== "function") {
+    const raw = await request.text();
+    if (Buffer.byteLength(raw, "utf8") > limit) return { tooLarge: true };
+    return { raw };
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      size += value.byteLength;
+      if (size > limit) {
+        try {
+          await reader.cancel();
+        } catch {
+        }
+        return { tooLarge: true };
+      }
+      chunks.push(value);
+    }
+  }
+  return { raw: Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8") };
+}
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -571,8 +612,14 @@ function fetchActionHandler(options = {}) {
   return async function(request) {
     let body = {};
     try {
-      const raw = await request.text();
-      body = parseActionBody(raw, request.headers.get("content-type") || "");
+      const read = await readFetchBodyCapped(request);
+      if (read.tooLarge) {
+        return new Response(JSON.stringify({ message: "Payload too large" }), {
+          status: 413,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      body = parseActionBody(read.raw, request.headers.get("content-type") || "");
     } catch {
       body = {};
     }
@@ -605,8 +652,9 @@ function readCookie(cookieHeader, name) {
 }
 async function readActionBody(request) {
   try {
-    const raw = await request.text();
-    return parseActionBody(raw, request.headers.get("content-type") || "");
+    const read = await readFetchBodyCapped(request);
+    if (read.tooLarge) return { tooLarge: true };
+    return parseActionBody(read.raw, request.headers.get("content-type") || "");
   } catch {
     return {};
   }
@@ -660,6 +708,12 @@ function createRequestHandler(options = {}) {
     if (basePath && pathname.startsWith(basePath)) pathname = pathname.slice(basePath.length) || "/";
     if (request.method === "POST" && pathname === ACTION_PATH) {
       const body = await readActionBody(request);
+      if (body && body.tooLarge) {
+        return new Response(JSON.stringify({ message: "Payload too large" }), {
+          status: 413,
+          headers: { "content-type": "application/json" }
+        });
+      }
       const out2 = await actionHandler({
         method: "POST",
         headers: headersToObject(request.headers),
@@ -674,7 +728,9 @@ function createRequestHandler(options = {}) {
       csrfToken = readCookie(headersToObject(request.headers).cookie, CSRF_COOKIE);
       if (!csrfToken) {
         csrfToken = generateCsrfToken();
-        csrfSetCookie = `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}; Path=/; SameSite=Lax`;
+        const reqHeaders = headersToObject(request.headers);
+        const isHttps = reqHeaders["x-forwarded-proto"] === "https" || url.protocol === "https:" || false;
+        csrfSetCookie = `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}; Path=/; SameSite=Lax` + (isHttps ? "; Secure" : "");
       }
     }
     const withCsrfCookie = (headers2) => {

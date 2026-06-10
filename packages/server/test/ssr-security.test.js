@@ -92,7 +92,11 @@ describe('SSR attribute name validation', () => {
     assert.ok(!html.includes('onload'), `injected attr name must be skipped: ${html}`);
     assert.ok(!html.includes('alert(1)'), `injected payload must not appear: ${html}`);
     assert.equal(html, '<div></div>');
-    assert.ok(warns.some(w => w.includes('invalid attribute name')), 'should dev-warn');
+    // The dev-warning is suppressed under NODE_ENV=production (no console spam in prod);
+    // the security behavior above (attr stripped) holds in both modes.
+    if (process.env.NODE_ENV !== 'production') {
+      assert.ok(warns.some(w => w.includes('invalid attribute name')), 'should dev-warn');
+    }
   });
 
   it('blocks names containing spaces, equals, quotes, and angle brackets', () => {

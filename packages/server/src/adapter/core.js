@@ -8,7 +8,7 @@
 
 import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument } from '../index.js';
-import { createActionHandler, parseActionBody } from '../action-handler.js';
+import { createActionHandler, parseActionBody, readFetchBodyCapped } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
 import { generateCsrfToken } from '../actions.js';
 
@@ -28,10 +28,14 @@ function readCookie(cookieHeader, name) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// Read + parse the action body with the shared MAX_BODY_BYTES cap. Returns
+// { tooLarge: true } when over the limit so the caller can respond 413 (DoS
+// guard parity with the Node connect/express middleware).
 async function readActionBody(request) {
   try {
-    const raw = await request.text();
-    return parseActionBody(raw, request.headers.get('content-type') || '');
+    const read = await readFetchBodyCapped(request);
+    if (read.tooLarge) return { tooLarge: true };
+    return parseActionBody(read.raw, request.headers.get('content-type') || '');
   } catch { return {}; }
 }
 
@@ -116,6 +120,12 @@ export function createRequestHandler(options = {}) {
     // Server actions (JSON fetch path AND plain form-post fallback)
     if (request.method === 'POST' && pathname === ACTION_PATH) {
       const body = await readActionBody(request);
+      if (body && body.tooLarge) {
+        return new Response(JSON.stringify({ message: 'Payload too large' }), {
+          status: 413,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       const out = await actionHandler({
         method: 'POST',
         headers: headersToObject(request.headers),
@@ -134,7 +144,15 @@ export function createRequestHandler(options = {}) {
       if (!csrfToken) {
         csrfToken = generateCsrfToken();
         // NOT HttpOnly: the client action() wrapper reads it to send X-CSRF-Token.
-        csrfSetCookie = `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}; Path=/; SameSite=Lax`;
+        // Secure when the request is HTTPS (direct or via a proxy's
+        // x-forwarded-proto) or in production; OFF for plain-http localhost dev
+        // so the cookie still sets and CSRF keeps working locally.
+        const reqHeaders = headersToObject(request.headers);
+        const isHttps = reqHeaders['x-forwarded-proto'] === 'https'
+          || url.protocol === 'https:'
+          || process.env.NODE_ENV === 'production';
+        csrfSetCookie = `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}; Path=/; SameSite=Lax`
+          + (isHttps ? '; Secure' : '');
       }
     }
     const withCsrfCookie = (headers) => {
