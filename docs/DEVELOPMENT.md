@@ -4,17 +4,29 @@ How to work on What Framework in this repository.
 
 ## Monorepo layout
 
+14 packages live in `packages/` (directory name → published npm name):
+
 ```
 what-fw/
 ├── packages/
-│   ├── core/         # Runtime: reactivity, DOM, hooks, components, forms, data, a11y
-│   ├── what/         # Public package: what-framework
-│   ├── router/       # what-framework/router
-│   ├── server/       # what-framework/server
-│   ├── compiler/     # what-compiler (Babel + Vite plugin)
-│   └── create-what/  # Scaffolder (npx create-what)
-├── demo/
+│   ├── core/           # what-core — runtime: reactivity, DOM, hooks, components, forms, data, a11y
+│   ├── what/           # what-framework — umbrella package (re-exports core/router/server)
+│   ├── router/         # what-router — client-side + file-based routing
+│   ├── server/         # what-server — SSR, islands, static generation, server actions
+│   ├── cache/          # what-isr — origin-first ISR cache engine
+│   ├── compiler/       # what-compiler — JSX transform (Babel + Vite plugin)
+│   ├── what-text/      # what-text — optional text engine (@chenglou/pretext)
+│   ├── create-what/    # create-what — scaffolder (npm create what@latest)
+│   ├── cli/            # what-framework-cli — dev server, build, start
+│   ├── react-compat/   # what-react — React compatibility layer
+│   ├── eslint-plugin/  # eslint-plugin-what — lint rules
+│   ├── devtools/       # what-devtools — browser dev panel
+│   ├── devtools-mcp/   # what-devtools-mcp — MCP bridge to live app state
+│   └── mcp-server/     # what-mcp — docs MCP server (deprecated)
 ├── benchmark/
+├── examples/
+├── sites/              # playground, react-compat, benchmarks (deployed surfaces)
+├── docs-site/          # whatfw.com
 └── docs/
 ```
 
@@ -38,12 +50,11 @@ npm run build
 npm run bench
 npm run bench:dx
 npm run bench:gate
-npm run demo
+npm run smoke:scaffold   # scaffold both templates from local tarballs and verify hydration
 ```
 
 Notes:
 
-- `npm run demo` serves the demo app on `http://localhost:3000`.
 - scaffolded apps (`create-what`) run at `http://localhost:5173`.
 - Vite is the current implementation detail behind the scaffold; app teams should use `npm run dev/build/preview` rather than Vite commands directly.
 
@@ -79,15 +90,12 @@ See `/docs/RELEASE.md` for required secrets and one-button run steps.
 
 ## `show()` migration tool
 
-`show()` is removed from the public API.
+`show()` is removed from the public API. A codemod exists for migrating old code:
 
 ```bash
-npm run codemod:show:check
-npm run codemod:show
+node scripts/codemods/show-to-ternary.js <paths...>           # report only
+node scripts/codemods/show-to-ternary.js --write <paths...>   # rewrite in place
 ```
-
-Codemod path: `scripts/codemods/show-to-ternary.js`.
-Default script targets: `demo`, `examples`, `training-builds`.
 
 ## Docs consistency checklist
 
@@ -99,7 +107,7 @@ When changing behavior, update these together:
 - `/docs/API.md`
 - `/docs/GOTCHAS.md`
 - `/docs/STYLING.md`
-- `/AGENTS.md`
+- `/CLAUDE.md`
 - `/docs/RELEASE.md`
 
 ## API contract checklist
