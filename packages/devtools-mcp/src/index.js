@@ -4,10 +4,44 @@
  * Creates WS bridge, registers tools + resources, connects MCP stdio transport.
  */
 
+import { readFileSync } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createBridge } from './bridge.js';
 import { registerTools } from './tools.js';
+
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+
+// --help / --version must print and exit BEFORE any server starts — this bin
+// otherwise opens a WebSocket bridge + discovery HTTP server and blocks on
+// the MCP stdio transport, which made `what-devtools-mcp --help` hang.
+const cliArgs = process.argv.slice(2);
+if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
+  console.log(`what-devtools-mcp ${pkg.version} — MCP server bridging AI agents to live What Framework app state
+
+Usage:
+  what-devtools-mcp [flags]
+
+Runs an MCP server on stdio (add it to your MCP client config) plus a local
+WebSocket bridge the browser devtools client connects to.
+
+Flags:
+  -h, --help       Show this help and exit
+  -v, --version    Print the version and exit
+  --unsafe-eval    Enable the what_eval tool (arbitrary JS in the browser — dev only)
+
+Environment:
+  WHAT_MCP_PORT      WebSocket bridge port (default: 9229; token discovery on port+1)
+  WHAT_MCP_TOKEN     Pre-shared auth token (default: random per run)
+  WHAT_UNSAFE_EVAL   Set to 1/true to enable what_eval (same as --unsafe-eval)
+
+Docs: https://whatfw.com`);
+  process.exit(0);
+}
+if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
+  console.log(pkg.version);
+  process.exit(0);
+}
 
 const port = parseInt(process.env.WHAT_MCP_PORT || '9229', 10);
 
@@ -15,7 +49,7 @@ const bridge = createBridge({ port });
 
 const server = new McpServer({
   name: 'what-devtools-mcp',
-  version: '0.2.0',
+  version: pkg.version,
 });
 
 registerTools(server, bridge);

@@ -111,11 +111,16 @@ const handler = createActionHandler({ getCsrfToken });</code></pre>
 
           <h2 id="call">Calling from the client</h2>
           <p>A progressively-enhanced form works with no JavaScript — it POSTs to the endpoint with a <code>data-action</code> attribute:</p>
-<pre><code>&lt;form method="post" action="/__what_action" data-action="createPost"&gt;
-  &lt;input name="title" required /&gt;
-  &lt;textarea name="body" required&gt;&lt;/textarea&gt;
-  &lt;button&gt;Publish&lt;/button&gt;
-&lt;/form&gt;</code></pre>
+<pre><code>// src/pages/new-post.jsx — submits even before any client JS loads
+export default function NewPost() {
+  return (
+    &lt;form method="post" action="/__what_action" data-action="createPost"&gt;
+      &lt;input name="title" required /&gt;
+      &lt;textarea name="body" required&gt;&lt;/textarea&gt;
+      &lt;button&gt;Publish&lt;/button&gt;
+    &lt;/form&gt;
+  );
+}</code></pre>
           <p>Or call it imperatively and get the typed return value:</p>
 <pre><code>const res = await fetch('/__what_action', {
   method: 'POST',

@@ -7,6 +7,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSy
 import { join, resolve, relative, extname, basename, normalize } from 'path';
 import { createServer } from 'http';
 import { spawn } from 'child_process';
+import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';
@@ -171,7 +172,7 @@ if (!command || !commands[command]) {
     preview   Preview production build
     generate  Static site generation
     start     Run the full-stack server (Node adapter + ISR)
-    init      Create a new project
+    init      Create a new project (same scaffold as npm create what@latest)
 
   Options:
     --port    Dev server port (default: 3000)
@@ -550,45 +551,51 @@ async function start() {
 
 // --- Init ---
 
+// Delegates to create-what (the canonical scaffolder) so `what init my-app`
+// produces exactly the same app as `npm create what@latest` — real app files,
+// working package.json scripts, both templates. Every flag is forwarded
+// (--fullstack, --template=<name>, --yes), and create-what prints next steps
+// that work end-to-end (cd / npm install / npm run dev).
 function init() {
-  const name = args[1] || 'my-what-app';
-  const dir = join(cwd, name);
-
-  if (existsSync(dir)) {
-    console.error(`  Directory "${name}" already exists.`);
-    process.exit(1);
+  const initArgs = args.slice(1);
+  // Non-interactive contexts (CI, piped stdin): scaffold with defaults rather
+  // than streaming prompt text into logs.
+  if (!process.stdin.isTTY && !initArgs.includes('--yes') && !initArgs.includes('-y')) {
+    initArgs.push('--yes');
   }
 
-  console.log(`\n  Creating ${name}...\n`);
+  const entry = resolveCreateWhat();
+  const child = entry
+    ? spawn(process.execPath, [entry, ...initArgs], { cwd, stdio: 'inherit' })
+    : // Not installed anywhere local — fetch the matching release via npm.
+      spawn(
+        process.platform === 'win32' ? 'npm.cmd' : 'npm',
+        ['exec', '--yes', `create-what@^${packageVersion}`, '--', ...initArgs],
+        { cwd, stdio: 'inherit' }
+      );
 
-  mkdirSync(join(dir, 'src/pages'), { recursive: true });
-  mkdirSync(join(dir, 'src/components'), { recursive: true });
-  mkdirSync(join(dir, 'public'), { recursive: true });
+  child.on('error', (err) => {
+    console.error(`\n  what init could not launch the scaffolder: ${err.message}`);
+    console.error('  Run it directly instead:  npm create what@latest\n');
+    process.exit(1);
+  });
+  child.on('exit', (code) => process.exit(code == null ? 1 : code));
+}
 
-  writeFileSync(join(dir, 'what.config.js'), `export default {
-  mode: 'hybrid',  // 'static' | 'server' | 'client' | 'hybrid'
-};
-`);
-
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({
-    name,
-    private: true,
-    type: 'module',
-    scripts: {
-      dev: 'what dev',
-      build: 'what build',
-      preview: 'what preview',
-      generate: 'what generate',
-    },
-    dependencies: {
-      'what-framework': `^${packageVersion}`, 
-    },
-  }, null, 2));
-
-  console.log(`  Done! Next steps:\n`);
-  console.log(`  cd ${name}`);
-  console.log(`  npm install`);
-  console.log(`  npm run dev\n`);
+// Locate the create-what scaffolder without a network hit:
+//   1) monorepo sibling (this repo's dev checkout)
+//   2) an installed create-what package (next to the CLI, or in the project)
+// Returns null when neither exists — init falls back to `npm exec create-what`.
+function resolveCreateWhat() {
+  const sibling = resolve(__dirname, '../../create-what/index.js');
+  if (existsSync(sibling)) return sibling;
+  try {
+    return createRequire(import.meta.url).resolve('create-what');
+  } catch { /* not installed next to the CLI */ }
+  try {
+    return createRequire(join(cwd, 'package.json')).resolve('create-what');
+  } catch { /* not installed in the project */ }
+  return null;
 }
 
 // --- Helpers ---

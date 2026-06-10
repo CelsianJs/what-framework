@@ -92,11 +92,19 @@
       <div class="pane pane-editor" id="pane-editor">
         <div class="pane-label">
           <div class="pane-label-dot"></div>
-          Editor
+          <span id="editor-pane-title">Editor</span>
           <span class="kbd-hint"><kbd>Cmd</kbd><kbd>S</kbd> to run</span>
+          <button class="compiled-toggle" id="btn-compiled" title="View the JavaScript the What compiler generates from this JSX">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polyline points="5 4 1 8 5 12"/>
+              <polyline points="11 4 15 8 11 12"/>
+            </svg>
+            <span>Compiled output</span>
+          </button>
         </div>
         <div class="editor-wrap">
           <div id="editor-container"></div>
+          <pre id="compiled-container" class="compiled-output" hidden><code></code></pre>
         </div>
       </div>
 

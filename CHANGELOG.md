@@ -2,6 +2,67 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.11.0] - 2026-06-09 — React compat that actually runs React libraries, fullstack scaffold, compiler perf
+
+All 14 packages move to 0.11.0 together (fixed-group release). The test suite
+grew from 1068 to 1300+ tests.
+
+### Changed — react-compat rework (breaking within the compat layer)
+- **Real React hook semantics** — `useState`/`useReducer`/`useMemo`/etc. now
+  return plain values (not signal accessors) and a compat re-render runtime
+  re-executes compat components on state change, matching what React libraries
+  actually expect. This is what unblocked real third-party libraries.
+- **CJS React-ecosystem libraries load** (react-select, @emotion/* and friends)
+  — the alias loader now handles CommonJS interop.
+- **Six real libraries verified in CI on every push** (the `react-compat-libs`
+  pillar job runs them against a live fixture, failing — not skipping — when the
+  fixture is missing): zustand, @tanstack/react-query, react-hook-form,
+  react-hot-toast, @headlessui/react, and framer-motion (browser-verified).
+
+### Added — fullstack scaffold & CI gates
+- **`npm create what -- --fullstack` produces a working app** — the template
+  installs, builds, serves, and hydrates (file-routed SSR pages, a server
+  action, origin-first ISR `server.js`). Previously the scaffold shipped broken
+  (missing entry-client, unpublished dep name).
+- **Scaffold smoke gate in CI** — every push scaffolds both templates from
+  local tarballs, runs them, and asserts hydration in a real Chromium.
+- **Deploy adapters verified end-to-end** (node / static / vercel / cloudflare)
+  with full test coverage, plus a krausest-style benchmark harness
+  (~1.06x vanilla JS on keyed list operations).
+
+### Performance — compiler & runtime
+- Branch memoization for conditional JSX (ternary/`&&` arms compile to cached
+  templates instead of re-creating DOM).
+- Specialized property setters emitted per attribute kind (class/style/value/
+  generic) instead of one megamorphic `setProp`.
+- Single-evaluation mount path and a zero-dependency effect release pool.
+- Tree-shakeable compiled output — unused runtime helpers no longer anchor the
+  whole module graph.
+
+### Security
+- Blocked backslash open-redirect variants (`/\evil.com`) in the server
+  redirect path.
+- Action request bodies are size-capped on the fetch-handler path (parity with
+  the Node path).
+- CSRF cookie is now issued with the `Secure` attribute.
+
+### Fixed
+- Reactive fragment expression children update correctly (previously static
+  after first render in some fragment positions).
+- `setStyle` clears stale keys when a style object loses properties.
+- `what-devtools-mcp` handles WebSocket `EADDRINUSE` gracefully instead of
+  crashing; MCP client console noise quieted; devtools test-runner hang fixed.
+- ESLint presets (`plugin:what/recommended`) actually resolve; guardrails wired
+  into the dev runtime; `what_eval` denylist hardened.
+
+### Docs & claims honesty
+- Removed fabricated benchmark numbers; standardized bundle-size claims to
+  measured numbers; React-lib compat count corrected; MCP snippet fixed;
+  tool count corrected 28 → 29.
+- whatfw.com docs site is now itself built with What (SSG via
+  `renderToString`, 40 pages).
+- Shipped `llms.txt` / `llms-full.txt`.
+
 ## [0.10.0] - 2026-06-08 — Full-stack: SSR data, served actions, origin-first ISR
 
 A complete full-stack story, built additively (no breaking changes; the 0.9

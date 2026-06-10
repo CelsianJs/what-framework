@@ -18,7 +18,7 @@
 - **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
 - **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — Fine-grained, no VDOM. Measured, tree-shaken + gzipped: a counter ≈6KB, a typical app ≈8KB. Minimal dependencies, fully tree-shakeable
+- **Small & Fast** — Fine-grained, no VDOM. Measured (production build, min+gzip, via `npm run check:size`): the reactive core in a counter app is ~5.5KB; a typical app ~8KB. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
@@ -75,7 +75,7 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 
 ## Packages
 
-All 14 packages publish together at the same version (currently **0.10.0**).
+All 14 packages publish together at the same version — see [CHANGELOG.md](CHANGELOG.md) for the current release.
 
 | Package | Description |
 |---|---|
@@ -100,8 +100,17 @@ The umbrella `what-framework` exposes subpaths: `what-framework/router`, `/serve
 ## Manual Setup
 
 ```bash
+npm init -y
 npm install what-framework what-compiler
 npm install -D vite
+```
+
+Set `"type": "module"` in `package.json` — `what-compiler/vite` is ESM-only, and Vite can't resolve it from a CommonJS project:
+
+```json
+{
+  "type": "module"
+}
 ```
 
 ```js
@@ -113,6 +122,8 @@ export default defineConfig({
   plugins: [what()],
 });
 ```
+
+Run the dev server with `npx vite` (open `http://localhost:5173`), and build with `npx vite build`.
 
 Bun works too: `bun create what@latest` and `bun run dev`.
 
@@ -148,7 +159,7 @@ release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DE
 - [Vision](VISION.md) -- what What is and why
 - [Deployments](DEPLOYMENTS.md) -- where everything lives and how it ships
 - [Security Policy](SECURITY.md) -- reporting + supported versions
-- [Agent Guide](.internal/Agents.md) -- MCP, patterns, mistakes
+- [Agent Guide](CLAUDE.md) -- MCP, patterns, mistakes
 - [Getting Started](/GETTING-STARTED.md) -- Setup for agents and developers
 - [Quick Start](/docs/QUICKSTART.md) -- Tutorial
 - [API Reference](/docs/API.md) -- Full API

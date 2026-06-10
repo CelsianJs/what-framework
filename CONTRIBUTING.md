@@ -8,7 +8,7 @@ Thanks for your interest in contributing! Here's how to get started.
 git clone https://github.com/CelsianJs/what-framework.git
 cd whatfw
 npm install
-npm test  # 653+ tests should pass
+npm test  # 1300+ tests should pass
 ```
 
 The repo is a monorepo with packages in `packages/`:
@@ -18,8 +18,10 @@ The repo is a monorepo with packages in `packages/`:
 | `what-core` | Signals, reactivity, components, hooks |
 | `what-router` | Client-side routing with file-based routes |
 | `what-server` | SSR, islands architecture, server actions |
+| `what-isr` | Origin-first ISR cache engine |
 | `what-compiler` | JSX compiler (Babel + Vite plugin) |
 | `what-framework` | Umbrella package re-exporting all of the above |
+| `what-text` | Optional text engine (`@chenglou/pretext`) |
 | `create-what` | Project scaffolder (`npx create-what`) |
 | `what-react` | React compatibility layer |
 | `what-framework-cli` | CLI tools |

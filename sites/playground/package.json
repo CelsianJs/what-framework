@@ -5,12 +5,16 @@
   "type": "module",
   "description": "Interactive playground for What Framework",
   "scripts": {
+    "build:vendor": "node scripts/build-vendor.mjs",
+    "predev": "npm run build:vendor",
     "dev": "vite",
+    "prebuild": "npm run build:vendor",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "codemirror": "^6.0.1",
+    "@babel/standalone": "^7.29.7",
     "@codemirror/lang-javascript": "^6.2.3",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.36.8",
@@ -19,9 +23,12 @@
     "@codemirror/commands": "^6.8.1",
     "@codemirror/search": "^6.5.10",
     "@codemirror/language": "^6.11.0",
-    "@codemirror/lint": "^6.8.5"
+    "@codemirror/lint": "^6.8.5",
+    "what-compiler": "file:../../packages/compiler",
+    "what-framework": "file:../../packages/what"
   },
   "devDependencies": {
+    "esbuild": "^0.25.0",
     "vite": "^6.3.2"
   }
 }

@@ -14,6 +14,8 @@ let isDark = true;
 let editor = null;
 let preview = null;
 let consolePanel = null;
+let lastCompiled = null; // { ok, code?, error? } — latest compiler result
+let showCompiled = false;
 
 // --- DOM References ---
 const $ = (sel) => document.querySelector(sel);
@@ -50,7 +52,11 @@ function init() {
   preview = createPreview(
     previewContainer,
     (msg) => consolePanel.addMessage(msg),
-    (err) => consolePanel.addError(err)
+    (err) => consolePanel.addError(err),
+    (result) => {
+      lastCompiled = result;
+      renderCompiledOutput();
+    }
   );
 
   // Initial run
@@ -149,7 +155,40 @@ function updateActiveExample() {
   }
 }
 
+// --- Compiled output toggle (T5-03) ---
+// The ONLY place compiled / h()-style code is shown — clearly labeled.
+function renderCompiledOutput() {
+  if (!showCompiled) return;
+  const codeEl = document.querySelector('#compiled-container code');
+  if (!codeEl) return;
+  if (!lastCompiled) {
+    codeEl.textContent = '// Compiling…';
+  } else if (lastCompiled.ok) {
+    codeEl.textContent = lastCompiled.code;
+  } else {
+    const { message, line, col } = lastCompiled.error;
+    codeEl.textContent = `// Compile error${line ? ` (playground.jsx:${line}:${col})` : ''}\n// ${message}`;
+  }
+}
+
+function toggleCompiledView() {
+  showCompiled = !showCompiled;
+  const pane = $('#pane-editor');
+  const btn = $('#btn-compiled');
+  const compiledEl = $('#compiled-container');
+  const title = $('#editor-pane-title');
+
+  pane.classList.toggle('show-compiled', showCompiled);
+  btn.classList.toggle('active', showCompiled);
+  compiledEl.hidden = !showCompiled;
+  if (title) title.textContent = showCompiled ? 'Compiled output (read-only)' : 'Editor';
+  renderCompiledOutput();
+}
+
 function setupControls() {
+  // Compiled output toggle
+  $('#btn-compiled')?.addEventListener('click', toggleCompiledView);
+
   // Share button
   $('#btn-share')?.addEventListener('click', async () => {
     const url = getShareURL(currentCode, currentExampleId);

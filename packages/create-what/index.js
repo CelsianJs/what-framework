@@ -901,8 +901,17 @@ NODE_ENV=production npm start
 - \`src/entry-client.js\` — client hydration entry: re-renders the matched page
   with the server's loader data (\`#__what_data\`) and attaches interactivity.
 - \`server.js\` — Node adapter + ISR engine + revalidate webhook + poll scheduler
-  + static serving (client entry, framework modules, \`public/\`).
+  + static serving. Static serving is deny-by-default: only allowlisted client
+  files (\`src/entry-client.js\`, \`src/styles.css\`, \`src/pages/\`,
+  \`src/components/\`, framework modules, \`public/\`) are served over HTTP —
+  server-only code (\`src/db.js\`, \`src/actions/\`, \`src/routes.js\`) returns 404.
 - \`what.config.js\` — deploy adapter + ISR defaults.
+
+The \`/new\` form works without JavaScript: it SSRs hidden \`_action\`,
+\`what-csrf-token\` and \`_redirect\` fields, so a plain form-encoded POST to
+\`/__what_action\` dispatches the action and redirects. With JavaScript,
+\`src/entry-client.js\` upgrades it to a JSON fetch (no full-page reload).
+Unknown posts (\`/blog/nope\`) return a real 404 and are never ISR-cached.
 
 ### ISR cheat-sheet
 
@@ -1000,13 +1009,18 @@ export const createPostAction = action(
 // This module is isomorphic: the server renders it to HTML, then
 // src/entry-client.js hydrates the same component in the browser (reusing the
 // server DOM and attaching the onclick handler + reactive text below).
+// Server-only code (the database) is imported lazily INSIDE the loader, which
+// only ever runs on the server — so the browser never requests /src/db.js
+// (and server.js refuses to serve it anyway).
 
 import { h, Head, signal, useLoaderData } from 'what-framework';
-import { listPosts } from '../db.js';
 
 export const page = { mode: 'static', revalidate: 60, tags: ['posts'] };
 
-export const loader = () => ({ posts: listPosts() });
+export const loader = async () => {
+  const { listPosts } = await import('../db.js'); // server-only
+  return { posts: listPosts() };
+};
 
 export default function Home() {
   const { posts } = useLoaderData();
@@ -1034,15 +1048,22 @@ export default function Home() {
   // Dynamic /blog/[slug] — loader + getStaticPaths + ISR + per-post <Head>.
   writeFileSync(resolve(root, 'src', 'pages', 'post.js'), `// Dynamic post page. getStaticPaths pre-renders known slugs at build; unknown
 // slugs render on first hit (fallback: 'blocking') and are then cached.
+// The database import lives inside the loader/getStaticPaths (server-only),
+// keeping /src/db.js out of the browser. A missing post sets notFound: true,
+// which server.js turns into a real 404 status that is never ISR-cached.
 
 import { h, Head, useLoaderData } from 'what-framework';
-import { getPost, listPosts } from '../db.js';
 
 export const page = { mode: 'static', revalidate: 60, tags: ['posts'] };
 
-export const loader = ({ params }) => ({ post: getPost(params.slug) });
+export const loader = async ({ params }) => {
+  const { getPost } = await import('../db.js'); // server-only
+  const post = getPost(params.slug);
+  return { post, notFound: !post };
+};
 
 export async function getStaticPaths() {
+  const { listPosts } = await import('../db.js'); // server-only
   return {
     paths: listPosts().map((p) => ({ params: { slug: p.slug } })),
     fallback: 'blocking',
@@ -1064,19 +1085,42 @@ export default function Post() {
 `);
 
   // /new — mode:'server' (never cached), posts to the createPost action.
-  writeFileSync(resolve(root, 'src', 'pages', 'new.js'), `// New-post form. mode:'server' so it's always fresh. src/entry-client.js
-// enhances the form: it submits to the createPost server action as JSON with
-// the X-What-Action header (the action protocol), then navigates to the post.
+  writeFileSync(resolve(root, 'src', 'pages', 'new.js'), `// New-post form. mode:'server' so it's always fresh — which also means the
+// per-user CSRF token can be SSR'd into the form (never into shared cache).
+//
+// The form works two ways:
+//   - No JS: a plain form-encoded POST to /__what_action. The hidden fields
+//     carry the action id (_action), the double-submit CSRF token
+//     (what-csrf-token) and the post-submit redirect (_redirect).
+//   - With JS: src/entry-client.js intercepts submit and posts JSON with the
+//     X-What-Action header (the action protocol), then navigates to the post.
 
-import { h, Head } from 'what-framework';
+import { h, Head, useLoaderData } from 'what-framework';
 
 export const page = { mode: 'server' };
 
+// server.js passes the per-request CSRF token (the same one the framework
+// Set-Cookies and embeds as the <meta> tag) into loaders; fall back to the
+// visitor's existing cookie. Rendered into the hidden field below so the
+// no-JS form post passes the double-submit check.
+export const loader = ({ request, csrfToken }) => {
+  if (csrfToken) return { csrfToken };
+  const cookie = request && request.headers && typeof request.headers.get === 'function'
+    ? request.headers.get('cookie')
+    : '';
+  const match = cookie ? cookie.match(/(?:^|;\\s*)what-csrf=([^;]+)/) : null;
+  return { csrfToken: match ? decodeURIComponent(match[1]) : '' };
+};
+
 export default function NewPost() {
+  const { csrfToken } = useLoaderData();
   return h('main', { class: 'container' },
     h(Head, { title: 'New post — ${packageName}' }),
     h('h1', {}, 'New post'),
     h('form', { method: 'post', action: '/__what_action', 'data-action': 'createPost' },
+      h('input', { type: 'hidden', name: '_action', value: 'createPost' }),
+      h('input', { type: 'hidden', name: 'what-csrf-token', value: csrfToken || '' }),
+      h('input', { type: 'hidden', name: '_redirect', value: '/' }),
       h('input', { name: 'title', placeholder: 'Title', required: true }),
       h('textarea', { name: 'body', placeholder: 'Write something…', required: true }),
       h('button', { type: 'submit' }, 'Publish')
@@ -1093,7 +1137,7 @@ export default function NewPost() {
 
 import Home, { loader as homeLoader, page as homePage } from './pages/home.js';
 import Post, { loader as postLoader, getStaticPaths as postPaths, page as postPage } from './pages/post.js';
-import NewPost, { page as newPage } from './pages/new.js';
+import NewPost, { loader as newLoader, page as newPage } from './pages/new.js';
 
 // Importing the action registers it so /__what_action can dispatch it.
 import './actions/posts.js';
@@ -1101,7 +1145,7 @@ import './actions/posts.js';
 export const routes = [
   { path: '/', component: Home, loader: homeLoader, page: homePage, mode: homePage.mode },
   { path: '/blog/:slug', component: Post, loader: postLoader, getStaticPaths: postPaths, page: postPage, mode: postPage.mode },
-  { path: '/new', component: NewPost, page: newPage, mode: newPage.mode },
+  { path: '/new', component: NewPost, loader: newLoader, page: newPage, mode: newPage.mode },
 ];
 `);
 
@@ -1151,6 +1195,9 @@ for (const form of document.querySelectorAll('form[data-action]')) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const args = Object.fromEntries(new FormData(form));
+    // The hidden fields exist for the no-JS form-post fallback; the framework
+    // consumes them server-side on that path. Strip them from the JSON args.
+    for (const k of ['_action', '_csrf', '_redirect', 'what-csrf-token', 'data-action']) delete args[k];
     const headers = { 'content-type': 'application/json', 'x-what-action': form.dataset.action };
     const token = csrfToken();
     if (token) headers['x-csrf-token'] = token;
@@ -1256,7 +1303,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, statSync, createReadStream } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequestHandler, toNodeListener } from 'what-framework/server';
+import { createRequestHandler, renderDocument, toNodeListener } from 'what-framework/server';
 import {
   createCacheEngine,
   createMemoryStore,
@@ -1286,11 +1333,36 @@ if (!REVALIDATE_SECRET) {
 
 // Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})
 // to survive restarts, or createRedisStore({client}) for multi-instance.
-const cache = createCacheEngine({ store: createMemoryStore() });
+// \`render\` powers scheduled regeneration (renderRoute is defined below;
+// function declarations hoist, so the reference is valid here).
+const cache = createCacheEngine({ store: createMemoryStore(), render: renderRoute });
+
+// Non-200 renders (soft-404s like /blog/nonexistent) must never be ISR-cached —
+// a cached "Not found" would shadow a post created later and poison SEO. The
+// engine skips storing them; this wrapper also drops any stored non-200 entry
+// and forces the response uncacheable (belt and suspenders).
+const appCache = {
+  ...cache,
+  async handle(routeMatch, render) {
+    let result = await cache.handle(routeMatch, render);
+    if (result && result.status && result.status !== 200) {
+      try { await cache.store.delete(cache.keyFor(routeMatch)); } catch { /* best effort */ }
+      const headers = { ...(result.headers || {}) };
+      delete headers['Cache-Control'];
+      delete headers['cache-control'];
+      headers['Cache-Control'] = 'private, no-store';
+      result = { ...result, headers };
+    }
+    return result;
+  },
+};
 
 // Keep the home listing warm every 5 minutes regardless of traffic.
 const scheduler = createScheduler(cache);
-scheduler.register({ path: '/', query: {}, config: routes[0].page }, { intervalMs: 5 * 60 * 1000 });
+scheduler.register(
+  { path: '/', query: {}, params: {}, config: routes[0].page, route: routes[0] },
+  { intervalMs: 5 * 60 * 1000 }
+);
 
 // The browser loads /src/entry-client.js as a native ES module; this import
 // map resolves its bare imports. Sources are served from node_modules below.
@@ -1309,10 +1381,31 @@ const documentOptions = {
     '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
 };
 
+// Render a matched route. Mirrors the framework default renderer, plus:
+//   - passes csrfToken through to loaders (so /new can SSR the no-JS form token)
+//   - honors a loader's \`notFound: true\` with a real 404 status (the appCache
+//     wrapper above keeps those responses out of the ISR cache)
+async function renderRoute(routeMatch) {
+  const { route, params, query, request, csrfToken } = routeMatch;
+  const reqCtx = { params, query, request, csrfToken };
+  const loaderData = typeof route.loader === 'function' ? await route.loader(reqCtx) : undefined;
+  const notFound = !!(loaderData && loaderData.notFound);
+  const pageModule = { default: route.component, loader: () => loaderData };
+  const opts = csrfToken ? { ...documentOptions, csrfToken } : documentOptions;
+  const html = await renderDocument(pageModule, reqCtx, opts);
+  return {
+    html,
+    status: notFound ? 404 : 200,
+    tags: (routeMatch.config && routeMatch.config.tags) || [],
+    path: routeMatch.path,
+  };
+}
+
 export function createHandler() {
   return createRequestHandler({
     routes,
-    cache,
+    cache: appCache,
+    render: renderRoute,
     revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
     document: documentOptions,
   });
@@ -1333,13 +1426,23 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-// Only these prefixes are served from the project root; anything else falls
-// back to public/ (favicon etc.) and then to the app handler.
-const SERVED_PREFIXES = ['/src/', '/node_modules/what-framework/', '/node_modules/what-core/'];
+// Deny-by-default static serving: ONLY the allowlisted client files below are
+// served from the project root. Server-only modules — src/db.js, src/actions/**
+// and src/routes.js — are importable by Node but 404 over HTTP, so DB code and
+// mutation logic never leak to the browser. When you add new client-side files
+// outside these locations, add them here explicitly.
+const SERVED_FILES = new Set(['/src/entry-client.js', '/src/styles.css']);
+const SERVED_PREFIXES = [
+  '/src/pages/',                  // page modules (hydrated by entry-client)
+  '/src/components/',             // client-shared UI (create as needed)
+  '/node_modules/what-framework/',
+  '/node_modules/what-core/',
+];
 
 function resolveStaticFile(pathname) {
-  if (pathname.includes('..') || pathname.includes('\\0')) return null;
-  const file = SERVED_PREFIXES.some((p) => pathname.startsWith(p))
+  if (pathname.includes('..') || pathname.includes('\0')) return null;
+  const allowed = SERVED_FILES.has(pathname) || SERVED_PREFIXES.some((p) => pathname.startsWith(p));
+  const file = allowed
     ? resolve(join(ROOT, pathname))
     : resolve(join(ROOT, 'public', pathname));
   if (!file.startsWith(resolve(ROOT))) return null;

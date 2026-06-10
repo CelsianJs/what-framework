@@ -16,8 +16,8 @@ If you discover a security vulnerability, please report it responsibly:
 ## Supported Versions
 | Version | Supported |
 |---------|-----------|
-| 0.10.x  | Yes       |
-| < 0.10  | No        |
+| 0.11.x  | Yes       |
+| < 0.11  | No        |
 
 We support the latest published minor. All 14 packages release together at the same version,
-so "0.10.x" applies across the whole `what-*` / `create-what` / `eslint-plugin-what` set.
+so "0.11.x" applies across the whole `what-*` / `create-what` / `eslint-plugin-what` set.

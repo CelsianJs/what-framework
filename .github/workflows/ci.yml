@@ -8,6 +8,11 @@ on:
     branches:
       - main
 
+# One run per ref — a new push cancels the in-flight run for the same branch/PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -27,8 +32,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright Chromium (for devtools-mcp e2e)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Test
         run: npm run -s test
@@ -50,9 +71,13 @@ jobs:
 
       # The lib fixture is gitignored and not a workspace member — install it here so
       # the compat pillar is actually exercised (the test FAILS, not skips, with the flag set).
+      # --legacy-peer-deps: the tests alias bare 'react'/'react-dom' imports to what-react
+      # (test/_helpers/react-alias-loader.mjs), so the real react package is never used and
+      # strict peer resolution over the ~100-lib unlocked fixture only breaks on upstream
+      # churn (e.g. react-intl@8.1.4 pins peer react@19 while react-beautiful-dnd caps at 18).
       - name: Install compat-lib fixture
         working-directory: packages/react-compat/test/app
-        run: npm install --no-save zustand @tanstack/react-query react-hook-form react-hot-toast @headlessui/react framer-motion
+        run: npm install --no-save --legacy-peer-deps zustand @tanstack/react-query react-hook-form react-hot-toast @headlessui/react framer-motion
 
       - name: Run guarded compat-lib tests
         working-directory: packages/react-compat
@@ -101,13 +126,155 @@ jobs:
       - name: Build packages
         run: npm run -s build
 
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright Chromium (hydration checks)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Scaffold smoke (create-what -> install -> run -> hydrate, both templates)
         env:
           WHAT_SMOKE_REQUIRE_BROWSER: 1
         run: npm run -s smoke:scaffold
+
+  # Executes GETTING-STARTED.md "Manual Setup (Vite + Compiler)" verbatim in a
+  # fresh directory, with what-* deps pointed at local tarballs (same technique
+  # as scaffold-smoke). Guards the doc path: npm init -y, "type": "module",
+  # install, the doc's 3 files, and `vite build` must succeed.
+  manual-setup-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `vite build` resolves the `production` export condition to dist/*.min.js
+      # inside the packed tarballs, so build first (same as scaffold-smoke).
+      - name: Build packages
+        run: npm run -s build
+
+      - name: Manual setup smoke (GETTING-STARTED.md, Manual Setup)
+        run: |
+          set -euo pipefail
+          REPO="$PWD"
+          WORK="$(mktemp -d)"
+          TARS="$WORK/tarballs"
+          mkdir -p "$TARS"
+
+          # Pack what-framework + its deps + the compiler from the local tree.
+          for dir in what core router server compiler; do
+            npm pack "$REPO/packages/$dir" --pack-destination "$TARS" --silent
+          done
+
+          # --- GETTING-STARTED Manual Setup, step by step ---
+          mkdir -p "$WORK/my-app"
+          cd "$WORK/my-app"
+          npm init -y > /dev/null
+
+          # Doc step: set "type": "module" + dev/build scripts.
+          # CI-only addition: overrides pin every TRANSITIVE what-* dep to the
+          # local tarballs (the unpublished version can't resolve from npm).
+          # Directly-installed packages are excluded — npm rejects overrides
+          # that conflict with direct dependencies (EOVERRIDE).
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const tarDir = process.argv[1];
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.type = "module";
+            pkg.scripts = { dev: "vite", build: "vite build" };
+            pkg.overrides = {};
+            const direct = new Set(["what-framework", "what-compiler"]);
+            for (const f of fs.readdirSync(tarDir)) {
+              const name = f.replace(/-\d+\.\d+\.\d+.*\.tgz$/, "");
+              if (direct.has(name)) continue;
+              pkg.overrides[name] = "file:" + path.join(tarDir, f);
+            }
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+          ' "$TARS"
+
+          # Doc step: npm install what-framework what-compiler (local tarballs)
+          npm install "$TARS"/what-framework-*.tgz "$TARS"/what-compiler-*.tgz
+          # Doc step: npm install -D vite
+          npm install -D vite
+
+          # Doc file 1/3: vite.config.js
+          cat > vite.config.js <<'EOF'
+          import { defineConfig } from 'vite';
+          import what from 'what-compiler/vite';
+
+          export default defineConfig({
+            plugins: [what()],
+          });
+          EOF
+
+          # Doc file 2/3: index.html
+          cat > index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>What App</title>
+            </head>
+            <body>
+              <div id="app"></div>
+              <script type="module" src="/src/main.jsx"></script>
+            </body>
+          </html>
+          EOF
+
+          # Doc file 3/3: src/main.jsx
+          mkdir -p src
+          cat > src/main.jsx <<'EOF'
+          import { mount, useSignal, useComputed } from 'what-framework';
+
+          function App() {
+            const count = useSignal(0);
+            const doubled = useComputed(() => count() * 2);
+
+            return (
+              <div>
+                <h1>Hello What</h1>
+                <p>Count: {count()}</p>
+                <p>Doubled: {doubled()}</p>
+                <button onClick={() => count.set(c => c + 1)}>+</button>
+                <button onClick={() => count.set(c => c - 1)}>-</button>
+              </div>
+            );
+          }
+
+          mount(<App />, '#app');
+          EOF
+
+          # Doc step: build for production with `npx vite build`
+          npx vite build
+
+          # The build must produce a real app shell + bundle.
+          test -f dist/index.html
+          grep -q '<div id="app">' dist/index.html
+          ls dist/assets/*.js > /dev/null
+          echo "manual-setup smoke OK"
 
   audit:
     runs-on: ubuntu-latest

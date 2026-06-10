@@ -1,5 +1,35 @@
 #!/usr/bin/env node
 
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+
+// --help / --version print and exit BEFORE the MCP stdio transport starts.
+const cliArgs = process.argv.slice(2);
+if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
+  console.log(`what-mcp ${pkg.version} — MCP server for What Framework documentation [DEPRECATED]
+
+DEPRECATED: superseded by what-devtools-mcp (all documentation plus live
+devtools). Install what-devtools-mcp and remove what-mcp from your MCP config.
+
+Usage:
+  what-mcp [flags]
+
+Runs an MCP server on stdio (add it to your MCP client config). No other
+arguments are accepted.
+
+Flags:
+  -h, --help       Show this help and exit
+  -v, --version    Print the version and exit
+
+Docs: https://whatfw.com`);
+  process.exit(0);
+}
+if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
+  console.log(pkg.version);
+  process.exit(0);
+}
+
 console.warn(
   '[what-mcp] DEPRECATED: This package is superseded by what-devtools-mcp, ' +
   'which includes all documentation plus live devtools. ' +
@@ -485,7 +515,7 @@ export default {
 const server = new Server(
   {
     name: 'what-framework',
-    version: '0.1.0',
+    version: pkg.version,
   },
   {
     capabilities: {

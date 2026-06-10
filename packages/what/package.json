@@ -43,7 +43,7 @@
   },
   "files": [
     "src",
-    "dist",
+    "dist/**/*.min.js",
     "index.d.ts",
     "render.d.ts",
     "router.d.ts",
