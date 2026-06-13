@@ -209,7 +209,7 @@
   <div class="container">
     <h1>Performance Benchmarks</h1>
     <p class="subtitle">Real measured performance data from the What Framework test suite. All benchmarks run on Node.js v22.22.3.</p>
-    <p class="last-updated">Last updated <time datetime="2026-06-10T09:52:21.852Z">June 10, 2026</time> · v0.11.1 · linux</p>
+    <p class="last-updated">Last updated <time datetime="2026-06-13T08:53:13.632Z">June 13, 2026</time> · v0.11.1 · linux</p>
 
     <!-- Signals -->
     <div class="benchmark-section">
@@ -225,33 +225,33 @@
         <tbody>
           <tr>
             <td>Signal create</td>
-            <td class="value">2.0M ops/sec</td>
-            <td class="value">0.5µs</td>
+            <td class="value">2.3M ops/sec</td>
+            <td class="value">0.4µs</td>
           </tr>
           <tr>
             <td>Signal read (100x per iteration)</td>
-            <td class="value">1.3M ops/sec</td>
-            <td class="value">0.7µs</td>
+            <td class="value">1.6M ops/sec</td>
+            <td class="value">0.6µs</td>
           </tr>
           <tr>
             <td>Signal write (no subscribers)</td>
-            <td class="value">587K ops/sec</td>
-            <td class="value">0.0017ms</td>
+            <td class="value">811K ops/sec</td>
+            <td class="value">0.0012ms</td>
           </tr>
           <tr>
             <td>Signal write (1 subscriber)</td>
-            <td class="value">339K ops/sec</td>
-            <td class="value">0.0029ms</td>
+            <td class="value">312K ops/sec</td>
+            <td class="value">0.0032ms</td>
           </tr>
           <tr>
             <td>Signal write (10 subscribers)</td>
-            <td class="value">127K ops/sec</td>
-            <td class="value">0.0079ms</td>
+            <td class="value">111K ops/sec</td>
+            <td class="value">0.0090ms</td>
           </tr>
           <tr>
             <td>Signal peek (untracked read)</td>
-            <td class="value">1.3M ops/sec</td>
-            <td class="value">0.8µs</td>
+            <td class="value">2.5M ops/sec</td>
+            <td class="value">0.4µs</td>
           </tr>
         </tbody>
       </table>
@@ -272,18 +272,18 @@
         <tbody>
           <tr>
             <td>Computed create + read</td>
-            <td class="value">377K ops/sec</td>
-            <td class="value">0.0027ms</td>
+            <td class="value">516K ops/sec</td>
+            <td class="value">0.0019ms</td>
           </tr>
           <tr>
             <td>Computed chain (depth 5)</td>
-            <td class="value">123K ops/sec</td>
-            <td class="value">0.0081ms</td>
+            <td class="value">117K ops/sec</td>
+            <td class="value">0.0085ms</td>
           </tr>
           <tr>
             <td>Computed diamond dependency</td>
-            <td class="value">231K ops/sec</td>
-            <td class="value">0.0043ms</td>
+            <td class="value">211K ops/sec</td>
+            <td class="value">0.0047ms</td>
           </tr>
         </tbody>
       </table>
@@ -303,13 +303,13 @@
         <tbody>
           <tr>
             <td>Effect create + dispose</td>
-            <td class="value">1.5M ops/sec</td>
-            <td class="value">0.7µs</td>
+            <td class="value">1.3M ops/sec</td>
+            <td class="value">0.8µs</td>
           </tr>
           <tr>
             <td>Effect with 10 signal deps</td>
-            <td class="value">330K ops/sec</td>
-            <td class="value">0.0030ms</td>
+            <td class="value">436K ops/sec</td>
+            <td class="value">0.0023ms</td>
           </tr>
         </tbody>
       </table>
@@ -329,13 +329,13 @@
         <tbody>
           <tr>
             <td>Batch 100 writes, 1 effect</td>
-            <td class="value">269K ops/sec</td>
-            <td class="value">0.0037ms</td>
+            <td class="value">342K ops/sec</td>
+            <td class="value">0.0029ms</td>
           </tr>
           <tr>
             <td>Batch 10 signals, 10 writes each</td>
-            <td class="value">188K ops/sec</td>
-            <td class="value">0.0053ms</td>
+            <td class="value">196K ops/sec</td>
+            <td class="value">0.0051ms</td>
           </tr>
         </tbody>
       </table>
@@ -361,17 +361,17 @@
           </tr>
           <tr>
             <td>Nested (3 levels)</td>
-            <td class="value">2.1M ops/sec</td>
-            <td class="value">0.5µs</td>
+            <td class="value">3.2M ops/sec</td>
+            <td class="value">0.3µs</td>
           </tr>
           <tr>
             <td>List of 100 items</td>
-            <td class="value">35K ops/sec</td>
-            <td class="value">0.0288ms</td>
+            <td class="value">36K ops/sec</td>
+            <td class="value">0.0278ms</td>
           </tr>
           <tr>
             <td>Component call</td>
-            <td class="value">9.7M ops/sec</td>
+            <td class="value">9.0M ops/sec</td>
             <td class="value">0.1µs</td>
           </tr>
         </tbody>
@@ -392,23 +392,23 @@
         <tbody>
           <tr>
             <td>SSR simple element</td>
-            <td class="value">538K ops/sec</td>
-            <td class="value">0.0019ms</td>
+            <td class="value">577K ops/sec</td>
+            <td class="value">0.0017ms</td>
           </tr>
           <tr>
             <td>SSR nested tree</td>
-            <td class="value">240K ops/sec</td>
-            <td class="value">0.0042ms</td>
+            <td class="value">257K ops/sec</td>
+            <td class="value">0.0039ms</td>
           </tr>
           <tr>
             <td>SSR list of 100 items</td>
-            <td class="value">7K ops/sec</td>
-            <td class="value">0.1414ms</td>
+            <td class="value">8K ops/sec</td>
+            <td class="value">0.1248ms</td>
           </tr>
           <tr>
             <td>SSR component tree (50 items)</td>
-            <td class="value">27K ops/sec</td>
-            <td class="value">0.0370ms</td>
+            <td class="value">30K ops/sec</td>
+            <td class="value">0.0336ms</td>
           </tr>
         </tbody>
       </table>
