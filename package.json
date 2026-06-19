@@ -33,6 +33,7 @@
     "hygiene:publish": "node scripts/check-publish-surface.mjs",
     "version:bump": "node scripts/bump-version.mjs",
     "release:publish": "node scripts/publish-packages.mjs",
+    "verify:registry": "node scripts/verify-registry-install.mjs",
     "release:verify": "npm run -s hygiene:publish && npm run -s test && npm run -s build && npm run -s hygiene:publish && npm run -s check:size && npm run -s test:prod && npm run -s bench:gate && npm run -s smoke:scaffold",
     "release:patch": "node scripts/bump-version.mjs patch && npm run -s release:verify && npm run -s release:publish",
     "release:minor": "node scripts/bump-version.mjs minor && npm run -s release:verify && npm run -s release:publish",
@@ -46,11 +47,16 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "esbuild": "^0.27.4",
-    "jsdom": "^28.1.0",
+    "esbuild": "^0.28.1",
+    "jsdom": "^29.1.1",
     "playwright": "^1.58.2"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.5"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "undici": "^7.28.0",
+    "hono": "^4.12.25"
   }
 }

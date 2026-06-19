@@ -83,15 +83,18 @@ Every change goes through a PR. The process:
 
 ### Publishing to npm
 
-After merging:
+Publishing is normally done from the GitHub `Release And Deploy` workflow on
+`main`, not from a contributor machine. After merging:
 
 1. Bump versions in affected `package.json` files (core, compiler, what-framework are usually coupled)
-2. `npm run build` — rebuild dist
-3. `npm test` — verify all tests still pass
-4. `node scripts/publish-packages.mjs --dry-run` — verify what will be published
-5. `node scripts/publish-packages.mjs --otp <code>` — publish with 2FA code
+2. `npm run release:verify` — run correctness, size, production, benchmark, and scaffold gates
+3. Open/merge a release PR
+4. Trigger the GitHub `Release And Deploy` workflow with `publish_packages=true`
+5. Confirm `npm run verify:registry` passed in CI and all public package versions match npm
 
 The publish script handles dependency ordering and skips already-published versions.
+Local publish is emergency-only and still requires a fresh `npm run release:verify`,
+`node scripts/publish-packages.mjs --dry-run`, and post-publish `npm run verify:registry`.
 
 ## Code Style
 

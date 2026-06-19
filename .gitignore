@@ -25,6 +25,7 @@ dist/
 *.png
 *.jpeg
 *.jpg
+artifacts/
 
 # Benchmark artifacts (generated apps, DB, results)
 benchmark/apps/
