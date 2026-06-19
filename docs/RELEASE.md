@@ -17,6 +17,9 @@ Manual trigger inputs:
 5. `dry_run` (boolean)
 
 The workflow always runs `npm run -s release:verify` before publish/deploy.
+When packages are published, it also runs `npm run -s verify:registry` and uploads
+`artifacts/registry-smoke.json`. A release is not complete until this registry
+smoke passes against npm.
 
 ## Required Secrets
 
@@ -34,9 +37,20 @@ npm ci
 npm run release:verify
 ```
 
-## Local Publish
+After packages are published, verify npm has the expected public package set:
 
-Publish all non-private packages in dependency order:
+```bash
+npm run verify:registry
+```
+
+## Publish
+
+Preferred path: trigger the GitHub `Release And Deploy` workflow from `main`.
+It uses the repository `NPM_TOKEN`, publishes in dependency order, then runs the
+registry smoke.
+
+Local publish is emergency-only. If needed, publish all non-private packages in
+dependency order:
 
 ```bash
 npm run release:publish

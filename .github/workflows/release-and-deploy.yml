@@ -90,6 +90,18 @@ jobs:
           fi
           node scripts/publish-packages.mjs "${ARGS[@]}"
 
+      - name: Verify npm registry packages
+        if: ${{ inputs.publish_packages && !inputs.dry_run }}
+        run: npm run -s verify:registry
+
+      - name: Upload registry smoke artifact
+        if: ${{ always() && inputs.publish_packages && !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: what-registry-smoke
+          path: artifacts/registry-smoke.json
+          if-no-files-found: error
+
       - name: Deploy Vercel targets
         if: ${{ inputs.deploy_web }}
         env:
