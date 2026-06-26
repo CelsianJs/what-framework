@@ -15,7 +15,7 @@ const data = [
 export function RechartsSection() {
   return (
     <section>
-      <h2>9. recharts</h2>
+      <h2>8. recharts</h2>
       <div id="rc-area" style={{ width: 480, height: 240 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
