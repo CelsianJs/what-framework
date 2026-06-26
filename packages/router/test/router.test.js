@@ -259,6 +259,57 @@ describe('Router component (reactive)', () => {
 });
 
 // =========================================================================
+// Router globalLayout persistence — the shell renders ONCE and survives nav
+// =========================================================================
+
+describe('Router globalLayout persistence', () => {
+  function HomePage() { return h('div', { id: 'p-home' }, 'Home'); }
+  function AboutPage() { return h('div', { id: 'p-about' }, 'About'); }
+  const routes = [
+    { path: '/', component: HomePage },
+    { path: '/about', component: AboutPage },
+  ];
+
+  it('renders globalLayout once and persists it across navigation; only the page swaps', async () => {
+    let layoutRuns = 0;
+    function Shell(props) {
+      layoutRuns++;
+      // props.children is the reactive route content (single-child unwrap → a function)
+      return h('div', { id: 'shell' }, h('span', { id: 'shell-marker' }, 'shell'), props.children);
+    }
+
+    const container = getContainer();
+    history.pushState(null, '', '/');
+    await navigate('/', { replace: true, transition: false });
+    await flush();
+
+    mount(h(Router, { routes, globalLayout: Shell }), container);
+    await flush();
+
+    assert.equal(layoutRuns, 1, 'layout body runs exactly once on mount');
+    const shellEl = container.querySelector('#shell');
+    const markerEl = container.querySelector('#shell-marker');
+    assert.ok(shellEl, 'shell rendered');
+    assert.ok(container.querySelector('#p-home'), 'home page rendered inside the shell');
+
+    // Navigate to a different page within the same shell
+    await navigate('/about', { replace: true, transition: false });
+    await flush();
+
+    assert.equal(layoutRuns, 1, 'layout body does NOT re-run on navigation — the shell persists');
+    assert.strictEqual(container.querySelector('#shell'), shellEl, 'same shell DOM node (not recreated)');
+    assert.strictEqual(container.querySelector('#shell-marker'), markerEl, 'shell children persist across nav');
+    assert.ok(container.querySelector('#p-about'), 'the page content swapped to /about');
+    assert.equal(container.querySelector('#p-home'), null, 'the old page was removed');
+  });
+
+  it('without a globalLayout, Router still returns a reactive function child', () => {
+    const result = Router({ routes });
+    assert.equal(typeof result, 'function');
+  });
+});
+
+// =========================================================================
 // defineRoutes Helper
 // =========================================================================
 

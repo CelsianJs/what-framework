@@ -167,10 +167,11 @@ const MAX_REDIRECTS = 10;
 // --- Router Component ---
 
 export function Router({ routes, fallback, globalLayout }) {
-  // Return a reactive function child. The Router component runs ONCE,
-  // but the returned function re-evaluates whenever _url changes,
-  // and the fine-grained runtime updates the DOM accordingly.
-  return () => {
+  // The Router component runs ONCE. `content` is a reactive function child that
+  // re-evaluates whenever _url changes; the fine-grained runtime reconciles only
+  // the matched page in place. The globalLayout is rendered ONCE around it (below)
+  // so the app shell persists across navigations instead of re-instantiating.
+  const content = () => {
     const currentUrl = _url();
     const path = currentUrl.split('?')[0].split('#')[0];
     const search = currentUrl.split('?')[1]?.split('#')[0] || '';
@@ -259,11 +260,6 @@ export function Router({ routes, fallback, globalLayout }) {
         element = h(Layout, { params, query: queryObj }, element);
       }
 
-      // Global layout wrapper
-      if (globalLayout) {
-        element = h(globalLayout, {}, element);
-      }
-
       return element;
     }
 
@@ -274,6 +270,16 @@ export function Router({ routes, fallback, globalLayout }) {
       h('p', null, 'Page not found')
     );
   };
+
+  // Render the global layout ONCE so it — and everything it mounts (sidebars,
+  // toasters, command palettes, global key listeners) — PERSISTS across
+  // navigations; the reactive `content` child swaps the matched page in place.
+  // A function child is a reactive region (see render.insert), so on navigation
+  // only the page subtree reconciles, never the shell. 404/403/redirect screens
+  // now render inside the shell too (the natural meaning of a "global" layout).
+  // Without a globalLayout, `content` itself is the reactive root — Router still
+  // returns a reactive function child (back-compat).
+  return globalLayout ? h(globalLayout, {}, content) : content;
 }
 
 // --- Link Component ---
