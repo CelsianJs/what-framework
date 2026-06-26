@@ -2,14 +2,17 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [0.11.2] - 2026-06-25 — SVG namespace portal fix for recharts; compat matrix update
+## [0.11.2] - 2026-06-26 — recharts SVG portal fix; persistent router layout; component-swap reconciler fix
 
 ### Fixed
 - **react-compat:** SVG portal children are now created in the SVG namespace (recharts 3.x renders its chart layers via `createPortal` into SVG `<g>` targets — previously they were created in the HTML namespace and never painted).
 - **react-compat:** camelCase SVG presentation props (`strokeWidth`, `fillOpacity`, `clipPath`, `strokeDasharray`, …) now map to the correct kebab-case SVG attributes instead of being written as invalid lowercase attributes.
+- **router:** `globalLayout` is now persistent across navigations. The layout was wrapped around the matched element *inside* the per-URL reactive thunk, so every `navigate()` rebuilt the global layout — re-instantiating the app shell and everything it mounts (sidebars, toasters, command palettes, global key listeners) on each route change. The layout is now rendered once around a reactive `content` child, so navigation reconciles only the matched page in place. 404/403/redirect screens now render inside the shell. The no-`globalLayout` path is unchanged.
+- **core:** component-subtree swaps via a reactive `{expr}` child no longer orphan the previous subtree. `reconcileInsert`/`valuesToNodes` tracked the whole `DocumentFragment` a component realizes to (`<!--c:start--> … <!--c:end-->`), which empties on insertion — so the next swap could not find or remove the old nodes and appended instead of replaced. Fragment children are now flattened into the tracked set (mirroring the `createDOM` reactive fn-child path). Surfaced by the router `globalLayout` change; affects any app swapping components through a reactive expression.
 
 ### Verified
 - recharts 3.8.1 added to the verified compat matrix (browser-tested); replaced the prior fake-green recharts fixture with a real acceptance section.
+- Full suite green (1416 tests). New regression tests: router globalLayout persistence; `insert()` component-subtree swap removes the old subtree.
 
 ## [0.11.1] - 2026-06-10 — Audit fixes: release hygiene, scaffold security, browser production mode
 
