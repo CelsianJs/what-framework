@@ -467,6 +467,33 @@ function mountRNode(v, kind, container, svg, owner) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// A portal target may live inside an <svg> (recharts 3.x z-index layers are
+// SVG <g> portal targets). Children portaled into an SVG container must be
+// created in the SVG namespace, not HTML.
+function targetSvg(target) {
+  return !!target && target.namespaceURI === SVG_NS && target.tagName !== 'foreignObject';
+}
+
+// camelCase React SVG prop → correct kebab/colon SVG attribute name.
+// Covers the presentation/text/clip attributes charting libs (recharts) emit.
+const SVG_ATTR_MAP = {
+  strokeWidth: 'stroke-width', strokeDasharray: 'stroke-dasharray',
+  strokeDashoffset: 'stroke-dashoffset', strokeLinecap: 'stroke-linecap',
+  strokeLinejoin: 'stroke-linejoin', strokeMiterlimit: 'stroke-miterlimit',
+  strokeOpacity: 'stroke-opacity', fillOpacity: 'fill-opacity',
+  fillRule: 'fill-rule', clipPath: 'clip-path', clipRule: 'clip-rule',
+  stopColor: 'stop-color', stopOpacity: 'stop-opacity',
+  textAnchor: 'text-anchor', dominantBaseline: 'dominant-baseline',
+  alignmentBaseline: 'alignment-baseline', baselineShift: 'baseline-shift',
+  colorInterpolation: 'color-interpolation',
+  colorInterpolationFilters: 'color-interpolation-filters',
+  floodColor: 'flood-color', floodOpacity: 'flood-opacity',
+  letterSpacing: 'letter-spacing', wordSpacing: 'word-spacing',
+  pointerEvents: 'pointer-events', shapeRendering: 'shape-rendering',
+  vectorEffect: 'vector-effect', paintOrder: 'paint-order',
+  markerStart: 'marker-start', markerMid: 'marker-mid', markerEnd: 'marker-end',
+};
+
 function mountElement(v, container, svg, owner) {
   const tag = v.tag;
   const childSvg = (svg || tag === 'svg') && tag !== 'foreignObject';
@@ -551,7 +578,7 @@ function mountPortal(v, container, owner) {
     console.warn('[what-react] createPortal: target container not found');
     return rn;
   }
-  rn.children = patchChildren(target, [], normalizeChildren(v.children), null, false, owner);
+  rn.children = patchChildren(target, [], normalizeChildren(v.children), null, targetSvg(target), owner);
   return rn;
 }
 
@@ -705,13 +732,13 @@ function patchPortal(rn, v, owner) {
   const target = v.props && v.props.container;
   if (target === rn.container) {
     if (target) {
-      rn.children = patchChildren(target, rn.children, normalizeChildren(v.children), null, false, owner);
+      rn.children = patchChildren(target, rn.children, normalizeChildren(v.children), null, targetSvg(target), owner);
     }
   } else {
     for (const child of rn.children) unmountRNode(child, true);
     rn.container = target || null;
     rn.children = target
-      ? patchChildren(target, [], normalizeChildren(v.children), null, false, owner)
+      ? patchChildren(target, [], normalizeChildren(v.children), null, targetSvg(target), owner)
       : [];
   }
   rn.vnode = v;
@@ -1130,8 +1157,14 @@ export function setProperty(el, name, value, oldValue, svg) {
       el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', value);
       return;
     }
-    if (value == null || value === false) el.removeAttribute(name);
-    else el.setAttribute(name, value === true ? '' : value);
+    // React accepts camelCase SVG presentation props (strokeWidth, fillOpacity,
+    // clipPath, …) and emits the correct kebab-case SVG attribute. The DOM
+    // lowercases unknown attribute names (strokeWidth → "strokewidth"), which
+    // is an INVALID attribute the SVG renderer ignores. Map the common ones.
+    const mapped = SVG_ATTR_MAP[name];
+    const attr = mapped || name;
+    if (value == null || value === false) el.removeAttribute(attr);
+    else el.setAttribute(attr, value === true ? '' : value);
     return;
   }
 
