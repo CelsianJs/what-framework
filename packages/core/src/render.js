@@ -296,7 +296,23 @@ function valuesToNodes(value, parent, out) {
   }
 
   if (isVNode(value)) {
-    out.push(createDOM(value, parent, isSvgParent(parent)));
+    const node = createDOM(value, parent, isSvgParent(parent));
+    // A component (or array) realizes to a DocumentFragment whose children are
+    // absorbed into the DOM when inserted, leaving the fragment empty. Track the
+    // individual children instead of the fragment so a later reconcile can find
+    // and remove them — otherwise swapping one component subtree for another
+    // (e.g. a router page change under a persistent layout) orphans the old
+    // nodes. Mirrors the reactive fn-child path in dom.js (createDOM).
+    if (node && node.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */) {
+      if (node.childNodes.length === 0) {
+        out.push(node);
+      } else {
+        const kids = Array.from(node.childNodes);
+        for (let i = 0; i < kids.length; i++) out.push(kids[i]);
+      }
+    } else if (node) {
+      out.push(node);
+    }
     return out;
   }
 

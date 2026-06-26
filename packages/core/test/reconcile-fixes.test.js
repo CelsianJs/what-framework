@@ -890,3 +890,37 @@ describe('reconcileKeyed: adjacent swap does not hang', () => {
     assert.equal(allEls[cIdx + 1]?.textContent, 'c-b', 'c fragment nodes stay together');
   });
 });
+
+// --------------------------------------------------------------------------
+// Fragment-tracking on the insert()/reconcileInsert path: a reactive fn child
+// that swaps one COMPONENT for another must remove the old component's DOM.
+// createComponent realizes to a DocumentFragment (<!--c:start--> … <!--c:end-->)
+// whose children are absorbed into the DOM on insertion, leaving the fragment
+// empty; valuesToNodes must track those children, not the now-empty fragment, or
+// the previous subtree is orphaned on the next swap. Surfaced by what-router's
+// persistent globalLayout swapping compiled pages in place under a stable shell.
+// --------------------------------------------------------------------------
+
+describe('insert(): component subtree swap removes the old subtree', () => {
+  function PageA() { return h('div', { id: 'page-a' }, 'A'); }
+  function PageB() { return h('div', { id: 'page-b' }, 'B'); }
+
+  it('swapping a fn child from one component to another removes the first', async () => {
+    const container = getContainer();
+    const which = signal('a');
+
+    // Reactive fn child returning a COMPONENT vnode each run (→ a fragment).
+    insert(container, () => (which() === 'a' ? h(PageA, {}) : h(PageB, {})));
+    await flush();
+
+    assert.ok(container.querySelector('#page-a'), 'page A mounted');
+    assert.equal(container.querySelector('#page-b'), null, 'page B not yet present');
+
+    which('b');
+    flushSync();
+    await flush();
+
+    assert.ok(container.querySelector('#page-b'), 'page B mounted after swap');
+    assert.equal(container.querySelector('#page-a'), null, 'page A removed — no orphaned subtree');
+  });
+});
