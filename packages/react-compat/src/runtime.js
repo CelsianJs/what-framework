@@ -492,6 +492,11 @@ const SVG_ATTR_MAP = {
   pointerEvents: 'pointer-events', shapeRendering: 'shape-rendering',
   vectorEffect: 'vector-effect', paintOrder: 'paint-order',
   markerStart: 'marker-start', markerMid: 'marker-mid', markerEnd: 'marker-end',
+  // Font + rendering attrs recharts emits on <text>/axis/tick/legend elements.
+  fontSize: 'font-size', fontFamily: 'font-family', fontWeight: 'font-weight',
+  fontStyle: 'font-style', fontVariant: 'font-variant', fontStretch: 'font-stretch',
+  textRendering: 'text-rendering', imageRendering: 'image-rendering',
+  writingMode: 'writing-mode', lightingColor: 'lighting-color',
 };
 
 function mountElement(v, container, svg, owner) {
@@ -1157,12 +1162,12 @@ export function setProperty(el, name, value, oldValue, svg) {
       el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', value);
       return;
     }
-    // React accepts camelCase SVG presentation props (strokeWidth, fillOpacity,
-    // clipPath, …) and emits the correct kebab-case SVG attribute. On
-    // SVG-namespaced elements, setAttribute preserves the case of whatever name
-    // is passed — but camelCase names like "strokeWidth" are not recognized
-    // presentation attributes, so the SVG renderer silently ignores them. Map
-    // the common ones to their correct kebab-case equivalents.
+    // React accepts camelCase SVG presentation props (strokeWidth, fontSize, …)
+    // and the spec expects kebab-case attribute names. Unlike HTML elements,
+    // SVG-namespaced elements preserve the exact case passed to setAttribute —
+    // so "strokeWidth" stays "strokeWidth", not "strokewidth". That camelCase
+    // name is not a valid SVG presentation attribute, so the renderer silently
+    // ignores it. Map the known ones to their correct kebab-case equivalents.
     const mapped = SVG_ATTR_MAP[name];
     const attr = mapped || name;
     if (value == null || value === false) el.removeAttribute(attr);

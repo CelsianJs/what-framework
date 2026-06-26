@@ -20,8 +20,8 @@ export function RechartsSection() {
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: 'sans-serif' }} />
+            <YAxis tick={{ fontSize: 12, fontFamily: 'sans-serif' }} />
             <Area type="monotone" dataKey="a" stroke="#00d4ff" fill="#00d4ff" fillOpacity={0.3} />
           </AreaChart>
         </ResponsiveContainer>
@@ -30,8 +30,8 @@ export function RechartsSection() {
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: 'sans-serif' }} />
+            <YAxis tick={{ fontSize: 12, fontFamily: 'sans-serif' }} />
             <Line type="monotone" dataKey="a" stroke="#00d4ff" strokeWidth={2} />
             <Line type="monotone" dataKey="b" stroke="#82ca9d" strokeWidth={2} />
           </LineChart>

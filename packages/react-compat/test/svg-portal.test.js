@@ -1,6 +1,6 @@
 // what-react — SVG portal namespace + camelCase SVG attribute mapping (jsdom).
 // Run: node --test packages/react-compat/test/svg-portal.test.js
-import { test } from 'node:test';
+import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -18,6 +18,8 @@ const ReactDOM = await import('../src/dom.js');
 const { createElement: h, act } = React;
 const { createRoot, createPortal } = ReactDOM;
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+afterEach(() => { document.body.innerHTML = ''; });
 
 function host() {
   const el = document.createElement('div');
@@ -57,4 +59,31 @@ test('camelCase SVG presentation props map to kebab-case attributes', () => {
   assert.equal(path.getAttribute('fill-opacity'), '0.5');
   assert.equal(path.getAttribute('stroke-dasharray'), '3 3');
   assert.equal(path.getAttribute('clip-path'), 'url(#c)');
+});
+
+test('font camelCase SVG props map to kebab-case attributes (recharts tick/axis path)', () => {
+  function App() {
+    return h('svg', null,
+      h('text', {
+        fontSize: 12,
+        fontFamily: 'Arial, sans-serif',
+        fontWeight: 'bold',
+      }, 'label'));
+  }
+  const container = host();
+  const root = createRoot(container);
+  act(() => root.render(h(App)));
+
+  const text = container.querySelector('text');
+  assert.ok(text, '<text> element should be rendered');
+
+  // kebab-case attributes must be set
+  assert.equal(text.getAttribute('font-size'), '12', 'font-size attribute should be "12"');
+  assert.equal(text.getAttribute('font-family'), 'Arial, sans-serif', 'font-family attribute should be set');
+  assert.equal(text.getAttribute('font-weight'), 'bold', 'font-weight attribute should be set');
+
+  // camelCase attributes must NOT be set (invalid in SVG)
+  assert.equal(text.getAttribute('fontSize'), null, 'fontSize camelCase must not appear as an attribute');
+  assert.equal(text.getAttribute('fontFamily'), null, 'fontFamily camelCase must not appear as an attribute');
+  assert.equal(text.getAttribute('fontWeight'), null, 'fontWeight camelCase must not appear as an attribute');
 });
