@@ -9,6 +9,7 @@ import { FormSection } from './sections/form-section.jsx';
 import { ToastSection } from './sections/toast-section.jsx';
 import { MenuSection } from './sections/menu-section.jsx';
 import { MotionSection } from './sections/motion-section.jsx';
+import { RechartsSection } from './sections/recharts.jsx';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
       <ToastSection />
       <MenuSection />
       <MotionSection />
+      <RechartsSection />
     </div>
   );
 }
