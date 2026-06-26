@@ -2,6 +2,15 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.11.2] - 2026-06-25 — SVG namespace portal fix for recharts; compat matrix update
+
+### Fixed
+- **react-compat:** SVG portal children are now created in the SVG namespace (recharts 3.x renders its chart layers via `createPortal` into SVG `<g>` targets — previously they were created in the HTML namespace and never painted).
+- **react-compat:** camelCase SVG presentation props (`strokeWidth`, `fillOpacity`, `clipPath`, `strokeDasharray`, …) now map to the correct kebab-case SVG attributes instead of being written as invalid lowercase attributes.
+
+### Verified
+- recharts 3.8.1 added to the verified compat matrix (browser-tested); replaced the prior fake-green recharts fixture with a real acceptance section.
+
 ## [0.11.1] - 2026-06-10 — Audit fixes: release hygiene, scaffold security, browser production mode
 
 A focused follow-up to 0.11.0 from a full public-surface + engineering audit.

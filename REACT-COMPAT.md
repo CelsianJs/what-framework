@@ -82,13 +82,14 @@ that runs alongside What's run-once renderer — **what-core is not modified**:
 | @headlessui/react | 2.2.9 | ✅ Verified | 2026-06-09 | B+J | Menu opens with ARIA (`aria-expanded`, `role=menu/menuitem`), item click runs handler and closes menu; Switch toggles |
 | framer-motion | 11.18.2 | ✅ Verified | 2026-06-09 | B | mount animation (opacity 0→1), `animate={{x}}` transform, `AnimatePresence` exit animation + DOM removal, re-mount |
 | use-sync-external-store (shim) | — | ✅ Verified | 2026-06-09 | J | `useSyncExternalStoreWithSelector` selector + isEqual semantics (the shim previously crashed on what-react's own `useMemo`) |
+| recharts | 3.8.1 | ✅ Verified | 2026-06-25 | B | AreaChart + LineChart render real SVG geometry (SVG-namespace portal layers, kebab SVG attrs, dashed grid); ResponsiveContainer measures container; no render-loop |
 
 Everything else — including the libraries on the old "confirmed" lists (Radix,
 MUI, AntD, react-router, redux, jotai, SWR, TanStack Table, …) — is
 **Untested** on the current runtime. They are plausible (the runtime now
 implements the semantics they rely on) but no claim is made until they're
 re-verified. The compat showcase site (`sites/react-compat`) reflects the same
-policy: 6 `Verified` entries, the rest `Untested`.
+policy: verified entries listed in the table above, the rest `Untested`.
 
 ### Previously-broken findings, re-checked this sprint
 
