@@ -33,7 +33,7 @@ Ports 4600/4601 (Track B's assigned range).
 | 5. react-hot-toast | click `fire toast` | toast animates in bottom-right, auto-dismisses ~2s |
 | 6. headlessui | click `Options` | menu opens (`role=menu`, `aria-expanded=true`); clicking an item updates `#m-picked` and closes the menu |
 | 7. framer-motion | load / `move` / `toggle box` | box fades in; `move` animates `x` by 60px; toggle plays the exit animation then removes `#mo-box`, toggling back re-animates in |
-| 9. recharts | load page | `#rc-area` shows a filled area chart and `#rc-line` shows a 2-line chart, both with labeled axes + dashed gridlines (SVG namespace, non-null getBBox) |
+| 8. recharts | load page | `#rc-area` shows a filled area chart and `#rc-line` shows a 2-line chart, both with labeled axes + dashed gridlines (SVG namespace, non-null getBBox) |
 
 All sections expose stable element IDs so any browser automation tool
 (Playwright etc.) can assert the same flows.

@@ -146,7 +146,7 @@ node --test packages/react-compat/test/
 # Browser acceptance fixture (real Chromium, uses the reactCompat() plugin)
 cd packages/react-compat/test/fixtures/acceptance
 npm install
-npm run dev        # http://localhost:4600 — interact with the 7 sections
+npm run dev        # http://localhost:4600 — interact with the 8 sections
 npm run build && npm run preview   # same checks against the production build
 ```
 
