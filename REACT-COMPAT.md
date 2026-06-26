@@ -88,8 +88,7 @@ Everything else — including the libraries on the old "confirmed" lists (Radix,
 MUI, AntD, react-router, redux, jotai, SWR, TanStack Table, …) — is
 **Untested** on the current runtime. They are plausible (the runtime now
 implements the semantics they rely on) but no claim is made until they're
-re-verified. The compat showcase site (`sites/react-compat`) reflects the same
-policy: verified entries listed in the table above, the rest `Untested`.
+re-verified. The verified entries are those listed in the table above; the `sites/react-compat` showcase site is maintained separately and may not reflect every entry in this table.
 
 ### Previously-broken findings, re-checked this sprint
 

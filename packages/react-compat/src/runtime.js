@@ -1158,9 +1158,11 @@ export function setProperty(el, name, value, oldValue, svg) {
       return;
     }
     // React accepts camelCase SVG presentation props (strokeWidth, fillOpacity,
-    // clipPath, …) and emits the correct kebab-case SVG attribute. The DOM
-    // lowercases unknown attribute names (strokeWidth → "strokewidth"), which
-    // is an INVALID attribute the SVG renderer ignores. Map the common ones.
+    // clipPath, …) and emits the correct kebab-case SVG attribute. On
+    // SVG-namespaced elements, setAttribute preserves the case of whatever name
+    // is passed — but camelCase names like "strokeWidth" are not recognized
+    // presentation attributes, so the SVG renderer silently ignores them. Map
+    // the common ones to their correct kebab-case equivalents.
     const mapped = SVG_ATTR_MAP[name];
     const attr = mapped || name;
     if (value == null || value === false) el.removeAttribute(attr);
