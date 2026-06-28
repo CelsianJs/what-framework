@@ -1,6 +1,6 @@
 {
   "name": "what-framework",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "The web framework built for AI agents — signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",
@@ -73,9 +73,9 @@
   },
   "homepage": "https://whatfw.com",
   "dependencies": {
-    "what-core": "^0.11.1",
-    "what-router": "^0.11.1",
-    "what-server": "^0.11.1",
-    "what-compiler": "^0.11.1"
+    "what-core": "^0.11.2",
+    "what-router": "^0.11.2",
+    "what-server": "^0.11.2",
+    "what-compiler": "^0.11.2"
   }
 }
