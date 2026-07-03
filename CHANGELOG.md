@@ -2,6 +2,11 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **JSX TypeScript types.** `what-framework/jsx-runtime` and `what-core/jsx-runtime` (and their `jsx-dev-runtime` counterparts) now ship type declarations, including a `JSX` namespace with `IntrinsicElements`. TypeScript users authoring JSX with `"jsxImportSource": "what-framework"` previously got `TS7026` (no `JSX.IntrinsicElements`) and `TS7016` (no declaration for `what-framework/jsx-runtime`) on every element under `strict`; JSX now type-checks. Types mirror What's lenient runtime — both `class`/`className`, camelCase and lowercase event handlers, reactive `() => value` attribute values, `data-`/`aria-`/custom attributes, and SVG — while still rejecting genuinely wrong props (e.g. a non-function `onclick`). Works under `jsx: "react-jsx"`, `"react-jsxdev"`, and `"preserve"` (the create-what scaffold config).
+
 ## [0.11.2] - 2026-06-26 — recharts SVG portal fix; persistent router layout; component-swap reconciler fix
 
 ### Fixed
