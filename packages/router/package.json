@@ -1,6 +1,6 @@
 {
   "name": "what-router",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "What Framework - File-based & programmatic router with View Transitions",
   "type": "module",
   "main": "src/index.js",
@@ -32,7 +32,7 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.11.2"
+    "what-core": "^0.11.3"
   },
   "repository": {
     "type": "git",

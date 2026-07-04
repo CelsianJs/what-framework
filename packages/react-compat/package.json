@@ -1,6 +1,6 @@
 {
   "name": "what-react",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "React compatibility layer for What Framework — real React semantics (value hooks, re-renders, context) on a dedicated compat runtime",
   "type": "module",
   "sideEffects": false,
@@ -48,7 +48,7 @@
     "compatibility"
   ],
   "peerDependencies": {
-    "what-core": "^0.11.2"
+    "what-core": "^0.11.3"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
