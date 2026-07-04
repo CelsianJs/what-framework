@@ -270,9 +270,35 @@ function valuesToNodes(value, parent, out) {
     return out;
   }
 
-  // Resolve function values (reactive accessors passed through props)
+  // Reactive thunks passed through as component children / props.
+  //
+  // The compiler lowers a multi-child component to an ARRAY of children, e.g.
+  // `<Card><Sib/>{() => x()}</Card>` -> `_$createComponent(Card, null, [<Sib/>, () => x()])`.
+  // Rendering `{props.children}` then emits `_$insert(el, props.children)`; a
+  // plain array child skips insert()'s function/effect branch and lands here.
+  // Resolving the thunk eagerly (`value()`) captured a one-time snapshot with no
+  // reactive subscription, so the child rendered once and never updated.
+  //
+  // Route it through createDOM instead — its reactive fn-child path installs a
+  // dedicated effect between stable comment markers, exactly like a thunk that
+  // is the direct child of an intrinsic element. createDOM returns a
+  // DocumentFragment (start marker, initial content, end marker); we flatten it
+  // to its child nodes here — same reasoning as the isVNode/isDomNode fragment
+  // handling below — so a later reconcile can still track and remove them. This
+  // keeps event handlers and manually-called render props untouched: only
+  // functions that actually flow into a render (child) position reach
+  // valuesToNodes.
+  //
+  // mapArray inserters (`value._mapArray`) are also functions — createDOM
+  // special-cases them, so they are handled correctly here too.
   if (typeof value === 'function') {
-    valuesToNodes(value(), parent, out);
+    const node = createDOM(value, parent, isSvgParent(parent));
+    if (node && node.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */) {
+      const kids = Array.from(node.childNodes);
+      for (let i = 0; i < kids.length; i++) out.push(kids[i]);
+    } else if (node) {
+      out.push(node);
+    }
     return out;
   }
 
