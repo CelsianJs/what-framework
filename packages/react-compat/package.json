@@ -5,18 +5,39 @@
   "type": "module",
   "sideEffects": false,
   "main": "src/index.js",
+  "types": "index.d.ts",
   "scripts": {
     "test": "node --test 'test/*.test.js'"
   },
   "exports": {
-    ".": "./src/index.js",
-    "./dom": "./src/dom.js",
-    "./jsx-runtime": "./src/jsx-runtime.js",
-    "./jsx-dev-runtime": "./src/jsx-dev-runtime.js",
-    "./vite": "./src/vite-plugin.js"
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./dom": {
+      "types": "./dom.d.ts",
+      "import": "./src/dom.js"
+    },
+    "./jsx-runtime": {
+      "types": "./jsx-runtime.d.ts",
+      "import": "./src/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./jsx-dev-runtime.d.ts",
+      "import": "./src/jsx-dev-runtime.js"
+    },
+    "./vite": {
+      "types": "./vite.d.ts",
+      "import": "./src/vite-plugin.js"
+    }
   },
   "files": [
-    "src"
+    "src",
+    "index.d.ts",
+    "dom.d.ts",
+    "jsx-runtime.d.ts",
+    "jsx-dev-runtime.d.ts",
+    "vite.d.ts"
   ],
   "keywords": [
     "react",
