@@ -312,11 +312,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Benchmark gate
+      - name: Benchmark gate (perf — non-blocking signal)
+        # Non-blocking, matching the bench:gate step in release-and-deploy.yml:
+        # the checked-in perf baselines are recorded on fast local hardware
+        # (M3 Max), and GitHub shared runners are several× slower/noisier on some
+        # microbenchmarks (e.g. `batch() 100 writes`), so this gate false-fails
+        # unpredictably. Kept as its own visible job (a signal, not a blocker);
+        # perf is gated strictly by `release:verify` on local hardware.
+        continue-on-error: true
         env:
-          # GitHub-hosted runners are substantially slower/noisier than the
-          # checked-in local baselines; keep CI as a catastrophic regression
-          # guard while preserving stricter defaults for local release checks.
           WHAT_BENCH_TOLERANCE_CORE: 0.80
           WHAT_BENCH_TOLERANCE_DX: 0.85
         run: npm run -s bench:gate

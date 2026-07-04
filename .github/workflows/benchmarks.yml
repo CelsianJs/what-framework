@@ -47,6 +47,12 @@ jobs:
 
       - name: Deploy to Vercel
         if: steps.diff.outputs.changed == 'true'
+        # Non-blocking: VERCEL_TOKEN is not configured on this repo, so the
+        # deploy step is expected to fail. Marking it continue-on-error keeps the
+        # benchmark-refresh commit (the real product of this cron) from being
+        # reported as a red run over an expected, non-correctness deploy failure.
+        # When VERCEL_TOKEN is added, remove this and let real failures surface.
+        continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: node scripts/deploy-vercel.mjs --targets "sites/benchmarks"

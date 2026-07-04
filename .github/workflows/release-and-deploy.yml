@@ -58,8 +58,9 @@ jobs:
         # checked-in perf baselines are recorded on fast local hardware (M3 Max);
         # GitHub shared runners are several× slower on some microbenchmarks
         # (e.g. `batch() 100 writes`), so bench:gate false-fails here and must
-        # not block a publish. Perf is still gated strictly by the dedicated
-        # `bench-gate` job in ci.yml and by `release:verify` on local hardware.
+        # not block a publish. On CI the `bench-gate` job in ci.yml runs the same
+        # gate as a visible-but-non-blocking signal; perf is gated strictly by
+        # `release:verify` on local hardware.
         run: |
           npm run -s hygiene:publish
           npm run -s test
