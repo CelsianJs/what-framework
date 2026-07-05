@@ -1,6 +1,6 @@
 {
   "name": "what-server",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",
@@ -9,15 +9,18 @@
     ".": {
       "types": "./index.d.ts",
       "production": "./dist/index.min.js",
-      "import": "./src/index.js"
+      "import": "./src/index.js",
+      "default": "./src/index.js"
     },
     "./islands": {
       "production": "./dist/islands.min.js",
-      "import": "./src/islands.js"
+      "import": "./src/islands.js",
+      "default": "./src/islands.js"
     },
     "./actions": {
       "production": "./dist/actions.min.js",
-      "import": "./src/actions.js"
+      "import": "./src/actions.js",
+      "default": "./src/actions.js"
     }
   },
   "files": [
@@ -36,8 +39,8 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.11.3",
-    "what-router": "^0.11.3"
+    "what-core": "^0.11.4",
+    "what-router": "^0.11.4"
   },
   "peerDependenciesMeta": {
     "what-router": {

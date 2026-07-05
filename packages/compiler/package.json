@@ -1,6 +1,6 @@
 {
   "name": "what-compiler",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "JSX compiler for What Framework - transforms JSX to optimized DOM operations",
   "main": "src/index.js",
   "types": "index.d.ts",
@@ -9,27 +9,32 @@
     ".": {
       "types": "./index.d.ts",
       "production": "./dist/index.min.js",
-      "import": "./src/index.js"
+      "import": "./src/index.js",
+      "default": "./src/index.js"
     },
     "./babel": {
       "types": "./babel.d.ts",
       "production": "./dist/babel-plugin.min.js",
-      "import": "./src/babel-plugin.js"
+      "import": "./src/babel-plugin.js",
+      "default": "./src/babel-plugin.js"
     },
     "./vite": {
       "types": "./vite.d.ts",
       "production": "./dist/vite-plugin.min.js",
-      "import": "./src/vite-plugin.js"
+      "import": "./src/vite-plugin.js",
+      "default": "./src/vite-plugin.js"
     },
     "./runtime": {
       "types": "./runtime.d.ts",
       "production": "./dist/runtime.min.js",
-      "import": "./src/runtime.js"
+      "import": "./src/runtime.js",
+      "default": "./src/runtime.js"
     },
     "./file-router": {
       "types": "./file-router.d.ts",
       "production": "./dist/file-router.min.js",
-      "import": "./src/file-router.js"
+      "import": "./src/file-router.js",
+      "default": "./src/file-router.js"
     }
   },
   "keywords": [
@@ -44,7 +49,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@babel/core": "^7.0.0",
-    "what-core": "^0.11.3"
+    "what-core": "^0.11.4"
   },
   "files": [
     "src",

@@ -1,6 +1,6 @@
 {
   "name": "what-core",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "What Framework - Signal-based UI framework built for AI agents",
   "type": "module",
   "main": "src/index.js",
@@ -10,27 +10,32 @@
     ".": {
       "types": "./index.d.ts",
       "production": "./dist/index.min.js",
-      "import": "./src/index.js"
+      "import": "./src/index.js",
+      "default": "./src/index.js"
     },
     "./jsx-runtime": {
       "types": "./jsx-runtime.d.ts",
       "production": "./dist/jsx-runtime.min.js",
-      "import": "./src/jsx-runtime.js"
+      "import": "./src/jsx-runtime.js",
+      "default": "./src/jsx-runtime.js"
     },
     "./jsx-dev-runtime": {
       "types": "./jsx-dev-runtime.d.ts",
       "production": "./dist/jsx-dev-runtime.min.js",
-      "import": "./src/jsx-dev-runtime.js"
+      "import": "./src/jsx-dev-runtime.js",
+      "default": "./src/jsx-dev-runtime.js"
     },
     "./render": {
       "types": "./render.d.ts",
       "production": "./dist/render.min.js",
-      "import": "./src/render.js"
+      "import": "./src/render.js",
+      "default": "./src/render.js"
     },
     "./testing": {
       "types": "./testing.d.ts",
       "production": "./dist/testing.min.js",
-      "import": "./src/testing.js"
+      "import": "./src/testing.js",
+      "default": "./src/testing.js"
     }
   },
   "files": [

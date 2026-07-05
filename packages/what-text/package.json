@@ -1,13 +1,14 @@
 {
   "name": "what-text",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "Optional text engine for What Framework, powered by @chenglou/pretext",
   "type": "module",
   "main": "src/index.js",
   "module": "src/index.js",
   "exports": {
     ".": {
-      "import": "./src/index.js"
+      "import": "./src/index.js",
+      "default": "./src/index.js"
     }
   },
   "files": [
