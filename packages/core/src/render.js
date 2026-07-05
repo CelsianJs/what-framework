@@ -386,10 +386,20 @@ function reconcileInsert(parent, value, current, marker) {
     return current;
   }
 
-  // Fast path: single DOM node value with single current node — skip array allocations
-  if (typeof value === 'object' && value !== null && value.nodeType > 0 && !Array.isArray(value)) {
+  // Fast path: single DOM node value with single current node — skip array allocations.
+  //
+  // DocumentFragments (nodeType 11) are deliberately EXCLUDED on both sides. A
+  // component realizes to a fragment `[<!--c:start-->, ...content, <!--c:end-->]`;
+  // inserting a fragment absorbs its children into the DOM and leaves the fragment
+  // empty. If the fast path stored that emptied fragment as `current`, it would
+  // lose the reference to the real inserted nodes, so the next switch away could
+  // not remove them and copies would stack (the "doubled empty-state" bug). Route
+  // fragments through valuesToNodes below, which flattens them to their child
+  // nodes and tracks each one for correct removal on the next reconcile.
+  if (typeof value === 'object' && value !== null && value.nodeType > 0
+      && value.nodeType !== 11 && !Array.isArray(value)) {
     if (value === current) return current;
-    if (current && !Array.isArray(current) && current.nodeType > 0) {
+    if (current && !Array.isArray(current) && current.nodeType > 0 && current.nodeType !== 11) {
       // Replace single node with single node
       if (current.parentNode === parent) {
         disposeTree(current);

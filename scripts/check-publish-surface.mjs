@@ -2,6 +2,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join, relative, resolve } from 'node:path';
 
 import { packages as buildPackages } from './build.js';
@@ -73,6 +74,59 @@ if (unexpectedPublic.length || missingAllowed.length) {
 
 console.log(
   `[publish-surface] OK: ${allowedPublicPackageJson.size} intended public packages; all other tracked package manifests are private.`,
+);
+
+// ---------------------------------------------------------------------------
+// Exports-map resolvability
+//
+// Every public package subpath must resolve under BOTH the ESM (`import`) and
+// CJS (`require`/`default`) resolution algorithms. A conditional exports entry
+// that lists only `import` (and `types`) has NO `require`/`default` fallback, so
+// `createRequire(...).resolve('<pkg>')` throws ERR_PACKAGE_PATH_NOT_EXPORTED —
+// which breaks real consumers whose vite.config / vitest resolve our packages
+// through the CJS resolver. This regressed in 0.11.3 (what-react's string export
+// was rewritten to an object without `default`). Guard it here so an exports map
+// can never silently lose its CJS entry point again.
+//
+// Workspace packages are symlinked into node_modules under their published name,
+// so the resolver sees the real package.json exports map.
+// ---------------------------------------------------------------------------
+
+const requireFromRoot = createRequire(join(repoRoot, 'noop.js'));
+const exportsFailures = [];
+let exportsCheckedSubpaths = 0;
+
+for (const path of allowedPublicPackageJson) {
+  const pkg = JSON.parse(readFileSync(resolve(repoRoot, path), 'utf8'));
+  const exportsMap = pkg.exports;
+  if (!exportsMap) continue; // no exports field: legacy `main` resolution, nothing to check
+  const subpaths = typeof exportsMap === 'string' ? ['.'] : Object.keys(exportsMap);
+  for (const subpath of subpaths) {
+    // '.' -> 'what-react'; './vite' -> 'what-react/vite'
+    const spec = subpath === '.' ? pkg.name : `${pkg.name}/${subpath.slice(2)}`;
+    exportsCheckedSubpaths += 1;
+    try {
+      requireFromRoot.resolve(spec);
+    } catch (err) {
+      exportsFailures.push(
+        `${spec} (${path}) -> ${err.code || err.message}` +
+          (err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED'
+            ? ' — add a `default` condition (last) pointing at the ESM entry'
+            : ''),
+      );
+    }
+  }
+}
+
+if (exportsFailures.length) {
+  console.error('\n[publish-surface] Unresolvable package exports (CJS resolver / createRequire().resolve()):');
+  for (const item of exportsFailures) console.error(`  - ${item}`);
+  console.error('\nEvery public exports subpath must resolve under require() as well as import().');
+  process.exit(1);
+}
+
+console.log(
+  `[publish-surface] OK: ${exportsCheckedSubpaths} public exports subpaths resolve under the CJS resolver (require/default).`,
 );
 
 // ---------------------------------------------------------------------------

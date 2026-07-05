@@ -10,6 +10,7 @@
  */
 
 import { readFileSync } from 'fs';
+import { createRequire } from 'module';
 import { join } from 'path';
 
 function resolveToken(explicitToken) {
@@ -63,7 +64,31 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
   // resolve/load/inject NOTHING. `command` stays undefined when configResolved
   // isn't called (unit tests, manual `plugin.load(...)`) — treated as serve.
   let command;
+  let projectRoot;
+  let devtoolsResolvable; // memoized: is the `what-devtools` peer installed?
   const isBuild = () => command === 'build';
+
+  // The injected bootstrap imports `what-devtools` (an OPTIONAL peer dependency).
+  // If the consumer hasn't installed it, Vite's dev transform cannot resolve that
+  // bare import and the whole dev server crashes with a transform error. Detect
+  // availability up front and degrade gracefully: inject nothing, log once. Never
+  // crash `vite dev` just because the debugging peer is absent.
+  const devtoolsAvailable = () => {
+    if (devtoolsResolvable === undefined) {
+      try {
+        // Resolve from the consumer project root, where the peer would live.
+        createRequire(join(projectRoot || process.cwd(), 'noop.js')).resolve('what-devtools');
+        devtoolsResolvable = true;
+      } catch {
+        devtoolsResolvable = false;
+      }
+    }
+    return devtoolsResolvable;
+  };
+
+  // Injecting hooks are inactive during a production build OR when the devtools
+  // peer is missing — in both cases we resolve/load/inject NOTHING.
+  const inactive = () => isBuild() || !devtoolsAvailable();
 
   return {
     name: 'what-devtools-mcp',
@@ -73,6 +98,14 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
     // to run during a production build even if `apply: 'serve'` was bypassed.
     configResolved(config) {
       command = config.command;
+      projectRoot = config.root;
+      // One clear, non-fatal notice when the peer is absent during dev.
+      if (!isBuild() && !devtoolsAvailable()) {
+        console.info(
+          '[what-devtools-mcp] `what-devtools` is not installed — skipping DevTools/MCP dev injection. ' +
+            'Run `npm i -D what-devtools` to enable live debugging.',
+        );
+      }
     },
 
     // Node-side bridge probe, exposed same-origin to the browser client.
@@ -104,7 +137,7 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
 
     // Resolve the virtual module so Vite knows we own it.
     resolveId(id) {
-      if (isBuild()) return null; // never own the virtual module in a build
+      if (inactive()) return null; // never own the virtual module in a build or when the peer is missing
       if (id === VIRTUAL_BOOTSTRAP_ID || id === RESOLVED_BOOTSTRAP_ID) {
         return RESOLVED_BOOTSTRAP_ID;
       }
@@ -116,7 +149,7 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
     // properly rewritten to dev-server URLs — unlike inline <script type=module>
     // tags injected via transformIndexHtml, which Vite does not transform.
     load(id) {
-      if (isBuild()) return null; // never emit devtools source into a build
+      if (inactive()) return null; // never emit devtools source into a build or when the peer is missing
       if (id !== RESOLVED_BOOTSTRAP_ID) return null;
       const tokenValue = resolveToken(token);
       // The side effects are gated behind `import.meta.env.DEV`. In a dev server
@@ -139,7 +172,7 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
     },
 
     transformIndexHtml() {
-      if (isBuild()) return; // never inject the bootstrap <script> into built HTML
+      if (inactive()) return; // never inject the bootstrap <script> into a build or when the peer is missing
       // Inject a <script src> that points at the virtual module. The browser
       // fetches `/@id/__x00__virtual:what-devtools-mcp/bootstrap`, Vite serves
       // the transformed bootstrap (bare specifiers resolved), and everything
