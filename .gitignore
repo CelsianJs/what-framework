@@ -36,3 +36,7 @@ benchmark/results/
 !/package-lock.json
 
 .npmrc
+
+# Scratch Vite projects created by the devtools-mcp prod-build regression test
+# (normally removed in its after() hook; ignored here in case a run crashes).
+packages/devtools-mcp/test/.tmp-build-*
