@@ -50,9 +50,30 @@ const BROWSER_BOOTSTRAP_URL = '/@id/__x00__' + VIRTUAL_BOOTSTRAP_ID;
 export const DISCOVERY_PATH = '/__what_mcp_discovery';
 
 export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
+  // Defense-in-depth: `apply: 'serve'` is the primary guard — Vite excludes the
+  // whole plugin from `vite build`, so none of these hooks run for a production
+  // bundle. But `apply` can be defeated (a meta-framework that flattens plugin
+  // arrays and re-invokes hooks, a consumer that spreads this plugin into
+  // another plugin's returned list, or a future Vite change), and getting it
+  // wrong once ships devtools + a dev-server `<script src>` into production
+  // (observed on a real deploy: the prod page requested
+  // `virtual:what-devtools-mcp/bootstrap` and, with a dev server live on the
+  // machine, followed it to localhost). So we ALSO gate every injecting hook on
+  // the resolved Vite command: if we ever run under `command === 'build'`, we
+  // resolve/load/inject NOTHING. `command` stays undefined when configResolved
+  // isn't called (unit tests, manual `plugin.load(...)`) — treated as serve.
+  let command;
+  const isBuild = () => command === 'build';
+
   return {
     name: 'what-devtools-mcp',
     apply: 'serve',
+
+    // Capture the resolved command so the injecting hooks below can hard-refuse
+    // to run during a production build even if `apply: 'serve'` was bypassed.
+    configResolved(config) {
+      command = config.command;
+    },
 
     // Node-side bridge probe, exposed same-origin to the browser client.
     // Responds { bridge: false } when no bridge is running (quietly), or
@@ -83,6 +104,7 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
 
     // Resolve the virtual module so Vite knows we own it.
     resolveId(id) {
+      if (isBuild()) return null; // never own the virtual module in a build
       if (id === VIRTUAL_BOOTSTRAP_ID || id === RESOLVED_BOOTSTRAP_ID) {
         return RESOLVED_BOOTSTRAP_ID;
       }
@@ -94,18 +116,30 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
     // properly rewritten to dev-server URLs — unlike inline <script type=module>
     // tags injected via transformIndexHtml, which Vite does not transform.
     load(id) {
+      if (isBuild()) return null; // never emit devtools source into a build
       if (id !== RESOLVED_BOOTSTRAP_ID) return null;
       const tokenValue = resolveToken(token);
+      // The side effects are gated behind `import.meta.env.DEV`. In a dev server
+      // that's statically `true`, so devtools install and connect normally. If
+      // this module ever ends up in a production bundle (e.g. a consumer imports
+      // the virtual id directly, or a bundler pulls it in despite the guards
+      // above), `import.meta.env.DEV` is statically `false`, the whole block is
+      // dead-code-eliminated, and the now-unused imports tree-shake away — so a
+      // prod bundle carries zero devtools/MCP code and can never open a
+      // connection to a local dev server.
       return [
         `import * as core from 'what-core';`,
         `import { installDevTools } from 'what-devtools';`,
         `import { connectDevToolsMCP } from 'what-devtools-mcp/client';`,
-        `installDevTools(core);`,
-        `connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)}, discoveryUrl: ${JSON.stringify(DISCOVERY_PATH)} });`,
+        `if (import.meta.env && import.meta.env.DEV) {`,
+        `  installDevTools(core);`,
+        `  connectDevToolsMCP({ port: ${port}, token: ${JSON.stringify(tokenValue)}, discoveryUrl: ${JSON.stringify(DISCOVERY_PATH)} });`,
+        `}`,
       ].join('\n');
     },
 
     transformIndexHtml() {
+      if (isBuild()) return; // never inject the bootstrap <script> into built HTML
       // Inject a <script src> that points at the virtual module. The browser
       // fetches `/@id/__x00__virtual:what-devtools-mcp/bootstrap`, Vite serves
       // the transformed bootstrap (bare specifiers resolved), and everything

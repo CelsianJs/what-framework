@@ -2,6 +2,14 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **devtools-mcp: the DevTools/MCP client can no longer leak into a production build.** The Vite plugin (`what-devtools-mcp/vite-plugin`) injects a `<script src="/@id/…virtual:what-devtools-mcp/bootstrap">` that installs the devtools client and opens a WebSocket to a local bridge. It was guarded only by `apply: 'serve'`, which excludes it from `vite build` — correct, but a single point of failure: a meta-framework that flattens plugin arrays and re-invokes hooks, a consumer that spreads the plugin into another plugin's returned list, or a config that forgets its own command guard can defeat `apply` and ship the dev-only bootstrap into prod. When that happened on a real deploy, the production page requested `virtual:what-devtools-mcp/bootstrap` (500 in prod) and, with a dev server live on the machine, could follow it to `localhost`. The plugin now also captures the resolved Vite command in `configResolved` and makes `resolveId`/`load`/`transformIndexHtml` no-op whenever `command === 'build'`, and the injected bootstrap wraps its side effects in `if (import.meta.env.DEV)` so that even a directly-imported bootstrap dead-code-eliminates and tree-shakes to nothing in a prod bundle. Net effect: a production build now contains **zero** devtools/MCP code regardless of how the plugin is wired. (The browser client already refused to connect under `import.meta.env.PROD`; it performs no cross-origin navigation.)
+
+### Verified
+- New build-output regression test (`packages/devtools-mcp/test/vite-plugin-prod-build.test.js`) runs a real `vite build` and asserts the bundle contains no `what-devtools`/`virtual:what-devtools`/`__x00__`/`connectDevToolsMCP`/`__what_mcp` references — in both the normal case *and* with the plugin's `apply` stripped (proving the command guard, not just `apply`, holds). It also asserts the dev (serve) transform still injects the bootstrap, so the guard is dev-only rather than a blanket disable. Full suite green (1435 tests).
+
 ## [0.11.3] - 2026-07-04 — reactive thunk-in-array-child fix; TypeScript declarations (JSX, what-react, what-compiler)
 
 Patch release. All 14 packages move to 0.11.3 together (fixed-group release). No API changes — one reactivity fix plus additive TypeScript declarations.

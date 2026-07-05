@@ -24,7 +24,7 @@
 // Exits non-zero on any failure; all spawned processes are killed on exit.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -186,6 +186,20 @@ async function smokeSpa(workDir, tarballs, browser) {
 
   run('npm', ['run', 'build'], { cwd: appDir });
   assert(existsSync(join(appDir, 'dist', 'index.html')), 'vite build produced dist/index.html');
+
+  // The scaffold wires up `whatDevTools()` (what-devtools-mcp/vite-plugin) — a
+  // DEV-ONLY plugin. A production build must carry ZERO devtools/MCP code: a
+  // past regression shipped the dev bootstrap into prod, so the page requested
+  // `virtual:what-devtools-mcp/bootstrap` (500) and could follow a live local
+  // dev server to localhost. Grep the whole built bundle to prove it's clean.
+  const distText = readdirSync(join(appDir, 'dist'), { recursive: true })
+    .map((f) => join(appDir, 'dist', f))
+    .filter((p) => { try { return statSync(p).isFile(); } catch { return false; } })
+    .map((p) => readFileSync(p, 'utf8'))
+    .join('\n');
+  for (const needle of ['what-devtools', 'virtual:what-devtools', '__x00__', 'connectDevToolsMCP', '__what_mcp']) {
+    assert(!distText.includes(needle), `prod bundle contains NO devtools leak ("${needle}")`);
+  }
 
   await assertPortFree(port);
   const viteBin = join(appDir, 'node_modules', 'vite', 'bin', 'vite.js');
