@@ -35,7 +35,7 @@ function testFilesIn(dir) {
 }
 
 const files = [];
-for (const groupDir of ['packages', 'examples']) {
+for (const groupDir of ['packages', 'examples', 'scripts']) {
   const base = join(root, groupDir);
   if (!isDir(base)) continue;
   for (const name of readdirSync(base).sort()) {
