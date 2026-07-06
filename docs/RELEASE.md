@@ -11,10 +11,12 @@ Canonical workflow:
 Manual trigger inputs:
 
 1. `publish_packages` (boolean)
-2. `deploy_web` (boolean)
-3. `deploy_targets` (optional comma-separated override)
-4. `npm_tag` (default `latest`)
-5. `dry_run` (boolean)
+2. `npm_tag` (default `latest`)
+3. `dry_run` (boolean)
+
+Web surfaces (docs-site, benchmarks, playground, react-compat) deploy through
+Vercel's Git integration on push — there is no CI deploy step. `scripts/deploy-vercel.mjs`
+remains available for local, token-in-hand deploys.
 
 The workflow always runs `npm run -s release:verify` before publish/deploy.
 When packages are published, it also runs `npm run -s verify:registry` and uploads
@@ -26,7 +28,6 @@ smoke passes against npm.
 Set these repository secrets in GitHub:
 
 1. `NPM_TOKEN` (npm publish token with package publish permissions)
-2. `VERCEL_TOKEN` (Vercel token with access to linked projects)
 
 ## Local Verification
 
