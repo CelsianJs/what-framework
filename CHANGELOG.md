@@ -4,6 +4,17 @@ All notable changes to What Framework will be documented in this file.
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-07-06 — nullish attribute values render as absent, not the literal string "undefined"
+
+Patch release. All 14 packages move to 0.11.5 together (fixed-group release). One production-surfaced correctness fix, no API changes. Same family as the previously-fixed aria-boolean coercion bug.
+
+### Fixed
+- **core: `null`/`undefined` attribute values now mean "no attribute" (React/Solid semantics) instead of stamping the literal string `"undefined"` / `"null"`.** `<button title={maybeUndefined}>` previously rendered `title="undefined"` in the DOM; a `data-`/`aria-` attribute bound to an undefined value rendered `aria-label="undefined"`; and a reactive attribute thunk that returned `undefined` on a later update stamped `"undefined"` rather than removing the attribute. Both client-side `setProp` implementations — `dom.js` (the `h()`/`createDOM` path) and `render.js` (the fine-grained-compiler path, used for spreads and any name the compiler can't statically classify) — passed a nullish value straight through to `el.setAttribute(key, value)` (in the `data-*`/`aria-*`, SVG, and `key in el`/default branches), which coerces `undefined`/`null` to a string. Both now short-circuit a nullish value to `removeAttribute(key)` before those branches (resetting any reflected DOM property first, e.g. `el.title`, so the attribute and property clear together and a later reactive update re-adds cleanly). Legitimate falsy values are unchanged: `0` and `""` still set the attribute (`0` / empty), `false` still removes a boolean attribute, and `on*` handlers are unaffected. The compiler's statically-recognized `data-*`/`aria-*` path (`setAttr`) already removed on nullish; this closes the same gap in the two generic dispatchers. The SSR serializer (`what-server` `renderToString`) already skipped nullish attributes and is now covered by regression tests. Surfaced in production app work on 0.11.4.
+
+### Verified
+- New regression suite (`packages/core/test/attr-nullish.test.js`, 22 cases) covers both client `setProp` paths and the SSR serializer: static `undefined`/`null`, `data-*`/`aria-*` variants, a reactive attr transitioning value→undefined→value (removes then re-adds), spreads with nullish values, and the preserved semantics for `0`, `""`, `false`/`true` booleans, and `on*` handlers. Fails on 0.11.4 (13 client-path assertions stamp `"undefined"`), passes now.
+- Full suite green (1462 tests) plus the adversarial stress suite. All release gates pass on clean `main`: `hygiene:publish`, `build`, `check:size` (within budget), `test:prod`, `bench:gate`, `smoke:scaffold`.
+
 ## [0.11.4] - 2026-07-04 — reactive branch-switch reconciler fix; exports-map CJS-resolve regression; devtools-mcp graceful degrade
 
 Patch release. All 14 packages move to 0.11.4 together (fixed-group release). Three production-surfaced fixes, plus the devtools/MCP prod-leak hardening carried over from Unreleased. No API changes. 0.11.3 shipped an exports-map packaging regression that broke real consumers (see below), so this patch is warranted for that alone.

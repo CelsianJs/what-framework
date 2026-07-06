@@ -1397,6 +1397,15 @@ export function setProp(el, key, value) {
   } else if (key === 'style') {
     // Delegate to setStyle so the object form clears stale keys (el._lastStyleObj).
     setStyle(el, value);
+  } else if (value == null) {
+    // null / undefined — attribute must be ABSENT (React/Solid semantics), not
+    // stringified to "undefined"/"null". Caught before the data-*/aria-*, SVG
+    // and property-reflected branches. Reflected props (e.g. el.title) are reset
+    // first so removeAttribute() clears both the attribute and the property.
+    if (key in el) {
+      try { el[key] = ''; } catch (e) { /* read-only reflected prop */ }
+    }
+    el.removeAttribute(key);
   } else if (key.startsWith('data-') || key.startsWith('aria-')) {
     el.setAttribute(key, value);
   } else if (typeof value === 'boolean') {

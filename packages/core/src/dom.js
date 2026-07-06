@@ -760,6 +760,19 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
+  // null / undefined — attribute must be ABSENT (React/Solid semantics), not
+  // stamped as the literal string "undefined"/"null". Runs before the boolean,
+  // data-*/aria-*, SVG and property-reflected branches, all of which would
+  // otherwise stringify a nullish value. Reflected props (e.g. el.title) are
+  // reset first so removeAttribute() clears both the attribute and the property.
+  if (value == null) {
+    if (key in el) {
+      try { el[key] = ''; } catch (e) { /* read-only reflected prop */ }
+    }
+    el.removeAttribute(key);
+    return;
+  }
+
   // Boolean attributes
   if (typeof value === 'boolean') {
     if (value) el.setAttribute(key, '');
