@@ -8,16 +8,6 @@ on:
         required: true
         default: true
         type: boolean
-      deploy_web:
-        description: Deploy configured web surfaces to Vercel
-        required: true
-        default: true
-        type: boolean
-      deploy_targets:
-        description: Comma-separated deploy targets (empty = defaults in script)
-        required: false
-        default: ""
-        type: string
       npm_tag:
         description: npm dist-tag for publish
         required: false
@@ -103,16 +93,7 @@ jobs:
           path: artifacts/registry-smoke.json
           if-no-files-found: error
 
-      - name: Deploy Vercel targets
-        if: ${{ inputs.deploy_web }}
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          ARGS=()
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            ARGS+=(--dry-run)
-          fi
-          if [ -n "${{ inputs.deploy_targets }}" ]; then
-            ARGS+=(--targets "${{ inputs.deploy_targets }}")
-          fi
-          node scripts/deploy-vercel.mjs "${ARGS[@]}"
+      # Web surfaces (docs-site, benchmarks, playground, react-compat) deploy via
+      # Vercel's Git integration on push — no VERCEL_TOKEN secret exists in this
+      # repo and the .vercel project links are gitignored, so a CLI deploy step
+      # can never work here. scripts/deploy-vercel.mjs remains for local use.
