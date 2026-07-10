@@ -154,42 +154,62 @@ export function reportError(error, startCtx) {
 
 // --- Show ---
 // Conditional rendering component. Cleaner than ternaries.
+//
+// Components run ONCE and never re-execute, so reading `when()` in the body
+// would snapshot the condition a single time — the content would render once
+// and never advance when the signal flips (the classic `<Show when={() =>
+// authed()}>` identity-gate trap). Instead we return a reactive THUNK: when a
+// component returns a function, createDOM installs a fine-grained fn-child
+// effect (packages/core/src/dom.js) that re-evaluates it — the same reactive
+// form the fine-grained compiler lowers `<Show>` to. Works on both JSX
+// pipelines (the babel plugin lowers inline; the automatic `jsxImportSource`
+// runtime / h() route here via _$createComponent).
 
 export function Show({ when, fallback = null, children }) {
-  // when can be a signal or a value
-  const condition = typeof when === 'function' ? when() : when;
-  return condition ? children : fallback;
+  return () => {
+    // `when` can be a signal getter, a plain thunk, or a static value.
+    const condition = typeof when === 'function' ? when() : when;
+    return condition ? children : fallback;
+  };
 }
 
 // --- For ---
-// Efficient list rendering with keyed reconciliation.
+// List rendering. Returns a reactive thunk (see Show above) so the list
+// re-renders when `each` changes. The thunk re-reads `each()` inside the
+// framework's fn-child effect, tracking it. The preferred, keyed-efficient
+// pattern is `.map()` with a `key` prop (auto-lowered to _$mapArray by the
+// compiler) or `<For>` compiled by the fine-grained plugin; this runtime form
+// is the fallback for the automatic JSX runtime / h() path.
 
 export function For({ each, fallback = null, children }) {
-  const list = typeof each === 'function' ? each() : each;
-  if (!list || list.length === 0) return fallback;
-
-  // children should be a function (item, index) => vnode
+  // children should be a function (item, index) => vnode. Resolve/validate it
+  // once at creation — it does not change across list updates.
   const renderFn = Array.isArray(children) ? children[0] : children;
   if (typeof renderFn !== 'function') {
     console.warn('[what] For: children must be a render function, e.g. <For each={items}>{(item) => ...}</For>');
     return fallback;
   }
 
-  return list.map((item, index) => {
-    const vnode = renderFn(item, index);
-    // Auto-detect keys for efficient keyed reconciliation
-    if (vnode && typeof vnode === 'object' && vnode.key == null) {
-      if (item != null && typeof item === 'object') {
-        // Use item.id or item.key if available
-        if (item.id != null) vnode.key = item.id;
-        else if (item.key != null) vnode.key = item.key;
-      } else if (typeof item === 'string' || typeof item === 'number') {
-        // Primitive items can be their own key
-        vnode.key = item;
+  return () => {
+    const list = typeof each === 'function' ? each() : each;
+    if (!list || list.length === 0) return fallback;
+
+    return list.map((item, index) => {
+      const vnode = renderFn(item, index);
+      // Auto-detect keys for efficient keyed reconciliation
+      if (vnode && typeof vnode === 'object' && vnode.key == null) {
+        if (item != null && typeof item === 'object') {
+          // Use item.id or item.key if available
+          if (item.id != null) vnode.key = item.id;
+          else if (item.key != null) vnode.key = item.key;
+        } else if (typeof item === 'string' || typeof item === 'number') {
+          // Primitive items can be their own key
+          vnode.key = item;
+        }
       }
-    }
-    return vnode;
-  });
+      return vnode;
+    });
+  };
 }
 
 // --- Switch / Match ---

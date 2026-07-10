@@ -4,6 +4,13 @@ All notable changes to What Framework will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **core: the runtime `<Show>` and `<For>` built-ins are now reactive.** When JSX goes through the automatic runtime (`jsxImportSource: "what-framework"` — the standard Vite/esbuild/tsc setup) or a direct `h()` / `_$createComponent()` call, `<Show>`/`<For>` are invoked as the `Show()`/`For()` component *functions* in `packages/core/src/components.js`. Because components run once and never re-execute, these functions read their reactive prop (`when()` / `each()`) eagerly in the run-once body and returned **static** content — so `<Show when={() => authed()}>` rendered once and never advanced when the signal flipped (the classic identity-gate trap), and `<For each={() => items()}>` never re-rendered on list change. Both now return a reactive **thunk**, which `createDOM`'s fn-child path wraps in a fine-grained effect — the same reactive form the fine-grained babel plugin already lowers `<Show>`/`<For>` to. This aligns the two JSX pipelines: the compiler path was already reactive; the runtime path now matches. `<For>`'s empty-list `fallback` and auto-key detection are preserved; `.map()` with a `key` prop (or the compiler-lowered `<For>`) remains the keyed-efficient path. Note: PR #18 fixed a *different* bug (user-written thunks in a component's array child position) and did not touch Show/For, which never emit a thunk into a child position. Surfaced in a fresh 0.11.5 app whose `<Show>` identity gate never advanced.
+
+### Verified
+- New regression suite (`packages/core/test/reactive-show-for-runtime.test.js`, 5 cases) drives the runtime path exactly as the automatic JSX runtime emits it (`_$createComponent(Show|For, props)`): `<Show>` flips on a `() => sig()` thunk and on a bare signal accessor; `<For>` re-renders when the list grows/shrinks and honors the empty-list fallback; and a plain component with a thunk child updates. Fails on 0.11.5 (4 Show/For assertions render once and never update), passes now.
+- Full suite green (1473 tests) plus the adversarial stress suite (40). Build, `check:size` (within budget), and `test:prod` (built-dist reactivity smoke) all pass.
+
 ## [0.11.5] - 2026-07-06 — nullish attribute values render as absent, not the literal string "undefined"
 
 Patch release. All 14 packages move to 0.11.5 together (fixed-group release). One production-surfaced correctness fix, no API changes. Same family as the previously-fixed aria-boolean coercion bug.
