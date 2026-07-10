@@ -216,20 +216,28 @@ export function For({ each, fallback = null, children }) {
 // Multi-condition rendering (like switch statement).
 
 export function Switch({ fallback = null, children }) {
+  // The Match children (marker vnodes) are static — resolve them once. The
+  // match loop, which reads each Match's reactive `when`, must run inside a
+  // reactive thunk (see Show/For above): components run once, so evaluating
+  // `when()` in the body here would snapshot the active arm a single time and
+  // `<Switch>`/`<Match when={() => sig()}>` would render once and never update.
+  // Switch/Match are NOT lowered by the fine-grained compiler, so this runtime
+  // path is the ONLY path — the thunk is what makes them reactive at all.
   const kids = Array.isArray(children) ? children : [children];
 
-  for (const child of kids) {
-    if (child && child.tag === Match) {
-      const condition = typeof child.props.when === 'function'
-        ? child.props.when()
-        : child.props.when;
-      if (condition) {
-        return child.children;
+  return () => {
+    for (const child of kids) {
+      if (child && child.tag === Match) {
+        const condition = typeof child.props.when === 'function'
+          ? child.props.when()
+          : child.props.when;
+        if (condition) {
+          return child.children;
+        }
       }
     }
-  }
-
-  return fallback;
+    return fallback;
+  };
 }
 
 export function Match({ when, children }) {

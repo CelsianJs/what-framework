@@ -38,7 +38,7 @@ global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { _$createComponent } = await import('../src/render.js');
-const { Show, For } = await import('../src/components.js');
+const { Show, For, Switch, Match } = await import('../src/components.js');
 
 function getContainer() {
   const el = document.getElementById('app');
@@ -139,6 +139,69 @@ describe('runtime <For> re-renders on list change (automatic JSX runtime / h pat
     flushSync();
     assert.equal(app.querySelectorAll('li').length, 2, '<For> must render items when list fills');
     assert.equal(app.querySelector('.empty'), null, 'fallback removed once non-empty');
+  });
+});
+
+describe('runtime <Switch>/<Match> stays reactive (never lowered by the compiler)', () => {
+  it('(6) <Switch> flips between Match arms and to fallback, both directions', () => {
+    const app = getContainer();
+    const mode = signal('a');
+
+    // <Switch fallback={<span class="none">none</span>}>
+    //   <Match when={() => mode() === 'a'}><span class="a">A</span></Match>
+    //   <Match when={() => mode() === 'b'}><span class="b">B</span></Match>
+    // </Switch>
+    // Match is a MARKER: the automatic JSX runtime emits it as a lazy
+    // `jsx(Match, ...)` -> `h(Match, ...)` vnode (NOT an executed component),
+    // so Switch can read its `tag`/`when`/`children`. Build it with h() here.
+    mountInto(app, _$createComponent(
+      Switch,
+      { fallback: h('span', { class: 'none' }, 'none') },
+      [
+        h(Match, { when: () => mode() === 'a' }, h('span', { class: 'a' }, 'A')),
+        h(Match, { when: () => mode() === 'b' }, h('span', { class: 'b' }, 'B')),
+      ],
+    ));
+
+    assert.ok(app.querySelector('.a'), 'arm A active initially');
+    assert.equal(app.querySelector('.b'), null);
+    assert.equal(app.querySelector('.none'), null);
+
+    mode('b');
+    flushSync();
+    assert.ok(app.querySelector('.b'), '<Switch> must advance to arm B when its Match when() flips true');
+    assert.equal(app.querySelector('.a'), null, 'arm A removed');
+    assert.equal(app.querySelector('.none'), null);
+
+    mode('c');
+    flushSync();
+    assert.ok(app.querySelector('.none'), '<Switch> must fall through to fallback when no Match matches');
+    assert.equal(app.querySelector('.a'), null);
+    assert.equal(app.querySelector('.b'), null);
+
+    mode('a');
+    flushSync();
+    assert.ok(app.querySelector('.a'), '<Switch> must return to arm A when it matches again');
+    assert.equal(app.querySelector('.none'), null);
+  });
+
+  it('(7) <Switch> reacts when a Match `when` is a bare signal accessor', () => {
+    const app = getContainer();
+    const on = signal(false);
+
+    mountInto(app, _$createComponent(
+      Switch,
+      { fallback: h('i', { class: 'off' }, 'off') },
+      [h(Match, { when: on }, h('b', { class: 'on' }, 'on'))],
+    ));
+
+    assert.ok(app.querySelector('.off'), 'fallback shown while signal false');
+    assert.equal(app.querySelector('.on'), null);
+
+    on(true);
+    flushSync();
+    assert.ok(app.querySelector('.on'), '<Match when={signal}> must react to the signal');
+    assert.equal(app.querySelector('.off'), null);
   });
 });
 
