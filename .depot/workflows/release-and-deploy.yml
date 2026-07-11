@@ -1,8 +1,10 @@
-# The canonical publisher runs on Depot CI (.depot/workflows/release-and-deploy.yml)
-# as of 2026-07-11 (Kirby: all-Depot; this script publishes without provenance).
-# This GitHub copy stays dispatchable as a fallback publisher.
-name: Release And Deploy
+# Depot CI Migration
+# Source: .github/workflows/release-and-deploy.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
 
+name: Release And Deploy
 on:
   workflow_dispatch:
     inputs:
@@ -21,31 +23,26 @@ on:
         required: true
         default: false
         type: boolean
-
 concurrency:
   group: release-and-deploy-main
   cancel-in-progress: false
-
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
     permissions:
       contents: read
       id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           registry-url: https://registry.npmjs.org
-
       - name: Install dependencies
         run: npm ci
-
       - name: Verify quality gates (correctness — blocking)
         # Every correctness gate from release:verify EXCEPT bench:gate. The
         # checked-in perf baselines are recorded on fast local hardware (M3 Max);
@@ -62,14 +59,12 @@ jobs:
           npm run -s check:size
           npm run -s test:prod
           npm run -s smoke:scaffold
-
       - name: Benchmark gate (perf — non-blocking signal)
         continue-on-error: true
         env:
           WHAT_BENCH_TOLERANCE_CORE: 0.80
           WHAT_BENCH_TOLERANCE_DX: 0.85
         run: npm run -s bench:gate
-
       - name: Publish npm packages
         if: ${{ inputs.publish_packages }}
         env:
@@ -83,11 +78,9 @@ jobs:
             ARGS+=(--tag "${{ inputs.npm_tag }}")
           fi
           node scripts/publish-packages.mjs "${ARGS[@]}"
-
       - name: Verify npm registry packages
         if: ${{ inputs.publish_packages && !inputs.dry_run }}
         run: npm run -s verify:registry
-
       - name: Upload registry smoke artifact
         if: ${{ always() && inputs.publish_packages && !inputs.dry_run }}
         uses: actions/upload-artifact@v4
@@ -96,7 +89,7 @@ jobs:
           path: artifacts/registry-smoke.json
           if-no-files-found: error
 
-      # Web surfaces (docs-site, benchmarks, playground, react-compat) deploy via
-      # Vercel's Git integration on push — no VERCEL_TOKEN secret exists in this
-      # repo and the .vercel project links are gitignored, so a CLI deploy step
-      # can never work here. scripts/deploy-vercel.mjs remains for local use.
+# Web surfaces (docs-site, benchmarks, playground, react-compat) deploy via
+# Vercel's Git integration on push — no VERCEL_TOKEN secret exists in this
+# repo and the .vercel project links are gitignored, so a CLI deploy step
+# can never work here. scripts/deploy-vercel.mjs remains for local use.
