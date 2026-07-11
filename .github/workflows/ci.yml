@@ -1,12 +1,9 @@
 name: CI
 
+# Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
+# This copy keeps workflow_dispatch as a manual fallback.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 # One run per ref — a new push cancels the in-flight run for the same branch/PR.
 concurrency:
