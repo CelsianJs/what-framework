@@ -1,6 +1,6 @@
 {
   "name": "what-compiler",
-  "version": "0.11.6",
+  "version": "0.11.7",
   "description": "JSX compiler for What Framework - transforms JSX to optimized DOM operations",
   "main": "src/index.js",
   "types": "index.d.ts",
@@ -49,7 +49,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@babel/core": "^7.0.0",
-    "what-core": "^0.11.6"
+    "what-core": "^0.11.7"
   },
   "files": [
     "src",

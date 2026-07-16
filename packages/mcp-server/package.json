@@ -1,6 +1,6 @@
 {
   "name": "what-mcp",
-  "version": "0.11.6",
+  "version": "0.11.7",
   "description": "[DEPRECATED — use what-devtools-mcp instead] MCP Server for What Framework documentation and assistance",
   "type": "module",
   "main": "src/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "what-server",
-  "version": "0.11.6",
+  "version": "0.11.7",
   "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",
@@ -47,8 +47,8 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.11.6",
-    "what-router": "^0.11.6"
+    "what-core": "^0.11.7",
+    "what-router": "^0.11.7"
   },
   "peerDependenciesMeta": {
     "what-router": {
