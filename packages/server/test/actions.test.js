@@ -40,6 +40,19 @@ function mockRes() {
 }
 
 describe('actions registry + handleActionRequest', () => {
+  it('warns when an uncompiled action falls back to a runtime-generated ID', () => {
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      const uncompiled = action(async () => true);
+      assert.match(uncompiled._actionId, /^a_/);
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.ok(warnings.some((message) => message.includes('compiler metadata is missing')));
+  });
+
   it('registers actions server-side', () => {
     assert.ok(getRegisteredActions().includes('sum'));
   });

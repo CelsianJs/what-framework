@@ -2,6 +2,21 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.11.7] - 2026-07-16
+
+Patch release. All 14 packages move together to 0.11.7.
+
+### Fixed
+
+- **server: Node request and island state remain isolated across concurrent async rendering without leaking Node built-ins into browser or edge bundles.** `AsyncLocalStorage` now lives behind the Node server export condition; the default server entry stays browser-safe while Node SSR preserves request-local action and island state.
+- **compiler: removed server actions no longer survive Vite hot reload.** The action registry now clears IDs owned by an updated or unlinked module before registering its current exports, preventing stale action dispatch after edits.
+- **compiler: server action transforms keep stable, collision-resistant IDs and preserve the complete production Node server API.** Browser-bundle and packed-package regressions exercise the same public entry points consumers install.
+
+### Verified
+
+- Node 20 and 22: 1,493 regular tests plus 40 adversarial stress tests.
+- Build, all 37 public subpath checks, packed declarations, production smoke, and packed SPA/full-stack scaffold smoke.
+
 ## [0.11.6] - 2026-07-11 — runtime `<Show>`/`<For>`/`<Switch>` are reactive
 
 Patch release. All 14 packages move to 0.11.6 together (fixed-group release). One correctness fix (#22) surfaced by production app work, plus release-workflow hygiene (#20, #21). No API changes.

@@ -78,11 +78,24 @@ export function csrfMetaTag(token) {
 // --- Define a server action ---
 
 let _actionCounter = 0;
+let _fallbackWarningShown = false;
 
 function generateActionId() {
-  // Generate a deterministic ID — prefer crypto.getRandomValues, fall back to a
-  // monotonic counter (never Math.random, which is not cryptographically safe and
-  // produces predictable IDs in some runtimes).
+  if (
+    !_fallbackWarningShown
+    && typeof process !== 'undefined'
+    && process.env?.NODE_ENV !== 'production'
+  ) {
+    _fallbackWarningShown = true;
+    console.warn(
+      '[what-server] action() is using a runtime-generated ID because compiler metadata is missing. ' +
+      'Build with what-compiler/vite-plugin-what or pass an explicit { id } so client and server bundles agree.'
+    );
+  }
+  // Compatibility fallback for direct, uncompiled script users. Normal builds
+  // receive a deterministic compiler ID derived from source path + binding.
+  // Never use Math.random here; crypto avoids predictable collisions, and the
+  // monotonic fallback keeps older runtimes functional.
   const rand = typeof crypto !== 'undefined' && crypto.getRandomValues
     ? Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('')
     : `c${(++_actionCounter).toString(36)}_${Date.now().toString(36)}`;

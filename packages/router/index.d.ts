@@ -1,6 +1,6 @@
 // What Framework Router - TypeScript Definitions
 
-import { VNode, VNodeChild, Component, Signal, Computed } from '../core';
+import { VNode, VNodeChild, Component, Signal, Computed } from 'what-core';
 
 // --- Route State ---
 

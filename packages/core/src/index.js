@@ -43,7 +43,12 @@ export { createStore, derived, storeComputed, atom } from './store.js';
 export { Head, clearHead, beginHeadCollection, endHeadCollection } from './head.js';
 
 // SSR render-scoped context (keystone for head collection, loaders, resources)
-export { getServerContext, setServerContext, runWithServerContext } from './server-context.js';
+export {
+  getServerContext,
+  setServerContext,
+  runWithServerContext,
+  __installServerContextStorage,
+} from './server-context.js';
 
 // Client hydration payload reader (loader data + resources)
 export { __readHydrationData, __resetHydrationData, getLoaderData, getResource } from './hydration-data.js';

@@ -16,6 +16,18 @@ import { setupErrorOverlay } from './error-overlay.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
+const SERVER_ACTION_MODULE_RE = /(?:from\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"]|import\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"])/;
+const SCRIPT_MODULE_RE = /\.[cm]?[jt]sx?$/;
+
+function patternMatches(pattern, value) {
+  if (!pattern) return false;
+  if (Array.isArray(pattern)) return pattern.some((entry) => patternMatches(entry, value));
+  if (pattern instanceof RegExp) {
+    pattern.lastIndex = 0;
+    return pattern.test(value);
+  }
+  return typeof pattern === 'function' ? pattern(value) : false;
+}
 
 /**
  * Shape the "preserve JSX" transform config for the running Vite version.
@@ -82,6 +94,32 @@ export default function whatVitePlugin(options = {}) {
   let pagesDir = '';
   let server = null;
   let isDevMode = false;
+  const actionIdRegistry = new Map();
+
+  function registerActionId(metadata) {
+    const existing = actionIdRegistry.get(metadata.id);
+    if (existing && existing.key !== metadata.key) {
+      throw new Error(
+        `Duplicate server action ID "${metadata.id}". ` +
+        `First declared by "${existing.bindingName}" at ${existing.source}; ` +
+        `conflicts with "${metadata.bindingName}" at ${metadata.source}.`
+      );
+    }
+    actionIdRegistry.set(metadata.id, metadata);
+  }
+
+  function clearActionIdsForFile(filename) {
+    for (const [id, metadata] of actionIdRegistry) {
+      if (metadata.filename === filename) actionIdRegistry.delete(id);
+    }
+  }
+
+  function actionFilenameForFile(filename) {
+    const cleanFilename = filename.replace(/[?#].*$/, '');
+    return rootDir
+      ? path.relative(rootDir, cleanFilename).split(path.sep).join('/')
+      : cleanFilename;
+  }
 
   return {
     name: 'vite-plugin-what',
@@ -111,6 +149,9 @@ export default function whatVitePlugin(options = {}) {
       });
 
       devServer.watcher.on('unlink', (file) => {
+        // Vite will never transform an unlinked module again, so explicitly
+        // release its IDs before handling the narrower pages refresh path.
+        clearActionIdsForFile(actionFilenameForFile(file));
         if (file.startsWith(pagesDir)) {
           const mod = devServer.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
           if (mod) {
@@ -137,9 +178,20 @@ export default function whatVitePlugin(options = {}) {
 
     // Transform JSX files
     transform(code, id) {
-      // Check if we should process this file
-      if (!include.test(id)) return null;
-      if (exclude && exclude.test(id)) return null;
+      const cleanId = id.replace(/[?#].*$/, '');
+      const hasJsx = patternMatches(include, cleanId);
+      const isScriptModule = SCRIPT_MODULE_RE.test(cleanId);
+      const hasServerActions = isScriptModule && SERVER_ACTION_MODULE_RE.test(code);
+      if (exclude && patternMatches(exclude, cleanId)) return null;
+
+      // Clear before either transforming the replacement or returning early.
+      // Otherwise a .ts/.js module that removes its final action import leaves
+      // an ID reserved forever and produces false duplicate-ID failures.
+      if (isScriptModule) clearActionIdsForFile(actionFilenameForFile(cleanId));
+      // Server action metadata is required in plain .js/.ts modules too, so
+      // those modules pass through the same hermetic Babel transform even when
+      // they contain no JSX.
+      if (!hasJsx && !hasServerActions) return null;
 
       try {
         const result = transformSync(code, {
@@ -153,7 +205,11 @@ export default function whatVitePlugin(options = {}) {
           configFile: false,
           babelrc: false,
           plugins: [
-            [whatBabelPlugin, { production }]
+            [whatBabelPlugin, {
+              production,
+              projectRoot: rootDir || process.cwd(),
+              onActionId: registerActionId,
+            }]
           ],
           parserOpts: {
             plugins: ['jsx', 'typescript']
