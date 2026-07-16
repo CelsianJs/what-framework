@@ -2,7 +2,13 @@
 // SSR, static site generation, server components.
 // Zero-JS pages by default. Islands opt-in to client JS.
 
-import { h, runWithServerContext, beginHeadCollection, endHeadCollection } from 'what-core';
+import {
+  h,
+  getServerContext,
+  runWithServerContext,
+  beginHeadCollection,
+  endHeadCollection,
+} from 'what-core';
 import { serializeState } from './serialize.js';
 import { getIslandStoresSnapshot } from './islands.js';
 import { csrfMetaTag } from './actions.js';
@@ -13,6 +19,7 @@ function createRenderContext(loaderData) {
     head: beginHeadCollection(),
     loaderData,
     resources: new Map(),
+    islandStores: new Map(),
     resourceCounter: 0,
     boundaryCounter: 0,
     suspended: [],
@@ -35,6 +42,10 @@ function nextHydrationId() {
 // so the client can reuse the server-rendered DOM.
 
 export function renderToHydratableString(vnode) {
+  if (typeof document === 'undefined' && !getServerContext()) {
+    const ctx = createRenderContext(undefined);
+    return runWithServerContext(ctx, () => renderToHydratableString(vnode));
+  }
   resetHydrationId();
   return _renderHydratable(vnode);
 }
@@ -108,6 +119,10 @@ function injectHydrationKey(html, hkId) {
 // Renders a VNode tree to an HTML string. Used for SSR and static gen.
 
 export function renderToString(vnode) {
+  if (typeof document === 'undefined' && !getServerContext()) {
+    const ctx = createRenderContext(undefined);
+    return runWithServerContext(ctx, () => renderToString(vnode));
+  }
   if (vnode == null || vnode === false || vnode === true) return '';
 
   // Text
@@ -243,7 +258,7 @@ export async function renderDocument(pageModule, reqCtx = {}, options = {}) {
   const payload = {
     loaderData: loaderData ?? null,
     resources,
-    islandStores: getIslandStoresSnapshot(),
+    islandStores: getIslandStoresSnapshot(ctx),
   };
   return wrapHtmlDocument({ body, head, payload, options });
 }
@@ -283,14 +298,16 @@ export async function* renderToStream(vnode, ctx) {
 
   // Signal — unwrap by calling it
   if (typeof vnode === 'function' && vnode._signal) {
-    yield* renderToStream(vnode(), ctx);
+    const value = runWithServerContext(ctx, () => vnode());
+    yield* renderToStream(value, ctx);
     return;
   }
 
   // Reactive function child — call to get value
   if (typeof vnode === 'function') {
     try {
-      yield* renderToStream(vnode(), ctx);
+      const value = runWithServerContext(ctx, () => vnode());
+      yield* renderToStream(value, ctx);
     } catch (e) {
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in stream SSR:', e.message);
@@ -333,7 +350,10 @@ export async function* renderToStream(vnode, ctx) {
 
   if (typeof vnode.tag === 'function') {
     try {
-      const result = vnode.tag({ ...vnode.props, children: vnode.children });
+      const result = runWithServerContext(
+        ctx,
+        () => vnode.tag({ ...vnode.props, children: vnode.children })
+      );
       // Support async components
       const resolved = result instanceof Promise ? await result : result;
       yield* renderToStream(resolved, ctx);
@@ -380,8 +400,11 @@ export function definePage(config) {
 
 // Generate static HTML for a page
 export function generateStaticPage(page, data = {}) {
-  const vnode = page.component(data);
-  const html = renderToString(vnode);
+  const ctx = createRenderContext(data);
+  const html = runWithServerContext(ctx, () => {
+    const vnode = page.component(data);
+    return renderToString(vnode);
+  });
   const islands = page.islands || [];
 
   return wrapDocument({
@@ -589,12 +612,11 @@ export {
   getRevalidationHandler,
 } from './revalidation-registry.js';
 
-// Deploy adapters — framework-agnostic core + Node / static / edge wrappers
+// Runtime-neutral deploy adapters. Node-only adapters are re-exported by the
+// package's conditional Node entry so browser/edge bundles never resolve Node
+// builtins merely because they import a client-safe server action.
 export { createRequestHandler } from './adapter/core.js';
-export { createServer, toNodeListener, whatMiddleware } from './adapter/node.js';
-export { exportStatic } from './adapter/static.js';
 export { createCloudflareHandler } from './adapter/cloudflare.js';
-export { createVercelHandler, buildVercelOutput } from './adapter/vercel.js';
 
 // Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
 export { serializeState } from './serialize.js';

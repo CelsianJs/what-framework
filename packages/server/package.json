@@ -8,6 +8,11 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "node": {
+        "production": "./dist/node.min.js",
+        "import": "./src/node.js",
+        "default": "./src/node.js"
+      },
       "production": "./dist/index.min.js",
       "import": "./src/index.js",
       "default": "./src/index.js"
@@ -28,7 +33,10 @@
     "dist/**/*.min.js",
     "index.d.ts"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/node.js",
+    "./dist/node.min.js"
+  ],
   "keywords": [
     "ssr",
     "islands",

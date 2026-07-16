@@ -2,7 +2,7 @@
 //
 // Stateless on purpose: this module holds no shared state, so it is safe for
 // the bundler to inline into multiple server entry points without creating
-// divergent instances (unlike islands.js's sharedStores).
+// divergent instances. Island state itself is scoped by the render context.
 //
 // JSON.stringify alone is NOT safe to drop inside <script>...</script>: a value
 // containing "</script>" (or "<!--", "<script") breaks out of the element and

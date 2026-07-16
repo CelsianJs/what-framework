@@ -1,6 +1,6 @@
 // What Framework Server - TypeScript Definitions
 
-import { VNode, VNodeChild, Signal } from '../core';
+import { VNode, VNodeChild, Signal } from 'what-core';
 
 // --- SSR ---
 

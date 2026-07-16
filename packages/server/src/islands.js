@@ -16,7 +16,7 @@
 //   'media'   - Hydrate when media query matches (e.g., mobile-only)
 //   'action'  - Hydrate on first user interaction (click, focus, hover)
 
-import { mount, hydrate, signal, batch } from 'what-core';
+import { mount, hydrate, signal, batch, getServerContext } from 'what-core';
 import { serializeState } from './serialize.js';
 
 const islandRegistry = new Map();
@@ -25,20 +25,41 @@ const hydrationQueue = [];
 let isProcessingQueue = false;
 
 // --- Shared Island State ---
-// Global reactive store that persists across islands and page navigations
+// Browser stores intentionally persist across islands and client navigations.
+// Server stores belong to the active render context so one request can never
+// observe another request's state. Module-scoped server declarations receive a
+// lightweight handle that resolves to the current request's concrete store.
 
-const sharedStores = new Map();
+const browserStores = new Map();
+const serverStoreDefinitions = new Map();
 
-export function createIslandStore(name, initialState) {
-  if (sharedStores.has(name)) {
-    return sharedStores.get(name);
+function cloneInitialState(value) {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch {
+      // Fall through for values structuredClone cannot represent. Island
+      // state is expected to be serializable, but preserving a shallow copy is
+      // a safer compatibility fallback than sharing the original object.
+    }
   }
+  if (Array.isArray(value)) return value.map(cloneInitialState);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneInitialState(item)])
+    );
+  }
+  return value;
+}
+
+function createConcreteStore(storeMap, name, initialState) {
+  if (storeMap.has(name)) return storeMap.get(name);
 
   const store = {};
   const signals = {};
 
   // Create signals for each key in initial state
-  for (const [key, value] of Object.entries(initialState)) {
+  for (const [key, value] of Object.entries(cloneInitialState(initialState))) {
     signals[key] = signal(value);
     Object.defineProperty(store, key, {
       get: () => signals[key](),
@@ -72,16 +93,86 @@ export function createIslandStore(name, initialState) {
     });
   };
 
-  sharedStores.set(name, store);
+  storeMap.set(name, store);
   return store;
+}
+
+function activeServerStoreMap(context) {
+  const ctx = context || getServerContext();
+  return ctx && ctx.islandStores instanceof Map ? ctx.islandStores : null;
+}
+
+function serverStoreHandle(name, initialState) {
+  if (serverStoreDefinitions.has(name)) {
+    return serverStoreDefinitions.get(name).handle;
+  }
+
+  const definition = {
+    initialState: cloneInitialState(initialState),
+    handle: null,
+  };
+
+  const resolve = () => {
+    const storeMap = activeServerStoreMap();
+    if (!storeMap) {
+      throw new Error(
+        `[what-server] Island store "${name}" was accessed outside an active server render. ` +
+        'Read or write module-scoped island stores from a component rendered by renderDocument/renderPage.'
+      );
+    }
+    return createConcreteStore(storeMap, name, definition.initialState);
+  };
+
+  definition.handle = new Proxy({}, {
+    get(_target, property) {
+      return Reflect.get(resolve(), property);
+    },
+    set(_target, property, value) {
+      return Reflect.set(resolve(), property, value);
+    },
+    has(_target, property) {
+      return Reflect.has(resolve(), property);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(resolve());
+    },
+    getOwnPropertyDescriptor(_target, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(resolve(), property);
+      return descriptor ? { ...descriptor, configurable: true } : undefined;
+    },
+  });
+
+  serverStoreDefinitions.set(name, definition);
+  return definition.handle;
+}
+
+export function createIslandStore(name, initialState) {
+  if (typeof document !== 'undefined') {
+    return createConcreteStore(browserStores, name, initialState);
+  }
+
+  const storeMap = activeServerStoreMap();
+  if (storeMap) {
+    const definition = serverStoreDefinitions.get(name);
+    return createConcreteStore(storeMap, name, definition?.initialState ?? initialState);
+  }
+
+  return serverStoreHandle(name, initialState);
 }
 
 // Get or create a shared store
 export function useIslandStore(name, fallbackInitial = {}) {
-  if (sharedStores.has(name)) {
-    return sharedStores.get(name);
+  if (typeof document !== 'undefined') {
+    return createConcreteStore(browserStores, name, fallbackInitial);
   }
-  return createIslandStore(name, fallbackInitial);
+
+  const storeMap = activeServerStoreMap();
+  if (storeMap) {
+    const definition = serverStoreDefinitions.get(name);
+    return createConcreteStore(storeMap, name, definition?.initialState ?? fallbackInitial);
+  }
+
+  return serverStoreHandle(name, fallbackInitial);
 }
 
 // Serialize all shared stores for SSR.
@@ -94,9 +185,12 @@ export function serializeIslandStores() {
 
 // Raw (unserialized) snapshot of all shared island stores, so renderDocument can
 // merge it into the single consolidated #__what_data payload (one serialize pass).
-export function getIslandStoresSnapshot() {
+export function getIslandStoresSnapshot(context) {
+  const storeMap = typeof document !== 'undefined'
+    ? browserStores
+    : activeServerStoreMap(context);
   const data = {};
-  for (const [name, store] of sharedStores) {
+  for (const [name, store] of storeMap || []) {
     data[name] = store._getSnapshot();
   }
   return data;
@@ -428,12 +522,15 @@ export function enhanceForms(selector = 'form[data-enhance]') {
 // --- Debugging ---
 
 export function getIslandStatus() {
+  const stores = typeof document !== 'undefined'
+    ? [...browserStores.keys()]
+    : [...(activeServerStoreMap()?.keys() || serverStoreDefinitions.keys())];
   const status = {
     registered: [...islandRegistry.keys()],
     hydrated: hydratedIslands.size,
     pending: hydrationQueue.length,
     queue: hydrationQueue.map(t => ({ name: t.name, priority: t.priority })),
-    stores: [...sharedStores.keys()],
+    stores,
   };
   return status;
 }

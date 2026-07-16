@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 
 import { packages as buildPackages } from './build.js';
@@ -217,3 +226,74 @@ if (distOrphans.length || distMissing.length) {
 console.log(
   `[publish-surface] OK: dist contents match the build config for ${distCheckedPackages}/${buildPackages.length} built packages (no orphans).`,
 );
+
+// ---------------------------------------------------------------------------
+// Packed declaration consumer
+//
+// Workspace typechecks can accidentally resolve sibling declarations through
+// relative repository paths that do not exist in published tarballs. Install
+// the three public packages involved in the router/server type graph into a
+// clean directory, then typecheck a consumer against those packed artifacts.
+// ---------------------------------------------------------------------------
+
+const packedTypesDir = mkdtempSync(join(tmpdir(), 'what-packed-types-'));
+try {
+  const tarballDir = join(packedTypesDir, 'tarballs');
+  const consumerDir = join(packedTypesDir, 'consumer');
+  mkdirSync(tarballDir, { recursive: true });
+  mkdirSync(consumerDir, { recursive: true });
+
+  const tarballs = [];
+  for (const packageDir of ['packages/core', 'packages/router', 'packages/server']) {
+    const output = execFileSync(
+      'npm',
+      ['pack', resolve(repoRoot, packageDir), '--pack-destination', tarballDir, '--silent'],
+      { cwd: repoRoot, encoding: 'utf8' },
+    );
+    const filename = output.trim().split('\n').filter(Boolean).pop();
+    const tarball = resolve(tarballDir, filename || '');
+    if (!filename || !existsSync(tarball)) {
+      throw new Error(`npm pack did not produce a tarball for ${packageDir}`);
+    }
+    tarballs.push(tarball);
+  }
+
+  writeFileSync(
+    join(consumerDir, 'package.json'),
+    `${JSON.stringify({ private: true, type: 'module' }, null, 2)}\n`,
+  );
+  execFileSync(
+    'npm',
+    ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...tarballs],
+    { cwd: consumerDir, encoding: 'utf8' },
+  );
+  writeFileSync(join(consumerDir, 'consumer.ts'), `
+    import { Router, type RouteConfig } from 'what-router';
+    import { renderToString, type IslandStore } from 'what-server';
+    import type { VNode } from 'what-core';
+
+    const routes: RouteConfig[] = [];
+    const vnode: VNode = Router({ routes });
+    renderToString(vnode);
+
+    declare const store: IslandStore<{ count: number }>;
+    store._signals.count.set(1);
+  `);
+
+  execFileSync(
+    process.execPath,
+    [
+      resolve(repoRoot, 'node_modules/typescript/bin/tsc'),
+      '--noEmit',
+      '--strict',
+      '--target', 'ES2022',
+      '--module', 'NodeNext',
+      '--moduleResolution', 'NodeNext',
+      'consumer.ts',
+    ],
+    { cwd: consumerDir, encoding: 'utf8' },
+  );
+  console.log('[publish-surface] OK: packed what-router/what-server declarations typecheck in a clean consumer.');
+} finally {
+  rmSync(packedTypesDir, { recursive: true, force: true });
+}
