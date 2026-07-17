@@ -140,6 +140,33 @@ describe('runtime <For> re-renders on list change (automatic JSX runtime / h pat
     assert.equal(app.querySelectorAll('li').length, 2, '<For> must render items when list fills');
     assert.equal(app.querySelector('.empty'), null, 'fallback removed once non-empty');
   });
+
+  it('(8) disposes a nested <For> when an outer <Show> re-evaluates from the same collection', () => {
+    const app = getContainer();
+    const items = signal([
+      { id: 'a', label: 'Alpha' },
+      { id: 'b', label: 'Beta' },
+      { id: 'c', label: 'Gamma' },
+    ]);
+
+    mountInto(app, _$createComponent(
+      Show,
+      { when: () => items().length > 0, fallback: h('p', { class: 'empty' }, 'nothing') },
+      [h(For, { each: () => items() }, [(item) => h('li', { key: item.id }, item.label)])],
+    ));
+
+    assert.equal(app.querySelectorAll('li').length, 3, 'initial nested list rendered once');
+
+    items([{ id: 'b', label: 'Beta' }]);
+    flushSync();
+    assert.equal(app.querySelectorAll('li').length, 1, 'filtering replaces the nested list instead of retaining stale rows');
+    assert.equal(app.textContent, 'Beta');
+
+    items([{ id: 'b', label: 'Beta' }]);
+    flushSync();
+    assert.equal(app.querySelectorAll('li').length, 1, 'same-size replacement does not append another nested effect');
+    assert.equal(app.textContent, 'Beta');
+  });
 });
 
 describe('runtime <Switch>/<Match> stays reactive (never lowered by the compiler)', () => {

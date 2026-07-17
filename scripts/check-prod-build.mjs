@@ -20,7 +20,7 @@ global.document = dom.window.document;
 global.window = dom.window;
 
 // IMPORTANT: these two imports must resolve to the production (minified) builds.
-const { mount, useSignal, flushSync } = await import('what-framework');
+const { mount, useSignal, signal, flushSync, h, Show, For } = await import('what-framework');
 const { _$createComponent, template, insert } = await import('what-framework/render');
 
 let signalRef;
@@ -47,4 +47,26 @@ signalRef.set(7);
 if (typeof flushSync === 'function') flushSync();
 assert.match(container.textContent, /Count: 7/, `signal update did not reach the DOM — reactive context not shared (got "${container.textContent}")`);
 
-console.log('  ✓ prod build smoke: rendered + reactive ("Count: 0" -> "Count: 7"). Single core instance confirmed.');
+// 3) Nested runtime Show/For effects must dispose from the production bundle.
+// A filter UI commonly derives both the outer empty-state condition and the
+// inner list from the same signal. A stale minified bundle once retained each
+// recreated For effect, appending another copy on every filter change.
+const listContainer = document.createElement('ul');
+document.body.appendChild(listContainer);
+const items = signal([
+  { id: 'a', label: 'Alpha' },
+  { id: 'b', label: 'Beta' },
+  { id: 'c', label: 'Gamma' },
+]);
+mount(_$createComponent(
+  Show,
+  { when: () => items().length > 0, fallback: h('li', { class: 'empty' }, 'nothing') },
+  [h(For, { each: () => items() }, [(item) => h('li', { key: item.id }, item.label)])],
+), listContainer);
+assert.equal(listContainer.querySelectorAll('li').length, 3, 'production nested list rendered more than once initially');
+items([{ id: 'b', label: 'Beta' }]);
+flushSync();
+assert.equal(listContainer.querySelectorAll('li').length, 1, 'production nested list retained stale rows after filtering');
+assert.equal(listContainer.textContent, 'Beta');
+
+console.log('  ✓ prod build smoke: rendered, reactive, and nested list disposal stayed single-owned.');
