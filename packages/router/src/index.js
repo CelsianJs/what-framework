@@ -60,7 +60,10 @@ export async function navigate(to, opts = {}) {
   // Reject unsafe URLs
   if (!isSafeUrl(to)) {
     if (typeof console !== 'undefined') {
-      console.warn(`[what-router] Blocked navigation to unsafe URL: ${to}`);
+      // isSafeUrl() rejects non-strings, so the value reaching this warning is
+      // exactly the kind that can throw on template-literal coercion (Symbol,
+      // null-prototype object). Log it as a separate argument.
+      console.warn('[what-router] Blocked navigation to unsafe URL:', to);
     }
     return;
   }
@@ -311,7 +314,7 @@ export function Link({
   // Sanitize href — reject dangerous protocols
   const safeHref = isSafeUrl(href) ? href : 'about:blank';
   if (!isSafeUrl(href) && typeof console !== 'undefined') {
-    console.warn(`[what-router] Link blocked unsafe href: ${href}`);
+    console.warn('[what-router] Link blocked unsafe href:', href);
   }
 
   // Strip query string and hash from href for path comparison

@@ -183,6 +183,34 @@ describe('URL sanitization', () => {
     assert.equal(isSafeUrl(null), false);
   });
 
+  it('the blocked-navigation warning does not throw on a non-coercible target', () => {
+    // isSafeUrl() rejects non-strings, so the warning path is reached with
+    // exactly the values that cannot go through a template literal.
+    const warned = [];
+    const original = console.warn;
+    console.warn = (...args) => warned.push(args);
+    try {
+      assert.doesNotThrow(() => navigate(Symbol('nope')));
+      assert.doesNotThrow(() => navigate(Object.create(null)));
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warned.length, 2, 'both attempts must be reported, not crash');
+  });
+
+  it('the blocked-href warning does not throw on a non-coercible href', () => {
+    const warned = [];
+    const original = console.warn;
+    console.warn = (...args) => warned.push(args);
+    try {
+      assert.doesNotThrow(() => Link({ href: Symbol('nope'), children: 'x' }));
+      assert.doesNotThrow(() => Link({ href: Object.create(null), children: 'x' }));
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warned.length, 2);
+  });
+
   it('should reject protocol-relative URLs', () => {
     assert.equal(isSafeUrl('//evil.com/x'), false);
     assert.equal(isSafeUrl('  //evil.com'), false);
