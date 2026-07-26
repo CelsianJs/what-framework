@@ -81,19 +81,31 @@ export function lazy(loader) {
 export function Suspense({ fallback, children }) {
   const loading = signal(false);
   const pendingPromises = new Set();
+  let failed = false;
 
   // Suspense boundary marker
   const boundary = {
     _suspense: true,
     onSuspend(promise) {
+      if (failed) return;
       loading.set(true);
       pendingPromises.add(promise);
-      promise.finally(() => {
-        pendingPromises.delete(promise);
-        if (pendingPromises.size === 0) {
-          loading.set(false);
-        }
-      });
+      // Rejection is handled separately from fulfilment. Clearing the fallback
+      // on a rejection re-renders the child, which suspends on the same
+      // rejected thenable again, forever. Latch the failure and stay put.
+      promise.then(
+        () => {
+          pendingPromises.delete(promise);
+          if (pendingPromises.size === 0) {
+            loading.set(false);
+          }
+        },
+        (err) => {
+          failed = true;
+          pendingPromises.delete(promise);
+          console.error('[what] Suspense: a suspended child rejected:', err);
+        },
+      );
     },
   };
 

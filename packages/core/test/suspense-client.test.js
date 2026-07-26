@@ -130,4 +130,33 @@ describe('client Suspense + lazy', () => {
       console.warn = origWarn;
     }
   });
+
+  it('renders a bounded number of times when a thrown thenable rejects', async () => {
+    const container = getContainer();
+    let renders = 0;
+    const d = deferred();
+    d.promise.catch(() => {});
+
+    function Failing() {
+      renders++;
+      throw d.promise;
+    }
+
+    const origError = console.error;
+    const origWarn = console.warn;
+    console.error = () => {};
+    console.warn = () => {};
+    try {
+      mount(h(Suspense, { fallback: h('span', null, 'loading') }, h(Failing)), container);
+      await flush();
+      d.reject(new Error('boom'));
+      await flush();
+      await flush();
+    } finally {
+      console.error = origError;
+      console.warn = origWarn;
+    }
+
+    assert.ok(renders <= 3, `Suspense livelocked on a rejected thenable: ${renders} renders`);
+  });
 });
