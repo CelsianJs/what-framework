@@ -199,6 +199,10 @@ export function createRequestHandler(options = {}) {
     // NOTE: cached HTML is shared across users, so the per-user CSRF token is
     // NOT embedded in the page here — clients read it from the cookie instead.
     if (cache && config.mode !== 'server') {
+      // The cache engine resolves the route's declared `vary` names against
+      // these. Without them it fails closed: warns and bypasses on every
+      // request, which is how the vary control shipped never executing.
+      routeMatch.varyHeaders = headersToObject(request.headers);
       const result = await cache.handle(routeMatch, () => renderRoute(routeMatch));
       return new Response(result.html, {
         status: result.status || 200,

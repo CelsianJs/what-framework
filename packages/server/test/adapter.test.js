@@ -114,3 +114,69 @@ describe('createRequestHandler', () => {
     assert.match(html, /id="__what_data"/);
   });
 });
+
+// The vary control never executed outside unit tests: no shipped adapter set
+// routeMatch.varyHeaders, so every vary route warned and bypassed the cache.
+describe('vary routes through the real adapter', () => {
+  const varyRoutes = [
+    {
+      path: '/account',
+      component: () => h('main', {}, 'account'),
+      mode: 'hybrid',
+      page: { mode: 'hybrid', revalidate: 60, vary: ['cookie:session'] },
+    },
+  ];
+
+  function sessionRender() {
+    let n = 0;
+    const render = async (rm) => {
+      n++;
+      const cookie = (rm.varyHeaders || {}).cookie || '';
+      return { html: `<main>${cookie}#${n}</main>`, status: 200, tags: [], path: rm.path };
+    };
+    return { render, count: () => n };
+  }
+
+  const get = (handle, cookie) => handle(new Request('http://x/account', { headers: { cookie } }));
+
+  it('supplies the declared request headers so the cache keys per user', async () => {
+    const { render, count } = sessionRender();
+    const store = createMemoryStore();
+    const handle = createRequestHandler({ routes: varyRoutes, cache: createCacheEngine({ store }), render });
+
+    const alice = await get(handle, 'session=alice');
+    const bob = await get(handle, 'session=bob');
+    assert.match(await alice.text(), /session=alice/);
+    assert.match(await bob.text(), /session=bob/, "Alice's HTML must not be served to Bob");
+    assert.notEqual(alice.headers.get('x-what-cache'), 'BYPASS', 'the vary control never ran');
+    assert.equal((await store.keys()).length, 2, 'one cache entry per user');
+
+    const aliceAgain = await get(handle, 'session=alice');
+    assert.equal(aliceAgain.headers.get('x-what-cache'), 'HIT');
+    assert.match(await aliceAgain.text(), /session=alice/);
+    assert.equal(count(), 2, 'the repeat visit is served from cache');
+  });
+
+  it('never advertises a per-user render as publicly shareable', async () => {
+    const { render } = sessionRender();
+    const handle = createRequestHandler({ routes: varyRoutes, cache: createCacheEngine({ store: createMemoryStore() }), render });
+
+    const res = await get(handle, 'session=alice');
+    assert.match(res.headers.get('cache-control'), /private, no-store/);
+    assert.doesNotMatch(res.headers.get('cache-control'), /public/);
+  });
+
+  it('does not warn on every request for a vary route', async () => {
+    const { render } = sessionRender();
+    const warnings = [];
+    const cache = createCacheEngine({
+      store: createMemoryStore(),
+      logger: { warn: (m) => warnings.push(m), error() {} },
+    });
+    const handle = createRequestHandler({ routes: varyRoutes, cache, render });
+
+    await get(handle, 'session=alice');
+    await get(handle, 'session=alice');
+    assert.deepEqual(warnings, [], `vary route warned per request: ${warnings.join(' | ')}`);
+  });
+});
