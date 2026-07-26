@@ -78,7 +78,6 @@ function entriesFor(pkgDir, pkg) {
 
 export async function checkParity() {
   const failures = [];
-  const skipped = [];
   let checked = 0;
 
   for (const name of readdirSync(packagesDir).sort()) {
@@ -94,7 +93,14 @@ export async function checkParity() {
       try {
         mod = await import(pathToFileURL(runtime).href);
       } catch (err) {
-        skipped.push(`${types.slice(root.length + 1)}: cannot import ${runtime.slice(root.length + 1)} (${err.message})`);
+        // A silent skip is a hole in the gate: an entry nobody can import is an
+        // entry nobody is checking. Report it as a failure and let SKIP_PACKAGES
+        // record the deliberate exceptions.
+        failures.push({
+          types: types.slice(root.length + 1),
+          phantoms: [],
+          unimportable: `cannot import ${runtime.slice(root.length + 1)} (${err.message})`,
+        });
         continue;
       }
       checked++;
@@ -108,12 +114,12 @@ export async function checkParity() {
     }
   }
 
-  for (const s of skipped) console.log(`skip  ${s}`);
   for (const f of failures) {
     console.log(`FAIL  ${f.types}`);
+    if (f.unimportable) console.log(`        ${f.unimportable}`);
     for (const p of f.phantoms) console.log(`        phantom export: ${p}`);
   }
-  console.log(`\n${checked} declaration file(s) checked, ${failures.length} with phantom exports.`);
+  console.log(`\n${checked} declaration file(s) checked, ${failures.length} problem(s).`);
   return failures;
 }
 

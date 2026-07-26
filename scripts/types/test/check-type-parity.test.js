@@ -9,13 +9,13 @@ import assert from 'node:assert/strict';
 
 import { checkParity, declaredValues } from '../../check-type-parity.mjs';
 
-test('no .d.ts declares an export the runtime does not provide', async () => {
+test('no .d.ts declares an export the runtime does not provide, and nothing is silently skipped', async () => {
   const failures = await checkParity();
   assert.deepEqual(
     failures,
     [],
-    `phantom declarations found:\n${failures
-      .map((f) => `${f.types}: ${f.phantoms.join(', ')}`)
+    `type parity problems found:\n${failures
+      .map((f) => `${f.types}: ${f.unimportable || f.phantoms.join(', ')}`)
       .join('\n')}`,
   );
 });
