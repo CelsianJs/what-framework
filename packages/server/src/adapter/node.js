@@ -4,6 +4,17 @@
 
 import http from 'node:http';
 import { createRequestHandler } from './core.js';
+import { MAX_BODY_BYTES } from '../action-handler.js';
+
+// A Request object only exists after the body is read, so the cap the fetch
+// path enforces would run too late here. Returned instead of a Request when the
+// body is over the limit, so the caller answers 413 without buffering it all.
+const TOO_LARGE = Symbol('what.bodyTooLarge');
+
+const TOO_LARGE_RESPONSE = () => new Response(
+  JSON.stringify({ message: 'Payload too large' }),
+  { status: 413, headers: { 'content-type': 'application/json' } },
+);
 
 async function nodeToWebRequest(req) {
   const host = req.headers.host || 'localhost';
@@ -14,8 +25,25 @@ async function nodeToWebRequest(req) {
   }
   let body;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const declared = Number(req.headers['content-length']);
+    let tooLarge = Number.isFinite(declared) && declared > MAX_BODY_BYTES;
     const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
+    let size = 0;
+    // Once over the cap the remaining chunks are drained and discarded rather
+    // than buffered: memory stays bounded, and the socket survives long enough
+    // to carry the 413 back. Chunked transfer or a spoofed Content-Length
+    // cannot get past the running total.
+    for await (const chunk of req) {
+      if (tooLarge) continue;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        tooLarge = true;
+        chunks.length = 0;
+        continue;
+      }
+      chunks.push(chunk);
+    }
+    if (tooLarge) return TOO_LARGE;
     if (chunks.length) body = Buffer.concat(chunks);
   }
   return new Request(url, { method: req.method, headers, body });
@@ -33,6 +61,7 @@ export function toNodeListener(handler) {
   return async function listener(req, res) {
     try {
       const webReq = await nodeToWebRequest(req);
+      if (webReq === TOO_LARGE) return await sendWebResponse(res, TOO_LARGE_RESPONSE());
       const webRes = await handler(webReq);
       await sendWebResponse(res, webRes);
     } catch (err) {
@@ -49,6 +78,7 @@ export function whatMiddleware(options = {}) {
   const handler = createRequestHandler(options);
   return async function middleware(req, res, next) {
     const webReq = await nodeToWebRequest(req);
+    if (webReq === TOO_LARGE) return await sendWebResponse(res, TOO_LARGE_RESPONSE());
     const webRes = await handler(webReq);
     if (webRes.status === 404 && typeof next === 'function') return next();
     await sendWebResponse(res, webRes);

@@ -9,7 +9,7 @@
 import { handleActionRequest } from './actions.js';
 
 const DEFAULT_BASE_PATH = '/__what_action';
-const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
 function lowerHeaders(headers) {
   if (!headers) return {};
