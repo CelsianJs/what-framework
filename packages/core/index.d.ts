@@ -48,7 +48,8 @@ export function onRootCleanup(fn: () => void): void;
 export type PrimitiveChild = string | number | boolean | null | undefined;
 export type VNodeChild = PrimitiveChild | VNode | (() => VNodeChild) | VNodeChild[];
 
-export type Component<P = {}> = (props: P & { children?: VNodeChild }) => VNode;
+/** A component may legitimately render nothing, so `null` is part of the contract. */
+export type Component<P = {}> = (props: P & { children?: VNodeChild }) => VNode | null;
 
 export interface VNode<P = Record<string, any>> {
   tag: string | Component<P>;

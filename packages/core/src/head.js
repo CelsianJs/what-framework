@@ -124,8 +124,17 @@ function escapeHtml(str) {
 
 // --- Client DOM helpers ---
 
+// Dedup keys come from user-supplied attrs (and fall back to JSON.stringify,
+// which always contains quotes), so they cannot go into a selector raw: an
+// unescaped one throws DOMException and takes all head management with it.
+function escapeSelectorValue(key) {
+  const s = String(key);
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
+  return s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c.codePointAt(0).toString(16)} `);
+}
+
 function setHeadTag(tag, key, attrs) {
-  const existing = document.head.querySelector(`[data-what-head="${key}"]`);
+  const existing = document.head.querySelector(`[data-what-head="${escapeSelectorValue(key)}"]`);
   if (existing) {
     updateElement(existing, attrs);
     return;

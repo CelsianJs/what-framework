@@ -3,7 +3,7 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
-import { createDOM, disposeTree, getCurrentComponent, getComponentStack, _setSelectValue, _isUnsafeAttr, _isEventProp } from './dom.js';
+import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp } from './dom.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
@@ -1681,13 +1681,14 @@ function hydrateNode(vnode, parent) {
     let current = hydrateNode(initialValue, parent);
 
     // Set up reactive effect for future updates (normal rendering path)
-    effect(() => {
+    const dispose = effect(() => {
       const value = vnode();
       // After hydration, this runs as normal insert
       if (!_isHydrating) {
         current = reconcileInsert(parent, value, current, null);
       }
     });
+    addHydrationDisposer(current && current.nodeType ? current : parent, dispose);
     return current;
   }
 
@@ -1753,7 +1754,13 @@ function hydrateNode(vnode, parent) {
       // useContext / error-boundary lookup resolves to this component, matching
       // createComponent in dom.js.
       try {
-        return hydrateNode(result, parent);
+        const node = hydrateNode(result, parent);
+        // No comment markers exist on this path, so anchor the ctx to the node
+        // the component produced (or to the parent when it produced none) —
+        // otherwise disposeTree can never reach it and the ctx leaks.
+        const first = Array.isArray(node) ? node[0] : node;
+        addHydratedComponent(first && first.nodeType ? first : parent, ctx);
+        return node;
       } finally {
         componentStack.pop();
       }

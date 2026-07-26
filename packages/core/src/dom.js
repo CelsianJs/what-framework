@@ -125,6 +125,20 @@ function disposeComponent(ctx) {
   mountedComponents.delete(ctx);
 }
 
+// Hydration has no wrapper fragment and no comment markers to hang a component
+// ctx or a reactive-child effect on, so it anchors them to the DOM node they
+// produced. Without an anchor disposeTree cannot reach them and every hydrated
+// component leaks its cleanups and effects.
+export function addHydrationDisposer(node, fn) {
+  if (!node || typeof fn !== 'function') return;
+  if (node._hydrationDisposers) node._hydrationDisposers.push(fn);
+  else node._hydrationDisposers = [fn];
+}
+
+export function addHydratedComponent(node, ctx) {
+  addHydrationDisposer(node, () => disposeComponent(ctx));
+}
+
 // Dispose all components and reactive effects attached to a DOM subtree.
 // Performance: checks _componentCtx / _dispose / _propEffects before walking
 // children, and only checks _commentCtxMap for comment nodes (nodeType 8).
@@ -132,6 +146,13 @@ export function disposeTree(node) {
   if (!node) return;
   if (node._componentCtx) {
     disposeComponent(node._componentCtx);
+  }
+  if (node._hydrationDisposers) {
+    const disposers = node._hydrationDisposers;
+    node._hydrationDisposers = null;
+    for (let i = 0; i < disposers.length; i++) {
+      try { disposers[i](); } catch (e) { /* already disposed */ }
+    }
   }
   // Check comment node WeakMap for component context — only for comment nodes
   if (node.nodeType === 8) {
