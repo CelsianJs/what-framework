@@ -44,9 +44,14 @@ const summary = {
   published: [],
   skipped: [],
   failed: [],
+  aborted: [],
 };
 
-for (const relDir of PACKAGE_ORDER) {
+// npm provenance requires an OIDC-capable CI runner (id-token: write). Local
+// and dry-run publishes have no token endpoint, so the flag must stay off.
+const useProvenance = !options.dryRun && Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+
+for (const [index, relDir] of PACKAGE_ORDER.entries()) {
   const pkgDir = join(repoRoot, relDir);
   const pkgFile = join(pkgDir, 'package.json');
 
@@ -62,7 +67,8 @@ for (const relDir of PACKAGE_ORDER) {
   if (!name || !version) {
     console.error(`[release] Invalid package metadata in ${pkgFile}`);
     summary.failed.push(`${relDir} (invalid package metadata)`);
-    continue;
+    abortRemaining(index);
+    break;
   }
 
   if (pkg.private) {
@@ -82,6 +88,9 @@ for (const relDir of PACKAGE_ORDER) {
   console.log(`[release] Publishing ${spec} from ${relDir}`);
 
   const publishArgs = ['publish', '--access', 'public'];
+  if (useProvenance) {
+    publishArgs.push('--provenance');
+  }
   if (options.tag && options.tag !== 'latest') {
     publishArgs.push('--tag', options.tag);
   }
@@ -93,12 +102,13 @@ for (const relDir of PACKAGE_ORDER) {
   }
 
   const result = run('npm', publishArgs, { cwd: pkgDir });
-  if (result.status === 0) {
-    summary.published.push(spec);
-  } else {
+  if (result.status !== 0) {
     summary.failed.push(spec);
     console.error(`[release] Failed publishing ${spec}`);
+    abortRemaining(index);
+    break;
   }
+  summary.published.push(spec);
 }
 
 console.log('\n[release] Publish summary');
@@ -108,9 +118,21 @@ console.log(`  skipped: ${summary.skipped.length}`);
 for (const item of summary.skipped) console.log(`    - ${item}`);
 console.log(`  failed: ${summary.failed.length}`);
 for (const item of summary.failed) console.log(`    - ${item}`);
+console.log(`  aborted: ${summary.aborted.length}`);
+for (const item of summary.aborted) console.log(`    - ${item}`);
 
 if (summary.failed.length > 0) {
   process.exit(1);
+}
+
+// PACKAGE_ORDER is topological: everything after a failure would publish
+// against a dependency version that never reached the registry, and npm has
+// no rollback. Stop instead of shipping an inconsistent release.
+function abortRemaining(index) {
+  const remaining = PACKAGE_ORDER.slice(index + 1);
+  if (remaining.length === 0) return;
+  console.error(`[release] Aborting: ${remaining.length} dependent package(s) left unpublished`);
+  summary.aborted.push(...remaining);
 }
 
 function parseArgs(args) {

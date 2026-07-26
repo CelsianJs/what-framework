@@ -33,6 +33,16 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # npm_tag is free-form dispatch input. Reject anything that is not a
+      # plain dist-tag before it reaches a step that holds NPM_TOKEN.
+      - name: Validate npm dist-tag input
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          if [ -n "$NPM_TAG" ] && ! printf '%s' "$NPM_TAG" | grep -Eq '^[a-z][a-z0-9]*([._-][a-z0-9]+)*$'; then
+            echo "Invalid npm_tag: '$NPM_TAG' (expected a dist-tag like latest, next, beta.1)"
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup Node.js
@@ -69,13 +79,15 @@ jobs:
         if: ${{ inputs.publish_packages }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           ARGS=()
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             ARGS+=(--dry-run)
           fi
-          if [ -n "${{ inputs.npm_tag }}" ]; then
-            ARGS+=(--tag "${{ inputs.npm_tag }}")
+          if [ -n "$NPM_TAG" ]; then
+            ARGS+=(--tag "$NPM_TAG")
           fi
           node scripts/publish-packages.mjs "${ARGS[@]}"
       - name: Verify npm registry packages
