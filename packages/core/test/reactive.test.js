@@ -37,6 +37,40 @@ describe('signal', () => {
     dispose();
   });
 
+  it('should notify when writing -0 over +0 (Object.is, not ===)', () => {
+    const s = signal(0);
+    const seen = [];
+    const dispose = effect(() => { seen.push(s()); });
+    s.set(-0);
+    flushSync();
+    assert.equal(seen.length, 2);
+    assert.ok(Object.is(seen[1], -0));
+    dispose();
+  });
+
+  it('should agree with computed() on -0 vs +0', () => {
+    const s = signal(0);
+    const c = computed(() => s());
+    let runs = 0;
+    const dispose = effect(() => { c(); runs++; });
+    assert.equal(runs, 1);
+    s.set(-0);
+    flushSync();
+    assert.equal(runs, 2);
+    assert.ok(Object.is(c(), -0));
+    dispose();
+  });
+
+  it('should not notify when writing NaN over NaN', () => {
+    const s = signal(NaN);
+    let runs = 0;
+    const dispose = effect(() => { s(); runs++; });
+    assert.equal(runs, 1);
+    s.set(NaN);
+    assert.equal(runs, 1);
+    dispose();
+  });
+
   it('should support peek() without tracking', () => {
     const s = signal(10);
     let runs = 0;
