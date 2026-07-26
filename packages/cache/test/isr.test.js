@@ -184,6 +184,36 @@ describe('ISR engine', () => {
     assert.match(aliceAgain.headers['Cache-Control'], /private, no-store/, 'never shareable at the edge');
   });
 
+  it('never advertises a routeMatch-level vary route as publicly shareable', async () => {
+    const store = createMemoryStore();
+    let renders = 0;
+    const engine = createCacheEngine({
+      store,
+      render: async (rm) => { renders++; return { html: `<p>${rm.varyHeaders.cookie}</p>`, tags: [] }; },
+      now: () => 0,
+    });
+    // vary declared on the routeMatch, not in the page config. The cache key
+    // honours it; the headers must not disagree.
+    const visit = (cookie) => engine.handle({
+      path: '/account',
+      query: {},
+      config: { mode: 'hybrid', revalidate: 60 },
+      vary: ['cookie:session'],
+      varyHeaders: { cookie },
+    });
+
+    const alice = await visit('session=alice');
+    const bob = await visit('session=bob');
+    assert.match(alice.html, /alice/);
+    assert.match(bob.html, /bob/);
+    assert.equal((await store.keys()).length, 2, 'the key already varies per user');
+
+    for (const r of [alice, bob]) {
+      assert.doesNotMatch(r.headers['Cache-Control'], /public/, `per-user HTML advertised as shareable: ${JSON.stringify(r.headers)}`);
+      assert.match(r.headers['Cache-Control'], /private, no-store/);
+    }
+  });
+
   it('a hybrid route without an explicit revalidate is not fresh forever', async () => {
     let t = 0; const now = () => t;
     let renders = 0;

@@ -8,7 +8,7 @@
 // `render(routeMatch, ctx)` is INJECTED by the adapter (wraps renderPage +
 // serializeState) — the engine never imports what-server, keeping it standalone.
 
-import { cacheKey, normalizePath, resolveVary } from './key.js';
+import { cacheKey, normalizePath, resolveVary, declaredVary } from './key.js';
 import { makeEntry, isFresh, isServableStale } from './stores/store-interface.js';
 import { buildCacheHeaders } from './headers.js';
 import { safeLocalPath } from './local-path.js';
@@ -20,8 +20,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
   // adapter supplies the request headers those names resolve against. Null means
   // the values are unavailable, so the render is per-user and must not be cached.
   function varyFor(routeMatch) {
-    const declared = routeMatch.vary != null ? routeMatch.vary : (routeMatch.config || {}).vary;
-    return resolveVary(declared, routeMatch.varyHeaders || routeMatch.headers);
+    return resolveVary(declaredVary(routeMatch), routeMatch.varyHeaders || routeMatch.headers);
   }
 
   function keyFor(routeMatch) {
@@ -56,14 +55,14 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     return p;
   }
 
-  function serve(entry, cacheStatus, config) {
+  function serve(entry, cacheStatus, routeMatch) {
     return {
       html: entry.html,
       head: entry.head,
       state: entry.state,
       status: entry.status || 200,
       cacheStatus,
-      headers: buildCacheHeaders(entry, config || {}, cacheStatus),
+      headers: buildCacheHeaders(entry, routeMatch.config || {}, cacheStatus, declaredVary(routeMatch)),
     };
   }
 
@@ -80,7 +79,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       }
       const out = await (renderOverride || render)(routeMatch, {});
       const entry = makeEntry({ ...out, path: routeMatch.path, private: vary === null || out.private }, config, now());
-      return serve(entry, 'BYPASS', config);
+      return serve(entry, 'BYPASS', routeMatch);
     }
 
     const key = cacheKey({ path: routeMatch.path, query: routeMatch.query, vary });
@@ -88,28 +87,28 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     const t = now();
 
     if (entry && isFresh(entry, t)) {
-      return serve(entry, 'HIT', config);
+      return serve(entry, 'HIT', routeMatch);
     }
 
     if (entry && isServableStale(entry, t)) {
       // Serve stale immediately; refresh in the background (deduped, non-blocking).
       regenerate(key, routeMatch, renderOverride).catch((e) => logger.error?.('[what-isr] background regenerate failed:', e));
-      return serve(entry, 'STALE', config);
+      return serve(entry, 'STALE', routeMatch);
     }
 
     // Cold miss or expired beyond the swr window.
     if (entry && config.onMiss === 'stale-if-error') {
       try {
         const fresh = await regenerate(key, routeMatch, renderOverride);
-        return serve(fresh, 'MISS', config);
+        return serve(fresh, 'MISS', routeMatch);
       } catch (e) {
         logger.error?.('[what-isr] regenerate failed, serving stale:', e);
-        return serve(entry, 'STALE', config);
+        return serve(entry, 'STALE', routeMatch);
       }
     }
 
     const fresh = await regenerate(key, routeMatch, renderOverride);
-    return serve(fresh, 'MISS', config);
+    return serve(fresh, 'MISS', routeMatch);
   }
 
   // --- On-demand invalidation (origin purge + optional CDN fan-out) ---

@@ -19,15 +19,19 @@ function varyHeaderNames(vary) {
  * @param {object} entry   { maxAge, swrWindow, tags?, partial?, private?, status? }
  * @param {object} config  route page config { mode, vary?, ... }
  * @param {string} cacheStatus  HIT | STALE | MISS | BYPASS
+ * @param {string[]} [vary] The declared vary the cache key used. Callers that
+ *   omit it fall back to config.vary, which is only correct when the routeMatch
+ *   carries no vary of its own.
  */
-export function buildCacheHeaders(entry = {}, config = {}, cacheStatus = 'MISS') {
+export function buildCacheHeaders(entry = {}, config = {}, cacheStatus = 'MISS', vary) {
   const headers = { 'X-What-Cache': cacheStatus };
 
   // A route that varies on cookies/auth renders per user. The origin cache keys
   // those variants separately, but a shared cache must never hold them, so no
   // `public` here regardless of maxAge.
-  const varies = Array.isArray(config.vary) && config.vary.length > 0;
-  if (varies) headers.Vary = varyHeaderNames(config.vary);
+  const declared = vary !== undefined ? vary : config.vary;
+  const varies = Array.isArray(declared) && declared.length > 0;
+  if (varies) headers.Vary = varyHeaderNames(declared);
 
   // Non-200 responses (soft-404s, error pages) are never cacheable — the
   // origin engine doesn't store them, and a CDN must not either.
