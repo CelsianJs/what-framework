@@ -5,6 +5,10 @@ name: CI
 on:
   workflow_dispatch:
 
+# CI only reads the repo. Anything that needs more asks for it per job.
+permissions:
+  contents: read
+
 # One run per ref — a new push cancels the in-flight run for the same branch/PR.
 concurrency:
   group: ci-${{ github.ref }}

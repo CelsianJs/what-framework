@@ -160,24 +160,30 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   // Full-stack apps are buildless: server.js does SSR + ISR and serves the
   // client entry as native ES modules, so there is no Vite/compiler toolchain.
   // `npm run dev` runs the real app with auto-restart on change.
+  // `what-devtools` is the browser bridge the what-devtools-mcp Vite plugin
+  // injects in dev: without it the plugin skips injection and every MCP tool
+  // reports no browser. The full-stack template has no Vite plugin to inject it.
   const devDeps = template === 'fullstack'
     ? {
         'what-devtools-mcp': whatVersionRange,
         eslint: '^9.0.0',
         'eslint-plugin-what': whatVersionRange,
+        typescript: '^5.6.0',
       }
     : {
         vite: '^6.0.0',
         'what-compiler': whatVersionRange,
+        'what-devtools': whatVersionRange,
         'what-devtools-mcp': whatVersionRange,
         '@babel/core': '^7.23.0',
         eslint: '^9.0.0',
         'eslint-plugin-what': whatVersionRange,
+        typescript: '^5.6.0',
       };
 
   const scripts = template === 'fullstack'
-    ? { dev: 'node --watch server.js', start: 'node server.js', lint: 'eslint .' }
-    : { dev: 'vite', build: 'vite build', preview: 'vite preview', lint: 'eslint .' };
+    ? { dev: 'node --watch server.js', start: 'node server.js', lint: 'eslint .', typecheck: 'tsc --noEmit' }
+    : { dev: 'vite', build: 'vite build', preview: 'vite preview', lint: 'eslint .', typecheck: 'tsc --noEmit' };
   if (template === 'fullstack') {
     deps['what-isr'] = whatVersionRange;
   }
@@ -1518,6 +1524,39 @@ async function main() {
     },
   }, null, 2) + '\n');
 
+  const isFullstack = options.template === 'fullstack';
+
+  // The two templates have different authoring models: the SPA compiles JSX
+  // through Vite + what-compiler, the full-stack template is buildless and has
+  // neither. An agent told to write JSX in the full-stack app writes code that
+  // cannot run.
+  const authoringNotes = isFullstack
+    ? `Components run ONCE. This is the buildless full-stack template: \`server.js\` renders
+file routes and serves \`src/\` as native ES modules. There is **no compiler and no JSX**:
+write views with \`h()\` and pass \`() => ...\` for anything reactive.
+
+\`\`\`js
+h('p', {}, () => \`Count: \${count()}\`)
+\`\`\`
+
+Pages live in \`src/pages/\` and export \`page\` (route config), \`loader\` (server data), and a
+default component. \`src/db.js\`, \`src/routes.js\` and \`src/actions/\` are server-only: they are
+importable by Node but never served to the browser.`
+    : `Components run ONCE. This is the SPA template: Vite + \`what-compiler\` compile JSX into
+fine-grained DOM operations, so write JSX and use \`() => ...\` for reactive text.
+
+\`\`\`jsx
+<p>{() => \`Count: \${count()}\`}</p>
+\`\`\`
+`;
+
+  const mcpIntro = isFullstack
+    ? `This project ships the MCP server config. The browser bridge it talks to is injected by
+the \`what-devtools-mcp\` Vite plugin, which the buildless full-stack template does not use, so
+the live \`what_*\` tools below stay offline until you wire up a bundler. \`what_lint\`,
+\`what_scaffold\` and \`what_fix\` work offline today.`
+    : `This project includes MCP devtools that connect to the running app in the browser.`;
+
   // CLAUDE.md — agent instructions for Claude Code (also useful for other AI tools)
   writeFileSync(resolve(root, 'CLAUDE.md'), `# ${packageName}
 
@@ -1537,13 +1576,13 @@ const doubled = computed(() => count() * 2);  // derived
 effect(() => console.log(count()));           // side effect
 \`\`\`
 
-Components run ONCE. Use \`signal()\` for state, \`() =>\` in JSX for reactive text.
+${authoringNotes}
 
 **Signal scope:** \`signal()\` works anywhere — module scope (shared state), component scope (local state). Components run once, so signal declarations execute exactly once.
 
 ## MCP DevTools
 
-This project includes MCP devtools that connect to the running app in the browser.
+${mcpIntro}
 
 ### Quick Start (First 5 Minutes)
 
@@ -1792,7 +1831,7 @@ export default [
       esModuleInterop: true,
       resolveJsonModule: true,
       isolatedModules: true,
-      types: ['vite/client'],
+      ...(isFullstack ? {} : { types: ['vite/client'] }),
     },
     include: ['src'],
   }, null, 2) + '\n');

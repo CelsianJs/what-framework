@@ -12,9 +12,11 @@ function Layout({
 }
 export function Page() {
   const title = signal('Home');
-  const _el$1 = _tmpl$1();
-  _$insert(_el$1, () => title(), _el$1.firstChild);
   return _$createComponent(Layout, {
     theme: "dark"
-  }, [_el$1, _tmpl$2()]);
+  }, () => {
+    const _el$1 = _tmpl$1();
+    _$insert(_el$1, () => title(), _el$1.firstChild);
+    return [_el$1, _tmpl$2()];
+  });
 }

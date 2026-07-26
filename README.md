@@ -18,7 +18,7 @@
 - **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
 - **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast** — Fine-grained, no VDOM. Measured (production build, min+gzip, via `npm run check:size`): the reactive core in a counter app is ~5.5KB; a typical app ~8KB. Minimal dependencies, fully tree-shakeable
+- **Small & Fast** — Fine-grained, no VDOM. Measured (production build, min+gzip, via `npm run check:size`): the reactive core in a counter app is ~5.6KB; a typical app ~8KB. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
@@ -33,7 +33,14 @@ Open `http://localhost:5173`.
 
 ## MCP Setup
 
-Connect your AI agent to a running What app:
+Install the browser-side bridge the MCP server talks to (projects scaffolded with
+`npm create what@latest` already have it):
+
+```bash
+npm install -D what-devtools
+```
+
+Then connect your AI agent to a running What app:
 
 ```json
 {
@@ -129,7 +136,7 @@ Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## MCP DevTools (AI Agent Debugging)
 
-What Framework ships an MCP server for AI-assisted development. 29 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See `/docs/MCP-DEVTOOLS.md`.
+What Framework ships an MCP server for AI-assisted development. 29 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See [docs/MCP-DEVTOOLS.md](docs/MCP-DEVTOOLS.md).
 
 ## React Compatibility
 
@@ -139,7 +146,7 @@ Run many React ecosystem libraries with `what-react`. This is a secondary featur
 npm install what-react
 ```
 
-See [`/REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix — the verified list of libraries is the source of truth.
+See [`REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix — the verified list of libraries is the source of truth.
 
 ## Where everything lives & deploys
 
@@ -160,15 +167,15 @@ release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DE
 - [Deployments](DEPLOYMENTS.md) -- where everything lives and how it ships
 - [Security Policy](SECURITY.md) -- reporting + supported versions
 - [Agent Guide](CLAUDE.md) -- MCP, patterns, mistakes
-- [Getting Started](/GETTING-STARTED.md) -- Setup for agents and developers
-- [Quick Start](/docs/QUICKSTART.md) -- Tutorial
-- [API Reference](/docs/API.md) -- Full API
-- [Architecture](/docs/ARCHITECTURE.md) -- Deep-dive
-- [MCP DevTools](/docs/MCP-DEVTOOLS.md) -- MCP tools reference
-- [Agent Patterns](/docs/AGENT-PATTERNS.md) -- Best practices
-- [Gotchas](/docs/GOTCHAS.md) -- Common mistakes
-- [Migration from React](/docs/MIGRATION-FROM-REACT.md) · [TypeScript](/docs/TYPESCRIPT.md) · [Styling](/docs/STYLING.md) · [Development](/docs/DEVELOPMENT.md) · [Release](/docs/RELEASE.md)
-- [Ecosystem Roadmap](/docs/ECOSYSTEM-PLAN.md) -- planned `@what/*` packages
+- [Getting Started](GETTING-STARTED.md) -- Setup for agents and developers
+- [Quick Start](docs/QUICKSTART.md) -- Tutorial
+- [API Reference](docs/API.md) -- Full API
+- [Architecture](docs/ARCHITECTURE.md) -- Deep-dive
+- [MCP DevTools](docs/MCP-DEVTOOLS.md) -- MCP tools reference
+- [Agent Patterns](docs/AGENT-PATTERNS.md) -- Best practices
+- [Gotchas](docs/GOTCHAS.md) -- Common mistakes
+- [Migration from React](docs/MIGRATION-FROM-REACT.md) · [TypeScript](docs/TYPESCRIPT.md) · [Styling](docs/STYLING.md) · [Development](docs/DEVELOPMENT.md) · [Release](docs/RELEASE.md)
+- [Ecosystem Roadmap](docs/ECOSYSTEM-PLAN.md) -- planned `@what/*` packages
 
 ## License
 

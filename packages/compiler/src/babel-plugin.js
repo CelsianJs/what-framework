@@ -174,6 +174,21 @@ export default function whatBabelPlugin({ types: t }) {
     return /^[A-Z]/.test(name);
   }
 
+  // Dotted tags (<Ctx.Provider>, <Foo.Bar.Baz>) are always components.
+  function isComponentElement(el) {
+    const name = el.openingElement ? el.openingElement.name : el.name;
+    if (t.isJSXMemberExpression(name)) return true;
+    return t.isJSXIdentifier(name) && isComponent(name.name);
+  }
+
+  // JSXMemberExpression -> MemberExpression callee for _$createComponent.
+  function componentCallee(name) {
+    if (t.isJSXMemberExpression(name)) {
+      return t.memberExpression(componentCallee(name.object), t.identifier(name.property.name));
+    }
+    return t.identifier(name.name);
+  }
+
   function isVoidHtmlElement(name) {
     return VOID_HTML_ELEMENTS.has(String(name).toLowerCase());
   }
@@ -628,8 +643,7 @@ export default function whatBabelPlugin({ types: t }) {
     if (t.isJSXExpressionContainer(child)) return false;
     if (t.isJSXElement(child)) {
       const el = child.openingElement;
-      const tagName = el.name.name;
-      if (isComponent(tagName)) return false;
+      if (isComponentElement(child)) return false;
       for (const attr of el.attributes) {
         if (t.isJSXSpreadAttribute(attr)) return false;
         const value = attr.value;
@@ -664,7 +678,7 @@ export default function whatBabelPlugin({ types: t }) {
     const el = node.openingElement;
     const tagName = el.name.name;
 
-    if (isComponent(tagName)) return '';
+    if (isComponentElement(node)) return '';
 
     let html = `<${tagName}`;
 
@@ -709,7 +723,7 @@ export default function whatBabelPlugin({ types: t }) {
           html += '<!--$-->';
         }
       } else if (t.isJSXElement(child)) {
-        if (isComponent(child.openingElement.name.name)) {
+        if (isComponentElement(child)) {
           html += '<!--$-->';
         } else {
           html += extractStaticHTML(child);
@@ -743,7 +757,7 @@ export default function whatBabelPlugin({ types: t }) {
       return transformShowFineGrained(path, state);
     }
 
-    if (isComponent(tagName)) {
+    if (isComponentElement(node)) {
       return transformComponentFineGrained(path, state);
     }
 
@@ -1245,7 +1259,7 @@ export default function whatBabelPlugin({ types: t }) {
 
       if (t.isJSXElement(child)) {
         const childTag = child.openingElement.name.name;
-        if (isComponent(childTag) || childTag === 'For' || childTag === 'Show') {
+        if (isComponentElement(child) || childTag === 'For' || childTag === 'Show') {
           entries.push({ type: 'component', child, childIndex });
           childIndex++;
         } else {
@@ -1498,7 +1512,7 @@ export default function whatBabelPlugin({ types: t }) {
   function transformComponentFineGrained(path, state) {
     const { node } = path;
     const openingElement = node.openingElement;
-    const componentName = openingElement.name.name;
+    const componentRef = componentCallee(openingElement.name);
     const attributes = openingElement.attributes;
     const children = node.children;
 
@@ -1533,7 +1547,7 @@ export default function whatBabelPlugin({ types: t }) {
       state.needsIsland = true;
 
       const islandProps = [
-        t.objectProperty(t.identifier('component'), t.identifier(componentName)),
+        t.objectProperty(t.identifier('component'), componentRef),
         t.objectProperty(t.identifier('mode'), t.stringLiteral(clientDirective.type)),
       ];
 
@@ -1643,8 +1657,16 @@ export default function whatBabelPlugin({ types: t }) {
       );
     }
 
-    // Transform children
+    // Transform children.
+    // Element children build their DOM at the call site, i.e. before the parent
+    // component ever runs, so a <Provider> publishes its context value too late
+    // for its own subtree. Collect the element setup and emit it behind a
+    // zero-arg factory instead; the runtime calls the factory while the parent
+    // is on the component stack. Text and plain expression children have
+    // nothing to defer and stay inline.
+    const setupMark = state._pendingSetup ? state._pendingSetup.length : 0;
     const transformedChildren = [];
+    let deferChildren = false;
     for (const child of children) {
       if (t.isJSXText(child)) {
         const text = normalizeJsxText(child.value);
@@ -1654,8 +1676,12 @@ export default function whatBabelPlugin({ types: t }) {
           transformedChildren.push(child.expression);
         }
       } else if (t.isJSXElement(child)) {
+        // <For>/<Show> lower to an inserter or a thunk (already lazy).
+        const childTag = child.openingElement.name.name;
+        if (childTag !== 'For' && childTag !== 'Show') deferChildren = true;
         transformedChildren.push(transformElementFineGrained({ node: child }, state));
       } else if (t.isJSXFragment(child)) {
+        deferChildren = true;
         transformedChildren.push(transformFragmentFineGrained({ node: child }, state));
       }
     }
@@ -1676,11 +1702,20 @@ export default function whatBabelPlugin({ types: t }) {
       propsExpr = t.nullLiteral();
     }
 
-    const childrenArray = transformedChildren.length > 0
-      ? t.arrayExpression(transformedChildren)
-      : t.arrayExpression([]);
+    let childrenArg = t.arrayExpression(transformedChildren);
+    if (deferChildren) {
+      // Hoisted element setup emitted while transforming these children belongs
+      // inside the factory, not before the enclosing statement.
+      const setup = state._pendingSetup ? state._pendingSetup.splice(setupMark) : [];
+      childrenArg = t.arrowFunctionExpression(
+        [],
+        setup.length > 0
+          ? t.blockStatement([...setup, t.returnStatement(childrenArg)])
+          : childrenArg
+      );
+    }
 
-    return t.callExpression(t.identifier('_$createComponent'), [t.identifier(componentName), propsExpr, childrenArray]);
+    return t.callExpression(t.identifier('_$createComponent'), [componentRef, propsExpr, childrenArg]);
   }
 
   function transformForFineGrained(path, state) {
