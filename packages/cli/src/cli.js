@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';
 
 // Security: Prevent path traversal attacks. `userPath` is a URL pathname, so it
-// starts with '/' — it must be joined onto the base as a RELATIVE path, otherwise
+// starts with '/', so it must be joined onto the base as a RELATIVE path, otherwise
 // resolve() would discard the base entirely.
 function safePath(base, userPath) {
   try {
@@ -451,7 +451,7 @@ async function build() {
 
   if (files.length === 0) {
     console.error(`
-  what build — no app found in ${cwd}
+  what build: no app found in ${cwd}
 
   Expected a src/ directory containing your entry point (src/main.js and/or
   src/index.html). Scaffold one with \`npm create what@latest\`, or run this
@@ -531,7 +531,7 @@ async function build() {
   // build must fail rather than hand back an artifact that 404s on first paint.
   const unresolved = findBareSpecifiers(outDir);
   if (unresolved.length > 0) {
-    console.error(`\n  what build — the output contains imports no browser can resolve:\n`);
+    console.error(`\n  what build: the output contains imports no browser can resolve:\n`);
     for (const { file, spec } of unresolved.slice(0, 10)) {
       console.error(`    ${file}: '${spec}'`);
     }
@@ -613,7 +613,7 @@ async function generate() {
   const pagesDir = join(cwd, config.pagesDir || 'src/pages');
   if (!existsSync(pagesDir)) {
     console.error(`
-  what generate — no pages directory at ${relative(cwd, pagesDir)}/
+  what generate: no pages directory at ${relative(cwd, pagesDir)}/
 
   Static generation pre-renders every page module in that directory (each one
   exporting a default component, optionally a loader). Create it, or use
@@ -643,7 +643,7 @@ async function generate() {
       const { body, head } = await renderPage(mod, { params: {}, query: {}, path: route });
       html = staticDocument(body, head);
     } catch (e) {
-      console.error(`\n  what generate — failed to pre-render ${relative(cwd, page)}\n\n  ${e.message}\n`);
+      console.error(`\n  what generate: failed to pre-render ${relative(cwd, page)}\n\n  ${e.message}\n`);
       process.exit(1);
       return;
     }
@@ -657,7 +657,7 @@ async function generate() {
 
   if (count === 0) {
     console.error(`
-  what generate — no static pages found in ${relative(cwd, pagesDir)}/
+  what generate: no static pages found in ${relative(cwd, pagesDir)}/
 
   Add a page module (e.g. src/pages/index.js exporting a default component).
 `);
@@ -696,7 +696,7 @@ async function start() {
 
   if (!existsSync(serverEntry)) {
     console.error(`
-  what start — no server.js found in ${cwd}
+  what start: no server.js found in ${cwd}
 
   Full-stack apps run from a server.js (Node adapter + ISR engine). Scaffold one
   with \`npm create what@latest -- --fullstack\`, or create server.js wiring
@@ -1001,7 +1001,7 @@ function requireRuntimeDirs(commandName) {
   const dirs = resolveRuntimeDirs();
   if (dirs.missing) {
     console.error(`
-  ${commandName} — could not locate the What Framework runtime (${dirs.missing.join(', ')})
+  ${commandName}: could not locate the What Framework runtime (${dirs.missing.join(', ')})
 
   Install the framework alongside the CLI:  npm install what-framework
 `);
@@ -1101,7 +1101,7 @@ function findBareSpecifiers(dir) {
 
 function minifyJS(code) {
   // Lightweight minification: strip comments, collapse whitespace.
-  // Line comments are only stripped at line start — an inline `//` is usually a
+  // Line comments are only stripped at line start, and an inline `//` is usually a
   // URL inside a string ('http://www.w3.org/2000/svg').
   return code
     .replace(/\/\*[\s\S]*?\*\//g, '')          // block comments

@@ -119,7 +119,7 @@ test('what start without a server.js fails with guidance', () => {
 
 // Regression: the transform only knew the pre-0.11 package name ('what'), so an
 // app importing the published name emitted the bare specifier verbatim into
-// dist/ — a module no browser can resolve.
+// dist/, a module no browser can resolve.
 test('transformImports rewrites the published package name and its subpaths', () => {
   const code = [
     "import { signal } from 'what-framework';",

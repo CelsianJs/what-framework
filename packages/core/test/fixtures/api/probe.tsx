@@ -1,4 +1,4 @@
-// Valid What usage straight out of README/QUICKSTART/CLAUDE.md — must type-check
+// Valid What usage straight out of README/QUICKSTART/CLAUDE.md, must type-check
 // clean under strict mode. Guards packages/core/index.d.ts against drift from
 // the runtime signatures in packages/core/src/.
 import {

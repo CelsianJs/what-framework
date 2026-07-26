@@ -1,4 +1,4 @@
-# What Framework Remediation, Phase 2 — Implementation Plan
+# What Framework Remediation, Phase 2: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -26,20 +26,20 @@ These apply to **every** task. A task that violates one is not done.
 ## File Structure
 
 **Modified:**
-- `packages/core/src/render.js` — `_$createComponent` children factory; memoization (Task 4)
-- `packages/core/src/dom.js` — `_lazyChildren` realization; append/insert hot path (Tasks 4, 5)
-- `packages/core/src/reactive.js` — `batch()` flush path (Task 5); `{stable:true}` (Task 11)
-- `packages/core/src/components.js` — `Switch`/`Match` (Task 4)
-- `packages/compiler/src/babel-plugin.js` — `Switch`/`Match` lowering (Task 4)
-- `packages/router/src/index.js` — 7 restored navigation APIs (Task 6)
-- `packages/what/router.d.ts`, `packages/router/index.d.ts` — restore declarations (Task 6)
-- `benchmark/check-regressions.js` — tolerances, guarded op set (Task 5)
-- `.size-budgets.json` — revert 6656 to 6200 (Task 7)
-- `.depot/workflows/ci.yml` — typecheck, lint, coverage, stress jobs (Task 11)
+- `packages/core/src/render.js`: `_$createComponent` children factory; memoization (Task 4)
+- `packages/core/src/dom.js`: `_lazyChildren` realization; append/insert hot path (Tasks 4, 5)
+- `packages/core/src/reactive.js`: `batch()` flush path (Task 5); `{stable:true}` (Task 11)
+- `packages/core/src/components.js`: `Switch`/`Match` (Task 4)
+- `packages/compiler/src/babel-plugin.js`: `Switch`/`Match` lowering (Task 4)
+- `packages/router/src/index.js`: 7 restored navigation APIs (Task 6)
+- `packages/what/router.d.ts`, `packages/router/index.d.ts`: restore declarations (Task 6)
+- `benchmark/check-regressions.js`: tolerances, guarded op set (Task 5)
+- `.size-budgets.json`: revert 6656 to 6200 (Task 7)
+- `.depot/workflows/ci.yml`: typecheck, lint, coverage, stress jobs (Task 11)
 
 **Created:**
-- `benchmark/dom-gate.mjs` — headless-Chromium DOM benchmark producing gate-comparable JSON (Task 2)
-- `benchmark/baseline/dom.json` — committed DOM baseline (Task 5)
+- `benchmark/dom-gate.mjs`: headless-Chromium DOM benchmark producing gate-comparable JSON (Task 2)
+- `benchmark/baseline/dom.json`: committed DOM baseline (Task 5)
 - `packages/core/test/children-factory.test.js` (Task 4)
 - `packages/compiler/test/switch-match.test.js` (Task 4)
 - `packages/router/test/navigation-api.test.js` (Task 6)
@@ -48,7 +48,7 @@ These apply to **every** task. A task that violates one is not done.
 
 ---
 
-## Phase 0 — Land what is already verified
+## Phase 0: Land what is already verified
 
 > 72 changed paths currently sit uncommitted, representing two full verified remediation rounds. This is the single largest risk in the repo right now. Land it first, in reviewable slices.
 
@@ -308,7 +308,7 @@ Expected: empty status, 1626 pass / 0 fail, build exit 0, budgets green.
 
 ---
 
-## Phase 1 — Pay off the debts our fixes created
+## Phase 1: Pay off the debts our fixes created
 
 ### Task 2: Establish the DOM performance baseline before changing anything else
 
@@ -423,7 +423,7 @@ EOF
 |---|---:|---:|---|
 | `append1k` | 21.1 ms | 23.6 ms | **+11.9%**, ranges non-overlapping |
 | `batch() 100 writes, 1 effect` | 878,604 ops/s | 745,265 ops/s | **-15.2%** |
-| `renderToString() list of 100` | — | — | -6.3% |
+| `renderToString() list of 100` | n/a | n/a | -6.3% |
 
 Neither op touches thunked children (the krausest app compiles to zero `_$createComponent` calls), so the cause is in the Phase 1 core changes: the shared `_isUnsafeAttr` sanitizer now on the `h()` path, the Suspense generation counter and thenable check in the component catch, or the `Object.is` change in `_sigWrite`.
 
@@ -723,7 +723,7 @@ EOF
 
 ---
 
-## Phase 2 — Restore the API surface
+## Phase 2: Restore the API surface
 
 ### Task 6: Implement the seven deleted router navigation APIs
 
@@ -894,7 +894,7 @@ EOF
 
 ---
 
-## Phase 3 — Clean DX, enforced
+## Phase 3: Clean DX, enforced
 
 ### Task 8: Adopt the structured error system in the runtime that ships it
 

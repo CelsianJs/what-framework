@@ -42,8 +42,8 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       const out = await doRender(routeMatch, {});
       const entry = makeEntry({ ...out, path: routeMatch.path }, routeMatch.config || {}, now());
       // Only public 200 renders are cached. Storing a non-200 (soft-404, error
-      // page) would serve it as a HIT until expiry — bad for correctness and
-      // SEO — and storing a per-user render would serve one visitor's HTML to
+      // page) would serve it as a HIT until expiry (bad for correctness and
+      // SEO), and storing a per-user render would serve one visitor's HTML to
       // everyone. The response is still returned to the caller with its real
       // status; any previously cached good entry is left in place.
       if (entry.status === 200 && !entry.private) {
