@@ -36,7 +36,11 @@ const HYBRID_MAX_AGE = 60;
  * engine so every store receives consistent expiry metadata.
  */
 export function makeEntry(out, config = {}, now = Date.now()) {
-  const maxAge = Number(config.revalidate) || (config.mode === 'hybrid' ? HYBRID_MAX_AGE : 0);
+  // `??`, not `||`: an explicit `revalidate: 0` is a real value and must not be
+  // replaced by the hybrid default.
+  const fallbackMaxAge = config.mode === 'hybrid' ? HYBRID_MAX_AGE : 0;
+  const declaredMaxAge = Number(config.revalidate ?? fallbackMaxAge);
+  const maxAge = Number.isFinite(declaredMaxAge) ? declaredMaxAge : fallbackMaxAge;
   const swrWindow = config.swr != null ? Number(config.swr) : maxAge;
   return {
     html: out.html || '',

@@ -3,6 +3,8 @@
 // get/set/del/sadd/srem/smembers, optional expire/scan/keys) so this package
 // keeps zero deps.
 
+import { redactVary } from '../key.js';
+
 export function createRedisStore({ client, namespace = 'what' } = {}) {
   if (!client) throw new Error('[what-isr] createRedisStore requires { client }');
 
@@ -38,6 +40,15 @@ export function createRedisStore({ client, namespace = 'what' } = {}) {
     return [];
   }
 
+  // Every key crossing into Redis is redacted first: Redis stores key names and
+  // set members verbatim, so a raw vary segment would expose session cookies to
+  // SCAN, MONITOR and any RDB/AOF backup. Redaction is stable, so the path and
+  // tag reverse indexes (whose members are redacted keys) still resolve.
+  async function readEntry(rk) {
+    const v = await client.get(ck(rk));
+    return v ? JSON.parse(v) : null;
+  }
+
   async function deindex(key, entry) {
     if (!entry) return;
     for (const t of entry.tags || []) await client.srem(tk(t), key);
@@ -53,22 +64,23 @@ export function createRedisStore({ client, namespace = 'what' } = {}) {
 
   return {
     async get(key) {
-      const v = await client.get(ck(key));
-      return v ? JSON.parse(v) : null;
+      return readEntry(redactVary(key));
     },
     async set(key, entry) {
-      const prev = await this.get(key);
-      if (prev) await deindex(key, prev);
-      await client.set(ck(key), JSON.stringify(entry));
+      const rk = redactVary(key);
+      const prev = await readEntry(rk);
+      if (prev) await deindex(rk, prev);
+      await client.set(ck(rk), JSON.stringify(entry));
       const ttl = ttlSeconds(entry);
-      if (ttl > 0 && typeof client.expire === 'function') await client.expire(ck(key), ttl);
-      for (const t of entry.tags || []) await client.sadd(tk(t), key);
-      if (entry.path) await client.sadd(pk(entry.path), key);
+      if (ttl > 0 && typeof client.expire === 'function') await client.expire(ck(rk), ttl);
+      for (const t of entry.tags || []) await client.sadd(tk(t), rk);
+      if (entry.path) await client.sadd(pk(entry.path), rk);
     },
     async delete(key) {
-      const entry = await this.get(key);
-      await client.del(ck(key));
-      await deindex(key, entry);
+      const rk = redactVary(key);
+      const entry = await readEntry(rk);
+      await client.del(ck(rk));
+      await deindex(rk, entry);
       return !!entry;
     },
     async deleteByTag(tag) {

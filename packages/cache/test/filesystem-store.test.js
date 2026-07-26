@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFilesystemStore } from '../src/stores/filesystem-store.js';
@@ -73,6 +74,39 @@ describe('filesystem store', () => {
     await s.set('b', entry());
     assert.equal((await s.keys()).length, 2);
     await s.clear();
+    assert.deepEqual(await s.keys(), []);
+  });
+
+  it('purges entries written by the pre-upgrade (JSON list) index shape', async () => {
+    // v0.11.x wrote tags/<sha>.json and paths/<sha>.json as a JSON array of
+    // keys. Upgrading in place must not orphan those entries.
+    const legacyDir = join(dir, 'legacy');
+    const s = createFilesystemStore({ dir: legacyDir });
+    await s.set('old-a', entry({ path: '/legacy', tags: ['legacy'] }));
+    await s.set('old-b', entry({ path: '/legacy', tags: ['legacy'] }));
+
+    // Rewrite the reverse indexes in the old shape.
+    const sha = (v) => createHash('sha256').update(String(v)).digest('hex');
+    for (const [base, name] of [['paths', '/legacy'], ['tags', 'legacy']]) {
+      await rm(join(legacyDir, base, sha(name)), { recursive: true, force: true });
+      await mkdir(join(legacyDir, base), { recursive: true });
+      await writeFile(join(legacyDir, base, sha(name) + '.json'), JSON.stringify(['old-a', 'old-b']));
+    }
+
+    assert.deepEqual((await s.deleteByPath('/legacy')).sort(), ['old-a', 'old-b']);
+    assert.deepEqual(await s.keys(), [], 'pre-upgrade entries are actually gone');
+  });
+
+  it('purges by tag across mixed old and new index shapes', async () => {
+    const mixedDir = join(dir, 'mixed');
+    const s = createFilesystemStore({ dir: mixedDir });
+    await s.set('legacy-key', entry({ path: '/mixed-a', tags: ['mixed'] }));
+    const sha = (v) => createHash('sha256').update(String(v)).digest('hex');
+    await rm(join(mixedDir, 'tags', sha('mixed')), { recursive: true, force: true });
+    await writeFile(join(mixedDir, 'tags', sha('mixed') + '.json'), JSON.stringify(['legacy-key']));
+
+    await s.set('new-key', entry({ path: '/mixed-b', tags: ['mixed'] }));
+    assert.deepEqual((await s.deleteByTag('mixed')).sort(), ['legacy-key', 'new-key']);
     assert.deepEqual(await s.keys(), []);
   });
 });

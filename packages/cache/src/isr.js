@@ -126,7 +126,14 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     if (cdn && cdn.purge) await cdn.purge([local]);
     if (regen) {
       const route = routeResolver ? routeResolver(norm) : { path: norm, query: {}, config: {} };
-      await regenerate(keyFor(route), route).catch((e) => logger.error?.('[what-isr] regen after revalidatePath failed:', e));
+      // keyFor() can throw (a route declaring `vary` with no headers), so it has
+      // to run inside the try: as an argument expression the .catch() never
+      // attached and the rejection escaped revalidatePath.
+      try {
+        await regenerate(keyFor(route), route);
+      } catch (e) {
+        logger.error?.('[what-isr] regen after revalidatePath failed:', e);
+      }
     }
     return deleted;
   }
@@ -137,7 +144,10 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     if (regen && routeResolver) {
       for (const key of deleted) {
         const route = routeResolver(key);
-        if (route) await regenerate(keyFor(route), route).catch(() => {});
+        if (!route) continue;
+        try {
+          await regenerate(keyFor(route), route);
+        } catch { /* best effort: a purge must not fail because a regen did */ }
       }
     }
     return deleted;

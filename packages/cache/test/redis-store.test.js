@@ -99,4 +99,55 @@ describe('redis store', () => {
     await s.set('k', entry());
     assert.ok((await client.keys('app1:cache:*')).length === 1);
   });
+  it('never puts a vary value (session cookie) into a Redis key name', async () => {
+    // Redis stores key names verbatim: they are readable via SCAN, echoed by
+    // MONITOR and captured in RDB/AOF backups.
+    const client = fakeRedis();
+    const s = createRedisStore({ client });
+    const secret = 'sid-SUPERSECRETTOKEN';
+    const key = `/dash  ${'cookie%3Asession'}=${secret}`;
+    await s.set(key, entry({ path: '/dash', tags: ['dash'] }));
+
+    const names = [...(await client.keys('what:*'))];
+    for (const n of names) {
+      assert.ok(!n.includes(secret), `secret leaked into Redis key name: ${n}`);
+    }
+    assert.equal((await s.get(key)).path, '/dash', 'the redacted key still round-trips');
+  });
+
+  it('never puts a vary value into a reverse-index set member', async () => {
+    const client = fakeRedis();
+    const s = createRedisStore({ client });
+    const secret = 'sid-ANOTHERSECRET';
+    const key = `/dash  cookie%3Asession=${secret}`;
+    await s.set(key, entry({ path: '/dash', tags: ['dash'] }));
+    for (const set of ['what:tag:dash', 'what:path:/dash']) {
+      for (const m of await client.smembers(set)) {
+        assert.ok(!m.includes(secret), `secret leaked into set ${set}: ${m}`);
+      }
+    }
+  });
+
+  it('still purges vary-keyed entries by path', async () => {
+    const s = createRedisStore({ client: fakeRedis() });
+    await s.set('/dash  cookie%3Asession=aaa', entry({ path: '/dash', tags: ['dash'] }));
+    await s.set('/dash  cookie%3Asession=bbb', entry({ path: '/dash', tags: ['dash'] }));
+    assert.equal((await s.deleteByPath('/dash')).length, 2);
+    assert.deepEqual(await s.keys(), []);
+  });
+
+  it('still purges vary-keyed entries by tag', async () => {
+    const s = createRedisStore({ client: fakeRedis() });
+    await s.set('/dash  cookie%3Asession=ccc', entry({ path: '/dash', tags: ['dash'] }));
+    assert.equal((await s.deleteByTag('dash')).length, 1);
+    assert.deepEqual(await s.keys(), []);
+  });
+
+  it('keeps distinct vary values in distinct entries', async () => {
+    const s = createRedisStore({ client: fakeRedis() });
+    await s.set('/dash  cookie%3Asession=aaa', entry({ html: '<i>A</i>', path: '/dash' }));
+    await s.set('/dash  cookie%3Asession=bbb', entry({ html: '<i>B</i>', path: '/dash' }));
+    assert.equal((await s.get('/dash  cookie%3Asession=aaa')).html, '<i>A</i>');
+    assert.equal((await s.get('/dash  cookie%3Asession=bbb')).html, '<i>B</i>');
+  });
 });

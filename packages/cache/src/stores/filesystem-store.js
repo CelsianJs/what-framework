@@ -19,6 +19,11 @@ export function createFilesystemStore({ dir }) {
   const entryFile = (key) => join(entriesDir, hashKey(key) + '.json');
   const indexDir = (base, name) => join(base, safeName(name));
   const indexFile = (base, name, key) => join(indexDir(base, name), safeName(key) + '.json');
+  // v0.11.7 and earlier wrote one JSON array per tag/path instead of a
+  // directory. Left unread, an in-place upgrade would silently orphan every
+  // pre-upgrade entry: revalidatePath would return [] while the webhook still
+  // reported success, and the entries would keep being served from disk.
+  const legacyIndexFile = (base, name) => join(base, safeName(name) + '.json');
 
   async function atomicWrite(file, contents) {
     await mkdir(dirname(file), { recursive: true });
@@ -48,25 +53,37 @@ export function createFilesystemStore({ dir }) {
 
   async function removeFromIndex(base, name, key) {
     await rm(indexFile(base, name, key), { force: true });
+    const legacy = await readLegacyIndex(base, name);
+    if (!legacy) return;
+    const next = legacy.filter((k) => k !== key);
+    if (next.length === legacy.length) return;
+    if (next.length) await atomicWrite(legacyIndexFile(base, name), JSON.stringify(next));
+    else await rm(legacyIndexFile(base, name), { force: true });
+  }
+
+  async function readLegacyIndex(base, name) {
+    const list = await readJson(legacyIndexFile(base, name));
+    return Array.isArray(list) ? list.filter((k) => typeof k === 'string') : null;
   }
 
   async function readIndex(base, name) {
+    const keys = new Set(await readLegacyIndex(base, name) || []);
     const dirPath = indexDir(base, name);
     let files;
-    try { files = await readdir(dirPath); } catch { return []; }
-    const keys = [];
+    try { files = await readdir(dirPath); } catch { return [...keys]; }
     for (const f of files) {
       if (!f.endsWith('.json')) continue;
       const k = await readJson(join(dirPath, f));
-      if (typeof k === 'string') keys.push(k);
+      if (typeof k === 'string') keys.add(k);
     }
-    return keys;
+    return [...keys];
   }
 
   async function deleteByIndex(base, name) {
     const keys = await readIndex(base, name);
     for (const k of keys) await removeKey(k);
     await rm(indexDir(base, name), { recursive: true, force: true });
+    await rm(legacyIndexFile(base, name), { force: true });
     return keys;
   }
 
