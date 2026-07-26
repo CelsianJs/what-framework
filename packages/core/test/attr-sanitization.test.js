@@ -207,3 +207,37 @@ describe('client handler-prop case sensitivity', () => {
     assert.equal(clicks, 1);
   });
 });
+
+// =========================================================================
+// Non-string URL values must be coerced before the protocol check: a boxed
+// String or an object with toString() still lands a live javascript: href.
+// =========================================================================
+
+describe('non-string URL attribute values', () => {
+  const hostile = [
+    ['boxed String', () => new String('javascript:alert(1)')],
+    ['toString object', () => ({ toString: () => 'javascript:alert(1)' })],
+    ['boxed String vbscript', () => new String('vbscript:alert(1)')],
+  ];
+
+  for (const [label, make] of hostile) {
+    it(`h() path blocks a ${label} href`, () => {
+      const container = getContainer();
+      silenceWarns(() => mount(h('a', { href: make() }, 'x'), container));
+      const el = container.querySelector('a');
+      assert.equal(el.getAttribute('href'), null, `href leaked: ${el.outerHTML}`);
+    });
+
+    it(`compiled setProp blocks a ${label} href`, () => {
+      const el = document.createElement('a');
+      silenceWarns(() => setProp(el, 'href', make()));
+      assert.equal(el.getAttribute('href'), null, `href leaked: ${el.outerHTML}`);
+    });
+  }
+
+  it('still allows a boxed String with a safe URL', () => {
+    const el = document.createElement('a');
+    setProp(el, 'href', new String('/safe'));
+    assert.equal(el.getAttribute('href'), '/safe');
+  });
+});

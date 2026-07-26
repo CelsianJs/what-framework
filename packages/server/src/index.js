@@ -578,8 +578,10 @@ function isUnsafeUrlAttribute(key, val) {
   return normalizedValue.startsWith('javascript:') || normalizedValue.startsWith('vbscript:') || normalizedValue.startsWith('data:');
 }
 
+// Must stay in step with URL_ATTRS in what-core's dom.js. Both sets are gated by
+// the parity test in test/ssr-security.test.js.
 const URL_ATTRS = new Set([
-  'href', 'src', 'action', 'formaction', 'xlink:href',
+  'href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href',
 ]);
 
 // Attributes whose value the browser parses as markup or code, so escaping is

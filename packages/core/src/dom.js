@@ -32,8 +32,10 @@ const URL_ATTRS = new Set([
 const REFUSED_ATTRS = new Set(['srcdoc', 'srcDoc']);
 
 function isSafeUrl(url) {
-  if (typeof url !== 'string') return true; // non-string values are not URL-injection risks
-  const normalized = url.trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+  if (url == null) return true;
+  // A boxed String or an object with toString() still stringifies into a live
+  // href, so coerce before the protocol check rather than trusting the type.
+  const normalized = String(url).trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
   if (normalized.startsWith('javascript:')) return false;
   if (normalized.startsWith('data:')) return false;
   if (normalized.startsWith('vbscript:')) return false;

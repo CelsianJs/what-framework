@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
 import { renderToString, renderToHydratableString, renderToStream } from '../src/index.js';
+import { _isUnsafeAttr } from '../../core/src/dom.js';
 
 // =========================================================================
 // isUnsafeUrlAttribute — tested via renderToString (renderAttrs path)
@@ -240,5 +241,34 @@ describe('SSR tag name validation', () => {
   it('still renders custom elements and SVG camelCase tags', () => {
     assert.equal(renderToString(h('my-widget', {}, 'x')), '<my-widget>x</my-widget>');
     assert.equal(renderToString(h('clipPath', {}, '')), '<clipPath></clipPath>');
+  });
+});
+
+// =========================================================================
+// SSR and client URL-attribute sets must not drift apart. The same commit that
+// added data/ping to the client set left the SSR set behind, so <object
+// data="data:text/html,..."> survived SSR while being blocked in the browser.
+// =========================================================================
+
+describe('SSR/client URL attribute parity', () => {
+  const URL_ATTRS = ['href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href'];
+  const HOSTILE = ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:alert(1)'];
+
+  for (const attr of URL_ATTRS) {
+    for (const value of HOSTILE) {
+      it(`blocks ${attr}="${value.slice(0, 16)}..." in SSR and on the client`, () => {
+        const html = silenceWarnings(() => renderToString(h('a', { [attr]: value }, 'x')));
+        assert.ok(!html.includes(attr + '='), `SSR emitted ${attr}: ${html}`);
+        assert.equal(_isUnsafeAttr(attr, value), true, `client allowed ${attr}=${value}`);
+      });
+    }
+  }
+
+  it('still emits safe values for every URL attribute', () => {
+    for (const attr of URL_ATTRS) {
+      const html = renderToString(h('a', { [attr]: '/safe' }, 'x'));
+      assert.ok(html.includes(`${attr}="/safe"`), `SSR dropped a safe ${attr}: ${html}`);
+      assert.equal(_isUnsafeAttr(attr, '/safe'), false);
+    }
   });
 });
