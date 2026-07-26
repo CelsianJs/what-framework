@@ -39,8 +39,14 @@ async function readActionBody(request) {
   } catch { return {}; }
 }
 
+// Same cap for the revalidate webhook: the secret is only checked once the body
+// is parsed, so an unauthenticated client must never be able to make the origin
+// buffer an unbounded payload before its 401.
 async function readJsonBody(request) {
-  try { return await request.json(); } catch { return {}; }
+  let read;
+  try { read = await readFetchBodyCapped(request); } catch { return { json: {} }; }
+  if (read.tooLarge) return { tooLarge: true };
+  try { return { json: JSON.parse(read.raw) }; } catch { return { json: {} }; }
 }
 
 function defaultRenderRoute(documentOptions) {
@@ -164,8 +170,14 @@ export function createRequestHandler(options = {}) {
 
     // On-demand revalidation webhook
     if (request.method === 'POST' && pathname === REVALIDATE_PATH && revalidateWebhook) {
-      const body = await readJsonBody(request);
-      const out = await revalidateWebhook({ headers: headersToObject(request.headers), body });
+      const read = await readJsonBody(request);
+      if (read.tooLarge) {
+        return new Response(JSON.stringify({ message: 'Payload too large' }), {
+          status: 413,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      const out = await revalidateWebhook({ headers: headersToObject(request.headers), body: read.json });
       return new Response(JSON.stringify(out.body), {
         status: out.status,
         headers: { 'content-type': 'application/json' },

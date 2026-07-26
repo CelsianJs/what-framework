@@ -38,6 +38,18 @@ describe('exportStatic', () => {
     assert.deepEqual(data.loaderData, { title: 'Post a' });
   });
 
+  it('refuses a getStaticPaths param that escapes outDir', async () => {
+    const escaped = join(outDir, '..', 'whatexport-escaped');
+    const routes = [{
+      path: '/blog/:slug',
+      component: () => h('article', {}, 'x'),
+      getStaticPaths: async () => ({ paths: [{ params: { slug: '../../whatexport-escaped' } }] }),
+      page: { mode: 'static' },
+    }];
+    await assert.rejects(() => exportStatic({ routes, outDir }), /outside outDir/);
+    await assert.rejects(() => readFile(join(escaped, 'index.html'), 'utf8'), { code: 'ENOENT' });
+  });
+
   it('skips server-mode and dynamic-without-getStaticPaths routes', async () => {
     const routes = [
       { path: '/srv', component: () => h('main', {}, 'x'), page: { mode: 'server' } },

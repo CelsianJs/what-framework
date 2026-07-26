@@ -15,6 +15,7 @@
 // @property {number} swrWindow   Grace seconds an expired entry is still served.
 // @property {number} [status]    HTTP status (for 404 stubs / fallback skeletons).
 // @property {boolean} [partial]  True for fallback skeletons (never durable).
+// @property {boolean} [private]  True for per-user renders (never stored/shared).
 //
 // @typedef {Object} CacheStore
 // @property {(key:string)=>Promise<Entry|null>} get
@@ -25,12 +26,17 @@
 // @property {()=>Promise<void>} clear
 // @property {()=>Promise<string[]>} keys
 
+// A hybrid route renders per-request data, so an entry without an explicit
+// `revalidate` must NOT be fresh forever. Static routes are content-addressed by
+// their build and stay durable until an explicit purge.
+const HYBRID_MAX_AGE = 60;
+
 /**
  * Fill an Entry's time fields from `now` + a route config. Used by the ISR
  * engine so every store receives consistent expiry metadata.
  */
 export function makeEntry(out, config = {}, now = Date.now()) {
-  const maxAge = Number(config.revalidate) || 0;
+  const maxAge = Number(config.revalidate) || (config.mode === 'hybrid' ? HYBRID_MAX_AGE : 0);
   const swrWindow = config.swr != null ? Number(config.swr) : maxAge;
   return {
     html: out.html || '',
@@ -40,6 +46,7 @@ export function makeEntry(out, config = {}, now = Date.now()) {
     path: out.path || config.path,
     status: out.status || 200,
     partial: !!out.partial,
+    private: !!(out.private || out.usedRequestHeaders),
     renderedAt: now,
     maxAge,
     swrWindow,

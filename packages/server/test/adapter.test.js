@@ -77,6 +77,21 @@ describe('createRequestHandler', () => {
     assert.match(await res.text(), /revalidated/);
   });
 
+  it('rejects an oversized POST /__what_revalidate body with 413 before the webhook runs', async () => {
+    let called = 0;
+    const handle = createRequestHandler({
+      routes,
+      revalidateWebhook: async () => { called++; return { status: 401, body: { message: 'Unauthorized' } }; },
+    });
+    const res = await handle(new Request('http://x/__what_revalidate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: 'x'.repeat(1024 * 1024 + 1),
+    }));
+    assert.equal(res.status, 413);
+    assert.equal(called, 0, 'the body must not be buffered into the webhook');
+  });
+
   it('returns 404 for unmatched routes', async () => {
     const handle = createRequestHandler({ routes });
     const res = await handle(new Request('http://x/nope'));

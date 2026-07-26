@@ -7,7 +7,7 @@ function setup(cdn) {
   let n = 0;
   const render = async (route) => { n++; return { html: `<p>${route.path}#${n}</p>`, head: '', state: null, tags: route.config?.tags || [] }; };
   const store = createMemoryStore();
-  const engine = createCacheEngine({ store, render, cdn });
+  const engine = createCacheEngine({ store, render, cdn, logger: { warn() {}, error() {} } });
   return { engine, store, renders: () => n };
 }
 
@@ -28,6 +28,29 @@ describe('revalidatePath', () => {
     await engine.handle({ path: '/x', query: {}, config: { mode: 'static', revalidate: 60 } });
     await engine.revalidatePath('/x');
     assert.deepEqual(purged, ['/x']);
+  });
+
+  it('never sends a non-local target to the CDN adapter', async () => {
+    // A CDN purge carries the CDN API token, so an attacker-supplied absolute
+    // URL would exfiltrate it (and reach link-local metadata endpoints).
+    const purged = [];
+    const cdn = { purge: async (urls) => purged.push(...urls) };
+    const { engine } = setup(cdn);
+    const hostile = [
+      'https://attacker.example/x',
+      'http://169.254.169.254/latest/meta-data/',
+      '//attacker.example/x',
+      '/\\attacker.example/x',
+      '/ok\\bad',
+      'not-a-path',
+    ];
+    for (const p of hostile) {
+      assert.deepEqual(await engine.revalidatePath(p), [], `${p} must be refused`);
+    }
+    assert.deepEqual(purged, [], 'nothing reached the CDN adapter');
+
+    await engine.revalidatePath('/ok');
+    assert.deepEqual(purged, ['/ok'], 'local paths still purge');
   });
 });
 

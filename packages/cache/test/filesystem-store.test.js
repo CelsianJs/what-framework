@@ -49,6 +49,24 @@ describe('filesystem store', () => {
     assert.equal(deleted.length, 2);
   });
 
+  it('concurrent writes of different variants stay in the path index', async () => {
+    // Two workers caching ?page=1 and ?page=2 of the same route used to race on
+    // one shared index file, orphaning whichever entry lost the rename.
+    const s = createFilesystemStore({ dir: join(dir, 'race') });
+    const keys = Array.from({ length: 12 }, (_, i) => `/feed?page=${i}`);
+    await Promise.all(keys.map((k) => s.set(k, entry({ path: '/feed', tags: ['feed'] }))));
+    const deleted = await s.deleteByPath('/feed');
+    assert.equal(deleted.length, keys.length, 'every variant is still reachable by path');
+    assert.deepEqual(await s.keys(), []);
+  });
+
+  it('concurrent writes of different variants stay in the tag index', async () => {
+    const s = createFilesystemStore({ dir: join(dir, 'race-tags') });
+    const keys = Array.from({ length: 12 }, (_, i) => `/post/${i}`);
+    await Promise.all(keys.map((k, i) => s.set(k, entry({ path: `/post/${i}`, tags: ['posts'] }))));
+    assert.equal((await s.deleteByTag('posts')).length, keys.length);
+  });
+
   it('keys() and clear() work', async () => {
     const s = createFilesystemStore({ dir: join(dir, 'sub') });
     await s.set('a', entry());

@@ -59,6 +59,40 @@ describe('redis store', () => {
     assert.deepEqual(await s.deleteByTag('t'), [], 'tag set no longer references a');
   });
 
+  it('sets an expiry so entries cannot outlive their swr window', async () => {
+    const client = fakeRedis();
+    const expires = [];
+    client.expire = async (k, ttl) => { expires.push([k, ttl]); };
+    const s = createRedisStore({ client });
+    await s.set('k', entry({ expiresAt: Date.now() + 60_000, swrWindow: 600 }));
+    assert.equal(expires.length, 1);
+    assert.equal(expires[0][0], 'what:cache:k');
+    assert.ok(expires[0][1] >= 600 && expires[0][1] <= 662, `unexpected ttl ${expires[0][1]}`);
+  });
+
+  it('does not expire entries with no expiry (durable static pages)', async () => {
+    const client = fakeRedis();
+    const expires = [];
+    client.expire = async (...a) => { expires.push(a); };
+    const s = createRedisStore({ client });
+    await s.set('k', entry({ expiresAt: Infinity }));
+    assert.deepEqual(expires, []);
+  });
+
+  it('enumerates with SCAN rather than the blocking KEYS command', async () => {
+    const client = fakeRedis();
+    client.keys = async () => { throw new Error('KEYS must not be used when SCAN is available'); };
+    const pages = [];
+    client.scan = async (cursor, ...args) => {
+      pages.push([cursor, ...args]);
+      return cursor === '0' ? ['7', ['what:cache:a']] : ['0', ['what:cache:b']];
+    };
+    const s = createRedisStore({ client });
+    assert.deepEqual((await s.keys()).sort(), ['a', 'b'], 'every cursor page is collected');
+    assert.equal(pages.length, 2);
+    assert.deepEqual(pages[0].slice(1), ['MATCH', 'what:cache:*', 'COUNT', 500]);
+  });
+
   it('namespaces keys to avoid collisions', async () => {
     const client = fakeRedis();
     const s = createRedisStore({ client, namespace: 'app1' });

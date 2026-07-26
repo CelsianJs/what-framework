@@ -140,6 +140,64 @@ describe('ISR engine', () => {
     assert.equal(entry.status, 200);
   });
 
+  it('never caches a vary route when the adapter supplied no headers', async () => {
+    let renders = 0;
+    const store = createMemoryStore();
+    const engine = createCacheEngine({
+      store,
+      render: async () => { renders++; return { html: `<p>user#${renders}</p>`, tags: [] }; },
+      now: () => 0,
+      logger: { warn() {}, error() {} },
+    });
+    const route = { path: '/account', query: {}, config: { mode: 'hybrid', revalidate: 60, vary: ['cookie:session'] } };
+
+    const r1 = await engine.handle(route);
+    assert.equal(r1.cacheStatus, 'BYPASS');
+    assert.match(r1.headers['Cache-Control'], /private, no-store/);
+    assert.deepEqual(await store.keys(), [], 'a per-user render must never be stored');
+
+    const r2 = await engine.handle(route);
+    assert.match(r2.html, /user#2/, 'second visitor gets their own render, not the first one');
+  });
+
+  it('keys vary routes per user when the adapter supplies headers', async () => {
+    const store = createMemoryStore();
+    let renders = 0;
+    const engine = createCacheEngine({
+      store,
+      render: async (rm) => { renders++; return { html: `<p>${rm.varyHeaders.cookie}</p>`, tags: [] }; },
+      now: () => 0,
+    });
+    const config = { mode: 'hybrid', revalidate: 60, vary: ['cookie:session'] };
+    const visit = (cookie) => engine.handle({ path: '/account', query: {}, config, varyHeaders: { cookie } });
+
+    const alice = await visit('session=alice');
+    const bob = await visit('session=bob');
+    assert.match(alice.html, /alice/);
+    assert.match(bob.html, /bob/, "Alice's HTML must not be served to Bob");
+    assert.equal(renders, 2);
+    assert.equal((await store.keys()).length, 2, 'one entry per user');
+
+    const aliceAgain = await visit('session=alice');
+    assert.equal(aliceAgain.cacheStatus, 'HIT');
+    assert.match(aliceAgain.html, /alice/);
+    assert.match(aliceAgain.headers['Cache-Control'], /private, no-store/, 'never shareable at the edge');
+  });
+
+  it('a hybrid route without an explicit revalidate is not fresh forever', async () => {
+    let t = 0; const now = () => t;
+    let renders = 0;
+    const store = createMemoryStore();
+    const engine = createCacheEngine({ store, render: async () => { renders++; return { html: `<p>#${renders}</p>`, tags: [] }; }, now });
+    const route = { path: '/p', query: {}, config: { mode: 'hybrid' } };
+
+    await engine.handle(route);
+    t += 3600_000;
+    const r = await engine.handle(route);
+    assert.notEqual(r.cacheStatus, 'HIT', 'an hour later it must not still be fresh');
+    assert.equal(renders, 2);
+  });
+
   it('stale-if-error serves stale when regeneration throws', async () => {
     let t = 0; const now = () => t;
     let calls = 0;

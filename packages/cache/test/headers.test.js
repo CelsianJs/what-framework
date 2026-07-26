@@ -41,6 +41,19 @@ describe('buildCacheHeaders', () => {
     }
   });
 
+  it('never emits public for a route that varies per user', () => {
+    const h = buildCacheHeaders({ maxAge: 60, swrWindow: 600, tags: ['posts'] }, { mode: 'hybrid', vary: ['cookie:session'] }, 'HIT');
+    assert.doesNotMatch(h['Cache-Control'], /public/);
+    assert.match(h['Cache-Control'], /private, no-store/);
+    assert.equal(h.Vary, 'Cookie');
+    assert.equal(h['Cache-Tag'], undefined, 'no purge tags on a per-user response');
+  });
+
+  it('emits no-store for an entry marked private', () => {
+    const h = buildCacheHeaders({ maxAge: 60, swrWindow: 600, private: true }, { mode: 'hybrid' }, 'BYPASS');
+    assert.match(h['Cache-Control'], /private, no-store/);
+  });
+
   it('an explicit status 200 stays cacheable', () => {
     const h = buildCacheHeaders({ maxAge: 60, swrWindow: 600, tags: [], status: 200 }, { mode: 'static' }, 'MISS');
     assert.match(h['Cache-Control'], /s-maxage=60/);
