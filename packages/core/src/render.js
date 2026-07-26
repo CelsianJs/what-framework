@@ -3,7 +3,7 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
-import { createDOM, disposeTree, getCurrentComponent, getComponentStack, _setSelectValue } from './dom.js';
+import { createDOM, disposeTree, getCurrentComponent, getComponentStack, _setSelectValue, _isUnsafeAttr } from './dom.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
@@ -27,6 +27,21 @@ export function _setTextInsertHook(fn) {
 // Merges children into props and delegates to createDOM which calls createComponent.
 
 export function _$createComponent(Component, props, children) {
+  // Deferred children (compiled JSX): the compiler passes a zero-arg factory
+  // when children contain elements, so their DOM is not built before this
+  // component runs. Mark it so the render paths realize it in place instead of
+  // treating it as a reactive thunk. h() and the JSX runtime pass arrays and
+  // take the path below unchanged.
+  if (typeof children === 'function') {
+    const lazy = () => {
+      const kids = children();
+      return kids.length === 1 ? kids[0] : kids;
+    };
+    lazy._lazyChildren = true;
+    if (props) props.children = lazy;
+    else props = { children: lazy };
+    return createDOM({ tag: Component, props, children: [], key: null, _vnode: true });
+  }
   if (children && children.length > 0) {
     const mergedChildren = children.length === 1 ? children[0] : children;
     // Mutate props in place when possible to avoid object spread allocation.
@@ -39,20 +54,6 @@ export function _$createComponent(Component, props, children) {
   }
   // Build a VNode-like object and pass to createDOM which handles component execution
   return createDOM({ tag: Component, props: props || {}, children: children || [], key: null, _vnode: true });
-}
-
-// --- URL Sanitization for DOM attributes ---
-// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed).
-
-const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'formAction']);
-
-function isSafeUrl(url) {
-  if (typeof url !== 'string') return true; // non-string values are not URL-injection risks
-  const normalized = url.trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
-  if (normalized.startsWith('javascript:')) return false;
-  if (normalized.startsWith('data:')) return false;
-  if (normalized.startsWith('vbscript:')) return false;
-  return true;
 }
 
 // --- template(html) ---
@@ -174,6 +175,11 @@ export function insert(parent, child, marker) {
   // mapArray inserter: self-managing reactive list with its own effect
   if (typeof child === 'function' && child._mapArray) {
     return child(parent, marker || null);
+  }
+
+  // Deferred component children: realize once, no reactive wrapper.
+  if (typeof child === 'function' && child._lazyChildren) {
+    return insert(parent, child(), marker);
   }
 
   if (typeof child === 'function') {
@@ -1356,14 +1362,12 @@ export function setProp(el, key, value) {
     return;
   }
 
-  // Sanitize URL attributes — reject dangerous protocols
-  if (URL_ATTRS.has(key) || URL_ATTRS.has(key.toLowerCase())) {
-    if (!isSafeUrl(value)) {
-      if (typeof console !== 'undefined') {
-        console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
-      }
-      return;
+  // Sanitize URL attributes: reject dangerous protocols and srcdoc
+  if (_isUnsafeAttr(key, value)) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
     }
+    return;
   }
 
   const isSvg = _hasSVGElement && el instanceof SVGElement;
@@ -1662,6 +1666,11 @@ function hydrateNode(vnode, parent) {
     return textNode;
   }
 
+  // Deferred component children: realize once, then hydrate the result
+  if (typeof vnode === 'function' && vnode._lazyChildren) {
+    return hydrateNode(vnode(), parent);
+  }
+
   // Reactive function child — attach effect to existing node
   if (typeof vnode === 'function') {
     // Unwrap to get the initial value for hydration
@@ -1716,7 +1725,7 @@ function hydrateNode(vnode, parent) {
 
       let result;
       try {
-        const propsChildren = children.length === 0 ? undefined
+        const propsChildren = children.length === 0 ? props.children
           : children.length === 1 ? children[0] : children;
         result = Component({ ...props, children: propsChildren });
       } catch (error) {
