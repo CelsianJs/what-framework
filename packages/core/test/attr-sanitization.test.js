@@ -160,3 +160,50 @@ describe('head attribute name validation', () => {
     clearHead();
   });
 });
+
+// =========================================================================
+// Uppercase/mixed-case handler props must never reach setAttribute on the
+// CLIENT paths (dom.js setProp, render.js spread/setProp, hydrateElementProps).
+// =========================================================================
+
+describe('client handler-prop case sensitivity', () => {
+  const variants = ['ONCLICK', 'OnClick', 'onCLICK', 'ONMOUSEOVER'];
+
+  it('h() path does not set uppercase handler props as attributes', () => {
+    for (const key of variants) {
+      const container = getContainer();
+      silenceWarns(() => mount(h('div', { [key]: 'alert(1)' }), container));
+      const el = container.querySelector('div');
+      assert.ok(el, `no element rendered for ${key}`);
+      assert.ok(!/alert\(1\)/.test(el.outerHTML), `${key} leaked a live handler: ${el.outerHTML}`);
+      assert.equal(el.getAttribute(key.toLowerCase()), null, `${key} was set as an attribute`);
+    }
+  });
+
+  it('compiled setProp does not set uppercase handler props as attributes', () => {
+    for (const key of variants) {
+      const el = document.createElement('div');
+      silenceWarns(() => setProp(el, key, 'alert(1)'));
+      assert.ok(!/alert\(1\)/.test(el.outerHTML), `${key} leaked a live handler: ${el.outerHTML}`);
+      assert.equal(el.getAttribute(key.toLowerCase()), null, `${key} was set as an attribute`);
+    }
+  });
+
+  it('compiled spread does not set uppercase handler props as attributes', async () => {
+    const { spread } = await import('../src/render.js');
+    for (const key of variants) {
+      const el = document.createElement('div');
+      silenceWarns(() => spread(el, { [key]: 'alert(1)' }));
+      assert.ok(!/alert\(1\)/.test(el.outerHTML), `${key} leaked a live handler: ${el.outerHTML}`);
+      assert.equal(el.getAttribute(key.toLowerCase()), null, `${key} was set as an attribute`);
+    }
+  });
+
+  it('still attaches normal lowercase and camelCase handlers', () => {
+    const container = getContainer();
+    let clicks = 0;
+    mount(h('button', { onClick: () => { clicks++; } }, 'go'), container);
+    container.querySelector('button').dispatchEvent(new dom.window.MouseEvent('click'));
+    assert.equal(clicks, 1);
+  });
+});

@@ -40,6 +40,16 @@ function isSafeUrl(url) {
   return true;
 }
 
+// Event-handler prop test, case-insensitive. A case-sensitive `on` prefix lets
+// `ONCLICK` fall through to setAttribute, where the browser honours it as a live
+// inline handler. Shared by dom.js and render.js so the two cannot diverge.
+export function _isEventProp(key) {
+  if (key.length <= 2) return false;
+  const a = key.charCodeAt(0);
+  const b = key.charCodeAt(1);
+  return (a === 111 || a === 79) && (b === 110 || b === 78);
+}
+
 // Returns true when the attribute must not be applied. Both the h()/html`` path
 // (dom.js setProp) and the compiled-JSX path (render.js setProp) call this so
 // they enforce identical rules.
@@ -735,7 +745,7 @@ export function _setSelectValue(el, value) {
 // merge without consolidating the event/listener model: they have different callers.
 function setProp(el, key, value, isSvg) {
   // Reactive function props — wrap in effect for fine-grained updates
-  if (typeof value === 'function' && !(key.startsWith('on') && key.length > 2) && key !== 'ref') {
+  if (typeof value === 'function' && !_isEventProp(key) && key !== 'ref') {
     if (!el._propEffects) el._propEffects = {};
     if (el._propEffects[key]) {
       try { el._propEffects[key](); } catch (e) { /* already disposed */ }
@@ -748,7 +758,8 @@ function setProp(el, key, value, isSvg) {
   }
 
   // Event handlers
-  if (key.startsWith('on') && key.length > 2) {
+  if (_isEventProp(key)) {
+    if (typeof value !== 'function' && value != null) return;
     let eventName = key.slice(2);
     let useCapture = false;
     if (eventName.endsWith('Capture')) {

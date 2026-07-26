@@ -3,7 +3,7 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
-import { createDOM, disposeTree, getCurrentComponent, getComponentStack, _setSelectValue, _isUnsafeAttr } from './dom.js';
+import { createDOM, disposeTree, getCurrentComponent, getComponentStack, _setSelectValue, _isUnsafeAttr, _isEventProp } from './dom.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
@@ -1291,14 +1291,15 @@ export function spread(el, props) {
   for (const key in props) {
     const value = props[key];
 
-    if (key.startsWith('on') && key.length > 2) {
+    if (_isEventProp(key)) {
       // Event handler — direct assignment. Use $$name for delegated events.
+      if (typeof value !== 'function') continue;
       const event = key.slice(2).toLowerCase();
       el.addEventListener(event, value);
       continue;
     }
 
-    if (typeof value === 'function' && !key.startsWith('on')) {
+    if (typeof value === 'function' && !_isEventProp(key)) {
       // Reactive prop — create micro-effect. The disposer must be registered
       // on el._propEffects so disposeTree() (dom.js) tears it down when the
       // element unmounts; otherwise the effect keeps firing on signal writes
@@ -1353,7 +1354,7 @@ export function setProp(el, key, value) {
   // reactive getters. Wrap in an effect so the prop auto-updates. Track the
   // disposer on el._propEffects so disposeTree() tears it down on unmount —
   // mirrors the pattern in dom.js setProp / spread().
-  if (typeof value === 'function' && !key.startsWith('on')) {
+  if (typeof value === 'function' && !_isEventProp(key)) {
     if (!el._propEffects) el._propEffects = {};
     if (el._propEffects[key]) {
       try { el._propEffects[key](); } catch (e) { /* already disposed */ }
@@ -1361,6 +1362,8 @@ export function setProp(el, key, value) {
     el._propEffects[key] = effect(() => setProp(el, key, value()));
     return;
   }
+
+  if (_isEventProp(key)) return;
 
   // Sanitize URL attributes: reject dangerous protocols and srcdoc
   if (_isUnsafeAttr(key, value)) {
@@ -1820,7 +1823,8 @@ function hydrateElementProps(el, props) {
     const value = props[key];
 
     // Event handlers — always attach (they don't exist in SSR HTML)
-    if (key.startsWith('on') && key.length > 2) {
+    if (_isEventProp(key)) {
+      if (typeof value !== 'function') continue;
       const event = key.slice(2).toLowerCase();
       el.addEventListener(event, value);
       continue;
@@ -1833,7 +1837,7 @@ function hydrateElementProps(el, props) {
     }
 
     // Reactive props — set up effects
-    if (typeof value === 'function' && !key.startsWith('on')) {
+    if (typeof value === 'function' && !_isEventProp(key)) {
       if (key === 'class' || key === 'className') {
         effect(() => { el.className = value() || ''; });
       } else if (key === 'style' && typeof value() === 'object') {
