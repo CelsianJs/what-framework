@@ -58,7 +58,16 @@ test('a failed publish aborts the remaining packages instead of continuing', () 
   assert.equal(lines.length, 1, `expected to stop after the first failure, got:\n${lines.join('\n')}`);
   assert.match(lines[0], /packages\/core /);
   assert.match(result.stderr, /Aborting/);
-  assert.match(result.stdout, /aborted: 13/);
+  // The exact count tracks however many public packages exist, so assert the
+  // property that matters: everything after the failure was aborted.
+  const abortedSection = result.stdout.slice(result.stdout.indexOf('  aborted: '));
+  const aborted = Number(/aborted: (\d+)/.exec(abortedSection)?.[1]);
+  assert.ok(aborted > 0, `expected the remaining packages to be aborted, got:\n${result.stdout}`);
+  assert.equal(
+    aborted,
+    (abortedSection.match(/^ {4}- /gm) || []).length,
+    'every aborted package must be listed individually',
+  );
 });
 
 test('publishes carry --provenance on an OIDC-capable runner', () => {

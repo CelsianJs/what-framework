@@ -2,6 +2,24 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **router: `parseQuery()` returns a null-prototype object.** `route.query` and the object returned by `parseQuery()` are created with `Object.create(null)`, which closes prototype-pollution via a crafted query string (`?__proto__=x`). This is observable: `query.hasOwnProperty(k)`, `query.toString()` and anything else inherited from `Object.prototype` is no longer available on the result. Use `Object.prototype.hasOwnProperty.call(query, k)` (or `k in query`) instead. Reading, spreading, `Object.keys()`, `JSON.stringify()` and destructuring are unaffected.
+- **cache: Redis cache keys now store a hash of the `vary` segment instead of its raw value.** Redis keeps key names and set members verbatim, so raw `vary` values (which include session cookies) were readable via `SCAN`, echoed by `MONITOR` and captured in RDB/AOF backups. Path and query stay legible. Existing Redis entries for `vary` routes are keyed under the old scheme and will miss once; they expire on their own TTL.
+- **cache: an explicit `revalidate: 0` in a page config is honoured** instead of being coerced to the 60s hybrid default.
+- **router: `isSafeUrl()` rejects a backslash in any scheme-less URL**, not only in one starting with `/`. Browsers normalize the backslash to a forward slash, so `\evil.com` resolved off-origin. Allowlisted absolute URLs are unaffected.
+
+### Fixed
+
+- **core: hydrated components no longer leak.** The hydration path attached the component context to no DOM node, so `disposeTree` could not reach it and every hydrated component leaked its cleanups, `useEffect` disposers and reactive-child effects.
+- **core: head dedup keys are escaped before entering a CSS selector.** A key containing selector metacharacters (including the `JSON.stringify` fallback used for a meta with no `name`/`property`) raised `DOMException: Invalid selector` and broke all client head management.
+- **cache: the filesystem store reads the pre-0.11.8 reverse-index shape.** The index changed from one JSON array per tag/path to a directory of per-key files with no migration, so after an in-place upgrade `deleteByPath`/`deleteByTag` returned `[]` for pre-upgrade entries while the revalidate webhook still reported success.
+- **cache: `revalidatePath()` and `revalidateTag()` no longer reject** when the resolved route cannot be keyed.
+- **server: `what-server/islands` ships its type declarations.** `islands.d.ts` was in neither the `files` array nor the subpath's `types` condition.
+- **core (types): `Component<P>` may return `null` again.** The narrowing to `() => VNode` made `Show`, `For` and any component that legitimately renders nothing fail typecheck.
+
 ## [0.11.7] - 2026-07-16
 
 Patch release. All 14 packages move together to 0.11.7.

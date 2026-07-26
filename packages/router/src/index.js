@@ -22,9 +22,12 @@ export function isSafeUrl(url) {
   if (normalized.startsWith('data:')) return false;
   if (normalized.startsWith('vbscript:')) return false;
   if (/^[/\\]{2}/.test(normalized)) return false;
-  if (normalized.startsWith('/') && normalized.includes('\\')) return false;
   const scheme = normalized.match(/^([a-z][a-z0-9+.-]*:)/);
   if (scheme) return SAFE_PROTOCOLS.has(scheme[1]);
+  // Scheme-less only: browsers normalize a backslash to a forward slash, so
+  // `\evil.com` resolves off-origin exactly as `/\evil.com` does. Absolute
+  // URLs already passed the protocol allowlist above.
+  if (normalized.includes('\\')) return false;
   return true;
 }
 

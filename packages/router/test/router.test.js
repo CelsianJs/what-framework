@@ -189,6 +189,15 @@ describe('URL sanitization', () => {
     assert.equal(isSafeUrl('/\\evil.com'), false);
     assert.equal(isSafeUrl('\\\\evil.com'), false);
     assert.equal(isSafeUrl('/path\\evil.com'), false);
+    // Browsers normalize backslashes in a scheme-less URL to forward slashes,
+    // so a relative one resolves off-origin just as a rooted one would.
+    assert.equal(isSafeUrl('\\evil.com'), false);
+    assert.equal(isSafeUrl('path\\evil.com'), false);
+    assert.equal(isSafeUrl('#a\\b'), false);
+  });
+
+  it('still allows allowlisted absolute URLs that contain a backslash', () => {
+    assert.equal(isSafeUrl('https://example.com/a\\b'), true);
   });
 
   it('should reject schemes outside the allowlist', () => {
