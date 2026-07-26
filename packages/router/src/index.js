@@ -6,7 +6,12 @@ import { signal, effect, computed, batch, h, ErrorBoundary } from 'what-core';
 import { compilePath, matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
-// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed).
+// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed),
+// any scheme outside the allowlist (blob:, about:, filesystem: ...), and
+// protocol-relative / backslash-smuggled paths that resolve to a foreign
+// origin. Browsers treat "\" like "/", so "/\evil.com" is an open redirect.
+
+const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
 export function isSafeUrl(url) {
   if (typeof url !== 'string') return false;
@@ -16,6 +21,10 @@ export function isSafeUrl(url) {
   if (normalized.startsWith('javascript:')) return false;
   if (normalized.startsWith('data:')) return false;
   if (normalized.startsWith('vbscript:')) return false;
+  if (/^[/\\]{2}/.test(normalized)) return false;
+  if (normalized.startsWith('/') && normalized.includes('\\')) return false;
+  const scheme = normalized.match(/^([a-z][a-z0-9+.-]*:)/);
+  if (scheme) return SAFE_PROTOCOLS.has(scheme[1]);
   return true;
 }
 

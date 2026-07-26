@@ -182,6 +182,30 @@ describe('URL sanitization', () => {
     assert.equal(isSafeUrl(123), false);
     assert.equal(isSafeUrl(null), false);
   });
+
+  it('should reject protocol-relative URLs', () => {
+    assert.equal(isSafeUrl('//evil.com/x'), false);
+    assert.equal(isSafeUrl('  //evil.com'), false);
+    assert.equal(isSafeUrl('/\\evil.com'), false);
+    assert.equal(isSafeUrl('\\\\evil.com'), false);
+    assert.equal(isSafeUrl('/path\\evil.com'), false);
+  });
+
+  it('should reject schemes outside the allowlist', () => {
+    assert.equal(isSafeUrl('blob:https://x'), false);
+    assert.equal(isSafeUrl('about:blank'), false);
+    assert.equal(isSafeUrl('filesystem:https://x/y'), false);
+    assert.equal(isSafeUrl('FILE:///etc/passwd'), false);
+  });
+
+  it('should allow allowlisted schemes and relative paths', () => {
+    assert.equal(isSafeUrl('http://example.com'), true);
+    assert.equal(isSafeUrl('mailto:a@b.com'), true);
+    assert.equal(isSafeUrl('tel:+15551234'), true);
+    assert.equal(isSafeUrl('/a/b?c=1#d'), true);
+    assert.equal(isSafeUrl('relative/path'), true);
+  });
+
 });
 
 // =========================================================================
@@ -410,6 +434,17 @@ describe('Link component', () => {
     const container = getContainer();
 
     mount(h(Link, { href: 'javascript:alert(1)' }, 'Bad'), container);
+    await flush();
+
+    const a = container.querySelector('a');
+    assert.ok(a, 'Should render an <a> element');
+    assert.equal(a.getAttribute('href'), 'about:blank');
+  });
+
+  it('should sanitize protocol-relative hrefs', async () => {
+    const container = getContainer();
+
+    mount(h(Link, { href: '//evil.com/x' }, 'Bad'), container);
     await flush();
 
     const a = container.querySelector('a');

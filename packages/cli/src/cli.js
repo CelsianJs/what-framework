@@ -4,48 +4,88 @@
 // Commands: dev, build, preview, generate
 
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSync, copyFileSync, realpathSync } from 'fs';
-import { join, resolve, relative, extname, basename, normalize } from 'path';
+import { join, resolve, relative, extname, basename, normalize, sep } from 'path';
 import { createServer } from 'http';
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';
 
-// Security: Prevent path traversal attacks
+// Security: Prevent path traversal attacks. `userPath` is a URL pathname, so it
+// starts with '/' — it must be joined onto the base as a RELATIVE path, otherwise
+// resolve() would discard the base entirely.
 function safePath(base, userPath) {
   try {
+    let decoded;
+    try {
+      decoded = decodeURIComponent(userPath);
+    } catch {
+      return null;
+    }
+    if (decoded.includes('\0')) return null;
+
     // Reject paths that contain .. segments (path traversal attempt)
-    const normalized = normalize(userPath);
+    const normalized = normalize(decoded);
     if (normalized.startsWith('..') || normalized.includes('/..') || normalized.includes('\\..')) {
+      return null;
+    }
+
+    // Never serve dotfiles (.env, .git, ...)
+    if (normalized.split(/[\\/]/).some((s) => s.length > 1 && s.startsWith('.'))) {
       return null;
     }
 
     // Get the real base path (resolve symlinks)
     const realBase = realpathSync(base);
 
-    // Resolve the user path against the base
-    const resolved = resolve(realBase, normalized);
+    // Resolve the user path against the base, always relatively
+    const rel = normalized.startsWith('/') || normalized.startsWith('\\') ? '.' + normalized : './' + normalized;
+    const resolved = resolve(realBase, rel);
+    if (!isInside(resolved, realBase)) return null;
 
-    // Double-check: ensure resolved path is within base
-    if (!resolved.startsWith(realBase + '/') && resolved !== realBase) {
-      return null;
-    }
+    // readFileSync follows symlinks, so the RESOLVED target must be contained too:
+    // `public/leak.txt -> ../../.env` passes the textual check but escapes the root.
+    const real = realpathSync(resolved);
+    if (!isInside(real, realBase)) return null;
 
-    return resolved;
+    return real;
   } catch {
     return null;
   }
 }
 
+function isInside(target, base) {
+  return target === base || target.startsWith(base + sep);
+}
+
+// WS handshakes are exempt from the same-origin policy, so any page the developer
+// browses could otherwise subscribe to the HMR stream (a live feed of edited file
+// paths). Non-browser clients send no Origin at all; browsers always do.
+function isAllowedOrigin(origin, allowedHosts) {
+  if (!origin) return true;
+  try {
+    const { hostname, port } = new URL(origin);
+    return allowedHosts.has(`${hostname}:${port}`);
+  } catch {
+    return false;
+  }
+}
+
 // Simple WebSocket implementation using native Node.js APIs (no external deps)
 class SimpleWebSocketServer {
-  constructor({ server }) {
+  constructor({ server, allowedHosts = new Set() }) {
     this.clients = new Set();
     server.on('upgrade', (req, socket, head) => {
       if (req.headers.upgrade?.toLowerCase() !== 'websocket') return;
 
       const key = req.headers['sec-websocket-key'];
+      if (!key || !isAllowedOrigin(req.headers.origin, allowedHosts)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
       const accept = createHash('sha1')
         .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
         .digest('base64');
@@ -153,6 +193,7 @@ class SimpleWebSocket {
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const cwd = process.cwd();
+const MAX_ACTION_BODY = 1024 * 1024;
 const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const args = process.argv.slice(2);
@@ -160,8 +201,7 @@ const command = args[0];
 
 const commands = { dev, build, preview, generate, start, init };
 
-if (!command || !commands[command]) {
-  console.log(`
+const help = `
   what - The closest framework to vanilla JS
 
   Usage: what <command>
@@ -170,18 +210,47 @@ if (!command || !commands[command]) {
     dev       Start dev server with HMR
     build     Production build
     preview   Preview production build
-    generate  Static site generation
+    generate  Static site generation (pre-render src/pages to HTML)
     start     Run the full-stack server (Node adapter + ISR)
     init      Create a new project (same scaffold as npm create what@latest)
 
   Options:
-    --port    Dev server port (default: 3000)
-    --host    Dev server host (default: localhost)
-  `);
-  process.exit(0);
+    --port     Dev server port (default: 3000)
+    --host     Dev server host (default: localhost)
+    --version  Print the CLI version
+  `;
+
+function main() {
+  if (command === '--version' || command === '-v') {
+    console.log(packageVersion);
+    return;
+  }
+  if (!command || command === '--help' || command === '-h') {
+    console.log(help);
+    return;
+  }
+  if (!commands[command]) {
+    console.error(`\n  Unknown command: ${command}`);
+    console.error(help);
+    process.exit(1);
+  }
+  commands[command]();
 }
 
-commands[command]();
+// Guarded so the module can be imported (by tests) without running a command.
+// argv[1] is the bin symlink under node_modules/.bin, hence the realpath compare.
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) main();
+
+export { safePath, isAllowedOrigin, transformImports, fileToRoute };
 
 // --- Dev Server ---
 
@@ -189,6 +258,7 @@ async function dev() {
   const port = getFlag('--port', 3000);
   const host = getFlag('--host', 'localhost');
   const config = await loadConfigAsync();
+  const runtimeDirs = requireRuntimeDirs('what dev');
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://${host}:${port}`);
@@ -198,8 +268,22 @@ async function dev() {
     if (pathname === '/__what_action' && req.method === 'POST') {
       const actionId = req.headers['x-what-action'];
       let body = '';
-      req.on('data', chunk => body += chunk);
+      let size = 0;
+      let tooLarge = false;
+      req.on('data', chunk => {
+        if (tooLarge) return;
+        size += chunk.length;
+        if (size > MAX_ACTION_BODY) {
+          tooLarge = true;
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: 'Request body too large' }));
+          req.destroy();
+          return;
+        }
+        body += chunk;
+      });
       req.on('end', async () => {
+        if (tooLarge) return;
         try {
           const { args } = JSON.parse(body);
           // In production, this would call the registered action
@@ -220,11 +304,10 @@ async function dev() {
 
     // Serve framework modules
     if (pathname.startsWith('/@what/')) {
-      const modName = pathname.slice(7);
-      const modPath = resolveFrameworkModule(modName);
-      if (modPath) {
+      const mod = resolveFrameworkModule(pathname.slice(7), runtimeDirs);
+      if (mod) {
         res.writeHead(200, { 'Content-Type': 'application/javascript' });
-        res.end(readFileSync(modPath, 'utf-8'));
+        res.end(mod);
         return;
       }
     }
@@ -321,7 +404,10 @@ async function dev() {
   });
 
   // Initialize WebSocket server
-  const wss = new SimpleWebSocketServer({ server });
+  const allowedHosts = new Set(
+    ['localhost', '127.0.0.1', '::1', host].map((h) => `${h}:${port}`)
+  );
+  const wss = new SimpleWebSocketServer({ server, allowedHosts });
   wss.on('connection', (ws) => {
     wsClients.add(ws);
     ws.onclose = () => wsClients.delete(ws);
@@ -359,11 +445,24 @@ async function build() {
   console.log('\n  what build\n');
   if (useHash) console.log('  Hash:    Enabled (cache busting)\n');
 
-  mkdirSync(outDir, { recursive: true });
-
   // Collect all source files
   const srcDir = join(cwd, 'src');
   const files = collectFiles(srcDir);
+
+  if (files.length === 0) {
+    console.error(`
+  what build — no app found in ${cwd}
+
+  Expected a src/ directory containing your entry point (src/main.js and/or
+  src/index.html). Scaffold one with \`npm create what@latest\`, or run this
+  from your project root.
+`);
+    process.exit(1);
+    return;
+  }
+
+  const runtimeDirs = requireRuntimeDirs('what build');
+  mkdirSync(outDir, { recursive: true });
 
   let totalSize = 0;
   let gzipSize = 0;
@@ -426,7 +525,24 @@ async function build() {
   }
 
   // Bundle the framework runtime
-  bundleRuntime(outDir, useHash, hashManifest);
+  bundleRuntime(outDir, runtimeDirs);
+
+  // A bare specifier left in the output is a module no browser can load, so the
+  // build must fail rather than hand back an artifact that 404s on first paint.
+  const unresolved = findBareSpecifiers(outDir);
+  if (unresolved.length > 0) {
+    console.error(`\n  what build — the output contains imports no browser can resolve:\n`);
+    for (const { file, spec } of unresolved.slice(0, 10)) {
+      console.error(`    ${file}: '${spec}'`);
+    }
+    if (unresolved.length > 10) console.error(`    ...and ${unresolved.length - 10} more`);
+    console.error(`
+  Import the framework as 'what-framework' (or 'what-framework/router',
+  'what-framework/server') so the build can rewrite it to /@what/*.js.
+`);
+    process.exit(1);
+    return;
+  }
 
   // Write manifest for production use
   if (useHash && Object.keys(hashManifest).length > 0) {
@@ -494,18 +610,77 @@ async function generate() {
   // First do a normal build
   await build();
 
-  // Then pre-render all pages
   const pagesDir = join(cwd, config.pagesDir || 'src/pages');
-  if (existsSync(pagesDir)) {
-    const pages = collectFiles(pagesDir).filter(f => extname(f) === '.js');
-    for (const page of pages) {
-      const route = fileToRoute(relative(pagesDir, page));
-      console.log(`  Pre-rendering: ${route}`);
-      // In full impl: import page, call renderToString, write HTML
-    }
+  if (!existsSync(pagesDir)) {
+    console.error(`
+  what generate — no pages directory at ${relative(cwd, pagesDir)}/
+
+  Static generation pre-renders every page module in that directory (each one
+  exporting a default component, optionally a loader). Create it, or use
+  \`what build\` for a client-rendered app.
+`);
+    process.exit(1);
+    return;
   }
 
-  console.log('\n  Static generation complete.\n');
+  const { renderPage } = await import(pathToFileURL(join(requireRuntimeDirs('what generate').server, 'index.js')).href);
+  const pages = collectFiles(pagesDir).filter(f => extname(f) === '.js');
+  let count = 0;
+
+  for (const page of pages) {
+    const route = fileToRoute(relative(pagesDir, page));
+    if (route.includes(':') || route.includes('*')) {
+      console.log(`  Skipped:       ${route} (dynamic route, no params to pre-render)`);
+      continue;
+    }
+
+    let html;
+    try {
+      const mod = await import(pathToFileURL(page).href);
+      if (typeof (mod.default || mod) !== 'function') {
+        throw new Error('no default-exported component');
+      }
+      const { body, head } = await renderPage(mod, { params: {}, query: {}, path: route });
+      html = staticDocument(body, head);
+    } catch (e) {
+      console.error(`\n  what generate — failed to pre-render ${relative(cwd, page)}\n\n  ${e.message}\n`);
+      process.exit(1);
+      return;
+    }
+
+    const outPath = route === '/' ? join(outDir, 'index.html') : join(outDir, route.slice(1), 'index.html');
+    mkdirSync(join(outPath, '..'), { recursive: true });
+    writeFileSync(outPath, html);
+    console.log(`  Pre-rendered:  ${route} -> ${relative(cwd, outPath)}`);
+    count++;
+  }
+
+  if (count === 0) {
+    console.error(`
+  what generate — no static pages found in ${relative(cwd, pagesDir)}/
+
+  Add a page module (e.g. src/pages/index.js exporting a default component).
+`);
+    process.exit(1);
+    return;
+  }
+
+  console.log(`\n  Static generation complete (${count} page${count === 1 ? '' : 's'}).\n`);
+}
+
+function staticDocument(body, head) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+${head || '<title>What App</title>'}
+</head>
+<body>
+<div id="app">${body}</div>
+</body>
+</html>
+`;
 }
 
 // --- Start (full-stack server) ---
@@ -683,11 +858,13 @@ function resolvePageFile(pathname, config) {
 }
 
 function fileToRoute(filepath) {
-  return '/' + filepath
+  const route = '/' + filepath
+    .split(sep).join('/')
     .replace(/\.js$/, '')
-    .replace(/\/index$/, '')
+    .replace(/\[\.\.\.(\w+)\]/g, '*')
     .replace(/\[(\w+)\]/g, ':$1')
-    .replace(/\[\.\.\.(\w+)\]/g, '*');
+    .replace(/(^|\/)index$/, '');
+  return route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route;
 }
 
 async function renderDevPage(pagePath, pathname, config) {
@@ -791,36 +968,144 @@ function injectDevClient(html) {
   return html.replace('</body>', devScript + '\n</body>');
 }
 
-function resolveFrameworkModule(name) {
-  const whatDir = resolve(__dirname, '../../what/src');
-  const coreDir = resolve(__dirname, '../../core/src');
-  const routerDir = resolve(__dirname, '../../router/src');
-  const serverDir = resolve(__dirname, '../../server/src');
+// The runtime lives in the installed packages, NOT at a path relative to this
+// file: from node_modules/what-framework-cli/src, `../../what/src` points at a
+// package name that was never published. Resolve by package name instead, from
+// the CLI, from what-framework itself (pnpm-style trees), then from the project.
+var _runtimeDirs = null;
+function resolveRuntimeDirs() {
+  if (_runtimeDirs) return _runtimeDirs;
 
-  const map = {
-    'core.js': join(whatDir, 'index.js'),
-    'reactive.js': join(coreDir, 'reactive.js'),
-    'router.js': join(whatDir, 'router.js'),
-    'server.js': join(whatDir, 'server.js'),
-    'islands.js': join(serverDir, 'islands.js'),
-  };
+  const cliRequire = createRequire(import.meta.url);
+  const requires = [cliRequire];
+  try { requires.push(createRequire(cliRequire.resolve('what-framework'))); } catch { /* not resolvable here */ }
+  try { requires.push(createRequire(join(cwd, 'package.json'))); } catch { /* no project package.json */ }
 
-  return map[name] || null;
+  const dirs = {};
+  const missing = [];
+  for (const [key, name] of [['core', 'what-core'], ['router', 'what-router'], ['server', 'what-server']]) {
+    for (const req of requires) {
+      try { dirs[key] = join(req.resolve(name), '..'); break; } catch { /* try the next root */ }
+    }
+    if (!dirs[key]) missing.push(name);
+  }
+  if (missing.length > 0) return { missing };
+
+  _runtimeDirs = dirs;
+  return dirs;
+}
+
+// Same resolution, but a missing runtime is fatal: every command that needs it
+// produces a broken artifact or a 404ing dev server without it.
+function requireRuntimeDirs(commandName) {
+  const dirs = resolveRuntimeDirs();
+  if (dirs.missing) {
+    console.error(`
+  ${commandName} — could not locate the What Framework runtime (${dirs.missing.join(', ')})
+
+  Install the framework alongside the CLI:  npm install what-framework
+`);
+    process.exit(1);
+  }
+  return dirs;
+}
+
+// Entry modules served/emitted under /@what/. Each package's sources are copied
+// into /@what/<pkg>/, so the entries are one-line re-export shims.
+const RUNTIME_ENTRIES = {
+  'core.js': "export * from './core/index.js';",
+  'reactive.js': "export * from './core/reactive.js';",
+  'router.js': "export * from './router/index.js';",
+  'server.js': "export * from './server/index.js';\nexport * from './server/islands.js';",
+  'islands.js': "export * from './server/islands.js';",
+  'jsx-runtime.js': "export * from './core/jsx-runtime.js';",
+  'jsx-dev-runtime.js': "export * from './core/jsx-dev-runtime.js';",
+};
+
+// App-facing specifier -> served URL. 'what' is the pre-0.11 package name, kept
+// so older apps keep building.
+const IMPORT_MAP = {
+  'what-framework': '/@what/core.js',
+  'what-framework/router': '/@what/router.js',
+  'what-framework/server': '/@what/server.js',
+  'what-framework/jsx-runtime': '/@what/jsx-runtime.js',
+  'what-framework/jsx-dev-runtime': '/@what/jsx-dev-runtime.js',
+  'what-core': '/@what/core.js',
+  'what-router': '/@what/router.js',
+  'what-server': '/@what/server.js',
+  'what-server/islands': '/@what/islands.js',
+  'what': '/@what/core.js',
+  'what/router': '/@what/router.js',
+  'what/server': '/@what/server.js',
+};
+
+const SPECIFIER_RE = /(from\s*|import\s*\(\s*)(['"])([^'"]+)\2/g;
+
+function resolveFrameworkModule(name, runtimeDirs) {
+  if (RUNTIME_ENTRIES[name]) return RUNTIME_ENTRIES[name];
+
+  const slash = name.indexOf('/');
+  if (slash === -1) return null;
+  const dir = runtimeDirs[name.slice(0, slash)];
+  if (!dir) return null;
+  const file = safePath(dir, '/' + name.slice(slash + 1));
+  if (!file || !existsSync(file) || extname(file) !== '.js') return null;
+
+  return rewriteRuntimeImports(readFileSync(file, 'utf-8'), name.split('/').length - 1);
 }
 
 function transformImports(code) {
-  // Transform: import { x } from 'what' -> from '/@what/core.js'
-  return code
-    .replace(/from\s+['"]what['"]/g, "from '/@what/core.js'")
-    .replace(/from\s+['"]what\/router['"]/g, "from '/@what/router.js'")
-    .replace(/from\s+['"]what\/server['"]/g, "from '/@what/islands.js'");
+  return code.replace(SPECIFIER_RE, (match, prefix, quote, spec) => {
+    const mapped = IMPORT_MAP[spec];
+    return mapped ? `${prefix}${quote}${mapped}${quote}` : match;
+  });
+}
+
+// Rewrites the runtime's own cross-package imports ('what-core',
+// 'what-server/islands', ...) to relative paths inside /@what/. `depth` is how
+// many directories below /@what/ the importing file sits.
+function rewriteRuntimeImports(code, depth) {
+  const prefix = depth > 0 ? '../'.repeat(depth) : './';
+  return code.replace(SPECIFIER_RE, (match, p, quote, spec) => {
+    const target = runtimeTarget(spec);
+    return target ? `${p}${quote}${prefix}${target}${quote}` : match;
+  });
+}
+
+function runtimeTarget(spec) {
+  if (spec === 'what-framework') return 'core/index.js';
+  if (spec.startsWith('what-framework/')) {
+    const sub = spec.slice('what-framework/'.length);
+    if (sub === 'router' || sub === 'server') return `${sub}/index.js`;
+    return `core/${sub}.js`;
+  }
+  const m = /^what-(core|router|server)(?:\/(.+))?$/.exec(spec);
+  return m ? `${m[1]}/${m[2] || 'index'}.js` : null;
+}
+
+function findBareSpecifiers(dir) {
+  const found = [];
+  for (const file of collectFiles(dir)) {
+    if (extname(file) !== '.js') continue;
+    const code = readFileSync(file, 'utf-8');
+    const re = /(?:^|[;{}\n])\s*(?:import|export)\b[^;'"\n]*from\s*(['"])([^'"]+)\1/g;
+    let m;
+    while ((m = re.exec(code)) !== null) {
+      const spec = m[2];
+      if (/^[./]/.test(spec) || /^(https?:|node:|data:)/.test(spec)) continue;
+      found.push({ file: relative(dir, file), spec });
+    }
+  }
+  return found;
 }
 
 function minifyJS(code) {
-  // Lightweight minification: strip comments, collapse whitespace
+  // Lightweight minification: strip comments, collapse whitespace.
+  // Line comments are only stripped at line start — an inline `//` is usually a
+  // URL inside a string ('http://www.w3.org/2000/svg').
   return code
-    .replace(/\/\*[\s\S]*?\*\//g, '')        // block comments
-    .replace(/\/\/[^\n]*/g, '')                // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, '')          // block comments
+    .replace(/^[ \t]*\/\/[^\n]*$/gm, '')       // line comments
     .replace(/^\s+/gm, '')                     // leading whitespace
     .replace(/\n\s*\n/g, '\n')                 // empty lines
     .trim();
@@ -844,83 +1129,30 @@ function addHash(filename, hash) {
   return `${base}.${hash}${ext}`;
 }
 
-function bundleRuntime(outDir, useHash = false, hashManifest = {}) {
-  // Copy framework runtime into output for production
-  const whatDir = resolve(__dirname, '../../what/src');
-  const coreDir = resolve(__dirname, '../../core/src');
-  const routerDir = resolve(__dirname, '../../router/src');
-  const serverDir = resolve(__dirname, '../../server/src');
+// Copies the framework runtime into the output. Runtime files are NOT
+// content-hashed: app code imports them by their stable /@what/*.js URL, so a
+// hashed name would leave that import pointing at a file that does not exist.
+function bundleRuntime(outDir, runtimeDirs) {
   const runtimeDir = join(outDir, '@what');
   mkdirSync(runtimeDir, { recursive: true });
 
-  // Core modules
-  const coreModules = [
-    'reactive.js', 'h.js', 'dom.js', 'hooks.js',
-    'components.js', 'store.js', 'helpers.js', 'scheduler.js',
-    'animation.js', 'a11y.js', 'skeleton.js', 'data.js', 'form.js'
-  ];
+  for (const [pkg, srcDir] of Object.entries(runtimeDirs)) {
+    for (const src of collectFiles(srcDir)) {
+      if (extname(src) !== '.js') continue;
+      const rel = relative(srcDir, src);
+      const outPath = join(runtimeDir, pkg, rel);
+      mkdirSync(join(outPath, '..'), { recursive: true });
 
-  // Bundle main entry point
-  const whatFiles = [
-    { src: join(whatDir, 'index.js'), out: 'core.js' },
-    { src: join(whatDir, 'router.js'), out: 'router.js' },
-    { src: join(whatDir, 'server.js'), out: 'server.js' },
-  ];
-
-  for (const { src, out } of whatFiles) {
-    if (existsSync(src)) {
-      let code = readFileSync(src, 'utf-8');
-      code = minifyJS(code);
-      let outName = out;
-
-      if (useHash) {
-        const hash = contentHash(code);
-        const hashedName = addHash(outName, hash);
-        hashManifest[`@what/${outName}`] = `@what/${hashedName}`;
-        outName = hashedName;
-      }
-
-      writeFileSync(join(runtimeDir, outName), code);
-      const gzipped = gzipSync(code);
-      writeFileSync(join(runtimeDir, outName + '.gz'), gzipped);
+      const depth = rel.split(sep).length;
+      const code = minifyJS(rewriteRuntimeImports(readFileSync(src, 'utf-8'), depth));
+      writeFileSync(outPath, code);
+      writeFileSync(outPath + '.gz', gzipSync(code));
     }
   }
 
-  // Bundle core modules
-  for (const mod of coreModules) {
-    const src = join(coreDir, mod);
-    if (existsSync(src)) {
-      let code = readFileSync(src, 'utf-8');
-      code = minifyJS(code);
-      let outName = mod;
-
-      if (useHash) {
-        const hash = contentHash(code);
-        const hashedName = addHash(outName, hash);
-        hashManifest[`@what/${outName}`] = `@what/${hashedName}`;
-        outName = hashedName;
-      }
-
-      writeFileSync(join(runtimeDir, outName), code);
-      const gzipped = gzipSync(code);
-      writeFileSync(join(runtimeDir, outName + '.gz'), gzipped);
-    }
-  }
-
-  // Bundle router
-  const routerSrc = join(routerDir, 'index.js');
-  if (existsSync(routerSrc)) {
-    let code = readFileSync(routerSrc, 'utf-8');
-    code = minifyJS(code);
-    writeFileSync(join(runtimeDir, 'router-impl.js'), code);
-  }
-
-  // Bundle islands
-  const islandsSrc = join(serverDir, 'islands.js');
-  if (existsSync(islandsSrc)) {
-    let code = readFileSync(islandsSrc, 'utf-8');
-    code = minifyJS(code);
-    writeFileSync(join(runtimeDir, 'islands.js'), code);
+  for (const [name, code] of Object.entries(RUNTIME_ENTRIES)) {
+    writeFileSync(join(runtimeDir, name), code + '\n');
+    writeFileSync(join(runtimeDir, name + '.gz'), gzipSync(code + '\n'));
   }
 }
 
