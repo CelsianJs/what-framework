@@ -35,7 +35,15 @@ function isSafeUrl(url) {
   if (url == null) return true;
   // A boxed String or an object with toString() still stringifies into a live
   // href, so coerce before the protocol check rather than trusting the type.
-  const normalized = String(url).trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+  // A value with no usable toString (Object.create(null), { toString: null },
+  // both reachable from JSON) throws here, so refuse it rather than letting the
+  // TypeError abort the render.
+  let normalized;
+  try {
+    normalized = String(url).trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+  } catch {
+    return false;
+  }
   if (normalized.startsWith('javascript:')) return false;
   if (normalized.startsWith('data:')) return false;
   if (normalized.startsWith('vbscript:')) return false;
@@ -792,7 +800,7 @@ function setProp(el, key, value, isSvg) {
   // Reject dangerous URL protocols and srcdoc
   if (_isUnsafeAttr(key, value)) {
     if (typeof console !== 'undefined') {
-      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute:`, value);
     }
     return;
   }

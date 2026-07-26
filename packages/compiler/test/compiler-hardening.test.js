@@ -229,3 +229,44 @@ describe('imported signal tracking', () => {
     assert.match(code, /=>/, 'template literal with imported signal should be wrapped');
   });
 });
+
+// =========================================================================
+// The static-template builder must not bake handler-shaped attributes into
+// the template string. innerHTML revives them as live handlers, which is the
+// same case-sensitivity gap that was fixed on the runtime and SSR paths.
+// =========================================================================
+
+function templateStrings(code) {
+  return [...code.matchAll(/_\$template\(("(?:[^"\\]|\\.)*")\)/g)].map(m => m[1]);
+}
+
+describe('static template handler stripping', () => {
+  const variants = ['ONCLICK', 'OnClick', 'onCLICK', 'ONMOUSEOVER'];
+
+  for (const name of variants) {
+    it(`does not emit ${name} into the static template`, () => {
+      const code = compile(`const a = <div ${name}="alert(1)">x</div>;`);
+      const tmpls = templateStrings(code);
+      assert.ok(tmpls.length > 0, `no template emitted: ${code}`);
+      for (const t of tmpls) {
+        assert.ok(!/alert\(1\)/.test(t), `${name} baked a live handler into the template: ${t}`);
+        assert.ok(!/\bon[a-z]+\s*=/i.test(t), `${name} survived into the template: ${t}`);
+      }
+    });
+  }
+
+  it('keeps lowercase handlers out of the template too', () => {
+    const code = compile('const a = <div onclick="alert(1)">x</div>;');
+    for (const t of templateStrings(code)) {
+      assert.ok(!/alert\(1\)/.test(t), `onclick reached the template: ${t}`);
+    }
+  });
+
+  it('still keeps ordinary attributes in the template', () => {
+    const code = compile('const a = <div id="keep" class="c">x</div>;');
+    const tmpls = templateStrings(code);
+    assert.equal(tmpls.length, 1, code);
+    assert.ok(/id=\\"keep\\"/.test(tmpls[0]), tmpls[0]);
+    assert.ok(/class=\\"c\\"/.test(tmpls[0]), tmpls[0]);
+  });
+});

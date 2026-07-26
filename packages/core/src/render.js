@@ -1368,7 +1368,7 @@ export function setProp(el, key, value) {
   // Sanitize URL attributes: reject dangerous protocols and srcdoc
   if (_isUnsafeAttr(key, value)) {
     if (typeof console !== 'undefined') {
-      console.warn(`[what] Blocked unsafe URL in "${key}" attribute: ${value}`);
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute:`, value);
     }
     return;
   }

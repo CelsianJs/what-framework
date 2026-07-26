@@ -214,6 +214,12 @@ export default function whatBabelPlugin({ types: t }) {
     return typeof attr.name.name === 'string' ? attr.name.name : String(attr.name.name);
   }
 
+  // Handler-shaped attribute name, case-insensitive. Mirrors _isEventProp in
+  // what-core's dom.js.
+  function isEventAttrName(name) {
+    return !!name && name.length > 2 && /^on/i.test(name);
+  }
+
   function createEventHandler(handler, modifiers) {
     if (modifiers.length === 0) return handler;
 
@@ -686,7 +692,11 @@ export default function whatBabelPlugin({ types: t }) {
       if (t.isJSXSpreadAttribute(attr)) continue;
       const name = getAttrName(attr);
       if (name === 'key') continue;
-      if (name.startsWith('on') || name.startsWith('bind:') || name.includes('|')) continue;
+      // Case-insensitive: a static template is applied via innerHTML, so an
+      // `ONCLICK="alert(1)"` baked into the string becomes a live handler.
+      // Lowercase handlers are compiled separately; uppercase ones are dropped,
+      // matching how the runtime and SSR paths treat them.
+      if (isEventAttrName(name) || name.startsWith('bind:') || name.includes('|')) continue;
 
       let domName = name;
       if (name === 'className') domName = 'class';

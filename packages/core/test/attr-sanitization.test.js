@@ -14,7 +14,7 @@ global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
 
 const { h } = await import('../src/h.js');
-const { mount } = await import('../src/dom.js');
+const { mount, _isUnsafeAttr } = await import('../src/dom.js');
 const { setProp } = await import('../src/render.js');
 const { Head, beginHeadCollection, endHeadCollection, clearHead } = await import('../src/head.js');
 
@@ -239,5 +239,43 @@ describe('non-string URL attribute values', () => {
     const el = document.createElement('a');
     setProp(el, 'href', new String('/safe'));
     assert.equal(el.getAttribute('href'), '/safe');
+  });
+});
+
+// =========================================================================
+// Coercing the URL value must not become a new crash: String() throws on a
+// value with no usable toString, and {toString: null} arrives straight from
+// JSON data. A throw means "refuse the attribute", never "abort the render".
+// =========================================================================
+
+describe('non-coercible URL attribute values', () => {
+  const shapes = [
+    ['null-prototype object', () => Object.create(null)],
+    ['toString: null', () => ({ toString: null })],
+    ['toString and valueOf nulled', () => Object.assign(Object.create(null), { x: 1 })],
+  ];
+
+  for (const [label, make] of shapes) {
+    it(`refuses a ${label} href without throwing`, () => {
+      assert.equal(_isUnsafeAttr('href', make()), true);
+    });
+
+    it(`does not crash the h() render for a ${label} href`, () => {
+      const container = getContainer();
+      silenceWarns(() => mount(h('a', { href: make() }, 'x'), container));
+      const el = container.querySelector('a');
+      assert.ok(el, 'render aborted');
+      assert.equal(el.getAttribute('href'), null);
+    });
+
+    it(`does not crash compiled setProp for a ${label} href`, () => {
+      const el = document.createElement('a');
+      silenceWarns(() => setProp(el, 'href', make()));
+      assert.equal(el.getAttribute('href'), null);
+    });
+  }
+
+  it('leaves non-URL attributes alone even when non-coercible', () => {
+    assert.equal(_isUnsafeAttr('id', Object.create(null)), false);
   });
 });

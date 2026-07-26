@@ -157,6 +157,6 @@ describe('client Suspense + lazy', () => {
       console.warn = origWarn;
     }
 
-    assert.ok(renders <= 3, `Suspense livelocked on a rejected thenable: ${renders} renders`);
+    assert.ok(renders >= 1 && renders <= 3, `expected 1..3 renders, got ${renders} (0 would pass vacuously, many means a livelock)`);
   });
 });
