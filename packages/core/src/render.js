@@ -1737,7 +1737,6 @@ function hydrateNode(vnode, parent) {
         return null;
       }
 
-      componentStack.pop();
       ctx.mounted = true;
 
       // Run onMount callbacks after hydration
@@ -1750,7 +1749,14 @@ function hydrateNode(vnode, parent) {
         });
       }
 
-      return hydrateNode(result, parent);
+      // ctx stays on the stack while the result is hydrated so a child's
+      // useContext / error-boundary lookup resolves to this component, matching
+      // createComponent in dom.js.
+      try {
+        return hydrateNode(result, parent);
+      } finally {
+        componentStack.pop();
+      }
     }
 
     // Element — claim existing DOM element

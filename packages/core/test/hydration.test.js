@@ -22,6 +22,8 @@ if (!global.customElements) {
 
 const { h } = await import('../src/h.js');
 const { hydrate, isHydrating } = await import('../src/render.js');
+const { mount } = await import('../src/dom.js');
+const { createContext, useContext } = await import('../src/hooks.js');
 const { renderToString, renderToHydratableString } = await import('../../server/src/index.js');
 
 function getContainer() {
@@ -238,5 +240,52 @@ describe('renderToHydratableString()', () => {
 
     // The span should be reused (same reference)
     assert.equal(container.querySelector('span'), originalSpan, 'Span should be reused during hydration');
+  });
+});
+
+// =========================================================================
+// Context must survive hydration: the component ctx has to stay on the stack
+// while its result is hydrated, exactly as it does on the client render path.
+// =========================================================================
+
+describe('Context during hydration', () => {
+  function makeTree() {
+    const Ctx = createContext('DEFAULT');
+    const seen = [];
+    function Child() {
+      seen.push(useContext(Ctx));
+      return h('span', null, 'x');
+    }
+    function App() {
+      return h(Ctx.Provider, { value: 'PROVIDED' }, h(Child));
+    }
+    return { App, seen };
+  }
+
+  it('delivers the provided value on the client render path', () => {
+    const { App, seen } = makeTree();
+    mount(h(App), getContainer());
+    assert.deepEqual(seen, ['PROVIDED']);
+  });
+
+  it('delivers the provided value on the hydration path', () => {
+    const { App, seen } = makeTree();
+    const container = getContainer();
+    container.innerHTML = '<span>x</span>';
+    hydrate(h(App), container);
+    assert.deepEqual(seen, ['PROVIDED'], `context did not reach the consumer: ${JSON.stringify(seen)}`);
+  });
+
+  it('falls back to the default value with no provider during hydration', () => {
+    const Ctx = createContext('DEFAULT');
+    const seen = [];
+    function Child() {
+      seen.push(useContext(Ctx));
+      return h('span', null, 'x');
+    }
+    const container = getContainer();
+    container.innerHTML = '<span>x</span>';
+    hydrate(h(Child), container);
+    assert.deepEqual(seen, ['DEFAULT']);
   });
 });
