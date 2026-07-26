@@ -1,0 +1,10 @@
+# The cache-key files use literal NUL (0x00) bytes as field separators between
+# <normalizedPath>, <normalizedQuery> and <varyString>. That is deliberate and
+# load-bearing (NUL cannot appear in any of the three fields, so it cannot be
+# used to forge a collision), but it makes git's binary heuristic classify the
+# files as binary and render "Binary files differ" instead of a diff.
+#
+# These are the only two tracked files in the repo containing NUL bytes.
+# Both are valid UTF-8 and contain no CR, so marking them text is content-safe.
+packages/cache/src/key.js       text diff
+packages/cache/test/key.test.js text diff
