@@ -78,6 +78,25 @@ export interface RouterProps {
 
 export function Router(props: RouterProps): VNode;
 
+// --- File-Based Router ---
+
+export interface FileRouteConfig {
+  path: string;
+  component: Component<RouteComponentProps>;
+  layout?: Component<LayoutProps>;
+  mode?: 'static' | 'server' | 'client' | 'hybrid';
+}
+
+export interface FileRouterProps {
+  routes: FileRouteConfig[];
+  layout?: Component<{ children?: VNodeChild }>;
+  fallback?: Component<{}>;
+  error?: Component<{ error: Error }>;
+}
+
+/** Router driven by what-compiler's generated route manifest (virtual:what-routes). */
+export function FileRouter(props: FileRouterProps): VNode;
+
 // --- Link Component ---
 
 export interface LinkProps {
@@ -162,4 +181,27 @@ export function useRoute(): UseRouteResult;
 
 // --- Outlet ---
 
-export function Outlet(props: { children?: VNodeChild }): VNodeChild;
+export function Outlet(props: { children?: VNodeChild }): VNode;
+
+// --- Path Matching ---
+
+export interface CompiledPath {
+  regex: RegExp;
+  paramNames: string[];
+  catchAll: string | null;
+}
+
+/** Compile a path pattern (`/users/:id`, `/posts/*`, `/[slug]`) to a matcher. */
+export function compilePath(path: string): CompiledPath;
+
+/** Match a pathname against routes, most specific first. */
+export function matchRoute<T extends { path?: string }>(
+  path: string,
+  routes: T[],
+): { route: T; params: Record<string, string> } | null;
+
+/** Parse a query string into a null-prototype object. */
+export function parseQuery(search: string): Record<string, string>;
+
+/** Reject javascript:, data:, vbscript: and protocol-relative URLs. */
+export function isSafeUrl(url: string): boolean;

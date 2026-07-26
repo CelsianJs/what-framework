@@ -37,9 +37,6 @@ export interface NavigateOptions {
 /** Navigate to a new URL */
 export function navigate(to: string, options?: NavigateOptions): Promise<void>;
 
-/** Redirect (throws to navigate) */
-export function redirect(to: string, options?: NavigateOptions): never;
-
 // --- Route Configuration ---
 
 export interface RouteConfig {
@@ -81,6 +78,25 @@ export interface RouterProps {
 
 export function Router(props: RouterProps): VNode;
 
+// --- File-Based Router ---
+
+export interface FileRouteConfig {
+  path: string;
+  component: Component<RouteComponentProps>;
+  layout?: Component<LayoutProps>;
+  mode?: 'static' | 'server' | 'client' | 'hybrid';
+}
+
+export interface FileRouterProps {
+  routes: FileRouteConfig[];
+  layout?: Component<{ children?: VNodeChild }>;
+  fallback?: Component<{}>;
+  error?: Component<{ error: Error }>;
+}
+
+/** Router driven by what-compiler's generated route manifest (virtual:what-routes). */
+export function FileRouter(props: FileRouterProps): VNode;
+
 // --- Link Component ---
 
 export interface LinkProps {
@@ -104,25 +120,88 @@ export function NavLink(props: LinkProps): VNode;
 /** Define routes from object config */
 export function defineRoutes(config: Record<string, Component | Partial<RouteConfig>>): RouteConfig[];
 
+/** Create nested routes with shared options */
+export function nestedRoutes(
+  basePath: string,
+  children: RouteConfig[],
+  options?: { layout?: Component; loading?: Component; error?: Component }
+): RouteConfig[];
+
+/** Group routes without affecting URLs */
+export function routeGroup(
+  name: string,
+  routes: RouteConfig[],
+  options?: { layout?: Component; middleware?: RouteMiddleware[] }
+): RouteConfig[];
+
+// --- Redirect ---
+
+export function Redirect(props: { to: string }): null;
+
+// --- Guards ---
+
+/** Create a route guard */
+export function guard(
+  check: (props: RouteComponentProps) => boolean,
+  fallback: string | Component
+): <P>(component: Component<P>) => Component<P>;
+
+/** Create an async route guard */
+export function asyncGuard(
+  check: (props: RouteComponentProps) => Promise<boolean>,
+  options?: { fallback?: string | Component; loading?: Component }
+): <P>(component: Component<P>) => Component<P>;
+
 // --- Prefetch ---
 
-export function prefetchRoute(href: string): void;
+export function prefetch(href: string): void;
 
-// --- Navigation Hooks ---
+// --- Scroll Restoration ---
 
-export function beforeNavigate(fn: (to: string, from: string) => boolean | Promise<boolean>): () => void;
-export function afterNavigate(fn: (to: string, from: string) => void): () => void;
+export function enableScrollRestoration(): void;
 
-// --- useRoute Hooks ---
+// --- View Transitions ---
 
-export function useRoute(): {
+export function viewTransitionName(name: string): { style: { viewTransitionName: string } };
+export function setViewTransition(type: string): void;
+
+// --- useRoute Hook ---
+
+export interface UseRouteResult {
   path: Computed<string>;
   params: Computed<Record<string, string>>;
   query: Computed<Record<string, string>>;
   hash: Computed<string>;
   isNavigating: Computed<boolean>;
-};
+  navigate: typeof navigate;
+  prefetch: typeof prefetch;
+}
 
-export function useParams<T extends Record<string, string> = Record<string, string>>(): T;
-export function useSearch<T extends Record<string, string> = Record<string, string>>(): T;
-export function useNavigate(): typeof navigate;
+export function useRoute(): UseRouteResult;
+
+// --- Outlet ---
+
+export function Outlet(props: { children?: VNodeChild }): VNode;
+
+// --- Path Matching ---
+
+export interface CompiledPath {
+  regex: RegExp;
+  paramNames: string[];
+  catchAll: string | null;
+}
+
+/** Compile a path pattern (`/users/:id`, `/posts/*`, `/[slug]`) to a matcher. */
+export function compilePath(path: string): CompiledPath;
+
+/** Match a pathname against routes, most specific first. */
+export function matchRoute<T extends { path?: string }>(
+  path: string,
+  routes: T[],
+): { route: T; params: Record<string, string> } | null;
+
+/** Parse a query string into a null-prototype object. */
+export function parseQuery(search: string): Record<string, string>;
+
+/** Reject javascript:, data:, vbscript: and protocol-relative URLs. */
+export function isSafeUrl(url: string): boolean;

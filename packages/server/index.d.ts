@@ -10,6 +10,19 @@ export function renderToString(vnode: VNode): string;
 /** Render VNode tree as async iterator for streaming */
 export function renderToStream(vnode: VNode): AsyncGenerator<string>;
 
+export interface RenderRequestContext {
+  params?: Record<string, string>;
+  query?: Record<string, string>;
+  request?: any;
+  [key: string]: any;
+}
+
+/** Run a page module's loader, then render it. Returns the body, head and loader data. */
+export function renderPage(
+  pageModule: { default: (props: any) => VNode; loader?: (ctx: RenderRequestContext) => any } | ((props: any) => VNode),
+  reqCtx?: RenderRequestContext,
+): Promise<{ body: string; head: string; loaderData: any }>;
+
 // --- Page Configuration ---
 
 export interface PageConfig {
@@ -38,6 +51,11 @@ export function generateStaticPage(page: PageConfig, data?: any): string;
 export function server<P>(component: (props: P) => VNode): (props: P) => VNode;
 
 // --- Islands ---
+//
+// The island runtime (island, Island, hydrateIslands, createIslandStore, …)
+// is exported from the `what-server/islands` subpath, not from this entry.
+// See ./islands.d.ts. The shapes below stay here because they describe values
+// that cross the SSR boundary and are referenced by root-entry consumers.
 
 export interface IslandOptions {
   /** Hydration mode */
@@ -50,40 +68,6 @@ export interface IslandOptions {
   stores?: string[];
 }
 
-/** Register an island component */
-export function island(
-  name: string,
-  loader: () => Promise<any>,
-  options?: IslandOptions
-): void;
-
-/** Island component wrapper for SSR */
-export function Island(props: {
-  name: string;
-  props?: Record<string, any>;
-  mode?: IslandOptions['mode'];
-  priority?: number;
-  stores?: string[];
-  children?: VNodeChild;
-}): VNode;
-
-/** Hydrate all islands on the page */
-export function hydrateIslands(): void;
-
-/** Auto-discover and register islands */
-export function autoIslands(registry: Record<string, {
-  loader: () => Promise<any>;
-  mode?: IslandOptions['mode'];
-  media?: string;
-  priority?: number;
-  stores?: string[];
-} | (() => Promise<any>)>): void;
-
-/** Boost hydration priority for an island */
-export function boostIslandPriority(name: string, newPriority?: number): void;
-
-// --- Shared Island State ---
-
 export interface IslandStore<T extends Record<string, any>> {
   _signals: Record<keyof T, Signal<any>>;
   _subscribe: (key: keyof T, fn: (value: any) => void) => () => void;
@@ -92,34 +76,6 @@ export interface IslandStore<T extends Record<string, any>> {
   _hydrate: (data: Partial<T>) => void;
 }
 
-/** Create a shared store for islands */
-export function createIslandStore<T extends Record<string, any>>(
-  name: string,
-  initialState: T
-): T & IslandStore<T>;
-
-/** Get or create a shared store */
-export function useIslandStore<T extends Record<string, any>>(
-  name: string,
-  fallbackInitial?: T
-): T & IslandStore<T>;
-
-/** Serialize all shared stores for SSR */
-export function serializeIslandStores(): string;
-
-/** Hydrate shared stores from SSR data */
-export function hydrateIslandStores(serialized: string | Record<string, any>): void;
-
-// --- Progressive Enhancement ---
-
-/** Enhance elements matching selector */
-export function enhance(selector: string, handler: (el: Element) => void): void;
-
-/** Enhance forms for AJAX submission */
-export function enhanceForms(selector?: string): void;
-
-// --- Debugging ---
-
 export interface IslandStatus {
   registered: string[];
   hydrated: number;
@@ -127,8 +83,6 @@ export interface IslandStatus {
   queue: { name: string; priority: number }[];
   stores: string[];
 }
-
-export function getIslandStatus(): IslandStatus;
 
 // --- Server Actions ---
 

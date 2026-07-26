@@ -31,6 +31,7 @@
     "check:size": "node scripts/check-size.mjs",
     "deploy:vercel": "node scripts/deploy-vercel.mjs",
     "hygiene:publish": "node scripts/check-publish-surface.mjs",
+    "hygiene:types": "node scripts/check-type-parity.mjs",
     "version:bump": "node scripts/bump-version.mjs",
     "release:publish": "node scripts/publish-packages.mjs",
     "verify:registry": "node scripts/verify-registry-install.mjs",
