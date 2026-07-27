@@ -184,7 +184,12 @@ export function useRoute(): UseRouteResult;
 /** Current route params. Subscribes when read inside a tracking scope. */
 export function useParams<T = Record<string, string>>(): T;
 
-/** Current parsed query string. Subscribes when read inside a tracking scope. */
+/**
+ * Query string of the last successfully matched route, parsed. Subscribes when
+ * read inside a tracking scope. Only the Router's match branch writes it, so on
+ * an unmatched (404) route this is the previous route's query, not the current
+ * URL's. Same value and same caveat as `route.query`.
+ */
 export function useSearch<T = Record<string, string>>(): T;
 
 /** The navigate function, for symmetry with useParams/useSearch. */
@@ -196,15 +201,28 @@ export function prefetchRoute(href: string): void;
 // --- Redirect Signal ---
 
 /**
- * Abort the current render and navigate. Throws a signal the Router catches,
- * so it never returns. Do not wrap a redirect() call in try/catch: a catch
- * that swallows the signal only earns a dev warning and a deferred navigation.
+ * Abort route matching and navigate, from inside route middleware.
+ *
+ * This is a middleware API. It throws a navigation signal, and the Router's
+ * matching pass is the only place that signal can be caught: `h()` is lazy, so
+ * a route component is instantiated after matching has returned, and the only
+ * catch above it is `ErrorBoundary`, which renders error UI rather than
+ * navigating. Called anywhere outside matching (a component body, an event
+ * handler, a promise callback) it throws `ERR_REDIRECT_OUTSIDE_ROUTER` instead;
+ * use `navigate(to)` or render `<Redirect to={...} />` there.
  */
 export function redirect(to: string, options?: NavigateOptions): never;
 
 // --- Navigation Hooks ---
 
-/** Run before every navigation; return false to cancel. Returns an unsubscribe. */
+/**
+ * Run before every route navigation; return false to cancel. Returns an
+ * unsubscribe. Not consulted for same-page hash navigation (`navigate('#x')`
+ * scrolls, it does not change the route). Cancelling a back/forward navigation
+ * restores the address bar by pushing the previous URL as a new history entry:
+ * the entry the browser moved to is not recovered and its `history.state` is
+ * not carried over.
+ */
 export function beforeNavigate(fn: (to: string, from: string) => boolean | Promise<boolean>): () => void;
 
 /** Run after every committed navigation. Returns an unsubscribe. */

@@ -120,6 +120,37 @@ effect(() => {
 // Good — stable key:
 <For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
   },
+  ERR_UNSAFE_REDIRECT: {
+    code: 'ERR_UNSAFE_REDIRECT',
+    severity: 'error',
+    diagnosis: 'redirect() was given a target that can leave your origin: a protocol-relative ("//host"), backslash-smuggled ("/\\host") or javascript:/data: URL. Reaching it from user input is an open redirect.',
+    suggestedFix: 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Check a user-supplied target against an allowlist before passing it.',
+    codeExample: `// Bad - a user-controlled target can leave your origin:
+redirect(query.next);
+
+// Fix - allowlist the target first:
+redirect(ALLOWED.has(query.next) ? query.next : '/');`,
+  },
+  ERR_REDIRECT_OUTSIDE_ROUTER: {
+    code: 'ERR_REDIRECT_OUTSIDE_ROUTER',
+    severity: 'error',
+    diagnosis: 'redirect() was called outside the Router\'s route-matching pass. It throws a navigation signal, and matching is the only place that signal is caught: components are instantiated after matching returns, so a component body, event handler or promise callback has no boundary above it.',
+    suggestedFix: 'Call redirect() from route middleware. Anywhere else, call navigate(to) or render <Redirect to={...} />.',
+    codeExample: `// Bad - the component body runs after matching finished:
+function Private() {
+  if (!user()) redirect('/login');
+  return <Secret />;
+}
+
+// Fix - redirect from middleware:
+{ path: '/private', component: Private, middleware: [() => user() || redirect('/login')] }
+
+// Fix - or navigate and render nothing:
+function Private() {
+  if (!user()) return <Redirect to="/login" />;
+  return <Secret />;
+}`,
+  },
   HINT_PREFER_COMPUTED: {
     code: 'HINT_PREFER_COMPUTED',
     severity: 'info',

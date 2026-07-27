@@ -51,7 +51,15 @@ function htmlResponse(status, message) {
 // "/\evil.com" canonicalizes to http://evil.com (an open redirect). We reject
 // anything starting with two slash-or-backslash chars or containing a
 // backslash, then canonicalize via URL and require the localhost origin.
-function safeLocalPath(value) {
+//
+// Sibling predicate: isSafeUrl in packages/router/src/index.js. That one gates
+// a client navigation target and legitimately allows absolute http(s), mailto:
+// and tel:. This one gates a server-issued `Location:` header, an
+// attacker-controllable open-redirect primitive, so it must stay strictly
+// narrower: same-origin local paths only. Harden one, re-read the other; do not
+// unify them. packages/server/test/redirect-predicate-parity.test.js gates the
+// ordering. Exported for that test only, not part of the package surface.
+export function safeLocalPath(value) {
   if (typeof value !== 'string' || !value.startsWith('/')) return null;
   // Reject protocol-relative / backslash-smuggled targets up front.
   if (/^[/\\]{2}/.test(value) || value.includes('\\')) return null;

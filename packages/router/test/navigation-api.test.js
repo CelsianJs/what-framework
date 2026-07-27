@@ -50,10 +50,21 @@ async function flush() {
   await new Promise(r => queueMicrotask(r));
 }
 
+// Every mount replaces the previous one: without disposing it, each Router's
+// reactive region stays subscribed to the singleton _url for the rest of the
+// file and later route assertions run against several live Routers.
+let _unmount = null;
+
 function getContainer() {
+  if (_unmount) _unmount();
+  _unmount = null;
   const el = document.getElementById('app');
   el.textContent = '';
   return el;
+}
+
+function mountRouter(props, container) {
+  _unmount = mount(h(Router, props), container);
 }
 
 function UserPage() {
@@ -71,7 +82,7 @@ async function goto(url) {
   history.pushState(null, '', url);
   await navigate(url, { replace: true, transition: false });
   await flush();
-  mount(h(Router, { routes }), container);
+  mountRouter({ routes }, container);
   await flush();
 }
 
@@ -114,33 +125,28 @@ describe('route accessors', () => {
 // redirect()
 // =========================================================================
 
+// Mount a Router at `url` and let its reactive content settle.
+async function mountAt(url, routerRoutes, extraProps = {}) {
+  const container = getContainer();
+  history.pushState(null, '', url);
+  await navigate(url, { replace: true, transition: false });
+  await flush();
+  mountRouter({ routes: routerRoutes, ...extraProps }, container);
+  await flush();
+  await flush();
+  return container;
+}
+
+// Collect console.error output for the duration of fn.
+async function captureErrors(fn) {
+  const seen = [];
+  const real = console.error;
+  console.error = (...args) => seen.push(args.map(String).join(' '));
+  try { await fn(); } finally { console.error = real; }
+  return seen;
+}
+
 describe('redirect()', () => {
-  it('throws a navigation signal rather than returning', async () => {
-    assert.throws(() => redirect('/login'), (e) => e && e.to === '/login');
-    const realWarn = console.warn;
-    console.warn = () => {};
-    try { await flush(); } finally { console.warn = realWarn; }
-  });
-
-  it('a signal swallowed before the Router still navigates, with a warning', async () => {
-    await navigate('/pre-swallow', { replace: true, transition: false });
-    await flush();
-
-    const warnings = [];
-    const realWarn = console.warn;
-    console.warn = (msg) => warnings.push(String(msg));
-    try {
-      try { redirect('/swallowed'); } catch { /* a user catch that drops it */ }
-      await flush();
-    } finally {
-      console.warn = realWarn;
-    }
-
-    assert.equal(route.path, '/swallowed', 'the swallowed redirect should still navigate');
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /swallowed it/);
-  });
-
   it('refuses an unsafe target', () => {
     assert.throws(() => redirect('//evil.com/x'), /unsafe|invalid/i);
     assert.throws(() => redirect('javascript:alert(1)'), /unsafe|invalid/i);
@@ -157,27 +163,122 @@ describe('redirect()', () => {
     }
   });
 
-  it('is caught at the Router boundary when thrown from middleware', async () => {
-    const container = getContainer();
-    history.pushState(null, '', '/private');
-    await navigate('/private', { replace: true, transition: false });
-    await flush();
-
+  it('throws a navigation signal from middleware, which the Router catches', async () => {
+    let signal = null;
     const guarded = [
       { path: '/login', component: () => h('div', { id: 'login' }, 'Login') },
       {
         path: '/private',
         component: () => h('div', { id: 'private' }, 'Private'),
-        middleware: [() => redirect('/login')],
+        middleware: [() => {
+          // Inspect the signal, then rethrow it so the Router still sees it.
+          try { redirect('/login'); } catch (e) { signal = e; throw e; }
+        }],
       },
     ];
 
-    mount(h(Router, { routes: guarded }), container);
-    await flush();
-    await flush();
+    const container = await mountAt('/private', guarded);
 
+    assert.equal(signal.to, '/login', 'the signal names its target');
+    assert.equal(signal.name, 'RouterRedirect');
+    assert.ok(signal[Symbol.for('what.router.redirect')], 'the signal is branded');
     assert.equal(route.path, '/login', 'the redirect should have navigated to /login');
     assert.ok(!container.querySelector('#private'), 'the private page must not render');
+  });
+
+  it('forwards options, so { replace: false } pushes instead of replacing', async () => {
+    const guarded = [
+      { path: '/pushed', component: () => h('div', { id: 'pushed' }, 'Pushed') },
+      {
+        path: '/push-from',
+        component: () => h('div', {}, 'From'),
+        middleware: [() => redirect('/pushed', { replace: false })],
+      },
+    ];
+
+    await navigate('/settle', { replace: true, transition: false });
+    await flush();
+    const before = history.length;
+    await mountAt('/push-from', guarded);
+
+    assert.equal(route.path, '/pushed');
+    assert.ok(history.length > before, 'replace: false should push a history entry');
+  });
+
+  it('refuses to throw a signal outside route matching', async () => {
+    let captured = null;
+    const cb = [
+      { path: '/login', component: () => h('div', { id: 'login' }, 'Login') },
+      {
+        path: '/component-body',
+        component: () => { redirect('/login'); },
+        error: ({ error }) => { captured = error; return h('div', { id: 'boom' }, 'Boom'); },
+      },
+    ];
+
+    await mountAt('/component-body', cb);
+
+    assert.ok(captured, 'the component-body redirect should surface as an error');
+    assert.equal(captured.code, 'ERR_REDIRECT_OUTSIDE_ROUTER');
+    assert.ok(captured.suggestion.includes('navigate('), 'the fix names navigate()');
+    assert.ok(captured.codeExample.includes('Redirect'), 'the example names <Redirect>');
+    assert.equal(route.path, '/component-body', 'it must not navigate behind the app\'s back');
+  });
+
+  it('lets a non-redirect throw propagate out of the matching pass unchanged', async () => {
+    const boom = [{
+      path: '/throws',
+      component: () => h('div', {}, 'never'),
+      middleware: [() => { throw new Error('middleware exploded'); }],
+    }];
+
+    const container = getContainer();
+    history.pushState(null, '', '/throws');
+    await navigate('/throws', { replace: true, transition: false });
+    await flush();
+
+    // The redirect try/catch must re-throw anything unbranded, so the app's own
+    // ErrorBoundary above the Router still sees it.
+    assert.throws(() => mountRouter({ routes: boom }, container), /middleware exploded/);
+    assert.equal(route.path, '/throws', 'a plain error must not navigate');
+  });
+});
+
+// =========================================================================
+// Redirect loop detection, reachable from both call sites
+// =========================================================================
+
+describe('redirect loop detection', () => {
+  it('stops a cycle of middleware string redirects', async () => {
+    const cyclic = [
+      { path: '/loop-a', component: () => h('div', {}, 'A'), middleware: [() => '/loop-b'] },
+      { path: '/loop-b', component: () => h('div', {}, 'B'), middleware: [() => '/loop-a'] },
+    ];
+
+    let container;
+    const errors = await captureErrors(async () => {
+      container = await mountAt('/loop-a', cyclic);
+    });
+
+    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+      `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
+    assert.ok(container.querySelector('.what-redirect-loop'), 'the loop screen should render');
+  });
+
+  it('stops a cycle of thrown redirect() signals', async () => {
+    const cyclic = [
+      { path: '/sig-a', component: () => h('div', {}, 'A'), middleware: [() => redirect('/sig-b')] },
+      { path: '/sig-b', component: () => h('div', {}, 'B'), middleware: [() => redirect('/sig-a')] },
+    ];
+
+    let container;
+    const errors = await captureErrors(async () => {
+      container = await mountAt('/sig-a', cyclic);
+    });
+
+    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+      `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
+    assert.ok(container.querySelector('.what-redirect-loop'), 'the loop screen should render');
   });
 });
 
@@ -270,6 +371,19 @@ describe('navigation hooks', () => {
     off();
 
     assert.deepEqual(seen, [['/pop2-to', '/pop2-from']]);
+  });
+
+  it('beforeNavigate is not consulted for a same-page hash navigation', async () => {
+    await navigate('/hash-page', { replace: true, transition: false });
+    await flush();
+
+    const seen = [];
+    const off = beforeNavigate((to) => { seen.push(to); return false; });
+    await navigate('#section', { transition: false });
+    off();
+
+    assert.deepEqual(seen, [], 'a hash link scrolls, it does not change the route');
+    assert.equal(route.url, '/hash-page#section', 'the hash still applied');
   });
 
   it('afterNavigate does not fire for a cancelled navigation', async () => {

@@ -134,6 +134,30 @@ const requireRole = asyncGuard(
 }
 ```
 
+`redirect()` is a middleware API. It throws a navigation signal, and the
+Router's matching pass is the only place that signal can be caught, so it must
+be called from middleware (or from anything the Router calls while matching):
+
+```js
+{
+  path: '/admin',
+  component: AdminPanel,
+  middleware: [() => isLoggedIn() || redirect('/login')],
+}
+```
+
+From a component body, an event handler or a promise callback, the Router has
+already finished matching and nothing is left to catch the signal. `redirect()`
+throws `ERR_REDIRECT_OUTSIDE_ROUTER` there instead of navigating silently. Use
+`navigate(to)` or render `<Redirect to="/login" />`:
+
+```js
+function Private() {
+  if (!isLoggedIn()) return h(Redirect, { to: '/login' });
+  return h(Secret, {});
+}
+```
+
 ## View Transitions
 
 Navigation uses the View Transitions API by default when available. Use helpers to customize:
@@ -166,11 +190,11 @@ enableScrollRestoration(); // call once at app entry
 | `route` | Reactive route state object |
 | `useRoute()` | Hook returning computed route properties |
 | `useParams()` | Current route params |
-| `useSearch()` | Current parsed query string |
+| `useSearch()` | Parsed query string of the last matched route (stale on a 404, like `route.query`) |
 | `useNavigate()` | Returns `navigate` |
-| `redirect(to, opts?)` | Abort the render and navigate (throws, never returns) |
+| `redirect(to, opts?)` | Abort route matching and navigate, **from route middleware** (throws, never returns) |
 | `prefetchRoute(href)` | Prefetch a route's assets |
-| `beforeNavigate(fn)` | Guard run before each navigation; return `false` to cancel |
+| `beforeNavigate(fn)` | Guard run before each route navigation (not hash links); return `false` to cancel |
 | `afterNavigate(fn)` | Callback run after each committed navigation |
 | `defineRoutes(config)` | Create routes from flat object |
 | `nestedRoutes(base, children, opts?)` | Nested route helper |

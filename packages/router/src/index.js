@@ -10,6 +10,14 @@ import { compilePath, matchRoute, parseQuery } from './match.js';
 // any scheme outside the allowlist (blob:, about:, filesystem: ...), and
 // protocol-relative / backslash-smuggled paths that resolve to a foreign
 // origin. Browsers treat "\" like "/", so "/\evil.com" is an open redirect.
+//
+// Sibling predicate: safeLocalPath / safeRedirectTarget in
+// packages/server/src/action-handler.js. That one gates a server-issued
+// `Location:` header and must stay strictly narrower (same-origin local paths
+// only), because a form POST target is attacker-controllable in a way a client
+// navigation target is not. This one deliberately allows absolute http(s),
+// mailto: and tel:. Harden one, re-read the other; do not unify them.
+// packages/server/test/redirect-predicate-parity.test.js gates that ordering.
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
@@ -55,6 +63,10 @@ export const route = {
 // --- Navigation Hooks ---
 // Subscriber lists consulted by navigate(). Guards run before the URL changes
 // and can cancel by returning false; afterNavigate runs once the URL committed.
+// Module singletons on purpose: this module is browser-only (it listens for
+// popstate and mutates history), so its scope is one tab, not one request. The
+// server adapters import what-router/match, never this file, so there is no
+// shared-process path here of the kind b066671 fixed for server actions.
 
 const _beforeHooks = [];
 const _afterHooks = [];
@@ -106,23 +118,36 @@ export async function navigate(to, opts = {}) {
   // Don't navigate if already on the same URL
   if (to === _url()) return;
 
-  // Prevent concurrent navigations — wait for current to finish
+  // Prevent concurrent navigations: wait for the current one to finish. The
+  // flag is claimed in the same tick as the check, because an awaited
+  // beforeNavigate hook otherwise leaves a gap two navigations both get through.
   if (_isNavigating.peek()) return;
+  _isNavigating.set(true);
 
   const from = _url();
 
   // A popstate has already moved the browser URL, so cancelling one means
-  // pushing the previous entry back to keep the address bar in sync.
+  // pushing the previous entry back to keep the address bar in sync. That entry
+  // is a new one: the forward entry is not recoverable and its history.state is
+  // not carried over. Documented on beforeNavigate in index.d.ts.
   if (_beforeHooks.length) {
-    for (const fn of _beforeHooks.slice()) {
-      if ((await fn(to, from)) === false) {
-        if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
-        return;
+    let cancelled = false;
+    try {
+      for (const fn of _beforeHooks.slice()) {
+        if ((await fn(to, from)) === false) { cancelled = true; break; }
       }
+    } catch (e) {
+      // A throwing guard must not leave the router permanently wedged.
+      _isNavigating.set(false);
+      throw e;
+    }
+    if (cancelled) {
+      _isNavigating.set(false);
+      if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
+      return;
     }
   }
 
-  _isNavigating.set(true);
   _navigationError.set(null);
 
   const doNavigation = () => {
@@ -159,14 +184,21 @@ export async function navigate(to, opts = {}) {
 }
 
 // --- redirect() ---
-// Throws a navigation signal the Router boundary catches, so a middleware or
-// component can abort its own work in one statement. Nothing in JavaScript is
-// uncatchable: if a catch between the throw site and the Router swallows the
-// signal, the pending target still navigates on the next microtask and dev
-// gets a warning naming the swallowed target.
+// A route-matching API, deliberately narrower than "throw from anywhere".
+//
+// The only code that can catch the signal is the Router's own matching pass,
+// so that is the only place redirect() throws one: route middleware, and
+// anything the Router calls while it matches. It cannot be a component-body
+// API. h() is lazy, so a route component is instantiated by the runtime after
+// the matching pass has already returned, and the only catch above it is
+// core's ErrorBoundary, which renders error UI rather than navigating. A signal
+// thrown from there reaches nothing that knows what it means.
+//
+// Called outside a matching pass, redirect() therefore throws a coded error
+// naming navigate() and <Redirect> instead of a signal nothing will catch.
 
 const REDIRECT = Symbol.for('what.router.redirect');
-let _pendingRedirect = null;
+let _matching = false;
 
 export function redirect(to, options = {}) {
   if (!isSafeUrl(to)) {
@@ -182,29 +214,33 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`;
     throw err;
   }
 
+  if (!_matching) {
+    const err = new Error(`[what-router] redirect(${to}) was called outside route matching, where nothing can catch the navigation signal.`);
+    err.code = 'ERR_REDIRECT_OUTSIDE_ROUTER';
+    err.suggestion = 'redirect() only works inside route middleware, which the Router runs while it matches. From a component body, an event handler or a promise callback, call navigate(to) or render <Redirect to={...} /> instead.';
+    err.codeExample = `// Bad - a component body runs after the Router matched, so nothing catches this:
+function Private() {
+  if (!user()) redirect('/login');
+  return <Secret />;
+}
+
+// Good - redirect from middleware, which runs during matching:
+{ path: '/private', component: Private, middleware: [() => user() ? true : redirect('/login')] }
+
+// Good - or navigate from the component and render nothing:
+function Private() {
+  if (!user()) return <Redirect to="/login" />;
+  return <Secret />;
+}`;
+    throw err;
+  }
+
   const sig = new Error(`[what-router] redirect to ${to}`);
   sig.name = 'RouterRedirect';
   sig[REDIRECT] = true;
   sig.to = to;
   sig.options = options;
-
-  _pendingRedirect = sig;
-  queueMicrotask(() => {
-    if (_pendingRedirect !== sig) return;
-    _pendingRedirect = null;
-    if (typeof console !== 'undefined') {
-      console.warn(`[what-router] redirect(${to}) never reached the Router: a catch block swallowed it. Navigating anyway. Rethrow values carrying a .to property from catch blocks around redirect().`);
-    }
-    navigate(to, { replace: true, ...options });
-  });
-
   throw sig;
-}
-
-function consumeRedirect(e) {
-  if (!e || !e[REDIRECT]) return null;
-  if (_pendingRedirect === e) _pendingRedirect = null;
-  return e;
 }
 
 // Back/forward support — route through navigate() so middleware runs
@@ -384,16 +420,22 @@ export function Router({ routes, fallback, globalLayout }) {
     );
   };
 
-  // The Router is the boundary that turns a thrown redirect() signal back into
-  // a navigation. Anything else propagates to the app's ErrorBoundary.
+  // The matching pass is the only region where a redirect() signal can be
+  // caught, so it is also the only region where redirect() produces one.
+  // Anything else propagates to the app's ErrorBoundary unchanged.
   const content = () => {
+    const wasMatching = _matching;
+    let sig = null;
+    _matching = true;
     try {
       return renderMatch();
     } catch (e) {
-      const sig = consumeRedirect(e);
-      if (!sig) throw e;
-      return handleRedirect(sig.to, sig.options);
+      if (!e || !e[REDIRECT]) throw e;
+      sig = e;
+    } finally {
+      _matching = wasMatching;
     }
+    return handleRedirect(sig.to, sig.options);
   };
 
   // Render the global layout ONCE so it — and everything it mounts (sidebars,
@@ -668,6 +710,9 @@ export function useParams() {
   return route.params;
 }
 
+// Same singleton `_query` signal as route.query: only the Router's match branch
+// writes it, so on an unmatched (404) route this is the last matched route's
+// query, not the current URL's. Documented on both declarations.
 export function useSearch() {
   return route.query;
 }
