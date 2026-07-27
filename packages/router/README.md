@@ -165,6 +165,13 @@ enableScrollRestoration(); // call once at app entry
 | `navigate(to, opts?)` | Programmatic navigation |
 | `route` | Reactive route state object |
 | `useRoute()` | Hook returning computed route properties |
+| `useParams()` | Current route params |
+| `useSearch()` | Current parsed query string |
+| `useNavigate()` | Returns `navigate` |
+| `redirect(to, opts?)` | Abort the render and navigate (throws, never returns) |
+| `prefetchRoute(href)` | Prefetch a route's assets |
+| `beforeNavigate(fn)` | Guard run before each navigation; return `false` to cancel |
+| `afterNavigate(fn)` | Callback run after each committed navigation |
 | `defineRoutes(config)` | Create routes from flat object |
 | `nestedRoutes(base, children, opts?)` | Nested route helper |
 | `routeGroup(name, routes, opts?)` | Group routes without affecting URL |

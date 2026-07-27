@@ -179,6 +179,37 @@ export interface UseRouteResult {
 
 export function useRoute(): UseRouteResult;
 
+// --- Route Accessors ---
+
+/** Current route params. Subscribes when read inside a tracking scope. */
+export function useParams<T = Record<string, string>>(): T;
+
+/** Current parsed query string. Subscribes when read inside a tracking scope. */
+export function useSearch<T = Record<string, string>>(): T;
+
+/** The navigate function, for symmetry with useParams/useSearch. */
+export function useNavigate(): typeof navigate;
+
+/** Prefetch a route's assets. */
+export function prefetchRoute(href: string): void;
+
+// --- Redirect Signal ---
+
+/**
+ * Abort the current render and navigate. Throws a signal the Router catches,
+ * so it never returns. Do not wrap a redirect() call in try/catch: a catch
+ * that swallows the signal only earns a dev warning and a deferred navigation.
+ */
+export function redirect(to: string, options?: NavigateOptions): never;
+
+// --- Navigation Hooks ---
+
+/** Run before every navigation; return false to cancel. Returns an unsubscribe. */
+export function beforeNavigate(fn: (to: string, from: string) => boolean | Promise<boolean>): () => void;
+
+/** Run after every committed navigation. Returns an unsubscribe. */
+export function afterNavigate(fn: (to: string, from: string) => void): () => void;
+
 // --- Outlet ---
 
 export function Outlet(props: { children?: VNodeChild }): VNode;
