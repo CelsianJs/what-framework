@@ -181,7 +181,9 @@ Files that contain version strings:
 - [ ] Trigger `Release And Deploy` workflow from GitHub Actions:
   - Go to Actions > Release And Deploy > Run workflow
   - Set `publish_packages: true`, `npm_tag: latest`
-  - The workflow runs `release:verify` automatically before publish/deploy
+  - The workflow does NOT run `release:verify`. It runs that script's
+    constituent checks minus `bench:gate`, so the DOM performance gate never
+    executes on this path. Run `npm run release:verify` locally first.
 
 ---
 
