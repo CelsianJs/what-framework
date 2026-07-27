@@ -766,6 +766,9 @@ export default function whatBabelPlugin({ types: t }) {
     if (tagName === 'Show') {
       return transformShowFineGrained(path, state);
     }
+    if (tagName === 'Switch') {
+      return transformSwitchFineGrained(path, state);
+    }
 
     if (isComponentElement(node)) {
       return transformComponentFineGrained(path, state);
@@ -1686,9 +1689,9 @@ export default function whatBabelPlugin({ types: t }) {
           transformedChildren.push(child.expression);
         }
       } else if (t.isJSXElement(child)) {
-        // <For>/<Show> lower to an inserter or a thunk (already lazy).
+        // <For>/<Show>/<Switch> lower to an inserter or a thunk (already lazy).
         const childTag = child.openingElement.name.name;
-        if (childTag !== 'For' && childTag !== 'Show') deferChildren = true;
+        if (childTag !== 'For' && childTag !== 'Show' && childTag !== 'Switch') deferChildren = true;
         transformedChildren.push(transformElementFineGrained({ node: child }, state));
       } else if (t.isJSXFragment(child)) {
         deferChildren = true;
@@ -1856,32 +1859,7 @@ export default function whatBabelPlugin({ types: t }) {
     //   () => { const _v = <condition>; return _v ? <consequent> : <alternate>; }
     // Hoisting into a local prevents double-evaluation of the `when` signal
     // (the consequent's render callback also needs the resolved value).
-    //
-    // `whenExpr` shape determines how we form the condition:
-    //   - call expression          → use as-is              <Show when={cond()}>
-    //   - arrow w/ expression body → use the body            <Show when={() => x > 5}>
-    //   - identifier that looks like a signal/import        <Show when={isOpen}>
-    //                              → invoke it as accessor:  isOpen()
-    //   - anything else (member, literal, logical, etc.)    <Show when={user.isAdmin}>
-    //                              → use the raw expression. Do NOT invoke —
-    //                                non-functions would throw at runtime.
-    let condition;
-    if (t.isCallExpression(whenExpr)) {
-      condition = whenExpr;
-    } else if (t.isArrowFunctionExpression(whenExpr) && t.isExpression(whenExpr.body)) {
-      condition = whenExpr.body;
-    } else if (
-      t.isIdentifier(whenExpr) &&
-      (
-        (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames)) ||
-        (state.importedIdentifiers && state.importedIdentifiers.has(whenExpr.name))
-      )
-    ) {
-      condition = t.callExpression(whenExpr, []);
-    } else {
-      // Plain boolean expression — member access, literal, logical, etc.
-      condition = whenExpr;
-    }
+    let condition = buildWhenCondition(whenExpr, state);
 
     const vId = path.scope
       ? path.scope.generateUidIdentifier('v')
@@ -1930,6 +1908,139 @@ export default function whatBabelPlugin({ types: t }) {
         t.conditionalExpression(t.cloneNode(vId), consequent, alternate)
       )
     ]));
+  }
+
+  // A `when` prop's shape determines how the condition is formed:
+  //   - call expression          → use as-is              when={cond()}
+  //   - arrow w/ expression body → use the body           when={() => x > 5}
+  //   - identifier that looks like a signal/import        when={isOpen}
+  //                              → invoke it as accessor: isOpen()
+  //   - anything else (member, literal, logical, etc.)    when={user.isAdmin}
+  //                              → use the raw expression. Do NOT invoke it:
+  //                                non-functions would throw at runtime.
+  function buildWhenCondition(whenExpr, state) {
+    if (t.isCallExpression(whenExpr)) return whenExpr;
+    if (t.isArrowFunctionExpression(whenExpr) && t.isExpression(whenExpr.body)) return whenExpr.body;
+    if (
+      t.isIdentifier(whenExpr) &&
+      (
+        (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames)) ||
+        (state.importedIdentifiers && state.importedIdentifiers.has(whenExpr.name))
+      )
+    ) {
+      return t.callExpression(whenExpr, []);
+    }
+    return whenExpr;
+  }
+
+  function collectControlFlowContent(children, state) {
+    const parts = [];
+    for (const child of children) {
+      if (t.isJSXText(child)) {
+        const text = normalizeJsxText(child.value);
+        if (text) parts.push(t.stringLiteral(text));
+      } else if (t.isJSXExpressionContainer(child)) {
+        if (!t.isJSXEmptyExpression(child.expression)) parts.push(child.expression);
+      } else if (t.isJSXElement(child)) {
+        parts.push(transformElementFineGrained({ node: child }, state));
+      } else if (t.isJSXFragment(child)) {
+        parts.push(transformFragmentFineGrained({ node: child }, state));
+      }
+    }
+    if (parts.length === 0) return t.nullLiteral();
+    if (parts.length === 1) return parts[0];
+    return t.arrayExpression(parts);
+  }
+
+  function transformSwitchFineGrained(path, state) {
+    // <Switch fallback={alt}><Match when={a}>A</Match><Match when={b}>B</Match></Switch>
+    // → () => a ? A : b ? B : alt
+    //
+    // Same reactive-thunk shape <Show> lowers to, for the same reason: the
+    // component runs once, so the arm has to be picked inside a thunk that
+    // insert() re-evaluates. The runtime Switch matches on Match marker vnodes,
+    // which _$createComponent never produces (calling Match instead recurses),
+    // so compiled JSX has no working runtime path and must be lowered here.
+    // Anything this cannot statically read as a list of <Match> arms falls back
+    // to the runtime component.
+    const { node } = path;
+
+    let fallbackExpr = null;
+    for (const attr of node.openingElement.attributes) {
+      if (t.isJSXSpreadAttribute(attr)) return transformComponentFineGrained(path, state);
+      if (getAttrName(attr) === 'fallback') fallbackExpr = getAttributeValue(attr.value);
+    }
+
+    const arms = [];
+    for (const child of node.children) {
+      if (t.isJSXText(child)) {
+        if (normalizeJsxText(child.value)) return transformComponentFineGrained(path, state);
+        continue;
+      }
+      if (t.isJSXExpressionContainer(child)) {
+        if (t.isJSXEmptyExpression(child.expression)) continue;
+        return transformComponentFineGrained(path, state);
+      }
+      if (!t.isJSXElement(child) || child.openingElement.name.name !== 'Match') {
+        return transformComponentFineGrained(path, state);
+      }
+      arms.push(child);
+    }
+    if (arms.length === 0) return transformComponentFineGrained(path, state);
+
+    if (!state._pendingSetup) state._pendingSetup = [];
+    const branches = [];
+
+    for (const arm of arms) {
+      let whenExpr = null;
+      for (const attr of arm.openingElement.attributes) {
+        if (t.isJSXAttribute(attr) && getAttrName(attr) === 'when') whenExpr = getAttributeValue(attr.value);
+      }
+      if (!whenExpr) {
+        console.warn('[what-compiler] <Match> element missing "when" attribute.');
+        return transformComponentFineGrained(path, state);
+      }
+
+      // An arm's element setup belongs inside the arm. Hoisting it next to the
+      // thunk, the way a lone element does, would build every arm's DOM on the
+      // way to picking one.
+      const setupMark = state._pendingSetup.length;
+      let content = collectControlFlowContent(arm.children, state);
+      const setup = state._pendingSetup.splice(setupMark);
+      if (setup.length > 0) {
+        content = t.callExpression(
+          t.arrowFunctionExpression([], t.blockStatement([...setup, t.returnStatement(content)])),
+          []
+        );
+      }
+
+      // Arms only use the condition for truthiness, so gate the memo on !!cond
+      // (matching <Show> with static children).
+      let condition = buildWhenCondition(whenExpr, state);
+      if (isPotentiallyReactive(condition, state.signalNames, state.importedIdentifiers)) {
+        const condId = state.nextMemoId();
+        state.needsMemo = true;
+        state._pendingSetup.push(
+          t.variableDeclaration('const', [
+            t.variableDeclarator(
+              t.identifier(condId),
+              t.callExpression(t.identifier('_$memo'), [
+                t.arrowFunctionExpression([], t.unaryExpression('!', t.unaryExpression('!', condition)))
+              ])
+            )
+          ])
+        );
+        condition = t.callExpression(t.identifier(condId), []);
+      }
+
+      branches.push([condition, content]);
+    }
+
+    let expr = fallbackExpr || t.nullLiteral();
+    for (let i = branches.length - 1; i >= 0; i--) {
+      expr = t.conditionalExpression(branches[i][0], branches[i][1], expr);
+    }
+    return t.arrowFunctionExpression([], expr);
   }
 
   // A fragment-as-root returns an array (or single value) that the runtime

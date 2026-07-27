@@ -228,33 +228,48 @@ export function For({ each, fallback = null, children }) {
 // Multi-condition rendering (like switch statement).
 
 export function Switch({ fallback = null, children }) {
-  // The Match children (marker vnodes) are static — resolve them once. The
-  // match loop, which reads each Match's reactive `when`, must run inside a
-  // reactive thunk (see Show/For above): components run once, so evaluating
-  // `when()` in the body here would snapshot the active arm a single time and
-  // `<Switch>`/`<Match when={() => sig()}>` would render once and never update.
-  // Switch/Match are NOT lowered by the fine-grained compiler, so this runtime
-  // path is the ONLY path — the thunk is what makes them reactive at all.
+  // The Match children are static, so resolve them once. The match loop, which
+  // reads each Match's reactive `when`, must run inside a reactive thunk (see
+  // Show/For above): components run once, so evaluating `when()` in the body
+  // here would snapshot the active arm a single time and `<Switch>`/`<Match
+  // when={() => sig()}>` would render once and never update.
+  // This is the runtime path, for h() and the automatic JSX runtime. The
+  // fine-grained compiler lowers <Switch> to the same conditional thunk and
+  // never reaches here. An arm arrives either as an unexecuted marker vnode
+  // (h(Match, ...)) or as an executed Match thunk carrying its props.
   const kids = Array.isArray(children) ? children : [children];
 
   return () => {
     for (const child of kids) {
-      if (child && child.tag === Match) {
-        const condition = typeof child.props.when === 'function'
-          ? child.props.when()
-          : child.props.when;
-        if (condition) {
-          return child.children;
-        }
+      if (!child) continue;
+      let when, content;
+      if (child.tag === Match) {
+        when = child.props.when;
+        content = child.children;
+      } else if (child._match) {
+        when = child._match.when;
+        content = child._match.children;
+      } else {
+        continue;
       }
+      const condition = typeof when === 'function' ? when() : when;
+      if (condition) return content;
     }
     return fallback;
   };
 }
 
-export function Match({ when, children }) {
-  // Match is just a marker component, Switch handles the logic
-  return { tag: Match, props: { when }, children, _vnode: true };
+export function Match(props) {
+  // Executed rather than left as a marker (compiled JSX, or a lone <Match>).
+  // Returning a `{ tag: Match }` vnode here would send createDOM straight back
+  // into Match forever, so return a reactive thunk that renders the arm when it
+  // matches, and hang the props off it for an enclosing Switch to read.
+  const arm = () => {
+    const condition = typeof props.when === 'function' ? props.when() : props.when;
+    return condition ? props.children : null;
+  };
+  arm._match = props;
+  return arm;
 }
 
 // --- Island ---

@@ -78,6 +78,20 @@ describe('lazy component children', () => {
     assert.equal(host.querySelectorAll('span').length, 1, 'one node, moved, not duplicated');
   });
 
+  it('realize while the owning component is the current one', async () => {
+    const { _$createComponent } = await import('../src/render.js');
+    const { getCurrentComponent } = await import('../src/dom.js');
+
+    let owner = null;
+    const Probe = (props) => { void props.children; return null; };
+    _$createComponent(Probe, {}, () => {
+      owner = getCurrentComponent();
+      return [document.createElement('i')];
+    });
+
+    assert.equal(owner && owner.Component, Probe, 'children must be built inside their owner');
+  });
+
   it('unwrap a single child the way eager children do', async () => {
     const { _$createComponent } = await import('../src/render.js');
 
