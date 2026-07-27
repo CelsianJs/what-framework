@@ -71,6 +71,34 @@ describe('signal', () => {
     dispose();
   });
 
+  it('should skip notifying exactly when Object.is says the value is unchanged', () => {
+    const obj = {};
+    const arr = [];
+    const pairs = [
+      [1, 1], [1, 2], [0, 0], [0, -0], [-0, 0], [-0, -0],
+      [NaN, NaN], [NaN, 1], [1, NaN], [0, NaN], [NaN, 0],
+      ['a', 'a'], ['a', 'b'], ['', ''], ['', 0], [0, ''],
+      [true, true], [true, false], [false, 0], [0, false],
+      [null, null], [undefined, undefined], [null, undefined], [undefined, null],
+      [obj, obj], [obj, {}], [arr, arr], [arr, []], [obj, arr],
+      [Infinity, Infinity], [Infinity, -Infinity], [0, Infinity],
+    ];
+    for (const [from, to] of pairs) {
+      const s = signal(from);
+      let runs = 0;
+      const dispose = effect(() => { s(); runs++; });
+      s.set(() => to);
+      flushSync();
+      const notified = runs > 1;
+      assert.equal(
+        notified, !Object.is(from, to),
+        `writing ${String(to)} over ${String(from)}: expected notified=${!Object.is(from, to)}`
+      );
+      assert.ok(Object.is(s(), to), `writing ${String(to)} over ${String(from)}: value not stored`);
+      dispose();
+    }
+  });
+
   it('should support peek() without tracking', () => {
     const s = signal(10);
     let runs = 0;

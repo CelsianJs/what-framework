@@ -65,7 +65,7 @@ let iterativeEvalStack = null;  // array when inside evaluation loop, null other
 // - No rest args (...args) — uses arguments.length for zero-alloc read path
 // - Subscriber tracking uses lastTracked to skip redundant Set.add/Array.push
 //   when the same signal is read multiple times in one effect (common pattern)
-// - Write path uses Object.is so NaN and -0/+0 are handled the same way memo() does
+// - Write path inlines Object.is so NaN and -0/+0 match memo() without a call
 // - subs.size check avoids notify() call when no subscribers
 
 export function signal(initial, debugName) {
@@ -88,9 +88,10 @@ export function signal(initial, debugName) {
       );
     }
     const nextVal = typeof next === 'function' ? next(value) : next;
-    // Object.is semantics: === would treat NaN as unequal to itself and -0 as
-    // equal to +0. memo() uses Object.is too, so signals and memos agree.
-    if (Object.is(value, nextVal)) return;
+    // Object.is semantics, inlined: the common case (values differ) exits on the
+    // first comparison instead of paying a call. memo() uses Object.is too, so
+    // signals and memos agree on NaN and on -0 vs +0.
+    if (value === nextVal ? value !== 0 || 1 / value === 1 / nextVal : value !== value && nextVal !== nextVal) return;
     value = nextVal;
     // Invalidate lastTracked since value changed — any effect that reads
     // this signal during re-run needs to re-track.
