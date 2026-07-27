@@ -47,6 +47,10 @@ const SIGNAL_CREATORS = new Set([
   'createResource', 'useSWR', 'useQuery', 'useInfiniteQuery',
 ]);
 
+// Control-flow tags the plugin lowers itself instead of emitting
+// _$createComponent, so their children never travel through a factory.
+const LOWERED_TAGS = new Set(['For', 'Show', 'Switch', 'Match']);
+
 const SERVER_ACTION_SOURCES = new Set([
   'what-framework/server',
   'what-server',
@@ -187,6 +191,62 @@ export default function whatBabelPlugin({ types: t }) {
       return t.memberExpression(componentCallee(name.object), t.identifier(name.property.name));
     }
     return t.identifier(name.name);
+  }
+
+  // --- Forwarded children on a destructured parameter ---
+  // `function Wrap({ children }) { return <ErrorBoundary>{children}</ErrorBoundary>; }`
+  // realizes the subtree while the parameter list is destructured, which is
+  // before ErrorBoundary is entered, so the boundary never catches and a
+  // provider publishes its value too late for its own subtree. Rewriting the
+  // pattern to a props identifier moves the read into the deferred children
+  // factory, where the enclosing component is already on the stack. Only a
+  // binding whose every reference is a component-child forward qualifies: a
+  // component that inspects its children still needs them realized.
+  function deferForwardedChildren(fnPath) {
+    const params = fnPath.node.params;
+    if (params.length !== 1 || !t.isObjectPattern(params[0])) return;
+    const pattern = params[0];
+    let index = -1;
+    for (let i = 0; i < pattern.properties.length; i++) {
+      const prop = pattern.properties[i];
+      if (t.isRestElement(prop)) return;
+      if (t.isObjectProperty(prop) && !prop.computed &&
+          t.isIdentifier(prop.key, { name: 'children' }) && t.isIdentifier(prop.value)) {
+        index = i;
+      }
+    }
+    if (index === -1) return;
+
+    const binding = fnPath.scope.getBinding(pattern.properties[index].value.name);
+    if (!binding || binding.constantViolations.length > 0 || binding.referencePaths.length === 0) return;
+    const forwarded = binding.referencePaths.every((ref) => {
+      const container = ref.parentPath;
+      if (!container || !container.isJSXExpressionContainer()) return false;
+      const owner = container.parentPath;
+      if (!owner || !owner.isJSXElement() || !isComponentElement(owner.node)) return false;
+      const tag = owner.node.openingElement.name;
+      return !(t.isJSXIdentifier(tag) && LOWERED_TAGS.has(tag.name));
+    });
+    if (!forwarded) return;
+
+    const propsId = fnPath.scope.generateUidIdentifier('props');
+    if (pattern.typeAnnotation) propsId.typeAnnotation = pattern.typeAnnotation;
+    params[0] = propsId;
+    const remaining = pattern.properties.filter((_, i) => i !== index);
+    if (remaining.length > 0) {
+      if (!t.isBlockStatement(fnPath.node.body)) {
+        fnPath.node.body = t.blockStatement([t.returnStatement(fnPath.node.body)]);
+      }
+      fnPath.node.body.body.unshift(
+        t.variableDeclaration('const', [
+          t.variableDeclarator(t.objectPattern(remaining), t.cloneNode(propsId)),
+        ])
+      );
+    }
+    for (const ref of binding.referencePaths) {
+      ref.replaceWith(t.memberExpression(t.cloneNode(propsId), t.identifier('children')));
+    }
+    fnPath.scope.crawl();
   }
 
   function isVoidHtmlElement(name) {
@@ -1675,8 +1735,10 @@ export default function whatBabelPlugin({ types: t }) {
     // component ever runs, so a <Provider> publishes its context value too late
     // for its own subtree. Collect the element setup and emit it behind a
     // zero-arg factory instead; the runtime calls the factory while the parent
-    // is on the component stack. Text and plain expression children have
-    // nothing to defer and stay inline.
+    // is on the component stack. An expression child is deferred for the same
+    // reason: it is the shape a wrapper forwards its own children through, and
+    // reading it while the argument list is built happens before the component
+    // it is being handed to has run. Text children have nothing to defer.
     const setupMark = state._pendingSetup ? state._pendingSetup.length : 0;
     const transformedChildren = [];
     let deferChildren = false;
@@ -1686,6 +1748,7 @@ export default function whatBabelPlugin({ types: t }) {
         if (text) transformedChildren.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
+          deferChildren = true;
           transformedChildren.push(child.expression);
         }
       } else if (t.isJSXElement(child)) {
@@ -2471,6 +2534,9 @@ export default function whatBabelPlugin({ types: t }) {
           }
 
           path.traverse({
+            Function(fnPath) {
+              deferForwardedChildren(fnPath);
+            },
             CallExpression(callPath) {
               transformServerAction(callPath, state);
             },

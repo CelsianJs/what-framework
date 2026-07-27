@@ -140,6 +140,88 @@ describe('compiled JSX: ErrorBoundary', () => {
   });
 });
 
+// Wrapping a boundary or a provider in your own component is a mainstream
+// pattern, and it only works if the wrapper's children stay unbuilt until the
+// component it forwards them to has run. Destructuring `children` in the
+// parameter list reads them before the body starts, so the compiler rewrites a
+// parameter whose `children` binding is only ever forwarded; forwarding
+// `props.children` instead is an expression child, which the compiler defers.
+describe('compiled JSX: user components that forward children', () => {
+  const wrappers = {
+    'destructured parameter': 'function MyBoundary({ children, fallback }) { return <ErrorBoundary fallback={fallback}>{children}</ErrorBoundary>; }',
+    'props.children': 'function MyBoundary(props) { return <ErrorBoundary fallback={props.fallback}>{props.children}</ErrorBoundary>; }',
+    'explicit _deferChildren': 'function MyBoundary({ children, fallback }) { return <ErrorBoundary fallback={fallback}>{children}</ErrorBoundary>; }\nMyBoundary._deferChildren = true;',
+  };
+
+  for (const [shape, wrapper] of Object.entries(wrappers)) {
+    it(`catches through a boundary wrapper written with a ${shape}`, async () => {
+      const mod = await compileAndLoad(`
+        import { ErrorBoundary } from 'what-framework';
+        function Boom() { throw new Error('boom'); }
+        ${wrapper}
+        export function App() {
+          return <MyBoundary fallback={<p class="fb">caught</p>}><Boom /></MyBoundary>;
+        }
+      `);
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      quietly(() => {
+        assert.doesNotThrow(() => mount(mod.App(), host), 'the throw must not escape mount()');
+      });
+      await tick();
+      assert.equal(host.querySelector('.fb')?.textContent, 'caught');
+      host.remove();
+    });
+  }
+
+  for (const [shape, wrapper] of Object.entries({
+    'destructured parameter': 'function ThemeProvider({ children }) { return <Theme.Provider value="DARK">{children}</Theme.Provider>; }',
+    'props.children': 'function ThemeProvider(props) { return <Theme.Provider value="DARK">{props.children}</Theme.Provider>; }',
+  })) {
+    it(`resolves context through a provider wrapper written with a ${shape}`, async () => {
+      const mod = await compileAndLoad(`
+        import { createContext, useContext } from 'what-framework';
+        const Theme = createContext('LIGHT');
+        ${wrapper}
+        function Leaf() {
+          const t = useContext(Theme);
+          return <p class="t">{typeof t === 'function' ? t() : t}</p>;
+        }
+        export function App() { return <ThemeProvider><Leaf /></ThemeProvider>; }
+      `);
+      const host = render(mod.App());
+      await tick();
+      assert.equal(host.querySelector('.t')?.textContent, 'DARK', 'the consumer must not read the default');
+      host.remove();
+    });
+  }
+
+  it('leaves children realized for a component that inspects them', async () => {
+    const mod = await compileAndLoad(`
+      export const seen = [];
+      function Tabs({ children }) {
+        seen.push(Array.isArray(children), children.length);
+        return <div class="tabs">{children}</div>;
+      }
+      export function App() {
+        return <Tabs><p class="a">a</p><p class="b">b</p></Tabs>;
+      }
+    `);
+    const host = render(mod.App());
+    assert.deepEqual(mod.seen, [true, 2], 'an inspecting component still gets a real array');
+    assert.ok(host.querySelector('.tabs .a') && host.querySelector('.tabs .b'));
+    host.remove();
+  });
+
+  it('rewrites only a children binding that is never inspected', () => {
+    const forwarded = compile('function W({ children }) { return <Panel>{children}</Panel>; }');
+    assert.match(forwarded, /_props\.children/, 'a pure forward moves to a lazy read');
+
+    const inspected = compile('function W({ children }) { return <Panel>{children.length}{children}</Panel>; }');
+    assert.doesNotMatch(inspected, /_props\.children/, 'an inspected binding keeps its destructuring');
+  });
+});
+
 describe('compiled JSX: Suspense', () => {
   it('renders the fallback for a suspending child, then the real content', async () => {
     const mod = await compileAndLoad(`

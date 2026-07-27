@@ -198,8 +198,16 @@ export function App() {
 }`);
   });
 
-  it('does not wrap text or expression children of a component in a factory', () => {
+  it('does not wrap text-only children of a component in a factory', () => {
+    const code = compile('export const A = () => <Card>hello</Card>;');
+    assert.match(code, /_\$createComponent\(Card, null, \["hello"\]\)/);
+  });
+
+  // An expression child is the shape a wrapper forwards its own children
+  // through, so it has to be deferred too, or the subtree is built before the
+  // component it is being handed to has run.
+  it('wraps expression children of a component in a factory', () => {
     const code = compile('export const A = ({ n }) => <Card>hello {n()}</Card>;');
-    assert.match(code, /_\$createComponent\(Card, null, \["hello ", n\(\)\]\)/);
+    assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", n\(\)\]\)/);
   });
 });

@@ -99,6 +99,35 @@ count.subscribe(fn);   // shorthand for effect(() => fn(count()))
 | `Switch` / `Match` | Conditional branch set |
 | `Island` | Hydration boundary |
 
+### Forwarding children into a boundary or a provider
+
+Your own wrapper around `ErrorBoundary`, `Suspense` or a `Context.Provider`
+works with no extra ceremony:
+
+```jsx
+function MyBoundary({ children, fallback }) {
+  return <ErrorBoundary fallback={fallback}>{children}</ErrorBoundary>;
+}
+```
+
+The compiler keeps children that are only forwarded unbuilt until the component
+they are handed to has run, which is what lets the boundary catch them and the
+provider publish its value in time.
+
+Inspecting children is the one thing that cannot stay lazy: reading
+`children.length` builds the subtree, and building it is exactly what the
+boundary has to be around. A component that both inspects and forwards has to
+pick one. Set `Component._deferChildren = true` to pick forwarding, which makes
+`props.children` a zero-argument factory the runtime calls inside the boundary
+and gives up inspection:
+
+```jsx
+function Panel({ children }) {
+  return <ErrorBoundary fallback={<p>failed</p>}>{children}</ErrorBoundary>;
+}
+Panel._deferChildren = true;   // only needed if Panel also read children itself
+```
+
 ### Conditional patterns
 
 ```jsx

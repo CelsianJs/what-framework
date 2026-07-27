@@ -49,7 +49,20 @@ export type PrimitiveChild = string | number | boolean | null | undefined;
 export type VNodeChild = PrimitiveChild | VNode | (() => VNodeChild) | VNodeChild[];
 
 /** A component may legitimately render nothing, so `null` is part of the contract. */
-export type Component<P = {}> = (props: P & { children?: VNodeChild }) => VNode | null;
+export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNode | null) & {
+  /**
+   * Opt out of realizing compiled children before the component runs.
+   *
+   * A component that establishes a scope its children depend on (a context
+   * provider, an error or suspense boundary) receives `props.children` as a
+   * zero-argument factory instead of built nodes, and the runtime realizes it
+   * once that scope exists. `ErrorBoundary`, `Suspense` and `Context.Provider`
+   * set this themselves, and the compiler keeps a component that only forwards
+   * its children lazy, so this is only needed by a component that both
+   * inspects its children and forwards them into a boundary or a provider.
+   */
+  _deferChildren?: boolean;
+};
 
 export interface VNode<P = Record<string, any>> {
   tag: string | Component<P>;
