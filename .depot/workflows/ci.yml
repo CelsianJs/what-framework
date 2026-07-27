@@ -289,4 +289,5 @@ jobs:
         env:
           WHAT_BENCH_TOLERANCE_CORE: 0.80
           WHAT_BENCH_TOLERANCE_DX: 0.85
+          WHAT_BENCH_SKIP_DOM: 1
         run: npm run -s bench:gate

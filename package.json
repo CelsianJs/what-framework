@@ -26,6 +26,7 @@
     "bench": "node benchmark/run.js",
     "bench:core": "node benchmark/run.js",
     "bench:dx": "node benchmark/dx-microbench.js",
+    "bench:dom": "node benchmark/dom-gate.mjs --out benchmark/baseline/dom.json --rounds 63",
     "bench:gate": "node benchmark/check-regressions.js",
     "bench:update": "node scripts/update-benchmarks.mjs",
     "check:size": "node scripts/check-size.mjs",

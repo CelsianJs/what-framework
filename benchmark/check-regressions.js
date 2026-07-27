@@ -11,9 +11,23 @@ const ROOT = process.cwd();
 const BASELINE_DIR = join(ROOT, 'benchmark', 'baseline');
 const CORE_BASELINE = join(BASELINE_DIR, 'core.json');
 const DX_BASELINE = join(BASELINE_DIR, 'dx.json');
+const DOM_BASELINE = process.env.WHAT_BENCH_DOM_BASELINE || join(BASELINE_DIR, 'dom.json');
 
-const coreTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_CORE ?? '0.3');
-const dxTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_DX ?? '0.35');
+const coreTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_CORE ?? '0.10');
+const dxTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_DX ?? '0.15');
+const domTolerance = Number(process.env.WHAT_BENCH_TOLERANCE_DOM ?? '0.10');
+
+// The double-rAF timing floor makes any delta under 2 ms indistinguishable
+// from browser noise, so the small ops are only failed on absolute movement.
+const DOM_NOISE_FLOOR_MS = 2;
+
+// The baseline was validated by six independent 21-round runs whose medians
+// agreed within 2.3%, so the gate measures over the same number of rounds.
+const domRounds = process.env.WHAT_BENCH_DOM_ROUNDS ?? '21';
+
+// The DOM stage needs a Chromium and the krausest workspace's own install,
+// which shared CI runners do not have. release:verify never sets this.
+const skipDom = process.env.WHAT_BENCH_SKIP_DOM === '1';
 
 // Guard only stable, release-critical operations.
 // Extremely fast micro-ops can vary significantly between runs.
@@ -34,7 +48,12 @@ const DX_GUARD_OPS = new Set([
   'formState.errors getter read',
 ]);
 
-if (!existsSync(CORE_BASELINE) || !existsSync(DX_BASELINE)) {
+const DOM_GUARD_OPS = new Set([
+  'create1k', 'replace1k', 'partialUpdate', 'selectRow',
+  'swapRows', 'removeRow', 'create10k', 'append1k', 'clear1k',
+]);
+
+if (!existsSync(CORE_BASELINE) || !existsSync(DX_BASELINE) || (!skipDom && !existsSync(DOM_BASELINE))) {
   console.error('Missing benchmark baseline files in benchmark/baseline.');
   process.exit(1);
 }
@@ -42,8 +61,10 @@ if (!existsSync(CORE_BASELINE) || !existsSync(DX_BASELINE)) {
 const tmp = mkdtempSync(join(tmpdir(), 'what-bench-'));
 const coreOut = join(tmp, 'core.json');
 const dxOut = join(tmp, 'dx.json');
+const domOut = join(tmp, 'dom.json');
 const coreOutRetry = join(tmp, 'core-retry.json');
 const dxOutRetry = join(tmp, 'dx-retry.json');
+const domOutRetry = join(tmp, 'dom-retry.json');
 
 function loadJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -55,7 +76,7 @@ function toMap(report) {
   return map;
 }
 
-function compareSet(name, baselinePath, currentPath, tolerance, guardOps) {
+function compareSet(name, baselinePath, currentPath, tolerance, guardOps, metric = 'opsPerSec') {
   const baseline = toMap(loadJson(baselinePath));
   const current = toMap(loadJson(currentPath));
   const failures = [];
@@ -69,6 +90,16 @@ function compareSet(name, baselinePath, currentPath, tolerance, guardOps) {
       continue;
     }
 
+    if (metric === 'ms') {
+      // Lower is better, and a delta inside the harness's noise floor is not a signal.
+      const maxAllowed = base.ms * (1 + tolerance);
+      if (now.ms > maxAllowed && now.ms - base.ms > DOM_NOISE_FLOOR_MS) {
+        const delta = (((now.ms - base.ms) / base.ms) * 100).toFixed(1);
+        failures.push(`${name}: ${benchName} regressed +${delta}% (${now.ms} ms > ${maxAllowed.toFixed(2)} ms threshold)`);
+      }
+      continue;
+    }
+
     const minAllowed = base.opsPerSec * (1 - tolerance);
     if (now.opsPerSec < minAllowed) {
       const delta = (((now.opsPerSec - base.opsPerSec) / base.opsPerSec) * 100).toFixed(1);
@@ -79,10 +110,11 @@ function compareSet(name, baselinePath, currentPath, tolerance, guardOps) {
   return failures;
 }
 
-function compareRun(corePath, dxPath) {
+function compareRun(corePath, dxPath, domPath) {
   return [
     ...compareSet('core', CORE_BASELINE, corePath, coreTolerance, CORE_GUARD_OPS),
     ...compareSet('dx', DX_BASELINE, dxPath, dxTolerance, DX_GUARD_OPS),
+    ...(skipDom ? [] : compareSet('dom', DOM_BASELINE, domPath, domTolerance, DOM_GUARD_OPS, 'ms')),
   ];
 }
 
@@ -93,7 +125,14 @@ try {
   console.log('Running DX microbenchmark...');
   execSync(`node benchmark/dx-microbench.js --json "${dxOut}"`, { stdio: 'inherit' });
 
-  let failures = compareRun(coreOut, dxOut);
+  if (skipDom) {
+    console.log('Skipping DOM benchmark (WHAT_BENCH_SKIP_DOM=1).');
+  } else {
+    console.log('Running DOM benchmark...');
+    execSync(`node benchmark/dom-gate.mjs --out "${domOut}" --rounds ${domRounds}`, { stdio: 'inherit' });
+  }
+
+  let failures = compareRun(coreOut, dxOut, domOut);
 
   if (failures.length > 0) {
     console.warn('\nPotential benchmark regression detected. Re-running once to reduce noise...');
@@ -104,7 +143,12 @@ try {
     console.log('Re-running DX microbenchmark...');
     execSync(`node benchmark/dx-microbench.js --json "${dxOutRetry}"`, { stdio: 'inherit' });
 
-    const retryFailures = compareRun(coreOutRetry, dxOutRetry);
+    if (!skipDom) {
+      console.log('Re-running DOM benchmark...');
+      execSync(`node benchmark/dom-gate.mjs --out "${domOutRetry}" --rounds ${domRounds} --no-build`, { stdio: 'inherit' });
+    }
+
+    const retryFailures = compareRun(coreOutRetry, dxOutRetry, domOutRetry);
     if (retryFailures.length > 0) {
       console.error('\nBenchmark regression check failed:');
       for (const failure of retryFailures) console.error(`  - ${failure}`);

@@ -68,9 +68,14 @@ This runs:
 
 1. Core benchmark suite (`benchmark/run.js`)
 2. DX microbenchmarks (`benchmark/dx-microbench.js`)
-3. Baseline comparison from `benchmark/baseline/*.json`
+3. Real DOM operations in Chromium (`benchmark/dom-gate.mjs`, median of 21 rounds)
+4. Baseline comparison from `benchmark/baseline/*.json`
 
-A regression beyond configured tolerance fails the command.
+Tolerances are 10% for core and DOM and 15% for DX (`WHAT_BENCH_TOLERANCE_CORE`, `WHAT_BENCH_TOLERANCE_DOM`, `WHAT_BENCH_TOLERANCE_DX`). A regression beyond tolerance fails the command. DOM ops are additionally held to an absolute 2 ms floor, because the harness measures click to double-rAF and cannot resolve smaller deltas.
+
+The DOM stage needs a Chromium and an install inside `benchmark/krausest`, so shared CI runners set `WHAT_BENCH_SKIP_DOM=1`. Nothing in `release:verify` sets it.
+
+Re-record the DOM baseline with `npm run bench:dom` (63 rounds), on an idle machine.
 
 To reduce flaky failures from machine jitter, the gate re-runs benchmarks once when an initial regression is detected.
 

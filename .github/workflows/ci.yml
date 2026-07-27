@@ -321,7 +321,10 @@ jobs:
         # unpredictably. Kept as its own visible job (a signal, not a blocker);
         # perf is gated strictly by `release:verify` on local hardware.
         continue-on-error: true
+        # The DOM stage is skipped here: it needs a Chromium and the krausest
+        # workspace's own install, neither of which this job provisions.
         env:
           WHAT_BENCH_TOLERANCE_CORE: 0.80
           WHAT_BENCH_TOLERANCE_DX: 0.85
+          WHAT_BENCH_SKIP_DOM: 1
         run: npm run -s bench:gate
