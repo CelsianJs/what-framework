@@ -261,7 +261,11 @@ export function useContext(context) {
 export function createContext(defaultValue) {
   const context = {
     _defaultValue: defaultValue,
-    Provider: ({ value, children }) => {
+    // props.children is read only after the value is published: on the compiled
+    // path it is a getter over a deferred factory, and destructuring it in the
+    // parameter list would build the subtree before this provider exists.
+    Provider: (props) => {
+      const value = props.value;
       const ctx = getCtx('Context.Provider');
       if (!ctx._contextValues) ctx._contextValues = new Map();
       if (!ctx._contextSignals) ctx._contextSignals = new Map();
@@ -274,7 +278,7 @@ export function createContext(defaultValue) {
       } else {
         ctx._contextSignals.get(context).set(value);
       }
-      return children;
+      return props.children;
     },
     // React-compatible Consumer: <Context.Consumer>{value => ...}</Context.Consumer>
     Consumer: ({ children }) => {

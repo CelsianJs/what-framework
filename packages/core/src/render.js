@@ -29,17 +29,27 @@ export function _setTextInsertHook(fn) {
 export function _$createComponent(Component, props, children) {
   // Deferred children (compiled JSX): the compiler passes a zero-arg factory
   // when children contain elements, so their DOM is not built before this
-  // component runs. Mark it so the render paths realize it in place instead of
-  // treating it as a reactive thunk. h() and the JSX runtime pass arrays and
-  // take the path below unchanged.
+  // component runs. The factory is memoized here and handed to createComponent,
+  // which exposes it as the props.children getter: reading children realizes
+  // them in place (while the owner is on the component stack) and caches the
+  // result, so children are a real array with a real length, are built at most
+  // once no matter how often they are read, and are not built at all when the
+  // component ignores them. h() and the JSX runtime pass arrays and take the
+  // path below unchanged.
   if (typeof children === 'function') {
-    const lazy = () => {
-      const kids = children();
-      return kids.length === 1 ? kids[0] : kids;
+    let realized;
+    let done = false;
+    const realize = () => {
+      if (!done) {
+        done = true;
+        const kids = children();
+        realized = kids.length === 1 ? kids[0] : kids;
+      }
+      return realized;
     };
-    lazy._lazyChildren = true;
-    if (props) props.children = lazy;
-    else props = { children: lazy };
+    realize._lazyChildren = true;
+    if (!props) props = {};
+    Object.defineProperty(props, '_$lazyChildren', { value: realize, configurable: true });
     return createDOM({ tag: Component, props, children: [], key: null, _vnode: true });
   }
   if (children && children.length > 0) {

@@ -443,6 +443,15 @@ function createComponent(vnode, parent, isSvg) {
   } else {
     mergedProps = props ? Object.assign({}, props) : {};
   }
+  // Deferred children from compiled JSX arrive as a memoized factory instead of
+  // built DOM. Expose it as a getter so the children are realized while this
+  // component is on the stack, once, and only if the component reads them.
+  const lazyChildren = props && props._$lazyChildren;
+  if (lazyChildren) {
+    Object.defineProperty(mergedProps, 'children', { get: lazyChildren, enumerable: true, configurable: true });
+    Object.defineProperty(mergedProps, '_$lazyChildren', { value: lazyChildren, configurable: true });
+  }
+
   const propsSignal = signal(mergedProps);
   ctx._propsSignal = propsSignal;
 
