@@ -1,8 +1,8 @@
 {
-  "$comment": "Gzip byte ceilings for scripts/check-size.mjs (esbuild bundle, production condition, min+gzip). Measured 2026-06-09: core-counter 5651 B, scaffold-counter 5754 B (audit's real vite-scaffold counter measured 7.10 KB). Ceilings = measured reality + headroom; raise only deliberately, in the same PR as the growth. core-counter raised 6200 -> 6656 on 2026-07-26 for h()-path URL sanitization and client Suspense.",
+  "$comment": "Gzip byte ceilings for scripts/check-size.mjs (esbuild bundle, production condition, min+gzip). Measured 2026-06-09: core-counter 5651 B, scaffold-counter 5754 B (audit's real vite-scaffold counter measured 7.10 KB). Ceilings = measured reality + headroom; raise only deliberately, in the same PR as the growth. core-counter is set from its 2026-07-27 measurement of 6512 B rounded up to the next 64 B, having accounted for all 781 B of growth over 63a896a commit by commit: 575 B bought Critical and High fixes (URL and handler sanitization, the compiled children protocol, Suspense, hydration and redirect correctness) and the other 206 B is esbuild alone declining to tree-shake Suspense and ErrorBoundary past their _deferChildren markers, which Rollup drops.",
   "scenarios": {
     "core-counter": {
-      "limitGzipBytes": 6656,
+      "limitGzipBytes": 6528,
       "description": "what-core runtime imported by a typical h()-based counter app (production condition)"
     },
     "scaffold-counter": {
