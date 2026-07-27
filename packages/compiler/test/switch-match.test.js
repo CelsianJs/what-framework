@@ -367,6 +367,23 @@ describe('compiled Switch/Match', () => {
     assert.doesNotMatch(code, /_\$createComponent\(Show/);
   });
 
+  // A bare specifier can be a re-export of What's control flow just as a
+  // relative one can. Literal <Match> arms are the proof, and <Switch> has no
+  // working runtime path, so getting this wrong renders the fallback forever.
+  it('still lowers a Switch re-exported from a bare package', () => {
+    const code = compile(`
+      import { Switch, Match } from '@myorg/ui';
+      export const A = ({ n }) => (
+        <Switch fallback={<p class="fb">FALLBACK</p>}>
+          <Match when={() => n() === 1}><p class="one">one</p></Match>
+          <Match when={() => n() === 2}><p class="two">two</p></Match>
+        </Switch>
+      );
+    `);
+    assert.doesNotMatch(code, /_\$createComponent\(Switch/);
+    assert.doesNotMatch(code, /_\$createComponent\(Match/);
+  });
+
   it('never emits a runtime Switch or Match call', () => {
     const code = compile(`
       export const A = ({ n }) => (

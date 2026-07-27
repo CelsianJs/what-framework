@@ -220,6 +220,55 @@ describe('compiled JSX: user components that forward children', () => {
     const inspected = compile('function W({ children }) { return <Panel>{children.length}{children}</Panel>; }');
     assert.doesNotMatch(inspected, /_props\.children/, 'an inspected binding keeps its destructuring');
   });
+
+  it('does not rewrite a duplicate children key', () => {
+    const out = compile('function W({ children, children: k2, fallback }) { return <Panel a={fallback}>{k2}</Panel>; }');
+    assert.doesNotMatch(out, /_props\.children/, 'the other key would still read the getter');
+  });
+
+  // The rewrite moves the props destructuring out of the parameter list, which
+  // is where the compiler decides which identifiers are potentially reactive.
+  it('keeps sibling props reactive through the rewrite', () => {
+    const out = compile(
+      'function Card({ cls, on, title, children }) {\n' +
+      '  return <div class={cls()} data-x={on()}><h3>{title}</h3><Panel>{children}</Panel></div>;\n' +
+      '}'
+    );
+    assert.match(out, /_props\.children/, 'the rewrite must have fired for this to prove anything');
+    assert.match(out, /_\$effect\(\(\) => _\$setClass\(/, 'a sibling attribute keeps its effect');
+    assert.match(out, /_\$effect\(\(\) => _\$setAttr\(/, 'a sibling attribute keeps its effect');
+    assert.match(out, /_\$insert\(_el\$\d+, \(\) => title/, 'a sibling expression child keeps its thunk');
+  });
+
+  // Every expression shape the classifier knows about, in a component the
+  // rewrite fires on, compared with the same shape in one it does not.
+  for (const expr of ['name', 'name()', 'name.label', "name() ? 'Y' : 'N'", '`v=${name()}`']) {
+    it(`keeps the thunk on {${expr}} through the rewrite`, () => {
+      const forwarded = compile(`function Card({ name, children }) { return <div>{${expr}}<Panel>{children}</Panel></div>; }`);
+      const control = compile(`function Card({ name }) { return <div>{${expr}}</div>; }`);
+      assert.match(forwarded, /_props\.children/, 'the rewrite must have fired');
+      const inserted = (out) => out.match(/_\$insert\(_el\$0, ([\s\S]*?), _el\$/)[1];
+      assert.equal(inserted(forwarded), inserted(control), 'the moved props must classify as they did');
+    });
+  }
+
+  it('keeps a reactive sibling prop live at runtime', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const name = signal('A');
+      function Card({ label, children }) {
+        return <div><h3 class="t">{label()}</h3><Panel>{children}</Panel></div>;
+      }
+      function Panel({ children }) { return <section>{children}</section>; }
+      export function App() { return <Card label={name}><p>kid</p></Card>; }
+    `);
+    const host = render(mod.App());
+    assert.equal(host.querySelector('.t')?.textContent, 'A');
+    mod.name('B');
+    await tick();
+    assert.equal(host.querySelector('.t')?.textContent, 'B', 'a sibling prop must stay reactive');
+    host.remove();
+  });
 });
 
 describe('compiled JSX: Suspense', () => {

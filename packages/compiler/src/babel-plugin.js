@@ -195,6 +195,16 @@ export default function whatBabelPlugin({ types: t }) {
     return !!(state.whatImports && state.whatImports.has(name));
   }
 
+  // Literal <Match> arms are proof enough that a <Switch> is What's, whoever it
+  // was imported from: a bare specifier can be a re-export of What's control
+  // flow just as a relative one can, and nobody writes <Match> arms against a
+  // third-party <Switch>. Unlike <Show> and <For>, <Switch> has no working
+  // runtime path, so guessing wrong here renders the fallback forever.
+  function hasLiteralMatchArms(node) {
+    return node.children.some((child) =>
+      t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }));
+  }
+
   // JSXMemberExpression -> MemberExpression callee for _$createComponent.
   function componentCallee(name) {
     if (t.isJSXMemberExpression(name)) {
@@ -221,7 +231,10 @@ export default function whatBabelPlugin({ types: t }) {
       const prop = pattern.properties[i];
       if (t.isRestElement(prop)) return;
       if (t.isObjectProperty(prop) && !prop.computed &&
-          t.isIdentifier(prop.key, { name: 'children' }) && t.isIdentifier(prop.value)) {
+          t.isIdentifier(prop.key, { name: 'children' })) {
+        // A duplicate key would leave the other one destructured in the body,
+        // which reads the getter and defeats the deferral.
+        if (index !== -1 || !t.isIdentifier(prop.value)) return;
         index = i;
       }
     }
@@ -247,11 +260,16 @@ export default function whatBabelPlugin({ types: t }) {
       if (!t.isBlockStatement(fnPath.node.body)) {
         fnPath.node.body = t.blockStatement([t.returnStatement(fnPath.node.body)]);
       }
+      const moved = t.objectPattern(remaining);
       fnPath.node.body.body.unshift(
         t.variableDeclaration('const', [
-          t.variableDeclarator(t.objectPattern(remaining), t.cloneNode(propsId)),
+          t.variableDeclarator(moved, t.cloneNode(propsId)),
         ])
       );
+      // collectSignalNamesFromScope classifies a component's props by reading
+      // the parameter list, so the moved pattern has to stay visible to it or
+      // every sibling prop silently stops being treated as reactive.
+      fnPath.node._whatMovedProps = moved;
     }
     for (const ref of binding.referencePaths) {
       ref.replaceWith(t.memberExpression(t.cloneNode(propsId), t.identifier('children')));
@@ -405,6 +423,17 @@ export default function whatBabelPlugin({ types: t }) {
       }
     }
 
+    function extractFromPattern(param) {
+      if (!t.isObjectPattern(param)) return;
+      for (const prop of param.properties) {
+        if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+          signalNames.add(prop.value.name);
+        } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
+          signalNames.add(prop.argument.name);
+        }
+      }
+    }
+
     // Walk up the scope chain using Babel's scope API.
     let scope = path.scope;
     while (scope) {
@@ -418,18 +447,13 @@ export default function whatBabelPlugin({ types: t }) {
       // scope — not once per binding. The old per-binding rescan made this
       // O(params × bindings) per scope per JSXElement. (AUDIT-2026-06-06 H2)
       const fnNode = scope.path && scope.path.node;
-      if (fnNode && fnNode.params) {
-        for (const param of fnNode.params) {
-          if (t.isObjectPattern(param)) {
-            for (const prop of param.properties) {
-              if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-                signalNames.add(prop.value.name);
-              } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
-                signalNames.add(prop.argument.name);
-              }
-            }
-          }
+      if (fnNode) {
+        if (fnNode.params) {
+          for (const param of fnNode.params) extractFromPattern(param);
         }
+        // deferForwardedChildren moved this pattern out of the parameter list;
+        // it is still the same props destructuring and classifies the same way.
+        if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
       }
       scope = scope.parent;
     }
@@ -831,7 +855,8 @@ export default function whatBabelPlugin({ types: t }) {
 
     // Control flow components, checked before generic isComponent since they start uppercase.
     // A tag imported from somewhere other than What is that package's component,
-    // whatever it is called, so it goes to the component path untouched.
+    // whatever it is called, so it goes to the component path untouched, unless
+    // its own arms prove otherwise.
     if (!isForeignTag(tagName, state)) {
       if (tagName === 'For') {
         return transformForFineGrained(path, state);
@@ -839,9 +864,9 @@ export default function whatBabelPlugin({ types: t }) {
       if (tagName === 'Show') {
         return transformShowFineGrained(path, state);
       }
-      if (tagName === 'Switch') {
-        return transformSwitchFineGrained(path, state);
-      }
+    }
+    if (tagName === 'Switch' && (!isForeignTag(tagName, state) || hasLiteralMatchArms(node))) {
+      return transformSwitchFineGrained(path, state);
     }
 
     if (isComponentElement(node)) {
@@ -2047,9 +2072,12 @@ export default function whatBabelPlugin({ types: t }) {
     // nothing else forever. Fail that build rather than emit a silent blank.
     const { node } = path;
 
+    // A <Switch> that got here on its arms alone came from the same foreign
+    // specifier its arms did, so its <Match> is ours by the same reasoning.
+    const armsProveIt = isForeignTag(node.openingElement.name.name, state);
     const isMatch = (child) =>
       t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }) &&
-      !isForeignTag('Match', state);
+      (armsProveIt || !isForeignTag('Match', state));
     if (!node.children.some(isMatch) && !isWhatTag(node.openingElement.name.name, state)) {
       return transformComponentFineGrained(path, state);
     }

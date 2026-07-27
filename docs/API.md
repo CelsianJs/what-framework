@@ -128,6 +128,17 @@ function Panel({ children }) {
 Panel._deferChildren = true;   // only needed if Panel also read children itself
 ```
 
+Three other shapes read `children` before the wrapper's body runs and need the
+same flag: a `children` binding with a default value (`{ children = null }`), a
+parameter pattern with a rest element (`{ children, ...rest }`), and a forward
+that goes through a local first (`const kids = children`). Write the forward as
+`{ children }` or `props.children` and none of them apply.
+
+An expression child is now built by the component it is handed to, not by the
+caller, so a component that never renders its children never evaluates them.
+This has always been true of element children; an expression child with a side
+effect no longer runs for a component that discards it.
+
 ### Conditional patterns
 
 ```jsx
