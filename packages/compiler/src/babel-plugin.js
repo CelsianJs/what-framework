@@ -1960,33 +1960,53 @@ export default function whatBabelPlugin({ types: t }) {
     // component runs once, so the arm has to be picked inside a thunk that
     // insert() re-evaluates. The runtime Switch matches on Match marker vnodes,
     // which _$createComponent never produces (calling Match instead recurses),
-    // so compiled JSX has no working runtime path and must be lowered here.
-    // Anything this cannot statically read as a list of <Match> arms falls back
-    // to the runtime component.
+    // so compiled JSX has no working runtime path.
+    //
+    // "Switch" is also what Ant Design, Headless UI and MUI call their toggle,
+    // and this dispatches on the bare tag name, so a <Switch> with no <Match>
+    // children is somebody else's component: hand it to the component path
+    // untouched. A <Switch> that does have <Match> arms is provably What's, and
+    // a shape whose arms cannot be read statically has nowhere to go, since the
+    // runtime component would render its fallback and nothing else forever.
+    // Fail that build rather than emit a silent blank.
     const { node } = path;
+
+    const isMatch = (child) =>
+      t.isJSXElement(child) && child.openingElement.name.name === 'Match';
+    if (!node.children.some(isMatch)) {
+      return transformComponentFineGrained(path, state);
+    }
+
+    const unsupported = (why) => {
+      const message =
+        `<Switch> ${why}. The compiler needs to read its arms statically. ` +
+        'Write them out: <Switch fallback={...}><Match when={a}>…</Match><Match when={b}>…</Match></Switch>';
+      throw path.buildCodeFrameError
+        ? path.buildCodeFrameError(message)
+        : new Error(`[what-compiler] ${message}`);
+    };
 
     let fallbackExpr = null;
     for (const attr of node.openingElement.attributes) {
-      if (t.isJSXSpreadAttribute(attr)) return transformComponentFineGrained(path, state);
+      if (t.isJSXSpreadAttribute(attr)) unsupported('cannot take a spread attribute');
       if (getAttrName(attr) === 'fallback') fallbackExpr = getAttributeValue(attr.value);
     }
 
     const arms = [];
     for (const child of node.children) {
       if (t.isJSXText(child)) {
-        if (normalizeJsxText(child.value)) return transformComponentFineGrained(path, state);
+        if (normalizeJsxText(child.value)) unsupported('cannot mix text with its <Match> arms');
         continue;
       }
       if (t.isJSXExpressionContainer(child)) {
         if (t.isJSXEmptyExpression(child.expression)) continue;
-        return transformComponentFineGrained(path, state);
+        unsupported('cannot mix an expression child with its <Match> arms');
       }
-      if (!t.isJSXElement(child) || child.openingElement.name.name !== 'Match') {
-        return transformComponentFineGrained(path, state);
+      if (!isMatch(child)) {
+        unsupported('cannot mix other elements with its <Match> arms');
       }
       arms.push(child);
     }
-    if (arms.length === 0) return transformComponentFineGrained(path, state);
 
     if (!state._pendingSetup) state._pendingSetup = [];
     const branches = [];
@@ -1997,8 +2017,7 @@ export default function whatBabelPlugin({ types: t }) {
         if (t.isJSXAttribute(attr) && getAttrName(attr) === 'when') whenExpr = getAttributeValue(attr.value);
       }
       if (!whenExpr) {
-        console.warn('[what-compiler] <Match> element missing "when" attribute.');
-        return transformComponentFineGrained(path, state);
+        unsupported('has a <Match> with no "when" prop');
       }
 
       // An arm's element setup belongs inside the arm. Hoisting it next to the
@@ -2014,31 +2033,51 @@ export default function whatBabelPlugin({ types: t }) {
         );
       }
 
-      // Arms only use the condition for truthiness, so gate the memo on !!cond
-      // (matching <Show> with static children).
-      let condition = buildWhenCondition(whenExpr, state);
-      if (isPotentiallyReactive(condition, state.signalNames, state.importedIdentifiers)) {
-        const condId = state.nextMemoId();
-        state.needsMemo = true;
-        state._pendingSetup.push(
-          t.variableDeclaration('const', [
-            t.variableDeclarator(
-              t.identifier(condId),
-              t.callExpression(t.identifier('_$memo'), [
-                t.arrowFunctionExpression([], t.unaryExpression('!', t.unaryExpression('!', condition)))
-              ])
-            )
-          ])
-        );
-        condition = t.callExpression(t.identifier(condId), []);
-      }
-
-      branches.push([condition, content]);
+      branches.push([buildWhenCondition(whenExpr, state), content]);
     }
 
-    let expr = fallbackExpr || t.nullLiteral();
+    const anyReactive = branches.some(([condition]) =>
+      isPotentiallyReactive(condition, state.signalNames, state.importedIdentifiers));
+
+    const fallback = fallbackExpr || t.nullLiteral();
+
+    if (!anyReactive) {
+      let expr = fallback;
+      for (let i = branches.length - 1; i >= 0; i--) {
+        expr = t.conditionalExpression(branches[i][0], branches[i][1], expr);
+      }
+      return t.arrowFunctionExpression([], expr);
+    }
+
+    // ONE memo over the whole chain, not one per arm. _$memo evaluates its body
+    // immediately, so a memo per arm would evaluate every arm's `when` up front,
+    // while the runtime Switch stops at the first match. A single memo that
+    // resolves to the winning arm's index keeps that short-circuit (`when` props
+    // after the first truthy one are never read) and still gates re-rendering on
+    // the selected arm actually changing.
+    let selector = t.numericLiteral(-1);
     for (let i = branches.length - 1; i >= 0; i--) {
-      expr = t.conditionalExpression(branches[i][0], branches[i][1], expr);
+      selector = t.conditionalExpression(branches[i][0], t.numericLiteral(i), selector);
+    }
+
+    const armId = state.nextMemoId();
+    state.needsMemo = true;
+    state._pendingSetup.push(
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier(armId),
+          t.callExpression(t.identifier('_$memo'), [t.arrowFunctionExpression([], selector)])
+        )
+      ])
+    );
+
+    let expr = fallback;
+    for (let i = branches.length - 1; i >= 0; i--) {
+      expr = t.conditionalExpression(
+        t.binaryExpression('===', t.callExpression(t.identifier(armId), []), t.numericLiteral(i)),
+        branches[i][1],
+        expr
+      );
     }
     return t.arrowFunctionExpression([], expr);
   }

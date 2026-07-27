@@ -92,6 +92,49 @@ describe('lazy component children', () => {
     assert.equal(owner && owner.Component, Probe, 'children must be built inside their owner');
   });
 
+  // Realized children are single-use DOM: a DocumentFragment is drained by its
+  // first insertion, and nodes a consumer removed have had their effects
+  // disposed. Caching them for the life of the component instance makes a
+  // component that re-reads props.children from a reactive thunk lose its
+  // children permanently after the first teardown.
+  it('rebuild for a consumer that tears them down and re-reads them', async () => {
+    const { _$createComponent } = await import('../src/render.js');
+    const { signal } = await import('../src/reactive.js');
+    const { mount } = await import('../src/dom.js');
+
+    const open = signal(true);
+    let builds = 0;
+    const factory = () => {
+      builds++;
+      const frag = document.createDocumentFragment();
+      const span = document.createElement('span');
+      span.className = 'kid';
+      frag.appendChild(span);
+      return [frag];
+    };
+    const Panel = (props) => () => (open() ? props.children : 'CLOSED');
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mount(_$createComponent(Panel, {}, factory), host);
+
+    const kids = () => host.querySelectorAll('.kid').length;
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+
+    assert.equal(kids(), 1, 'children render initially');
+    open(false); await settle();
+    assert.equal(kids(), 0);
+    open(true); await settle();
+    assert.equal(kids(), 1, 'children come back after the first toggle');
+    open(false); await settle();
+    assert.equal(kids(), 0);
+    open(true); await settle();
+    assert.equal(kids(), 1, 'children come back after the second toggle');
+
+    assert.ok(builds > 1, 'a torn-down subtree has to be rebuilt, not re-inserted');
+    host.remove();
+  });
+
   it('unwrap a single child the way eager children do', async () => {
     const { _$createComponent } = await import('../src/render.js');
 
@@ -105,5 +148,47 @@ describe('lazy component children', () => {
 
     assert.equal(lazySeen, 'only');
     assert.equal(eagerSeen, 'only');
+  });
+
+  // hydrateNode builds its own props object, so it has to speak the same
+  // children protocol as createComponent. It used to read props.children, which
+  // the compiled path no longer sets, and handed the component `undefined`.
+  // This drives the vnode shape _$createComponent produces straight into
+  // hydrate(), which is the only way to reach that branch: _$createComponent
+  // itself builds its DOM eagerly, so hydrating compiled output takes
+  // hydrateNode's DOM-passthrough branch rather than its component branch.
+  it('reach the component on the hydration path too', async () => {
+    const { hydrate } = await import('../src/render.js');
+
+    let seen;
+    const Wrapper = (props) => {
+      seen = props.children;
+      const el = document.createElement('div');
+      el.className = 'wrap';
+      el.appendChild(seen);
+      return el;
+    };
+
+    // _$lazyChildren returns the children value already unwrapped, the way the
+    // wrapper _$createComponent installs does.
+    const lazy = () => {
+      const span = document.createElement('span');
+      span.className = 'kid';
+      span.textContent = 'hi';
+      return span;
+    };
+    lazy._lazyChildren = true;
+    const props = {};
+    Object.defineProperty(props, '_$lazyChildren', { value: lazy, configurable: true });
+
+    const host = document.createElement('div');
+    host.innerHTML = '<div class="wrap"><span class="kid">hi</span></div>';
+    document.body.appendChild(host);
+
+    hydrate({ tag: Wrapper, props, children: [], key: null, _vnode: true }, host);
+
+    assert.notEqual(seen, undefined, 'hydration must pass children to the component');
+    assert.equal(seen.className, 'kid');
+    host.remove();
   });
 });

@@ -3,7 +3,7 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
-import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp } from './dom.js';
+import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren } from './dom.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
@@ -29,27 +29,17 @@ export function _setTextInsertHook(fn) {
 export function _$createComponent(Component, props, children) {
   // Deferred children (compiled JSX): the compiler passes a zero-arg factory
   // when children contain elements, so their DOM is not built before this
-  // component runs. The factory is memoized here and handed to createComponent,
-  // which exposes it as the props.children getter: reading children realizes
-  // them in place (while the owner is on the component stack) and caches the
-  // result, so children are a real array with a real length, are built at most
-  // once no matter how often they are read, and are not built at all when the
-  // component ignores them. h() and the JSX runtime pass arrays and take the
-  // path below unchanged.
+  // component runs. Pass it along marked; createComponent decides how the
+  // component sees it. h() and the JSX runtime pass arrays and take the path
+  // below unchanged.
   if (typeof children === 'function') {
-    let realized;
-    let done = false;
-    const realize = () => {
-      if (!done) {
-        done = true;
-        const kids = children();
-        realized = kids.length === 1 ? kids[0] : kids;
-      }
-      return realized;
+    const lazy = () => {
+      const kids = children();
+      return kids.length === 1 ? kids[0] : kids;
     };
-    realize._lazyChildren = true;
+    lazy._lazyChildren = true;
     if (!props) props = {};
-    Object.defineProperty(props, '_$lazyChildren', { value: realize, configurable: true });
+    Object.defineProperty(props, '_$lazyChildren', { value: lazy, configurable: true });
     return createDOM({ tag: Component, props, children: [], key: null, _vnode: true });
   }
   if (children && children.length > 0) {
@@ -1738,10 +1728,19 @@ function hydrateNode(vnode, parent) {
       componentStack.push(ctx);
 
       let result;
+      let endChildrenPass = null;
       try {
-        const propsChildren = children.length === 0 ? props.children
-          : children.length === 1 ? children[0] : children;
-        result = Component({ ...props, children: propsChildren });
+        // Same children protocol as createComponent: compiled JSX passes a
+        // factory on _$lazyChildren rather than a built children array.
+        const merged = { ...props };
+        if (props._$lazyChildren) {
+          endChildrenPass = _installLazyChildren(Component, merged, props._$lazyChildren);
+        } else {
+          merged.children = children.length === 0 ? props.children
+            : children.length === 1 ? children[0] : children;
+        }
+        result = Component(merged);
+        if (endChildrenPass) endChildrenPass();
       } catch (error) {
         componentStack.pop();
         console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', error);

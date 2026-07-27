@@ -117,6 +117,10 @@ export function Suspense({ fallback, children }) {
   };
 }
 
+// The boundary context only exists once createSuspenseBoundary runs, so
+// compiled children must not be built during this call. See createComponent.
+Suspense._deferChildren = true;
+
 // --- ErrorBoundary ---
 // Catch errors in children and show fallback.
 // Uses a signal to track error state so it works with reactive rendering.
@@ -146,6 +150,10 @@ export function ErrorBoundary({ fallback, children, onError }) {
     _vnode: true,
   };
 }
+
+// The boundary context only exists once createErrorBoundary runs, so compiled
+// children must not be built during this call. See createComponent.
+ErrorBoundary._deferChildren = true;
 
 // Helper to report error to nearest boundary
 // Walks the component context tree (not a runtime stack) so async errors are caught
@@ -233,43 +241,33 @@ export function Switch({ fallback = null, children }) {
   // Show/For above): components run once, so evaluating `when()` in the body
   // here would snapshot the active arm a single time and `<Switch>`/`<Match
   // when={() => sig()}>` would render once and never update.
-  // This is the runtime path, for h() and the automatic JSX runtime. The
-  // fine-grained compiler lowers <Switch> to the same conditional thunk and
-  // never reaches here. An arm arrives either as an unexecuted marker vnode
-  // (h(Match, ...)) or as an executed Match thunk carrying its props.
+  // This is the runtime path, for h() and the automatic JSX runtime, where a
+  // <Match> arrives as an unexecuted marker vnode. The fine-grained compiler
+  // lowers <Switch> to the same conditional thunk and never reaches here; a
+  // <Switch> it cannot lower is a build error rather than a call into this.
   const kids = Array.isArray(children) ? children : [children];
 
   return () => {
     for (const child of kids) {
-      if (!child) continue;
-      let when, content;
-      if (child.tag === Match) {
-        when = child.props.when;
-        content = child.children;
-      } else if (child._match) {
-        when = child._match.when;
-        content = child._match.children;
-      } else {
-        continue;
+      if (child && child.tag === Match) {
+        const when = child.props.when;
+        const condition = typeof when === 'function' ? when() : when;
+        if (condition) return child.children;
       }
-      const condition = typeof when === 'function' ? when() : when;
-      if (condition) return content;
     }
     return fallback;
   };
 }
 
 export function Match(props) {
-  // Executed rather than left as a marker (compiled JSX, or a lone <Match>).
-  // Returning a `{ tag: Match }` vnode here would send createDOM straight back
-  // into Match forever, so return a reactive thunk that renders the arm when it
-  // matches, and hang the props off it for an enclosing Switch to read.
-  const arm = () => {
+  // Executed rather than left as a marker, which is what a lone compiled
+  // <Match> does. Returning a `{ tag: Match }` vnode here would send createDOM
+  // straight back into Match forever, so return a reactive thunk that renders
+  // the arm when it matches.
+  return () => {
     const condition = typeof props.when === 'function' ? props.when() : props.when;
     return condition ? props.children : null;
   };
-  arm._match = props;
-  return arm;
 }
 
 // --- Island ---

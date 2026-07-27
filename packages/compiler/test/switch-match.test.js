@@ -100,33 +100,79 @@ describe('compiled Switch/Match', () => {
   });
 
   it('renders nothing when nothing matches and there is no fallback', async () => {
-    const host = await renderApp(`(
-      <Switch>
-        <Match when={false}><p>a</p></Match>
-      </Switch>
-    )`);
-    assert.doesNotMatch(host.innerHTML, /<p>/);
+    const mod = await compileAndLoad(`
+      import { signal, Switch, Match } from 'what-framework';
+      export const on = signal(false);
+      export function App() {
+        return (
+          <div>
+            <Switch>
+              <Match when={on}><p>a</p></Match>
+            </Switch>
+          </div>
+        );
+      }
+    `);
+    const host = render(mod.App());
+    assert.doesNotMatch(host.innerHTML, /<p>/, 'no arm matches, so nothing renders');
+
+    // Positive control: the same Switch does render once the arm matches, so
+    // the assertion above is about the arm and not about a dead Switch.
+    mod.on(true);
+    await tick();
+    assert.match(host.innerHTML, /<p>a<\/p>/);
     host.remove();
   });
 
   it('does not build the DOM of a branch that is not taken', async () => {
     const mod = await compileAndLoad(`
       import { Switch, Match } from 'what-framework';
-      export let built = 0;
-      export function bump() { built++; return 'x'; }
-      function Heavy() { bump(); return <p>heavy</p>; }
+      export const calls = [];
+      function Heavy() { calls.push('heavy'); return <p>heavy</p>; }
+      function Taken() { calls.push('taken'); return <p>taken</p>; }
       export function App() {
         return (
           <Switch fallback={<p>none</p>}>
             <Match when={false}><Heavy /></Match>
-            <Match when={true}><p>taken</p></Match>
+            <Match when={true}><Taken /></Match>
           </Switch>
         );
       }
     `);
     const host = render(mod.App());
+    assert.deepEqual(mod.calls, ['taken'], 'only the taken arm may run');
     assert.match(host.innerHTML, /<p>taken<\/p>/);
     assert.doesNotMatch(host.innerHTML, /heavy/);
+    host.remove();
+  });
+
+  // A memo per arm evaluates every arm's `when` up front, because _$memo runs
+  // its body immediately. The runtime Switch stops at the first match, and a
+  // later arm that is only safe once an earlier one stops matching (the classic
+  // null guard) must not be evaluated behind it.
+  it('does not evaluate the when of an arm after the first match', async () => {
+    const mod = await compileAndLoad(`
+      import { signal, Switch, Match } from 'what-framework';
+      export const data = signal(null);
+      export function App() {
+        return (
+          <div>
+            <Switch fallback={<p>none</p>}>
+              <Match when={() => data() == null}><p>empty</p></Match>
+              <Match when={() => data().ok}><p>ok</p></Match>
+            </Switch>
+          </div>
+        );
+      }
+    `);
+    let host;
+    assert.doesNotThrow(() => { host = render(mod.App()); },
+      'the guarded arm must not be evaluated while the guard arm matches');
+    assert.match(host.innerHTML, /<p>empty<\/p>/, 'the first matching arm renders');
+
+    mod.data({ ok: true });
+    await tick();
+    assert.match(host.innerHTML, /<p>ok<\/p>/, 'the second arm takes over when the first stops matching');
     host.remove();
   });
 
@@ -190,21 +236,91 @@ describe('compiled Switch/Match', () => {
     host.remove();
   });
 
-  it('skips a lone compiled Match whose when is false', async () => {
-    const host = await renderApp(`(
-      <div><Match when={false}><p>solo</p></Match></div>
-    )`);
+  it('skips a lone compiled Match whose when is false, and shows it when true', async () => {
+    const mod = await compileAndLoad(`
+      import { signal, Match } from 'what-framework';
+      export const on = signal(false);
+      export function App() { return <div><Match when={on}><p>solo</p></Match></div>; }
+    `);
+    const host = render(mod.App());
     assert.doesNotMatch(host.innerHTML, /solo/);
+
+    mod.on(true);
+    await tick();
+    assert.match(host.innerHTML, /<p>solo<\/p>/, 'the same Match renders once its when is true');
     host.remove();
   });
 
-  it('falls back to the runtime component when children are not plain Matches', () => {
+  // A <Switch> the compiler cannot read statically has no working runtime path:
+  // its arms compile to built DOM that the runtime Switch cannot match on, so it
+  // would render the fallback and nothing else, forever. That must not compile.
+  it('fails the build when an expression child is mixed with Match arms', () => {
+    assert.throws(
+      () => compile(`
+        export const A = ({ extra }) => (
+          <Switch fallback={<p>none</p>}>
+            <Match when={true}><p>a</p></Match>
+            {extra}
+          </Switch>
+        );
+      `),
+      /<Switch> cannot mix an expression child with its <Match> arms/
+    );
+  });
+
+  it('fails the build when another element is mixed with Match arms', () => {
+    assert.throws(
+      () => compile(`
+        export const A = () => (
+          <Switch>
+            <Match when={true}><p>a</p></Match>
+            <div>hi</div>
+          </Switch>
+        );
+      `),
+      /<Switch> cannot mix other elements with its <Match> arms/
+    );
+  });
+
+  it('fails the build on a Match with no when', () => {
+    assert.throws(
+      () => compile(`export const A = () => <Switch><Match><p>a</p></Match></Switch>;`),
+      /<Switch> has a <Match> with no "when" prop/
+    );
+  });
+
+  // "Switch" is Ant Design's, Headless UI's and MUI's toggle component. This
+  // dispatches on the bare tag name, so a <Switch> with no <Match> arms must be
+  // left alone rather than lowered or rejected.
+  it('leaves a third-party Switch alone', () => {
     const code = compile(`
-      export const A = ({ arms }) => (
-        <Switch fallback={<p>none</p>}>{arms}</Switch>
+      import { Switch } from 'antd';
+      export const A = ({ checked, onChange }) => (
+        <Switch checked={checked} onChange={onChange} checkedChildren="ON" />
       );
     `);
-    assert.match(code, /_\$createComponent\(Switch/);
+    assert.match(code, /_\$createComponent\(Switch, \{/);
+  });
+
+  it('leaves a third-party Switch with children alone', () => {
+    const code = compile(`
+      import { Switch } from '@headlessui/react';
+      export const A = ({ arms }) => <Switch className="toggle">{arms}</Switch>;
+    `);
+    assert.match(code, /_\$createComponent\(Switch, \{/);
+  });
+
+  it('never emits a runtime Switch or Match call', () => {
+    const code = compile(`
+      export const A = ({ n }) => (
+        <Switch fallback={<p>none</p>}>
+          <Match when={() => n() === 1}><p>one</p></Match>
+          <Match when={() => n() === 2}><p>two</p></Match>
+        </Switch>
+      );
+    `);
+    assert.doesNotMatch(code, /_\$createComponent\(Switch/);
+    assert.doesNotMatch(code, /_\$createComponent\(Match/);
   });
 });
 
