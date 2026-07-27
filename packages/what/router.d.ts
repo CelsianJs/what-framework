@@ -206,10 +206,14 @@ export function prefetchRoute(href: string): void;
  * Throws a navigation signal. Two places catch it: route middleware, caught by
  * the Router's matching pass, and a component body, caught by the runtime where
  * it instantiates components. Anywhere else (an event handler, a promise
- * callback, a timer) nothing catches it and the signal surfaces as an uncaught
- * error carrying `ERR_REDIRECT_NOT_CAUGHT`; call `navigate(to)` there instead.
+ * callback, a timer, or a reactive thunk such as `{() => cond() && redirect(to)}`)
+ * nothing catches it and the signal surfaces as an uncaught error carrying
+ * `ERR_REDIRECT_NOT_CAUGHT`; call `navigate(to)` there instead. In a thunk the
+ * first render reports the error, but on a later re-run the navigation simply
+ * does not happen and the stale DOM stays, so prefer `navigate(to)` there.
  * A `try/catch` around the call also swallows it, so rethrow anything whose
- * `name` is `RouterRedirect`.
+ * `name` is `RouterRedirect`. On the server the signal escapes `renderToString`
+ * to its caller: read `.to` and emit a 302.
  */
 export function redirect(to: string, options?: NavigateOptions): never;
 

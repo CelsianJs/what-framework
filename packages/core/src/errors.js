@@ -145,12 +145,17 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`,
     code: 'ERR_REDIRECT_NOT_CAUGHT',
     severity: 'error',
     template: 'A redirect() to "{{target}}" surfaced uncaught, so nothing performed the navigation.',
-    suggestion: 'redirect() is caught in route middleware and in a component body. From an event handler, a promise callback or a timer, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect.',
-    codeExample: `// Bad - an event handler runs after the render the Router caught:
-<button onclick={() => redirect('/login')}>Sign in</button>
+    suggestion: 'redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().',
+    codeExample: `// Bad - a reactive thunk re-runs outside the render the Router caught:
+<div>{() => (loggedOut() ? redirect('/login') : <Dashboard />)}</div>
 
-// Good - navigate() from a handler:
-<button onclick={() => navigate('/login')}>Sign in</button>`,
+// Good - navigate() from a thunk or a handler:
+<div>{() => (loggedOut() ? (navigate('/login'), null) : <Dashboard />)}</div>
+<button onclick={() => navigate('/login')}>Sign in</button>
+
+// On the server, catch it instead of navigating:
+try { html = renderToString(<App />); }
+catch (e) { if (e.name === 'RouterRedirect') return Response.redirect(e.to, 302); throw e; }`,
   },
 };
 
