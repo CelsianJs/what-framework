@@ -90,7 +90,11 @@ export function afterNavigate(fn) {
 // --- Navigation with View Transitions ---
 
 export async function navigate(to, opts = {}) {
-  const { replace = false, state = null, transition = true, _fromPopstate = false } = opts;
+  const { replace = false, state = null, transition = true, _fromPopstate = false, _redirectChain = false } = opts;
+
+  // A navigation the user asked for starts a fresh redirect chain; a hop
+  // queued by handleRedirect continues the current one.
+  if (!_redirectChain) _redirectHistory.length = 0;
 
   // Reject unsafe URLs
   if (!isSafeUrl(to)) {
@@ -184,21 +188,22 @@ export async function navigate(to, opts = {}) {
 }
 
 // --- redirect() ---
-// A route-matching API, deliberately narrower than "throw from anywhere".
+// Throws a navigation signal. Two places catch it:
 //
-// The only code that can catch the signal is the Router's own matching pass,
-// so that is the only place redirect() throws one: route middleware, and
-// anything the Router calls while it matches. It cannot be a component-body
-// API. h() is lazy, so a route component is instantiated by the runtime after
-// the matching pass has already returned, and the only catch above it is
-// core's ErrorBoundary, which renders error UI rather than navigating. A signal
-// thrown from there reaches nothing that knows what it means.
+//   - Route middleware, caught by the Router's own matching pass below.
+//   - A component body, caught by core's createComponent, which invokes the
+//     handler the signal carries under Symbol.for('what.navigation.signal')
+//     rather than reporting the throw to an ErrorBoundary. h() is lazy, so a
+//     route component is instantiated after the matching pass has returned;
+//     that is why the second catch has to live in core.
 //
-// Called outside a matching pass, redirect() therefore throws a coded error
-// naming navigate() and <Redirect> instead of a signal nothing will catch.
+// Anywhere else (an event handler, a promise callback, a timer) nothing catches
+// it and the signal surfaces as an uncaught error. It carries a code, a fix and
+// an example for exactly that case, because that is the only case a human reads
+// it in.
 
 const REDIRECT = Symbol.for('what.router.redirect');
-let _matching = false;
+const NAV_SIGNAL = Symbol.for('what.navigation.signal');
 
 export function redirect(to, options = {}) {
   if (!isSafeUrl(to)) {
@@ -214,30 +219,23 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`;
     throw err;
   }
 
-  if (!_matching) {
-    const err = new Error(`[what-router] redirect(${to}) was called outside route matching, where nothing can catch the navigation signal.`);
-    err.code = 'ERR_REDIRECT_OUTSIDE_ROUTER';
-    err.suggestion = 'redirect() only works inside route middleware, which the Router runs while it matches. From a component body, an event handler or a promise callback, call navigate(to) or render <Redirect to={...} /> instead.';
-    err.codeExample = `// Bad - a component body runs after the Router matched, so nothing catches this:
+  const sig = new Error(`[what-router] redirect to ${to}`);
+  sig.name = 'RouterRedirect';
+  sig.code = 'ERR_REDIRECT_NOT_CAUGHT';
+  sig.suggestion = 'Seeing this signal in your console means nothing caught it. redirect() works from route middleware and from a component body, where the Router catches it. From an event handler, a promise callback or a timer, call navigate(to) instead. A try/catch around the redirect() call also swallows it.';
+  sig.codeExample = `// Bad - an event handler runs long after the render the Router caught:
+<button onclick={() => redirect('/login')}>Sign in</button>
+
+// Good - navigate() from a handler:
+<button onclick={() => navigate('/login')}>Sign in</button>
+
+// Good - redirect() from a component body, which the Router catches:
 function Private() {
   if (!user()) redirect('/login');
   return <Secret />;
-}
-
-// Good - redirect from middleware, which runs during matching:
-{ path: '/private', component: Private, middleware: [() => user() ? true : redirect('/login')] }
-
-// Good - or navigate from the component and render nothing:
-function Private() {
-  if (!user()) return <Redirect to="/login" />;
-  return <Secret />;
 }`;
-    throw err;
-  }
-
-  const sig = new Error(`[what-router] redirect to ${to}`);
-  sig.name = 'RouterRedirect';
   sig[REDIRECT] = true;
+  sig[NAV_SIGNAL] = () => { handleRedirect(to, options); };
   sig.to = to;
   sig.options = options;
   throw sig;
@@ -314,6 +312,11 @@ function loopScreen(message) {
 // Shared by the middleware string form and by a thrown redirect() signal.
 // Returns null once the navigation is queued, or the loop screen if the
 // redirect chain is cycling.
+//
+// The chain is scoped to one user navigation: navigate() clears the history
+// unless it is being called from here. Clearing it on a successful match
+// instead would never catch a cycle between two route components, because each
+// hop matches successfully before its component throws the next redirect.
 function handleRedirect(target, options) {
   _redirectHistory.push(target);
 
@@ -339,7 +342,7 @@ function handleRedirect(target, options) {
     return loopScreen('Circular redirect detected. Check your middleware configuration.');
   }
 
-  navigate(target, { replace: true, ...options });
+  navigate(target, { replace: true, ...options, _redirectChain: true });
   return null;
 }
 
@@ -382,8 +385,6 @@ export function Router({ routes, fallback, globalLayout }) {
           }
         }
       }
-      // Successful render — clear redirect history
-      _redirectHistory.length = 0;
 
       // Build element with loading state support
       let element;
@@ -420,20 +421,17 @@ export function Router({ routes, fallback, globalLayout }) {
     );
   };
 
-  // The matching pass is the only region where a redirect() signal can be
-  // caught, so it is also the only region where redirect() produces one.
-  // Anything else propagates to the app's ErrorBoundary unchanged.
+  // Catches a redirect() thrown by route middleware. A redirect() thrown by a
+  // route component is caught by core instead, because h() is lazy and the
+  // component runs after renderMatch has returned. Anything unbranded
+  // propagates to the app's ErrorBoundary unchanged.
   const content = () => {
-    const wasMatching = _matching;
     let sig = null;
-    _matching = true;
     try {
       return renderMatch();
     } catch (e) {
       if (!e || !e[REDIRECT]) throw e;
       sig = e;
-    } finally {
-      _matching = wasMatching;
     }
     return handleRedirect(sig.to, sig.options);
   };

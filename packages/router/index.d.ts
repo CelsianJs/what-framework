@@ -201,15 +201,15 @@ export function prefetchRoute(href: string): void;
 // --- Redirect Signal ---
 
 /**
- * Abort route matching and navigate, from inside route middleware.
+ * Abort the current render and navigate.
  *
- * This is a middleware API. It throws a navigation signal, and the Router's
- * matching pass is the only place that signal can be caught: `h()` is lazy, so
- * a route component is instantiated after matching has returned, and the only
- * catch above it is `ErrorBoundary`, which renders error UI rather than
- * navigating. Called anywhere outside matching (a component body, an event
- * handler, a promise callback) it throws `ERR_REDIRECT_OUTSIDE_ROUTER` instead;
- * use `navigate(to)` or render `<Redirect to={...} />` there.
+ * Throws a navigation signal. Two places catch it: route middleware, caught by
+ * the Router's matching pass, and a component body, caught by the runtime where
+ * it instantiates components. Anywhere else (an event handler, a promise
+ * callback, a timer) nothing catches it and the signal surfaces as an uncaught
+ * error carrying `ERR_REDIRECT_NOT_CAUGHT`; call `navigate(to)` there instead.
+ * A `try/catch` around the call also swallows it, so rethrow anything whose
+ * `name` is `RouterRedirect`.
  */
 export function redirect(to: string, options?: NavigateOptions): never;
 

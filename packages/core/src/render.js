@@ -3,7 +3,7 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
-import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren } from './dom.js';
+import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
@@ -1743,7 +1743,11 @@ function hydrateNode(vnode, parent) {
         if (endChildrenPass) endChildrenPass();
       } catch (error) {
         componentStack.pop();
-        console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', error);
+        // Same classification as createComponent: a navigation signal carries
+        // its own handler and is not a render failure.
+        if (!_handleNavigationSignal(error)) {
+          console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', error);
+        }
         return null;
       }
 

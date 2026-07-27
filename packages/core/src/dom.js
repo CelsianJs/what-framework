@@ -409,6 +409,25 @@ export function _installLazyChildren(Component, target, lazyChildren) {
   return () => { inPass = false; cached = false; realized = undefined; };
 }
 
+// --- _handleNavigationSignal(error) ---
+// A thrown value may carry its own handler under
+// Symbol.for('what.navigation.signal'). what-router's redirect() throws one, so
+// a redirect from a component body runs the navigation instead of reaching an
+// ErrorBoundary, which would render error UI for a value that is not an error.
+// Returns true when the value was a signal and has been handled.
+//
+// Both component paths route through this (createComponent below and the
+// hydration branch in render.js) so the two cannot drift.
+const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+
+export function _handleNavigationSignal(error) {
+  if (error == null) return false;
+  const handler = error[NAV_SIGNAL];
+  if (typeof handler !== 'function') return false;
+  handler(error);
+  return true;
+}
+
 function createComponent(vnode, parent, isSvg) {
   let { tag: Component, props, children } = vnode;
 
@@ -516,7 +535,9 @@ function createComponent(vnode, parent, isSvg) {
     componentStack.pop();
     // A thrown thenable is a suspension, not a failure: hand it to the nearest
     // Suspense boundary, which swaps in its fallback and re-renders on resolve.
-    if (!(error && typeof error.then === 'function' && suspend(error, ctx))
+    // A navigation signal is neither: it carries its own handler.
+    if (!_handleNavigationSignal(error)
+        && !(error && typeof error.then === 'function' && suspend(error, ctx))
         && !reportError(error, ctx)) {
       console.error('[what] Uncaught error in component:', Component.name || 'Anonymous', error);
       throw error;

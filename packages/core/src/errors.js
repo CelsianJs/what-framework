@@ -128,6 +128,30 @@ html\`<div>\${sanitizedContent}</div>\``,
 // Good — stable key:
 <For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
   },
+
+  UNSAFE_REDIRECT: {
+    code: 'ERR_UNSAFE_REDIRECT',
+    severity: 'error',
+    template: 'redirect() refused an unsafe target: {{target}}.',
+    suggestion: 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.',
+    codeExample: `// Bad - a user-controlled target can leave your origin:
+redirect(query.next);
+
+// Good - allowlist the target first:
+redirect(ALLOWED.has(query.next) ? query.next : '/');`,
+  },
+
+  REDIRECT_NOT_CAUGHT: {
+    code: 'ERR_REDIRECT_NOT_CAUGHT',
+    severity: 'error',
+    template: 'A redirect() to "{{target}}" surfaced uncaught, so nothing performed the navigation.',
+    suggestion: 'redirect() is caught in route middleware and in a component body. From an event handler, a promise callback or a timer, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect.',
+    codeExample: `// Bad - an event handler runs after the render the Router caught:
+<button onclick={() => redirect('/login')}>Sign in</button>
+
+// Good - navigate() from a handler:
+<button onclick={() => navigate('/login')}>Sign in</button>`,
+  },
 };
 
 // --- WhatError ---

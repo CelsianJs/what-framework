@@ -131,23 +131,20 @@ redirect(query.next);
 // Fix - allowlist the target first:
 redirect(ALLOWED.has(query.next) ? query.next : '/');`,
   },
-  ERR_REDIRECT_OUTSIDE_ROUTER: {
-    code: 'ERR_REDIRECT_OUTSIDE_ROUTER',
+  ERR_REDIRECT_NOT_CAUGHT: {
+    code: 'ERR_REDIRECT_NOT_CAUGHT',
     severity: 'error',
-    diagnosis: 'redirect() was called outside the Router\'s route-matching pass. It throws a navigation signal, and matching is the only place that signal is caught: components are instantiated after matching returns, so a component body, event handler or promise callback has no boundary above it.',
-    suggestedFix: 'Call redirect() from route middleware. Anywhere else, call navigate(to) or render <Redirect to={...} />.',
-    codeExample: `// Bad - the component body runs after matching finished:
+    diagnosis: 'A redirect() navigation signal surfaced as an uncaught error, so nothing performed the navigation. redirect() is caught in two places only: route middleware, and a component body. An event handler, a promise callback or a timer runs long after both, and a try/catch around the call swallows the signal.',
+    suggestedFix: 'From an event handler, a promise callback or a timer, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect.',
+    codeExample: `// Bad - an event handler runs after the render the Router caught:
+<button onclick={() => redirect('/login')}>Sign in</button>
+
+// Fix - navigate() from a handler:
+<button onclick={() => navigate('/login')}>Sign in</button>
+
+// Fix - redirect() from a component body, which the Router catches:
 function Private() {
   if (!user()) redirect('/login');
-  return <Secret />;
-}
-
-// Fix - redirect from middleware:
-{ path: '/private', component: Private, middleware: [() => user() || redirect('/login')] }
-
-// Fix - or navigate and render nothing:
-function Private() {
-  if (!user()) return <Redirect to="/login" />;
   return <Secret />;
 }`,
   },

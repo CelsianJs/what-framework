@@ -134,9 +134,8 @@ const requireRole = asyncGuard(
 }
 ```
 
-`redirect()` is a middleware API. It throws a navigation signal, and the
-Router's matching pass is the only place that signal can be caught, so it must
-be called from middleware (or from anything the Router calls while matching):
+`redirect()` throws a navigation signal. Two places catch it: route middleware,
+and a component body.
 
 ```js
 {
@@ -144,19 +143,17 @@ be called from middleware (or from anything the Router calls while matching):
   component: AdminPanel,
   middleware: [() => isLoggedIn() || redirect('/login')],
 }
-```
 
-From a component body, an event handler or a promise callback, the Router has
-already finished matching and nothing is left to catch the signal. `redirect()`
-throws `ERR_REDIRECT_OUTSIDE_ROUTER` there instead of navigating silently. Use
-`navigate(to)` or render `<Redirect to="/login" />`:
-
-```js
 function Private() {
-  if (!isLoggedIn()) return h(Redirect, { to: '/login' });
+  if (!isLoggedIn()) redirect('/login');
   return h(Secret, {});
 }
 ```
+
+From an event handler, a promise callback or a timer, nothing catches the
+signal and it surfaces as an uncaught error carrying `ERR_REDIRECT_NOT_CAUGHT`.
+Call `navigate(to)` there instead. A `try/catch` around a `redirect()` call
+also swallows the signal, so rethrow anything whose `name` is `RouterRedirect`.
 
 ## View Transitions
 

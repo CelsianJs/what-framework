@@ -30,6 +30,7 @@ if (!global.customElements) {
 
 const { h } = await import('../../core/src/h.js');
 const { mount } = await import('../../core/src/dom.js');
+const { ErrorBoundary } = await import('../../core/src/components.js');
 
 const {
   Router,
@@ -205,24 +206,85 @@ describe('redirect()', () => {
     assert.ok(history.length > before, 'replace: false should push a history entry');
   });
 
-  it('refuses to throw a signal outside route matching', async () => {
+  it('navigates when thrown from a component body', async () => {
+    const cb = [
+      { path: '/login', component: () => h('div', { id: 'login' }, 'Login') },
+      { path: '/component-body', component: () => { redirect('/login'); } },
+    ];
+
+    const container = await mountAt('/component-body', cb);
+
+    assert.equal(route.path, '/login', 'the component-body redirect should navigate');
+    assert.ok(container.querySelector('#login'), 'the target page should render');
+  });
+
+  it('reaches the Router from a component body under a per-route ErrorBoundary', async () => {
     let captured = null;
     const cb = [
       { path: '/login', component: () => h('div', { id: 'login' }, 'Login') },
       {
-        path: '/component-body',
+        path: '/guarded-body',
         component: () => { redirect('/login'); },
         error: ({ error }) => { captured = error; return h('div', { id: 'boom' }, 'Boom'); },
       },
     ];
 
-    await mountAt('/component-body', cb);
+    const container = await mountAt('/guarded-body', cb);
 
-    assert.ok(captured, 'the component-body redirect should surface as an error');
-    assert.equal(captured.code, 'ERR_REDIRECT_OUTSIDE_ROUTER');
-    assert.ok(captured.suggestion.includes('navigate('), 'the fix names navigate()');
-    assert.ok(captured.codeExample.includes('Redirect'), 'the example names <Redirect>');
-    assert.equal(route.path, '/component-body', 'it must not navigate behind the app\'s back');
+    assert.equal(captured, null, 'the boundary must not treat a redirect as an error');
+    assert.ok(!container.querySelector('#boom'), 'no stranded error UI');
+    assert.equal(route.path, '/login');
+  });
+
+  it('reaches the Router from a component body under nested ErrorBoundaries', async () => {
+    let outer = null;
+    const Inner = () => { redirect('/login'); };
+    const Nested = () => h(ErrorBoundary,
+      { fallback: () => h('div', { id: 'inner-eb' }, 'inner') },
+      h(Inner, {}));
+
+    const cb = [
+      { path: '/login', component: () => h('div', { id: 'login' }, 'Login') },
+      {
+        path: '/nested-body',
+        component: Nested,
+        error: ({ error }) => { outer = error; return h('div', { id: 'outer-eb' }, 'outer'); },
+      },
+    ];
+
+    const container = await mountAt('/nested-body', cb);
+
+    assert.equal(outer, null, 'the outer boundary must not see the signal');
+    assert.ok(!container.querySelector('#inner-eb'), 'the inner boundary must not see it either');
+    assert.equal(route.path, '/login');
+  });
+
+  it('lets a non-redirect throw from a component body reach the ErrorBoundary', async () => {
+    let captured = null;
+    const cb = [{
+      path: '/body-throws',
+      component: () => { throw new Error('component exploded'); },
+      error: ({ error }) => { captured = error; return h('div', { id: 'boom' }, 'Boom'); },
+    }];
+
+    const container = await mountAt('/body-throws', cb);
+
+    assert.ok(captured, 'a plain error must still reach the boundary');
+    assert.equal(captured.message, 'component exploded');
+    assert.ok(container.querySelector('#boom'), 'the boundary still renders its fallback');
+    assert.equal(route.path, '/body-throws', 'a plain error must not navigate');
+  });
+
+  it('an uncaught signal carries a code, a fix and an example', () => {
+    try {
+      redirect('/login');
+      assert.fail('redirect should have thrown');
+    } catch (e) {
+      assert.equal(e.code, 'ERR_REDIRECT_NOT_CAUGHT');
+      assert.ok(e.suggestion.includes('navigate('), 'the fix names navigate()');
+      assert.ok(e.codeExample.includes('redirect('), 'the example shows redirect()');
+      assert.equal(e.to, '/login');
+    }
   });
 
   it('lets a non-redirect throw propagate out of the matching pass unchanged', async () => {
@@ -279,6 +341,24 @@ describe('redirect loop detection', () => {
     assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
       `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
     assert.ok(container.querySelector('.what-redirect-loop'), 'the loop screen should render');
+  });
+
+  // Without this the process runs out of memory: every hop matches its route
+  // successfully before the component throws the next redirect, so a chain
+  // scoped to the match would reset on each hop and never see the cycle.
+  it('stops a cycle of component-body redirects', async () => {
+    const cyclic = [
+      { path: '/body-a', component: () => { redirect('/body-b'); } },
+      { path: '/body-b', component: () => { redirect('/body-a'); } },
+    ];
+
+    const errors = await captureErrors(async () => {
+      await mountAt('/body-a', cyclic);
+      for (let i = 0; i < 40; i++) await flush();
+    });
+
+    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+      `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
   });
 });
 
@@ -384,6 +464,39 @@ describe('navigation hooks', () => {
 
     assert.deepEqual(seen, [], 'a hash link scrolls, it does not change the route');
     assert.equal(route.url, '/hash-page#section', 'the hash still applied');
+  });
+
+  // The navigating flag is claimed in the same tick as the concurrency check,
+  // so an awaited guard cannot open a gap two navigations both get through. The
+  // visible consequence is this: a route with a loading: component shows it
+  // while an async guard runs, not only while the next route loads.
+  it('a route loading: component renders while an async guard is still running', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const loadingRoutes = [
+      {
+        path: '/slow-guard',
+        component: () => h('div', { id: 'page' }, 'Page'),
+        loading: () => h('div', { id: 'spinner' }, 'Loading'),
+      },
+      { path: '/slow-guard-to', component: () => h('div', { id: 'other' }, 'Other') },
+    ];
+
+    const container = await mountAt('/slow-guard', loadingRoutes);
+    assert.ok(container.querySelector('#page'), 'the page renders before the guard runs');
+
+    const off = beforeNavigate(async () => { await gate; return true; });
+    const pending = navigate('/slow-guard-to', { transition: false });
+    await flush();
+
+    assert.ok(container.querySelector('#spinner'), 'the loading component should be showing');
+
+    release();
+    await pending;
+    await flush();
+    off();
+
+    assert.equal(route.path, '/slow-guard-to');
   });
 
   it('afterNavigate does not fire for a cancelled navigation', async () => {
