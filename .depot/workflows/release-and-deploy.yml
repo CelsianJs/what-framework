@@ -71,6 +71,10 @@ jobs:
           npm run -s smoke:scaffold
       - name: Benchmark gate (perf — non-blocking signal)
         continue-on-error: true
+        # The DOM stage is skipped on the publish path (it needs a browser and
+        # several minutes for a signal that cannot block here anyway). It runs on
+        # every push in ci.yml's bench-gate job, and blocks in `release:verify`
+        # on local hardware.
         env:
           WHAT_BENCH_TOLERANCE_CORE: 0.80
           WHAT_BENCH_TOLERANCE_DX: 0.85
