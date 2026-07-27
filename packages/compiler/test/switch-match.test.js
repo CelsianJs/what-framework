@@ -264,7 +264,7 @@ describe('compiled Switch/Match', () => {
           </Switch>
         );
       `),
-      /<Switch> cannot mix an expression child with its <Match> arms/
+      /<Switch> cannot read its arms from an expression child/
     );
   });
 
@@ -308,6 +308,63 @@ describe('compiled Switch/Match', () => {
       export const A = ({ arms }) => <Switch className="toggle">{arms}</Switch>;
     `);
     assert.match(code, /_\$createComponent\(Switch, \{/);
+  });
+
+  // Provenance, not the bare tag name, decides whose control flow this is. A
+  // <Switch> imported from What is ours even when its arms are computed, so it
+  // is a build error rather than a silent always-fallback render.
+  it('fails the build on a What Switch whose arms are computed', () => {
+    assert.throws(
+      () => compile(`
+        import { Switch, Match } from 'what-framework';
+        const cases = [{ w: false, t: 'A' }, { w: true, t: 'B' }];
+        export const A = () => (
+          <Switch fallback={<p>FALLBACK</p>}>
+            {cases.map((c) => <Match when={c.w}><p>{c.t}</p></Match>)}
+          </Switch>
+        );
+      `),
+      /<Switch> cannot read its arms from an expression child/
+    );
+  });
+
+  it('fails the build on a What Switch with no arms at all', () => {
+    assert.throws(
+      () => compile(`
+        import { Switch } from 'what-framework';
+        export const A = () => <Switch fallback={<p>none</p>} />;
+      `),
+      /<Switch> has no <Match> arms/
+    );
+  });
+
+  // <Show> and <For> collide on the bare tag name the same way <Switch> does,
+  // and <Show> was the stricter of the two: it rejected any <Show> without a
+  // "when", so a third-party one failed the build outright.
+  it('leaves a third-party Show alone', () => {
+    const code = compile(`
+      import { Show } from 'some-ui-kit';
+      export const A = ({ open }) => <Show as="div" open={open}>panel</Show>;
+    `);
+    assert.match(code, /_\$createComponent\(Show, \{/);
+  });
+
+  it('leaves a third-party For alone', () => {
+    const code = compile(`
+      import { For } from 'some-ui-kit';
+      export const A = ({ items }) => <For data={items}>row</For>;
+    `);
+    assert.match(code, /_\$createComponent\(For, \{/);
+  });
+
+  // A relative import can be a re-export of What's own control flow, so it must
+  // keep lowering rather than be treated as a third party's component.
+  it('still lowers a Show re-exported from a relative module', () => {
+    const code = compile(`
+      import { Show } from './ui.js';
+      export const A = ({ open }) => <Show when={open}><p>hi</p></Show>;
+    `);
+    assert.doesNotMatch(code, /_\$createComponent\(Show/);
   });
 
   it('never emits a runtime Switch or Match call', () => {

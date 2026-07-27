@@ -185,6 +185,16 @@ export default function whatBabelPlugin({ types: t }) {
     return t.isJSXIdentifier(name) && isComponent(name.name);
   }
 
+  // A tag whose binding came from a package other than What. isWhatTag is the
+  // stronger claim: the binding came from What, so the tag is provably ours.
+  function isForeignTag(name, state) {
+    return !!(state.foreignImports && state.foreignImports.has(name));
+  }
+
+  function isWhatTag(name, state) {
+    return !!(state.whatImports && state.whatImports.has(name));
+  }
+
   // JSXMemberExpression -> MemberExpression callee for _$createComponent.
   function componentCallee(name) {
     if (t.isJSXMemberExpression(name)) {
@@ -819,15 +829,19 @@ export default function whatBabelPlugin({ types: t }) {
     const openingElement = node.openingElement;
     const tagName = openingElement.name.name;
 
-    // Control flow components — check before generic isComponent since they start uppercase
-    if (tagName === 'For') {
-      return transformForFineGrained(path, state);
-    }
-    if (tagName === 'Show') {
-      return transformShowFineGrained(path, state);
-    }
-    if (tagName === 'Switch') {
-      return transformSwitchFineGrained(path, state);
+    // Control flow components, checked before generic isComponent since they start uppercase.
+    // A tag imported from somewhere other than What is that package's component,
+    // whatever it is called, so it goes to the component path untouched.
+    if (!isForeignTag(tagName, state)) {
+      if (tagName === 'For') {
+        return transformForFineGrained(path, state);
+      }
+      if (tagName === 'Show') {
+        return transformShowFineGrained(path, state);
+      }
+      if (tagName === 'Switch') {
+        return transformSwitchFineGrained(path, state);
+      }
     }
 
     if (isComponentElement(node)) {
@@ -2025,18 +2039,18 @@ export default function whatBabelPlugin({ types: t }) {
     // which _$createComponent never produces (calling Match instead recurses),
     // so compiled JSX has no working runtime path.
     //
-    // "Switch" is also what Ant Design, Headless UI and MUI call their toggle,
-    // and this dispatches on the bare tag name, so a <Switch> with no <Match>
-    // children is somebody else's component: hand it to the component path
-    // untouched. A <Switch> that does have <Match> arms is provably What's, and
-    // a shape whose arms cannot be read statically has nowhere to go, since the
-    // runtime component would render its fallback and nothing else forever.
-    // Fail that build rather than emit a silent blank.
+    // A <Switch> is provably What's when either its binding was imported from
+    // What or it has literal <Match> arms; anything else with the same tag name
+    // is somebody else's component and goes to the component path untouched.
+    // Once it is provably ours, a shape whose arms cannot be read statically has
+    // nowhere to go, since the runtime component would render its fallback and
+    // nothing else forever. Fail that build rather than emit a silent blank.
     const { node } = path;
 
     const isMatch = (child) =>
-      t.isJSXElement(child) && child.openingElement.name.name === 'Match';
-    if (!node.children.some(isMatch)) {
+      t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }) &&
+      !isForeignTag('Match', state);
+    if (!node.children.some(isMatch) && !isWhatTag(node.openingElement.name.name, state)) {
       return transformComponentFineGrained(path, state);
     }
 
@@ -2063,13 +2077,15 @@ export default function whatBabelPlugin({ types: t }) {
       }
       if (t.isJSXExpressionContainer(child)) {
         if (t.isJSXEmptyExpression(child.expression)) continue;
-        unsupported('cannot mix an expression child with its <Match> arms');
+        unsupported('cannot read its arms from an expression child');
       }
       if (!isMatch(child)) {
         unsupported('cannot mix other elements with its <Match> arms');
       }
       arms.push(child);
     }
+
+    if (arms.length === 0) unsupported('has no <Match> arms');
 
     if (!state._pendingSetup) state._pendingSetup = [];
     const branches = [];
@@ -2489,14 +2505,22 @@ export default function whatBabelPlugin({ types: t }) {
           // (user stores), or functions matching use*/create* naming conventions.
           // This prevents over-wrapping of utility imports (lodash, etc.).
           state.importedIdentifiers = new Set();
+          // <Switch>, <Show>, <For> and <Match> are dispatched on the bare tag
+          // name, and Ant Design, Headless UI and MUI all ship a <Switch>.
+          // Recording which package a tag was imported from tells What's own
+          // control flow apart from a third party's by provenance instead.
+          state.whatImports = new Set();
+          state.foreignImports = new Set();
           for (const node of path.node.body) {
             if (t.isImportDeclaration(node)) {
               const source = node.source.value;
-              const isReactiveSource =
+              const isWhatSource =
                 source === 'what-framework' ||
                 source.startsWith('what-framework/') ||
                 source === 'what-core' ||
-                source.startsWith('what-core/') ||
+                source.startsWith('what-core/');
+              const isReactiveSource =
+                isWhatSource ||
                 source.startsWith('./') ||
                 source.startsWith('../');
 
@@ -2516,6 +2540,10 @@ export default function whatBabelPlugin({ types: t }) {
                   if (isReactiveSource || /^(use|create)[A-Z]/.test(localName)) {
                     state.importedIdentifiers.add(localName);
                   }
+                  // A relative import can be a re-export of What's own control
+                  // flow, so only a bare package specifier counts as foreign.
+                  if (isWhatSource) state.whatImports.add(localName);
+                  else if (!source.startsWith('.')) state.foreignImports.add(localName);
                 }
 
                 if (SERVER_ACTION_SOURCES.has(source)) {
