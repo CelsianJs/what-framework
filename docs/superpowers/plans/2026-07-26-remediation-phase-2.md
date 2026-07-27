@@ -850,42 +850,72 @@ EOF
 )"
 ```
 
-### Task 7: Revert the size budget raise
+### Task 7: Account for the core-counter growth and reset the ceiling to measurement
 
-> Measurement after the fact showed the raise was not needed: actual growth was
-> 292 B to 6023 B, which fits the original 6200 B ceiling with 177 B to spare.
-> The decision to raise was made on my estimate of 192 B of headroom, before
-> the thunking cost was known to be zero.
+> **This task was rewritten mid-execution.** It originally said "revert the raise
+> to 6200 B," on a measurement of 6023 B taken before Task 4 finished. Task 4
+> then added roughly 430 B fixing two Criticals (the compiled-path boundary bug
+> and the drained-DocumentFragment bug), and core-counter is now 6454 B. The old
+> 6200 B ceiling is no longer reachable, so the original Task 7 is impossible.
+> The task's own Step 1 required stopping and reporting in exactly this case.
+>
+> The raise to 6656 B therefore stands. What is NOT settled is whether 6454 B is
+> *justified*. A ceiling set from an estimate rather than from accounted-for
+> growth is not a gate, it is a rubber stamp. This task does the accounting.
 
-**Files:** `.size-budgets.json`
+**Files:** `.size-budgets.json`, possibly `packages/core/src/*.js`
 
-- [ ] **Step 1: Confirm current size fits the old budget**
+- [ ] **Step 1: Establish the baseline and the current number**
 
 ```bash
+git log --oneline --follow .size-budgets.json | tail -5   # find the last pre-remediation raise
 npm run check:size 2>&1 | grep core-counter
 ```
-Expected: `6023 B` or lower. If Tasks 3-6 pushed it above 6200 B, STOP and report the number rather than keeping the raised ceiling silently.
+Record both numbers. The delta is what you must account for.
 
-- [ ] **Step 2: Revert the ceiling and its comment**
+- [ ] **Step 2: Attribute the growth commit by commit**
 
-```bash
-git diff HEAD~ -- .size-budgets.json   # see what the raise added
-```
-Set `core-counter` back to `6200` and remove the 2026-07-26 raise note from `$comment`, leaving the file's existing measurement-date convention intact.
+For each commit in this phase that touched `packages/core/src`, measure core-counter
+at that commit and at its parent. Build a table: commit, subject, bytes added. Use
+the git worktrees already registered under the session scratchpad where they match
+a commit you need; create additional worktrees if required, and leave all of them
+in place.
 
-- [ ] **Step 3: Verify and commit**
+Every byte must land in one of three buckets:
+1. **Required** — bytes that exist because a Critical or High finding needed fixing.
+2. **Incidental** — bytes from style, naming, or structure that could be smaller
+   with no behavior change.
+3. **Unexplained** — growth with no commit that accounts for it. Investigate before
+   proceeding; unexplained growth in a 6 KB bundle is usually a bundler or
+   tree-shaking regression, not real code.
+
+- [ ] **Step 3: Reclaim the incidental bytes only**
+
+Shrink bucket 2 where it is cheap and safe. Do not touch bucket 1: those bytes are
+paid for. Do not sacrifice a fix, a test, or clarity for bytes at this scale.
+Re-run `npm test` after each change; the suite must stay green with zero skipped
+and zero todo.
+
+- [ ] **Step 4: Set the ceiling from the measurement**
+
+Set `core-counter` to the post-reclaim actual, rounded up to the next 64 B. This
+gives a real gate with a small, deliberate margin rather than an estimated one.
+Replace the 2026-07-26 raise note in `$comment` with the attribution table's
+conclusion: what the growth bought, in one sentence.
+
+- [ ] **Step 5: Verify and commit**
 
 ```bash
 npm run check:size
-git add .size-budgets.json
+npm test
+git add .size-budgets.json packages/core/src
 git commit -m "$(cat <<'EOF'
-chore(size): restore the 6200 B core-counter budget
+chore(size): reset the core-counter ceiling to measured actual
 
-The raise to 6656 B was approved on an estimate of 192 B of remaining headroom.
-Direct measurement afterwards showed actual growth was 292 B to 6023 B, which
-fits the original ceiling with 177 B to spare, and that thunked children cost
-nothing measurable (4000 component-child sites, four alternating rounds, no
-difference outside run-to-run variance). The raise was never required.
+The 6656 B ceiling was approved from an estimate. This attributes the growth to
+the commits that caused it, reclaims the incidental bytes, and sets the ceiling
+from the resulting measurement so the budget gates real regressions instead of
+ratifying whatever the bundle happens to weigh.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 EOF
