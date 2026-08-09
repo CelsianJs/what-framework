@@ -45,6 +45,12 @@ const _url = signal(typeof location !== 'undefined' ? location.pathname + locati
 const _params = signal({});
 const _query = signal({});
 const _isNavigating = signal(false);
+// The URL a navigation is heading TO, live for the duration of the navigation.
+// _url only commits at the very end, so during an awaited guard the router still
+// matches the route being LEFT. Without this, a destination route's `loading:`
+// component could never be shown: the only `loading:` in scope belonged to the
+// page the user was leaving.
+const _pendingUrl = signal(null);
 const _navigationError = signal(null);
 
 export const route = {
@@ -127,6 +133,7 @@ export async function navigate(to, opts = {}) {
   // beforeNavigate hook otherwise leaves a gap two navigations both get through.
   if (_isNavigating.peek()) return;
   _isNavigating.set(true);
+  _pendingUrl.set(to);
 
   const from = _url();
 
@@ -143,10 +150,12 @@ export async function navigate(to, opts = {}) {
     } catch (e) {
       // A throwing guard must not leave the router permanently wedged.
       _isNavigating.set(false);
+      _pendingUrl.set(null);
       throw e;
     }
     if (cancelled) {
       _isNavigating.set(false);
+      _pendingUrl.set(null);
       if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
       return;
     }
@@ -169,6 +178,7 @@ export async function navigate(to, opts = {}) {
     }
     _url.set(to);
     _isNavigating.set(false);
+    _pendingUrl.set(null);
   };
 
   // Use View Transitions API if available and enabled
@@ -325,6 +335,7 @@ function handleRedirect(target, options) {
     _redirectHistory.length = 0;
     console.error(`[what-router] Redirect loop detected: ${cycle}`);
     _isNavigating.set(false);
+    _pendingUrl.set(null);
     return loopScreen('Too many redirects. Check your middleware configuration.');
   }
 
@@ -339,6 +350,7 @@ function handleRedirect(target, options) {
     _redirectHistory.length = 0;
     console.error(`[what-router] Redirect cycle detected: ${cycle}`);
     _isNavigating.set(false);
+    _pendingUrl.set(null);
     return loopScreen('Circular redirect detected. Check your middleware configuration.');
   }
 
@@ -347,6 +359,17 @@ function handleRedirect(target, options) {
 }
 
 // --- Router Component ---
+
+// The `loading:` component of the route a navigation is heading to, or null when
+// there is no pending destination, it does not match, it declares no loading
+// component, or it is the route already being rendered.
+function destinationLoading(pendingUrl, routes, currentRoute) {
+  if (!pendingUrl) return null;
+  const destPath = pendingUrl.split('?')[0].split('#')[0];
+  const dest = matchRoute(destPath, routes);
+  if (!dest || dest.route === currentRoute) return null;
+  return dest.route.loading || null;
+}
 
 export function Router({ routes, fallback, globalLayout }) {
   // The Router component runs ONCE. `content` is a reactive function child that
@@ -389,7 +412,17 @@ export function Router({ routes, fallback, globalLayout }) {
       // Build element with loading state support
       let element;
 
-      if (r.loading && isNavigating) {
+      // While a navigation is in flight, a `loading:` declared by the
+      // DESTINATION wins. _url has not committed yet, so `r` is still the route
+      // being left: without this, declaring `loading:` on the page you are
+      // navigating TO could never show it. Falling back to the departing route's
+      // `loading:` preserves the existing behaviour for the case where only the
+      // page being left declares one.
+      const pendingLoading = isNavigating ? destinationLoading(_pendingUrl(), routes, r) : null;
+
+      if (pendingLoading) {
+        element = h(pendingLoading, {});
+      } else if (r.loading && isNavigating) {
         element = h(r.loading, {});
       } else {
         element = h(r.component, {
@@ -521,12 +554,23 @@ export function defineRoutes(config) {
 
 // --- Nested Route Helper ---
 
+// Join a base path with a child path. Naive concatenation turned the index
+// child of `nestedRoutes('/dashboard', [{ path: '/' }, ...])` — the form the
+// README documents — into '/dashboard/', which '/dashboard' does not match, so
+// the documented example 404s on its own index route.
+function joinRoutePath(basePath, childPath) {
+  const base = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
+  const child = !childPath || childPath === '/' ? '/' : (childPath.startsWith('/') ? childPath : `/${childPath}`);
+  if (child === '/') return base || '/';
+  return base + child;
+}
+
 export function nestedRoutes(basePath, children, options = {}) {
   const { layout, loading, error } = options;
 
   return children.map(child => ({
     ...child,
-    path: basePath + child.path,
+    path: joinRoutePath(basePath, child.path),
     layout: child.layout || layout,
     loading: child.loading || loading,
     error: child.error || error,
@@ -743,11 +787,16 @@ export function FileRouter({
   fallback,
   error: globalError,
 }) {
-  // Convert file-router route format to Router's expected format
+  // Convert file-router route format to Router's expected format.
+  // loading/error used to be dropped here, so a route could declare either and
+  // never see it rendered, and the `error` prop was destructured and then never
+  // read: a documented public prop that silently did nothing.
   const routerRoutes = routes.map(r => ({
     path: r.path,
     component: r.component,
     layout: r.layout || undefined,
+    loading: r.loading || undefined,
+    error: r.error || globalError || undefined,
     // Attach page mode as metadata for build system
     _mode: r.mode || 'client',
   }));
