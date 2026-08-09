@@ -159,7 +159,7 @@ export async function navigate(to, opts = {}) {
     if (!_fromPopstate) {
       // Save scroll position for current URL before navigating away
       if (typeof window !== 'undefined') {
-        scrollPositions.set(_url(), { x: scrollX, y: scrollY });
+        scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
       }
       if (replace) {
         history.replaceState(state, '', to);
@@ -245,7 +245,7 @@ function Private() {
 if (typeof window !== 'undefined') {
   window.addEventListener('popstate', () => {
     // Save scroll position for the URL we're leaving
-    scrollPositions.set(_url(), { x: scrollX, y: scrollY });
+    scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
 
     const newUrl = location.pathname + location.search + location.hash;
     // Use _fromPopstate flag so navigate() skips pushState (browser already updated URL)

@@ -268,7 +268,26 @@ export function createDOM(vnode, parent, isSvg) {
     frag.appendChild(startMarker);
     frag.appendChild(endMarker);
 
+    // Capture the owning component at CREATION time.
+    //
+    // This effect re-runs long after the synchronous render that created it,
+    // when the component stack is empty. Everything it builds on a re-run
+    // therefore got `parentCtx = null`, severing the owner chain, and the two
+    // things that walk that chain both went blind:
+    //   - suspend() found no Suspense boundary, so a lazy() component reached by
+    //     a signal update (any client-side navigation) threw its pending promise
+    //     as an uncaught error and left the region permanently empty.
+    //   - the ErrorBoundary lookup found nothing, so a throw from a component
+    //     rendered after any state change escaped the boundary wrapping it.
+    // Both worked on first paint and only failed once the app was interactive.
+    const owner = componentStack[componentStack.length - 1] || null;
+
     const dispose = effect(() => {
+      // Already on top during the initial synchronous run; only re-push when the
+      // stack has since unwound.
+      const restoreOwner = owner !== null && componentStack[componentStack.length - 1] !== owner;
+      if (restoreOwner) componentStack.push(owner);
+      try {
       const val = vnode();
       const vnodes = (val == null || val === false || val === true)
         ? []
@@ -299,6 +318,9 @@ export function createDOM(vnode, parent, isSvg) {
             currentNodes.push(node);
           }
         }
+      }
+      } finally {
+        if (restoreOwner) componentStack.pop();
       }
     });
 
