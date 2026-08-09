@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { describeToolAvailability } from './tool-registry.js';
 
 export function registerTools(server, bridge) {
   // --- Helpers ---
@@ -112,26 +113,14 @@ export function registerTools(server, bridge) {
           'Make sure your app is running with the what-devtools-mcp Vite plugin',
           'Or manually call connectDevToolsMCP() in your browser console',
         ],
-        // Tool catalog so agents know what's available
-        tools: [
-          { name: 'what_components', desc: 'List mounted components with IDs' },
-          { name: 'what_signals', desc: 'List signals with values (use filter!)' },
-          { name: 'what_effects', desc: 'List effects with deps and run counts' },
-          { name: 'what_explain', desc: 'Everything about one component (signals + effects + DOM + errors)' },
-          { name: 'what_look', desc: 'Visual info without image: styles, layout, dimensions' },
-          { name: 'what_screenshot', desc: 'Cropped component screenshot (5-20KB)' },
-          { name: 'what_page_map', desc: 'Full page layout skeleton' },
-          { name: 'what_diagnose', desc: 'One-call health check (errors + perf + reactivity)' },
-          { name: 'what_errors', desc: 'Runtime errors with fix suggestions' },
-          { name: 'what_signal_trace', desc: 'Why did a signal change? Causal chain.' },
-          { name: 'what_dependency_graph', desc: 'Reactive dependency graph' },
-          { name: 'what_watch', desc: 'Observe events over a time window' },
-          { name: 'what_record_window', desc: 'Rank effects that re-ran during a recording window — what fired for this action?' },
-          { name: 'what_set_signal', desc: 'Change a signal value in the live app' },
-          { name: 'what_lint', desc: 'Static analysis for code (no browser needed)' },
-          { name: 'what_scaffold', desc: 'Generate boilerplate (no browser needed)' },
-          { name: 'what_fix', desc: 'Error diagnosis with code examples (no browser needed)' },
-        ],
+        // Tool catalogue, DERIVED from registration rather than hand-maintained.
+        // `tools` is every registered tool; `available` is the subset that can
+        // answer right now, which is the distinction that actually costs an
+        // agent turns when no browser is attached.
+        ...(() => {
+          const a = describeToolAvailability(connected);
+          return { toolCount: a.total, tools: a.available, requiresBrowser: a.requiresBrowser.map((t) => t.name) };
+        })(),
       };
 
       return {

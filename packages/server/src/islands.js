@@ -311,6 +311,11 @@ export function hydrateIslands() {
   const islands = document.querySelectorAll('[data-island]');
 
   for (const el of islands) {
+    // Compiler-emitted islands (`<Counter client:idle />`) carry a direct
+    // component reference and schedule their own hydration, so they are not in
+    // the registry and must not be claimed here.
+    if (el.dataset.islandSelf) continue;
+
     const name = el.dataset.island;
     const mode = el.dataset.islandMode || 'idle';
     const props = JSON.parse(el.dataset.islandProps || '{}');

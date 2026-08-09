@@ -34,6 +34,18 @@ export function getServerContext() {
 }
 
 /**
+ * True while a server render is in progress.
+ *
+ * Prefer this over a bare `typeof document === 'undefined'` check. That test asks
+ * "is there a DOM?" when the question is "am I rendering to a string?", and the
+ * two answers diverge under every DOM shim (jsdom, happy-dom, a Workers
+ * polyfill) and in any test that renders both ways in one process.
+ */
+export function isServerRender() {
+  return typeof document === 'undefined' || getServerContext() != null;
+}
+
+/**
  * Set the active context. Returns the PREVIOUS context so callers can restore it
  * manually (runWithServerContext does this for you).
  */

@@ -3,7 +3,9 @@
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
 import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
+import { __resetIdCounter } from './a11y.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { _injectIslandRuntime } from './components.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
@@ -1596,6 +1598,12 @@ export function isHydrating() {
  */
 export function hydrate(vnode, container) {
   _isHydrating = true;
+  // Restart the useId sequence so the client reproduces the server's ids rather
+  // than continuing past them. The server allocates from a render-scoped counter
+  // starting at 1; without this reset any client-side useId call made before
+  // hydration would shift every id and break the `for`/`aria-labelledby`
+  // relationships the primitive exists to create.
+  __resetIdCounter();
   _hydrationCursor = { parent: container, index: 0 };
 
   try {
@@ -1843,8 +1851,19 @@ function hydrateNode(vnode, parent) {
  */
 function hydrateElementProps(el, props) {
   for (const key in props) {
-    if (key === 'children' || key === 'key' || key === 'ref') continue;
+    if (key === 'children' || key === 'key') continue;
     if (key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
+
+    // Refs must fire on the hydration path too. Skipping them meant every
+    // component that reaches for its own DOM node through a ref got nothing
+    // under SSR while working fine in a client-only render, which is the
+    // hardest class of bug to find: it only reproduces in production.
+    if (key === 'ref') {
+      const ref = props.ref;
+      if (typeof ref === 'function') ref(el);
+      else if (ref && typeof ref === 'object') ref.current = el;
+      continue;
+    }
 
     const value = props[key];
 
@@ -1880,3 +1899,9 @@ function hydrateElementProps(el, props) {
     if (key === 'data-hk') continue;
   }
 }
+
+// Islands hydrate themselves against their own DOM element, which needs both the
+// hydration walker and the insert path. components.js is upstream of this module
+// (render -> dom -> components), so the renderers are handed down rather than
+// imported back up, matching _injectGetCurrentComponent.
+_injectIslandRuntime({ hydrate, insert });

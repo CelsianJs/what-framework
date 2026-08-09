@@ -14,6 +14,9 @@ export { h, Fragment, html } from './h.js';
 
 // DOM mounting & rendering (fine-grained, no VDOM reconciler)
 export { mount } from './dom.js';
+// Internal, underscore-prefixed: shared so the client, compiled-JSX and SSR
+// attribute paths cannot disagree about ARIA serialization again.
+export { _isAriaAttr } from './dom.js';
 
 // Hooks (React-compatible API)
 export {

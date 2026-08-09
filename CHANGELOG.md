@@ -2,6 +2,21 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+Correctness work from the 2026-08-09 competitive parity audit. Every item here is a
+feature that existed, was documented, and did not work.
+
+### Fixed
+
+- **`client:*` island directives deleted their own component.** `<Counter client:idle />` rendered an empty marker div on *every* path: the server branch never rendered the component, and the client branch read `hydrated()` once inside a run-once component so the swap-in never fired. Islands now render their HTML on the server and hydrate in place over that exact DOM (verified: the server node is reused, not replaced, and no content is rendered twice). `mode: 'static'` ships HTML and attaches no JS at all.
+- **Island children and spread props were dropped by the compiler.** The island branch handed the runtime an empty children array and `continue`d past every spread, so `<Panel client:visible {...cfg}>text</Panel>` lost both its text and every prop in `cfg`. Both now pass through the same children protocol as any other component, with explicit attributes winning over the spread and the directive's own `mode` winning over both.
+- **`ref` never fired when hydrating.** `hydrateElementProps` skipped the prop outright, so any component that reached for its own DOM node through a ref got nothing under SSR while working correctly in a client-only render: a bug that only reproduces in production.
+- **`aria-*` and `role` were serialized as HTML booleans.** A generic boolean branch ran before the ARIA branch, so `aria-checked={true}` became `aria-checked=""` (not a valid enumerated value) and `aria-checked={false}` removed the attribute entirely, which reads as "unsupported" rather than "unchecked" to assistive technology. The server dropped the `false` case too. Genuine HTML boolean attributes such as `disabled` keep HTML boolean semantics.
+- **`useId()` allocated from a process-global counter.** Ids drifted between the SSR pass and hydration and interleaved across concurrent requests, breaking exactly the `for` / `aria-labelledby` relationships the primitive exists to create. The counter is now render-scoped, and `hydrate()` restarts the sequence so the client reproduces the server's ids.
+- **SSR ran without a render scope under any DOM shim.** `renderToString` established its render context only when `typeof document === 'undefined'`, which is a proxy for "am I on the server" that is wrong under jsdom, happy-dom or a Workers polyfill. The scope is now established by "no scope yet", which is the actual condition.
+- **`what_connection_status` under-reported the MCP tool catalogue by 41%.** The tool agents are told to call FIRST answered with a hand-maintained array of 17 entries while 29 tools were registered. The catalogue is now derived from registration itself, and additionally splits tools by what can answer with no browser attached, which is the distinction that actually costs an agent turns.
+
 ## [0.11.8] - 2026-08-09: security, correctness and release-gate remediation
 
 The largest correctness release since 0.10. It closes both CRITICAL and all ten HIGH

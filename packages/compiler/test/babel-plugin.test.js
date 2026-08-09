@@ -365,6 +365,54 @@ describe('component output', () => {
 
     assert.match(code, /Island/);
     assert.match(code, /mode.*idle/);
+    assert.match(code, /component: Search/, 'the island must carry the component reference');
+    assert.match(code, /placeholder: "Search\.\.\."/, 'ordinary props must survive');
+  });
+
+  // The island branch used to hand `_$createComponent` an empty children array
+  // and `continue` past every spread, so `<Panel client:visible {...cfg}>text</Panel>`
+  // lost both its children and every prop in `cfg`.
+  it('keeps island children', () => {
+    const code = compile(`
+      function Panel({ children }) { return <section>{children}</section>; }
+      function App() {
+        return <div><Panel client:visible>Hello <b>world</b></Panel></div>;
+      }
+    `);
+
+    assert.match(code, /Hello /, 'text children must survive the directive');
+    assert.match(code, /<b>world<\/b>/, 'element children must survive the directive');
+  });
+
+  it('keeps island spread props, with explicit attributes winning', () => {
+    const code = compile(`
+      function Chart() { return <canvas />; }
+      function App({ cfg }) {
+        return <div><Chart client:visible {...cfg} title="explicit" /></div>;
+      }
+    `);
+
+    assert.match(code, /Object\.assign\(\{\}, cfg, \{/, 'the spread must be merged, not dropped');
+    const merged = code.slice(code.indexOf('Object.assign'));
+    assert.ok(
+      merged.indexOf('title: "explicit"') > merged.indexOf('cfg'),
+      'an explicit attribute must be applied after the spread so it wins'
+    );
+  });
+
+  it('never lets a spread override the directive it was written on', () => {
+    const code = compile(`
+      function Chart() { return <canvas />; }
+      function App({ cfg }) {
+        return <div><Chart client:load {...cfg} /></div>;
+      }
+    `);
+
+    const merged = code.slice(code.indexOf('Object.assign'));
+    assert.ok(
+      merged.indexOf('mode: "load"') > merged.indexOf('cfg'),
+      'the hydration mode comes from the directive, not from spread data'
+    );
   });
 
   it('escapes < and > in attribute values', () => {

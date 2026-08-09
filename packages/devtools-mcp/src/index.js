@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createBridge } from './bridge.js';
 import { registerTools } from './tools.js';
+import { instrumentServer } from './tool-registry.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
@@ -52,6 +53,10 @@ const server = new McpServer({
   version: pkg.version,
 });
 
+// Record every registration so what_connection_status can report the real
+// catalogue instead of a hand-maintained literal. Must run before any
+// register* call.
+instrumentServer(server);
 registerTools(server, bridge);
 
 // --- MCP Resources: static docs for agent context ---
