@@ -16,7 +16,18 @@ export function toNodeListener(
 export function whatMiddleware(options?: RequestHandlerOptions): (req: any, res: any, next?: () => void) => Promise<void>;
 
 /** A ready-to-listen node:http server. Starts `scheduler` and stops it on SIGTERM/SIGINT. */
-export function createServer(options?: RequestHandlerOptions & { scheduler?: { start(): void; stop(): void } }): import('node:http').Server;
+// Structural, not `import('node:http').Server`. Referencing a Node builtin here
+// would make @types/node a hard requirement for every consumer of what-server,
+// including the browser and edge ones that never touch this entry point. The
+// runtime value IS an http.Server; this types what callers actually do with it.
+export interface NodeHttpServer {
+  listen(...args: any[]): NodeHttpServer;
+  close(callback?: (err?: Error) => void): NodeHttpServer;
+  address(): string | { address: string; family: string; port: number } | null;
+  on(event: string, listener: (...args: any[]) => void): NodeHttpServer;
+}
+
+export function createServer(options?: RequestHandlerOptions & { scheduler?: { start(): void; stop(): void } }): NodeHttpServer;
 
 /** Vercel Functions entry: a Web-Fetch handler. */
 export function createVercelHandler(options?: RequestHandlerOptions): (request: Request) => Promise<Response>;

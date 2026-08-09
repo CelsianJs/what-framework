@@ -2,6 +2,28 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.12.2] - 2026-08-09: what-server node-condition types are actually reachable
+
+0.12.1 published `what-server/node.d.ts` but TypeScript still could not see the Node-only
+exports. Two further causes, both now fixed and both now covered by a gate that fails
+without them.
+
+### Fixed
+
+- **Export conditions resolve first-match, and `"types"` was listed before `"node"`.** The
+  top-level `types` therefore won for every resolver and the `node` condition's
+  declarations were unreachable, so `createServer`, `toNodeListener`, `whatMiddleware`,
+  `exportStatic`, `createVercelHandler` and `buildVercelOutput` still did not typecheck.
+  The `node` condition now comes first. Runtime resolution is unchanged: Node already
+  ignored `types` and matched `node`.
+- **`what-server/node.d.ts` referenced `node:http`**, which made `@types/node` a hard
+  requirement for every consumer of what-server, including browser and edge consumers that
+  never touch that entry point. `createServer` now returns a structural `NodeHttpServer`
+  interface covering `listen`/`close`/`address`/`on`. The runtime value is still an
+  `http.Server`.
+- **`hygiene:publish`'s packed-consumer typecheck now imports node-only exports**, so a
+  shadowed or unpublished condition fails the gate instead of reaching npm.
+
 ## [0.12.1] - 2026-08-09: packaging fix for what-server type declarations
 
 ### Fixed

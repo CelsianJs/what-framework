@@ -331,6 +331,11 @@ try {
   writeFileSync(join(consumerDir, 'consumer.ts'), `
     import { Router, type RouteConfig } from 'what-router';
     import { renderToString, type IslandStore } from 'what-server';
+    // Node-only entry points live behind the package's \`node\` export condition.
+    // Importing one here is the check that the condition's declarations are both
+    // published AND reachable: export conditions resolve first-match, so a
+    // top-level \`types\` listed before \`node\` silently shadows them.
+    import { createServer, toNodeListener, exportStatic } from 'what-server';
     import type { VNode } from 'what-core';
 
     const routes: RouteConfig[] = [];
@@ -339,6 +344,10 @@ try {
 
     declare const store: IslandStore<{ count: number }>;
     store._signals.count.set(1);
+
+    createServer({ routes: [] });
+    toNodeListener(async () => new Response('ok'));
+    void exportStatic;
   `);
 
   execFileSync(

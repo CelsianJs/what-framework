@@ -1,19 +1,19 @@
 {
   "name": "what-server",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",
   "types": "index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
       "node": {
         "types": "./node.d.ts",
         "production": "./dist/node.min.js",
         "import": "./src/node.js",
         "default": "./src/node.js"
       },
+      "types": "./index.d.ts",
       "production": "./dist/index.min.js",
       "import": "./src/index.js",
       "default": "./src/index.js"
@@ -51,8 +51,8 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "peerDependencies": {
-    "what-core": "^0.12.1",
-    "what-router": "^0.12.1"
+    "what-core": "^0.12.2",
+    "what-router": "^0.12.2"
   },
   "peerDependenciesMeta": {
     "what-router": {

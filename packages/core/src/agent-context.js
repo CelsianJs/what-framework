@@ -8,7 +8,7 @@ import { getCollectedErrors } from './errors.js';
 // --- Version ---
 // Keep in sync with packages/core/package.json (checked by
 // core/test/guardrails.test.js so it can't silently go stale again).
-const VERSION = '0.12.1';
+const VERSION = '0.12.2';
 
 // --- Component Registry ---
 // Tracks mounted components for agent inspection.
