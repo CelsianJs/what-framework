@@ -4,6 +4,7 @@
 
 import {
   h,
+  _isAriaAttr,
   getServerContext,
   runWithServerContext,
   beginHeadCollection,
@@ -42,7 +43,14 @@ function nextHydrationId() {
 // so the client can reuse the server-rendered DOM.
 
 export function renderToHydratableString(vnode) {
-  if (typeof document === 'undefined' && !getServerContext()) {
+  // Establish a render scope whenever one isn't already active. This used to be
+  // gated on `typeof document === 'undefined'` as a proxy for "are we on the
+  // server", but renderToString IS the server render, and the proxy is wrong
+  // under any DOM shim (jsdom, happy-dom, a Workers polyfill) where SSR ran with
+  // no scope at all and render-scoped state fell back to module globals. Every
+  // other consumer of the context checks `typeof document` itself before reading
+  // it, so a scope existing on the client changes nothing for them.
+  if (!getServerContext()) {
     const ctx = createRenderContext(undefined);
     return runWithServerContext(ctx, () => renderToHydratableString(vnode));
   }
@@ -120,7 +128,9 @@ function injectHydrationKey(html, hkId) {
 // Renders a VNode tree to an HTML string. Used for SSR and static gen.
 
 export function renderToString(vnode) {
-  if (typeof document === 'undefined' && !getServerContext()) {
+  // See renderToHydratableString: the scope is established by "no scope yet",
+  // not by "no document".
+  if (!getServerContext()) {
     const ctx = createRenderContext(undefined);
     return runWithServerContext(ctx, () => renderToString(vnode));
   }
@@ -533,6 +543,14 @@ function renderAttrs(props) {
     if (key === 'key' || key === 'ref' || key === 'children' || key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
     const lowerKey = key.toLowerCase();
     if (lowerKey.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
+    // aria-*/role are enumerated, so `false` is a real value and must survive:
+    // an absent `aria-expanded` means "unsupported", `aria-expanded="false"`
+    // means "collapsed". Every other attribute keeps HTML boolean semantics,
+    // where false means omit. Checked before the falsy skip for that reason.
+    if (val === false && _isAriaAttr(key)) {
+      out += ` ${key}="false"`;
+      continue;
+    }
     if (val === false || val == null) continue;
     if (!SAFE_ATTR_NAME.test(key)) {
       if (_isDevMode) {

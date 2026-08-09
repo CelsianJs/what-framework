@@ -1654,6 +1654,58 @@ export default function whatBabelPlugin({ types: t }) {
       filteredAttrs.push(attr);
     }
 
+    // Transform children.
+    // Element children build their DOM at the call site, i.e. before the parent
+    // component ever runs, so a <Provider> publishes its context value too late
+    // for its own subtree. Collect the element setup and emit it behind a
+    // zero-arg factory instead; the runtime calls the factory while the parent
+    // is on the component stack. An expression child is deferred for the same
+    // reason: it is the shape a wrapper forwards its own children through, and
+    // reading it while the argument list is built happens before the component
+    // it is being handed to has run. Text children have nothing to defer.
+    //
+    // Shared by the island branch and the regular component branch: an island is
+    // still a component, and `<Panel client:visible>...</Panel>` must keep its
+    // children rather than silently dropping them.
+    function transformComponentChildren() {
+      const setupMark = state._pendingSetup ? state._pendingSetup.length : 0;
+      const transformedChildren = [];
+      let deferChildren = false;
+      for (const child of children) {
+        if (t.isJSXText(child)) {
+          const text = normalizeJsxText(child.value);
+          if (text) transformedChildren.push(t.stringLiteral(text));
+        } else if (t.isJSXExpressionContainer(child)) {
+          if (!t.isJSXEmptyExpression(child.expression)) {
+            deferChildren = true;
+            transformedChildren.push(child.expression);
+          }
+        } else if (t.isJSXElement(child)) {
+          // <For>/<Show>/<Switch> lower to an inserter or a thunk (already lazy).
+          const childTag = child.openingElement.name.name;
+          if (childTag !== 'For' && childTag !== 'Show' && childTag !== 'Switch') deferChildren = true;
+          transformedChildren.push(transformElementFineGrained({ node: child }, state));
+        } else if (t.isJSXFragment(child)) {
+          deferChildren = true;
+          transformedChildren.push(transformFragmentFineGrained({ node: child }, state));
+        }
+      }
+
+      let childrenArg = t.arrayExpression(transformedChildren);
+      if (deferChildren) {
+        // Hoisted element setup emitted while transforming these children belongs
+        // inside the factory, not before the enclosing statement.
+        const setup = state._pendingSetup ? state._pendingSetup.splice(setupMark) : [];
+        childrenArg = t.arrowFunctionExpression(
+          [],
+          setup.length > 0
+            ? t.blockStatement([...setup, t.returnStatement(childrenArg)])
+            : childrenArg
+        );
+      }
+      return childrenArg;
+    }
+
     if (clientDirective) {
       state.needsCreateComponent = true;
       state.needsIsland = true;
@@ -1669,16 +1721,32 @@ export default function whatBabelPlugin({ types: t }) {
         );
       }
 
+      let islandSpread = null;
       for (const attr of filteredAttrs) {
-        if (t.isJSXSpreadAttribute(attr)) continue;
+        if (t.isJSXSpreadAttribute(attr)) {
+          // A spread used to be dropped on the floor here, so
+          // `<Chart client:visible {...config} />` lost every prop in `config`.
+          islandSpread = attr.argument;
+          continue;
+        }
         const attrName = getAttrName(attr);
+        if (attrName === 'key') continue;
         const value = getAttributeValue(attr.value);
         islandProps.push(t.objectProperty(t.identifier(attrName), value));
       }
 
+      // Spread first, explicit attributes second, so a written-out prop wins over
+      // the same key coming from the spread (JSX evaluation order).
+      const islandPropsExpr = islandSpread
+        ? t.callExpression(
+            t.memberExpression(t.identifier('Object'), t.identifier('assign')),
+            [t.objectExpression([]), islandSpread, t.objectExpression(islandProps)]
+          )
+        : t.objectExpression(islandProps);
+
       return t.callExpression(
         t.identifier('_$createComponent'),
-        [t.identifier('Island'), t.objectExpression(islandProps), t.arrayExpression([])]
+        [t.identifier('Island'), islandPropsExpr, transformComponentChildren()]
       );
     }
 
@@ -1769,38 +1837,6 @@ export default function whatBabelPlugin({ types: t }) {
       );
     }
 
-    // Transform children.
-    // Element children build their DOM at the call site, i.e. before the parent
-    // component ever runs, so a <Provider> publishes its context value too late
-    // for its own subtree. Collect the element setup and emit it behind a
-    // zero-arg factory instead; the runtime calls the factory while the parent
-    // is on the component stack. An expression child is deferred for the same
-    // reason: it is the shape a wrapper forwards its own children through, and
-    // reading it while the argument list is built happens before the component
-    // it is being handed to has run. Text children have nothing to defer.
-    const setupMark = state._pendingSetup ? state._pendingSetup.length : 0;
-    const transformedChildren = [];
-    let deferChildren = false;
-    for (const child of children) {
-      if (t.isJSXText(child)) {
-        const text = normalizeJsxText(child.value);
-        if (text) transformedChildren.push(t.stringLiteral(text));
-      } else if (t.isJSXExpressionContainer(child)) {
-        if (!t.isJSXEmptyExpression(child.expression)) {
-          deferChildren = true;
-          transformedChildren.push(child.expression);
-        }
-      } else if (t.isJSXElement(child)) {
-        // <For>/<Show>/<Switch> lower to an inserter or a thunk (already lazy).
-        const childTag = child.openingElement.name.name;
-        if (childTag !== 'For' && childTag !== 'Show' && childTag !== 'Switch') deferChildren = true;
-        transformedChildren.push(transformElementFineGrained({ node: child }, state));
-      } else if (t.isJSXFragment(child)) {
-        deferChildren = true;
-        transformedChildren.push(transformFragmentFineGrained({ node: child }, state));
-      }
-    }
-
     let propsExpr;
     if (hasSpread) {
       if (props.length > 0) {
@@ -1817,18 +1853,7 @@ export default function whatBabelPlugin({ types: t }) {
       propsExpr = t.nullLiteral();
     }
 
-    let childrenArg = t.arrayExpression(transformedChildren);
-    if (deferChildren) {
-      // Hoisted element setup emitted while transforming these children belongs
-      // inside the factory, not before the enclosing statement.
-      const setup = state._pendingSetup ? state._pendingSetup.splice(setupMark) : [];
-      childrenArg = t.arrowFunctionExpression(
-        [],
-        setup.length > 0
-          ? t.blockStatement([...setup, t.returnStatement(childrenArg)])
-          : childrenArg
-      );
-    }
+    const childrenArg = transformComponentChildren();
 
     return t.callExpression(t.identifier('_$createComponent'), [componentRef, propsExpr, childrenArg]);
   }

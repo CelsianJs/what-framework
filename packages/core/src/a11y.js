@@ -4,6 +4,7 @@
 import { signal, effect } from './reactive.js';
 import { h } from './h.js';
 import { getCurrentComponent } from './dom.js';
+import { getServerContext } from './server-context.js';
 
 // --- Focus Management ---
 
@@ -401,17 +402,48 @@ export function LiveRegion({ children, priority = 'polite', atomic = true }) {
 // --- ID Generator ---
 // Generate unique IDs for ARIA attributes
 
+// The counter is render-scoped on the server and module-global on the client.
+//
+// A bare module-global counter is wrong on the server in two independent ways.
+// Ids drift between the SSR pass and hydration, which breaks exactly the
+// relationships useId exists to create (`for`/`id`, `aria-labelledby`,
+// `aria-describedby`), and concurrent requests interleave into each other's
+// sequence, so two visitors can be served HTML whose ids were allocated in the
+// order the event loop happened to run. Every framework in the cohort ships this
+// primitive as SSR-stable because that is the whole point of shipping it.
+//
+// getServerContext() is the render-scoped store the SSR keystone already
+// maintains (AsyncLocalStorage-backed in Node), so this is wiring rather than
+// new machinery, and it adds no public API.
 let idCounter = 0;
 
+function nextIdSuffix() {
+  const ctx = getServerContext();
+  if (ctx) {
+    ctx.idCounter = (ctx.idCounter || 0) + 1;
+    return ctx.idCounter;
+  }
+  return ++idCounter;
+}
+
+/**
+ * Reset the client-side counter. Called at the start of hydration so the client
+ * reproduces the server's id sequence instead of continuing past it.
+ * @internal
+ */
+export function __resetIdCounter() {
+  idCounter = 0;
+}
+
 export function useId(prefix = 'what') {
-  const id = `${prefix}-${++idCounter}`;
+  const id = `${prefix}-${nextIdSuffix()}`;
   return () => id;
 }
 
 export function useIds(count, prefix = 'what') {
   const ids = [];
   for (let i = 0; i < count; i++) {
-    ids.push(`${prefix}-${++idCounter}`);
+    ids.push(`${prefix}-${nextIdSuffix()}`);
   }
   return ids;
 }

@@ -70,6 +70,24 @@ export function _isUnsafeAttr(key, value) {
   return !isSafeUrl(value);
 }
 
+// ARIA attributes and `role` take ENUMERATED string values, never HTML boolean
+// syntax. `aria-checked=""` is not a valid value, and an ABSENT `aria-expanded`
+// means something different from `aria-expanded="false"` (unsupported versus
+// collapsed) to assistive technology.
+//
+// This is shared because the three render paths disagreed. The client
+// (dom.js setProp) hit a generic `typeof value === 'boolean'` branch before it
+// ever reached its aria branch, so it emitted `aria-checked=""` for true and
+// removed the attribute for false. The server special-cased `true` correctly but
+// skipped every falsy value earlier in the loop, so it dropped `false` entirely.
+// So SSR emitted valid ARIA and the first client update silently corrupted it,
+// while `aria-*={false}` was wrong everywhere. Every widget built on the a11y
+// module is affected, since useAriaExpanded/useAriaSelected/useAriaChecked all
+// return booleans.
+export function _isAriaAttr(key) {
+  return key === 'role' || key.startsWith('aria-');
+}
+
 // Track all mounted component contexts for disposal
 const mountedComponents = new Set();
 
@@ -970,6 +988,14 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
+  // aria-*/role BEFORE the boolean fast-path: these are enumerated string
+  // attributes, so a boolean has to serialize as "true"/"false", never as HTML
+  // boolean syntax. See _isAriaAttr.
+  if (_isAriaAttr(key)) {
+    el.setAttribute(key, typeof value === 'boolean' ? String(value) : value);
+    return;
+  }
+
   // Boolean attributes
   if (typeof value === 'boolean') {
     if (value) el.setAttribute(key, '');
@@ -977,8 +1003,8 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // data-* and aria-*
-  if (key.startsWith('data-') || key.startsWith('aria-')) {
+  // data-*
+  if (key.startsWith('data-')) {
     el.setAttribute(key, value);
     return;
   }

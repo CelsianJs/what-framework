@@ -3,6 +3,7 @@
 
 import { h } from './h.js';
 import { signal, effect, untrack, __DEV__ } from './reactive.js';
+import { isServerRender } from './server-context.js';
 
 // Legacy errorBoundaryStack removed — tree-based resolution via _parentCtx._errorBoundary
 // is now the only mechanism. See reportError() below.
@@ -271,94 +272,161 @@ export function Match(props) {
 }
 
 // --- Island ---
-// Deferred hydration component for islands architecture.
-// Usage: h(Island, { component: Counter, mode: 'idle' })
-// The babel plugin compiles <Counter client:idle /> into this.
+// Islands architecture: the content ships as server-rendered HTML and only the
+// *interactivity* is deferred to a client trigger. The babel plugin compiles
+// `<Counter client:idle />` into h(Island, { component: Counter, mode: 'idle' }).
+//
+// This used to render an empty marker div on every path, on the server AND the
+// client, in every mode: the SSR branch never rendered the component, and the
+// client branch read `hydrated()` once in a run-once component so the swap-in
+// never happened. Every `client:*` directive silently deleted its component.
 
-export function Island({ component: Component, mode, mediaQuery, ...props }) {
-  const placeholder = h('div', { 'data-island': Component.name || 'Island', 'data-hydrate': mode });
+// Late-bound renderers, injected by render.js. components.js cannot import
+// render.js directly (render -> dom -> components is already a cycle), so the
+// same injection precedent as _injectGetCurrentComponent applies here.
+let _islandRuntime = null;
 
-  // We need to return a vnode that the reconciler can handle.
-  // The actual hydration scheduling happens after mount via an effect.
-  const wrapper = signal(null);
-  const hydrated = signal(false);
+/** @internal */
+export function _injectIslandRuntime(runtime) {
+  _islandRuntime = runtime;
+}
 
-  function doHydrate() {
-    if (hydrated()) return;
-    hydrated.set(true);
-    // Render the actual component
-    wrapper.set(h(Component, props));
+// Island props cross the server/client boundary as JSON, so anything that is not
+// representable is dropped rather than throwing mid-render. Functions in
+// particular are common (event handlers passed down) and are simply not
+// transferable: the island re-creates its own handlers when it hydrates.
+function serializeIslandProps(props) {
+  const out = {};
+  for (const key in props) {
+    const value = props[key];
+    if (typeof value === 'function' || typeof value === 'symbol' || value === undefined) continue;
+    out[key] = value;
+  }
+  try {
+    return JSON.stringify(out);
+  } catch {
+    return '{}';
+  }
+}
+
+export function Island({ component: Component, mode, mediaQuery, name, children, ...props }) {
+  const islandName = name || Component?.name || 'Island';
+  const resolvedMode = mode || 'idle';
+
+  const marker = {
+    'data-island': islandName,
+    'data-island-mode': resolvedMode,
+    'data-hydrate': resolvedMode,
+    // Tells hydrateIslands() to leave this element alone: a compiler-emitted
+    // island holds a direct component reference and hydrates itself, so it
+    // needs no registry entry and must not be claimed twice.
+    'data-island-self': '1',
+  };
+
+  // Server: render the island's HTML inline, inside the marker. An island that
+  // emits nothing costs SEO and LCP to buy lazy hydration, which is a strictly
+  // worse trade than not using the directive at all.
+  // Children arrive as props here but must be handed to the component
+  // positionally: the renderers rebuild `props.children` from the vnode's own
+  // children list, so anything passed through props alone is overwritten.
+  const childList = children == null ? [] : (Array.isArray(children) ? children : [children]);
+
+  if (isServerRender()) {
+    return h(
+      'div',
+      { ...marker, 'data-island-props': serializeIslandProps(props) },
+      h(Component, props, ...childList)
+    );
   }
 
-  // Schedule hydration based on mode
+  let hydrated = false;
+
+  function hydrateInto(el) {
+    if (hydrated) return;
+    hydrated = true;
+
+    const vnode = h(Component, props, ...childList);
+
+    // Server-rendered children present => hydrate in place, reusing the DOM.
+    // Nothing there => a client-only render, so build it from scratch.
+    if (el.childNodes.length > 0 && _islandRuntime?.hydrate) {
+      _islandRuntime.hydrate(vnode, el);
+    } else if (_islandRuntime?.insert) {
+      _islandRuntime.insert(el, vnode, null);
+    }
+
+    el.removeAttribute('data-hydrate');
+    el.removeAttribute('data-island-self');
+    el.setAttribute('data-island-hydrated', '');
+    // Build the event in the element's own realm. A global CustomEvent belongs
+    // to a different realm inside an iframe or a DOM shim, and dispatchEvent
+    // rejects it as "not of type 'Event'".
+    const view = el.ownerDocument?.defaultView ?? globalThis;
+    if (typeof view.CustomEvent === 'function') {
+      el.dispatchEvent(new view.CustomEvent('island:hydrated', {
+        bubbles: true,
+        detail: { name: islandName, mode: resolvedMode },
+      }));
+    }
+  }
+
   function scheduleHydration(el) {
-    switch (mode) {
+    const trigger = () => hydrateInto(el);
+
+    switch (resolvedMode) {
       case 'load':
-        queueMicrotask(doHydrate);
+        queueMicrotask(trigger);
         break;
 
       case 'idle':
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(doHydrate);
-        } else {
-          setTimeout(doHydrate, 200);
-        }
+        if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(trigger);
+        else setTimeout(trigger, 200);
         break;
 
       case 'visible': {
+        if (typeof IntersectionObserver === 'undefined') { queueMicrotask(trigger); break; }
         const observer = new IntersectionObserver((entries) => {
-          if (entries[0].isIntersecting) {
+          if (entries.some((entry) => entry.isIntersecting)) {
             observer.disconnect();
-            doHydrate();
+            trigger();
           }
-        });
+        }, { rootMargin: '200px' });
         observer.observe(el);
         break;
       }
 
-      case 'interaction': {
-        const hydrate = () => {
-          el.removeEventListener('click', hydrate);
-          el.removeEventListener('focus', hydrate);
-          el.removeEventListener('mouseenter', hydrate);
-          doHydrate();
+      case 'interaction':
+      case 'action': {
+        const events = ['click', 'focus', 'mouseenter', 'touchstart'];
+        const onInteract = () => {
+          for (const type of events) el.removeEventListener(type, onInteract);
+          trigger();
         };
-        el.addEventListener('click', hydrate, { once: true });
-        el.addEventListener('focus', hydrate, { once: true });
-        el.addEventListener('mouseenter', hydrate, { once: true });
+        for (const type of events) el.addEventListener(type, onInteract, { once: true });
         break;
       }
 
       case 'media': {
-        if (!mediaQuery) { doHydrate(); break; }
+        if (!mediaQuery || typeof window === 'undefined' || !window.matchMedia) { trigger(); break; }
         const mq = window.matchMedia(mediaQuery);
-        if (mq.matches) {
-          queueMicrotask(doHydrate);
-        } else {
-          const checkMedia = () => {
-            if (mq.matches) {
-              mq.removeEventListener('change', checkMedia);
-              doHydrate();
-            }
-          };
-          mq.addEventListener('change', checkMedia);
-        }
+        if (mq.matches) { queueMicrotask(trigger); break; }
+        const onChange = () => {
+          if (!mq.matches) return;
+          mq.removeEventListener('change', onChange);
+          trigger();
+        };
+        mq.addEventListener('change', onChange);
         break;
       }
 
+      // 'static' ships no JS at all: the server HTML is the whole island.
+      case 'static':
+        break;
+
       default:
-        // Unknown mode, hydrate immediately
-        queueMicrotask(doHydrate);
+        queueMicrotask(trigger);
     }
   }
 
-  // Use ref callback to get the DOM element and schedule hydration
-  const refCallback = (el) => {
-    if (el) scheduleHydration(el);
-  };
-
-  // Return: show placeholder until hydrated, then show the real component
-  return h('div', { 'data-island': Component.name || 'Island', 'data-hydrate': mode, ref: refCallback },
-    hydrated() ? wrapper() : null
-  );
+  return h('div', { ...marker, ref: (el) => { if (el) scheduleHydration(el); } });
 }
