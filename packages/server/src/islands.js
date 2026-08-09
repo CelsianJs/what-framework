@@ -494,7 +494,8 @@ export function enhanceForms(selector = 'form[data-enhance]') {
         if (!csrfToken && !noCsrf) {
           console.warn(
             '[what] Form submission blocked: no CSRF token found. ' +
-            'Add a <meta name="csrf-token"> tag or set data-no-csrf="true" on the form to opt out.'
+            'Add a <meta name="what-csrf-token"> tag (csrfMetaTag() emits it) ' +
+            'or set data-no-csrf="true" on the form to opt out.'
           );
           form.dispatchEvent(new CustomEvent('form:error', {
             bubbles: true,

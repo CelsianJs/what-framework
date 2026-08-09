@@ -101,3 +101,38 @@ export interface Screen {
 }
 
 export const screen: Screen;
+
+// --- renderTest ---
+// Render a component and expose the signals it created by debug name, so a test
+// can drive state directly instead of going through the DOM.
+
+export interface RenderTestResult {
+  container: HTMLElement;
+  /** Signals created during the component's single run, keyed by debug name. */
+  signals: Record<string, Signal<any>>;
+  /** Flush pending effects synchronously. */
+  update(): void;
+  unmount(): void;
+}
+
+export function renderTest<P = {}>(Component: (props: P) => any, props?: P): RenderTestResult;
+
+/** Run every pending effect synchronously, so assertions see settled DOM. */
+export function flushEffects(): void;
+
+/** Record which signals a callback reads and writes, by debug name. */
+export function trackSignals(fn: () => void): { accessed: string[]; written: string[] };
+
+// --- mockSignal ---
+// A signal that records every distinct value it has held.
+
+export interface MockSignal<T> extends Signal<T> {
+  /** Every distinct value, oldest first, starting with the initial value. */
+  readonly history: T[];
+  /** How many times the value actually changed (equal writes do not count). */
+  readonly setCount: number;
+  /** Restore the initial value (or `value`) and clear the history. */
+  reset(value?: T): void;
+}
+
+export function mockSignal<T>(name: string, initialValue: T): MockSignal<T>;

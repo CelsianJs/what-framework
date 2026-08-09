@@ -189,6 +189,30 @@ function flattenChildren(children, out) {
   return out;
 }
 
+// ---- React element brands ----
+// Ecosystem libraries do not duck-type elements, they check the brand:
+// MUI, emotion, styled-components, recharts and react-select all compare
+// `element.$$typeof` against `Symbol.for('react.element')` before treating a
+// value as renderable. Without it they classify every compat element as a plain
+// object and silently render nothing.
+//
+// The brand is also why React elements are XSS-safe against JSON injection: a
+// symbol cannot survive JSON.parse, so an attacker-supplied object can never
+// impersonate an element. isValidElement() below relies on that.
+//
+// React 19 renamed its internal brand to 'react.transitional.element', but
+// library code in the wild overwhelmingly still compares against
+// 'react.element', which is also what preact/compat brands with.
+//
+// Fragment is deliberately NOT branded here: it is what-core's own export, and
+// stamping a React symbol onto it would mutate a shared object for every
+// consumer of the framework, compat or not. Context is already branded where it
+// is created (hooks.js).
+const REACT_ELEMENT_TYPE = Symbol.for('react.element');
+const REACT_MEMO_TYPE = Symbol.for('react.memo');
+const REACT_LAZY_TYPE = Symbol.for('react.lazy');
+const REACT_SUSPENSE_TYPE = Symbol.for('react.suspense');
+
 export function createElement(type, props, ...children) {
   if (props == null) props = {};
 
@@ -237,6 +261,7 @@ export function createElement(type, props, ...children) {
   }
 
   return {
+    $$typeof: REACT_ELEMENT_TYPE,
     tag,
     type,
     props: finalProps,
@@ -280,6 +305,11 @@ export function memo(Component, areEqual) {
   Memoized.displayName = `Memo(${Component.displayName || Component.name || 'Anonymous'})`;
   Memoized._memoCompare = areEqual || shallowEqual;
   Memoized._memoType = Component;
+  // Libraries unwrap a memo with `type.$$typeof === REACT_MEMO_TYPE ? type.type : type`
+  // to reach the component underneath (to read its displayName, propTypes, or to
+  // decide whether it is a class). Carry both halves of that contract.
+  Memoized.$$typeof = REACT_MEMO_TYPE;
+  Memoized.type = Component;
   return Memoized;
 }
 
@@ -303,6 +333,7 @@ export function lazy(loader) {
   }
   LazyComponent.displayName = 'Lazy';
   LazyComponent._lazy = true;
+  LazyComponent.$$typeof = REACT_LAZY_TYPE;
   return LazyComponent;
 }
 
@@ -315,6 +346,7 @@ export function Suspense(props) {
   return props.children;
 }
 Suspense.displayName = 'Suspense';
+Suspense.$$typeof = REACT_SUSPENSE_TYPE;
 
 // ---- Children utilities ----
 

@@ -9,6 +9,7 @@
     ".": {
       "types": "./index.d.ts",
       "node": {
+        "types": "./node.d.ts",
         "production": "./dist/node.min.js",
         "import": "./src/node.js",
         "default": "./src/node.js"

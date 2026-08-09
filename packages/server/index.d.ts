@@ -189,3 +189,125 @@ export function handleActionRequest(
 ): Promise<ActionResponse>;
 
 export function getRegisteredActions(): string[];
+
+// --- Additional SSR entry points ---
+
+/**
+ * Render with hydration markers (data-hk attributes and comment boundaries) so
+ * the client can adopt the server DOM instead of recreating it.
+ */
+export function renderToHydratableString(vnode: VNode): string;
+
+/** Render, and return the <head> tags collected during that render alongside the body. */
+export function renderToStringWithHead(vnode: VNode): { body: string; head: string };
+
+/**
+ * Render, awaiting any suspended resources so their data is resolved in the
+ * output. `resources` is the payload the client reuses so it does not refetch.
+ */
+export function renderToStringAsync(
+  vnode: VNode,
+  ctx?: unknown,
+): Promise<{ body: string; head: string; resources: Record<string, unknown> }>;
+
+export interface DocumentOptions {
+  lang?: string;
+  head?: string;
+  bodyAttrs?: string;
+  scripts?: string[];
+  styles?: string[];
+  [key: string]: any;
+}
+
+/**
+ * Render a page module to a complete HTML document: runs its loader, renders the
+ * component, collects head tags, and inlines the hydration payload.
+ */
+export function renderDocument(
+  pageModule: { default: (props: any) => VNode; loader?: (ctx: RenderRequestContext) => any } | ((props: any) => VNode),
+  reqCtx?: RenderRequestContext,
+  options?: DocumentOptions,
+): Promise<string>;
+
+/** Render a PageConfig to a complete static HTML document. */
+export function generateStaticPage(page: PageConfig, data?: any): string;
+
+// --- <Form> ---
+// A real <form method="post"> that posts to the action endpoint, so it submits
+// with JavaScript disabled and is enhanced to a fetch when JS is present.
+
+export interface FormProps {
+  /** A server action (from `action()`) or its id. */
+  action: ((...args: any[]) => any) | string;
+  /** Per-request CSRF token. Required for SSR; read from the page when omitted. */
+  csrfToken?: string | null;
+  /** Where to send the browser after a no-JS submit. */
+  redirect?: string;
+  method?: string;
+  /** Set false to leave a plain HTML form the client enhancer ignores. */
+  enhance?: boolean;
+  children?: VNodeChild;
+  [attr: string]: any;
+}
+
+export function Form(props: FormProps): VNode;
+
+/** The endpoint server actions post to. */
+export const ACTION_ENDPOINT: string;
+
+// --- CSRF ---
+
+/** Generate a CSRF token. Call once per session/request. */
+export function generateCsrfToken(): string;
+
+/** Constant-time comparison of a request token against the session token. */
+export function validateCsrfToken(requestToken: string | null | undefined, sessionToken: string | null | undefined): boolean;
+
+/** The `<meta name="what-csrf-token">` tag to inline into the document head. */
+export function csrfMetaTag(token: string): string;
+
+// --- Action handlers ---
+// Runtime-neutral core, plus the two host bindings.
+
+export interface ActionHandlerOptions {
+  csrfSecret?: string;
+  onError?: (error: unknown) => void;
+  [key: string]: any;
+}
+
+export function createActionHandler(options?: ActionHandlerOptions): (request: any) => Promise<any>;
+export function nodeActionMiddleware(options?: ActionHandlerOptions): (req: any, res: any, next?: () => void) => void;
+export function fetchActionHandler(options?: ActionHandlerOptions): (request: Request) => Promise<Response>;
+
+// --- Deploy adapters ---
+
+export interface RequestHandlerOptions {
+  routes?: any[];
+  documentOptions?: DocumentOptions;
+  [key: string]: any;
+}
+
+/** Runtime-neutral request handler: Request in, Response out. */
+export function createRequestHandler(options?: RequestHandlerOptions): (request: Request, env?: any, ctx?: any) => Promise<Response>;
+
+/** Cloudflare Workers entry wrapping createRequestHandler. */
+export function createCloudflareHandler(options?: RequestHandlerOptions): { fetch: (request: Request, env?: any, ctx?: any) => Promise<Response> };
+
+// --- Revalidation registry ---
+// App code calls revalidatePath/revalidateTag; the deploy adapter binds a
+// what-isr engine through setRevalidationHandler.
+
+export interface RevalidationHandler {
+  revalidatePath?: (path: string, options?: any) => any;
+  revalidateTag?: (tag: string, options?: any) => any;
+}
+
+export function setRevalidationHandler(handler: RevalidationHandler | null): void;
+export function getRevalidationHandler(): RevalidationHandler | null;
+export function revalidatePath(path: string, options?: any): Promise<any>;
+export function revalidateTag(tag: string, options?: any): Promise<any>;
+
+// --- Serialization ---
+
+/** Serialize a value for safe inlining into a <script> tag (escapes `</script`). */
+export function serializeState(value: unknown): string;

@@ -14,6 +14,9 @@ export { Fragment } from './index';
 
 export function jsx(type: any, props: any, key?: Key): ReactElement;
 export function jsxs(type: any, props: any, key?: Key): ReactElement;
+// The dev runtime ("jsx": "react-jsxdev") calls jsxDEV instead of jsx. Without a
+// declaration, a TypeScript project on the dev transform fails to resolve it.
+export function jsxDEV(type: any, props: any, key?: Key): ReactElement;
 
 type EventHandler<E extends Event = Event> = (
   event: E & { currentTarget: EventTarget & Element; target: Element },

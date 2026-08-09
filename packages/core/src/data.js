@@ -14,6 +14,25 @@ const validatingSignals = new Map(); // key -> signal(boolean)
 const cacheTimestamps = new Map(); // key -> last access time (for LRU)
 const MAX_CACHE_SIZE = 200;
 
+// --- Query key normalization ---
+// Array keys are joined into the same flat string space as useSWR's string keys,
+// so `useQuery({queryKey: ['todos']})` and `useSWR('todos')` share one cache
+// entry by design. Every cache-facing entry point must normalize identically:
+// useQuery used to be the only one that did, so `invalidateQueries(['todos'])`
+// looked up a raw Array object as a Map key, found nothing, and silently did
+// nothing. The documented shape was the broken one.
+//
+// Segments escape ':' so `['user', 'a:b']` cannot collide with
+// `['user', 'a', 'b']`. A collision here serves one query's data to another,
+// which is worse than a miss.
+function normalizeQueryKey(key) {
+  if (!Array.isArray(key)) return key;
+  return key
+    .map((part) => (typeof part === 'string' ? part : JSON.stringify(part) ?? String(part)))
+    .map((part) => part.replace(/([\\:])/g, '\\$1'))
+    .join(':');
+}
+
 function getCacheSignal(key) {
   cacheTimestamps.set(key, Date.now());
   if (!cacheSignals.has(key)) {
@@ -335,7 +354,7 @@ export function useQuery(options) {
     placeholderData,
   } = options;
 
-  const key = Array.isArray(queryKey) ? queryKey.join(':') : queryKey;
+  const key = normalizeQueryKey(queryKey);
 
   const cacheS = getCacheSignal(key);
   const data = computed(() => {
@@ -503,7 +522,7 @@ export function useInfiniteQuery(options) {
   const isFetchingNextPage = signal(false);
   const isFetchingPreviousPage = signal(false);
 
-  const key = Array.isArray(queryKey) ? queryKey.join(':') : queryKey;
+  const key = normalizeQueryKey(queryKey);
   let abortController = null;
 
   let isRefetching = false;
@@ -595,15 +614,36 @@ export function useInfiniteQuery(options) {
 
 // --- Cache Management ---
 
+// Every key the cache knows about. A query that has subscribed but not yet
+// resolved has a revalidation subscriber before it has a cache signal, and
+// invalidating it is exactly how you tell it to fetch, so both maps count.
+function allKnownKeys() {
+  const keys = new Set(cacheSignals.keys());
+  for (const key of revalidationSubscribers.keys()) keys.add(key);
+  return keys;
+}
+
 export function invalidateQueries(keyOrPredicate, options = {}) {
-  const { hard = false } = options;
+  const { hard = false, exact = false } = options;
   const keysToInvalidate = [];
   if (typeof keyOrPredicate === 'function') {
     for (const [key] of cacheSignals) {
       if (keyOrPredicate(key)) keysToInvalidate.push(key);
     }
+  } else if (Array.isArray(keyOrPredicate) && !exact) {
+    // An array key is a PREFIX: invalidateQueries(['todos']) invalidates
+    // ['todos', 1] and ['todos', {done: true}] too, which is what the shape
+    // implies and what every peer library does. Matching is on segment
+    // boundaries, so ['todo'] never matches 'todos'.
+    const prefix = normalizeQueryKey(keyOrPredicate);
+    const scoped = prefix + ':';
+    for (const key of allKnownKeys()) {
+      if (key === prefix || (typeof key === 'string' && key.startsWith(scoped))) {
+        keysToInvalidate.push(key);
+      }
+    }
   } else {
-    keysToInvalidate.push(keyOrPredicate);
+    keysToInvalidate.push(normalizeQueryKey(keyOrPredicate));
   }
 
   for (const key of keysToInvalidate) {
@@ -619,6 +659,7 @@ export function invalidateQueries(keyOrPredicate, options = {}) {
 }
 
 export function prefetchQuery(key, fetcher) {
+  key = normalizeQueryKey(key);
   const cacheS = getCacheSignal(key);
   return fetcher(key).then(result => {
     cacheS.set(result);
@@ -628,6 +669,7 @@ export function prefetchQuery(key, fetcher) {
 }
 
 export function setQueryData(key, updater) {
+  key = normalizeQueryKey(key);
   const cacheS = getCacheSignal(key);
   const current = cacheS.peek();
   cacheS.set(typeof updater === 'function' ? updater(current) : updater);
@@ -635,6 +677,7 @@ export function setQueryData(key, updater) {
 }
 
 export function getQueryData(key) {
+  key = normalizeQueryKey(key);
   return cacheSignals.has(key) ? cacheSignals.get(key).peek() : undefined;
 }
 
