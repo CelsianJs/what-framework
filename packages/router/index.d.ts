@@ -49,7 +49,7 @@ export interface RouteConfig {
   /** Loading component */
   loading?: Component<{}>;
   /** Error component */
-  error?: Component<{ error: Error }>;
+  error?: Component<{ error: Error; reset: () => void }>;
   /** Route middleware */
   middleware?: RouteMiddleware[];
 }
@@ -91,7 +91,7 @@ export interface FileRouterProps {
   routes: FileRouteConfig[];
   layout?: Component<{ children?: VNodeChild }>;
   fallback?: Component<{}>;
-  error?: Component<{ error: Error }>;
+  error?: Component<{ error: Error; reset: () => void }>;
 }
 
 /** Router driven by what-compiler's generated route manifest (virtual:what-routes). */
