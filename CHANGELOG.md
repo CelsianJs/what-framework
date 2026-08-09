@@ -2,10 +2,28 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]
+## [0.12.0] - 2026-08-09: competitive parity, and four headline features that never worked
 
-Correctness work from the 2026-08-09 competitive parity audit. Every item here is a
+Correctness work from the 2026-08-09 competitive parity audit. Almost every item here is a
 feature that existed, was documented, and did not work.
+
+Minor rather than patch for two reasons: `<Form>` is new public API, and the
+`nestedRoutes()` path fix is breaking for anyone who worked around the index-route bug by
+linking to the trailing-slash URL. See BREAKING below.
+
+### Breaking
+
+- **`nestedRoutes()` now joins paths on segment boundaries.** An index child previously
+  produced `basePath + '/'` (`/dashboard/`), which the base URL never matched. It now
+  produces the base itself (`/dashboard`). If you worked around this by linking to
+  `/dashboard/`, point those links at `/dashboard`. `{ path: '' }` was already correct and
+  is unchanged.
+- **Node-only server exports moved to the `node` condition's declarations.** `createServer`,
+  `toNodeListener`, `whatMiddleware`, `exportStatic`, `createVercelHandler` and
+  `buildVercelOutput` are declared in `what-server/node.d.ts` instead of the root
+  `index.d.ts`. TypeScript consumers resolving the `node` condition (the normal case) are
+  unaffected; anyone resolving the browser/edge condition no longer sees types for
+  functions their runtime never had.
 
 ### Added
 

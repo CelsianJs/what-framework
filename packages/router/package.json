@@ -1,6 +1,6 @@
 {
   "name": "what-router",
-  "version": "0.11.8",
+  "version": "0.12.0",
   "description": "What Framework - File-based & programmatic router with View Transitions",
   "type": "module",
   "main": "src/index.js",
@@ -35,7 +35,7 @@
   "license": "MIT",
   "dependencies": {},
   "peerDependencies": {
-    "what-core": "^0.11.8"
+    "what-core": "^0.12.0"
   },
   "repository": {
     "type": "git",
