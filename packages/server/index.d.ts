@@ -54,35 +54,14 @@ export function server<P>(component: (props: P) => VNode): (props: P) => VNode;
 //
 // The island runtime (island, Island, hydrateIslands, createIslandStore, …)
 // is exported from the `what-server/islands` subpath, not from this entry.
-// See ./islands.d.ts. The shapes below stay here because they describe values
-// that cross the SSR boundary and are referenced by root-entry consumers.
+// See ./islands.d.ts. The shapes are re-exported here because they describe
+// values that cross the SSR boundary and are referenced by root-entry consumers.
 
-export interface IslandOptions {
-  /** Hydration mode */
-  mode?: 'static' | 'idle' | 'visible' | 'load' | 'media' | 'action';
-  /** Media query for 'media' mode */
-  media?: string;
-  /** Priority (higher = hydrate first) */
-  priority?: number;
-  /** Shared stores this island uses */
-  stores?: string[];
-}
-
-export interface IslandStore<T extends Record<string, any>> {
-  _signals: Record<keyof T, Signal<any>>;
-  _subscribe: (key: keyof T, fn: (value: any) => void) => () => void;
-  _batch: (fn: () => void) => void;
-  _getSnapshot: () => T;
-  _hydrate: (data: Partial<T>) => void;
-}
-
-export interface IslandStatus {
-  registered: string[];
-  hydrated: number;
-  pending: number;
-  queue: { name: string; priority: number }[];
-  stores: string[];
-}
+// One definition each, owned by ./islands. Re-exporting rather than
+// redeclaring is what keeps `export * from 'what-server'` and
+// `export * from 'what-server/islands'` in the same file from colliding, which
+// is exactly the ambiguity what-framework/server hits.
+export type { IslandOptions, IslandStore, IslandStatus } from './islands.js';
 
 // --- Server Actions ---
 

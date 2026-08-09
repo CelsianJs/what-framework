@@ -1,0 +1,30 @@
+{
+  // Typechecks the hand-written .d.ts files. They are the only part of this repo
+  // TypeScript ever sees, they are authored by hand, and nothing compiled them:
+  // hygiene:publish typechecks two packed packages in a clean consumer, and
+  // hygiene:types compares declarations against runtime exports, but neither
+  // catches a declaration that simply does not compile.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "what-core": ["./packages/core/index.d.ts"],
+      "what-core/*": ["./packages/core/*.d.ts"],
+      "what-server": ["./packages/server/index.d.ts"],
+      "what-server/*": ["./packages/server/*.d.ts"],
+      "what-router": ["./packages/router/index.d.ts"],
+      "what-framework": ["./packages/what/index.d.ts"],
+      "what-framework/*": ["./packages/what/*.d.ts"],
+      "what-react": ["./packages/react-compat/index.d.ts"],
+      "what-react/*": ["./packages/react-compat/*.d.ts"]
+    }
+  },
+  "include": ["packages/*/*.d.ts"],
+  "exclude": ["**/node_modules", "**/dist"]
+}

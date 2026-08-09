@@ -11,9 +11,9 @@
 // documentation, while an index signature keeps arbitrary/custom attributes and
 // web-component tags valid (never false-flagging code the runtime accepts).
 
-import type { VNode, VNodeChild } from './index';
+import type { VNode, VNodeChild } from './index.js';
 
-export { Fragment } from './index';
+export { Fragment } from './index.js';
 
 /** A JSX attribute value in What may be static or a reactive `() => value` thunk. */
 export type Reactive<T> = T | (() => T);

@@ -3,8 +3,8 @@
 // only under Node. Declaring them in index.d.ts instead would promise every
 // browser and edge consumer six functions their runtime does not have.
 
-export * from './index';
-import type { RequestHandlerOptions, RenderRequestContext, DocumentOptions } from './index';
+export * from './index.js';
+import type { RequestHandlerOptions, RenderRequestContext, DocumentOptions } from './index.js';
 
 
 /** Convert a Web-Fetch handler into a Node (req, res) listener. */

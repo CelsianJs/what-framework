@@ -8,9 +8,9 @@
 // Common attributes are typed for autocomplete; an index signature keeps
 // arbitrary/custom attributes and web-component tags valid.
 
-import type { ReactElement, ReactNode, Ref, Key } from './index';
+import type { ReactElement, ReactNode, Ref, Key } from './index.js';
 
-export { Fragment } from './index';
+export { Fragment } from './index.js';
 
 export function jsx(type: any, props: any, key?: Key): ReactElement;
 export function jsxs(type: any, props: any, key?: Key): ReactElement;

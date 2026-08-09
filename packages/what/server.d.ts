@@ -4,3 +4,8 @@
 // which is invisible to every TypeScript user and caught by nothing.
 export * from 'what-server';
 export * from 'what-server/islands';
+
+// The island shapes are exported by both entries (the root re-exports them for
+// convenience). An explicit re-export outranks the two star exports and resolves
+// the ambiguity, which is what TS2308 asks for.
+export type { IslandOptions, IslandStore, IslandStatus } from 'what-server/islands';

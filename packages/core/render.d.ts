@@ -9,8 +9,8 @@ export {
   classList,
   effect,
   untrack,
-} from './index';
-import type { VNodeChild } from './index';
+} from './index.js';
+import type { VNodeChild } from './index.js';
 
 // Compiler-internal template alias — identical to template() but never
 // dev-warns. Compiled output imports this (SPRINT v0.11 C5).

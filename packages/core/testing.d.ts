@@ -1,6 +1,6 @@
 // What Framework - Testing Utilities Type Definitions
 
-import { VNode, Signal } from './index';
+import { VNode, Signal } from './index.js';
 
 // Setup and Cleanup
 export function setupDOM(): HTMLElement | null;

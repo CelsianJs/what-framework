@@ -110,6 +110,9 @@ jobs:
       - name: Type parity gate (declarations match runtime exports, both ways)
         run: npm run -s hygiene:types
 
+      - name: Typecheck declarations
+        run: npm run -s typecheck
+
       - name: Production build smoke gate (no blank-screen regression)
         run: npm run -s test:prod
 
