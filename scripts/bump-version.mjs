@@ -83,6 +83,21 @@ for (const { file, json } of manifests) {
   console.log(`  ${json.name.padEnd(24)} -> ${next}`);
 }
 
+// The root manifest is private and unpublished, so nothing forced it to move and
+// it silently stopped: the group shipped 0.11.1 through 0.11.7 while the root
+// still read 0.11.0. That is the first version number anyone reads when they
+// clone the repo or look at the GitHub landing page, and it disagreed with every
+// published package for six releases. It tracks the group now.
+const rootManifest = join(repoRoot, 'package.json');
+if (existsSync(rootManifest)) {
+  const json = JSON.parse(readFileSync(rootManifest, 'utf8'));
+  if (json.version !== next) {
+    json.version = next;
+    if (!dry) writeFileSync(rootManifest, JSON.stringify(json, null, 2) + '\n');
+    console.log(`  ${'(root package.json)'.padEnd(24)} -> ${next}`);
+  }
+}
+
 // Keep the hardcoded VERSION constant in agent-context.js in sync (guarded by a
 // version-match test in packages/core/test/guardrails.test.js — would fail CI otherwise).
 const agentCtx = join(pkgsDir, 'core', 'src', 'agent-context.js');

@@ -2,7 +2,19 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]
+## [0.11.8] - 2026-08-09: security, correctness and release-gate remediation
+
+The largest correctness release since 0.10. It closes both CRITICAL and all ten HIGH
+findings from the 2026-07-26 product review, the four advertised features that were
+broken in shipped code, and the follow-on defects the 2026-08-09 audit found in the
+remediation itself. If you are on any 0.11.x, upgrade.
+
+### Security
+
+- **cache: `vary` declared as anything other than an array produced a shared cache key AND `Cache-Control: public`.** `vary: 'cookie:session'`, the most natural shorthand, was treated as an already-resolved map, so the key was built from the declaration string's character indices: one entry for every user. `buildCacheHeaders` independently re-tested `Array.isArray` and emitted `public` at the same time, so both failures pointed the same way and there was no second line of defence. A single `normalizeVaryDeclaration()` now feeds both; it accepts `string` and `string[]` and fails closed on every other shape.
+- **cache: `redactVary()` had never actually redacted anything.** `cacheKey()` joined its fields with a NUL byte while `redactVary()` searched for a space, so it found no separator and returned every key verbatim, session token included. This affected the Redis store and the filesystem store equally. The separator is now one constant.
+- **cache: the filesystem store never redacted at all**, so it wrote raw session cookies into the entry body and both reverse indexes, three copies per entry with no TTL on the index files.
+- **release: the publish workflow ran its browser-backed gates in silently degraded mode.** It never installed Chromium, so on the exact run that ships to npm, 15 browser tests skipped and the scaffold smoke fell back to an HTTP-only marker check, skipping SSR hydration, the server-action round trip and the ISR cache assertion. The run still printed green.
 
 ### Changed
 
@@ -13,6 +25,10 @@ All notable changes to What Framework will be documented in this file.
 
 ### Fixed
 
+- **cache: `revalidate: 0` meant cache forever.** The value propagated correctly and was then turned into `expiresAt: Infinity`, so the one setting a developer reaches for to disable caching did the opposite. An explicit `0` is now immediately stale; an undeclared revalidate on a static route still stays durable.
+- **create-what: the full-stack template scaffolded MCP config it never wired up.** It shipped `.mcp.json`, `.cursor/mcp.json` and a CLAUDE.md promising 29 live tools while omitting `what-devtools`, the browser bridge the MCP server talks to, so every live tool reported no browser. It now installs, serves and bootstraps the bridge in dev.
+- **devtools-mcp: `what_fix` accepts `errorCode` as well as `error`.** Every CLAUDE.md this project has scaffolded documented `{errorCode}` while the schema only took `{error}`, so the tool the guide tells agents to reach for FIRST returned a validation error. The docs are corrected and the alias is permanent.
+- **repo: the root `package.json` version tracks the release again.** It read 0.11.0 while the group shipped 0.11.1 through 0.11.7.
 - **core: hydrated components no longer leak.** The hydration path attached the component context to no DOM node, so `disposeTree` could not reach it and every hydrated component leaked its cleanups, `useEffect` disposers and reactive-child effects.
 - **core: head dedup keys are escaped before entering a CSS selector.** A key containing selector metacharacters (including the `JSON.stringify` fallback used for a meta with no `name`/`property`) raised `DOMException: Invalid selector` and broke all client head management.
 - **cache: the filesystem store reads the pre-0.11.8 reverse-index shape.** The index changed from one JSON array per tag/path to a directory of per-key files with no migration, so after an in-place upgrade `deleteByPath`/`deleteByTag` returned `[]` for pre-upgrade entries while the revalidate webhook still reported success.
