@@ -228,6 +228,67 @@ console.log(
 );
 
 // ---------------------------------------------------------------------------
+// Declared types files must actually ship
+//
+// `exports` can point a condition at a declaration file that `files` does not
+// include. Nothing else catches it: the workspace resolves the path fine, and a
+// consumer only discovers it after install, as "could not find a declaration
+// file". 0.12.0 shipped exactly this — `exports["."].node.types` pointed at
+// what-server/node.d.ts while `files` omitted it — so the check walks EVERY
+// nested condition, not just the top-level `types` key.
+// ---------------------------------------------------------------------------
+
+function declaredTypesPaths(exportsField, out = new Set()) {
+  if (!exportsField || typeof exportsField !== 'object') return out;
+  for (const [key, value] of Object.entries(exportsField)) {
+    if (key === 'types' && typeof value === 'string') out.add(value);
+    else if (value && typeof value === 'object') declaredTypesPaths(value, out);
+  }
+  return out;
+}
+
+{
+  const missing = [];
+  for (const manifestPath of allowedPublicPackageJson) {
+    const dir = manifestPath.replace(/\/package\.json$/, '');
+    const pkg = JSON.parse(readFileSync(join(repoRoot, manifestPath), 'utf8'));
+    const declared = declaredTypesPaths(pkg.exports);
+    if (pkg.types) declared.add(pkg.types);
+    if (pkg.typings) declared.add(pkg.typings);
+    if (declared.size === 0) continue;
+
+    const packDir = mkdtempSync(join(tmpdir(), 'what-types-pack-'));
+    try {
+      const output = execFileSync(
+        'npm',
+        ['pack', resolve(repoRoot, dir), '--pack-destination', packDir, '--silent'],
+        { encoding: 'utf8' },
+      );
+      const tarball = resolve(packDir, output.trim().split('\n').pop() || '');
+      const listing = execFileSync('tar', ['tzf', tarball], { encoding: 'utf8' })
+        .split('\n')
+        .map((line) => line.replace(/^package\//, '').trim())
+        .filter(Boolean);
+      const packed = new Set(listing);
+      for (const declaredPath of declared) {
+        const rel = declaredPath.replace(/^\.\//, '');
+        if (!packed.has(rel)) missing.push(`${pkg.name}: exports declare types "${declaredPath}" but it is not in the published tarball (check "files")`);
+      }
+    } finally {
+      rmSync(packDir, { recursive: true, force: true });
+    }
+  }
+
+  if (missing.length > 0) {
+    console.error('\nDeclared types files missing from the package tarball:');
+    for (const m of missing) console.error(`  - ${m}`);
+    process.exitCode = 1;
+  } else {
+    console.log('[publish-surface] OK: every declared `types` path is present in its package tarball.');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Packed declaration consumer
 //
 // Workspace typechecks can accidentally resolve sibling declarations through

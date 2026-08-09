@@ -2,6 +2,13 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.12.1] - 2026-08-09: packaging fix for what-server type declarations
+
+### Fixed
+
+- **`what-server` pointed its `node` export condition at a declaration file it did not publish.** 0.12.0 added `exports["."].node.types = "./node.d.ts"` but left `node.d.ts` out of `files`, so TypeScript consumers resolving the `node` condition (the normal case under `node16`/`nodenext`) got a dangling types path and "could not find a declaration file". JavaScript consumers were unaffected. If you are on 0.12.0 and use TypeScript with what-server, upgrade.
+- **`hygiene:publish` now verifies that every `types` path declared anywhere in `exports` is actually in the package tarball**, walking nested export conditions rather than only the top-level key. Nothing caught the above: the workspace resolves the path fine and the failure only appears after a consumer installs. Verified by reintroducing the bug and watching the gate fail.
+
 ## [0.12.0] - 2026-08-09: competitive parity, and four headline features that never worked
 
 Correctness work from the 2026-08-09 competitive parity audit. Almost every item here is a
