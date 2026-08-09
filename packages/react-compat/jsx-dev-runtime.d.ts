@@ -1,10 +1,10 @@
 // what-react/jsx-dev-runtime — development JSX runtime type definitions.
 // Mirrors jsx-runtime.d.ts; TS uses this under "jsx": "react-jsxdev".
 
-import type { ReactElement, Key } from './index';
+import type { ReactElement, Key } from './index.js';
 
-export { Fragment } from './index';
-export { JSX } from './jsx-runtime';
+export { Fragment } from './index.js';
+export { JSX } from './jsx-runtime.js';
 
 export function jsx(type: any, props: any, key?: Key): ReactElement;
 export function jsxs(type: any, props: any, key?: Key): ReactElement;

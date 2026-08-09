@@ -1,7 +1,7 @@
 // what-react/dom — react-dom compatible surface (src/dom.js).
 // Alias `react-dom` → `what-react/dom` to run React libraries that render.
 
-import type { ReactNode } from './index';
+import type { ReactNode } from './index.js';
 
 export interface Root {
   render(children: ReactNode): void;

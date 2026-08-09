@@ -8,12 +8,15 @@
 // Common attributes are typed for autocomplete; an index signature keeps
 // arbitrary/custom attributes and web-component tags valid.
 
-import type { ReactElement, ReactNode, Ref, Key } from './index';
+import type { ReactElement, ReactNode, Ref, Key } from './index.js';
 
-export { Fragment } from './index';
+export { Fragment } from './index.js';
 
 export function jsx(type: any, props: any, key?: Key): ReactElement;
 export function jsxs(type: any, props: any, key?: Key): ReactElement;
+// The dev runtime ("jsx": "react-jsxdev") calls jsxDEV instead of jsx. Without a
+// declaration, a TypeScript project on the dev transform fails to resolve it.
+export function jsxDEV(type: any, props: any, key?: Key): ReactElement;
 
 type EventHandler<E extends Event = Event> = (
   event: E & { currentTarget: EventTarget & Element; target: Element },

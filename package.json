@@ -33,10 +33,11 @@
     "deploy:vercel": "node scripts/deploy-vercel.mjs",
     "hygiene:publish": "node scripts/check-publish-surface.mjs",
     "hygiene:types": "node scripts/check-type-parity.mjs",
+    "typecheck": "tsc --noEmit",
     "version:bump": "node scripts/bump-version.mjs",
     "release:publish": "node scripts/publish-packages.mjs",
     "verify:registry": "node scripts/verify-registry-install.mjs",
-    "release:verify": "npm run -s hygiene:publish && npm run -s test && npm run -s build && npm run -s hygiene:publish && npm run -s check:size && npm run -s test:prod && npm run -s bench:gate && npm run -s smoke:scaffold",
+    "release:verify": "npm run -s hygiene:publish && npm run -s test && npm run -s build && npm run -s hygiene:publish && npm run -s hygiene:types && npm run -s typecheck && npm run -s check:size && npm run -s test:prod && npm run -s bench:gate && npm run -s smoke:scaffold",
     "release:patch": "node scripts/bump-version.mjs patch && npm run -s release:verify && npm run -s release:publish",
     "release:minor": "node scripts/bump-version.mjs minor && npm run -s release:verify && npm run -s release:publish",
     "release:major": "node scripts/bump-version.mjs major && npm run -s release:verify && npm run -s release:publish",
@@ -49,6 +50,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
     "playwright": "^1.58.2",

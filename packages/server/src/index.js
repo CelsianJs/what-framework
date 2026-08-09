@@ -643,6 +643,9 @@ export {
   csrfMetaTag,
 } from './actions.js';
 
+// <Form>: the progressive-enhancement form that posts to the action endpoint.
+export { Form, ACTION_ENDPOINT } from './form.js';
+
 // Served server actions: wire the /__what_action route (Node + fetch adapters)
 export {
   createActionHandler,

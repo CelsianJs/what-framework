@@ -646,3 +646,33 @@ export interface HealthReport {
 export function getHealth(): HealthReport;
 /** Expose globalThis.__WHAT_AGENT__ for agent tooling (dev mode only). */
 export function installAgentContext(): void;
+
+/** Warn when a component function is not PascalCase. Dev-mode only; returns null in production. */
+export function checkComponentName(name: string): GuardrailWarning | null;
+
+export interface GuardrailWarning {
+  code: string;
+  name: string;
+  suggestion: string;
+}
+
+export interface InvalidImport {
+  name: string;
+  message: string;
+  suggestion: string;
+}
+
+/** Report import names that are not valid exports of what-framework. Dev-mode only. */
+export function validateImports(importNames: readonly string[]): InvalidImport[];
+
+// --- Agent registries ---
+// The devtools bridge and MCP server read these to enumerate the live graph.
+// Registration is a no-op in production builds; the getters always return a copy.
+
+export function registerComponent(component: unknown): void;
+export function unregisterComponent(component: unknown): void;
+export function getMountedComponents(): unknown[];
+
+export function registerSignal(sig: unknown): void;
+export function unregisterSignal(sig: unknown): void;
+export function getActiveSignals(): unknown[];

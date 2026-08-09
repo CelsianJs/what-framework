@@ -9,7 +9,8 @@ export {
   classList,
   effect,
   untrack,
-} from './index';
+} from './index.js';
+import type { VNodeChild } from './index.js';
 
 // Compiler-internal template alias — identical to template() but never
 // dev-warns. Compiled output imports this (SPRINT v0.11 C5).
@@ -28,3 +29,16 @@ export function setChecked(el: Element, value: any): void;
 // exported from the package index). Emitted by the compiler for branch
 // memoization of conditional JSX (SPRINT v0.11 C1).
 export function memo<T>(fn: () => T): (() => T) & { peek(): T };
+
+// --- Hydration ---
+// hydrate() adopts server-rendered DOM instead of recreating it: it walks the
+// existing nodes, attaches event handlers and reactive bindings in place, and
+// restarts the useId sequence so client ids reproduce the server's.
+export function hydrate(vnode: VNodeChild, container: Element): Node | Node[] | null;
+
+/** True while a hydration pass is walking existing DOM. */
+export function isHydrating(): boolean;
+
+// SVG counterpart to template(): elements are created in the SVG namespace, which
+// a plain innerHTML template cannot do.
+export function svgTemplate(html: string): () => Element;

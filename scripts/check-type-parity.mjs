@@ -1,7 +1,15 @@
 #!/usr/bin/env node
-// Type parity check: every value declared in a .d.ts must actually be exported
-// by the runtime entry it describes. Catches phantom declarations that typecheck
-// clean and then throw "does not provide an export named X" at module load.
+// Type parity check, both directions.
+//
+// Forward:  every value declared in a .d.ts must actually be exported by the
+//           runtime entry it describes. Catches phantom declarations that
+//           typecheck clean and then throw "does not provide an export named X"
+//           at module load: the type system, the thing the user trusts to catch
+//           this, is the thing lying.
+//
+// Reverse:  every value the runtime exports must be declared. A one-directional
+//           gate lets a shipped feature be invisible to every TypeScript user,
+//           which is how a capability gets built and then never adopted.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -18,7 +26,54 @@ const VALUE_DECL = /^export\s+(?:declare\s+)?(?:async\s+)?(?:function\*?|const|l
 const NAMED_BLOCK = /^export\s*\{([^}]*)\}/gm;
 const TYPE_ONLY = /^(?:export\s+)?(?:declare\s+)?(?:interface|type|namespace)\s+([A-Za-z_$][\w$]*)/gm;
 
-export function declaredValues(source, typeNames = new Set()) {
+// `export * from 'x'` re-exports every name the target declares. A checker that
+// does not follow it reports a correct barrel as 260 undeclared exports, which is
+// how a reverse-direction gate ends up disabled instead of fixed.
+const STAR_REEXPORT = /^export\s+\*\s+from\s+['"]([^'"]+)['"]/gm;
+
+// Map bare package specifiers back to their declaration file in this monorepo.
+let _pkgTypesByName = null;
+function packageTypesPath(spec) {
+  if (!_pkgTypesByName) {
+    _pkgTypesByName = new Map();
+    for (const dir of readdirSync(packagesDir)) {
+      const manifest = join(packagesDir, dir, 'package.json');
+      if (!existsSync(manifest)) continue;
+      const pkg = JSON.parse(readFileSync(manifest, 'utf8'));
+      // The checker imports the runtime in Node, so it must resolve the types
+      // Node itself would: the `node` condition's declarations win when present.
+      const types = pkg.exports?.['.']?.node?.types
+        || pkg.exports?.['.']?.types
+        || pkg.types || pkg.typings;
+      if (pkg.name && types) _pkgTypesByName.set(pkg.name, join(packagesDir, dir, types));
+    }
+  }
+  return _pkgTypesByName.get(spec) || null;
+}
+
+function resolveStarTarget(spec, fromFile) {
+  if (spec.startsWith('.')) {
+    const base = resolve(dirname(fromFile), spec).replace(/\.js$/, '');
+    for (const candidate of [`${base}.d.ts`, base, join(base, 'index.d.ts')]) {
+      if (existsSync(candidate) && candidate.endsWith('.d.ts')) return candidate;
+    }
+    return null;
+  }
+  // Bare specifier, possibly a subpath like 'what-core/render'.
+  const direct = packageTypesPath(spec);
+  if (direct && existsSync(direct)) return direct;
+  const slash = spec.indexOf('/');
+  if (slash > 0) {
+    const owner = packageTypesPath(spec.slice(0, slash));
+    if (owner) {
+      const candidate = join(dirname(owner), `${spec.slice(slash + 1)}.d.ts`);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+export function declaredValues(source, typeNames = new Set(), file = null, seen = new Set()) {
   const names = new Set();
   for (const m of source.matchAll(VALUE_DECL)) names.add(m[1]);
   for (const m of source.matchAll(NAMED_BLOCK)) {
@@ -29,6 +84,19 @@ export function declaredValues(source, typeNames = new Set()) {
       names.add((alias[1] || alias[0]).trim());
     }
   }
+
+  if (file) {
+    for (const m of source.matchAll(STAR_REEXPORT)) {
+      const target = resolveStarTarget(m[1], file);
+      if (!target || seen.has(target)) continue;
+      seen.add(target);
+      const targetTypes = packageTypeNames(dirname(target));
+      for (const n of declaredValues(readFileSync(target, 'utf8'), targetTypes, target, seen)) {
+        names.add(n);
+      }
+    }
+  }
+
   for (const t of typeNames) names.delete(t);
   names.delete('default');
   return names;
@@ -105,11 +173,18 @@ export async function checkParity() {
       }
       checked++;
       const runtimeNames = new Set(Object.keys(mod));
-      const phantoms = [...declaredValues(readFileSync(types, 'utf8'), typeNames)]
-        .filter((n) => !runtimeNames.has(n))
+      const declared = declaredValues(readFileSync(types, 'utf8'), typeNames, types);
+
+      const phantoms = [...declared].filter((n) => !runtimeNames.has(n)).sort();
+
+      // Internal exports (leading underscore) are deliberately undeclared, and
+      // `default` is not a named value.
+      const undeclared = [...runtimeNames]
+        .filter((n) => n !== 'default' && !n.startsWith('_') && !declared.has(n) && !typeNames.has(n))
         .sort();
-      if (phantoms.length) {
-        failures.push({ types: types.slice(root.length + 1), phantoms });
+
+      if (phantoms.length || undeclared.length) {
+        failures.push({ types: types.slice(root.length + 1), phantoms, undeclared });
       }
     }
   }
@@ -117,7 +192,8 @@ export async function checkParity() {
   for (const f of failures) {
     console.log(`FAIL  ${f.types}`);
     if (f.unimportable) console.log(`        ${f.unimportable}`);
-    for (const p of f.phantoms) console.log(`        phantom export: ${p}`);
+    for (const p of f.phantoms) console.log(`        declared but not exported: ${p}`);
+    for (const u of f.undeclared || []) console.log(`        exported but not declared: ${u}`);
   }
   console.log(`\n${checked} declaration file(s) checked, ${failures.length} problem(s).`);
   return failures;
