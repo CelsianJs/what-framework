@@ -160,11 +160,18 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   // Full-stack apps are buildless: server.js does SSR + ISR and serves the
   // client entry as native ES modules, so there is no Vite/compiler toolchain.
   // `npm run dev` runs the real app with auto-restart on change.
-  // `what-devtools` is the browser bridge the what-devtools-mcp Vite plugin
-  // injects in dev: without it the plugin skips injection and every MCP tool
-  // reports no browser. The full-stack template has no Vite plugin to inject it.
+  // `what-devtools` is the browser bridge: without it the MCP server has nothing
+  // to talk to and every live tool reports no browser. In the SPA template the
+  // what-devtools-mcp Vite plugin injects it. The full-stack template is
+  // buildless and has no plugin to do the injecting, but it still needs the
+  // package present: server.js serves it over the import map in dev, the same
+  // way it already serves what-framework and what-core. Shipping the template
+  // with .mcp.json, .cursor/mcp.json and an MCP-promising CLAUDE.md while
+  // omitting the one package that makes any of it work is the worst combination,
+  // because the agent is primed to call tools that cannot answer.
   const devDeps = template === 'fullstack'
     ? {
+        'what-devtools': whatVersionRange,
         'what-devtools-mcp': whatVersionRange,
         eslint: '^9.0.0',
         'eslint-plugin-what': whatVersionRange,
@@ -1185,6 +1192,31 @@ function matchPage(pathname) {
 const vnode = matchPage(location.pathname);
 if (vnode) hydrate(vnode, document.body);
 
+// Dev-only devtools bridge. This is what makes the \\\`what_*\\\` MCP tools in
+// CLAUDE.md able to see this running app: without it every live tool reports
+// "no browser connected". The SPA template gets this from the what-devtools-mcp
+// Vite plugin; this template is buildless, so it does the same three steps by
+// hand. server.js sets __WHAT_DEV__ and __WHAT_MCP__ in dev only, and the
+// imports are dynamic, so a production page never fetches either module.
+if (globalThis.__WHAT_DEV__) {
+  Promise.all([
+    import('what-core'),
+    import('what-devtools'),
+  ]).then(async ([core, devtools]) => {
+    // installDevTools alone makes the app inspectable in the browser. Connecting
+    // to the MCP bridge is a second, optional step: it only happens once
+    // \\\`npx what-devtools-mcp\\\` has run and written a token, so an app started
+    // without the MCP server makes no connection attempts and logs nothing.
+    devtools.installDevTools(core);
+    if (globalThis.__WHAT_MCP__) {
+      const mcp = await import('what-devtools-mcp/client');
+      mcp.connectDevToolsMCP(globalThis.__WHAT_MCP__);
+    }
+  }).catch((err) => {
+    console.warn('[what] devtools unavailable:', err.message);
+  });
+}
+
 // Progressive enhancement for server-action forms: submit as JSON to
 // /__what_action with the X-What-Action header (the served-action protocol),
 // then navigate to the result. The CSRF token comes from the double-submit
@@ -1306,7 +1338,7 @@ textarea {
 
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { existsSync, statSync, createReadStream } from 'node:fs';
+import { existsSync, statSync, createReadStream, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequestHandler, renderDocument, toNodeListener } from 'what-framework/server';
@@ -1376,15 +1408,52 @@ const importMap = {
   imports: {
     'what-framework': '/node_modules/what-framework/src/index.js',
     'what-core': '/node_modules/what-core/src/index.js',
+    // Dev only. This template is buildless, so there is no Vite plugin to inject
+    // the devtools bridge the way the SPA template gets it. Mapping the two
+    // specifiers here (and serving them below) is all it takes for the MCP
+    // \`what_*\` tools to see this app: entry-client.js dynamically imports them
+    // behind the __WHAT_DEV__ flag, so production never fetches either module.
+    ...(isProd ? {} : {
+      'what-devtools': '/node_modules/what-devtools/src/index.js',
+      'what-devtools-mcp/client': '/node_modules/what-devtools-mcp/src/client.js',
+    }),
   },
 };
 
+// The MCP bridge writes its token here when \`npx what-devtools-mcp\` starts.
+// Read per render, not once at boot, so starting the bridge after the server is
+// already up only costs a page reload.
+//
+// The token is passed INLINE rather than via the Vite plugin's same-origin
+// discovery endpoint, which this server does not implement. That is deliberate:
+// the client only probes for a bridge when it has a token or a discovery URL, so
+// an app running without the MCP server makes no requests and logs nothing at
+// all. Handing it a discovery URL that 404s would put a red line in every
+// developer's console on every page load.
+function mcpToken() {
+  try {
+    return JSON.parse(readFileSync(join(ROOT, 'node_modules', '.cache', 'what-devtools-mcp', 'token'), 'utf8')).token || '';
+  } catch {
+    return '';
+  }
+}
+
+function devToolsHead() {
+  if (isProd) return '';
+  const token = mcpToken();
+  if (!token) return '<script>globalThis.__WHAT_DEV__=true</script>';
+  return \`<script>globalThis.__WHAT_DEV__=true;globalThis.__WHAT_MCP__=\${JSON.stringify({ port: 9229, token })}</script>\`;
+}
+
 const documentOptions = {
   clientEntry: '/src/entry-client.js',
-  head:
-    \`<script type="importmap">\${JSON.stringify(importMap)}</script>\` +
-    '<link rel="stylesheet" href="/src/styles.css">' +
-    '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
+  // A getter, so devToolsHead() re-reads the token on every render.
+  get head() {
+    return \`<script type="importmap">\${JSON.stringify(importMap)}</script>\` +
+      devToolsHead() +
+      '<link rel="stylesheet" href="/src/styles.css">' +
+      '<link rel="icon" type="image/svg+xml" href="/favicon.svg">';
+  },
 };
 
 // Render a matched route. Mirrors the framework default renderer, plus:
@@ -1443,6 +1512,9 @@ const SERVED_PREFIXES = [
   '/src/components/',             // client-shared UI (create as needed)
   '/node_modules/what-framework/',
   '/node_modules/what-core/',
+  // Dev only: the devtools bridge entry-client imports when __WHAT_DEV__ is set.
+  // Gated on isProd so a production deploy never serves dev tooling.
+  ...(isProd ? [] : ['/node_modules/what-devtools/', '/node_modules/what-devtools-mcp/']),
 ];
 
 function resolveStaticFile(pathname) {
@@ -1551,10 +1623,11 @@ fine-grained DOM operations, so write JSX and use \`() => ...\` for reactive tex
 `;
 
   const mcpIntro = isFullstack
-    ? `This project ships the MCP server config. The browser bridge it talks to is injected by
-the \`what-devtools-mcp\` Vite plugin, which the buildless full-stack template does not use, so
-the live \`what_*\` tools below stay offline until you wire up a bundler. \`what_lint\`,
-\`what_scaffold\` and \`what_fix\` work offline today.`
+    ? `This project includes MCP devtools that connect to the running app in the browser.
+The SPA template gets the bridge from a Vite plugin; this template is buildless, so
+\`src/entry-client.js\` imports it directly when \`server.js\` sets \`__WHAT_DEV__\` (dev only).
+Run \`npm run dev\`, open the app, then use the live \`what_*\` tools below. \`what_lint\`,
+\`what_scaffold\` and \`what_fix\` also work offline with no browser at all.`
     : `This project includes MCP devtools that connect to the running app in the browser.`;
 
   // CLAUDE.md — agent instructions for Claude Code (also useful for other AI tools)
@@ -1616,7 +1689,7 @@ ${mcpIntro}
 | Change a signal live | \`what_set_signal {signalId, value}\` |
 | Validate code before saving | \`what_lint {code}\` |
 | Generate boilerplate | \`what_scaffold {type, name}\` |
-| Diagnose an error code | \`what_fix {errorCode}\` |
+| Diagnose an error code | \`what_fix {error}\` |
 
 ### Workflows
 

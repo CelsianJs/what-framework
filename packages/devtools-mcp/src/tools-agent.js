@@ -1091,9 +1091,25 @@ export function registerAgentTools(server, bridge) {
     'what_fix',
     'Given a What Framework error code, get diagnosis, suggested fix, and code example. Works offline — no browser needed.',
     {
-      error: z.string().describe('Error code (e.g., "ERR_INFINITE_EFFECT") or error message text'),
+      error: z.string().optional().describe('Error code (e.g., "ERR_INFINITE_EFFECT") or error message text'),
+      // `errorCode` is an accepted alias, not a second parameter. Every CLAUDE.md
+      // this project has ever scaffolded documents `what_fix {errorCode}` while
+      // the schema only accepted `error`, so the tool the guide calls a "hidden
+      // gem" and tells agents to reach for FIRST returned a hard validation
+      // error. The docs are fixed, but those CLAUDE.md files are already sitting
+      // in users' repos, so the alias stays permanently.
+      errorCode: z.string().optional().describe('Alias for `error`, accepted for compatibility with older scaffolded CLAUDE.md files'),
     },
-    async ({ error: errorInput }) => {
+    async ({ error, errorCode }) => {
+      const errorInput = error ?? errorCode;
+      if (!errorInput) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'what_fix needs an error code or message. Example: what_fix({ error: "ERR_INFINITE_EFFECT" }).',
+          }],
+        };
+      }
       // Try exact code match first
       let entry = ERROR_DATABASE[errorInput];
 

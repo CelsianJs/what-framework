@@ -33,8 +33,9 @@ Open `http://localhost:5173`.
 
 ## MCP Setup
 
-Install the browser-side bridge the MCP server talks to (projects scaffolded with
-`npm create what@latest` already have it):
+Projects scaffolded with `npm create what@latest` already include the browser-side
+bridge the MCP server talks to, and wire it up for you. Add it by hand only when
+you are setting a project up manually:
 
 ```bash
 npm install -D what-devtools
