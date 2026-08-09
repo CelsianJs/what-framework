@@ -2,6 +2,8 @@
 // them lets ANY standards-compliant CDN do edge ISR for free (s-maxage +
 // stale-while-revalidate), and Cache-Tag/Surrogate-Key enable CDN tag purge.
 
+import { normalizeVaryDeclaration } from './key.js';
+
 // A declared vary source ('cookie:session') maps to the HTTP header a shared
 // cache would have to key on.
 function varyHeaderNames(vary) {
@@ -29,9 +31,17 @@ export function buildCacheHeaders(entry = {}, config = {}, cacheStatus = 'MISS',
   // A route that varies on cookies/auth renders per user. The origin cache keys
   // those variants separately, but a shared cache must never hold them, so no
   // `public` here regardless of maxAge.
-  const declared = vary !== undefined ? vary : config.vary;
-  const varies = Array.isArray(declared) && declared.length > 0;
-  if (varies) headers.Vary = varyHeaderNames(declared);
+  //
+  // This reads normalizeVaryDeclaration() rather than testing the raw value,
+  // because the cache key reads it too. When these two disagreed, a declaration
+  // like `vary: 'cookie:session'` produced a constant key AND a `public` header,
+  // and the two failures pointed the same way so nothing caught it. An
+  // unresolvable declaration (null) is treated as varying: refusing to mark it
+  // public is the fail-closed direction.
+  const rawDeclared = vary !== undefined ? vary : config.vary;
+  const declared = normalizeVaryDeclaration(rawDeclared);
+  const varies = declared === null || declared.length > 0;
+  if (declared && declared.length > 0) headers.Vary = varyHeaderNames(declared);
 
   // Non-200 responses (soft-404s, error pages) are never cacheable — the
   // origin engine doesn't store them, and a CDN must not either.

@@ -14,7 +14,7 @@ export { createRedisStore } from './stores/redis-store.js';
 export { makeEntry, isFresh, isServableStale } from './stores/store-interface.js';
 
 // Keying + headers
-export { cacheKey, normalizePath, normalizeQuery, hashKey, resolveVary } from './key.js';
+export { cacheKey, normalizePath, normalizeQuery, hashKey, resolveVary, normalizeVaryDeclaration } from './key.js';
 export { buildCacheHeaders } from './headers.js';
 
 // Dynamic paths (getStaticPaths)

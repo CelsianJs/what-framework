@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRedisStore } from '../src/stores/redis-store.js';
+import { cacheKey } from '../src/key.js';
 
 // Minimal in-memory Redis-shaped client (get/set/del/sadd/srem/smembers/keys).
 function fakeRedis() {
@@ -99,13 +100,27 @@ describe('redis store', () => {
     await s.set('k', entry());
     assert.ok((await client.keys('app1:cache:*')).length === 1);
   });
+  // These five tests build their keys with the REAL cacheKey(), never by hand.
+  //
+  // They used to hand-write `/dash<space><space>cookie%3Asession=secret`, and
+  // that is why they were green while production leaked: cacheKey() joins its
+  // three fields with NUL, redactVary() searched for a SPACE, and the two had
+  // drifted apart. Given a hand-built space-separated key redactVary found a
+  // separator and redacted; given a real key it found none and returned the key
+  // verbatim, session token and all. The suite asserted the property on a string
+  // the system never produces. Building keys through the real function is the
+  // only version of this test that can fail when the property breaks.
+  const varyKey = (session) =>
+    cacheKey({ path: '/dash', vary: ['cookie:session'], headers: { cookie: `session=${session}` } });
+
   it('never puts a vary value (session cookie) into a Redis key name', async () => {
     // Redis stores key names verbatim: they are readable via SCAN, echoed by
     // MONITOR and captured in RDB/AOF backups.
     const client = fakeRedis();
     const s = createRedisStore({ client });
     const secret = 'sid-SUPERSECRETTOKEN';
-    const key = `/dash  ${'cookie%3Asession'}=${secret}`;
+    const key = varyKey(secret);
+    assert.ok(key.includes(secret), 'guard: the unredacted key must contain the secret');
     await s.set(key, entry({ path: '/dash', tags: ['dash'] }));
 
     const names = [...(await client.keys('what:*'))];
@@ -119,8 +134,7 @@ describe('redis store', () => {
     const client = fakeRedis();
     const s = createRedisStore({ client });
     const secret = 'sid-ANOTHERSECRET';
-    const key = `/dash  cookie%3Asession=${secret}`;
-    await s.set(key, entry({ path: '/dash', tags: ['dash'] }));
+    await s.set(varyKey(secret), entry({ path: '/dash', tags: ['dash'] }));
     for (const set of ['what:tag:dash', 'what:path:/dash']) {
       for (const m of await client.smembers(set)) {
         assert.ok(!m.includes(secret), `secret leaked into set ${set}: ${m}`);
@@ -130,24 +144,24 @@ describe('redis store', () => {
 
   it('still purges vary-keyed entries by path', async () => {
     const s = createRedisStore({ client: fakeRedis() });
-    await s.set('/dash  cookie%3Asession=aaa', entry({ path: '/dash', tags: ['dash'] }));
-    await s.set('/dash  cookie%3Asession=bbb', entry({ path: '/dash', tags: ['dash'] }));
+    await s.set(varyKey('aaa'), entry({ path: '/dash', tags: ['dash'] }));
+    await s.set(varyKey('bbb'), entry({ path: '/dash', tags: ['dash'] }));
     assert.equal((await s.deleteByPath('/dash')).length, 2);
     assert.deepEqual(await s.keys(), []);
   });
 
   it('still purges vary-keyed entries by tag', async () => {
     const s = createRedisStore({ client: fakeRedis() });
-    await s.set('/dash  cookie%3Asession=ccc', entry({ path: '/dash', tags: ['dash'] }));
+    await s.set(varyKey('ccc'), entry({ path: '/dash', tags: ['dash'] }));
     assert.equal((await s.deleteByTag('dash')).length, 1);
     assert.deepEqual(await s.keys(), []);
   });
 
   it('keeps distinct vary values in distinct entries', async () => {
     const s = createRedisStore({ client: fakeRedis() });
-    await s.set('/dash  cookie%3Asession=aaa', entry({ html: '<i>A</i>', path: '/dash' }));
-    await s.set('/dash  cookie%3Asession=bbb', entry({ html: '<i>B</i>', path: '/dash' }));
-    assert.equal((await s.get('/dash  cookie%3Asession=aaa')).html, '<i>A</i>');
-    assert.equal((await s.get('/dash  cookie%3Asession=bbb')).html, '<i>B</i>');
+    await s.set(varyKey('aaa'), entry({ html: '<i>A</i>', path: '/dash' }));
+    await s.set(varyKey('bbb'), entry({ html: '<i>B</i>', path: '/dash' }));
+    assert.equal((await s.get(varyKey('aaa'))).html, '<i>A</i>');
+    assert.equal((await s.get(varyKey('bbb'))).html, '<i>B</i>');
   });
 });
