@@ -1,6 +1,6 @@
 // What Framework Server - TypeScript Definitions
 
-import { VNode, VNodeChild, Signal } from './index';
+import { Component, VNode, VNodeChild, Signal } from './index';
 
 // --- SSR ---
 
@@ -10,14 +10,18 @@ export function renderToString(vnode: VNode): string;
 /** Render VNode tree as async iterator for streaming */
 export function renderToStream(vnode: VNode): AsyncGenerator<string>;
 
-/** Render a full page with document wrapper */
-export function renderPage(vnode: VNode, options?: {
-  title?: string;
-  meta?: Record<string, string>;
-  scripts?: string[];
-  styles?: string[];
-  mode?: 'static' | 'server' | 'client' | 'hybrid';
-}): string;
+export interface RenderRequestContext {
+  params?: Record<string, string>;
+  query?: Record<string, string>;
+  request?: any;
+  [key: string]: any;
+}
+
+/** Run a page module's loader, then render it. Returns the body, head and loader data. */
+export function renderPage(
+  pageModule: { default: Component<any>; loader?: (ctx: RenderRequestContext) => any } | Component<any>,
+  reqCtx?: RenderRequestContext,
+): Promise<{ body: string; head: string; loaderData: any }>;
 
 // --- Page Configuration ---
 
@@ -43,15 +47,6 @@ export function definePage(config: Partial<PageConfig>): PageConfig;
 // --- Islands ---
 
 export type IslandMode = 'static' | 'idle' | 'visible' | 'load' | 'media' | 'action';
-
-export const IslandModes: {
-  STATIC: 'static';
-  IDLE: 'idle';
-  VISIBLE: 'visible';
-  LOAD: 'load';
-  MEDIA: 'media';
-  ACTION: 'action';
-};
 
 export interface IslandOptions {
   /** Hydration mode */
@@ -93,8 +88,8 @@ export interface ActionOptions {
   revalidate?: string[];
 }
 
-/** Create a server action */
-export function createAction<T extends any[], R>(
+/** Define a server action */
+export function action<T extends any[], R>(
   fn: (...args: T) => Promise<R>,
   options?: ActionOptions
 ): (...args: T) => Promise<R>;

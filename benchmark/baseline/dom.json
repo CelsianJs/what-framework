@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-07-27T15:03:31.173Z",
+  "node": "v24.18.0",
+  "platform": "darwin",
+  "rounds": 63,
+  "samplesPerRound": 10,
+  "metric": "ms",
+  "aggregate": "p25 of pooled samples",
+  "lowerIsBetter": true,
+  "noiseFloorMs": 0.5,
+  "results": [
+    {
+      "name": "create1k",
+      "label": "create 1,000 rows",
+      "ms": 23.1,
+      "spread": 1.5
+    },
+    {
+      "name": "replace1k",
+      "label": "replace all 1,000 rows",
+      "ms": 21.3,
+      "spread": 2.3
+    },
+    {
+      "name": "partialUpdate",
+      "label": "partial update (every 10th of 1,000)",
+      "ms": 8.9,
+      "spread": 1.5
+    },
+    {
+      "name": "selectRow",
+      "label": "select row",
+      "ms": 8.5,
+      "spread": 3.8
+    },
+    {
+      "name": "swapRows",
+      "label": "swap rows (2 and 999)",
+      "ms": 8.7,
+      "spread": 6.2
+    },
+    {
+      "name": "removeRow",
+      "label": "remove one row",
+      "ms": 8.8,
+      "spread": 5.8
+    },
+    {
+      "name": "create10k",
+      "label": "create 10,000 rows",
+      "ms": 168.6,
+      "spread": 17.1
+    },
+    {
+      "name": "append1k",
+      "label": "append 1,000 to 1,000 rows",
+      "ms": 19.2,
+      "spread": 6.4
+    },
+    {
+      "name": "clear1k",
+      "label": "clear 1,000 rows",
+      "ms": 8.5,
+      "spread": 1.2
+    }
+  ]
+}

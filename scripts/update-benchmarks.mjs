@@ -48,12 +48,34 @@ function row(name, displayName) {
           </tr>`;
 }
 
+// The published size claim comes from the repo's own size harness, never from
+// a literal: check-size.mjs bundles the counter app against the production
+// condition and gzips it, which is exactly what the page claims to report.
+function measureCoreGzip() {
+  let out = '';
+  try {
+    out = execSync('node scripts/check-size.mjs', { cwd: repoRoot, encoding: 'utf8' });
+  } catch (err) {
+    // Over budget exits non-zero; the measurement itself is still on stdout.
+    out = err.stdout || '';
+  }
+  const match = out.match(/core-counter: min [\d.]+ KB, gzip ([\d.]+) KB/);
+  if (!match) {
+    console.error('[bench] Could not read the core-counter gzip size from check-size.mjs.');
+    console.error('[bench] Run `npm run build` first so dist/ exists, then retry.');
+    process.exit(1);
+  }
+  return match[1];
+}
+
 function bundleRow() {
   return `          <tr>
             <td>what-framework (core)</td>
-            <td class="value">~4kB</td>
+            <td class="value">~${coreGzipKb} KB</td>
           </tr>`;
 }
+
+const coreGzipKb = measureCoreGzip();
 
 const now = new Date();
 const dateStr = now.toLocaleDateString('en-US', {

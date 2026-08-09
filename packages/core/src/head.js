@@ -85,11 +85,29 @@ export function endHeadCollection(sink) {
   return out;
 }
 
+// Head attributes usually come from CMS/SEO data, so attribute NAMES must be
+// validated, not merely escaped: a key of `x" onload="alert(1)` would otherwise
+// break out of the quoted value and inject a live handler. Mirrors
+// what-server's SAFE_ATTR_NAME, plus a case-insensitive `on*` refusal so
+// `onLoad` cannot slip past an uppercase-tolerant name pattern.
+const SAFE_ATTR_NAME = /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/;
+
+function isSafeAttrName(name) {
+  if (!SAFE_ATTR_NAME.test(name)) return false;
+  const lower = name.toLowerCase();
+  return !(lower.startsWith('on') && lower.length > 2);
+}
+
+function attrName(key) {
+  return key === 'httpEquiv' ? 'http-equiv' : key;
+}
+
 function renderHeadTag(tag, attrs) {
   let s = `<${tag}`;
   for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
-    const name = k === 'httpEquiv' ? 'http-equiv' : k;
+    const name = attrName(k);
+    if (!isSafeAttrName(name)) continue;
     s += ` ${name}="${escapeHtml(String(v))}"`;
   }
   return s + '>';
@@ -106,8 +124,17 @@ function escapeHtml(str) {
 
 // --- Client DOM helpers ---
 
+// Dedup keys come from user-supplied attrs (and fall back to JSON.stringify,
+// which always contains quotes), so they cannot go into a selector raw: an
+// unescaped one throws DOMException and takes all head management with it.
+function escapeSelectorValue(key) {
+  const s = String(key);
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
+  return s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c.codePointAt(0).toString(16)} `);
+}
+
 function setHeadTag(tag, key, attrs) {
-  const existing = document.head.querySelector(`[data-what-head="${key}"]`);
+  const existing = document.head.querySelector(`[data-what-head="${escapeSelectorValue(key)}"]`);
   if (existing) {
     updateElement(existing, attrs);
     return;
@@ -116,15 +143,18 @@ function setHeadTag(tag, key, attrs) {
   const el = document.createElement(tag);
   el.setAttribute('data-what-head', key);
   for (const [k, v] of Object.entries(attrs)) {
-    el.setAttribute(k, v);
+    if (!isSafeAttrName(attrName(k))) continue;
+    el.setAttribute(attrName(k), v);
   }
   document.head.appendChild(el);
 }
 
 function updateElement(el, attrs) {
   for (const [k, v] of Object.entries(attrs)) {
-    if (el.getAttribute(k) !== v) {
-      el.setAttribute(k, v);
+    const name = attrName(k);
+    if (!isSafeAttrName(name)) continue;
+    if (el.getAttribute(name) !== v) {
+      el.setAttribute(name, v);
     }
   }
 }

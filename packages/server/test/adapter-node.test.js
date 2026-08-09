@@ -56,3 +56,43 @@ describe('Node adapter', () => {
     assert.doesNotMatch(hb, /alpha/);
   });
 });
+
+// The node adapter buffered the whole request body before a Request object
+// existed, so the fetch-path 413 ran too late to stop an unauthenticated
+// unbounded-buffering DoS on the primary adapter.
+describe('Node adapter body cap', () => {
+  const OVER = 2 * 1024 * 1024;
+
+  it('rejects an oversized body with 413 instead of buffering it', async () => {
+    const res = await fetch(`${base}/a`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.alloc(OVER, 'x'),
+    });
+    assert.equal(res.status, 413);
+  });
+
+  it('rejects an oversized chunked body with a lying content-length', async () => {
+    const res = await fetch(`${base}/a`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      duplex: 'half',
+      body: new ReadableStream({
+        start(controller) {
+          for (let i = 0; i < 32; i++) controller.enqueue(new Uint8Array(128 * 1024));
+          controller.close();
+        },
+      }),
+    });
+    assert.equal(res.status, 413);
+  });
+
+  it('still accepts a body under the cap', async () => {
+    const res = await fetch(`${base}/a`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ok: true }),
+    });
+    assert.equal(res.status, 200);
+  });
+});

@@ -120,6 +120,34 @@ effect(() => {
 // Good — stable key:
 <For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
   },
+  ERR_UNSAFE_REDIRECT: {
+    code: 'ERR_UNSAFE_REDIRECT',
+    severity: 'error',
+    diagnosis: 'redirect() was given a target that can leave your origin: a protocol-relative ("//host"), backslash-smuggled ("/\\host") or javascript:/data: URL. Reaching it from user input is an open redirect.',
+    suggestedFix: 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Check a user-supplied target against an allowlist before passing it.',
+    codeExample: `// Bad - a user-controlled target can leave your origin:
+redirect(query.next);
+
+// Fix - allowlist the target first:
+redirect(ALLOWED.has(query.next) ? query.next : '/');`,
+  },
+  ERR_REDIRECT_NOT_CAUGHT: {
+    code: 'ERR_REDIRECT_NOT_CAUGHT',
+    severity: 'error',
+    diagnosis: 'A redirect() navigation signal surfaced as an uncaught error, so nothing performed the navigation. redirect() is caught in two places only: route middleware, and a component body. An event handler, a promise callback or a timer runs long after both, and a try/catch around the call swallows the signal.',
+    suggestedFix: 'From an event handler, a promise callback or a timer, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect.',
+    codeExample: `// Bad - an event handler runs after the render the Router caught:
+<button onclick={() => redirect('/login')}>Sign in</button>
+
+// Fix - navigate() from a handler:
+<button onclick={() => navigate('/login')}>Sign in</button>
+
+// Fix - redirect() from a component body, which the Router catches:
+function Private() {
+  if (!user()) redirect('/login');
+  return <Secret />;
+}`,
+  },
   HINT_PREFER_COMPUTED: {
     code: 'HINT_PREFER_COMPUTED',
     severity: 'info',
@@ -1063,9 +1091,25 @@ export function registerAgentTools(server, bridge) {
     'what_fix',
     'Given a What Framework error code, get diagnosis, suggested fix, and code example. Works offline — no browser needed.',
     {
-      error: z.string().describe('Error code (e.g., "ERR_INFINITE_EFFECT") or error message text'),
+      error: z.string().optional().describe('Error code (e.g., "ERR_INFINITE_EFFECT") or error message text'),
+      // `errorCode` is an accepted alias, not a second parameter. Every CLAUDE.md
+      // this project has ever scaffolded documents `what_fix {errorCode}` while
+      // the schema only accepted `error`, so the tool the guide calls a "hidden
+      // gem" and tells agents to reach for FIRST returned a hard validation
+      // error. The docs are fixed, but those CLAUDE.md files are already sitting
+      // in users' repos, so the alias stays permanently.
+      errorCode: z.string().optional().describe('Alias for `error`, accepted for compatibility with older scaffolded CLAUDE.md files'),
     },
-    async ({ error: errorInput }) => {
+    async ({ error, errorCode }) => {
+      const errorInput = error ?? errorCode;
+      if (!errorInput) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'what_fix needs an error code or message. Example: what_fix({ error: "ERR_INFINITE_EFFECT" }).',
+          }],
+        };
+      }
       // Try exact code match first
       let entry = ERROR_DATABASE[errorInput];
 

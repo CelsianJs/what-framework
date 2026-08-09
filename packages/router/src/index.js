@@ -6,7 +6,20 @@ import { signal, effect, computed, batch, h, ErrorBoundary } from 'what-core';
 import { compilePath, matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
-// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed).
+// Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed),
+// any scheme outside the allowlist (blob:, about:, filesystem: ...), and
+// protocol-relative / backslash-smuggled paths that resolve to a foreign
+// origin. Browsers treat "\" like "/", so "/\evil.com" is an open redirect.
+//
+// Sibling predicate: safeLocalPath / safeRedirectTarget in
+// packages/server/src/action-handler.js. That one gates a server-issued
+// `Location:` header and must stay strictly narrower (same-origin local paths
+// only), because a form POST target is attacker-controllable in a way a client
+// navigation target is not. This one deliberately allows absolute http(s),
+// mailto: and tel:. Harden one, re-read the other; do not unify them.
+// packages/server/test/redirect-predicate-parity.test.js gates that ordering.
+
+const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
 export function isSafeUrl(url) {
   if (typeof url !== 'string') return false;
@@ -16,6 +29,13 @@ export function isSafeUrl(url) {
   if (normalized.startsWith('javascript:')) return false;
   if (normalized.startsWith('data:')) return false;
   if (normalized.startsWith('vbscript:')) return false;
+  if (/^[/\\]{2}/.test(normalized)) return false;
+  const scheme = normalized.match(/^([a-z][a-z0-9+.-]*:)/);
+  if (scheme) return SAFE_PROTOCOLS.has(scheme[1]);
+  // Scheme-less only: browsers normalize a backslash to a forward slash, so
+  // `\evil.com` resolves off-origin exactly as `/\evil.com` does. Absolute
+  // URLs already passed the protocol allowlist above.
+  if (normalized.includes('\\')) return false;
   return true;
 }
 
@@ -40,15 +60,49 @@ export const route = {
   get error() { return _navigationError(); },
 };
 
+// --- Navigation Hooks ---
+// Subscriber lists consulted by navigate(). Guards run before the URL changes
+// and can cancel by returning false; afterNavigate runs once the URL committed.
+// Module singletons on purpose: this module is browser-only (it listens for
+// popstate and mutates history), so its scope is one tab, not one request. The
+// server adapters import what-router/match, never this file, so there is no
+// shared-process path here of the kind b066671 fixed for server actions.
+
+const _beforeHooks = [];
+const _afterHooks = [];
+
+function subscribe(list, fn) {
+  list.push(fn);
+  return () => {
+    const i = list.indexOf(fn);
+    if (i !== -1) list.splice(i, 1);
+  };
+}
+
+export function beforeNavigate(fn) {
+  return subscribe(_beforeHooks, fn);
+}
+
+export function afterNavigate(fn) {
+  return subscribe(_afterHooks, fn);
+}
+
 // --- Navigation with View Transitions ---
 
 export async function navigate(to, opts = {}) {
-  const { replace = false, state = null, transition = true, _fromPopstate = false } = opts;
+  const { replace = false, state = null, transition = true, _fromPopstate = false, _redirectChain = false } = opts;
+
+  // A navigation the user asked for starts a fresh redirect chain; a hop
+  // queued by handleRedirect continues the current one.
+  if (!_redirectChain) _redirectHistory.length = 0;
 
   // Reject unsafe URLs
   if (!isSafeUrl(to)) {
     if (typeof console !== 'undefined') {
-      console.warn(`[what-router] Blocked navigation to unsafe URL: ${to}`);
+      // isSafeUrl() rejects non-strings, so the value reaching this warning is
+      // exactly the kind that can throw on template-literal coercion (Symbol,
+      // null-prototype object). Log it as a separate argument.
+      console.warn('[what-router] Blocked navigation to unsafe URL:', to);
     }
     return;
   }
@@ -68,10 +122,36 @@ export async function navigate(to, opts = {}) {
   // Don't navigate if already on the same URL
   if (to === _url()) return;
 
-  // Prevent concurrent navigations — wait for current to finish
+  // Prevent concurrent navigations: wait for the current one to finish. The
+  // flag is claimed in the same tick as the check, because an awaited
+  // beforeNavigate hook otherwise leaves a gap two navigations both get through.
   if (_isNavigating.peek()) return;
-
   _isNavigating.set(true);
+
+  const from = _url();
+
+  // A popstate has already moved the browser URL, so cancelling one means
+  // pushing the previous entry back to keep the address bar in sync. That entry
+  // is a new one: the forward entry is not recoverable and its history.state is
+  // not carried over. Documented on beforeNavigate in index.d.ts.
+  if (_beforeHooks.length) {
+    let cancelled = false;
+    try {
+      for (const fn of _beforeHooks.slice()) {
+        if ((await fn(to, from)) === false) { cancelled = true; break; }
+      }
+    } catch (e) {
+      // A throwing guard must not leave the router permanently wedged.
+      _isNavigating.set(false);
+      throw e;
+    }
+    if (cancelled) {
+      _isNavigating.set(false);
+      if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
+      return;
+    }
+  }
+
   _navigationError.set(null);
 
   const doNavigation = () => {
@@ -101,6 +181,64 @@ export async function navigate(to, opts = {}) {
   } else {
     doNavigation();
   }
+
+  if (_afterHooks.length) {
+    for (const fn of _afterHooks.slice()) fn(to, from);
+  }
+}
+
+// --- redirect() ---
+// Throws a navigation signal. Two places catch it:
+//
+//   - Route middleware, caught by the Router's own matching pass below.
+//   - A component body, caught by core's createComponent, which invokes the
+//     handler the signal carries under Symbol.for('what.navigation.signal')
+//     rather than reporting the throw to an ErrorBoundary. h() is lazy, so a
+//     route component is instantiated after the matching pass has returned;
+//     that is why the second catch has to live in core.
+//
+// Anywhere else (an event handler, a promise callback, a timer) nothing catches
+// it and the signal surfaces as an uncaught error. It carries a code, a fix and
+// an example for exactly that case, because that is the only case a human reads
+// it in.
+
+const REDIRECT = Symbol.for('what.router.redirect');
+const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+
+export function redirect(to, options = {}) {
+  if (!isSafeUrl(to)) {
+    const target = typeof to === 'string' ? to : Object.prototype.toString.call(to);
+    const err = new Error(`[what-router] redirect() refused an unsafe target: ${target}`);
+    err.code = 'ERR_UNSAFE_REDIRECT';
+    err.suggestion = 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.';
+    err.codeExample = `// Bad - a user-controlled target can leave your origin:
+redirect(query.next);
+
+// Good - allowlist the target first:
+redirect(ALLOWED.has(query.next) ? query.next : '/');`;
+    throw err;
+  }
+
+  const sig = new Error(`[what-router] redirect to ${to}`);
+  sig.name = 'RouterRedirect';
+  sig.code = 'ERR_REDIRECT_NOT_CAUGHT';
+  sig.suggestion = 'Seeing this signal in your console means nothing caught it. redirect() works from route middleware and from a component body, where the Router catches it. From an event handler, a promise callback or a timer, call navigate(to) instead. A try/catch around the redirect() call also swallows it.';
+  sig.codeExample = `// Bad - an event handler runs long after the render the Router caught:
+<button onclick={() => redirect('/login')}>Sign in</button>
+
+// Good - navigate() from a handler:
+<button onclick={() => navigate('/login')}>Sign in</button>
+
+// Good - redirect() from a component body, which the Router catches:
+function Private() {
+  if (!user()) redirect('/login');
+  return <Secret />;
+}`;
+  sig[REDIRECT] = true;
+  sig[NAV_SIGNAL] = () => { handleRedirect(to, options); };
+  sig.to = to;
+  sig.options = options;
+  throw sig;
 }
 
 // Back/forward support — route through navigate() so middleware runs
@@ -164,6 +302,50 @@ function buildLayoutChain(route, routes) {
 const _redirectHistory = [];
 const MAX_REDIRECTS = 10;
 
+function loopScreen(message) {
+  return h('div', { class: 'what-redirect-loop' },
+    h('h1', null, 'Redirect Loop'),
+    h('p', null, message)
+  );
+}
+
+// Shared by the middleware string form and by a thrown redirect() signal.
+// Returns null once the navigation is queued, or the loop screen if the
+// redirect chain is cycling.
+//
+// The chain is scoped to one user navigation: navigate() clears the history
+// unless it is being called from here. Clearing it on a successful match
+// instead would never catch a cycle between two route components, because each
+// hop matches successfully before its component throws the next redirect.
+function handleRedirect(target, options) {
+  _redirectHistory.push(target);
+
+  if (_redirectHistory.length > MAX_REDIRECTS) {
+    const cycle = _redirectHistory.slice(-5).join(' → ');
+    _redirectHistory.length = 0;
+    console.error(`[what-router] Redirect loop detected: ${cycle}`);
+    _isNavigating.set(false);
+    return loopScreen('Too many redirects. Check your middleware configuration.');
+  }
+
+  const seen = new Set();
+  let hasCycle = false;
+  for (const url of _redirectHistory) {
+    if (seen.has(url)) { hasCycle = true; break; }
+    seen.add(url);
+  }
+  if (hasCycle) {
+    const cycle = _redirectHistory.join(' → ');
+    _redirectHistory.length = 0;
+    console.error(`[what-router] Redirect cycle detected: ${cycle}`);
+    _isNavigating.set(false);
+    return loopScreen('Circular redirect detected. Check your middleware configuration.');
+  }
+
+  navigate(target, { replace: true, ...options, _redirectChain: true });
+  return null;
+}
+
 // --- Router Component ---
 
 export function Router({ routes, fallback, globalLayout }) {
@@ -171,7 +353,7 @@ export function Router({ routes, fallback, globalLayout }) {
   // re-evaluates whenever _url changes; the fine-grained runtime reconciles only
   // the matched page in place. The globalLayout is rendered ONCE around it (below)
   // so the app shell persists across navigations instead of re-instantiating.
-  const content = () => {
+  const renderMatch = () => {
     const currentUrl = _url();
     const path = currentUrl.split('?')[0].split('#')[0];
     const search = currentUrl.split('?')[1]?.split('#')[0] || '';
@@ -198,43 +380,11 @@ export function Router({ routes, fallback, globalLayout }) {
             return h('div', { class: 'what-403' }, h('h1', null, '403'), h('p', null, 'Access denied'));
           }
           if (typeof result === 'string') {
-            // Redirect loop detection
-            _redirectHistory.push(result);
-            if (_redirectHistory.length > MAX_REDIRECTS) {
-              const cycle = _redirectHistory.slice(-5).join(' → ');
-              _redirectHistory.length = 0;
-              console.error(`[what-router] Redirect loop detected: ${cycle}`);
-              _isNavigating.set(false);
-              return h('div', { class: 'what-redirect-loop' },
-                h('h1', null, 'Redirect Loop'),
-                h('p', null, 'Too many redirects. Check your middleware configuration.')
-              );
-            }
-            // Check for direct cycle (A → B → A)
-            const seen = new Set();
-            let hasCycle = false;
-            for (const url of _redirectHistory) {
-              if (seen.has(url)) { hasCycle = true; break; }
-              seen.add(url);
-            }
-            if (hasCycle) {
-              const cycle = _redirectHistory.join(' → ');
-              _redirectHistory.length = 0;
-              console.error(`[what-router] Redirect cycle detected: ${cycle}`);
-              _isNavigating.set(false);
-              return h('div', { class: 'what-redirect-loop' },
-                h('h1', null, 'Redirect Loop'),
-                h('p', null, 'Circular redirect detected. Check your middleware configuration.')
-              );
-            }
             // Middleware returned a redirect path
-            navigate(result, { replace: true });
-            return null;
+            return handleRedirect(result);
           }
         }
       }
-      // Successful render — clear redirect history
-      _redirectHistory.length = 0;
 
       // Build element with loading state support
       let element;
@@ -271,6 +421,21 @@ export function Router({ routes, fallback, globalLayout }) {
     );
   };
 
+  // Catches a redirect() thrown by route middleware. A redirect() thrown by a
+  // route component is caught by core instead, because h() is lazy and the
+  // component runs after renderMatch has returned. Anything unbranded
+  // propagates to the app's ErrorBoundary unchanged.
+  const content = () => {
+    let sig = null;
+    try {
+      return renderMatch();
+    } catch (e) {
+      if (!e || !e[REDIRECT]) throw e;
+      sig = e;
+    }
+    return handleRedirect(sig.to, sig.options);
+  };
+
   // Render the global layout ONCE so it — and everything it mounts (sidebars,
   // toasters, command palettes, global key listeners) — PERSISTS across
   // navigations; the reactive `content` child swaps the matched page in place.
@@ -299,7 +464,7 @@ export function Link({
   // Sanitize href — reject dangerous protocols
   const safeHref = isSafeUrl(href) ? href : 'about:blank';
   if (!isSafeUrl(href) && typeof console !== 'undefined') {
-    console.warn(`[what-router] Link blocked unsafe href: ${href}`);
+    console.warn('[what-router] Link blocked unsafe href:', href);
   }
 
   // Strip query string and hash from href for path comparison
@@ -533,6 +698,29 @@ export function useRoute() {
     navigate,
     prefetch,
   };
+}
+
+// --- Route Accessors ---
+// Read the singleton route state directly. Called inside a tracking scope
+// (a reactive text binding, computed or effect) they subscribe to it.
+
+export function useParams() {
+  return route.params;
+}
+
+// Same singleton `_query` signal as route.query: only the Router's match branch
+// writes it, so on an unmatched (404) route this is the last matched route's
+// query, not the current URL's. Documented on both declarations.
+export function useSearch() {
+  return route.query;
+}
+
+export function useNavigate() {
+  return navigate;
+}
+
+export function prefetchRoute(href) {
+  prefetch(href);
 }
 
 // --- Outlet Component ---

@@ -9,8 +9,16 @@ export interface PageCacheConfig {
   swr?: number;
   /** Purge handles for revalidateTag. */
   tags?: string[];
-  /** Split the cache by these request signals, e.g. 'cookie:theme'. */
-  vary?: string[];
+  /**
+   * Split the cache by these request signals, e.g. 'cookie:theme' or
+   * 'header:accept-language' ('x' alone means the 'x' header). The adapter must
+   * supply the matching request headers as `RouteMatch.varyHeaders`; without
+   * them the route is served uncached rather than shared between users.
+   *
+   * A bare string is accepted as shorthand for a one-element list. Any other
+   * shape is refused and the route is served uncached.
+   */
+  vary?: string[] | string;
   fallback?: 'blocking' | boolean;
   onMiss?: 'blocking' | string;
   /** Background regeneration interval, in seconds. */
@@ -25,6 +33,8 @@ export interface CacheEntry {
   status?: number;
   tags?: string[];
   path?: string;
+  /** Per-user render: never stored, never served from a shared cache. */
+  private?: boolean;
   /** Epoch ms when the entry was created. */
   createdAt: number;
   /** Seconds-to-stale snapshot from the page config. */
@@ -51,10 +61,28 @@ export function isFresh(entry: CacheEntry, now?: number): boolean;
 export function isServableStale(entry: CacheEntry, now?: number): boolean;
 
 // --- Keys ---
-export function cacheKey(routeMatch: RouteMatch): string;
+export function cacheKey(input: {
+  path: string;
+  query?: Record<string, string> | string;
+  vary?: string[] | string | Record<string, string>;
+  headers?: Record<string, string>;
+}): string;
 export function normalizePath(path: string): string;
 export function normalizeQuery(query: Record<string, string> | string): string;
 export function hashKey(key: string): string;
+/** Resolve a declared vary list against request headers; null if unresolvable. */
+export function resolveVary(
+  vary: string[] | string | Record<string, string> | undefined,
+  headers?: Record<string, string>
+): Record<string, string> | null;
+/**
+ * Coerce a `vary` declaration to canonical `string[]`, or null if the shape
+ * cannot be resolved. The cache key and the Cache-Control builder both read
+ * this, so they can never disagree about whether a route is per-user.
+ */
+export function normalizeVaryDeclaration(
+  vary: string[] | string | undefined | null
+): string[] | null;
 
 // --- CDN adapters (optional) ---
 export interface CDNAdapter {
@@ -62,7 +90,8 @@ export interface CDNAdapter {
   purgeTags(tags: string[]): Promise<void>;
 }
 export function createCloudflareCDN(options: { zoneId: string; apiToken: string }): CDNAdapter;
-export function createFastlyCDN(options: { serviceId: string; apiToken: string }): CDNAdapter;
+/** `baseUrl` is required for URL purge: only local paths resolved against it are purged. */
+export function createFastlyCDN(options: { serviceId: string; apiToken: string; baseUrl?: string }): CDNAdapter;
 export function createVercelCDN(options: { projectId: string; token: string; teamId?: string }): CDNAdapter;
 
 // --- Headers ---
@@ -92,6 +121,8 @@ export interface RouteMatch {
   params?: Record<string, string>;
   route?: unknown;
   request?: Request;
+  /** Request headers the route's `vary` names resolve against. */
+  varyHeaders?: Record<string, string>;
 }
 
 export interface RenderResult {
@@ -131,7 +162,7 @@ export function createCacheEngine(options?: {
 // --- Revalidation webhook ---
 export interface WebhookRequest {
   headers?: Record<string, string>;
-  body?: { paths?: string[]; tags?: string[]; secret?: string; regenerate?: boolean };
+  body?: { paths?: string[]; tags?: string[]; secret?: string };
 }
 export interface WebhookResponse {
   status: number;
@@ -139,7 +170,7 @@ export interface WebhookResponse {
 }
 export function createRevalidateWebhook(
   engine: CacheEngine,
-  options: { secret: string }
+  options: { secret: string; header?: string; regenerate?: boolean; maxBatch?: number }
 ): (req: WebhookRequest) => Promise<WebhookResponse>;
 
 // --- Poll scheduler ---

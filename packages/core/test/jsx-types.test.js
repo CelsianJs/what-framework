@@ -64,6 +64,15 @@ test('valid What JSX type-checks clean under jsx:"preserve" (the create-what sca
   );
 });
 
+test('control-flow components and null-returning components type-check clean', () => {
+  const diags = compile('control-flow.tsx', 'what-framework');
+  assert.equal(
+    diags.length,
+    0,
+    `expected no diagnostics, got:\n${messages(diags).join('\n')}`,
+  );
+});
+
 test('invalid JSX is rejected — types are not blanket any', () => {
   const diags = compile('bad.tsx', 'what-framework');
   assert.ok(diags.length > 0, 'expected a type error for a string onclick handler');

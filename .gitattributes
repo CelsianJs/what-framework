@@ -1,0 +1,18 @@
+# Cache keys use a NUL (0x00) field separator between <normalizedPath>,
+# <normalizedQuery> and <varyString>. That is deliberate and load-bearing: NUL
+# cannot appear in any of the three fields, so it cannot be used to forge a key
+# collision. A file containing raw NUL bytes trips git's binary heuristic and
+# renders "Binary files differ" instead of a diff.
+#
+# packages/cache/src/key.js no longer needs an override: it now writes the
+# separator as the escape sequence backslash-u-0000 rather than a raw byte, so
+# it is ordinary text. That change was not cosmetic. While the byte was raw,
+# grep skipped the file as binary, and the two places that spelled the separator
+# drifted apart unnoticed: cacheKey() joined on NUL while redactVary() searched
+# for a space, so the redaction that keeps session tokens out of Redis key names
+# and out of on-disk cache files silently never fired on a single real key.
+#
+# The test file still contains raw NUL bytes, deliberately: it asserts against
+# real key strings, and writing those as escapes would stop it proving the
+# on-the-wire format. It is valid UTF-8 and contains no CR, so text is safe.
+packages/cache/test/key.test.js text diff

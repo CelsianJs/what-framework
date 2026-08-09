@@ -81,19 +81,31 @@ export function lazy(loader) {
 export function Suspense({ fallback, children }) {
   const loading = signal(false);
   const pendingPromises = new Set();
+  let failed = false;
 
   // Suspense boundary marker
   const boundary = {
     _suspense: true,
     onSuspend(promise) {
+      if (failed) return;
       loading.set(true);
       pendingPromises.add(promise);
-      promise.finally(() => {
-        pendingPromises.delete(promise);
-        if (pendingPromises.size === 0) {
-          loading.set(false);
-        }
-      });
+      // Rejection is handled separately from fulfilment. Clearing the fallback
+      // on a rejection re-renders the child, which suspends on the same
+      // rejected thenable again, forever. Latch the failure and stay put.
+      promise.then(
+        () => {
+          pendingPromises.delete(promise);
+          if (pendingPromises.size === 0) {
+            loading.set(false);
+          }
+        },
+        (err) => {
+          failed = true;
+          pendingPromises.delete(promise);
+          console.error('[what] Suspense: a suspended child rejected:', err);
+        },
+      );
     },
   };
 
@@ -104,6 +116,10 @@ export function Suspense({ fallback, children }) {
     _vnode: true,
   };
 }
+
+// The boundary context only exists once createSuspenseBoundary runs, so
+// compiled children must not be built during this call. See createComponent.
+Suspense._deferChildren = true;
 
 // --- ErrorBoundary ---
 // Catch errors in children and show fallback.
@@ -134,6 +150,10 @@ export function ErrorBoundary({ fallback, children, onError }) {
     _vnode: true,
   };
 }
+
+// The boundary context only exists once createErrorBoundary runs, so compiled
+// children must not be built during this call. See createComponent.
+ErrorBoundary._deferChildren = true;
 
 // Helper to report error to nearest boundary
 // Walks the component context tree (not a runtime stack) so async errors are caught
@@ -216,33 +236,38 @@ export function For({ each, fallback = null, children }) {
 // Multi-condition rendering (like switch statement).
 
 export function Switch({ fallback = null, children }) {
-  // The Match children (marker vnodes) are static — resolve them once. The
-  // match loop, which reads each Match's reactive `when`, must run inside a
-  // reactive thunk (see Show/For above): components run once, so evaluating
-  // `when()` in the body here would snapshot the active arm a single time and
-  // `<Switch>`/`<Match when={() => sig()}>` would render once and never update.
-  // Switch/Match are NOT lowered by the fine-grained compiler, so this runtime
-  // path is the ONLY path — the thunk is what makes them reactive at all.
+  // The Match children are static, so resolve them once. The match loop, which
+  // reads each Match's reactive `when`, must run inside a reactive thunk (see
+  // Show/For above): components run once, so evaluating `when()` in the body
+  // here would snapshot the active arm a single time and `<Switch>`/`<Match
+  // when={() => sig()}>` would render once and never update.
+  // This is the runtime path, for h() and the automatic JSX runtime, where a
+  // <Match> arrives as an unexecuted marker vnode. The fine-grained compiler
+  // lowers <Switch> to the same conditional thunk and never reaches here; a
+  // <Switch> it cannot lower is a build error rather than a call into this.
   const kids = Array.isArray(children) ? children : [children];
 
   return () => {
     for (const child of kids) {
       if (child && child.tag === Match) {
-        const condition = typeof child.props.when === 'function'
-          ? child.props.when()
-          : child.props.when;
-        if (condition) {
-          return child.children;
-        }
+        const when = child.props.when;
+        const condition = typeof when === 'function' ? when() : when;
+        if (condition) return child.children;
       }
     }
     return fallback;
   };
 }
 
-export function Match({ when, children }) {
-  // Match is just a marker component, Switch handles the logic
-  return { tag: Match, props: { when }, children, _vnode: true };
+export function Match(props) {
+  // Executed rather than left as a marker, which is what a lone compiled
+  // <Match> does. Returning a `{ tag: Match }` vnode here would send createDOM
+  // straight back into Match forever, so return a reactive thunk that renders
+  // the arm when it matches.
+  return () => {
+    const condition = typeof props.when === 'function' ? props.when() : props.when;
+    return condition ? props.children : null;
+  };
 }
 
 // --- Island ---

@@ -27,8 +27,8 @@ what dev --host 0.0.0.0
 ```
 
 Features:
-- WebSocket-based HMR with automatic reconnection
-- Bare import transforms (`what` -> framework modules)
+- WebSocket-based HMR with automatic reconnection (same-origin only)
+- Bare import transforms (`what-framework`, `what-framework/router`, `what-framework/server` -> `/@what/*.js`)
 - File-based routing from `src/pages/`
 - SPA fallback for client-side routing
 - Server action endpoint
@@ -46,7 +46,11 @@ Output:
 - Content-hashed filenames for cache busting
 - Gzipped copies of all JS files
 - `manifest.json` mapping original filenames to hashed versions
-- Bundled framework runtime
+- The framework runtime under `dist/@what/` (unhashed, so app imports keep resolving)
+
+The build fails with a non-zero exit code if there is no app to build, if the
+framework runtime cannot be resolved (`npm install what-framework`), or if any
+bare import specifier survives into the output.
 
 ### `what preview`
 
@@ -59,10 +63,21 @@ what preview --port 4000
 
 ### `what generate`
 
-Static site generation. Runs a build, then pre-renders all pages.
+Static site generation. Runs a build, then pre-renders every page module in
+`pagesDir` to `dist/<route>/index.html` (running each page's `loader` first and
+collecting its `<Head>` tags). Dynamic routes (`[id].js`) are skipped.
 
 ```bash
 what generate
+```
+
+### `what start`
+
+Run the project's full-stack server (`server.js`, Node adapter + ISR). Scaffold
+one with `npm create what@latest -- --fullstack`.
+
+```bash
+what start
 ```
 
 ### `what init`
@@ -91,6 +106,7 @@ export default {
 |---|---|---|
 | `--port` | Server port | `3000` (dev), `4000` (preview) |
 | `--host` | Server host | `localhost` |
+| `--version` | Print the CLI version | |
 
 ## Links
 

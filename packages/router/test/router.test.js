@@ -182,6 +182,67 @@ describe('URL sanitization', () => {
     assert.equal(isSafeUrl(123), false);
     assert.equal(isSafeUrl(null), false);
   });
+
+  it('the blocked-navigation warning does not throw on a non-coercible target', () => {
+    // isSafeUrl() rejects non-strings, so the warning path is reached with
+    // exactly the values that cannot go through a template literal.
+    const warned = [];
+    const original = console.warn;
+    console.warn = (...args) => warned.push(args);
+    try {
+      assert.doesNotThrow(() => navigate(Symbol('nope')));
+      assert.doesNotThrow(() => navigate(Object.create(null)));
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warned.length, 2, 'both attempts must be reported, not crash');
+  });
+
+  it('the blocked-href warning does not throw on a non-coercible href', () => {
+    const warned = [];
+    const original = console.warn;
+    console.warn = (...args) => warned.push(args);
+    try {
+      assert.doesNotThrow(() => Link({ href: Symbol('nope'), children: 'x' }));
+      assert.doesNotThrow(() => Link({ href: Object.create(null), children: 'x' }));
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warned.length, 2);
+  });
+
+  it('should reject protocol-relative URLs', () => {
+    assert.equal(isSafeUrl('//evil.com/x'), false);
+    assert.equal(isSafeUrl('  //evil.com'), false);
+    assert.equal(isSafeUrl('/\\evil.com'), false);
+    assert.equal(isSafeUrl('\\\\evil.com'), false);
+    assert.equal(isSafeUrl('/path\\evil.com'), false);
+    // Browsers normalize backslashes in a scheme-less URL to forward slashes,
+    // so a relative one resolves off-origin just as a rooted one would.
+    assert.equal(isSafeUrl('\\evil.com'), false);
+    assert.equal(isSafeUrl('path\\evil.com'), false);
+    assert.equal(isSafeUrl('#a\\b'), false);
+  });
+
+  it('still allows allowlisted absolute URLs that contain a backslash', () => {
+    assert.equal(isSafeUrl('https://example.com/a\\b'), true);
+  });
+
+  it('should reject schemes outside the allowlist', () => {
+    assert.equal(isSafeUrl('blob:https://x'), false);
+    assert.equal(isSafeUrl('about:blank'), false);
+    assert.equal(isSafeUrl('filesystem:https://x/y'), false);
+    assert.equal(isSafeUrl('FILE:///etc/passwd'), false);
+  });
+
+  it('should allow allowlisted schemes and relative paths', () => {
+    assert.equal(isSafeUrl('http://example.com'), true);
+    assert.equal(isSafeUrl('mailto:a@b.com'), true);
+    assert.equal(isSafeUrl('tel:+15551234'), true);
+    assert.equal(isSafeUrl('/a/b?c=1#d'), true);
+    assert.equal(isSafeUrl('relative/path'), true);
+  });
+
 });
 
 // =========================================================================
@@ -410,6 +471,17 @@ describe('Link component', () => {
     const container = getContainer();
 
     mount(h(Link, { href: 'javascript:alert(1)' }, 'Bad'), container);
+    await flush();
+
+    const a = container.querySelector('a');
+    assert.ok(a, 'Should render an <a> element');
+    assert.equal(a.getAttribute('href'), 'about:blank');
+  });
+
+  it('should sanitize protocol-relative hrefs', async () => {
+    const container = getContainer();
+
+    mount(h(Link, { href: '//evil.com/x' }, 'Bad'), container);
     await flush();
 
     const a = container.querySelector('a');

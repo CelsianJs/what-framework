@@ -18,7 +18,10 @@ Web surfaces (docs-site, benchmarks, playground, react-compat) deploy through
 Vercel's Git integration on push — there is no CI deploy step. `scripts/deploy-vercel.mjs`
 remains available for local, token-in-hand deploys.
 
-The workflow always runs `npm run -s release:verify` before publish/deploy.
+The workflow always runs every correctness gate from `release:verify` before
+publish/deploy, except `bench:gate`, which runs as a separate non-blocking step
+because the perf baselines are recorded on local hardware. Run
+`npm run -s release:verify` locally to get the blocking perf gate.
 When packages are published, it also runs `npm run -s verify:registry` and uploads
 `artifacts/registry-smoke.json`. A release is not complete until this registry
 smoke passes against npm.

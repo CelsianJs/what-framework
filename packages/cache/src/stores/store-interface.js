@@ -15,6 +15,7 @@
 // @property {number} swrWindow   Grace seconds an expired entry is still served.
 // @property {number} [status]    HTTP status (for 404 stubs / fallback skeletons).
 // @property {boolean} [partial]  True for fallback skeletons (never durable).
+// @property {boolean} [private]  True for per-user renders (never stored/shared).
 //
 // @typedef {Object} CacheStore
 // @property {(key:string)=>Promise<Entry|null>} get
@@ -25,13 +26,36 @@
 // @property {()=>Promise<void>} clear
 // @property {()=>Promise<string[]>} keys
 
+// A hybrid route renders per-request data, so an entry without an explicit
+// `revalidate` must NOT be fresh forever. Static routes are content-addressed by
+// their build and stay durable until an explicit purge.
+const HYBRID_MAX_AGE = 60;
+
 /**
  * Fill an Entry's time fields from `now` + a route config. Used by the ISR
  * engine so every store receives consistent expiry metadata.
  */
 export function makeEntry(out, config = {}, now = Date.now()) {
-  const maxAge = Number(config.revalidate) || 0;
+  // `??`, not `||`: an explicit `revalidate: 0` is a real value and must not be
+  // replaced by the hybrid default.
+  const fallbackMaxAge = config.mode === 'hybrid' ? HYBRID_MAX_AGE : 0;
+  const hasExplicitRevalidate = config.revalidate != null;
+  const declaredMaxAge = Number(config.revalidate ?? fallbackMaxAge);
+  const maxAge = Number.isFinite(declaredMaxAge) ? declaredMaxAge : fallbackMaxAge;
   const swrWindow = config.swr != null ? Number(config.swr) : maxAge;
+
+  // maxAge 0 has two completely opposite meanings and they must not collapse:
+  //   - NOT declared, static route: the page is content-addressed by its build
+  //     and stays durable until an explicit purge. expiresAt = Infinity.
+  //   - declared `revalidate: 0`: "always revalidate", the same meaning it has
+  //     in Next. expiresAt = now, so isFresh() is false from the first read and
+  //     every request regenerates.
+  // Reading it as Infinity in the second case turned the one setting a developer
+  // reaches for to DISABLE caching into cache-forever, which is the worst
+  // possible direction for the bug to point.
+  const expiresAt = maxAge > 0
+    ? now + maxAge * 1000
+    : (hasExplicitRevalidate ? now : Infinity);
   return {
     html: out.html || '',
     head: out.head || '',
@@ -40,10 +64,11 @@ export function makeEntry(out, config = {}, now = Date.now()) {
     path: out.path || config.path,
     status: out.status || 200,
     partial: !!out.partial,
+    private: !!(out.private || out.usedRequestHeaders),
     renderedAt: now,
     maxAge,
     swrWindow,
-    expiresAt: maxAge > 0 ? now + maxAge * 1000 : Infinity,
+    expiresAt,
   };
 }
 

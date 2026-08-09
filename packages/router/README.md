@@ -134,6 +134,27 @@ const requireRole = asyncGuard(
 }
 ```
 
+`redirect()` throws a navigation signal. Two places catch it: route middleware,
+and a component body.
+
+```js
+{
+  path: '/admin',
+  component: AdminPanel,
+  middleware: [() => isLoggedIn() || redirect('/login')],
+}
+
+function Private() {
+  if (!isLoggedIn()) redirect('/login');
+  return h(Secret, {});
+}
+```
+
+From an event handler, a promise callback or a timer, nothing catches the
+signal and it surfaces as an uncaught error carrying `ERR_REDIRECT_NOT_CAUGHT`.
+Call `navigate(to)` there instead. A `try/catch` around a `redirect()` call
+also swallows the signal, so rethrow anything whose `name` is `RouterRedirect`.
+
 ## View Transitions
 
 Navigation uses the View Transitions API by default when available. Use helpers to customize:
@@ -165,6 +186,13 @@ enableScrollRestoration(); // call once at app entry
 | `navigate(to, opts?)` | Programmatic navigation |
 | `route` | Reactive route state object |
 | `useRoute()` | Hook returning computed route properties |
+| `useParams()` | Current route params |
+| `useSearch()` | Parsed query string of the last matched route (stale on a 404, like `route.query`) |
+| `useNavigate()` | Returns `navigate` |
+| `redirect(to, opts?)` | Abort route matching and navigate, **from route middleware** (throws, never returns) |
+| `prefetchRoute(href)` | Prefetch a route's assets |
+| `beforeNavigate(fn)` | Guard run before each route navigation (not hash links); return `false` to cancel |
+| `afterNavigate(fn)` | Callback run after each committed navigation |
 | `defineRoutes(config)` | Create routes from flat object |
 | `nestedRoutes(base, children, opts?)` | Nested route helper |
 | `routeGroup(name, routes, opts?)` | Group routes without affecting URL |

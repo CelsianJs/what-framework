@@ -1,6 +1,9 @@
 // Redis/KV cache store — the multi-instance story (N app servers share one
 // cache). Takes an INJECTED client (ioredis / node-redis shaped:
-// get/set/del/sadd/srem/smembers, optional keys) so this package keeps zero deps.
+// get/set/del/sadd/srem/smembers, optional expire/scan/keys) so this package
+// keeps zero deps.
+
+import { redactVary } from '../key.js';
 
 export function createRedisStore({ client, namespace = 'what' } = {}) {
   if (!client) throw new Error('[what-isr] createRedisStore requires { client }');
@@ -8,6 +11,43 @@ export function createRedisStore({ client, namespace = 'what' } = {}) {
   const ck = (key) => `${namespace}:cache:${key}`;
   const tk = (tag) => `${namespace}:tag:${tag}`;
   const pk = (path) => `${namespace}:path:${path}`;
+
+  // Redis must reclaim an entry once it is past its swr window, otherwise the
+  // keyspace grows without bound. Entries with no expiry (durable static pages)
+  // get no TTL and are dropped by explicit purge only.
+  function ttlSeconds(entry, now = Date.now()) {
+    const expiresAt = entry && entry.expiresAt;
+    if (expiresAt == null || expiresAt === Infinity || !Number.isFinite(expiresAt)) return 0;
+    const swr = Number(entry.swrWindow) || 0;
+    return Math.max(1, Math.ceil((expiresAt - now) / 1000) + swr);
+  }
+
+  // SCAN, never KEYS: KEYS is O(N) and blocks single-threaded Redis for the
+  // whole keyspace scan.
+  async function scanKeys(pattern) {
+    if (typeof client.scan === 'function') {
+      const found = new Set();
+      let cursor = '0';
+      do {
+        const res = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 500);
+        const [next, batch] = Array.isArray(res) ? res : [res.cursor, res.keys];
+        cursor = String(next);
+        for (const k of batch || []) found.add(k);
+      } while (cursor !== '0');
+      return [...found];
+    }
+    if (typeof client.keys === 'function') return (await client.keys(pattern)) || [];
+    return [];
+  }
+
+  // Every key crossing into Redis is redacted first: Redis stores key names and
+  // set members verbatim, so a raw vary segment would expose session cookies to
+  // SCAN, MONITOR and any RDB/AOF backup. Redaction is stable, so the path and
+  // tag reverse indexes (whose members are redacted keys) still resolve.
+  async function readEntry(rk) {
+    const v = await client.get(ck(rk));
+    return v ? JSON.parse(v) : null;
+  }
 
   async function deindex(key, entry) {
     if (!entry) return;
@@ -24,20 +64,23 @@ export function createRedisStore({ client, namespace = 'what' } = {}) {
 
   return {
     async get(key) {
-      const v = await client.get(ck(key));
-      return v ? JSON.parse(v) : null;
+      return readEntry(redactVary(key));
     },
     async set(key, entry) {
-      const prev = await this.get(key);
-      if (prev) await deindex(key, prev);
-      await client.set(ck(key), JSON.stringify(entry));
-      for (const t of entry.tags || []) await client.sadd(tk(t), key);
-      if (entry.path) await client.sadd(pk(entry.path), key);
+      const rk = redactVary(key);
+      const prev = await readEntry(rk);
+      if (prev) await deindex(rk, prev);
+      await client.set(ck(rk), JSON.stringify(entry));
+      const ttl = ttlSeconds(entry);
+      if (ttl > 0 && typeof client.expire === 'function') await client.expire(ck(rk), ttl);
+      for (const t of entry.tags || []) await client.sadd(tk(t), rk);
+      if (entry.path) await client.sadd(pk(entry.path), rk);
     },
     async delete(key) {
-      const entry = await this.get(key);
-      await client.del(ck(key));
-      await deindex(key, entry);
+      const rk = redactVary(key);
+      const entry = await readEntry(rk);
+      await client.del(ck(rk));
+      await deindex(rk, entry);
       return !!entry;
     },
     async deleteByTag(tag) {
@@ -47,15 +90,11 @@ export function createRedisStore({ client, namespace = 'what' } = {}) {
       return deleteBySet(pk(path));
     },
     async clear() {
-      if (typeof client.keys === 'function') {
-        const all = await client.keys(`${namespace}:*`);
-        for (const k of all) await client.del(k);
-      }
+      for (const k of await scanKeys(`${namespace}:*`)) await client.del(k);
     },
     async keys() {
-      if (typeof client.keys !== 'function') return [];
       const prefix = `${namespace}:cache:`;
-      const all = await client.keys(`${prefix}*`);
+      const all = await scanKeys(`${prefix}*`);
       return all.map((k) => k.slice(prefix.length));
     },
   };

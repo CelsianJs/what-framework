@@ -282,6 +282,9 @@ export function createContext(defaultValue) {
       return typeof children === 'function' ? children(value) : children;
     },
   };
+  // The context value is only published once the provider body runs, so
+  // compiled children must not be built during this call. See createComponent.
+  context.Provider._deferChildren = true;
   return context;
 }
 

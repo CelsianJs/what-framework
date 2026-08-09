@@ -37,6 +37,68 @@ describe('signal', () => {
     dispose();
   });
 
+  it('should notify when writing -0 over +0 (Object.is, not ===)', () => {
+    const s = signal(0);
+    const seen = [];
+    const dispose = effect(() => { seen.push(s()); });
+    s.set(-0);
+    flushSync();
+    assert.equal(seen.length, 2);
+    assert.ok(Object.is(seen[1], -0));
+    dispose();
+  });
+
+  it('should agree with computed() on -0 vs +0', () => {
+    const s = signal(0);
+    const c = computed(() => s());
+    let runs = 0;
+    const dispose = effect(() => { c(); runs++; });
+    assert.equal(runs, 1);
+    s.set(-0);
+    flushSync();
+    assert.equal(runs, 2);
+    assert.ok(Object.is(c(), -0));
+    dispose();
+  });
+
+  it('should not notify when writing NaN over NaN', () => {
+    const s = signal(NaN);
+    let runs = 0;
+    const dispose = effect(() => { s(); runs++; });
+    assert.equal(runs, 1);
+    s.set(NaN);
+    assert.equal(runs, 1);
+    dispose();
+  });
+
+  it('should skip notifying exactly when Object.is says the value is unchanged', () => {
+    const obj = {};
+    const arr = [];
+    const pairs = [
+      [1, 1], [1, 2], [0, 0], [0, -0], [-0, 0], [-0, -0],
+      [NaN, NaN], [NaN, 1], [1, NaN], [0, NaN], [NaN, 0],
+      ['a', 'a'], ['a', 'b'], ['', ''], ['', 0], [0, ''],
+      [true, true], [true, false], [false, 0], [0, false],
+      [null, null], [undefined, undefined], [null, undefined], [undefined, null],
+      [obj, obj], [obj, {}], [arr, arr], [arr, []], [obj, arr],
+      [Infinity, Infinity], [Infinity, -Infinity], [0, Infinity],
+    ];
+    for (const [from, to] of pairs) {
+      const s = signal(from);
+      let runs = 0;
+      const dispose = effect(() => { s(); runs++; });
+      s.set(() => to);
+      flushSync();
+      const notified = runs > 1;
+      assert.equal(
+        notified, !Object.is(from, to),
+        `writing ${String(to)} over ${String(from)}: expected notified=${!Object.is(from, to)}`
+      );
+      assert.ok(Object.is(s(), to), `writing ${String(to)} over ${String(from)}: value not stored`);
+      dispose();
+    }
+  });
+
   it('should support peek() without tracking', () => {
     const s = signal(10);
     let runs = 0;

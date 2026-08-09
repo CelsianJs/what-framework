@@ -67,6 +67,31 @@ describe('_$createComponent runtime', () => {
     assert.equal(receivedProps.className, 'wrap', 'Should pass regular props');
     assert.ok(receivedProps.children, 'Should merge children into props');
   });
+
+  it('defers a children factory until the component has run', async () => {
+    const { _$createComponent } = await import('../../core/src/render.js');
+
+    const order = [];
+    function Child() {
+      order.push('child');
+      const el = document.createElement('span');
+      el.textContent = 'child';
+      return el;
+    }
+    function Parent(props) {
+      order.push('parent');
+      const el = document.createElement('div');
+      el.appendChild(document.createDocumentFragment());
+      return [el, props.children];
+    }
+
+    const frag = _$createComponent(Parent, null, () => [_$createComponent(Child, null, [])]);
+    const host = document.createElement('div');
+    host.appendChild(frag);
+
+    assert.deepEqual(order, ['parent', 'child'], 'children must be built after the parent runs');
+    assert.equal(host.querySelector('span').textContent, 'child');
+  });
 });
 
 describe('h() is internal-only, not a public API', () => {

@@ -38,6 +38,28 @@ describe('Fastly CDN adapter', () => {
     assert.match(calls[0].url, /service\/svc\/purge\/posts/);
     assert.equal(calls[0].opts.headers['Fastly-Key'], 'k');
   });
+
+  it('purge never sends the API key to a non-local target', async () => {
+    const cdn = createFastlyCDN({ serviceId: 'svc', apiToken: 'k', baseUrl: 'https://site.example' });
+    await cdn.purge([
+      'https://attacker.example/x',
+      'http://169.254.169.254/latest/meta-data/',
+      '//attacker.example/x',
+      '/\\attacker.example/x',
+    ]);
+    assert.deepEqual(calls, [], 'no request left the process');
+
+    await cdn.purge(['/blog']);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://site.example/blog');
+    assert.equal(calls[0].opts.method, 'PURGE');
+  });
+
+  it('purge no-ops without a baseUrl to resolve paths against', async () => {
+    const cdn = createFastlyCDN({ serviceId: 'svc', apiToken: 'k' });
+    await cdn.purge(['/blog']);
+    assert.deepEqual(calls, []);
+  });
 });
 
 describe('Vercel CDN adapter', () => {

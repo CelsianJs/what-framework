@@ -38,6 +38,24 @@ try {
 } catch {
   browserAvailable = false;
 }
+// CI enforcement gate, same shape as WHAT_REQUIRE_COMPAT_LIBS in
+// packages/react-compat/test/libs.test.js. A graceful skip is right for local
+// dev, but it was also happening on the RELEASE run: the publish workflow never
+// installed Chromium, so these six Browser -> Bridge -> MCP tests, which cover
+// the framework's headline differentiator, silently vanished from the gate that
+// ships to npm while the run still printed green. With
+// WHAT_REQUIRE_BROWSER_TESTS=1 a missing browser is a hard failure instead.
+const REQUIRE_BROWSER = process.env.WHAT_REQUIRE_BROWSER_TESTS === '1';
+if (REQUIRE_BROWSER && !browserAvailable) {
+  // A bare top-level throw marks the file failed in node:test, which is exactly
+  // what CI and the publish gate need to see.
+  throw new Error(
+    'WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is not installed. ' +
+    'Run `npx playwright install --with-deps chromium` before this suite. ' +
+    'Skipping the devtools-mcp e2e tests on a release run would ship the MCP ' +
+    'bridge unverified.',
+  );
+}
 const e2eDescribe = browserAvailable ? describe : describe.skip;
 if (!browserAvailable) {
   console.warn('[what] Skipping devtools-mcp e2e: Chromium not installed (run `npx playwright install chromium`).');

@@ -47,6 +47,10 @@ const SIGNAL_CREATORS = new Set([
   'createResource', 'useSWR', 'useQuery', 'useInfiniteQuery',
 ]);
 
+// Control-flow tags the plugin lowers itself instead of emitting
+// _$createComponent, so their children never travel through a factory.
+const LOWERED_TAGS = new Set(['For', 'Show', 'Switch', 'Match']);
+
 const SERVER_ACTION_SOURCES = new Set([
   'what-framework/server',
   'what-server',
@@ -174,6 +178,105 @@ export default function whatBabelPlugin({ types: t }) {
     return /^[A-Z]/.test(name);
   }
 
+  // Dotted tags (<Ctx.Provider>, <Foo.Bar.Baz>) are always components.
+  function isComponentElement(el) {
+    const name = el.openingElement ? el.openingElement.name : el.name;
+    if (t.isJSXMemberExpression(name)) return true;
+    return t.isJSXIdentifier(name) && isComponent(name.name);
+  }
+
+  // A tag whose binding came from a package other than What. isWhatTag is the
+  // stronger claim: the binding came from What, so the tag is provably ours.
+  function isForeignTag(name, state) {
+    return !!(state.foreignImports && state.foreignImports.has(name));
+  }
+
+  function isWhatTag(name, state) {
+    return !!(state.whatImports && state.whatImports.has(name));
+  }
+
+  // Literal <Match> arms are proof enough that a <Switch> is What's, whoever it
+  // was imported from: a bare specifier can be a re-export of What's control
+  // flow just as a relative one can, and nobody writes <Match> arms against a
+  // third-party <Switch>. Unlike <Show> and <For>, <Switch> has no working
+  // runtime path, so guessing wrong here renders the fallback forever.
+  function hasLiteralMatchArms(node) {
+    return node.children.some((child) =>
+      t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }));
+  }
+
+  // JSXMemberExpression -> MemberExpression callee for _$createComponent.
+  function componentCallee(name) {
+    if (t.isJSXMemberExpression(name)) {
+      return t.memberExpression(componentCallee(name.object), t.identifier(name.property.name));
+    }
+    return t.identifier(name.name);
+  }
+
+  // --- Forwarded children on a destructured parameter ---
+  // `function Wrap({ children }) { return <ErrorBoundary>{children}</ErrorBoundary>; }`
+  // realizes the subtree while the parameter list is destructured, which is
+  // before ErrorBoundary is entered, so the boundary never catches and a
+  // provider publishes its value too late for its own subtree. Rewriting the
+  // pattern to a props identifier moves the read into the deferred children
+  // factory, where the enclosing component is already on the stack. Only a
+  // binding whose every reference is a component-child forward qualifies: a
+  // component that inspects its children still needs them realized.
+  function deferForwardedChildren(fnPath) {
+    const params = fnPath.node.params;
+    if (params.length !== 1 || !t.isObjectPattern(params[0])) return;
+    const pattern = params[0];
+    let index = -1;
+    for (let i = 0; i < pattern.properties.length; i++) {
+      const prop = pattern.properties[i];
+      if (t.isRestElement(prop)) return;
+      if (t.isObjectProperty(prop) && !prop.computed &&
+          t.isIdentifier(prop.key, { name: 'children' })) {
+        // A duplicate key would leave the other one destructured in the body,
+        // which reads the getter and defeats the deferral.
+        if (index !== -1 || !t.isIdentifier(prop.value)) return;
+        index = i;
+      }
+    }
+    if (index === -1) return;
+
+    const binding = fnPath.scope.getBinding(pattern.properties[index].value.name);
+    if (!binding || binding.constantViolations.length > 0 || binding.referencePaths.length === 0) return;
+    const forwarded = binding.referencePaths.every((ref) => {
+      const container = ref.parentPath;
+      if (!container || !container.isJSXExpressionContainer()) return false;
+      const owner = container.parentPath;
+      if (!owner || !owner.isJSXElement() || !isComponentElement(owner.node)) return false;
+      const tag = owner.node.openingElement.name;
+      return !(t.isJSXIdentifier(tag) && LOWERED_TAGS.has(tag.name));
+    });
+    if (!forwarded) return;
+
+    const propsId = fnPath.scope.generateUidIdentifier('props');
+    if (pattern.typeAnnotation) propsId.typeAnnotation = pattern.typeAnnotation;
+    params[0] = propsId;
+    const remaining = pattern.properties.filter((_, i) => i !== index);
+    if (remaining.length > 0) {
+      if (!t.isBlockStatement(fnPath.node.body)) {
+        fnPath.node.body = t.blockStatement([t.returnStatement(fnPath.node.body)]);
+      }
+      const moved = t.objectPattern(remaining);
+      fnPath.node.body.body.unshift(
+        t.variableDeclaration('const', [
+          t.variableDeclarator(moved, t.cloneNode(propsId)),
+        ])
+      );
+      // collectSignalNamesFromScope classifies a component's props by reading
+      // the parameter list, so the moved pattern has to stay visible to it or
+      // every sibling prop silently stops being treated as reactive.
+      fnPath.node._whatMovedProps = moved;
+    }
+    for (const ref of binding.referencePaths) {
+      ref.replaceWith(t.memberExpression(t.cloneNode(propsId), t.identifier('children')));
+    }
+    fnPath.scope.crawl();
+  }
+
   function isVoidHtmlElement(name) {
     return VOID_HTML_ELEMENTS.has(String(name).toLowerCase());
   }
@@ -197,6 +300,12 @@ export default function whatBabelPlugin({ types: t }) {
       return `${attr.name.namespace.name}:${attr.name.name.name}`;
     }
     return typeof attr.name.name === 'string' ? attr.name.name : String(attr.name.name);
+  }
+
+  // Handler-shaped attribute name, case-insensitive. Mirrors _isEventProp in
+  // what-core's dom.js.
+  function isEventAttrName(name) {
+    return !!name && name.length > 2 && /^on/i.test(name);
   }
 
   function createEventHandler(handler, modifiers) {
@@ -314,6 +423,17 @@ export default function whatBabelPlugin({ types: t }) {
       }
     }
 
+    function extractFromPattern(param) {
+      if (!t.isObjectPattern(param)) return;
+      for (const prop of param.properties) {
+        if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
+          signalNames.add(prop.value.name);
+        } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
+          signalNames.add(prop.argument.name);
+        }
+      }
+    }
+
     // Walk up the scope chain using Babel's scope API.
     let scope = path.scope;
     while (scope) {
@@ -327,18 +447,13 @@ export default function whatBabelPlugin({ types: t }) {
       // scope — not once per binding. The old per-binding rescan made this
       // O(params × bindings) per scope per JSXElement. (AUDIT-2026-06-06 H2)
       const fnNode = scope.path && scope.path.node;
-      if (fnNode && fnNode.params) {
-        for (const param of fnNode.params) {
-          if (t.isObjectPattern(param)) {
-            for (const prop of param.properties) {
-              if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-                signalNames.add(prop.value.name);
-              } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
-                signalNames.add(prop.argument.name);
-              }
-            }
-          }
+      if (fnNode) {
+        if (fnNode.params) {
+          for (const param of fnNode.params) extractFromPattern(param);
         }
+        // deferForwardedChildren moved this pattern out of the parameter list;
+        // it is still the same props destructuring and classifies the same way.
+        if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
       }
       scope = scope.parent;
     }
@@ -628,8 +743,7 @@ export default function whatBabelPlugin({ types: t }) {
     if (t.isJSXExpressionContainer(child)) return false;
     if (t.isJSXElement(child)) {
       const el = child.openingElement;
-      const tagName = el.name.name;
-      if (isComponent(tagName)) return false;
+      if (isComponentElement(child)) return false;
       for (const attr of el.attributes) {
         if (t.isJSXSpreadAttribute(attr)) return false;
         const value = attr.value;
@@ -664,7 +778,7 @@ export default function whatBabelPlugin({ types: t }) {
     const el = node.openingElement;
     const tagName = el.name.name;
 
-    if (isComponent(tagName)) return '';
+    if (isComponentElement(node)) return '';
 
     let html = `<${tagName}`;
 
@@ -672,7 +786,11 @@ export default function whatBabelPlugin({ types: t }) {
       if (t.isJSXSpreadAttribute(attr)) continue;
       const name = getAttrName(attr);
       if (name === 'key') continue;
-      if (name.startsWith('on') || name.startsWith('bind:') || name.includes('|')) continue;
+      // Case-insensitive: a static template is applied via innerHTML, so an
+      // `ONCLICK="alert(1)"` baked into the string becomes a live handler.
+      // Lowercase handlers are compiled separately; uppercase ones are dropped,
+      // matching how the runtime and SSR paths treat them.
+      if (isEventAttrName(name) || name.startsWith('bind:') || name.includes('|')) continue;
 
       let domName = name;
       if (name === 'className') domName = 'class';
@@ -709,7 +827,7 @@ export default function whatBabelPlugin({ types: t }) {
           html += '<!--$-->';
         }
       } else if (t.isJSXElement(child)) {
-        if (isComponent(child.openingElement.name.name)) {
+        if (isComponentElement(child)) {
           html += '<!--$-->';
         } else {
           html += extractStaticHTML(child);
@@ -735,15 +853,23 @@ export default function whatBabelPlugin({ types: t }) {
     const openingElement = node.openingElement;
     const tagName = openingElement.name.name;
 
-    // Control flow components — check before generic isComponent since they start uppercase
-    if (tagName === 'For') {
-      return transformForFineGrained(path, state);
+    // Control flow components, checked before generic isComponent since they start uppercase.
+    // A tag imported from somewhere other than What is that package's component,
+    // whatever it is called, so it goes to the component path untouched, unless
+    // its own arms prove otherwise.
+    if (!isForeignTag(tagName, state)) {
+      if (tagName === 'For') {
+        return transformForFineGrained(path, state);
+      }
+      if (tagName === 'Show') {
+        return transformShowFineGrained(path, state);
+      }
     }
-    if (tagName === 'Show') {
-      return transformShowFineGrained(path, state);
+    if (tagName === 'Switch' && (!isForeignTag(tagName, state) || hasLiteralMatchArms(node))) {
+      return transformSwitchFineGrained(path, state);
     }
 
-    if (isComponent(tagName)) {
+    if (isComponentElement(node)) {
       return transformComponentFineGrained(path, state);
     }
 
@@ -1245,7 +1371,7 @@ export default function whatBabelPlugin({ types: t }) {
 
       if (t.isJSXElement(child)) {
         const childTag = child.openingElement.name.name;
-        if (isComponent(childTag) || childTag === 'For' || childTag === 'Show') {
+        if (isComponentElement(child) || childTag === 'For' || childTag === 'Show') {
           entries.push({ type: 'component', child, childIndex });
           childIndex++;
         } else {
@@ -1498,7 +1624,7 @@ export default function whatBabelPlugin({ types: t }) {
   function transformComponentFineGrained(path, state) {
     const { node } = path;
     const openingElement = node.openingElement;
-    const componentName = openingElement.name.name;
+    const componentRef = componentCallee(openingElement.name);
     const attributes = openingElement.attributes;
     const children = node.children;
 
@@ -1533,7 +1659,7 @@ export default function whatBabelPlugin({ types: t }) {
       state.needsIsland = true;
 
       const islandProps = [
-        t.objectProperty(t.identifier('component'), t.identifier(componentName)),
+        t.objectProperty(t.identifier('component'), componentRef),
         t.objectProperty(t.identifier('mode'), t.stringLiteral(clientDirective.type)),
       ];
 
@@ -1643,19 +1769,34 @@ export default function whatBabelPlugin({ types: t }) {
       );
     }
 
-    // Transform children
+    // Transform children.
+    // Element children build their DOM at the call site, i.e. before the parent
+    // component ever runs, so a <Provider> publishes its context value too late
+    // for its own subtree. Collect the element setup and emit it behind a
+    // zero-arg factory instead; the runtime calls the factory while the parent
+    // is on the component stack. An expression child is deferred for the same
+    // reason: it is the shape a wrapper forwards its own children through, and
+    // reading it while the argument list is built happens before the component
+    // it is being handed to has run. Text children have nothing to defer.
+    const setupMark = state._pendingSetup ? state._pendingSetup.length : 0;
     const transformedChildren = [];
+    let deferChildren = false;
     for (const child of children) {
       if (t.isJSXText(child)) {
         const text = normalizeJsxText(child.value);
         if (text) transformedChildren.push(t.stringLiteral(text));
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
+          deferChildren = true;
           transformedChildren.push(child.expression);
         }
       } else if (t.isJSXElement(child)) {
+        // <For>/<Show>/<Switch> lower to an inserter or a thunk (already lazy).
+        const childTag = child.openingElement.name.name;
+        if (childTag !== 'For' && childTag !== 'Show' && childTag !== 'Switch') deferChildren = true;
         transformedChildren.push(transformElementFineGrained({ node: child }, state));
       } else if (t.isJSXFragment(child)) {
+        deferChildren = true;
         transformedChildren.push(transformFragmentFineGrained({ node: child }, state));
       }
     }
@@ -1676,11 +1817,20 @@ export default function whatBabelPlugin({ types: t }) {
       propsExpr = t.nullLiteral();
     }
 
-    const childrenArray = transformedChildren.length > 0
-      ? t.arrayExpression(transformedChildren)
-      : t.arrayExpression([]);
+    let childrenArg = t.arrayExpression(transformedChildren);
+    if (deferChildren) {
+      // Hoisted element setup emitted while transforming these children belongs
+      // inside the factory, not before the enclosing statement.
+      const setup = state._pendingSetup ? state._pendingSetup.splice(setupMark) : [];
+      childrenArg = t.arrowFunctionExpression(
+        [],
+        setup.length > 0
+          ? t.blockStatement([...setup, t.returnStatement(childrenArg)])
+          : childrenArg
+      );
+    }
 
-    return t.callExpression(t.identifier('_$createComponent'), [t.identifier(componentName), propsExpr, childrenArray]);
+    return t.callExpression(t.identifier('_$createComponent'), [componentRef, propsExpr, childrenArg]);
   }
 
   function transformForFineGrained(path, state) {
@@ -1811,32 +1961,7 @@ export default function whatBabelPlugin({ types: t }) {
     //   () => { const _v = <condition>; return _v ? <consequent> : <alternate>; }
     // Hoisting into a local prevents double-evaluation of the `when` signal
     // (the consequent's render callback also needs the resolved value).
-    //
-    // `whenExpr` shape determines how we form the condition:
-    //   - call expression          → use as-is              <Show when={cond()}>
-    //   - arrow w/ expression body → use the body            <Show when={() => x > 5}>
-    //   - identifier that looks like a signal/import        <Show when={isOpen}>
-    //                              → invoke it as accessor:  isOpen()
-    //   - anything else (member, literal, logical, etc.)    <Show when={user.isAdmin}>
-    //                              → use the raw expression. Do NOT invoke —
-    //                                non-functions would throw at runtime.
-    let condition;
-    if (t.isCallExpression(whenExpr)) {
-      condition = whenExpr;
-    } else if (t.isArrowFunctionExpression(whenExpr) && t.isExpression(whenExpr.body)) {
-      condition = whenExpr.body;
-    } else if (
-      t.isIdentifier(whenExpr) &&
-      (
-        (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames)) ||
-        (state.importedIdentifiers && state.importedIdentifiers.has(whenExpr.name))
-      )
-    ) {
-      condition = t.callExpression(whenExpr, []);
-    } else {
-      // Plain boolean expression — member access, literal, logical, etc.
-      condition = whenExpr;
-    }
+    let condition = buildWhenCondition(whenExpr, state);
 
     const vId = path.scope
       ? path.scope.generateUidIdentifier('v')
@@ -1885,6 +2010,183 @@ export default function whatBabelPlugin({ types: t }) {
         t.conditionalExpression(t.cloneNode(vId), consequent, alternate)
       )
     ]));
+  }
+
+  // A `when` prop's shape determines how the condition is formed:
+  //   - call expression          → use as-is              when={cond()}
+  //   - arrow w/ expression body → use the body           when={() => x > 5}
+  //   - identifier that looks like a signal/import        when={isOpen}
+  //                              → invoke it as accessor: isOpen()
+  //   - anything else (member, literal, logical, etc.)    when={user.isAdmin}
+  //                              → use the raw expression. Do NOT invoke it:
+  //                                non-functions would throw at runtime.
+  function buildWhenCondition(whenExpr, state) {
+    if (t.isCallExpression(whenExpr)) return whenExpr;
+    if (t.isArrowFunctionExpression(whenExpr) && t.isExpression(whenExpr.body)) return whenExpr.body;
+    if (
+      t.isIdentifier(whenExpr) &&
+      (
+        (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames)) ||
+        (state.importedIdentifiers && state.importedIdentifiers.has(whenExpr.name))
+      )
+    ) {
+      return t.callExpression(whenExpr, []);
+    }
+    return whenExpr;
+  }
+
+  function collectControlFlowContent(children, state) {
+    const parts = [];
+    for (const child of children) {
+      if (t.isJSXText(child)) {
+        const text = normalizeJsxText(child.value);
+        if (text) parts.push(t.stringLiteral(text));
+      } else if (t.isJSXExpressionContainer(child)) {
+        if (!t.isJSXEmptyExpression(child.expression)) parts.push(child.expression);
+      } else if (t.isJSXElement(child)) {
+        parts.push(transformElementFineGrained({ node: child }, state));
+      } else if (t.isJSXFragment(child)) {
+        parts.push(transformFragmentFineGrained({ node: child }, state));
+      }
+    }
+    if (parts.length === 0) return t.nullLiteral();
+    if (parts.length === 1) return parts[0];
+    return t.arrayExpression(parts);
+  }
+
+  function transformSwitchFineGrained(path, state) {
+    // <Switch fallback={alt}><Match when={a}>A</Match><Match when={b}>B</Match></Switch>
+    // → () => a ? A : b ? B : alt
+    //
+    // Same reactive-thunk shape <Show> lowers to, for the same reason: the
+    // component runs once, so the arm has to be picked inside a thunk that
+    // insert() re-evaluates. The runtime Switch matches on Match marker vnodes,
+    // which _$createComponent never produces (calling Match instead recurses),
+    // so compiled JSX has no working runtime path.
+    //
+    // A <Switch> is provably What's when either its binding was imported from
+    // What or it has literal <Match> arms; anything else with the same tag name
+    // is somebody else's component and goes to the component path untouched.
+    // Once it is provably ours, a shape whose arms cannot be read statically has
+    // nowhere to go, since the runtime component would render its fallback and
+    // nothing else forever. Fail that build rather than emit a silent blank.
+    const { node } = path;
+
+    // A <Switch> that got here on its arms alone came from the same foreign
+    // specifier its arms did, so its <Match> is ours by the same reasoning.
+    const armsProveIt = isForeignTag(node.openingElement.name.name, state);
+    const isMatch = (child) =>
+      t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }) &&
+      (armsProveIt || !isForeignTag('Match', state));
+    if (!node.children.some(isMatch) && !isWhatTag(node.openingElement.name.name, state)) {
+      return transformComponentFineGrained(path, state);
+    }
+
+    const unsupported = (why) => {
+      const message =
+        `<Switch> ${why}. The compiler needs to read its arms statically. ` +
+        'Write them out: <Switch fallback={...}><Match when={a}>…</Match><Match when={b}>…</Match></Switch>';
+      throw path.buildCodeFrameError
+        ? path.buildCodeFrameError(message)
+        : new Error(`[what-compiler] ${message}`);
+    };
+
+    let fallbackExpr = null;
+    for (const attr of node.openingElement.attributes) {
+      if (t.isJSXSpreadAttribute(attr)) unsupported('cannot take a spread attribute');
+      if (getAttrName(attr) === 'fallback') fallbackExpr = getAttributeValue(attr.value);
+    }
+
+    const arms = [];
+    for (const child of node.children) {
+      if (t.isJSXText(child)) {
+        if (normalizeJsxText(child.value)) unsupported('cannot mix text with its <Match> arms');
+        continue;
+      }
+      if (t.isJSXExpressionContainer(child)) {
+        if (t.isJSXEmptyExpression(child.expression)) continue;
+        unsupported('cannot read its arms from an expression child');
+      }
+      if (!isMatch(child)) {
+        unsupported('cannot mix other elements with its <Match> arms');
+      }
+      arms.push(child);
+    }
+
+    if (arms.length === 0) unsupported('has no <Match> arms');
+
+    if (!state._pendingSetup) state._pendingSetup = [];
+    const branches = [];
+
+    for (const arm of arms) {
+      let whenExpr = null;
+      for (const attr of arm.openingElement.attributes) {
+        if (t.isJSXAttribute(attr) && getAttrName(attr) === 'when') whenExpr = getAttributeValue(attr.value);
+      }
+      if (!whenExpr) {
+        unsupported('has a <Match> with no "when" prop');
+      }
+
+      // An arm's element setup belongs inside the arm. Hoisting it next to the
+      // thunk, the way a lone element does, would build every arm's DOM on the
+      // way to picking one.
+      const setupMark = state._pendingSetup.length;
+      let content = collectControlFlowContent(arm.children, state);
+      const setup = state._pendingSetup.splice(setupMark);
+      if (setup.length > 0) {
+        content = t.callExpression(
+          t.arrowFunctionExpression([], t.blockStatement([...setup, t.returnStatement(content)])),
+          []
+        );
+      }
+
+      branches.push([buildWhenCondition(whenExpr, state), content]);
+    }
+
+    const anyReactive = branches.some(([condition]) =>
+      isPotentiallyReactive(condition, state.signalNames, state.importedIdentifiers));
+
+    const fallback = fallbackExpr || t.nullLiteral();
+
+    if (!anyReactive) {
+      let expr = fallback;
+      for (let i = branches.length - 1; i >= 0; i--) {
+        expr = t.conditionalExpression(branches[i][0], branches[i][1], expr);
+      }
+      return t.arrowFunctionExpression([], expr);
+    }
+
+    // ONE memo over the whole chain, not one per arm. _$memo evaluates its body
+    // immediately, so a memo per arm would evaluate every arm's `when` up front,
+    // while the runtime Switch stops at the first match. A single memo that
+    // resolves to the winning arm's index keeps that short-circuit (`when` props
+    // after the first truthy one are never read) and still gates re-rendering on
+    // the selected arm actually changing.
+    let selector = t.numericLiteral(-1);
+    for (let i = branches.length - 1; i >= 0; i--) {
+      selector = t.conditionalExpression(branches[i][0], t.numericLiteral(i), selector);
+    }
+
+    const armId = state.nextMemoId();
+    state.needsMemo = true;
+    state._pendingSetup.push(
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier(armId),
+          t.callExpression(t.identifier('_$memo'), [t.arrowFunctionExpression([], selector)])
+        )
+      ])
+    );
+
+    let expr = fallback;
+    for (let i = branches.length - 1; i >= 0; i--) {
+      expr = t.conditionalExpression(
+        t.binaryExpression('===', t.callExpression(t.identifier(armId), []), t.numericLiteral(i)),
+        branches[i][1],
+        expr
+      );
+    }
+    return t.arrowFunctionExpression([], expr);
   }
 
   // A fragment-as-root returns an array (or single value) that the runtime
@@ -2231,14 +2533,22 @@ export default function whatBabelPlugin({ types: t }) {
           // (user stores), or functions matching use*/create* naming conventions.
           // This prevents over-wrapping of utility imports (lodash, etc.).
           state.importedIdentifiers = new Set();
+          // <Switch>, <Show>, <For> and <Match> are dispatched on the bare tag
+          // name, and Ant Design, Headless UI and MUI all ship a <Switch>.
+          // Recording which package a tag was imported from tells What's own
+          // control flow apart from a third party's by provenance instead.
+          state.whatImports = new Set();
+          state.foreignImports = new Set();
           for (const node of path.node.body) {
             if (t.isImportDeclaration(node)) {
               const source = node.source.value;
-              const isReactiveSource =
+              const isWhatSource =
                 source === 'what-framework' ||
                 source.startsWith('what-framework/') ||
                 source === 'what-core' ||
-                source.startsWith('what-core/') ||
+                source.startsWith('what-core/');
+              const isReactiveSource =
+                isWhatSource ||
                 source.startsWith('./') ||
                 source.startsWith('../');
 
@@ -2258,6 +2568,10 @@ export default function whatBabelPlugin({ types: t }) {
                   if (isReactiveSource || /^(use|create)[A-Z]/.test(localName)) {
                     state.importedIdentifiers.add(localName);
                   }
+                  // A relative import can be a re-export of What's own control
+                  // flow, so only a bare package specifier counts as foreign.
+                  if (isWhatSource) state.whatImports.add(localName);
+                  else if (!source.startsWith('.')) state.foreignImports.add(localName);
                 }
 
                 if (SERVER_ACTION_SOURCES.has(source)) {
@@ -2276,6 +2590,9 @@ export default function whatBabelPlugin({ types: t }) {
           }
 
           path.traverse({
+            Function(fnPath) {
+              deferForwardedChildren(fnPath);
+            },
             CallExpression(callPath) {
               transformServerAction(callPath, state);
             },

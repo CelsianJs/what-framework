@@ -18,6 +18,58 @@ const SVG_ELEMENTS = new Set([
 ]);
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// --- Attribute sanitization (shared by both setProp implementations) ---
+// Attributes whose value is a URL: reject javascript:, data:, vbscript:
+// protocols (case-insensitive, trimmed). xlink:href matters because SVG <a>
+// executes it, and ping/object[data] are fetched by the browser.
+const URL_ATTRS = new Set([
+  'href', 'src', 'action', 'formaction', 'formAction',
+  'data', 'ping', 'xlink:href', 'xlinkHref',
+]);
+
+// srcdoc is entity-decoded and parsed as a document by the browser, so HTML
+// escaping is not a defense. Refuse it outright rather than trying to clean it.
+const REFUSED_ATTRS = new Set(['srcdoc', 'srcDoc']);
+
+function isSafeUrl(url) {
+  if (url == null) return true;
+  // A boxed String or an object with toString() still stringifies into a live
+  // href, so coerce before the protocol check rather than trusting the type.
+  // A value with no usable toString (Object.create(null), { toString: null },
+  // both reachable from JSON) throws here, so refuse it rather than letting the
+  // TypeError abort the render.
+  let normalized;
+  try {
+    normalized = String(url).trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
+  } catch {
+    return false;
+  }
+  if (normalized.startsWith('javascript:')) return false;
+  if (normalized.startsWith('data:')) return false;
+  if (normalized.startsWith('vbscript:')) return false;
+  return true;
+}
+
+// Event-handler prop test, case-insensitive. A case-sensitive `on` prefix lets
+// `ONCLICK` fall through to setAttribute, where the browser honours it as a live
+// inline handler. Shared by dom.js and render.js so the two cannot diverge.
+export function _isEventProp(key) {
+  if (key.length <= 2) return false;
+  const a = key.charCodeAt(0);
+  const b = key.charCodeAt(1);
+  return (a === 111 || a === 79) && (b === 110 || b === 78);
+}
+
+// Returns true when the attribute must not be applied. Both the h()/html`` path
+// (dom.js setProp) and the compiled-JSX path (render.js setProp) call this so
+// they enforce identical rules.
+export function _isUnsafeAttr(key, value) {
+  const lower = key.toLowerCase();
+  if (REFUSED_ATTRS.has(key) || REFUSED_ATTRS.has(lower)) return true;
+  if (!URL_ATTRS.has(key) && !URL_ATTRS.has(lower)) return false;
+  return !isSafeUrl(value);
+}
+
 // Track all mounted component contexts for disposal
 const mountedComponents = new Set();
 
@@ -73,6 +125,20 @@ function disposeComponent(ctx) {
   mountedComponents.delete(ctx);
 }
 
+// Hydration has no wrapper fragment and no comment markers to hang a component
+// ctx or a reactive-child effect on, so it anchors them to the DOM node they
+// produced. Without an anchor disposeTree cannot reach them and every hydrated
+// component leaks its cleanups and effects.
+export function addHydrationDisposer(node, fn) {
+  if (!node || typeof fn !== 'function') return;
+  if (node._hydrationDisposers) node._hydrationDisposers.push(fn);
+  else node._hydrationDisposers = [fn];
+}
+
+export function addHydratedComponent(node, ctx) {
+  addHydrationDisposer(node, () => disposeComponent(ctx));
+}
+
 // Dispose all components and reactive effects attached to a DOM subtree.
 // Performance: checks _componentCtx / _dispose / _propEffects before walking
 // children, and only checks _commentCtxMap for comment nodes (nodeType 8).
@@ -80,6 +146,13 @@ export function disposeTree(node) {
   if (!node) return;
   if (node._componentCtx) {
     disposeComponent(node._componentCtx);
+  }
+  if (node._hydrationDisposers) {
+    const disposers = node._hydrationDisposers;
+    node._hydrationDisposers = null;
+    for (let i = 0; i < disposers.length; i++) {
+      try { disposers[i](); } catch (e) { /* already disposed */ }
+    }
   }
   // Check comment node WeakMap for component context — only for comment nodes
   if (node.nodeType === 8) {
@@ -154,6 +227,13 @@ export function createDOM(vnode, parent, isSvg) {
     // `frag` is appended to the real DOM the nodes (and endMarker) carry over.
     vnode(frag, endMarker);
     return frag;
+  }
+
+  // Deferred component children (compiled JSX). The value is static (the
+  // factory only exists so the owning component runs before its children are
+  // built), so realize it in place rather than through the reactive path below.
+  if (typeof vnode === 'function' && vnode._lazyChildren) {
+    return createDOM(vnode(), parent, isSvg);
   }
 
   // Reactive function child — use comment markers (no wrapper element)
@@ -285,6 +365,69 @@ export function getComponentStack() {
   return componentStack;
 }
 
+// --- _installLazyChildren(Component, target, lazyChildren) ---
+// Deferred children from compiled JSX arrive as a zero-arg factory instead of
+// built DOM. This defines target.children over that factory and returns a
+// function that ends the current read burst (or null when there is none).
+//
+// Reads are cached only for the duration of one burst, i.e. the component's own
+// execution. Within a burst a component that inspects its children and then
+// renders them gets one array with one set of nodes, so rendering them twice
+// moves them instead of duplicating them. Across bursts the cache is dropped,
+// because realized children are single-use DOM: a DocumentFragment is drained
+// by its first insertion and removed nodes have had their effects disposed, so
+// a component that re-reads props.children from a reactive thunk must get a
+// freshly built subtree rather than the corpse of the previous one.
+//
+// A component that establishes a scope its children depend on (a context
+// provider, an error or suspense boundary) cannot use the getter at all: the
+// scope only exists after the component returns, and reading props.children
+// anywhere, including destructuring it in the parameter list, would build the
+// subtree first. Those set _deferChildren and receive the factory itself, which
+// the render paths realize once the scope exists and which a boundary
+// re-invokes to rebuild its subtree on a later attempt.
+export function _installLazyChildren(Component, target, lazyChildren) {
+  if (Component._deferChildren) {
+    target.children = lazyChildren;
+    return null;
+  }
+  let realized;
+  let cached = false;
+  let inPass = true;
+  Object.defineProperty(target, 'children', {
+    get() {
+      if (!inPass) return lazyChildren();
+      if (!cached) {
+        cached = true;
+        realized = lazyChildren();
+      }
+      return realized;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+  return () => { inPass = false; cached = false; realized = undefined; };
+}
+
+// --- _handleNavigationSignal(error) ---
+// A thrown value may carry its own handler under
+// Symbol.for('what.navigation.signal'). what-router's redirect() throws one, so
+// a redirect from a component body runs the navigation instead of reaching an
+// ErrorBoundary, which would render error UI for a value that is not an error.
+// Returns true when the value was a signal and has been handled.
+//
+// Both component paths route through this (createComponent below and the
+// hydration branch in render.js) so the two cannot drift.
+const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+
+export function _handleNavigationSignal(error) {
+  if (error == null) return false;
+  const handler = error[NAV_SIGNAL];
+  if (typeof handler !== 'function') return false;
+  handler(error);
+  return true;
+}
+
 function createComponent(vnode, parent, isSvg) {
   let { tag: Component, props, children } = vnode;
 
@@ -363,6 +506,9 @@ function createComponent(vnode, parent, isSvg) {
   } else {
     mergedProps = props ? Object.assign({}, props) : {};
   }
+  const lazyChildren = props && props._$lazyChildren;
+  const endChildrenPass = lazyChildren ? _installLazyChildren(Component, mergedProps, lazyChildren) : null;
+
   const propsSignal = signal(mergedProps);
   ctx._propsSignal = propsSignal;
 
@@ -387,7 +533,12 @@ function createComponent(vnode, parent, isSvg) {
     result = untrack(() => Component(reactiveProps));
   } catch (error) {
     componentStack.pop();
-    if (!reportError(error, ctx)) {
+    // A thrown thenable is a suspension, not a failure: hand it to the nearest
+    // Suspense boundary, which swaps in its fallback and re-renders on resolve.
+    // A navigation signal is neither: it carries its own handler.
+    if (!_handleNavigationSignal(error)
+        && !(error && typeof error.then === 'function' && suspend(error, ctx))
+        && !reportError(error, ctx)) {
       console.error('[what] Uncaught error in component:', Component.name || 'Anonymous', error);
       throw error;
     }
@@ -396,8 +547,10 @@ function createComponent(vnode, parent, isSvg) {
     container.appendChild(endComment);
     return container;
   }
+  // The component has run; anything that reads props.children from here on is a
+  // later render pass and must build its own children.
+  if (endChildrenPass) endChildrenPass();
 
-  componentStack.pop();
   ctx.mounted = true;
 
   // Run onMount callbacks after DOM is ready
@@ -411,15 +564,36 @@ function createComponent(vnode, parent, isSvg) {
   }
 
   // Build fragment: <!-- c:start --> [component output] <!-- c:end -->
+  // ctx stays on the stack while children are realized so that a child's
+  // parentCtx (and therefore useContext / error-boundary lookup) resolves to
+  // this component rather than to whatever rendered it.
   container.appendChild(startComment);
   const vnodes = Array.isArray(result) ? result : [result];
-  for (const v of vnodes) {
-    const node = createDOM(v, container, isSvg);
-    if (node) container.appendChild(node);
+  try {
+    for (const v of vnodes) {
+      const node = createDOM(v, container, isSvg);
+      if (node) container.appendChild(node);
+    }
+  } finally {
+    componentStack.pop();
   }
   container.appendChild(endComment);
 
   return container;
+}
+
+// Walk up from ctx to the nearest Suspense boundary and notify it. Returns
+// false when nothing in the chain can handle the suspension.
+function suspend(promise, ctx) {
+  let c = ctx;
+  while (c) {
+    if (c._suspenseBoundary) {
+      c._suspenseBoundary.onSuspend(promise);
+      return true;
+    }
+    c = c._parentCtx;
+  }
+  return false;
 }
 
 // Error boundary component handler
@@ -504,6 +678,7 @@ function createSuspenseBoundary(vnode, parent) {
     hooks: [], hookIndex: 0, effects: [], cleanups: [],
     mounted: false, disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
+    _suspenseBoundary: boundary,
     _startComment: startComment,
     _endComment: endComment,
   };
@@ -514,10 +689,16 @@ function createSuspenseBoundary(vnode, parent) {
   container.appendChild(startComment);
   container.appendChild(endComment);
 
+  // A child suspending mid-render flips `loading` while this effect is still
+  // running, which can re-enter it. The generation counter lets the outer run
+  // detect that a newer run already replaced the content and bail out.
+  let generation = 0;
+
   const dispose = effect(() => {
     const isLoading = loading();
     const vnodes = isLoading ? [fallback] : children;
     const normalized = Array.isArray(vnodes) ? vnodes : [vnodes];
+    const gen = ++generation;
 
     componentStack.push(boundaryCtx);
 
@@ -530,20 +711,26 @@ function createSuspenseBoundary(vnode, parent) {
       }
     }
 
-    for (const v of normalized) {
-      const node = createDOM(v, parent);
-      if (node) {
-        // Insert before endComment
-        if (endComment.parentNode) {
-          endComment.parentNode.insertBefore(node, endComment);
-        } else {
-          // Still in fragment before first mount
-          container.insertBefore(node, endComment);
+    try {
+      for (const v of normalized) {
+        const node = createDOM(v, parent);
+        if (gen !== generation) {
+          if (node) disposeTree(node);
+          break;
+        }
+        if (node) {
+          // Insert before endComment
+          if (endComment.parentNode) {
+            endComment.parentNode.insertBefore(node, endComment);
+          } else {
+            // Still in fragment before first mount
+            container.insertBefore(node, endComment);
+          }
         }
       }
+    } finally {
+      componentStack.pop();
     }
-
-    componentStack.pop();
   });
 
   boundaryCtx.effects.push(dispose);
@@ -653,13 +840,14 @@ export function _setSelectValue(el, value) {
 //     legacy diff-driven update path.
 //   - render.js setProp — fine-grained-compiler output path. No event-handler
 //     bookkeeping (events go through delegation / direct addEventListener at
-//     compile time), but adds URL sanitization for href/src and the
-//     innerHTML `{__html}` enforcement that the compiler relies on.
-// Both share the `el._propEffects[key]` disposer convention. Do not merge
-// without consolidating the event/listener model — they have different callers.
+//     compile time), but adds the innerHTML `{__html}` enforcement that the
+//     compiler relies on.
+// Both share the `el._propEffects[key]` disposer convention and both gate
+// attributes through _isUnsafeAttr() so URL sanitization cannot diverge. Do not
+// merge without consolidating the event/listener model: they have different callers.
 function setProp(el, key, value, isSvg) {
   // Reactive function props — wrap in effect for fine-grained updates
-  if (typeof value === 'function' && !(key.startsWith('on') && key.length > 2) && key !== 'ref') {
+  if (typeof value === 'function' && !_isEventProp(key) && key !== 'ref') {
     if (!el._propEffects) el._propEffects = {};
     if (el._propEffects[key]) {
       try { el._propEffects[key](); } catch (e) { /* already disposed */ }
@@ -672,7 +860,8 @@ function setProp(el, key, value, isSvg) {
   }
 
   // Event handlers
-  if (key.startsWith('on') && key.length > 2) {
+  if (_isEventProp(key)) {
+    if (typeof value !== 'function' && value != null) return;
     let eventName = key.slice(2);
     let useCapture = false;
     if (eventName.endsWith('Capture')) {
@@ -697,6 +886,14 @@ function setProp(el, key, value, isSvg) {
     el._events[storageKey] = wrappedHandler;
     const eventOpts = value._eventOpts;
     el.addEventListener(event, wrappedHandler, eventOpts || useCapture || undefined);
+    return;
+  }
+
+  // Reject dangerous URL protocols and srcdoc
+  if (_isUnsafeAttr(key, value)) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[what] Blocked unsafe URL in "${key}" attribute:`, value);
+    }
     return;
   }
 

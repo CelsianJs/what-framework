@@ -3,7 +3,7 @@
 // navigation, mirroring Next's _next/data).
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { matchRoute } from 'what-router/match';
 import { renderDocument, serializeState } from '../index.js';
 
@@ -17,6 +17,19 @@ function buildConcretePath(pattern, params) {
     .replace(/\[\.\.\.(\w+)\]/g, (_, n) => params[n] ?? '')
     .replace(/\[(\w+)\]/g, (_, n) => params[n] ?? '')
     .replace(/[:*](\w+)/g, (_, n) => params[n] ?? '');
+}
+
+// getStaticPaths params come from user data (a CMS slug, a filename), so a value
+// like '../../etc/cron.d/x' would escape outDir once join() collapses it. Every
+// output directory is checked against the resolved outDir before anything is
+// written.
+function resolveInsideOutDir(outDir, urlPath) {
+  const root = resolve(outDir);
+  const dirPath = resolve(join(outDir, urlPath === '/' ? '' : urlPath));
+  if (dirPath !== root && !dirPath.startsWith(root + sep)) {
+    throw new Error(`[what-server] Refusing to write outside outDir: ${urlPath}`);
+  }
+  return dirPath;
 }
 
 export async function exportStatic({ routes = [], outDir, render, documentOptions = {} } = {}) {
@@ -36,6 +49,7 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
     }
 
     for (const urlPath of concrete) {
+      const dirPath = resolveInsideOutDir(outDir, urlPath);
       const matched = matchRoute(urlPath, [route]);
       const params = matched ? matched.params : {};
       const reqCtx = { params, query: {} };
@@ -44,7 +58,6 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
         ? await render(pageModule, reqCtx)
         : await renderDocument(pageModule, reqCtx, documentOptions);
 
-      const dirPath = join(outDir, urlPath === '/' ? '' : urlPath);
       await mkdir(dirPath, { recursive: true });
       await writeFile(join(dirPath, 'index.html'), html);
 

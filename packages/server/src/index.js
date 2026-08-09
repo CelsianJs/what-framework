@@ -91,6 +91,7 @@ function _renderHydratable(vnode) {
 
   // Element
   const { tag, props, children } = vnode;
+  assertSafeTag(tag);
   const attrs = renderAttrs(props || {});
   const open = `<${tag}${attrs}>`;
 
@@ -174,6 +175,7 @@ export function renderToString(vnode) {
 
   // Element
   const { tag, props, children } = vnode;
+  assertSafeTag(tag);
   const attrs = renderAttrs(props || {});
   const open = `<${tag}${attrs}>`;
 
@@ -369,6 +371,7 @@ export async function* renderToStream(vnode, ctx) {
   }
 
   const { tag, props, children } = vnode;
+  assertSafeTag(tag);
   const attrs = renderAttrs(props || {});
   yield `<${tag}${attrs}>`;
 
@@ -512,15 +515,34 @@ function _resolveInnerHTML(props) {
 // xlink:href, SVG names like stroke-width, and namespaced attributes.
 const SAFE_ATTR_NAME = /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/;
 
+// Tag names are emitted verbatim too, so they get the same treatment:
+//   h('div onload=alert(1) x', {})  ->  <div onload=alert(1) x>
+// Allows custom elements (my-el), SVG camelCase (clipPath) and the internal
+// '__suspense' marker tag.
+const SAFE_TAG_NAME = /^[a-zA-Z_][a-zA-Z0-9._:-]*$/;
+
+function assertSafeTag(tag) {
+  if (typeof tag !== 'string' || !SAFE_TAG_NAME.test(tag)) {
+    throw new Error(`[what-server] Invalid tag name in SSR: ${JSON.stringify(tag)}`);
+  }
+}
+
 function renderAttrs(props) {
   let out = '';
   for (const [key, val] of Object.entries(props)) {
     if (key === 'key' || key === 'ref' || key === 'children' || key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
-    if (key.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
+    const lowerKey = key.toLowerCase();
+    if (lowerKey.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
     if (val === false || val == null) continue;
     if (!SAFE_ATTR_NAME.test(key)) {
       if (_isDevMode) {
         console.warn(`[what-server] Skipping invalid attribute name in SSR: ${JSON.stringify(key)}`);
+      }
+      continue;
+    }
+    if (REFUSED_ATTRS.has(lowerKey)) {
+      if (_isDevMode) {
+        console.warn(`[what-server] Skipping unsafe attribute in SSR: ${JSON.stringify(key)}`);
       }
       continue;
     }
@@ -556,9 +578,16 @@ function isUnsafeUrlAttribute(key, val) {
   return normalizedValue.startsWith('javascript:') || normalizedValue.startsWith('vbscript:') || normalizedValue.startsWith('data:');
 }
 
+// Must stay in step with URL_ATTRS in what-core's dom.js. Both sets are gated by
+// the parity test in test/ssr-security.test.js.
 const URL_ATTRS = new Set([
-  'href', 'src', 'action', 'formaction', 'xlink:href',
+  'href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href',
 ]);
+
+// Attributes whose value the browser parses as markup or code, so escaping is
+// not a defense: srcdoc is entity-decoded and parsed as a full document, which
+// revives "&lt;script&gt;". These are refused outright.
+const REFUSED_ATTRS = new Set(['srcdoc']);
 
 function escapeHtml(str) {
   return str

@@ -26,6 +26,16 @@ try {
 } catch {
   browserAvailable = false;
 }
+// See the note in packages/devtools-mcp/test/e2e.test.js: a graceful skip is
+// correct locally, but the publish workflow was skipping these too, so the
+// browser client shipped unverified. WHAT_REQUIRE_BROWSER_TESTS=1 makes a
+// missing browser fail instead of disappear.
+if (process.env.WHAT_REQUIRE_BROWSER_TESTS === '1' && !browserAvailable) {
+  throw new Error(
+    'WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is not installed. ' +
+    'Run `npx playwright install --with-deps chromium` before this suite.',
+  );
+}
 const browserDescribe = browserAvailable ? describe : describe.skip;
 if (!browserAvailable) {
   console.warn('[what] Skipping devtools browser tests: Chromium not installed (run `npx playwright install chromium`).');

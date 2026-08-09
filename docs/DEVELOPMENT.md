@@ -66,11 +66,18 @@ npm run bench:gate
 
 This runs:
 
-1. Core benchmark suite (`benchmark/run.js`)
+1. Core benchmark suite (`benchmark/run.js`, best of 3 runs)
 2. DX microbenchmarks (`benchmark/dx-microbench.js`)
-3. Baseline comparison from `benchmark/baseline/*.json`
+3. Real DOM operations in Chromium (`benchmark/dom-gate.mjs`, 21 rounds)
+4. Baseline comparison from `benchmark/baseline/*.json`
 
-A regression beyond configured tolerance fails the command.
+Tolerances are 10% for core and DOM and 15% for DX (`WHAT_BENCH_TOLERANCE_CORE`, `WHAT_BENCH_TOLERANCE_DOM`, `WHAT_BENCH_TOLERANCE_DX`). A regression beyond tolerance fails the command. A DOM op must also move by more than the `noiseFloorMs` recorded in its baseline (0.5 ms), which is below 10% of every guarded op, so all nine are gated by the percentage rather than by the floor.
+
+Both benchmark harnesses are contaminated in one direction only: a descheduled process reports fewer ops per second, and a late frame reports more milliseconds. So core takes the best of three runs, and the DOM stage takes the 25th percentile of the pooled samples rather than a median.
+
+The DOM stage needs a Chromium and an install inside `benchmark/krausest`. CI's `bench-gate` job provisions both and runs it as a non-blocking gross-regression signal (50% tolerance, 5 rounds), because the baselines are recorded on local hardware and shared runners are slower. Set `WHAT_BENCH_SKIP_DOM=1` to skip the stage; nothing in `release:verify` sets it.
+
+Re-record the DOM baseline with `npm run bench:dom` (63 rounds), on an idle machine.
 
 To reduce flaky failures from machine jitter, the gate re-runs benchmarks once when an initial regression is detected.
 

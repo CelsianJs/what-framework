@@ -24,7 +24,7 @@ export interface Computed<T> {
   _signal: true;
 }
 
-export function signal<T>(initial: T): Signal<T>;
+export function signal<T>(initial: T, debugName?: string): Signal<T>;
 export function computed<T>(fn: () => T): Computed<T>;
 export function effect(fn: () => void | (() => void), opts?: { stable?: boolean }): () => void;
 export function signalMemo<T>(fn: () => T): Computed<T>;
@@ -33,12 +33,36 @@ export function untrack<T>(fn: () => T): T;
 export function flushSync(): void;
 export function createRoot<T>(fn: (dispose: () => void) => T): T;
 
+/** Opaque ownership scope handle. Pair with runWithOwner() for async work. */
+export interface Owner {
+  disposals: Array<() => void>;
+}
+
+export function getOwner(): Owner | null;
+export function runWithOwner<T>(owner: Owner | null, fn: () => T): T;
+/** Register a cleanup with the current owner/root (root-level onCleanup). */
+export function onRootCleanup(fn: () => void): void;
+
 // --- Virtual DOM ---
 
 export type PrimitiveChild = string | number | boolean | null | undefined;
 export type VNodeChild = PrimitiveChild | VNode | (() => VNodeChild) | VNodeChild[];
 
-export type Component<P = {}> = (props: P & { children?: VNodeChild }) => VNodeChild;
+/** A component may legitimately render nothing, so `null` is part of the contract. */
+export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNode | null) & {
+  /**
+   * Opt out of realizing compiled children before the component runs.
+   *
+   * A component that establishes a scope its children depend on (a context
+   * provider, an error or suspense boundary) receives `props.children` as a
+   * zero-argument factory instead of built nodes, and the runtime realizes it
+   * once that scope exists. `ErrorBoundary`, `Suspense` and `Context.Provider`
+   * set this themselves, and the compiler keeps a component that only forwards
+   * its children lazy, so this is only needed by a component that both
+   * inspects its children and forwards them into a boundary or a provider.
+   */
+  _deferChildren?: boolean;
+};
 
 export interface VNode<P = Record<string, any>> {
   tag: string | Component<P>;
@@ -54,15 +78,20 @@ export function h<P extends Record<string, any>>(
   ...children: VNodeChild[]
 ): VNode<P>;
 
-export function Fragment(props: { children?: VNodeChild }): VNodeChild;
+export function Fragment(props: { children?: VNodeChild }): VNode;
 export function html(strings: TemplateStringsArray, ...values: any[]): VNode | VNode[];
 
 // --- DOM ---
 
 export function mount(vnode: VNodeChild, container: string | Element): () => void;
 
+/** Attach reactive bindings to server-rendered DOM instead of creating it. */
+export function hydrate(vnode: VNodeChild, container: Element): Node | null;
+export function isHydrating(): boolean;
+
 // Fine-grained rendering primitives
 export function template(html: string): () => Element;
+export function svgTemplate(html: string): () => Element;
 export function insert(parent: Node, child: any, marker?: Node | null): any;
 export function mapArray<T>(
   source: () => T[],
@@ -132,18 +161,18 @@ export function Show(props: {
   when: boolean | (() => boolean);
   fallback?: VNodeChild;
   children?: VNodeChild;
-}): VNodeChild;
+}): VNode;
 
 export function For<T>(props: {
   each: T[] | (() => T[]);
   fallback?: VNodeChild;
   children: ((item: T, index: number) => VNodeChild) | VNodeChild;
-}): VNodeChild;
+}): VNode;
 
 export function Switch(props: {
   fallback?: VNodeChild;
   children?: VNodeChild;
-}): VNodeChild;
+}): VNode;
 
 export function Match(props: {
   when: boolean | (() => boolean);
@@ -197,6 +226,37 @@ export function Head(props: {
   children?: VNodeChild;
 }): null;
 export function clearHead(): void;
+
+/** Per-render head accumulator used by the SSR renderer. */
+export interface HeadSink {
+  title: string | null;
+  metas: Map<string, Record<string, string>>;
+  links: Map<string, Record<string, string>>;
+}
+
+export function beginHeadCollection(): HeadSink;
+export function endHeadCollection(sink: HeadSink | null): string;
+
+// --- Loader Data ---
+
+export function useLoaderData<T = any>(): T | undefined;
+export function getLoaderData<T = any>(): T | undefined;
+export function getResource<T = any>(key: string): T | undefined;
+
+// --- Server Context ---
+
+export interface ServerContext {
+  loaderData?: any;
+  head?: HeadSink;
+  resources?: Record<string, any>;
+  [key: string]: any;
+}
+
+/** The active render context, or null on the client / outside a render. */
+export function getServerContext(): ServerContext | null;
+/** Set the active context and return the previous one so callers can restore it. */
+export function setServerContext(ctx: ServerContext | null): ServerContext | null;
+export function runWithServerContext<T>(ctx: ServerContext, fn: () => T): T;
 
 // --- Scheduler ---
 
@@ -334,17 +394,17 @@ export function onKeys(keys: string[], handler: (e: KeyboardEvent) => void): (e:
 
 // --- Skeleton ---
 
-export function Skeleton(props?: Record<string, any>): VNodeChild;
+export function Skeleton(props?: Record<string, any>): VNode;
 export function SkeletonText(props?: Record<string, any>): VNode;
-export function SkeletonAvatar(props?: Record<string, any>): VNodeChild;
+export function SkeletonAvatar(props?: Record<string, any>): VNode;
 export function SkeletonCard(props?: Record<string, any>): VNode;
 export function SkeletonTable(props?: Record<string, any>): VNode;
-export function IslandSkeleton(props?: Record<string, any>): VNodeChild;
+export function IslandSkeleton(props?: Record<string, any>): VNode;
 export function useSkeleton<T>(asyncFn: () => Promise<T> | T, deps?: unknown[]): {
   isLoading: () => boolean;
   data: () => T | null;
   error: () => any;
-  Skeleton: (props?: Record<string, any>) => VNodeChild;
+  Skeleton: (props?: Record<string, any>) => VNode;
 };
 export function Placeholder(props?: Record<string, any>): VNode;
 export function LoadingDots(props?: Record<string, any>): VNode;
@@ -504,4 +564,85 @@ export function ErrorMessage(props: {
   formState?: FormState;
   errors?: Record<string, FieldError> | (() => Record<string, FieldError>);
   render?: (args: { message?: string; type?: string }) => VNodeChild;
-}): VNodeChild;
+}): VNode;
+
+// --- Structured Errors ---
+
+export interface ErrorCodeDefinition {
+  code: string;
+  severity: 'error' | 'warning';
+  template: string;
+  suggestion: string;
+  codeExample?: string;
+}
+
+export const ERROR_CODES: Record<string, ErrorCodeDefinition>;
+
+export interface WhatErrorJSON {
+  code: string;
+  message: string;
+  suggestion?: string;
+  file?: string;
+  line?: number;
+  component?: string;
+  signal?: string;
+  effect?: string;
+}
+
+export class WhatError extends Error {
+  constructor(init: {
+    code: string;
+    message: string;
+    suggestion?: string;
+    file?: string;
+    line?: number;
+    component?: string;
+    signal?: string;
+    effect?: string;
+  });
+  code: string;
+  suggestion?: string;
+  file?: string;
+  line?: number;
+  component?: string;
+  signal?: string;
+  effect?: string;
+  toJSON(): WhatErrorJSON;
+}
+
+export function createWhatError(
+  errorCode: string | ErrorCodeDefinition,
+  context?: Record<string, any>,
+): WhatError;
+export function classifyError(err: unknown, context?: Record<string, any>): WhatError;
+export function collectError(error: WhatError): void;
+export function getCollectedErrors(since?: number): Array<WhatErrorJSON & { timestamp: number }>;
+export function clearCollectedErrors(): void;
+
+// --- Guardrails ---
+
+export interface GuardrailConfig {
+  signalReadDetection: boolean;
+  componentNaming: boolean;
+  importValidation: boolean;
+}
+
+export function configureGuardrails(overrides: Partial<GuardrailConfig>): void;
+export function getGuardrailConfig(): GuardrailConfig;
+export function installSignalReadGuardrail<T>(signalFn: T, debugName?: string): T;
+
+// --- Agent Context ---
+
+export interface HealthReport {
+  effectCycleRisk: boolean;
+  orphanEffects: number;
+  signalLeaks: number;
+  memoryPressure: 'low' | 'medium' | 'high';
+  recentErrorCount: number;
+  totalSignals: number;
+  totalComponents: number;
+}
+
+export function getHealth(): HealthReport;
+/** Expose globalThis.__WHAT_AGENT__ for agent tooling (dev mode only). */
+export function installAgentContext(): void;

@@ -22,6 +22,11 @@ if (!global.customElements) {
 
 const { h } = await import('../src/h.js');
 const { hydrate, isHydrating } = await import('../src/render.js');
+const { mount, disposeTree } = await import('../src/dom.js');
+const { signal } = await import('../src/reactive.js');
+const { __setDevToolsHooks } = await import('../src/reactive.js');
+const { useEffect, onCleanup } = await import('../src/hooks.js');
+const { createContext, useContext } = await import('../src/hooks.js');
 const { renderToString, renderToHydratableString } = await import('../../server/src/index.js');
 
 function getContainer() {
@@ -238,5 +243,121 @@ describe('renderToHydratableString()', () => {
 
     // The span should be reused (same reference)
     assert.equal(container.querySelector('span'), originalSpan, 'Span should be reused during hydration');
+  });
+});
+
+// =========================================================================
+// Context must survive hydration: the component ctx has to stay on the stack
+// while its result is hydrated, exactly as it does on the client render path.
+// =========================================================================
+
+describe('Context during hydration', () => {
+  function makeTree() {
+    const Ctx = createContext('DEFAULT');
+    const seen = [];
+    function Child() {
+      seen.push(useContext(Ctx));
+      return h('span', null, 'x');
+    }
+    function App() {
+      return h(Ctx.Provider, { value: 'PROVIDED' }, h(Child));
+    }
+    return { App, seen };
+  }
+
+  it('delivers the provided value on the client render path', () => {
+    const { App, seen } = makeTree();
+    mount(h(App), getContainer());
+    assert.deepEqual(seen, ['PROVIDED']);
+  });
+
+  it('delivers the provided value on the hydration path', () => {
+    const { App, seen } = makeTree();
+    const container = getContainer();
+    container.innerHTML = '<span>x</span>';
+    hydrate(h(App), container);
+    assert.deepEqual(seen, ['PROVIDED'], `context did not reach the consumer: ${JSON.stringify(seen)}`);
+  });
+
+  it('falls back to the default value with no provider during hydration', () => {
+    const Ctx = createContext('DEFAULT');
+    const seen = [];
+    function Child() {
+      seen.push(useContext(Ctx));
+      return h('span', null, 'x');
+    }
+    const container = getContainer();
+    container.innerHTML = '<span>x</span>';
+    hydrate(h(Child), container);
+    assert.deepEqual(seen, ['DEFAULT']);
+  });
+});
+
+// =========================================================================
+// A hydrated component's ctx has to be reachable from the DOM, or disposeTree
+// can never run its cleanups and every hydration leaks its effects.
+// =========================================================================
+
+describe('hydrated component disposal', () => {
+  function countingHooks(state) {
+    const noop = () => {};
+    return {
+      onSignalCreate: noop,
+      onSignalUpdate: noop,
+      onEffectCreate: () => { state.live++; },
+      onEffectDispose: () => { state.live--; },
+      onEffectRun: noop,
+      onError: noop,
+      onComponentMount: noop,
+      onComponentUnmount: noop,
+    };
+  }
+
+  it('disposes effects and cleanups created during hydration', async () => {
+    const state = { live: 0 };
+    __setDevToolsHooks(countingHooks(state));
+    try {
+      const container = getContainer();
+      container.innerHTML = '<span>0</span>';
+      const count = signal(0);
+      let cleanedUp = 0;
+      let effectCleanups = 0;
+
+      function App() {
+        onCleanup(() => { cleanedUp++; });
+        useEffect(() => {
+          count();
+          return () => { effectCleanups++; };
+        });
+        return h('span', null, () => String(count()));
+      }
+
+      const before = state.live;
+      hydrate(h(App), container);
+      await flush();
+      assert.ok(state.live > before, 'hydration must create effects for this tree');
+
+      disposeTree(container);
+      assert.equal(cleanedUp, 1, 'onCleanup must run for a hydrated component');
+      assert.equal(effectCleanups, 1, 'useEffect cleanup must run for a hydrated component');
+      assert.equal(state.live, before, 'every effect created during hydration must be disposed');
+    } finally {
+      __setDevToolsHooks(null);
+    }
+  });
+
+  it('stops updating the DOM once a hydrated tree is disposed', async () => {
+    const container = getContainer();
+    container.innerHTML = '<span>0</span>';
+    const count = signal(0);
+    function App() {
+      return h('span', null, () => String(count()));
+    }
+    hydrate(h(App), container);
+    await flush();
+    disposeTree(container);
+    count(1);
+    await flush();
+    assert.equal(container.querySelector('span').textContent, '0');
   });
 });

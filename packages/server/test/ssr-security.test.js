@@ -6,7 +6,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
-import { renderToString } from '../src/index.js';
+import { renderToString, renderToHydratableString, renderToStream } from '../src/index.js';
+import { _isUnsafeAttr } from '../../core/src/dom.js';
 
 // =========================================================================
 // isUnsafeUrlAttribute — tested via renderToString (renderAttrs path)
@@ -168,5 +169,106 @@ describe('SSR innerHTML security', () => {
       h('div', { innerHTML: { __html: '<em>safe</em>' } }),
     );
     assert.ok(html.includes('<em>safe</em>'));
+  });
+});
+
+// =========================================================================
+// Event handler names, srcdoc and tag names
+// =========================================================================
+
+function silenceWarnings(fn) {
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try { return fn(); } finally { console.warn = origWarn; }
+}
+
+describe('SSR event handler attribute stripping', () => {
+  it('strips lowercase, uppercase and mixed-case handler attributes', () => {
+    const html = renderToString(
+      h('div', { onclick: 'alert(1)', ONCLICK: 'alert(2)', OnClick: 'alert(3)' }),
+    );
+    assert.equal(html, '<div></div>', `handlers should never reach the HTML: ${html}`);
+  });
+
+  it('strips uppercase handler attributes in hydratable render and streaming', async () => {
+    const hydratable = renderToHydratableString(h('div', { ONCLICK: 'alert(1)' }));
+    assert.equal(hydratable, '<div></div>');
+
+    let streamed = '';
+    for await (const chunk of renderToStream(h('div', { OnLoad: 'alert(1)' }))) streamed += chunk;
+    assert.equal(streamed, '<div></div>');
+  });
+
+  it('keeps attributes that merely start with "on" as a word', () => {
+    const html = renderToString(h('div', { on: 'x' }));
+    assert.ok(html.includes('on="x"'), html);
+  });
+});
+
+describe('SSR srcdoc rejection', () => {
+  it('refuses srcdoc (the browser decodes and parses it as a document)', () => {
+    const html = silenceWarnings(() =>
+      renderToString(h('iframe', { srcdoc: '<script>alert(1)</script>' }, '')),
+    );
+    assert.ok(!html.includes('srcdoc'), `srcdoc should be dropped entirely: ${html}`);
+    assert.ok(!html.includes('alert(1)'), html);
+  });
+
+  it('refuses uppercase SRCDOC too', () => {
+    const html = silenceWarnings(() => renderToString(h('iframe', { SRCDOC: '<b>x</b>' }, '')));
+    assert.ok(!html.toLowerCase().includes('srcdoc'), html);
+  });
+});
+
+describe('SSR tag name validation', () => {
+  it('throws on a tag name carrying injected attributes', () => {
+    assert.throws(
+      () => renderToString(h('div onload=alert(1) x', {})),
+      /Invalid tag name/,
+    );
+  });
+
+  it('throws for the hydratable and streaming renderers too', async () => {
+    assert.throws(
+      () => renderToHydratableString(h('div onload=alert(1) x', {})),
+      /Invalid tag name/,
+    );
+    await assert.rejects(async () => {
+      for await (const _ of renderToStream(h('div><script>alert(1)</script', {}))) { /* drain */ }
+    }, /Invalid tag name/);
+  });
+
+  it('still renders custom elements and SVG camelCase tags', () => {
+    assert.equal(renderToString(h('my-widget', {}, 'x')), '<my-widget>x</my-widget>');
+    assert.equal(renderToString(h('clipPath', {}, '')), '<clipPath></clipPath>');
+  });
+});
+
+// =========================================================================
+// SSR and client URL-attribute sets must not drift apart. The same commit that
+// added data/ping to the client set left the SSR set behind, so <object
+// data="data:text/html,..."> survived SSR while being blocked in the browser.
+// =========================================================================
+
+describe('SSR/client URL attribute parity', () => {
+  const URL_ATTRS = ['href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href'];
+  const HOSTILE = ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:alert(1)'];
+
+  for (const attr of URL_ATTRS) {
+    for (const value of HOSTILE) {
+      it(`blocks ${attr}="${value.slice(0, 16)}..." in SSR and on the client`, () => {
+        const html = silenceWarnings(() => renderToString(h('a', { [attr]: value }, 'x')));
+        assert.ok(!html.includes(attr + '='), `SSR emitted ${attr}: ${html}`);
+        assert.equal(_isUnsafeAttr(attr, value), true, `client allowed ${attr}=${value}`);
+      });
+    }
+  }
+
+  it('still emits safe values for every URL attribute', () => {
+    for (const attr of URL_ATTRS) {
+      const html = renderToString(h('a', { [attr]: '/safe' }, 'x'));
+      assert.ok(html.includes(`${attr}="/safe"`), `SSR dropped a safe ${attr}: ${html}`);
+      assert.equal(_isUnsafeAttr(attr, '/safe'), false);
+    }
   });
 });

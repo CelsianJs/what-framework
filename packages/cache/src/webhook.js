@@ -2,23 +2,27 @@
 // secret purges paths/tags so a Sanity/Contentful/WP "published" event can warm
 // or drop cache entries. The adapter mounts this at e.g. /__what_revalidate.
 
-// Constant-time string compare (timing-attack safe). Self-contained so the cache
-// package stays dependency-free and decoupled from what-server.
+import { createHash, timingSafeEqual } from 'node:crypto';
+
+// Constant-time compare over fixed-width digests, so neither the secret's
+// contents nor its LENGTH leak through response timing.
 function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return result === 0;
+  const digest = (s) => createHash('sha256').update(s).digest();
+  return timingSafeEqual(digest(a), digest(b));
 }
+
+// One request must not be able to force an unbounded number of blocking origin
+// renders. CMS webhooks publish a handful of paths at a time.
+const MAX_BATCH = 100;
 
 /**
  * @param engine  cache engine (revalidatePath / revalidateTag)
- * @param options { secret, header='x-what-revalidate-secret', regenerate=false }
- * @returns async (reqLike:{headers, body:{paths?,tags?,regenerate?}}) -> { status, body }
+ * @param options { secret, header='x-what-revalidate-secret', regenerate=false, maxBatch=100 }
+ * @returns async (reqLike:{headers, body:{paths?,tags?}}) -> { status, body }
  */
 export function createRevalidateWebhook(engine, options = {}) {
-  const { secret, header = 'x-what-revalidate-secret', regenerate = false } = options;
+  const { secret, header = 'x-what-revalidate-secret', regenerate = false, maxBatch = MAX_BATCH } = options;
 
   return async function handle(reqLike) {
     const provided = (reqLike.headers || {})[header] || (reqLike.headers || {})[header.toLowerCase()];
@@ -31,21 +35,27 @@ export function createRevalidateWebhook(engine, options = {}) {
       return { status: 400, body: { message: 'Invalid body' } };
     }
 
-    const { paths, tags, regenerate: regen = regenerate } = body;
+    // `regenerate` is operator policy: the request body must not be able to turn
+    // blocking re-renders on.
+    const { paths, tags } = body;
     if (!Array.isArray(paths) && !Array.isArray(tags)) {
       return { status: 400, body: { message: 'Provide `paths` and/or `tags` arrays' } };
+    }
+    const total = (Array.isArray(paths) ? paths.length : 0) + (Array.isArray(tags) ? tags.length : 0);
+    if (total > maxBatch) {
+      return { status: 400, body: { message: `Too many entries: ${total} exceeds the ${maxBatch} per-request limit` } };
     }
 
     const revalidated = { paths: [], tags: [] };
     if (Array.isArray(paths)) {
       for (const p of paths) {
-        await engine.revalidatePath(p, { regenerate: regen });
+        await engine.revalidatePath(p, { regenerate });
         revalidated.paths.push(p);
       }
     }
     if (Array.isArray(tags)) {
       for (const t of tags) {
-        await engine.revalidateTag(t, { regenerate: regen });
+        await engine.revalidateTag(t, { regenerate });
         revalidated.tags.push(t);
       }
     }

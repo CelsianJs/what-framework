@@ -5,6 +5,10 @@ name: CI
 on:
   workflow_dispatch:
 
+# CI only reads the repo. Anything that needs more asks for it per job.
+permissions:
+  contents: read
+
 # One run per ref — a new push cancels the in-flight run for the same branch/PR.
 concurrency:
   group: ci-${{ github.ref }}
@@ -309,6 +313,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install krausest benchmark dependencies
+        run: npm ci --prefix benchmark/krausest
+
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium (DOM benchmark)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
       - name: Benchmark gate (perf — non-blocking signal)
         # Non-blocking, matching the bench:gate step in release-and-deploy.yml:
         # the checked-in perf baselines are recorded on fast local hardware
@@ -317,7 +343,12 @@ jobs:
         # unpredictably. Kept as its own visible job (a signal, not a blocker);
         # perf is gated strictly by `release:verify` on local hardware.
         continue-on-error: true
+        # The DOM stage runs here as a gross-regression signal only. The baseline
+        # is Mac-recorded, so the tolerance is loose for the same reason core and
+        # DX are, and the round count is low to keep the job short.
         env:
           WHAT_BENCH_TOLERANCE_CORE: 0.80
           WHAT_BENCH_TOLERANCE_DX: 0.85
+          WHAT_BENCH_TOLERANCE_DOM: 0.50
+          WHAT_BENCH_DOM_ROUNDS: 5
         run: npm run -s bench:gate

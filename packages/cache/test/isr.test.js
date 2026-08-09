@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCacheEngine } from '../src/isr.js';
 import { createMemoryStore } from '../src/stores/memory-store.js';
+import { makeEntry } from '../src/stores/store-interface.js';
 
 // Controllable clock + counting render so we can assert exactly how many renders
 // happen under each cache state.
@@ -140,6 +141,94 @@ describe('ISR engine', () => {
     assert.equal(entry.status, 200);
   });
 
+  it('never caches a vary route when the adapter supplied no headers', async () => {
+    let renders = 0;
+    const store = createMemoryStore();
+    const engine = createCacheEngine({
+      store,
+      render: async () => { renders++; return { html: `<p>user#${renders}</p>`, tags: [] }; },
+      now: () => 0,
+      logger: { warn() {}, error() {} },
+    });
+    const route = { path: '/account', query: {}, config: { mode: 'hybrid', revalidate: 60, vary: ['cookie:session'] } };
+
+    const r1 = await engine.handle(route);
+    assert.equal(r1.cacheStatus, 'BYPASS');
+    assert.match(r1.headers['Cache-Control'], /private, no-store/);
+    assert.deepEqual(await store.keys(), [], 'a per-user render must never be stored');
+
+    const r2 = await engine.handle(route);
+    assert.match(r2.html, /user#2/, 'second visitor gets their own render, not the first one');
+  });
+
+  it('keys vary routes per user when the adapter supplies headers', async () => {
+    const store = createMemoryStore();
+    let renders = 0;
+    const engine = createCacheEngine({
+      store,
+      render: async (rm) => { renders++; return { html: `<p>${rm.varyHeaders.cookie}</p>`, tags: [] }; },
+      now: () => 0,
+    });
+    const config = { mode: 'hybrid', revalidate: 60, vary: ['cookie:session'] };
+    const visit = (cookie) => engine.handle({ path: '/account', query: {}, config, varyHeaders: { cookie } });
+
+    const alice = await visit('session=alice');
+    const bob = await visit('session=bob');
+    assert.match(alice.html, /alice/);
+    assert.match(bob.html, /bob/, "Alice's HTML must not be served to Bob");
+    assert.equal(renders, 2);
+    assert.equal((await store.keys()).length, 2, 'one entry per user');
+
+    const aliceAgain = await visit('session=alice');
+    assert.equal(aliceAgain.cacheStatus, 'HIT');
+    assert.match(aliceAgain.html, /alice/);
+    assert.match(aliceAgain.headers['Cache-Control'], /private, no-store/, 'never shareable at the edge');
+  });
+
+  it('never advertises a routeMatch-level vary route as publicly shareable', async () => {
+    const store = createMemoryStore();
+    let renders = 0;
+    const engine = createCacheEngine({
+      store,
+      render: async (rm) => { renders++; return { html: `<p>${rm.varyHeaders.cookie}</p>`, tags: [] }; },
+      now: () => 0,
+    });
+    // vary declared on the routeMatch, not in the page config. The cache key
+    // honours it; the headers must not disagree.
+    const visit = (cookie) => engine.handle({
+      path: '/account',
+      query: {},
+      config: { mode: 'hybrid', revalidate: 60 },
+      vary: ['cookie:session'],
+      varyHeaders: { cookie },
+    });
+
+    const alice = await visit('session=alice');
+    const bob = await visit('session=bob');
+    assert.match(alice.html, /alice/);
+    assert.match(bob.html, /bob/);
+    assert.equal((await store.keys()).length, 2, 'the key already varies per user');
+
+    for (const r of [alice, bob]) {
+      assert.doesNotMatch(r.headers['Cache-Control'], /public/, `per-user HTML advertised as shareable: ${JSON.stringify(r.headers)}`);
+      assert.match(r.headers['Cache-Control'], /private, no-store/);
+    }
+  });
+
+  it('a hybrid route without an explicit revalidate is not fresh forever', async () => {
+    let t = 0; const now = () => t;
+    let renders = 0;
+    const store = createMemoryStore();
+    const engine = createCacheEngine({ store, render: async () => { renders++; return { html: `<p>#${renders}</p>`, tags: [] }; }, now });
+    const route = { path: '/p', query: {}, config: { mode: 'hybrid' } };
+
+    await engine.handle(route);
+    t += 3600_000;
+    const r = await engine.handle(route);
+    assert.notEqual(r.cacheStatus, 'HIT', 'an hour later it must not still be fresh');
+    assert.equal(renders, 2);
+  });
+
   it('stale-if-error serves stale when regeneration throws', async () => {
     let t = 0; const now = () => t;
     let calls = 0;
@@ -155,5 +244,42 @@ describe('ISR engine', () => {
     t += 10_000;                    // expire beyond swr
     const r = await engine.handle(route);
     assert.match(r.html, /ok/, 'served stale despite regeneration failure');
+  });
+  it('honours an explicit revalidate: 0 instead of falling back to the hybrid default', async () => {
+    const e = makeEntry({ html: '<p>x</p>' }, { mode: 'hybrid', revalidate: 0 }, 1000);
+    assert.equal(e.maxAge, 0, 'explicit 0 must not be coerced to the 60s hybrid default');
+  });
+
+  it('still applies the hybrid default when revalidate is absent', async () => {
+    const e = makeEntry({ html: '<p>x</p>' }, { mode: 'hybrid' }, 1000);
+    assert.equal(e.maxAge, 60);
+  });
+
+  it('revalidatePath resolves when the resolved route cannot be keyed', async () => {
+    // keyFor() throws for a route that declares `vary` with no request headers.
+    // Called as an argument expression, that rejection escaped the .catch().
+    const store = createMemoryStore();
+    const errors = [];
+    const engine = createCacheEngine({
+      store,
+      render: async () => ({ html: '<p>x</p>', head: '', state: null, tags: [] }),
+      logger: { warn() {}, error: (...a) => errors.push(a) },
+    });
+    const routeResolver = () => ({ path: '/p', query: {}, config: { vary: ['cookie:session'] } });
+    const deleted = await engine.revalidatePath('/p', { regenerate: true, routeResolver });
+    assert.deepEqual(deleted, []);
+    assert.equal(errors.length, 1, 'the failure is logged, not thrown');
+  });
+
+  it('revalidateTag resolves when a resolved route cannot be keyed', async () => {
+    const store = createMemoryStore();
+    await store.set('k', { html: '<p>x</p>', tags: ['t'], path: '/p', expiresAt: Infinity });
+    const engine = createCacheEngine({
+      store,
+      render: async () => ({ html: '<p>x</p>', head: '', state: null, tags: [] }),
+      logger: { warn() {}, error() {} },
+    });
+    const routeResolver = () => ({ path: '/p', query: {}, config: { vary: ['cookie:session'] } });
+    await assert.doesNotReject(() => engine.revalidateTag('t', { regenerate: true, routeResolver }));
   });
 });

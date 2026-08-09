@@ -118,7 +118,7 @@ Tips:
 | Navigate to a route | `what_navigate {path}` |
 | Validate code before saving | `what_lint {code}` |
 | Generate boilerplate | `what_scaffold {type, name}` |
-| Diagnose an error code | `what_fix {errorCode}` |
+| Diagnose an error code | `what_fix {error}` |
 | Monitor reactive events live | `what_watch` |
 | Get all state at once | `what_snapshot` (full dump) or `what_snapshot {diff: true}` (changes only) |
 
@@ -156,7 +156,7 @@ Tips:
 **Code quality (no browser needed):**
 - `what_lint {code}` — static analysis, 7 rules
 - `what_scaffold {type, name}` — generate boilerplate structure (imports, function shape, signal declarations). Note: produces a skeleton, not production code — expect ~10% survival for real integration. Best used to confirm idiomatic patterns.
-- `what_fix {errorCode}` — **hidden gem**: diagnosis + fix + code example for any error code. Cheap (~160 tokens), offline, accurate. Use as FIRST tool when you encounter a What Framework error.
+- `what_fix {error}` — **hidden gem**: diagnosis + fix + code example for any error code. Cheap (~160 tokens), offline, accurate. Use as FIRST tool when you encounter a What Framework error.
 - `what_validate {code}` — quick syntax/parse check (pass/fail). Shallower than what_lint.
 
 ### Workflows

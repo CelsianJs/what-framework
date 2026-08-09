@@ -296,10 +296,16 @@ export function boostIslandPriority(name, newPriority = 100) {
 // --- Client-side hydration ---
 
 export function hydrateIslands() {
-  // First, hydrate any shared stores from the page
-  const storeScript = document.querySelector('script[data-island-stores]');
-  if (storeScript) {
-    hydrateIslandStores(storeScript.textContent);
+  // First, hydrate any shared stores from the page. renderDocument emits them
+  // inside the consolidated #__what_data payload.
+  const dataScript = document.getElementById('__what_data');
+  if (dataScript) {
+    try {
+      const payload = JSON.parse(dataScript.textContent || '{}');
+      if (payload && payload.islandStores) hydrateIslandStores(payload.islandStores);
+    } catch (e) {
+      console.warn('[what] Failed to parse hydration payload:', e);
+    }
   }
 
   const islands = document.querySelectorAll('[data-island]');
@@ -325,7 +331,7 @@ export function hydrateIslands() {
 }
 
 function scheduleHydration(el, entry, props, mode, priority, name, stores) {
-  const hydrate = async () => {
+  const hydrateIsland = async () => {
     if (hydratedIslands.has(el)) return;
     hydratedIslands.add(el);
 
@@ -363,17 +369,17 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
   switch (mode) {
     case 'load':
       // Immediate hydration via queue (respects priority)
-      enqueueHydration({ name, priority: priority + 1000, hydrate });
+      enqueueHydration({ name, priority: priority + 1000, hydrate: hydrateIsland });
       break;
 
     case 'idle':
       if ('requestIdleCallback' in window) {
         requestIdleCallback(() => {
-          enqueueHydration({ name, priority, hydrate });
+          enqueueHydration({ name, priority, hydrate: hydrateIsland });
         });
       } else {
         setTimeout(() => {
-          enqueueHydration({ name, priority, hydrate });
+          enqueueHydration({ name, priority, hydrate: hydrateIsland });
         }, 200);
       }
       break;
@@ -383,7 +389,7 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
         for (const entry of entries) {
           if (entry.isIntersecting) {
             obs.disconnect();
-            enqueueHydration({ name, priority, hydrate });
+            enqueueHydration({ name, priority, hydrate: hydrateIsland });
             break;
           }
         }
@@ -395,11 +401,11 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
     case 'media': {
       const mq = window.matchMedia(entry.media || '(max-width: 768px)');
       if (mq.matches) {
-        enqueueHydration({ name, priority, hydrate });
+        enqueueHydration({ name, priority, hydrate: hydrateIsland });
       } else {
         mq.addEventListener('change', (e) => {
           if (e.matches) {
-            enqueueHydration({ name, priority, hydrate });
+            enqueueHydration({ name, priority, hydrate: hydrateIsland });
           }
         }, { once: true });
       }
@@ -411,7 +417,7 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
       const handler = () => {
         events.forEach(e => el.removeEventListener(e, handler));
         // Boost priority since user interacted
-        enqueueHydration({ name, priority: priority + 500, hydrate });
+        enqueueHydration({ name, priority: priority + 500, hydrate: hydrateIsland });
       };
       events.forEach(e => el.addEventListener(e, handler, { once: true, passive: true }));
       break;
@@ -422,7 +428,7 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
       break;
 
     default:
-      enqueueHydration({ name, priority, hydrate });
+      enqueueHydration({ name, priority, hydrate: hydrateIsland });
   }
 }
 

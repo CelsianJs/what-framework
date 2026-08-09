@@ -169,7 +169,7 @@ describe('runtime <For> re-renders on list change (automatic JSX runtime / h pat
   });
 });
 
-describe('runtime <Switch>/<Match> stays reactive (never lowered by the compiler)', () => {
+describe('runtime <Switch>/<Match> stays reactive (h() and the automatic JSX runtime)', () => {
   it('(6) <Switch> flips between Match arms and to fallback, both directions', () => {
     const app = getContainer();
     const mode = signal('a');

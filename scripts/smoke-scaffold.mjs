@@ -281,6 +281,30 @@ async function smokeFullstack(workDir, tarballs, browser) {
       const after = await page.textContent('.like-demo output');
       assert(before === '0' && after === '2', `page hydrates - Like button increments (${before} -> ${after})`);
       assert(errors.length === 0, `no browser errors during hydration (got: ${errors.join('; ') || 'none'})`);
+
+      // The headline differentiator has to be ALIVE in a scaffolded app, not
+      // merely configured. For months every scaffold shipped .mcp.json,
+      // .cursor/mcp.json and an MCP-promising CLAUDE.md while omitting the one
+      // devDependency that makes the tools answer, and nothing failed, because
+      // no gate asserted the bridge was actually installed. This is that gate.
+      // It is deliberately checked on the buildless fullstack template, which
+      // has no Vite plugin and therefore the easiest wiring to break.
+      const devtoolsLive = await page.evaluate(
+        () => new Promise((res) => {
+          // installDevTools runs after a dynamic import chain, so poll briefly.
+          let n = 0;
+          const t = setInterval(() => {
+            if (globalThis.__WHAT_DEVTOOLS__ || ++n > 40) { clearInterval(t); res(!!globalThis.__WHAT_DEVTOOLS__); }
+          }, 50);
+        }),
+      );
+      assert(devtoolsLive, 'devtools bridge is installed in the scaffolded app (window.__WHAT_DEVTOOLS__)');
+
+      const snapshot = await page.evaluate(() => {
+        try { return globalThis.__WHAT_DEVTOOLS__.getSnapshot(); } catch { return null; }
+      });
+      assert(snapshot && Array.isArray(snapshot.signals), 'devtools reports a real reactive snapshot');
+      assert(snapshot.signals.length > 0, `devtools sees the app's signals (got ${snapshot ? snapshot.signals.length : 0})`);
     });
 
     // Server action round-trip: create a post via the enhanced form.

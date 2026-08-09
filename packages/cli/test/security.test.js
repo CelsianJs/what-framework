@@ -1,45 +1,25 @@
 // Security tests for CLI
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, rmSync, realpathSync } from 'fs';
-import { join, normalize, resolve } from 'path';
+import { mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from 'fs';
+import { join } from 'path';
 import { fileURLToPath } from 'url';
+
+// The real implementation, not a copy: an earlier copy of safePath drifted from
+// cli.js and hid both the dead-containment-check and the symlink-escape bugs.
+import { safePath, isAllowedOrigin } from '../src/cli.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const testDir = join(__dirname, '.test-security');
-
-// Recreate safePath function for testing (same logic as in cli.js)
-function safePath(base, userPath) {
-  try {
-    // Reject paths that contain .. segments (path traversal attempt)
-    const normalized = normalize(userPath);
-    if (normalized.startsWith('..') || normalized.includes('/..') || normalized.includes('\\..')) {
-      return null;
-    }
-
-    // Get the real base path (resolve symlinks)
-    const realBase = realpathSync(base);
-
-    // Resolve the user path against the base
-    const resolved = resolve(realBase, normalized);
-
-    // Double-check: ensure resolved path is within base
-    if (!resolved.startsWith(realBase + '/') && resolved !== realBase) {
-      return null;
-    }
-
-    return resolved;
-  } catch {
-    return null;
-  }
-}
 
 describe('security', () => {
   before(() => {
     mkdirSync(testDir, { recursive: true });
     mkdirSync(join(testDir, 'public'), { recursive: true });
     writeFileSync(join(testDir, 'public', 'index.html'), '<html></html>');
+    writeFileSync(join(testDir, 'public', '.env'), 'API_KEY=secret');
     writeFileSync(join(testDir, 'secret.txt'), 'secret data');
+    symlinkSync(join('..', 'secret.txt'), join(testDir, 'public', 'leak.txt'));
   });
 
   after(() => {
@@ -70,7 +50,7 @@ describe('security', () => {
       const base = join(testDir, 'public');
       const result = safePath(base, '.');
       assert.ok(result !== null, 'Current directory path should be allowed');
-      assert.equal(result, join(testDir, 'public'), 'Should resolve to base');
+      assert.equal(result, realpathSync(join(testDir, 'public')), 'Should resolve to base');
     });
 
     it('should block paths starting with ../', () => {
@@ -87,6 +67,64 @@ describe('security', () => {
         const result = safePath(base, attack);
         assert.equal(result, null, `Attack "${attack}" should be blocked`);
       }
+    });
+  });
+
+  // The servers pass a URL pathname, which always starts with '/'. That is the
+  // only shape safePath ever sees in production, so it is the shape to test:
+  // resolve(base, '/foo') silently discards the base.
+  describe('absolute URL pathnames (the shape the servers pass)', () => {
+    const base = () => join(testDir, 'public');
+
+    it('serves a normal file', () => {
+      const result = safePath(base(), '/index.html');
+      assert.ok(result !== null, '/index.html must resolve, not fall through to the SPA shell');
+      assert.equal(result, join(realpathSync(base()), 'index.html'));
+    });
+
+    it('serves a percent-encoded file name', () => {
+      const result = safePath(base(), '/index%2Ehtml');
+      assert.equal(result, join(realpathSync(base()), 'index.html'));
+    });
+
+    it('rejects traversal', () => {
+      assert.equal(safePath(base(), '/../secret.txt'), null);
+      assert.equal(safePath(base(), '/sub/../../secret.txt'), null);
+      assert.equal(safePath(base(), '/%2e%2e/secret.txt'), null);
+    });
+
+    it('rejects a symlink that escapes the root', () => {
+      // readFileSync follows symlinks, so the resolved target must be contained.
+      assert.equal(safePath(base(), '/leak.txt'), null);
+    });
+
+    it('rejects dotfiles', () => {
+      assert.equal(safePath(base(), '/.env'), null);
+      assert.equal(safePath(base(), '/.git/config'), null);
+    });
+
+    it('rejects NUL bytes', () => {
+      assert.equal(safePath(base(), '/index.html%00.png'), null);
+    });
+  });
+
+  describe('HMR websocket origin allowlist', () => {
+    const allowed = new Set(['localhost:3000', '127.0.0.1:3000', '::1:3000']);
+
+    it('accepts the dev server own origin', () => {
+      assert.equal(isAllowedOrigin('http://localhost:3000', allowed), true);
+      assert.equal(isAllowedOrigin('http://127.0.0.1:3000', allowed), true);
+      assert.equal(isAllowedOrigin('https://localhost:3000', allowed), true);
+    });
+
+    it('rejects any other page the developer may have open', () => {
+      assert.equal(isAllowedOrigin('http://evil.example', allowed), false);
+      assert.equal(isAllowedOrigin('http://localhost:4000', allowed), false);
+      assert.equal(isAllowedOrigin('null', allowed), false);
+    });
+
+    it('allows non-browser clients (no Origin header)', () => {
+      assert.equal(isAllowedOrigin(undefined, allowed), true);
     });
   });
 });

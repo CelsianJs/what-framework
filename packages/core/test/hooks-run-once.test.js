@@ -16,6 +16,7 @@ global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then
 // Now import framework
 const { signal, computed, effect, batch, flushSync } = await import('../src/reactive.js');
 const { h, Fragment } = await import('../src/h.js');
+const { jsx } = await import('../src/jsx-runtime.js');
 const { mount } = await import('../src/dom.js');
 
 const {
@@ -538,32 +539,122 @@ describe('useContext (run-once model)', () => {
     assert.equal(capturedValue, 'light');
   });
 
-  it('should read value from Provider when context is set on parent ctx', async () => {
+  it('should read value from Provider (h path)', async () => {
     const container = getContainer();
     let capturedValue;
 
     const ThemeContext = createContext('light');
 
-    // In the current DOM model, Provider sets _contextValues on its own ctx.
-    // Child components need _parentCtx to walk up to find it.
-    // Direct nesting via h(Provider, ..., h(Child)) creates children as vnodes
-    // before the Provider's ctx is on the stack. So we test that useContext
-    // correctly returns the default value when no Provider is in the parent chain.
     function Child() {
-      const theme = useContext(ThemeContext);
-      capturedValue = theme;
-      return h('span', null, String(theme));
+      capturedValue = useContext(ThemeContext);
+      return h('span', null, String(capturedValue));
     }
 
-    // Test default value behavior
     function App() {
-      return h(Child);
+      return h(ThemeContext.Provider, { value: 'dark' }, h(Child));
     }
 
     mount(h(App), container);
     await flush();
 
-    assert.equal(capturedValue, 'light', 'should return default when no Provider in chain');
+    assert.equal(capturedValue, 'dark');
+    assert.match(container.textContent, /dark/);
+  });
+
+  it('should read value from Provider through an intermediate component', async () => {
+    const container = getContainer();
+    let capturedValue;
+
+    const ThemeContext = createContext('light');
+
+    function Leaf() {
+      capturedValue = useContext(ThemeContext);
+      return h('span', null, String(capturedValue));
+    }
+
+    function Middle() {
+      return h('div', null, h(Leaf));
+    }
+
+    function App() {
+      return h(ThemeContext.Provider, { value: 'dark' }, h(Middle));
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.equal(capturedValue, 'dark');
+  });
+
+  it('should read value from Provider (jsx-runtime path)', async () => {
+    const container = getContainer();
+    let capturedValue;
+
+    const ThemeContext = createContext('light');
+
+    function Child() {
+      capturedValue = useContext(ThemeContext);
+      return jsx('span', { children: String(capturedValue) });
+    }
+
+    function App() {
+      return jsx(ThemeContext.Provider, { value: 'dark', children: jsx(Child, {}) });
+    }
+
+    mount(jsx(App, {}), container);
+    await flush();
+
+    assert.equal(capturedValue, 'dark');
+    assert.match(container.textContent, /dark/);
+  });
+
+  it('should let the nearest of nested Providers win', async () => {
+    const container = getContainer();
+    const captured = [];
+
+    const ThemeContext = createContext('light');
+
+    function Probe() {
+      captured.push(useContext(ThemeContext));
+      return h('span', null, 'x');
+    }
+
+    function App() {
+      return h(ThemeContext.Provider, { value: 'outer' },
+        h(Probe),
+        h(ThemeContext.Provider, { value: 'inner' }, h(Probe)),
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.deepEqual(captured, ['outer', 'inner']);
+  });
+
+  it('should isolate sibling Providers from each other', async () => {
+    const container = getContainer();
+    const captured = [];
+
+    const ThemeContext = createContext('light');
+
+    function Probe() {
+      captured.push(useContext(ThemeContext));
+      return h('span', null, 'x');
+    }
+
+    function App() {
+      return h('div', null,
+        h(ThemeContext.Provider, { value: 'a' }, h(Probe)),
+        h(ThemeContext.Provider, { value: 'b' }, h(Probe)),
+        h(Probe),
+      );
+    }
+
+    mount(h(App), container);
+    await flush();
+
+    assert.deepEqual(captured, ['a', 'b', 'light']);
   });
 });
 

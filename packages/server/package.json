@@ -18,6 +18,7 @@
       "default": "./src/index.js"
     },
     "./islands": {
+      "types": "./islands.d.ts",
       "production": "./dist/islands.min.js",
       "import": "./src/islands.js",
       "default": "./src/islands.js"
@@ -31,7 +32,8 @@
   "files": [
     "src",
     "dist/**/*.min.js",
-    "index.d.ts"
+    "index.d.ts",
+    "islands.d.ts"
   ],
   "sideEffects": [
     "./src/node.js",

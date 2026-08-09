@@ -128,6 +128,35 @@ html\`<div>\${sanitizedContent}</div>\``,
 // Good — stable key:
 <For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
   },
+
+  UNSAFE_REDIRECT: {
+    code: 'ERR_UNSAFE_REDIRECT',
+    severity: 'error',
+    template: 'redirect() refused an unsafe target: {{target}}.',
+    suggestion: 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.',
+    codeExample: `// Bad - a user-controlled target can leave your origin:
+redirect(query.next);
+
+// Good - allowlist the target first:
+redirect(ALLOWED.has(query.next) ? query.next : '/');`,
+  },
+
+  REDIRECT_NOT_CAUGHT: {
+    code: 'ERR_REDIRECT_NOT_CAUGHT',
+    severity: 'error',
+    template: 'A redirect() to "{{target}}" surfaced uncaught, so nothing performed the navigation.',
+    suggestion: 'redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().',
+    codeExample: `// Bad - a reactive thunk re-runs outside the render the Router caught:
+<div>{() => (loggedOut() ? redirect('/login') : <Dashboard />)}</div>
+
+// Good - navigate() from a thunk or a handler:
+<div>{() => (loggedOut() ? (navigate('/login'), null) : <Dashboard />)}</div>
+<button onclick={() => navigate('/login')}>Sign in</button>
+
+// On the server, catch it instead of navigating:
+try { html = renderToString(<App />); }
+catch (e) { if (e.name === 'RouterRedirect') return Response.redirect(e.to, 302); throw e; }`,
+  },
 };
 
 // --- WhatError ---

@@ -78,6 +78,25 @@ export interface RouterProps {
 
 export function Router(props: RouterProps): VNode;
 
+// --- File-Based Router ---
+
+export interface FileRouteConfig {
+  path: string;
+  component: Component<RouteComponentProps>;
+  layout?: Component<LayoutProps>;
+  mode?: 'static' | 'server' | 'client' | 'hybrid';
+}
+
+export interface FileRouterProps {
+  routes: FileRouteConfig[];
+  layout?: Component<{ children?: VNodeChild }>;
+  fallback?: Component<{}>;
+  error?: Component<{ error: Error }>;
+}
+
+/** Router driven by what-compiler's generated route manifest (virtual:what-routes). */
+export function FileRouter(props: FileRouterProps): VNode;
+
 // --- Link Component ---
 
 export interface LinkProps {
@@ -160,6 +179,82 @@ export interface UseRouteResult {
 
 export function useRoute(): UseRouteResult;
 
+// --- Route Accessors ---
+
+/** Current route params. Subscribes when read inside a tracking scope. */
+export function useParams<T = Record<string, string>>(): T;
+
+/**
+ * Query string of the last successfully matched route, parsed. Subscribes when
+ * read inside a tracking scope. Only the Router's match branch writes it, so on
+ * an unmatched (404) route this is the previous route's query, not the current
+ * URL's. Same value and same caveat as `route.query`.
+ */
+export function useSearch<T = Record<string, string>>(): T;
+
+/** The navigate function, for symmetry with useParams/useSearch. */
+export function useNavigate(): typeof navigate;
+
+/** Prefetch a route's assets. */
+export function prefetchRoute(href: string): void;
+
+// --- Redirect Signal ---
+
+/**
+ * Abort the current render and navigate.
+ *
+ * Throws a navigation signal. Two places catch it: route middleware, caught by
+ * the Router's matching pass, and a component body, caught by the runtime where
+ * it instantiates components. Anywhere else (an event handler, a promise
+ * callback, a timer, or a reactive thunk such as `{() => cond() && redirect(to)}`)
+ * nothing catches it and the signal surfaces as an uncaught error carrying
+ * `ERR_REDIRECT_NOT_CAUGHT`; call `navigate(to)` there instead. In a thunk the
+ * first render reports the error, but on a later re-run the navigation simply
+ * does not happen and the stale DOM stays, so prefer `navigate(to)` there.
+ * A `try/catch` around the call also swallows it, so rethrow anything whose
+ * `name` is `RouterRedirect`. On the server the signal escapes `renderToString`
+ * to its caller: read `.to` and emit a 302.
+ */
+export function redirect(to: string, options?: NavigateOptions): never;
+
+// --- Navigation Hooks ---
+
+/**
+ * Run before every route navigation; return false to cancel. Returns an
+ * unsubscribe. Not consulted for same-page hash navigation (`navigate('#x')`
+ * scrolls, it does not change the route). Cancelling a back/forward navigation
+ * restores the address bar by pushing the previous URL as a new history entry:
+ * the entry the browser moved to is not recovered and its `history.state` is
+ * not carried over.
+ */
+export function beforeNavigate(fn: (to: string, from: string) => boolean | Promise<boolean>): () => void;
+
+/** Run after every committed navigation. Returns an unsubscribe. */
+export function afterNavigate(fn: (to: string, from: string) => void): () => void;
+
 // --- Outlet ---
 
-export function Outlet(props: { children?: VNodeChild }): VNodeChild;
+export function Outlet(props: { children?: VNodeChild }): VNode;
+
+// --- Path Matching ---
+
+export interface CompiledPath {
+  regex: RegExp;
+  paramNames: string[];
+  catchAll: string | null;
+}
+
+/** Compile a path pattern (`/users/:id`, `/posts/*`, `/[slug]`) to a matcher. */
+export function compilePath(path: string): CompiledPath;
+
+/** Match a pathname against routes, most specific first. */
+export function matchRoute<T extends { path?: string }>(
+  path: string,
+  routes: T[],
+): { route: T; params: Record<string, string> } | null;
+
+/** Parse a query string into a null-prototype object. */
+export function parseQuery(search: string): Record<string, string>;
+
+/** Reject javascript:, data:, vbscript: and protocol-relative URLs. */
+export function isSafeUrl(url: string): boolean;
