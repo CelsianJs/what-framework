@@ -31,9 +31,16 @@ artifacts/
 benchmark/apps/
 benchmark/results/
 
-# Lockfiles — ignore everywhere except the repo root
+# Lockfiles: ignore everywhere except the repo root and the krausest benchmark.
+# krausest is exempt because its CI job runs `npm ci --prefix benchmark/krausest`,
+# and `npm ci` hard-fails without a lockfile. While the file was ignored, the job
+# passed locally (where the untracked lockfile exists) and failed on every clean
+# checkout. Tracking it also makes the cross-framework benchmark reproducible,
+# which matters more here than anywhere else in the repo: the whole point of that
+# fixture is comparing pinned competitor versions.
 **/package-lock.json
 !/package-lock.json
+!/benchmark/krausest/package-lock.json
 
 .npmrc
 
