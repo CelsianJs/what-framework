@@ -1,0 +1,15 @@
+{
+  "name": "smoke-scrollytelling",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Scrollytelling smoke app: a server-rendered narrative page with five island hydration modes and scroll-driven animation.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "what-framework": "0.12.2",
+    "what-server": "0.12.2"
+  }
+}

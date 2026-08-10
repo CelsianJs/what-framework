@@ -1,0 +1,22 @@
+{
+  "name": "smoke-admin-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Admin dashboard smoke app: compiled JSX SPA with a persistent shell, nested routes, guards, loading/error routes, context, Portal and a keyed table.",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "start": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "what-framework": "0.12.2",
+    "what-router": "0.12.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "vite": "^7.0.0",
+    "what-compiler": "0.12.2"
+  }
+}

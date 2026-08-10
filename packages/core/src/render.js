@@ -196,7 +196,20 @@ export function insert(parent, child, marker) {
     let current = null;
     let textNode = null; // non-null while on the text fast path
     let mounted = false;
-    effect(() => {
+    // Capture the owning component at CREATION time. See the identical capture
+    // in createDOM's reactive branch (dom.js): this effect re-runs long after
+    // the synchronous render that created it, when the component stack is
+    // empty, so everything it builds on a re-run got parentCtx = null and the
+    // owner chain was severed. useContext then fell through to the context
+    // DEFAULT, and an ErrorBoundary stopped catching throws from components
+    // created by an inner region. Both work on first paint and only break once
+    // the app is interactive, which is why nothing caught it.
+    //
+    // dom.js was given this fix; this path, the one the COMPILER emits for
+    // every `{() => ...}`, was not. So it was broken for exactly the users on
+    // the recommended build setup.
+    const owner = captureOwner();
+    effect(() => withOwner(owner, () => {
       const val = child();
       const vt = typeof val;
       if (!mounted) {
@@ -223,7 +236,7 @@ export function insert(parent, child, marker) {
       // Type changed (or never was text) — full reconcile
       textNode = null;
       current = reconcileInsert(parent, val, current, m);
-    });
+    }));
     return current;
   }
 
@@ -261,6 +274,32 @@ function isSvgParent(parent) {
   return _hasSVGElement
     && parent instanceof SVGElement
     && parent.tagName !== 'foreignObject';
+}
+
+// --- Owner capture for effects that outlive their render ---
+//
+// A reactive region's effect re-runs long after the synchronous render that
+// created it, when the component stack has unwound. Anything it builds then has
+// no owning component, which severs the chain that useContext and the
+// ErrorBoundary / Suspense lookups both walk. Capturing the owner at creation
+// and re-pushing it for the duration of each re-run restores it.
+
+function captureOwner() {
+  const stack = getComponentStack();
+  return stack[stack.length - 1] || null;
+}
+
+function withOwner(owner, fn) {
+  const stack = getComponentStack();
+  // Already on top during the initial synchronous run; only re-push when the
+  // stack has since unwound.
+  const restore = owner !== null && stack[stack.length - 1] !== owner;
+  if (restore) stack.push(owner);
+  try {
+    return fn();
+  } finally {
+    if (restore) stack.pop();
+  }
 }
 
 function asNodeArray(value) {
@@ -504,7 +543,34 @@ export function mapArray(source, mapFn, options) {
     return endMarker;
   };
   inserter._mapArray = true;
+  // The server has no DOM to insert into, so it cannot call the inserter at all.
+  // Without these it fell through to the generic reactive-child branch, which
+  // calls the value with no arguments: `parent` was undefined, the insertBefore
+  // threw, SSR swallowed it, and every compiled keyed list rendered as an EMPTY
+  // container. Exposing the inputs lets the server produce the same rows the
+  // client will, in the same order, without touching a DOM.
+  inserter._mapArraySource = source;
+  inserter._mapArrayFn = mapFn;
+  inserter._mapArrayKeyed = !!keyFn && !raw;
   return inserter;
+}
+
+/**
+ * Render a mapArray inserter's rows without a DOM. Server-side only.
+ *
+ * Mirrors the item protocol reconcileKeyed/reconcileList use, because a row
+ * built here is hydrated by one built there: keyed non-raw mode hands the mapFn
+ * a signal ACCESSOR (so `item()` works), every other mode hands it the raw item.
+ * Getting this wrong produces server HTML that differs from the client's on
+ * every row.
+ */
+export function _mapArrayToArray(inserter) {
+  const items = inserter._mapArraySource() || [];
+  const mapFn = inserter._mapArrayFn;
+  const keyed = inserter._mapArrayKeyed;
+  return items.map((item, index) => (
+    keyed ? mapFn(() => item, index) : mapFn(item, index)
+  ));
 }
 
 function reconcileList(parent, endMarker, oldItems, newItems, mappedNodes, disposeFns, mapFn) {
@@ -1608,10 +1674,47 @@ export function hydrate(vnode, container) {
 
   try {
     const result = hydrateNode(vnode, container);
+    // Same trim as every nested element, with one exclusion. A dedicated root
+    // element holds nothing but the app, so anything the walk did not claim is
+    // stranded server markup. <body> and <html> are different: they also hold
+    // the script tags, the hydration payload and whatever the host page put
+    // there, none of which the walk claims and none of which may be removed.
+    // An app that hydrates into <body> keeps the old behavior.
+    if (container !== document.body && container !== document.documentElement) {
+      trimUnclaimed(container);
+    }
     return result;
   } finally {
     _isHydrating = false;
     _hydrationCursor = null;
+  }
+}
+
+/**
+ * Drop server-rendered nodes that the client's walk never claimed.
+ *
+ * Everything from the cursor to the end of `parent` is content the server
+ * produced and the client tree has no child for. Nothing references it, no
+ * effect owns it, and no later update can ever reach it: it is stranded markup
+ * that simply stays on screen.
+ *
+ * The case that makes this necessary is a reactive region that is empty on the
+ * client and was NOT empty on the server. An empty region deliberately claims
+ * nothing (claiming took the following sibling and destroyed it, cascading a
+ * warn-and-recreate through the rest of the parent), so the element the server
+ * rendered in its place has nothing to remove it. A cart badge the server drew
+ * for a signed-in visitor stayed visible to a signed-out one, underneath the
+ * region that was supposed to have replaced it.
+ *
+ * The two halves are what make each other safe: the walk never destroys a node
+ * it is unsure about, and this removes what the finished walk proves is unused.
+ */
+function trimUnclaimed(parent) {
+  if (!_hydrationCursor || _hydrationCursor.parent !== parent) return;
+  while (parent.childNodes.length > _hydrationCursor.index) {
+    const node = parent.lastChild;
+    disposeTree(node);
+    parent.removeChild(node);
   }
 }
 
@@ -1623,10 +1726,14 @@ function claimNode(parent) {
   const children = parent.childNodes;
   while (_hydrationCursor.index < children.length) {
     const node = children[_hydrationCursor.index];
-    // Skip hydration comment markers
+    // Skip hydration comment markers. 'fn' / '/fn' are the reactive-region
+    // markers hydration itself inserts as it walks (see the function branch of
+    // hydrateNode); the cursor is adjusted when they go in, and skipping them
+    // here keeps a later sibling from ever claiming one as its node.
     if (node.nodeType === 8) { // Comment node
       const text = node.textContent;
-      if (text === '$' || text === '/$' || text === '[]' || text === '/[]') {
+      if (text === '$' || text === '/$' || text === '[]' || text === '/[]'
+          || text === 'fn' || text === '/fn') {
         _hydrationCursor.index++;
         continue;
       }
@@ -1637,8 +1744,60 @@ function claimNode(parent) {
   return null;
 }
 
+/**
+ * What claimNode would return next, without consuming it.
+ *
+ * Used by the branches that must decide whether the server left something
+ * REUSABLE here before they commit to taking it. Claiming first and putting it
+ * back is not possible: claiming is what advances the walk.
+ */
+function peekNode(parent) {
+  if (!_hydrationCursor || _hydrationCursor.parent !== parent) return null;
+  const children = parent.childNodes;
+  for (let i = _hydrationCursor.index; i < children.length; i++) {
+    const node = children[i];
+    if (node.nodeType === 8) {
+      const text = node.textContent;
+      if (text === '$' || text === '/$' || text === '[]' || text === '/[]'
+          || text === 'fn' || text === '/fn') {
+        continue;
+      }
+    }
+    return node;
+  }
+  return null;
+}
+
+/**
+ * Put a client-created node in at the cursor and advance past it.
+ *
+ * The mismatch fallbacks used to appendChild here, which puts the node at the
+ * END of the parent rather than at the position being hydrated, and left the
+ * cursor pointing AT it. Inside a reactive region that was fatal: the region's
+ * end marker is placed at the cursor, so it landed BEFORE the content, the
+ * region owned nothing, and it could never remove or replace what it had just
+ * rendered. A `<Show>` whose server arm produced nothing showed its client arm
+ * once and then ignored the signal forever.
+ */
+function insertAtCursor(parent, node) {
+  if (_hydrationCursor && _hydrationCursor.parent === parent) {
+    parent.insertBefore(node, parent.childNodes[_hydrationCursor.index] || null);
+    _hydrationCursor.index++;
+  } else {
+    parent.appendChild(node);
+  }
+  return node;
+}
+
+// Warnings only. Never gate a DOM CORRECTION on this: see the text branch below.
+//
+// This used to test `process.env.NODE_ENV` directly, which is unreachable in a
+// browser (there is no `process`), so hydration warnings could not fire in the
+// one environment where hydration actually runs. __DEV__ resolves the same
+// question across every environment, including a buildless browser app that
+// opts in with globalThis.__WHAT_DEV__.
 function isDevMode() {
-  return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
+  return __DEV__;
 }
 
 function hydrateNode(vnode, parent) {
@@ -1648,21 +1807,63 @@ function hydrateNode(vnode, parent) {
 
   // Text node
   if (typeof vnode === 'string' || typeof vnode === 'number') {
-    const existing = claimNode(parent);
     const text = String(vnode);
 
+    // An empty string never DESTROYS anything to claim it.
+    //
+    // HTML cannot serialize an empty text node, so a reactive child that was
+    // empty on the server emitted nothing at all. Claiming unconditionally took
+    // the next sibling, saw an element where it wanted text, and replaced that
+    // element with an empty text node: the server's real markup was destroyed,
+    // every following sibling shifted, and a warn-and-recreate cascaded through
+    // the rest of the parent. `{() => error()}` next to anything hit it.
+    //
+    // But refusing to claim ANYTHING was the opposite error. When the server
+    // rendered real text here and the client now evaluates to '', the server's
+    // text is exactly what has to be cleared. Skipping it left the stale value
+    // on screen and then rendered the next value ALONGSIDE it ("9 items3
+    // items"), because the region had adopted an empty node of its own while
+    // the server's text sat outside it.
+    //
+    // So: claim a text node if one is there (the client value wins, same as
+    // below), and claim nothing otherwise. The empty and non-empty cases now
+    // differ only in refusing to consume a NON-text node.
+    if (text === '') {
+      const reusable = peekNode(parent);
+      if (reusable && reusable.nodeType === 3) {
+        claimNode(parent);
+        reusable.textContent = '';
+        return reusable;
+      }
+      return insertAtCursor(parent, document.createTextNode(''));
+    }
+
+    const existing = claimNode(parent);
+
     if (existing && existing.nodeType === 3) {
-      // Reuse text node — check for mismatch in dev
-      if (isDevMode() && existing.textContent !== text) {
-        console.warn(
-          `[what] Hydration mismatch: expected text "${text}", got "${existing.textContent}"`
-        );
+      // Reuse the text node, but the CLIENT value wins.
+      //
+      // Correcting the DOM used to sit inside the dev-only branch, and dev mode
+      // was decided by `process.env.NODE_ENV`, which no browser has. The result
+      // was that in every real browser a differing value was silently discarded
+      // and the server's text stayed on screen until some later write happened
+      // to touch that node. Any state the server cannot know (a cart restored
+      // from localStorage, a saved theme, a relative timestamp) rendered stale
+      // and looked like a broken store rather than a hydration bug.
+      //
+      // The correction is unconditional now. Only the warning is dev-gated.
+      if (existing.textContent !== text) {
+        if (isDevMode()) {
+          console.warn(
+            `[what] Hydration mismatch: expected text "${text}", got "${existing.textContent}"`
+          );
+        }
         existing.textContent = text;
       }
       return existing;
     }
 
-    // Mismatch: expected text node, got element or nothing
+    // Mismatch: expected text node, got element or nothing.
     if (isDevMode()) {
       console.warn(
         `[what] Hydration mismatch: expected text node "${text}", got ${existing ? existing.nodeName : 'nothing'}. Falling back to client render.`
@@ -1672,7 +1873,7 @@ function hydrateNode(vnode, parent) {
     if (existing) {
       parent.replaceChild(textNode, existing);
     } else {
-      parent.appendChild(textNode);
+      insertAtCursor(parent, textNode);
     }
     return textNode;
   }
@@ -1682,21 +1883,140 @@ function hydrateNode(vnode, parent) {
     return hydrateNode(vnode(), parent);
   }
 
-  // Reactive function child — attach effect to existing node
-  if (typeof vnode === 'function') {
-    // Unwrap to get the initial value for hydration
-    const initialValue = vnode();
-    let current = hydrateNode(initialValue, parent);
+  // Compiled keyed list. `.map()` with a key prop, and `<For>`, lower to a
+  // mapArray INSERTER, which is a function taking (parent, marker) rather than a
+  // thunk returning a value. The generic reactive branch below called it with no
+  // arguments, so it threw on `parent.insertBefore` and the exception escaped
+  // hydrate(): the whole page stopped hydrating and stayed inert. That is the
+  // ordinary shape for a compiled app whose server HTML came from an uncompiled
+  // render, which is exactly what the fullstack template produces.
+  //
+  // The list builds its own rows rather than claiming the server's. That is a
+  // missed reuse, not a correctness problem: the inserter owns its end marker
+  // and its effect from here on, and the server's rows are left unclaimed, so
+  // trimUnclaimed removes them once the walk finishes. Claiming them properly
+  // needs the list's own boundary markers in the server HTML, which is the same
+  // thing reactive regions need and is tracked for 0.13.0.
+  if (typeof vnode === 'function' && vnode._mapArray) {
+    const cursorInParent = !!(_hydrationCursor && _hydrationCursor.parent === parent);
+    const anchor = cursorInParent ? (parent.childNodes[_hydrationCursor.index] || null) : null;
+    const endMarker = vnode(parent, anchor);
+    if (cursorInParent) {
+      const index = Array.prototype.indexOf.call(parent.childNodes, endMarker);
+      if (index >= 0) _hydrationCursor.index = index + 1;
+    }
+    return endMarker;
+  }
 
-    // Set up reactive effect for future updates (normal rendering path)
-    const dispose = effect(() => {
+  // Reactive function child: attach an effect to the existing nodes
+  if (typeof vnode === 'function') {
+    // Bound the region with the same comment markers the client render path
+    // uses (see the reactive-function branch of createDOM in dom.js). Hydration
+    // used to create none, and paid for it twice on the first update:
+    //
+    //   - reconcileInsert was handed a null marker, so it had no insertion
+    //     point and appended to the END of the parent. A hydrated <Show> that
+    //     flipped arms jumped to the bottom of its container, because a
+    //     component realizes to a DocumentFragment and fragments deliberately
+    //     skip the replace-in-place fast path.
+    //   - the effect's disposer was attached to the CONTENT node, so removing
+    //     that content disposed the effect. The region then stopped reacting
+    //     entirely: a <Show> broke position on its first flip and went dead on
+    //     its second.
+    //
+    // Markers are stable nodes that outlive every value the region ever holds,
+    // which is exactly why the client path has them. Client-only rendering was
+    // always correct here; only the SSR path was missing them.
+    //
+    // The start marker goes in BEFORE the value is hydrated, at the slot the
+    // cursor is pointing at. Anchoring afterwards to the first content node was
+    // wrong in two ways that both showed up as content in the wrong place:
+    //
+    //   - a value of null/false/undefined claims no node, so there was no anchor
+    //     and both markers were appended to the END of the parent. `<Show>` with
+    //     no fallback, or `{cond && <X/>}`, permanently lost its position: the
+    //     content appeared below every following sibling once it filled in.
+    //   - a NESTED region hydrates while we are still inside this one and
+    //     inserts its own markers around the content first. Anchoring to the
+    //     content then put the outer start marker INSIDE the inner pair, so the
+    //     regions interleaved instead of nesting. Switching the outer arm
+    //     removed the content but neither the inner markers nor the inner
+    //     effect, which kept rendering into a region that was switched off and
+    //     duplicated it when the outer arm came back. `<Show>` wrapping
+    //     `<Show>` or `<For>` is the canonical shape, not an exotic one.
+    //
+    // Opening the region first makes both cases fall out: everything the value
+    // hydrates lands after the start marker, and the end marker closes at
+    // wherever the cursor ends up.
+    const cursorInParent = !!(_hydrationCursor && _hydrationCursor.parent === parent);
+    const startMarker = document.createComment('fn');
+    const endMarker = document.createComment('/fn');
+
+    if (cursorInParent) {
+      parent.insertBefore(startMarker, parent.childNodes[_hydrationCursor.index] || null);
+      _hydrationCursor.index++;
+    } else {
+      parent.appendChild(startMarker);
+    }
+
+    // Hydrate the value for its side effects: it claims the server's nodes and,
+    // if it contains a nested region, inserts that region's markers. What it
+    // RETURNS is deliberately ignored, because it is not the region's contents:
+    // a nested region's markers are not in it. The tracked set is read back from
+    // the DOM below, between the markers, which is the actual boundary.
+    hydrateNode(vnode(), parent);
+
+    if (cursorInParent) {
+      parent.insertBefore(endMarker, parent.childNodes[_hydrationCursor.index] || null);
+      _hydrationCursor.index++;
+    } else {
+      parent.appendChild(endMarker);
+    }
+
+    // The region owns EVERYTHING between its markers, not just the nodes its own
+    // value produced. A nested region leaves its markers in here too, and those
+    // markers carry the disposer for the nested effect.
+    //
+    // Tracking only the value's own nodes meant that switching this region off
+    // removed the visible content and left the inner markers and the inner
+    // effect behind. The orphaned effect kept rendering into a region that was
+    // switched off, and its output reappeared, doubled, when this region came
+    // back. Collecting from the DOM is also more honest than reasoning about
+    // what hydrateNode returned: the markers are the boundary, so whatever sits
+    // between them is the content.
+    const owned = [];
+    for (let node = startMarker.nextSibling; node && node !== endMarker; node = node.nextSibling) {
+      owned.push(node);
+    }
+    let current = owned.length === 0 ? null : (owned.length === 1 ? owned[0] : owned);
+
+    // Set up reactive effect for future updates (normal rendering path).
+    // The owner is captured for the same reason as in insert() and createDOM:
+    // every re-run happens with the component stack unwound.
+    const owner = captureOwner();
+    const dispose = effect(() => withOwner(owner, () => {
       const value = vnode();
       // After hydration, this runs as normal insert
       if (!_isHydrating) {
-        current = reconcileInsert(parent, value, current, null);
+        current = reconcileInsert(endMarker.parentNode || parent, value, current, endMarker);
       }
-    });
-    addHydrationDisposer(current && current.nodeType ? current : parent, dispose);
+    }));
+
+    // The disposer is now reachable from three places (either marker via
+    // disposeTree, and the hydration disposer registry), which is deliberate:
+    // whichever one the teardown happens to walk, the effect dies. It must
+    // therefore be idempotent, or a tree disposed through more than one route
+    // decrements the live-effect count once per route.
+    let disposed = false;
+    const disposeOnce = () => {
+      if (disposed) return;
+      disposed = true;
+      dispose();
+    };
+
+    startMarker._dispose = disposeOnce;
+    endMarker._dispose = disposeOnce;
+    addHydrationDisposer(startMarker, disposeOnce);
     return current;
   }
 
@@ -1776,11 +2096,26 @@ function hydrateNode(vnode, parent) {
       // createComponent in dom.js.
       try {
         const node = hydrateNode(result, parent);
-        // No comment markers exist on this path, so anchor the ctx to the node
-        // the component produced (or to the parent when it produced none) —
-        // otherwise disposeTree can never reach it and the ctx leaks.
+        // No comment markers exist for a COMPONENT on this path, so the ctx has
+        // to hang off some node that disposeTree will reach, or it leaks.
+        //
+        // Anchoring it to the first node the component produced is only valid
+        // when that node is stable. If the component's root is a reactive
+        // region, that node is the region's current CONTENT, and the region
+        // replaces it on the very first update: disposeTree then ran over it and
+        // took the whole component context with it. Every effect, cleanup and
+        // onCleanup the component owns died the first time its own root
+        // re-rendered, which is the same create-outside/dispose-inside-an-effect
+        // shape the region markers exist to prevent.
+        //
+        // A region root falls back to the parent element instead. That disposes
+        // later than ideal (when the parent goes, not when the component does),
+        // and disposing late is strictly better than disposing while mounted.
+        const rootIsRegion = typeof result === 'function'
+          || (Array.isArray(result) && result.some((child) => typeof child === 'function'));
         const first = Array.isArray(node) ? node[0] : node;
-        addHydratedComponent(first && first.nodeType ? first : parent, ctx);
+        const anchor = (!rootIsRegion && first && first.nodeType) ? first : parent;
+        addHydratedComponent(anchor, ctx);
         return node;
       } finally {
         componentStack.pop();
@@ -1788,10 +2123,18 @@ function hydrateNode(vnode, parent) {
     }
 
     // Element — claim existing DOM element
+    //
+    // The comparison is case-INSENSITIVE. `nodeName` is uppercased for HTML
+    // elements but case-preserved for everything else, so an SVG element's
+    // nodeName is 'svg' and could never equal `tag.toUpperCase()`. Every inline
+    // SVG on a server-rendered page therefore failed to match, warned
+    // "expected <svg>, got svg", and was destroyed and rebuilt: with
+    // document.createElement, in the HTML namespace, which does not render as
+    // SVG at all. Icons, logos and charts went blank on hydration.
     const existing = claimNode(parent);
-    const expectedTag = vnode.tag.toUpperCase();
+    const expectedTag = vnode.tag.toLowerCase();
 
-    if (existing && existing.nodeType === 1 && existing.nodeName === expectedTag) {
+    if (existing && existing.nodeType === 1 && existing.nodeName.toLowerCase() === expectedTag) {
       // Match! Reuse this element. Apply props/bindings.
       hydrateElementProps(existing, vnode.props || {});
 
@@ -1804,6 +2147,20 @@ function hydrateNode(vnode, parent) {
         for (const child of vnode.children) {
           hydrateNode(child, existing);
         }
+        // Only when the client tree actually declares children here.
+        //
+        // An element the client says is EMPTY is not the same claim as "the
+        // server's content is stale". An island is the counter-example that
+        // matters: it renders a bare host element and fills it in later, when
+        // its trigger fires, from the server HTML still sitting inside it.
+        // Trimming on an empty child list threw that content away and the
+        // island rebuilt it from scratch, which is the exact opposite of what
+        // an island is for (a `mode: 'static'` island, which never hydrates at
+        // all, simply lost its content).
+        //
+        // dangerouslySetInnerHTML is excluded above for the same reason: the
+        // cursor never walks that subtree, so nothing in it is ever claimed.
+        if (vnode.children.length > 0) trimUnclaimed(existing);
       }
 
       _hydrationCursor = savedCursor;
@@ -1817,19 +2174,17 @@ function hydrateNode(vnode, parent) {
       );
     }
 
-    // Create the element from scratch
-    const newEl = document.createElement(vnode.tag);
-    for (const key in vnode.props || {}) {
-      if (key === 'children' || key === 'key') continue;
-      setProp(newEl, key, vnode.props[key]);
-    }
-    for (const child of vnode.children) {
-      reconcileInsert(newEl, child, null, null);
-    }
+    // Create the element from scratch, through the same path a client-only
+    // render uses. The hand-rolled version here called document.createElement
+    // and setProp with no SVG context, so a rebuilt <svg> landed in the XHTML
+    // namespace and rendered as nothing at all, and its attributes were set as
+    // properties rather than attributes. Falling back to a client render has to
+    // mean the client render, not an approximation of it.
+    const newEl = createDOM(vnode, parent, isSvgParent(parent));
     if (existing) {
       parent.replaceChild(newEl, existing);
     } else {
-      parent.appendChild(newEl);
+      insertAtCursor(parent, newEl);
     }
     return newEl;
   }
@@ -1840,9 +2195,7 @@ function hydrateNode(vnode, parent) {
   }
 
   // Fallback — create text node
-  const textNode = document.createTextNode(String(vnode));
-  parent.appendChild(textNode);
-  return textNode;
+  return insertAtCursor(parent, document.createTextNode(String(vnode)));
 }
 
 /**

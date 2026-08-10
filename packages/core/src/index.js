@@ -6,6 +6,9 @@ export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync
 
 // Fine-grained rendering primitives
 export { template, _template, _$template, svgTemplate, insert, mapArray, spread, setProp, delegateEvents, on, classList, hydrate, isHydrating, _$createComponent } from './render.js';
+// Internal, underscore-prefixed: SSR has no DOM to run a mapArray inserter
+// against, so it renders the rows from the inserter's inputs instead.
+export { _mapArrayToArray } from './render.js';
 
 // JSX factory — Fragment and html tagged template are public APIs.
 // h is exported for internal package use only (jsx-runtime, server, router, react-compat).
@@ -17,6 +20,9 @@ export { mount } from './dom.js';
 // Internal, underscore-prefixed: shared so the client, compiled-JSX and SSR
 // attribute paths cannot disagree about ARIA serialization again.
 export { _isAriaAttr } from './dom.js';
+// Internal, underscore-prefixed: the component stack lives here, so SSR has to
+// borrow it rather than build a second one that hooks cannot see.
+export { _beginComponentSSR, _endComponentSSR } from './dom.js';
 
 // Hooks (React-compatible API)
 export {

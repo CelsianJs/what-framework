@@ -90,6 +90,7 @@ jobs:
           npm run -s check:size
           npm run -s test:prod
           npm run -s smoke:scaffold
+          npm run -s smoke:apps
 
       - name: Benchmark gate (perf — non-blocking signal)
         continue-on-error: true
@@ -122,6 +123,17 @@ jobs:
       - name: Verify npm registry packages
         if: ${{ inputs.publish_packages && !inputs.dry_run }}
         run: npm run -s verify:registry
+
+      # The gate the 0.12.0 and 0.12.1 packaging defects needed and did not have.
+      # Everything above this point tests the WORKSPACE, which resolves paths that
+      # a published tarball may not contain: a types path declared but not shipped,
+      # an export condition shadowed by another, a dependency that only resolves
+      # inside the monorepo. This step installs what was just published and drives
+      # the same applications against it. Runs after the publish because there is
+      # nothing to install before one.
+      - name: App smoke suite against the PUBLISHED packages
+        if: ${{ inputs.publish_packages && !inputs.dry_run }}
+        run: npm run -s smoke:apps:npm
 
       - name: Upload registry smoke artifact
         if: ${{ always() && inputs.publish_packages && !inputs.dry_run }}

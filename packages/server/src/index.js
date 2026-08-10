@@ -5,6 +5,9 @@
 import {
   h,
   _isAriaAttr,
+  _beginComponentSSR,
+  _endComponentSSR,
+  _mapArrayToArray,
   getServerContext,
   runWithServerContext,
   beginHeadCollection,
@@ -71,6 +74,20 @@ function _renderHydratable(vnode) {
     return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
   }
 
+  // Compiled keyed list: an inserter taking (parent, marker), not a thunk.
+  // Calling it with no arguments threw and SSR swallowed it, so every compiled
+  // keyed list server-rendered as an empty container. See _mapArrayToArray.
+  if (typeof vnode === 'function' && vnode._mapArray) {
+    try {
+      return `<!--$-->${_renderHydratable(_mapArrayToArray(vnode))}<!--/$-->`;
+    } catch (e) {
+      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+        console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
+      }
+      return '<!--$--><!--/$-->';
+    }
+  }
+
   // Reactive function child — wrap in dynamic content markers
   if (typeof vnode === 'function') {
     try {
@@ -91,8 +108,13 @@ function _renderHydratable(vnode) {
   // Component — add hydration key to root element
   if (typeof vnode.tag === 'function') {
     const hkId = nextHydrationId();
-    const result = vnode.tag({ ...vnode.props, children: vnode.children });
-    const html = _renderHydratable(result);
+    const ctx = _beginComponentSSR(vnode.tag);
+    let html;
+    try {
+      html = _renderHydratable(vnode.tag({ ...vnode.props, children: vnode.children }));
+    } finally {
+      _endComponentSSR(ctx);
+    }
     // Inject data-hk into the first element tag if present
     return injectHydrationKey(html, hkId);
   }
@@ -146,6 +168,18 @@ export function renderToString(vnode) {
     return renderToString(vnode());
   }
 
+  // Compiled keyed list: see _renderHydratable above.
+  if (typeof vnode === 'function' && vnode._mapArray) {
+    try {
+      return renderToString(_mapArrayToArray(vnode));
+    } catch (e) {
+      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+        console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
+      }
+      return '';
+    }
+  }
+
   // Reactive function child — call to get value
   if (typeof vnode === 'function') {
     try {
@@ -178,9 +212,18 @@ export function renderToString(vnode) {
   }
 
   // Component
+  //
+  // Run it under a component context. Calling it bare left the component stack
+  // empty, so every context-dependent hook threw and the render failed outright
+  // rather than degrading. The context has to stay on the stack while the
+  // result is rendered, because useContext resolves by walking parent contexts.
   if (typeof vnode.tag === 'function') {
-    const result = vnode.tag({ ...vnode.props, children: vnode.children });
-    return renderToString(result);
+    const ctx = _beginComponentSSR(vnode.tag);
+    try {
+      return renderToString(vnode.tag({ ...vnode.props, children: vnode.children }));
+    } finally {
+      _endComponentSSR(ctx);
+    }
   }
 
   // Element
@@ -315,6 +358,20 @@ export async function* renderToStream(vnode, ctx) {
     return;
   }
 
+  // Compiled keyed list: see _renderHydratable above.
+  if (typeof vnode === 'function' && vnode._mapArray) {
+    let rows = null;
+    try {
+      rows = runWithServerContext(ctx, () => _mapArrayToArray(vnode));
+    } catch (e) {
+      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+        console.warn('[what-server] Error rendering keyed list in stream SSR:', e.message);
+      }
+    }
+    if (rows) yield* renderToStream(rows, ctx);
+    return;
+  }
+
   // Reactive function child — call to get value
   if (typeof vnode === 'function') {
     try {
@@ -361,6 +418,10 @@ export async function* renderToStream(vnode, ctx) {
   }
 
   if (typeof vnode.tag === 'function') {
+    // The frame stays open across the yields below: useContext resolves by
+    // walking parent contexts, so a Provider's context has to outlive the
+    // streaming of its own subtree.
+    const componentCtx = _beginComponentSSR(vnode.tag);
     try {
       const result = runWithServerContext(
         ctx,
@@ -376,6 +437,8 @@ export async function* renderToStream(vnode, ctx) {
       yield _isDevMode
         ? `<!-- SSR Error: ${escapeHtml(e.message || 'Component error')} -->`
         : `<!-- SSR Error -->`;
+    } finally {
+      _endComponentSSR(componentCtx);
     }
     return;
   }

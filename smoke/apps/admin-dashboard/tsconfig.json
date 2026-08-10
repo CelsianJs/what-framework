@@ -1,0 +1,15 @@
+{
+  "//": "Editor hints only. Nothing runs tsc: what-compiler owns the JSX transform, and the Vite plugin sets jsx:'preserve' so the bundler never touches it.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "what-framework",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

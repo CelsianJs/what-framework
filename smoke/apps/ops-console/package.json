@@ -1,0 +1,16 @@
+{
+  "name": "smoke-ops-console",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Ops console smoke app: infinite event feed, optimistic acknowledge, lazy detail pane, validated forms, focus-trapped dialog.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "what-framework": "0.12.2",
+    "what-router": "0.12.2",
+    "what-server": "0.12.2"
+  }
+}

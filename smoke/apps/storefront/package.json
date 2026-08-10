@@ -1,0 +1,21 @@
+{
+  "name": "smoke-storefront",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Ecommerce smoke app: static/hybrid/server pages, cart store, server actions, cookie auth, query cache.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "export": "node export.js"
+  },
+  "dependencies": {
+    "what-framework": "0.12.2",
+    "what-isr": "0.12.2",
+    "what-server": "0.12.2"
+  },
+  "devDependencies": {
+    "what-devtools": "0.12.2",
+    "what-devtools-mcp": "0.12.2"
+  }
+}

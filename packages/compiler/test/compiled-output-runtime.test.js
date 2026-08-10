@@ -387,3 +387,115 @@ describe('Fragment-as-root: dynamic expression children stay reactive (MEDIUM)',
     host.remove();
   });
 });
+
+describe('a destructured prop is not treated as a signal accessor', () => {
+  // The compiler classifies every DESTRUCTURED PROP name as a signal, which is
+  // right for deciding that an effect is needed and wrong for deciding to CALL
+  // it. `_$createComponent` passes plain values, so `<span data-x={label}>`
+  // inside `({ label })` compiled to `setAttr(el, 'data-x', label())` and threw
+  //
+  //   TypeError: label is not a function
+  //
+  // on any ordinary string prop, and the whole component subtree rendered
+  // nothing. The same identifier used as a CHILD compiled to `() => label`,
+  // uncalled, so the two positions disagreed inside a single element: the text
+  // appeared and the attribute killed the component.
+  //
+  // The runtime setters (setAttr, setClass, setValue, ...) resolve a function
+  // value reactively themselves, so passing the identifier through uncalled is
+  // correct whether the parent passed a plain value or an accessor. Both are
+  // asserted below, because fixing this by never calling would be just as wrong
+  // if it broke the accessor case.
+
+  it('renders a plain string prop in attribute position', async () => {
+    const mod = await compileAndLoad(`
+      export function Badge({ label, tone }) {
+        return <span data-label={label} class={tone}>{label}</span>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    mount(mod.Badge({ label: 'shipped', tone: 'ok' }), host);
+    flushSync();
+
+    const span = host.querySelector('span');
+    assert.ok(span, 'the component must render at all');
+    assert.equal(span.getAttribute('data-label'), 'shipped');
+    assert.equal(span.className, 'ok');
+    assert.equal(span.textContent, 'shipped', 'the child position agrees with the attribute');
+    host.remove();
+  });
+
+  it('still tracks a prop that IS an accessor', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const live = signal('one');
+      export function Badge({ label }) {
+        return <span data-label={label}>x</span>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    mount(mod.Badge({ label: mod.live }), host);
+    flushSync();
+    assert.equal(host.querySelector('span').getAttribute('data-label'), 'one');
+
+    mod.live('two');
+    flushSync();
+    assert.equal(host.querySelector('span').getAttribute('data-label'), 'two',
+      'an accessor prop must stay reactive');
+    host.remove();
+  });
+
+  it('still auto-invokes a real signal from signal()', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const n = signal(1);
+      export function Counter() {
+        return <span data-n={n}>x</span>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    mount(mod.Counter(), host);
+    flushSync();
+    assert.equal(host.querySelector('span').getAttribute('data-n'), '1');
+
+    mod.n(2);
+    flushSync();
+    assert.equal(host.querySelector('span').getAttribute('data-n'), '2');
+    host.remove();
+  });
+
+  it('works for a prop rendered through a keyed list', async () => {
+    // The shape that found it: <Stat> cards built by items.map(), where one bad
+    // attribute blanked the entire page rather than one card.
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const items = signal([
+        { id: 1, label: 'Orders', tone: 'up' },
+        { id: 2, label: 'Revenue', tone: 'down' },
+      ]);
+      function Stat({ label, tone }) {
+        return <li data-tone={tone}>{label}</li>;
+      }
+      export function App() {
+        return <ul>{items().map(it => <Stat key={it.id} label={it.label} tone={it.tone} />)}</ul>;
+      }
+    `);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+
+    mount(mod.App(), host);
+    flushSync();
+
+    const lis = [...host.querySelectorAll('li')];
+    assert.equal(lis.length, 2, 'every card renders');
+    assert.deepEqual(lis.map(li => li.textContent), ['Orders', 'Revenue']);
+    assert.deepEqual(lis.map(li => li.getAttribute('data-tone')), ['up', 'down']);
+    host.remove();
+  });
+});

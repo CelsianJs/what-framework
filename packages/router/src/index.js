@@ -184,7 +184,16 @@ export async function navigate(to, opts = {}) {
   // Use View Transitions API if available and enabled
   if (transition && typeof document !== 'undefined' && document.startViewTransition) {
     try {
-      await document.startViewTransition(doNavigation).finished;
+      const viewTransition = document.startViewTransition(doNavigation);
+      // `.ready` rejects when the transition is skipped, which two navigations
+      // in quick succession do routinely. Awaiting only `.finished` left that
+      // rejection unhandled, so it surfaced as an uncaught page error
+      // ("Transition was skipped") and landed in whatever error reporter the
+      // app had installed, for a navigation that actually succeeded.
+      if (viewTransition.ready && typeof viewTransition.ready.catch === 'function') {
+        viewTransition.ready.catch(() => {});
+      }
+      await viewTransition.finished;
     } catch (e) {
       // Transition failed, navigation still happened
     }
@@ -328,6 +337,23 @@ function loopScreen(message) {
 // instead would never catch a cycle between two route components, because each
 // hop matches successfully before its component throws the next redirect.
 function handleRedirect(target, options) {
+  // A navigation to this exact target is already in flight, so this is a
+  // re-match of the same hop, not a second one.
+  //
+  // It happens on every re-match that occurs before the URL commits. With the
+  // View Transitions API, navigate() defers the `_url` write into the
+  // transition callback while `_isNavigating` flips immediately, and
+  // renderMatch reads `_isNavigating`, so the match re-runs against the
+  // still-old URL, the same middleware returns the same target, and the hop was
+  // counted twice. One guarded deep link produced 25 false "Redirect cycle
+  // detected" errors and a flash of the redirect-loop screen, and the detector
+  // then cleared `_isNavigating` / `_pendingUrl` while the real navigation was
+  // still in flight, corrupting router state mid-navigation.
+  //
+  // Chromium-only, because without View Transitions doNavigation() runs
+  // synchronously and the URL and the flag change together.
+  if (_pendingUrl.peek() === target) return null;
+
   _redirectHistory.push(target);
 
   if (_redirectHistory.length > MAX_REDIRECTS) {

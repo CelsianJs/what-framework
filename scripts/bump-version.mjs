@@ -98,6 +98,39 @@ if (existsSync(rootManifest)) {
   }
 }
 
+// The smoke apps pin what-* at an EXACT version so `cd smoke/apps/<name> &&
+// npm install` installs the release those apps were written against. They are
+// private and not workspace members, so nothing else moves them, and a stale pin
+// means the checked-in demos quietly install an old framework. (The smoke RUNNER
+// rewrites these to tarballs or a chosen registry version, so a stale pin never
+// affects a smoke run: it only affects a human opening the demo.)
+const smokeAppsDir = join(repoRoot, 'smoke', 'apps');
+if (existsSync(smokeAppsDir)) {
+  let smokePins = 0;
+  for (const entry of readdirSync(smokeAppsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const file = join(smokeAppsDir, entry.name, 'package.json');
+    if (!existsSync(file)) continue;
+    const json = JSON.parse(readFileSync(file, 'utf8'));
+    let changed = false;
+    for (const field of DEP_FIELDS) {
+      if (!json[field]) continue;
+      for (const [name, range] of Object.entries(json[field])) {
+        if (internalNames.has(name) && range !== next) {
+          json[field][name] = next;
+          changed = true;
+          smokePins++;
+        }
+      }
+    }
+    if (changed) {
+      if (!dry) writeFileSync(file, JSON.stringify(json, null, 2) + '\n');
+      console.log(`  ${`smoke/apps/${entry.name}`.padEnd(24)} -> ${next}`);
+    }
+  }
+  if (smokePins) console.log(`  ${'(smoke app pins)'.padEnd(24)} ${smokePins} updated`);
+}
+
 // Keep the hardcoded VERSION constant in agent-context.js in sync (guarded by a
 // version-match test in packages/core/test/guardrails.test.js — would fail CI otherwise).
 const agentCtx = join(pkgsDir, 'core', 'src', 'agent-context.js');
