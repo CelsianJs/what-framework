@@ -473,54 +473,180 @@ export function enhance(selector, handler) {
   }
 }
 
-// Form enhancement: submit via fetch instead of page reload
+/**
+ * Recover the double-submit CSRF token for a form.
+ *
+ * The meta tag alone is not enough. A cached page (mode 'static' or 'hybrid') is
+ * shared between visitors, so the adapter deliberately does NOT embed a
+ * per-visitor token in it; the token lives only in the cookie. A form inside
+ * such a page therefore has no meta tag to read, and blocking on that alone
+ * refused perfectly valid submissions. `<Form>` also emits the token as a hidden
+ * field, which is the same value, so all three sources are checked.
+ */
+function readFormCsrfToken(form) {
+  const meta = document.querySelector('meta[name="csrf-token"]')
+    || document.querySelector('meta[name="what-csrf-token"]');
+  if (meta) return meta.getAttribute('content');
+
+  const field = form.querySelector('input[name="what-csrf-token"], input[name="_csrf"]');
+  if (field && field.value) return field.value;
+
+  const cookie = document.cookie.match(/(?:^|;\s*)what-csrf=([^;]+)/);
+  return cookie ? decodeURIComponent(cookie[1]) : null;
+}
+
+/**
+ * Serialize a form the way the browser would, so an enhanced submit and a plain
+ * one are indistinguishable to the server.
+ *
+ * Two details that look pedantic and are not:
+ *   - newlines in every text entry normalize to CRLF. The urlencoded and
+ *     multipart serializers both do this per spec; URLSearchParams does not, so
+ *     a <textarea> round-tripped different bytes with JS on than with JS off.
+ *   - a File under a non-multipart encoding contributes only its NAME, which is
+ *     what a native submit sends. Sending "[object File]" would be worse than
+ *     useless, and silently sending nothing hides a real mistake.
+ */
+function formEntries(form, submitter, multipart) {
+  const data = new FormData(form);
+
+  // FormData(form) never includes the submit button, so a multi-button form
+  // could not tell the server which button was pressed. Native submits include
+  // the submitter's name/value.
+  if (submitter && submitter.name) {
+    data.append(submitter.name, submitter.value ?? '');
+  }
+
+  if (multipart) return data;
+
+  const params = new URLSearchParams();
+  let droppedFile = null;
+  for (const [key, value] of data) {
+    if (typeof value === 'string') {
+      params.append(key, value.replace(/\r\n|\r|\n/g, '\r\n'));
+    } else {
+      droppedFile = droppedFile || key;
+      params.append(key, value.name ?? '');
+    }
+  }
+
+  if (droppedFile && typeof console !== 'undefined') {
+    console.warn(
+      `[what] Form field "${droppedFile}" holds a file, but the form is not ` +
+      'enctype="multipart/form-data", so only the file NAME is sent. This is what ' +
+      'a plain HTML submit does too. Add enctype="multipart/form-data" to upload ' +
+      'the bytes.'
+    );
+  }
+  return params;
+}
+
+/**
+ * Form enhancement: submit via fetch instead of a full page load.
+ *
+ * The encoding is not a detail. `/__what_action` parses
+ * application/x-www-form-urlencoded or JSON, never multipart, so an enhanced
+ * submit of a default form has to use the same encoding as the plain HTML submit
+ * it replaces. Posting a FormData object unconditionally produced a multipart
+ * body the endpoint could not parse: the action id went missing and every
+ * enhanced `<Form>` failed with 400 while the no-JS path kept working.
+ *
+ * The encoding now follows the form's own `enctype`, exactly as the browser
+ * would, so a form that declares multipart still uploads its files.
+ *
+ * On success the action endpoint answers 303 to the form's `_redirect` target,
+ * which fetch follows. The page is then navigated there so the enhanced path
+ * lands where the unenhanced one would. Cancel the `form:response` event to keep
+ * the page put and handle the response yourself.
+ */
 export function enhanceForms(selector = 'form[data-enhance]') {
   enhance(selector, (form) => {
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      const formData = new FormData(form);
-      const method = form.method.toUpperCase() || 'POST';
-      const action = form.action || location.href;
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
 
       try {
-        // Read CSRF token from meta tag
-        const csrfMeta = document.querySelector('meta[name="csrf-token"]') ||
-                         document.querySelector('meta[name="what-csrf-token"]');
-        const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : null;
+        // getAttribute, never the properties. HTMLFormElement is
+        // [LegacyOverrideBuiltIns]: a field named "method" or "action" SHADOWS
+        // form.method / form.action with the input element itself. Reading
+        // `form.method.toUpperCase()` then threw a TypeError after
+        // preventDefault() had already run, so the submit produced no fetch, no
+        // form:error, and no native fallback. It just did nothing.
+        const submitter = event.submitter || null;
+        const attr = (name) => (submitter && submitter.getAttribute(`form${name}`))
+          || form.getAttribute(name);
 
-        // If no CSRF token and form hasn't opted out, block submission
-        const noCsrf = form.getAttribute('data-no-csrf') === 'true';
-        if (!csrfToken && !noCsrf) {
-          console.warn(
-            '[what] Form submission blocked: no CSRF token found. ' +
-            'Add a <meta name="what-csrf-token"> tag (csrfMetaTag() emits it) ' +
-            'or set data-no-csrf="true" on the form to opt out.'
-          );
-          form.dispatchEvent(new CustomEvent('form:error', {
-            bubbles: true,
-            detail: { error: new Error('Missing CSRF token') },
-          }));
-          return;
+        const method = (attr('method') || 'get').toUpperCase();
+        const action = new URL(attr('action') || location.href, location.href);
+        const enctype = (attr('enctype') || '').toLowerCase();
+        const multipart = enctype === 'multipart/form-data';
+
+        const entries = formEntries(form, submitter, multipart);
+
+        // CSRF is about protecting OUR endpoint. A form aimed at another origin
+        // must neither be blocked by our token policy nor be handed our token:
+        // attaching it would export the visitor's double-submit secret to a
+        // third party.
+        const sameOrigin = action.origin === location.origin;
+        const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+
+        if (sameOrigin) {
+          const csrfToken = readFormCsrfToken(form);
+          const noCsrf = form.getAttribute('data-no-csrf') === 'true';
+          if (!csrfToken && !noCsrf) {
+            console.warn(
+              '[what] Form submission blocked: no CSRF token found. ' +
+              'Add a <meta name="what-csrf-token"> tag (csrfMetaTag() emits it) ' +
+              'or set data-no-csrf="true" on the form to opt out.'
+            );
+            form.dispatchEvent(new CustomEvent('form:error', {
+              bubbles: true,
+              detail: { error: new Error('Missing CSRF token') },
+            }));
+            return;
+          }
+          if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
         }
 
-        const headers = {
-          'X-Requested-With': 'XMLHttpRequest',
-        };
-        if (csrfToken) {
-          headers['X-CSRF-Token'] = csrfToken;
+        let body;
+        if (method === 'GET') {
+          // A native GET submit REPLACES the query string with the form data.
+          // The previous code built the params and then threw them away, so an
+          // enhanced GET form fetched a bare URL with none of its fields.
+          action.search = String(entries);
+        } else if (multipart) {
+          // Hand FormData straight to fetch so the browser writes the boundary.
+          body = entries;
+        } else {
+          body = entries;
+          headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
         }
 
-        const response = await fetch(action, {
+        const response = await fetch(action.href, {
           method,
-          body: method === 'GET' ? undefined : formData,
+          body,
           headers,
+          credentials: 'same-origin',
         });
 
-        form.dispatchEvent(new CustomEvent('form:response', {
+        const responseEvent = new CustomEvent('form:response', {
           bubbles: true,
-          detail: { response, ok: response.ok },
-        }));
+          cancelable: true,
+          detail: { response, ok: response.ok, redirected: response.redirected },
+        });
+        const proceed = form.dispatchEvent(responseEvent);
+
+        // Same-origin only. A native submit would follow an off-site redirect,
+        // but a framework default that can navigate the page to another origin
+        // on a server's say-so is not a default worth having. Listen for
+        // form:response if you need that.
+        if (proceed && response.ok && response.redirected) {
+          let target = null;
+          try {
+            const url = new URL(response.url, location.href);
+            if (url.origin === location.origin) target = url.href;
+          } catch { /* unparseable: do not navigate */ }
+          if (target) location.assign(target);
+        }
       } catch (error) {
         form.dispatchEvent(new CustomEvent('form:error', {
           bubbles: true,

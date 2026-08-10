@@ -87,8 +87,33 @@ function subscribeToKey(key, revalidateFn) {
   };
 }
 
-const inFlightRequests = new Map(); // key -> { promise, timestamp, refCount }
+const inFlightRequests = new Map(); // key -> { promise, timestamp, refCount, epoch }
 const lastFetchTimestamps = new Map(); // key -> timestamp of last completed fetch
+
+// How many times each key has been invalidated. This orders invalidations
+// against in-flight requests, which a wall clock cannot: Date.now() has 1ms
+// resolution, so a refetch and an unrelated invalidation issued microseconds
+// apart share a timestamp, and the invalidation would be answered by a request
+// that predates the mutation. A counter has no ties.
+const keyEpochs = new Map();
+
+function currentEpoch(key) {
+  return keyEpochs.get(key) || 0;
+}
+
+function bumpEpoch(key) {
+  keyEpochs.set(key, currentEpoch(key) + 1);
+}
+
+// Every timer this module arms is housekeeping or polling. None of it is work
+// worth keeping a Node process alive for, and on the server the usual owner of a
+// timer (a component that unmounts) does not exist, so nothing ever clears them:
+// an SSR render that touched one query pinned the event loop for minutes and kept
+// firing the query function long after the HTML had been sent.
+function unrefTimer(timer) {
+  if (timer && typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
 
 // Create an effect scoped to the current component's lifecycle.
 // When the component unmounts, the effect is automatically disposed.
@@ -212,13 +237,33 @@ export function useSWR(key, fetcher, options = {}) {
 
   let abortController = null;
 
-  async function revalidate() {
+  // `force` is invalidateQueries(): "this data is wrong now". It bypasses the
+  // FRESHNESS window, which is the one caller that must never be answered from
+  // it (with the default 2s dedupingInterval an invalidation issued right after
+  // a fetch was silently swallowed and the stale data stayed on screen).
+  //
+  // It does NOT bypass request COALESCING, which is a different mechanism
+  // wearing a similar name. Every component reading a key subscribes
+  // separately, so one invalidateQueries() call fans out to N subscribers; the
+  // in-flight map is what collapses those back into one request. Skipping it
+  // opened N concurrent fetches of the same key whose responses then raced to
+  // write the cache.
+  //
+  // What force does change is WHICH in-flight request is acceptable. A response
+  // to a request that started before the data was invalidated is already stale,
+  // so it cannot answer the invalidation. One that started after it is a
+  // sibling subscriber's, and is exactly what we want to join.
+  async function revalidate({ force = false } = {}) {
     const now = Date.now();
+    const epoch = currentEpoch(key);
 
     // Deduplication: if there's already a request in flight, reuse it
     if (inFlightRequests.has(key)) {
       const existing = inFlightRequests.get(key);
-      if (now - existing.timestamp < dedupingInterval) {
+      const usable = force
+        ? existing.epoch === epoch
+        : now - existing.timestamp < dedupingInterval;
+      if (usable) {
         existing.refCount++;
         return existing.promise;
       }
@@ -226,7 +271,7 @@ export function useSWR(key, fetcher, options = {}) {
 
     // Also deduplicate against recently completed fetches
     const lastFetch = lastFetchTimestamps.get(key);
-    if (lastFetch && now - lastFetch < dedupingInterval && cacheS.peek() != null) {
+    if (!force && lastFetch && now - lastFetch < dedupingInterval && cacheS.peek() != null) {
       return cacheS.peek();
     }
 
@@ -243,7 +288,7 @@ export function useSWR(key, fetcher, options = {}) {
     isValidating.set(true);
 
     const promise = fetcher(key, { signal: abortSignal });
-    inFlightRequests.set(key, { promise, timestamp: now, refCount: 1 });
+    inFlightRequests.set(key, { promise, timestamp: now, refCount: 1, epoch });
 
     try {
       const result = await promise;
@@ -271,11 +316,16 @@ export function useSWR(key, fetcher, options = {}) {
     }
   }
 
-  // Subscribe to invalidation events for this key
-  const unsubscribe = subscribeToKey(key, () => revalidate().catch(() => {}));
-
-  // Initial fetch
+  // Initial fetch, plus the invalidation subscription for this key.
+  //
+  // The subscription lives INSIDE the effect. It used to be created once
+  // outside, while the effect's cleanup tore it down, and this effect re-runs
+  // whenever the fetcher reads a signal that changed. So the first reactive
+  // refetch unsubscribed the key and never resubscribed: from then on
+  // invalidateQueries() had no subscriber to call and silently did nothing.
+  // Re-subscribing per run keeps the two halves in the same lifecycle.
   scopedEffect(() => {
+    const unsubscribe = subscribeToKey(key, () => revalidate({ force: true }).catch(() => {}));
     revalidate().catch(() => {});
     // Cleanup: abort and unsubscribe on unmount
     return () => {
@@ -309,9 +359,9 @@ export function useSWR(key, fetcher, options = {}) {
   // Polling
   if (refreshInterval > 0) {
     scopedEffect(() => {
-      const interval = setInterval(() => {
+      const interval = unrefTimer(setInterval(() => {
         revalidate().catch(() => {});
-      }, refreshInterval);
+      }, refreshInterval));
       return () => clearInterval(interval);
     });
   }
@@ -367,13 +417,17 @@ export function useQuery(options) {
 
   let lastFetchTime = 0;
   let abortController = null;
+  let cleanupTimer = null;
 
-  async function fetchQuery() {
+  // See the note on useSWR's revalidate: an invalidation must not be answered
+  // from the freshness window, or `invalidateQueries` becomes a no-op for every
+  // query with a staleTime.
+  async function fetchQuery({ force = false } = {}) {
     if (!enabled) return;
 
     // Check if data is still fresh
     const now = Date.now();
-    if (cacheS.peek() != null && now - lastFetchTime < staleTime) {
+    if (!force && cacheS.peek() != null && now - lastFetchTime < staleTime) {
       return cacheS.peek();
     }
 
@@ -405,8 +459,13 @@ export function useQuery(options) {
         if (onSuccess) onSuccess(result);
         if (onSettled) onSettled(result, null);
 
-        // Schedule cache cleanup (only if no active subscribers)
-        setTimeout(() => {
+        // Schedule cache cleanup (only if no active subscribers).
+        //
+        // Replaces the previous timer instead of arming another: every
+        // successful fetch used to add one and clear none, so a polling query
+        // accumulated pending Timeout objects at roughly (fetch rate x cacheTime).
+        if (cleanupTimer) clearTimeout(cleanupTimer);
+        cleanupTimer = unrefTimer(setTimeout(() => {
           if (Date.now() - lastFetchTime >= cacheTime) {
             const subs = revalidationSubscribers.get(key);
             if (!subs || subs.size === 0) {
@@ -417,7 +476,7 @@ export function useQuery(options) {
               lastFetchTimestamps.delete(key);
             }
           }
-        }, cacheTime);
+        }, cacheTime));
 
         return result;
       } catch (e) {
@@ -426,7 +485,7 @@ export function useQuery(options) {
         if (attempts < retry) {
           // Abort-aware retry delay: cancel the wait if the component unmounts
           await new Promise((resolve, reject) => {
-            const id = setTimeout(resolve, retryDelay(attempts));
+            const id = unrefTimer(setTimeout(resolve, retryDelay(attempts)));
             abortSignal.addEventListener('abort', () => {
               clearTimeout(id);
               reject(new DOMException('Aborted', 'AbortError'));
@@ -452,11 +511,13 @@ export function useQuery(options) {
     return attemptFetch();
   }
 
-  // Subscribe to invalidation events for this key
-  const unsubscribe = subscribeToKey(key, () => fetchQuery().catch(() => {}));
-
-  // Initial fetch
+  // Initial fetch, plus the invalidation subscription for this key.
+  // Subscribing inside the effect is deliberate: see the matching comment in
+  // useSWR above. A query whose queryFn reads a signal re-runs this effect, and
+  // a subscription created once outside it was cancelled by the first such
+  // re-run, leaving the query permanently deaf to invalidateQueries().
   scopedEffect(() => {
+    const unsubscribe = subscribeToKey(key, () => fetchQuery({ force: true }).catch(() => {}));
     if (enabled) {
       fetchQuery().catch(() => {});
     }
@@ -482,9 +543,9 @@ export function useQuery(options) {
   // Polling
   if (refetchInterval) {
     scopedEffect(() => {
-      const interval = setInterval(() => {
+      const interval = unrefTimer(setInterval(() => {
         fetchQuery().catch(() => {});
-      }, refetchInterval);
+      }, refetchInterval));
       return () => clearInterval(interval);
     });
   }
@@ -647,6 +708,10 @@ export function invalidateQueries(keyOrPredicate, options = {}) {
   }
 
   for (const key of keysToInvalidate) {
+    // Before notifying anyone: every subscriber woken below reads this epoch, so
+    // they agree on one refetch, and any request already in flight is now a
+    // generation behind and cannot answer for them.
+    bumpEpoch(key);
     // Hard invalidation clears data immediately (shows loading state)
     // Soft invalidation (default) keeps stale data visible during re-fetch (SWR pattern)
     if (hard && cacheSignals.has(key)) cacheSignals.get(key).set(null);
@@ -688,6 +753,7 @@ export function clearCache() {
   cacheTimestamps.clear();
   lastFetchTimestamps.clear();
   inFlightRequests.clear();
+  keyEpochs.clear();
 }
 
 /**

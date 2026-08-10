@@ -391,6 +391,22 @@ export default function whatBabelPlugin({ types: t }) {
   // defined in each lexical scope (function/block).
   function collectSignalNamesFromScope(path) {
     const signalNames = new Set();
+    // Names that came from a DESTRUCTURED PROP rather than a signal() call.
+    //
+    // They belong in signalNames because they might hold an accessor and so
+    // must still be wrapped in an effect. They must NOT be auto-invoked: a prop
+    // is whatever the parent passed, and `_$createComponent` passes plain
+    // values, so `<span data-label={label}>` inside `({ label })` compiled to
+    // `setAttr(el, 'data-label', label())` and threw "label is not a function"
+    // on any ordinary string prop, blanking the whole component subtree.
+    //
+    // The same identifier as a CHILD compiled to `() => label`, uncalled, so
+    // the two positions disagreed inside a single element. The runtime setters
+    // (setAttr, setClass, setValue, ...) already resolve a function value
+    // reactively, so passing the identifier through uncalled is correct for
+    // both a plain value and an accessor.
+    const propNames = new Set();
+    signalNames.fromDestructuredProps = propNames;
 
     // Helper: extract signal names from a VariableDeclarator node
     function extractFromDeclarator(decl) {
@@ -428,8 +444,10 @@ export default function whatBabelPlugin({ types: t }) {
       for (const prop of param.properties) {
         if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
           signalNames.add(prop.value.name);
+          propNames.add(prop.value.name);
         } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
           signalNames.add(prop.argument.name);
+          propNames.add(prop.argument.name);
         }
       }
     }
@@ -1228,7 +1246,14 @@ export default function whatBabelPlugin({ types: t }) {
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
           state.needsEffect = true;
           // Auto-invoke bare signal/imported identifiers: value={name} -> name()
+          //
+          // Never a destructured prop: it holds whatever the parent passed,
+          // which for `_$createComponent` is a plain value, and calling it
+          // threw. The runtime setters resolve a function value themselves, so
+          // an uncalled identifier is correct for a prop either way.
+          const fromProps = state.signalNames && state.signalNames.fromDestructuredProps;
           const valueExpr = t.isIdentifier(expr) &&
+            !(fromProps && fromProps.has(expr.name)) &&
             (isSignalIdentifier(expr.name, state.signalNames) ||
              (state.importedIdentifiers && state.importedIdentifiers.has(expr.name)))
             ? t.callExpression(expr, [])

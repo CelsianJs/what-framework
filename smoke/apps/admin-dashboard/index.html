@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Northwind Ops</title>
+  </head>
+  <body>
+    <!-- Client-only by design: the served document carries no app markup, and
+         everything below the shell is rendered by the compiled bundle. -->
+    <div id="app"></div>
+
+    <!-- Portal host. It has to exist in the document before a Portal renders
+         into it, and it deliberately sits OUTSIDE #app so a modal is provably
+         not a descendant of the card that opened it. -->
+    <div id="modal-root"></div>
+
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -405,6 +405,58 @@ export function getComponentStack() {
   return componentStack;
 }
 
+/**
+ * Run a component during SSR under a real component context.
+ *
+ * renderToString used to call `vnode.tag(props)` directly, with nothing on the
+ * component stack. Every hook that needs a context (useState, useSignal,
+ * useComputed, useEffect, useMemo, useCallback, useRef, useReducer, onMount,
+ * onCleanup, and Context.Provider) resolves it through getCurrentComponent(),
+ * so all of them threw on the server. A single useState anywhere in the tree
+ * meant the component could not be server-rendered at all: the page failed at
+ * render time, not with a hydration warning.
+ *
+ * The context is the same shape createComponent and the hydration path build,
+ * for the same reason: `useContext` walks `_parentCtx`, so a Provider's context
+ * has to stay on the stack while its children render. Hence the callback.
+ *
+ * Nothing here ever mounts, so nothing deferred may run. Every hook that defers
+ * work (useEffect in all three of its dep shapes) re-checks `ctx.disposed`
+ * inside its microtask, and onMount/onCleanup only collect callbacks that a
+ * mount would later invoke. _endComponentSSR marks the context disposed, which
+ * is what makes an SSR render leave no live effects behind.
+ *
+ * Begin/end rather than a wrapper callback because one of the three SSR call
+ * sites is a generator: renderToStream has to hold the frame open across yields
+ * until the subtree has finished streaming.
+ *
+ * Always pair these in a try/finally.
+ */
+export function _beginComponentSSR(Component) {
+  const ctx = {
+    hooks: [],
+    hookIndex: 0,
+    effects: [],
+    cleanups: [],
+    mounted: false,
+    disposed: false,
+    Component,
+    _parentCtx: componentStack[componentStack.length - 1] || null,
+    _errorBoundary: null,
+  };
+  componentStack.push(ctx);
+  return ctx;
+}
+
+export function _endComponentSSR(ctx) {
+  const top = componentStack[componentStack.length - 1];
+  // Defensive: an async component that interleaved with another render could
+  // otherwise pop someone else's frame and silently reparent every context
+  // lookup after it.
+  if (top === ctx) componentStack.pop();
+  ctx.disposed = true;
+}
+
 // --- _installLazyChildren(Component, target, lazyChildren) ---
 // Deferred children from compiled JSX arrive as a zero-arg factory instead of
 // built DOM. This defines target.children over that factory and returns a

@@ -1,0 +1,535 @@
+/* Northline 01: a long, dark, quiet reading page.
+   The only colour that moves is --lamp, which the client:load island rewrites. */
+
+:root {
+  color-scheme: dark;
+  --lamp: #c8912f;
+  --ink: #f4efe6;
+  --muted: #9a9186;
+  --line: #2b2724;
+  --paper: #141210;
+  --panel: #1c1917;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1100px 620px at 50% -8%, rgba(200, 145, 47, 0.16), transparent 62%),
+    var(--paper);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.story { padding-bottom: 4rem; }
+
+/* --- Fixed chrome --------------------------------------------------------- */
+
+.story-header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 20;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem 0.9rem;
+  background: rgba(20, 18, 16, 0.86);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.82rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.read-out {
+  margin: 0 0 0 auto;
+  font-size: 0.74rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: var(--line);
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--lamp), #f0d9a8);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
+/* --- Chapter rail (client:idle island) ------------------------------------ */
+
+.chapter-nav {
+  position: fixed;
+  top: 50%;
+  right: 1.5rem;
+  z-index: 15;
+  transform: translateY(-50%);
+  display: none;
+}
+
+@media (min-width: 1100px) { .chapter-nav { display: block; } }
+
+.chapter-nav ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.15rem;
+  border-right: 1px solid var(--line);
+}
+
+.chapter-link {
+  display: grid;
+  grid-template-columns: 2.1rem 1fr;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.9rem 0.25rem 0;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  border-right: 2px solid transparent;
+  margin-right: -1px;
+}
+
+.chapter-link:hover { color: var(--ink); }
+.chapter-link.is-current { color: var(--lamp); border-right-color: var(--lamp); }
+.chapter-num { font-variant-numeric: tabular-nums; opacity: 0.7; }
+
+/* --- Chapters ------------------------------------------------------------- */
+
+.story-main {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.chapter {
+  min-height: 100vh;
+  padding: 22vh 0 14vh;
+  border-bottom: 1px solid var(--line);
+  /* The header is fixed, so a fragment jump would otherwise land under it. */
+  scroll-margin-top: 4rem;
+}
+
+.chapter:last-child { border-bottom: 0; }
+
+/* The reveal only exists when scripting does: a no-JS visitor gets the page
+   fully visible rather than a document of empty screens. */
+[data-js="on"] .chapter {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+[data-js="on"] .chapter[data-revealed] { opacity: 1; transform: none; }
+
+.chapter-eyebrow {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.3em;
+  color: var(--lamp);
+}
+
+.chapter-heading {
+  margin: 0.35rem 0 1.4rem;
+  font-size: clamp(2rem, 6vw, 3.4rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+}
+
+.lede { font-size: 1.22rem; color: #d9d0c2; }
+.muted { color: var(--muted); }
+.small { font-size: 0.86rem; }
+
+.scroll-cue {
+  margin-top: 3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.island-tag {
+  margin: 0 0 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.island-tag::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--line);
+  vertical-align: middle;
+}
+
+[data-island-hydrated] .island-tag::before { background: var(--lamp); }
+
+/* --- The lamp ------------------------------------------------------------- */
+
+.lamp {
+  position: relative;
+  display: block;
+  height: 220px;
+  margin: 2.5rem 0 2rem;
+}
+
+.lamp-shade {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 186px;
+  height: 64px;
+  margin-left: -93px;
+  background: linear-gradient(168deg, var(--lamp), rgba(0, 0, 0, 0.6));
+  clip-path: polygon(19% 0, 81% 0, 100% 100%, 0 100%);
+  border-radius: 3px 3px 0 0;
+  transition: background 0.4s ease;
+}
+
+/* The beam: a cone that fades out well before it reaches the desk, so the
+   shade and the pool read as two ends of the same light. */
+.lamp-cone {
+  position: absolute;
+  left: 50%;
+  top: 62px;
+  width: 430px;
+  height: 112px;
+  margin-left: -215px;
+  /* The top edge is exactly the shade's 186px opening, centred in a 430px box.
+     The radial fill keeps the beam brightest down its middle, and the blur
+     stops the clip from cutting a hard-edged pyramid out of the dark. */
+  clip-path: polygon(28.4% 0, 71.6% 0, 100% 100%, 0 100%);
+  background: radial-gradient(ellipse 52% 106% at 50% -6%, rgba(250, 235, 202, 0.34), transparent 70%);
+  filter: blur(9px);
+}
+
+.lamp-pool {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 430px;
+  height: 30px;
+  margin-left: -215px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(240, 217, 168, 0.3), transparent 68%);
+}
+
+/* --- Colorway island ------------------------------------------------------ */
+
+.colorway { margin-top: 1.5rem; }
+.swatches { display: flex; gap: 0.6rem; }
+
+.swatch {
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.35rem 0.95rem 0.35rem 0.7rem;
+  cursor: pointer;
+}
+
+.swatch::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--swatch);
+  vertical-align: -1px;
+}
+
+.swatch:hover { border-color: var(--lamp); }
+.swatch[aria-pressed="true"] { border-color: var(--lamp); background: rgba(200, 145, 47, 0.14); }
+.colorway-name { color: var(--muted); font-size: 0.9rem; }
+
+/* --- Counter -------------------------------------------------------------- */
+
+.stat {
+  margin: 2.2rem 0 0.4rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stat-num {
+  font-size: clamp(3rem, 12vw, 5.5rem);
+  line-height: 1;
+  color: var(--lamp);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.stat-unit { color: var(--muted); font-size: 1rem; }
+
+/* --- Lumen meter ---------------------------------------------------------- */
+
+.meter {
+  margin: 2rem 0 0;
+  padding: 1.4rem 1.5rem 1.1rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.meter figcaption { color: var(--muted); font-size: 0.92rem; }
+.meter strong { color: var(--ink); font-weight: 600; }
+
+.meter-track {
+  height: 14px;
+  margin: 1.1rem 0 0.7rem;
+  background: #100e0d;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(200, 145, 47, 0.6), var(--lamp), #f0d9a8);
+}
+
+.meter-readout {
+  display: block;
+  font-size: 2.1rem;
+  color: var(--lamp);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter-scale {
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* --- Spec explorer -------------------------------------------------------- */
+
+.spec-explorer { margin-top: 2rem; }
+
+.spec-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+
+.chip {
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.25rem 0.85rem;
+  cursor: pointer;
+}
+
+.chip:hover { color: var(--ink); border-color: var(--lamp); }
+.chip.is-on { color: var(--paper); background: var(--lamp); border-color: var(--lamp); }
+
+.spec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.spec-table caption {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding-bottom: 0.6rem;
+}
+
+.spec-table th,
+.spec-table td {
+  text-align: left;
+  padding: 0.6rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  font-weight: 400;
+}
+
+.spec-table thead th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.spec-table td { color: var(--lamp); font-variant-numeric: tabular-nums; }
+
+/* --- Comparison ----------------------------------------------------------- */
+
+.compare { margin-top: 2rem; }
+
+.compare-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .compare-grid { grid-template-columns: var(--wipe, 50%) 1fr; }
+}
+
+.compare-panel {
+  padding: 1.1rem 1.2rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-width: 0;
+}
+
+.compare-panel h3 { margin: 0 0 0.8rem; font-size: 1rem; font-weight: 500; }
+.compare-left { color: var(--muted); }
+.compare-right { border-color: rgba(200, 145, 47, 0.4); }
+
+.compare-panel dl { margin: 0; display: grid; gap: 0.55rem; }
+.compare-panel dt { font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.compare-panel dd { margin: 0.1rem 0 0; }
+
+.compare-value { display: block; font-variant-numeric: tabular-nums; }
+
+.compare-bar {
+  display: block;
+  height: 5px;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--lamp), rgba(200, 145, 47, 0.25));
+  width: var(--fill, 50%);
+}
+
+.compare-left .compare-bar { background: linear-gradient(90deg, #6b6259, rgba(107, 98, 89, 0.25)); }
+
+.wipe-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wipe-control input { flex: 1; accent-color: var(--lamp); }
+
+/* --- Notes + log ---------------------------------------------------------- */
+
+.notes-block { margin-top: 1.5rem; }
+
+.ghost {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
+
+.ghost:hover { border-color: var(--lamp); }
+
+.notes {
+  margin-top: 1rem;
+  padding: 1.1rem 1.3rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--lamp);
+  border-radius: 0 12px 12px 0;
+}
+
+.notes h3 { margin: 0 0 0.6rem; font-size: 0.95rem; font-weight: 500; }
+.notes ul { margin: 0; padding-left: 1.1rem; color: var(--muted); }
+.notes li + li { margin-top: 0.4rem; }
+
+/* cssTransition() adds -enter, then -enter-active, then swaps both for -done.
+   Order matters: the active rule has to come after the from-state rule. */
+.fade-enter { opacity: 0; transform: translateY(-10px); }
+.fade-enter-active { opacity: 1; transform: none; transition: opacity 0.42s ease, transform 0.42s ease; }
+.fade-enter-done { opacity: 1; }
+.fade-exit { opacity: 1; }
+.fade-exit-active { opacity: 0; transform: translateY(-10px); transition: opacity 0.42s ease, transform 0.42s ease; }
+
+.hydration-log { margin-top: 2.5rem; }
+.hydration-log h3 { font-size: 0.78rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+
+.hydration-log ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.hydration-log li {
+  display: flex;
+  gap: 0.9rem;
+  align-items: baseline;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.86rem;
+}
+
+.hydration-log code { color: var(--lamp); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.log-mode { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; }
+.log-time { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.story-footer {
+  max-width: 46rem;
+  margin: 3rem auto 0;
+  padding: 0 1.5rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* --- Reduced motion ------------------------------------------------------- */
+/* The springs and tweens check this themselves and snap to their final value;
+   this block handles everything CSS owns. */
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+
+  [data-js="on"] .chapter {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .fade-enter,
+  .fade-exit-active { opacity: 1; transform: none; }
+  .fade-enter-active,
+  .fade-exit-active { transition: none; }
+  .lamp-shade { transition: none; }
+}

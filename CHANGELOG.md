@@ -2,6 +2,269 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.12.3] - 2026-08-09: SSR could not render a component that used a hook, and hydration was discarding client state
+
+Twenty-two correctness fixes across SSR, hydration, the compiler, the router and
+the query layer. They were found the same way, and it is worth saying how,
+because it is the reason there are twenty-two: by building four real
+applications and driving them in a real browser, then adversarially reviewing
+each round of fixes, then fuzzing the result.
+
+Almost every one needed two features **combined** to reproduce: SSR *and* a hook;
+SSR *and* hydration *and* a toggle; a query key *and* a signal *and* an
+invalidation. The 1,900-test unit suite covers each of those alone and was fully
+green through all of them.
+
+**If you server-render, upgrade. If you use the compiler, upgrade.** Several of
+these are visible on the first page load of an ordinary app; one means whole
+categories of component could not be server-rendered at all; and three exist
+only on the compiled path, which is the recommended one. The storefront app is
+hand-written and uncompiled, the admin dashboard is a compiled Vite SPA, and
+putting the compiler in the loop exposed a second set of bugs that no amount of
+reviewing the first set would have reached.
+
+A note on how the hydration fixes were verified, since three consecutive rounds
+of hand-written fixes each closed the case in front of them and left the class
+open. A differential fuzz now generates 400 random trees, server-renders each
+with one set of values, hydrates with a different set, and asserts the result is
+identical to a client-only render. Scored against the same trees: **0.12.2 under
+browser conditions diverged on 186 of 400; this release diverges on 0.**
+
+### Fixed
+
+- **No component using a hook could be server-rendered.** `renderToString` called
+  the component function directly, with nothing on the component stack, so every
+  hook that resolves a context threw: `useState`, `useSignal`, `useComputed`,
+  `useEffect`, `useMemo`, `useCallback`, `useRef`, `useReducer`, `onMount`,
+  `onCleanup`, and `Context.Provider`. One of them anywhere in the tree and the
+  page failed to render at all. This was not a hydration warning or a degraded
+  render: `renderToString` threw. All three server paths
+  (`renderToString`, `renderToHydratableString`, `renderToStream`) each had their
+  own copy of the bare call. Components now run under a real context, which stays
+  open while the subtree renders so `useContext` resolves through it, and is
+  marked disposed on the way out so no `useEffect` body or `onMount` callback
+  ever fires on the server.
+- **A compiled keyed list rendered empty on the server and crashed hydration.**
+  `.map()` with a `key` prop, and `<For>`, lower to a mapArray *inserter*, a
+  function taking `(parent, marker)` rather than a thunk. Neither SSR nor
+  hydration had a branch for it, so both called it with no arguments. On the
+  server the throw was swallowed and the container rendered **empty**: a
+  compiled app served HTML with no list rows in it. On the client the same throw
+  escaped `hydrate()`, so the **whole page** stopped hydrating and stayed inert.
+  This is the ordinary shape for a compiled app, whose server HTML comes from an
+  uncompiled render and whose client bundle is compiled.
+- **A reactive region lost its owning component on every re-run.** The effect
+  behind `{() => ...}` re-runs with the component stack unwound, so anything it
+  built after the first paint had no owner. `useContext` fell through to the
+  context **default** for everything rendered after a state change, and an
+  `<ErrorBoundary>` stopped catching throws from components created by an inner
+  region. `dom.js` had this fix; `render.js`'s `insert()`, the path the compiler
+  emits for every reactive expression, did not, so it was broken for exactly the
+  users on the recommended build setup. Both are correct on first paint and only
+  break once the app is interactive.
+- **The compiler called every destructured prop as if it were a signal.**
+  `function Badge({ label })` with `<span data-label={label}>` compiled to
+  `setAttr(el, 'data-label', label())` and threw `label is not a function` on any
+  ordinary string prop, rendering nothing for that component and everything under
+  it. The same identifier as a *child* compiled uncalled, so the two positions
+  disagreed inside one element. Props now pass through uncalled; the runtime
+  setters already resolve a function value reactively, so an accessor prop stays
+  reactive and a real `signal()` is still auto-invoked.
+- **Hydration threw away the client's value in every browser.** Correcting a text
+  mismatch lived inside the dev-only warning branch, and "dev mode" was decided by
+  reading `process.env.NODE_ENV`, which no browser has. The check was therefore
+  false in the only environment where hydration runs, and the correction never
+  happened: the server's text stayed on screen until some later write happened to
+  touch that node. Anything the server cannot know rendered stale, so a cart
+  restored from `localStorage` showed 0 items, a saved theme showed the default,
+  a relative timestamp showed the build time. It self-heals on the next write,
+  which is why it reads like a broken store rather than a hydration bug. The
+  correction is now unconditional; only the warning is dev-gated, and the dev
+  check now uses `__DEV__`, which resolves correctly in a browser.
+- **A hydrated `<Show>` (any reactive region) lost its position on the first
+  toggle and stopped updating on the second.** The client render path wraps every
+  reactive function child in `<!--fn-->` / `<!--/fn-->` markers; the hydration
+  path created none. Without a marker, `reconcileInsert` had no insertion point
+  and appended to the end of the parent, so a region flipping content jumped to
+  the bottom of its container. And the effect's disposer was attached to the
+  *content* node, so removing that content disposed the effect and the region
+  went dead. Client-only rendering was always correct, which is why nothing
+  caught it. Hydration now creates the same markers, keeps the hydration cursor
+  aligned, and hands the end marker to `reconcileInsert`.
+- **`enhanceForms()` could not talk to `/__what_action`.** `<Form>` emits
+  `data-enhance`, and the enhancer posted a `FormData` object, which is
+  multipart. The action endpoint parses `application/x-www-form-urlencoded` or
+  JSON and nothing else, so the body failed to parse, the `_action` field went
+  missing, and every enhanced form answered 400. The no-JS path kept working, so
+  the feature looked healthy wherever it was tested with scripting off. Enhanced
+  posts now use the same encoding as the plain submit they replace.
+- **A `<Form>` inside a cached page could never submit.** The enhancer refused to
+  post whenever the page had no `<meta name="what-csrf-token">`, but `static` and
+  `hybrid` pages are shared between visitors and deliberately carry no per-visitor
+  token. Token recovery now falls back meta -> the form's own hidden field ->
+  the `what-csrf` cookie.
+- **A query went permanently deaf to `invalidateQueries()` after its first
+  refetch.** `useQuery` and `useSWR` subscribed to their key once, *outside* the
+  effect that fetches, while that effect's cleanup unsubscribed. The effect
+  re-runs whenever the query function reads a changed signal, which is the entire
+  point of a reactive query key, so the first reactive refetch dropped the
+  subscription and never restored it. The first invalidation, before any refetch,
+  works, which is why a test that mounts a query and immediately invalidates it
+  passes. The subscription now lives inside the effect.
+- **Every fetch pinned the Node event loop for five minutes.** The cache-cleanup
+  `setTimeout` was not unref'd, so any process that ran one query stayed alive for
+  a full `cacheTime` after its work finished. It is opportunistic housekeeping and
+  is now unref'd.
+- **Nested reactive regions interleaved instead of nesting.** Hydration claims the
+  inner content first, so an inner region's markers went in first and the outer
+  region's start marker landed *inside* the inner pair. Switching the outer arm
+  then removed the visible content but neither the inner markers nor the inner
+  effect: the orphaned effect kept rendering into a region that was switched off,
+  and its output came back doubled when the outer arm returned. `<Show>` wrapping
+  `<Show>` or `<For>` is the canonical shape for this. A region now opens its
+  marker before its value is hydrated, and owns everything between its markers.
+- **A region that rendered nothing lost its position permanently.** `<Show>` with
+  no fallback, or `{cond && <X/>}`, claims no node during hydration, so both
+  markers were appended to the end of the parent. When the condition later
+  flipped, the content appeared below every following sibling, forever, with no
+  warning.
+- **Empty reactive text destroyed its next sibling.** A reactive child rendering
+  `''` claimed the following node, found an element where it wanted text, and
+  replaced that element with an empty text node. The server's real markup was
+  discarded and every later sibling shifted, cascading a warn-and-recreate through
+  the rest of the parent: an `<input>` the visitor had already typed into was
+  replaced and lost its value. An empty string now claims a text node if one is
+  there, and claims nothing otherwise, so it can never consume a non-text
+  sibling. The bogus "expected text node" warning that came with it is gone too.
+- **Hydration left server markup on screen that the client never claimed.** The
+  flip side of the above: a region that is empty on the client and was *not*
+  empty on the server correctly refuses to claim that content, and so had nothing
+  to remove it. No effect owned it and no update could reach it, so the server's
+  signed-in header simply stayed visible to a signed-out visitor, underneath the
+  region meant to replace it. Hydration now removes unclaimed nodes *after* the
+  walk finishes, when anything unclaimed is unreferenced by definition, and never
+  during it. Excluded, because the walk does not own them: an element whose
+  client tree declares no children (this is how an island keeps the server HTML
+  it will hydrate later, and how a `mode: 'static'` island keeps its content
+  forever), `dangerouslySetInnerHTML` payloads, and `<body>` / `<html>` at the
+  root, where the scripts and hydration payload live.
+- **Every inline SVG went blank on hydration.** `nodeName` is uppercased for HTML
+  elements but case-preserved for everything else, so an `<svg>`'s `nodeName` is
+  `svg` and could never equal `tag.toUpperCase()`. Every server-rendered SVG
+  failed to match, warned `expected <svg>, got svg`, and was destroyed, then
+  rebuilt with `document.createElement`, which lands in the XHTML namespace and
+  does not render as SVG at all. The comparison is now case-insensitive, and the
+  mismatch fallback goes through the same `createDOM` path a client-only render
+  uses, so a rebuild is namespace-correct and sets attributes rather than
+  properties.
+- **A component disposed itself the first time its own root updated.** A hydrated
+  component's context is anchored to a DOM node so disposal can reach it. When
+  the component's root is a reactive region, that node is the region's *content*,
+  which the region replaces on its first update, taking the whole component
+  context with it: every effect, cleanup and `onCleanup` died while the component
+  was still mounted. A region root now anchors to the parent element instead.
+- **A region could never remove content it created during hydration.** When the
+  server rendered nothing and the client renders something, the content is
+  created rather than claimed, and the mismatch fallback appended it past the
+  hydration cursor. The region's end marker then landed *before* its own content,
+  so the region owned nothing: switching the condition off left the content on
+  screen permanently. The fallbacks now insert at the cursor and advance it.
+- **`enhanceForms()` ignored the form's `enctype`, silently dropping file
+  uploads.** Fixing the multipart-by-default bug above overcorrected into
+  urlencoded-always, which meant a form that correctly declared
+  `enctype="multipart/form-data"` posted without its file bytes. Encoding now
+  follows the form's own `enctype`, as the browser does.
+- **`enhanceForms()` leaked the CSRF token cross-origin, and broke on ordinary
+  forms.** A form whose action pointed at another origin was handed this
+  visitor's double-submit token; it is now only ever sent same-origin, and a
+  cross-origin form is no longer blocked by our token policy. A GET form
+  serialized its fields and then discarded them, fetching a bare URL. A field
+  named `method` or `action` shadowed `form.method` / `form.action` with the input
+  element itself (`HTMLFormElement` is `[LegacyOverrideBuiltIns]`), throwing after
+  `preventDefault()` so the submit did nothing at all: no request, no error event,
+  no native fallback. The submitter button's `name`/`value` was never sent, so a
+  multi-button form could not tell the server which button was pressed. Newlines
+  in text fields now normalize to CRLF, matching what a plain submit sends.
+- **`invalidateQueries()` was answered from the freshness window.** A query with a
+  `staleTime`, or a `useSWR` inside its default 2s `dedupingInterval`, returned
+  cached data instead of refetching. Invalidation means "this data is wrong now",
+  which is the one caller that must never be deduped. Ordinary reactive refetches
+  still dedupe.
+- **`invalidateQueries()` opened one request per subscriber.** "Dedupe window"
+  named two different mechanisms sharing one map. Bypassing the *freshness*
+  window on invalidation is right; bypassing request *coalescing* is not, because
+  every component reading a key subscribes separately, so one call arrives at N
+  subscribers and the in-flight map is what collapses them into a single fetch.
+  Four components on one key issued four concurrent requests whose responses
+  raced to write the cache. Invalidation now bumps a per-key epoch before waking
+  anyone: siblings coalesce, and a request that started before the invalidation
+  can never answer it. The epoch is a counter rather than a timestamp because
+  `Date.now()` has 1ms resolution, and the tie was reachable.
+- **Every guarded route logged a false redirect cycle in Chromium.** One guarded
+  deep link produced 25 `[what-router] Redirect cycle detected` errors and a
+  flash of the redirect-loop screen. `navigate()` sets `_isNavigating`
+  immediately but defers the URL write into `document.startViewTransition`, and
+  the router's matching reads `_isNavigating`, so the flag flip re-ran the match
+  against the still-old URL and counted the same hop twice. The detector then
+  cleared the navigation state mid-navigation. A redirect to a target that is
+  already pending is now recognized as a re-match of the same hop.
+- **An interrupted view transition surfaced as an uncaught page error.**
+  `navigate()` awaited only the transition's `.finished`, leaving the `.ready`
+  rejection unhandled, so two navigations in quick succession produced
+  `pageerror: Transition was skipped` in any error reporter the app had
+  installed, for a navigation that actually succeeded.
+- **Polling intervals and retry timers kept Node processes alive.** `refetchInterval`
+  and `refreshInterval` armed intervals that are never cleared outside a component
+  lifecycle, so an SSR render leaked one per render and kept calling the query
+  function after the HTML had been sent. Those, and the retry-backoff timer, are
+  now unref'd, and each query keeps a single cleanup timer instead of arming a new
+  one per fetch.
+
+### Changed
+
+- **`enhanceForms()` now navigates after a followed redirect.** The action
+  endpoint answers 303, so the enhanced path lands where the unenhanced one
+  would. Navigation is same-origin only: a native submit would follow an off-site
+  redirect, but a framework default that lets a server move the page to another
+  origin is not one worth having. Call `preventDefault()` on the `form:response`
+  event to keep the page put and handle the response yourself.
+
+### Added
+
+- **An application smoke suite (`npm run smoke:apps`).** Real, demoable
+  applications, driven in a real browser, run against either the workspace source
+  or the **published** packages (`npm run smoke:apps:npm`). The published mode is
+  the direct answer to the 0.12.0/0.12.1 packaging defects, which were invisible
+  to every workspace test by construction. A capability contract fails the run
+  when a framework capability has no app covering it, or when an app claims a
+  capability that no passing check ever reported. Wired into `release:verify` and
+  CI. See `smoke/README.md`, and `smoke/FINDINGS.md` for the full diagnosis behind
+  every fix above.
+- **A differential hydration fuzz** (`hydration-parity-fuzz.test.js`). 400
+  generated trees, each server-rendered with one set of signal values and
+  hydrated with a different set, asserted identical to a client-only render of
+  the same tree. It knows nothing about markers or cursors, so unlike a
+  hand-written case it cannot be satisfied by a narrow fix. It is what closed
+  this bug class, after three rounds of hand-written fixes had not.
+
+### Known gaps (not fixed here)
+
+- `renderToString` still emits no `<!--fn-->` markers for a reactive region, so
+  hydration has to infer the boundary of anything that serialized to nothing
+  rather than being told it. The inference is now exact enough to score 0/400 on
+  the fuzz, but emitting the markers is the durable fix. Deliberately deferred
+  because it changes every server-rendered byte. Tracked for 0.13.0.
+- `hydrateNode` has no branch for compiled `mapArray` output, for
+  `<ErrorBoundary>` / `<Suspense>` boundary tags, or for `<Portal>`. Tracked for
+  0.13.0.
+
+- The **runtime** render path has no keyed reconciliation: `dom.js` never reads
+  `vnode.key`, so a buildless app rebuilds every list row on each change. Keys
+  work only on the compiled path. Tracked for 0.13.0.
+- `<For>` passes **raw items** on the runtime path and **signal accessors** on the
+  compiled path, so the same JSX behaves differently depending on whether the
+  compiler ran. Unifying them is an API decision. Tracked for 0.13.0.
+
 ## [0.12.2] - 2026-08-09: what-server node-condition types are actually reachable
 
 0.12.1 published `what-server/node.d.ts` but TypeScript still could not see the Node-only

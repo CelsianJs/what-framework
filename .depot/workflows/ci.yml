@@ -139,6 +139,51 @@ jobs:
   # fresh directory, with what-* deps pointed at local tarballs (same technique
   # as scaffold-smoke). Guards the doc path: npm init -y, "type": "module",
   # install, the doc's 3 files, and `vite build` must succeed.
+  # Real applications, built the way a user builds them, driven in a real browser
+  # against the workspace source. This is the gate that sees bugs which need two
+  # features COMBINED (SSR and hydration and a toggle); the unit suite covers each
+  # of those alone and stayed green through every defect in smoke/FINDINGS.md.
+  #
+  # Workspace mode only. The published-artifact run (`smoke:apps:npm`) belongs
+  # after a release, since there is nothing to install before one exists.
+  app-smoke:
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build packages
+        run: npm run -s build
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - name: Install Playwright Chromium (every check is browser-driven)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: App smoke suite
+        run: npm run -s smoke:apps
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-apps-${{ github.run_id }}
+          path: artifacts/smoke-apps.json
+          if-no-files-found: ignore
   manual-setup-smoke:
     runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
     steps:
