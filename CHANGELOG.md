@@ -2,6 +2,113 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]: server rendering emitted JavaScript source, invalid elements, and duplicate attributes
+
+Six correctness fixes, from two techniques that paired well.
+
+Two came from auditing the documentation against the runtime. Reading every code
+sample on whatfw.com and then RUNNING it is a bug-finding technique in its own
+right: the docs describe what the framework is supposed to do, so each place the
+docs were "wrong" was equally likely to be a place the framework was wrong. The
+attribute leak and the `key={i}` freeze were both found that way, and both were
+things the docs had been teaching correctly all along.
+
+The other four came from asking one question systematically: which cases does the
+client render path handle that the server path does not? Every special vnode tag
+in `dom.js` was checked against `packages/server`. Three of the four gaps that
+turned up (`__errorBoundary`, `__suspense` on the hydratable path, `__portal`)
+were in that list, and the fourth surfaced while fixing them.
+
+### Fixed
+
+- **SSR emitted a function's source code into attributes.** `renderAttrs`
+  skipped event handlers and then `String()`d whatever was left, and a function
+  stringifies as its own source. So the documented way to make an attribute
+  reactive, `<span className={() => theme()}>`, server-rendered as
+  `class="() =&gt; theme()"`. The real class was absent from the HTML, so CSS
+  keyed on it did not apply for crawlers or no-JS visitors, and hydration then
+  replaced it, so a browser devtools pane showed the correct value and hid the
+  problem. what-router's `<Link>` hit this on every link, since it always passes
+  a thunk as `class`. Function values are now resolved the way every client path
+  already resolved them.
+
+- **`<ErrorBoundary>` did not catch on the server.** It has no server branch, so
+  the marker vnode fell through to the generic element renderer and a component
+  that threw during SSR propagated straight out of `renderToString` and
+  `renderToHydratableString`, taking down the entire page response. The one
+  construct whose whole purpose is to stop a subtree failure from becoming a page
+  failure did nothing at all server-side. It now renders its fallback while the
+  rest of the page continues. A thrown thenable still passes through to the
+  nearest `<Suspense>`, because a suspended resource is not an error.
+
+- **Boundary marker tags leaked into the HTML.** The same missing branch emitted
+  a literal `<__errorBoundary>` element on all three server paths, and
+  `<__suspense boundary="[object Object]" fallback="[object Object]">` on the
+  hydratable path, along with the boundary's internal props stringified into
+  attributes. Both now render their subtree and never themselves.
+
+- **`<Portal>` server-rendered its contents inline under a DOM shim.** Portal is
+  client-only by design and returns `null` when there is no `document`, but that
+  guard is environmental rather than a server check, so SSR under jsdom or
+  happy-dom sailed past it and produced
+  `<__portal container="[object HTMLDivElement]">` with the portal's children
+  emitted at the portal's own position instead of its target. It now renders
+  nothing on the server either way, so a DOM shim cannot change the output.
+
+- **`data-hk` was emitted once per component rather than once per element.**
+  Every component injects the attribute into the first element of its own output,
+  and a component that returns a component resolves to the SAME element at every
+  level, so `Outer -> Middle -> Inner -> <p>` produced
+  `<p data-hk="h0" data-hk="h1" data-hk="h2">`. A duplicate attribute is invalid
+  HTML and browsers silently keep only the first. This is the most ordinary
+  composition there is, so it affected essentially every server-rendered page.
+
+- **The compiler emitted a key function with an unbound variable.** `key={i}`,
+  the pattern the framework's own tutorial taught, compiled to
+  `{ key: t => i }` with `i` free, because the key is hoisted out of the map
+  callback and receives only its first parameter. The failure was the quiet kind:
+  the list rendered correctly once, then the first update threw
+  `ReferenceError: i is not defined` inside the reconciler's effect, the effect
+  error handler swallowed it into a single `console.error`, and the list stayed
+  frozen on its initial contents for the rest of the session. The compiler now
+  detects a key it cannot reach (the index, or any variable declared inside the
+  callback) and falls back to positional reconciliation. That is also the
+  semantically correct answer: a key derived from the index IS the position, so
+  it carries no identity across an update.
+
+  A bare `key={i}` is silent, because it is a deliberate statement that position
+  is identity and positional reconciliation is exactly that, so there is no edit
+  that would improve the output. Anything that only PART-uses the index warns,
+  because those look like a stable composite identity and are not:
+  `key={`${item.type}-${i}`}` changes the moment a row moves. A key built from a
+  variable declared in the callback body warns for the same reason it used to
+  crash.
+
+### Changed
+
+- The bundle-size gate accepted any claim between 80% and 100% of the ceiling,
+  a band wide enough to hide the exact drift it existed to catch: all three
+  size claims in the repo still read "~5.6 KB" long after the bundle measured
+  6.37 KB, and all three passed. The floor is now 95%, and the claims are
+  corrected.
+- `scripts/bump-version.mjs` now moves the What dependency ranges in every
+  non-workspace manifest, not just `docs-site`. A caret range on a 0.x version
+  pins the MINOR, so the twenty-odd apps under `examples/` reading
+  `"what-framework": "^0.6.0"` installed a framework six minor releases old, and
+  `sites/react-compat` and `sites/playground` had each frozen at whatever was
+  current the day they were written. `file:` links and `*` are left alone.
+
+### Added
+
+- `docs-site/scripts/check-api-refs.mjs`, run as a `prebuild` gate: every
+  `import { ... } from 'what-*'` in the documentation is checked against the
+  real runtime exports, so a page cannot go on teaching an export that no longer
+  exists. Entry points are discovered from each package's own `exports` map
+  rather than hand-listed.
+- whatfw.com now has a 404 page. Any unmatched path previously returned Vercel's
+  raw platform error, with no nav, no search, no link home and none of the site's
+  styling, which is the single most likely error state on a docs site.
+
 ## [0.12.3] - 2026-08-09: SSR could not render a component that used a hook, and hydration was discarding client state
 
 Twenty-two correctness fixes across SSR, hydration, the compiler, the router and
@@ -254,9 +361,10 @@ browser conditions diverged on 186 of 400; this release diverges on 0.**
   rather than being told it. The inference is now exact enough to score 0/400 on
   the fuzz, but emitting the markers is the durable fix. Deliberately deferred
   because it changes every server-rendered byte. Tracked for 0.13.0.
-- `hydrateNode` has no branch for compiled `mapArray` output, for
-  `<ErrorBoundary>` / `<Suspense>` boundary tags, or for `<Portal>`. Tracked for
-  0.13.0.
+- `hydrateNode` has no branch for `<ErrorBoundary>` / `<Suspense>` boundary tags
+  or for `<Portal>`. Tracked for 0.13.0. (Compiled `mapArray` output was listed
+  here in error: fix 18 in this same release added exactly that branch,
+  `render.js:1900`.)
 
 - The **runtime** render path has no keyed reconciliation: `dom.js` never reads
   `vnode.key`, so a buildless app rebuilds every list row on each change. Keys

@@ -620,6 +620,111 @@ export default function whatBabelPlugin({ types: t }) {
     return false;
   }
 
+  // Names bound by a parameter pattern. Destructuring counts, so
+  // `({ id }, i) => <li key={id}>` binds `id` and a key of `id` resolves fine.
+  function collectPatternNames(node, out) {
+    if (!node || typeof node !== 'object') return out;
+    switch (node.type) {
+      case 'Identifier': out.add(node.name); break;
+      case 'AssignmentPattern': collectPatternNames(node.left, out); break;
+      case 'RestElement': collectPatternNames(node.argument, out); break;
+      case 'ArrayPattern':
+        for (const el of node.elements) collectPatternNames(el, out);
+        break;
+      case 'ObjectPattern':
+        for (const p of node.properties) {
+          collectPatternNames(p.type === 'RestElement' ? p.argument : p.value, out);
+        }
+        break;
+      default: break;
+    }
+    return out;
+  }
+
+  // The key function is extracted OUT of the map callback and rebuilt as
+  // `(item) => keyExpr`, taking only the first parameter. So any name the key
+  // expression gets from somewhere else inside the callback becomes a free
+  // variable in the emitted code. This collects exactly those names: the
+  // parameters after the first, and everything declared in the callback body
+  // that is in scope at the return.
+  //
+  // Nested function bodies are deliberately not descended into. Their bindings
+  // cannot reach the return expression, so counting them would reject keys that
+  // are perfectly fine. A nested function's own name is hoisted, so that one
+  // is collected.
+  function namesInvisibleToKeyFn(mapFn) {
+    const out = new Set();
+    for (let i = 1; i < mapFn.params.length; i++) collectPatternNames(mapFn.params[i], out);
+
+    const visit = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(visit); return; }
+      switch (node.type) {
+        case 'VariableDeclaration':
+          for (const d of node.declarations) collectPatternNames(d.id, out);
+          return;
+        case 'FunctionDeclaration':
+        case 'ClassDeclaration':
+          if (node.id) out.add(node.id.name);
+          return; // body is its own scope
+        case 'FunctionExpression':
+        case 'ArrowFunctionExpression':
+        case 'ClassExpression':
+          return; // own scope
+        case 'CatchClause':
+          collectPatternNames(node.param, out);
+          visit(node.body);
+          return;
+        case 'ForStatement':
+        case 'ForInStatement':
+        case 'ForOfStatement':
+          visit(node.init); visit(node.left); visit(node.body);
+          return;
+        default: break;
+      }
+      for (const k of Object.keys(node)) {
+        if (k === 'loc' || k === 'start' || k === 'end' || k === 'type' ||
+            k === 'leadingComments' || k === 'trailingComments' || k === 'innerComments') continue;
+        const v = node[k];
+        if (v && typeof v === 'object') visit(v);
+      }
+    };
+
+    if (t.isBlockStatement(mapFn.body)) visit(mapFn.body.body);
+
+    // The first parameter IS passed to the key function, so anything it binds
+    // stays visible even if a nested scope happens to reuse the name.
+    for (const name of collectPatternNames(mapFn.params[0], new Set())) out.delete(name);
+    return out;
+  }
+
+  // Does `node` reference any of `names` as a value? Property positions are
+  // skipped so `item.i` does not look like a use of `i`, but the check is
+  // otherwise deliberately generous: a false positive costs keyed
+  // reconciliation, a false negative ships a ReferenceError.
+  function referencesAny(node, names) {
+    if (names.size === 0) return null;
+    let found = null;
+    const visit = (n) => {
+      if (found || !n || typeof n !== 'object') return;
+      if (Array.isArray(n)) { n.forEach(visit); return; }
+      if (n.type === 'Identifier') {
+        if (names.has(n.name)) found = n.name;
+        return;
+      }
+      for (const k of Object.keys(n)) {
+        if (k === 'loc' || k === 'start' || k === 'end' || k === 'type' ||
+            k === 'leadingComments' || k === 'trailingComments' || k === 'innerComments') continue;
+        if (n.type === 'MemberExpression' && k === 'property' && !n.computed) continue;
+        if ((n.type === 'ObjectProperty' || n.type === 'ObjectMethod') && k === 'key' && !n.computed) continue;
+        const v = n[k];
+        if (v && typeof v === 'object') visit(v);
+      }
+    };
+    visit(node);
+    return found;
+  }
+
   // --- Auto-lower .map() to mapArray ---
   // Detects: source().map((item) => <Comp key={expr} .../>)
   // or wrapped in an arrow: () => source().map(...)
@@ -723,6 +828,60 @@ export default function whatBabelPlugin({ types: t }) {
     // Extract the key expression
     const keyValue = getAttributeValue(keyAttr.value);
     if (!keyValue) return null;
+
+    // The key function is rebuilt as `(item) => keyExpr` and hoisted out of the
+    // callback, so it only sees the first parameter. A key built from the index
+    // (`key={i}`, the pattern the tutorial itself taught) compiled to
+    // `key: t => i` with `i` free, and the failure was about as bad as it gets:
+    // the list rendered correctly the first time, then the reconciler threw
+    // `ReferenceError: i is not defined` inside its effect, the effect error
+    // handler swallowed it to a single console.error, and the list stayed
+    // frozen on its first render forever. Nothing visibly crashed. A key built
+    // from a variable declared in the callback body failed the same way.
+    //
+    // Falling back is also the semantically right answer, not just the safe
+    // one. A key derived from the index IS the position, so it carries no
+    // identity across an update: an item that moves gets a different key and
+    // reads as a different item. That is precisely what the unkeyed path
+    // already does, correctly and more cheaply, so hand it that.
+    const invisible = namesInvisibleToKeyFn(mapFn);
+    const unreachable = referencesAny(keyValue, invisible);
+    if (unreachable) {
+      // A BARE index key (`key={i}`, exactly the second parameter and nothing
+      // else) is deliberate and now behaves correctly, so it gets no warning.
+      // The author wrote "position is identity", positional reconciliation is
+      // precisely that, and there is no edit that would improve the output. The
+      // framework's own tutorial keys a fixed nine-square board this way, where
+      // it is not merely acceptable but the right answer, and a build-time
+      // warning on step two of a beginner tutorial reads as something being
+      // broken when nothing is.
+      //
+      // Everything else still warns, because everything else looks stable and is
+      // not: `key={`${t.type}-${i}`}` reads like a composite identity but changes
+      // the moment a row moves, and a key built from a variable declared in the
+      // callback body would have been a ReferenceError before this fallback
+      // existed. Those are worth interrupting someone over. A bare index is not.
+      const isBareIndex = t.isIdentifier(keyValue)
+        && mapFn.params[1]
+        && t.isIdentifier(mapFn.params[1], { name: keyValue.name });
+
+      if (!isBareIndex && process.env.NODE_ENV !== 'production') {
+        const loc = returnExpr.loc;
+        const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+        const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+        const usesIndex = mapFn.params[1] && t.isIdentifier(mapFn.params[1], { name: unreachable });
+        console.warn(
+          `[what-compiler] key={...} at ${fileName}${lineInfo} reads \`${unreachable}\`, which is not available ` +
+          `to the key function (it only receives the item). ` +
+          (usesIndex
+            ? `A key built from the index is the item's position, not its identity, so it cannot survive a reorder. `
+            : `\`${unreachable}\` is declared inside the map callback. `) +
+          `Falling back to positional reconciliation. Key by something stable on the item (key={item.id}) ` +
+          `to get keyed reconciliation.`
+        );
+      }
+      return null;
+    }
 
     // Remove the key prop from the JSX element (mapArray handles keying, not the DOM)
     returnExpr.openingElement.attributes = attrs.filter(a => a !== keyAttr);
