@@ -73,8 +73,11 @@ export async function assertPortFree(port) {
     return;
   }
   throw new Error(
-    `port ${port} is already in use; kill the stale process first ` +
-    `(lsof -nP -iTCP:${port} -sTCP:LISTEN)`,
+    `port ${port} is already in use; kill the stale process first.\n` +
+    `  npm run smoke:ports     # what is holding it\n` +
+    `  npm run smoke:clean     # stop the ones that are ours\n` +
+    `A server SIGKILLed mid-run, or started by hand with npm run dev, survives ` +
+    `the group kill this harness does on exit.`,
   );
 }
 

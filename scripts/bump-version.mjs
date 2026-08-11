@@ -14,7 +14,7 @@
 // Loose ranges (`>=x`, `*`, `workspace:*`) are left untouched on purpose.
 
 import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -129,6 +129,73 @@ if (existsSync(smokeAppsDir)) {
     }
   }
   if (smokePins) console.log(`  ${'(smoke app pins)'.padEnd(24)} ${smokePins} updated`);
+}
+
+// whatfw.com is the flagship "built with What" claim, so the version it RENDERS
+// with has to be the version it advertises.
+//
+// It was pinned at `^0.10.0`, and a caret on a 0.x version pins the MINOR, so it
+// resolved to 0.10.0 and nothing ever moved it. The site rendered through What
+// 0.10.0 for two minor releases while displaying a badge read from the monorepo
+// at build time, so it truthfully showed v0.12.3 above markup that 0.10.0 had
+// produced. Nobody noticed because the badge was right.
+//
+// An exact pin moved by this script is the only arrangement where that cannot
+// drift again. docs-site is private and not a workspace member, so nothing else
+// would move it.
+// The same trap caught every other non-workspace manifest in the repo, and worse.
+// A caret range on a 0.x version pins the MINOR: `^0.6.0` resolves >=0.6.0 <0.7.0.
+// So the twenty-odd apps under examples/ that read `"what-framework": "^0.6.0"`
+// installed a framework six minor releases old, and sites/react-compat (^0.10.0)
+// and sites/playground (^0.11.1) each froze at whatever was current the day they
+// were written. Every one of them is code a reader is invited to clone and run.
+//
+// Left alone deliberately: `file:` links (a workspace link is the correct answer,
+// not a version) and `*` (already floats to latest).
+const EXTERNAL_MANIFESTS = [
+  join(repoRoot, 'docs-site', 'package.json'),
+  ...findManifests(join(repoRoot, 'sites')),
+  ...findManifests(join(repoRoot, 'examples')),
+];
+
+function findManifests(dir, depth = 3) {
+  if (depth < 0 || !existsSync(dir)) return [];
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    const child = join(dir, entry.name);
+    const manifest = join(child, 'package.json');
+    if (existsSync(manifest)) out.push(manifest);
+    out.push(...findManifests(child, depth - 1));
+  }
+  return out;
+}
+
+// A range this script owns: a plain version, optionally with ^ or ~.
+const MOVABLE_RANGE = /^[\^~]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+for (const manifest of EXTERNAL_MANIFESTS) {
+  if (!existsSync(manifest)) continue;
+  const json = JSON.parse(readFileSync(manifest, 'utf8'));
+  let changed = false;
+  if (json.version && MOVABLE_RANGE.test(json.version) && json.version !== next) {
+    json.version = next;
+    changed = true;
+  }
+  for (const field of DEP_FIELDS) {
+    if (!json[field]) continue;
+    for (const [name, range] of Object.entries(json[field])) {
+      if (!internalNames.has(name)) continue;
+      if (!MOVABLE_RANGE.test(range)) continue; // file:, *, workspace: are intentional
+      if (range === next) continue;
+      json[field][name] = next;
+      changed = true;
+    }
+  }
+  if (changed) {
+    if (!dry) writeFileSync(manifest, JSON.stringify(json, null, 2) + '\n');
+    console.log(`  ${relative(repoRoot, manifest).padEnd(24)} -> ${next}`);
+  }
 }
 
 // Keep the hardcoded VERSION constant in agent-context.js in sync (guarded by a
