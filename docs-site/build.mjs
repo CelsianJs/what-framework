@@ -1,4 +1,4 @@
-// whatfw.com static build — rendered through What Framework (what-server's
+// whatfw.com static build, rendered through What Framework (what-server's
 // renderToString). Chrome (head/nav/sidebar) is authored as What; page content
 // is preserved verbatim via dangerouslySetInnerHTML so visuals never drift.
 // Output: dist/<clean-route>/index.html  (no .html in URLs).
@@ -13,7 +13,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const DIST = join(ROOT, 'dist');
 
 // ---------------------------------------------------------------------------
-// Version — read from the framework source of truth at BUILD time so the nav
+// Version, read from the framework source of truth at BUILD time so the nav
 // badge / footer can never drift from the released package again (audit #5).
 // ---------------------------------------------------------------------------
 function readVersion() {
@@ -87,7 +87,11 @@ ${links}
 // ---------------------------------------------------------------------------
 function extract(srcHtml) {
   const title = (srcHtml.match(/<title>(.*?)<\/title>/s)?.[1] || 'What Framework')
-    .replace(/\s*—\s*What Framework\s*$/, '').trim();
+    // Strip the suffix the page already carries, so HEAD() does not add a second
+    // one. Both separators are matched: the site used an em-dash until 2026-08-11
+    // and a page authored before then must not end up "Signals · What Framework ·
+    // What Framework".
+    .replace(/\s*[·—]\s*What Framework\s*$/, '').trim();
   const layoutOpen = '<div class="layout">';
   const ls = srcHtml.indexOf(layoutOpen);
   const me = srcHtml.indexOf('</main>', ls);
@@ -120,7 +124,7 @@ function rewriteLinks(html, base) {
 }
 
 // ---------------------------------------------------------------------------
-// Search index — extracted from each page's <main> at build time and written
+// Search index, extracted from each page's <main> at build time and written
 // to dist/search-index.json. docs/search.js queries it client-side (T6-03).
 // ---------------------------------------------------------------------------
 const SEARCH_INDEX = [];
@@ -155,7 +159,7 @@ function indexPage({ route, title, section, layoutInner }) {
 const HEAD = (title) => `<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — What Framework</title>
+  <title>${title} · What Framework</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -167,7 +171,7 @@ const HEAD = (title) => `<head>
 </head>`;
 
 // ---------------------------------------------------------------------------
-// Page render — chrome through What's renderToString, content preserved.
+// Page render, chrome through What's renderToString, content preserved.
 // ---------------------------------------------------------------------------
 function renderPage({ title, navSection, layoutInner, trailing }) {
   const nav = renderToString(h('nav', { dangerouslySetInnerHTML: { __html: navInner(navSection) } }));
@@ -256,7 +260,7 @@ for (const s of SECTIONS) {
 writeFileSync(join(DIST, 'search-index.json'), JSON.stringify(SEARCH_INDEX));
 console.log(`✓ search-index.json (${SEARCH_INDEX.length} pages indexed)`);
 
-// Standalone pages (home, docs landing) — no shared layout/sidebar. Preserve the
+// Standalone pages (home, docs landing), no shared layout/sidebar. Preserve the
 // full <head> (meta/OG/title) and <body> verbatim; rewrite asset + .html links to
 // absolute clean routes; route the body through What via a transparent wrapper
 // (display:contents generates no box, so visuals are untouched).
@@ -306,6 +310,39 @@ buildStandalone({
 });
 total++;
 console.log('✓ docs landing: 1 page');
+
+// ---------------------------------------------------------------------------
+// 404
+// ---------------------------------------------------------------------------
+// The most likely error state on a docs site, and the one it had no answer for.
+// Any unmatched path returned Vercel's raw platform page: the body was literally
+// "The page could not be found / NOT_FOUND / iad1::jgm8q-...". No nav, no search,
+// no way back, not even the site's own styling. Docs URLs break routinely, since
+// every rename orphans whatever linked to the old path.
+//
+// Vercel serves a root 404.html automatically for static output, so this is the
+// whole fix. It is built from the same chrome as every other page, which means
+// the nav, the theme toggle and the search box all work from it.
+const NOT_FOUND_BODY = `
+    <main class="content" style="max-width:44rem;margin:0 auto;padding:6rem 1.5rem">
+      <p style="font-family:var(--font-mono,monospace);font-size:.875rem;letter-spacing:.08em;text-transform:uppercase;opacity:.6;margin:0 0 .75rem">404</p>
+      <h1 style="margin:0 0 1rem">This page does not exist</h1>
+      <p style="font-size:1.0625rem;line-height:1.7;opacity:.8">
+        The link may be out of date, or the page may have moved. Search above, or start from one of these:
+      </p>
+      <ul style="line-height:2.2;padding-left:1.25rem">
+        <li><a href="/docs/learn/">Learn</a>, the guides, start to finish</li>
+        <li><a href="/docs/tutorial/">Tutorial</a>, build a real app step by step</li>
+        <li><a href="/docs/reference/">Reference</a>, every API</li>
+        <li><a href="/docs">All documentation</a></li>
+      </ul>
+    </main>`;
+
+writeFileSync(
+  join(DIST, '404.html'),
+  stampVersion(renderPage({ title: 'Page not found', navSection: null, layoutInner: NOT_FOUND_BODY })),
+);
+console.log('✓ 404 page');
 
 console.log(`✓ assets copied`);
 console.log(`Build complete → ${DIST} (${total} pages)`);

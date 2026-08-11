@@ -1,6 +1,6 @@
-# What Framework — full agent guide
+# What Framework, full agent guide
 
-> What is a signal-based reactive web framework built for AI agents. Components run once — no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect a running app, and core runtime errors are structured with a code, fix, and example. This file inlines the essentials an agent needs to write, debug, and ship correct What code.
+> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect a running app, and core runtime errors are structured with a code, fix, and example. This file inlines the essentials an agent needs to write, debug, and ship correct What code.
 
 ---
 
@@ -48,7 +48,7 @@ function Counter() {
 mount(<Counter />, '#app'); // returns a dispose function
 ```
 
-Signal reads inside JSX children and attributes are auto-wrapped by the compiler — you do not write `{() => count()}` manually.
+Signal reads inside JSX children and attributes are auto-wrapped by the compiler, you do not write `{() => count()}` manually.
 
 Manual setup without the scaffolder:
 
@@ -67,7 +67,7 @@ export default defineConfig({ plugins: [what()] });
 ```js
 import { signal, computed, effect, batch, onMount, onCleanup, mount } from 'what-framework';
 
-// Create state. The second arg is an optional debug name (recommended — it
+// Create state. The second arg is an optional debug name (recommended, it
 // makes the signal traceable in DevTools and MCP).
 const count = signal(0, 'count');
 
@@ -77,10 +77,10 @@ count(c => c + 1);   // updater write -> increments
 count.set(10);       // same as count(10)
 count.peek();        // read WITHOUT subscribing
 
-// Derived state — lazy and cached.
+// Derived state, lazy and cached.
 const doubled = computed(() => count() * 2);
 
-// Side effects — auto-track reads, run on change. Return a cleanup function.
+// Side effects, auto-track reads, run on change. Return a cleanup function.
 effect(() => {
   const id = setInterval(() => count(c => c + 1), 1000);
   return () => clearInterval(id);
@@ -100,7 +100,7 @@ Lists: use `.map()` with a `key` prop. The compiler lowers it to keyed reconcili
 <ul>{() => todos().map(t => <li key={t.id}>{t.title}</li>)}</ul>
 ```
 
-Immutable updates for objects/arrays — never mutate in place:
+Immutable updates for objects/arrays, never mutate in place:
 
 ```js
 items(prev => [...prev, newItem]);                                  // add
@@ -116,27 +116,27 @@ What's core runtime emits structured `WhatError` objects that serialize to JSON
 with a `code`, `message`, `suggestion`, and `codeExample`. The codes below are
 the ones the runtime detects and reports in dev mode.
 
-### ERR_INFINITE_EFFECT — effect cycle
+### ERR_INFINITE_EFFECT, effect cycle
 An effect writes to a signal it also reads, creating a loop (capped at 25 flush iterations).
 
 ```js
-// Bad — reads and writes count in the same effect:
+// Bad, reads and writes count in the same effect:
 effect(() => { count(count() + 1); });
 
-// Good — read without subscribing:
+// Good, read without subscribing:
 import { untrack } from 'what-framework';
 effect(() => { count(untrack(count) + 1); });
 ```
 
-### ERR_MISSING_SIGNAL_READ — signal used without calling it
+### ERR_MISSING_SIGNAL_READ, signal used without calling it
 Renders `[Function]` instead of the value.
 
 ```jsx
-<span>{count}</span>    // Bad — renders "[Function]"
-<span>{count()}</span>  // Good — call the signal
+<span>{count}</span>    // Bad, renders "[Function]"
+<span>{count()}</span>  // Good, call the signal
 ```
 
-### ERR_SIGNAL_WRITE_IN_RENDER — write during render
+### ERR_SIGNAL_WRITE_IN_RENDER, write during render
 The component body should read signals, not write them. Move writes into handlers, effects, or `onMount`.
 
 ```jsx
@@ -147,21 +147,21 @@ function Counter() { count(count() + 1); return <span>{count()}</span>; }
 function Counter() { return <button onClick={() => count(c => c + 1)}>{count()}</button>; }
 ```
 
-### ERR_UNSAFE_INNERHTML — raw innerHTML
+### ERR_UNSAFE_INNERHTML, raw innerHTML
 Raw HTML must be opted into with the `__html` marker.
 
 ```jsx
-<div innerHTML={userInput} />               // Bad — XSS risk, refused
-<div innerHTML={{ __html: sanitized }} />   // Good — explicit opt-in
+<div innerHTML={userInput} />               // Bad, XSS risk, refused
+<div innerHTML={{ __html: sanitized }} />   // Good, explicit opt-in
 ```
 
-### ERR_HYDRATION_MISMATCH — server/client HTML differ
+### ERR_HYDRATION_MISMATCH, server/client HTML differ
 Avoid reading browser-only APIs (`window`, `localStorage`) during the initial render; use `onMount` for client-only values.
 
 ### ERR_ORPHAN_EFFECT / ERR_MISSING_KEY
 Create effects inside components or a `createRoot()` so they are cleaned up; give list items a stable `key`.
 
-Tip for agents: the MCP tool `what_fix({ errorCode })` returns the diagnosis, fix, and example for any code offline — use it as your first move when you hit a What error.
+Tip for agents: the MCP tool `what_fix({ errorCode })` returns the diagnosis, fix, and example for any code offline, use it as your first move when you hit a What error.
 
 ---
 
@@ -186,13 +186,13 @@ export default defineConfig({
 });
 ```
 
-First five minutes — run in order:
+First five minutes, run in order:
 
-1. `what_connection_status` — am I connected? how big is the app?
-2. `what_diagnose` — one-call health check (errors + perf + reactivity).
-3. `what_page_map` — visual structure and accessibility.
-4. `what_components({ filter })` → `what_explain({ componentId })` — deep-dive a leaf component.
-5. `what_signals({ filter: "...", named_only: true })` — check key state (always filter; never dump all).
+1. `what_connection_status`, am I connected? how big is the app?
+2. `what_diagnose`, one-call health check (errors + perf + reactivity).
+3. `what_page_map`, visual structure and accessibility.
+4. `what_components({ filter })` → `what_explain({ componentId })`, deep-dive a leaf component.
+5. `what_signals({ filter: "...", named_only: true })`, check key state (always filter; never dump all).
 
 Useful workflows:
 
@@ -202,7 +202,7 @@ Useful workflows:
 - **Validate code offline:** `what_lint({ code })`, `what_scaffold({ type, name })`, `what_fix({ errorCode })` work without a browser.
 
 Notes for agents:
-- Component and signal IDs are ephemeral — re-query `what_components` after any `what_set_signal` that may remount the tree.
+- Component and signal IDs are ephemeral, re-query `what_components` after any `what_set_signal` that may remount the tree.
 - `what_eval` is disabled by default (security); enable only with `--unsafe-eval` / `WHAT_UNSAFE_EVAL=1`.
 - Module-scope signals are not attributed to any component; use `what_signals` directly rather than per-component counts.
 
@@ -211,7 +211,7 @@ Notes for agents:
 ## React compatibility
 
 `what-react` runs many React ecosystem libraries inside What components. It is a
-secondary feature — prefer native What APIs for new code. The tested library
+secondary feature, prefer native What APIs for new code. The tested library
 matrix in REACT-COMPAT.md is the source of truth.
 
 ```bash

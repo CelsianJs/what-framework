@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Server Actions — What Framework</title>
+  <title>Server Actions · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -88,60 +88,80 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Server Actions</h1>
-          <p class="subtitle">Write a mutation as a server function, call it from the client, and revalidate the cache it affects — all type-checked, CSRF-protected, and served at one endpoint.</p>
+          <p class="subtitle">Write a mutation as a server function, call it from the client, and revalidate the cache it affects: type-checked, CSRF-protected, and served at one endpoint.</p>
 
           <h2 id="define">Defining an action</h2>
           <p>Wrap a server function with <code>action()</code>. Give it a stable <code>id</code> so the client can dispatch it, and optionally declare what to revalidate on success.</p>
 <pre><code>// src/actions/posts.js
-import { action, revalidatePath } from 'what-framework/server';
-import { createPost } from '../db.js';
+import { action } from 'what-framework/server';
 
 export const createPostAction = action(
   async ({ title, body }) =&gt; {
+    const { createPost } = await import('../db.js');
     const post = createPost({ title, body });
     return { ok: true, slug: post.slug };
   },
-  { id: 'createPost', revalidate: ['/'], revalidateTags: ['posts'] }
+  { id: 'createPost', revalidate: ['/'] }
 );</code></pre>
+          <p>The client imports this module to dispatch the action, and nothing strips the server half of it out of the client bundle: there is no <code>'use server'</code> directive. Bundle this module for the browser and the action body ships with it, along with every module it imports, dynamically or not. Never put an API key, a database password, or any other secret in an action module or in anything it imports.</p>
 
           <h2 id="serve">Serving actions</h2>
-          <p>Actions are dispatched over <code>POST /__what_action</code>. The deploy adapters mount this for you; importing the action module (e.g. from your routes file) registers it. With a manual server you can mount it directly:</p>
-<pre><code>import { createActionHandler } from 'what-framework/server';
-const handler = createActionHandler({ getCsrfToken });</code></pre>
+          <p>Actions are dispatched over <code>POST /__what_action</code>. The deploy adapters mount this for you; importing the action module (e.g. from your routes file) registers it. With a manual server, mount the adapter for your runtime:</p>
+<pre><code>import { nodeActionMiddleware, fetchActionHandler } from 'what-framework/server';
+
+// The session token to compare the request's against. This is what the
+// deploy adapters do: read the what-csrf cookie they set on every response.
+// Node hands you a headers object, fetch runtimes hand you a Headers.
+function getCsrfToken(req) {
+  const hdrs = req.headers;
+  const raw = typeof hdrs?.get === 'function' ? hdrs.get('cookie') : hdrs?.cookie;
+  const m = String(raw || '').match(/(?:^|;\s*)what-csrf=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+// Node (connect / express). Reads and parses the body for you, 1 MB cap.
+app.use(nodeActionMiddleware({ getCsrfToken }));
+
+// Fetch runtimes (Workers, Deno, Bun): (Request) =&gt; Response
+const handler = fetchActionHandler({ getCsrfToken });</code></pre>
+          <p>Both wrappers build on <code>createActionHandler</code>, which is runtime-neutral: it takes an <em>already-parsed</em> <code>{ method, headers, body, query }</code> and returns <code>{ status, headers, body }</code>. It reads no request stream, so it is not mountable on its own. Reach for it only when you are wiring a server the two adapters do not cover, and read and parse the body yourself.</p>
 
           <h2 id="call">Calling from the client</h2>
-          <p>A progressively-enhanced form works with no JavaScript — it POSTs to the endpoint with a <code>data-action</code> attribute:</p>
-<pre><code>// src/pages/new-post.jsx — submits even before any client JS loads
-export default function NewPost() {
-  return (
-    &lt;form method="post" action="/__what_action" data-action="createPost"&gt;
-      &lt;input name="title" required /&gt;
-      &lt;textarea name="body" required&gt;&lt;/textarea&gt;
-      &lt;button&gt;Publish&lt;/button&gt;
-    &lt;/form&gt;
+          <p>The endpoint reads the action id and the CSRF token as hidden <em>fields</em>. Attributes on the <code>&lt;form&gt;</code> element are never submitted, so a form that carries the id as <code>data-action="createPost"</code> and nothing else answers 400. <code>&lt;Form&gt;</code> emits both fields for you and renders a real <code>&lt;form method="post"&gt;</code>, which submits with no JavaScript at all:</p>
+<pre><code>// src/components/new-post-form.js
+import { h } from 'what-framework';
+import { Form } from 'what-framework/server';
+import { createPostAction } from '../actions/posts.js';
+
+export function NewPostForm({ csrfToken }) {
+  return h(Form, { action: createPostAction, csrfToken, redirect: '/' },
+    h('input', { name: 'title', required: true }),
+    h('textarea', { name: 'body', required: true }),
+    h('button', {}, 'Publish'),
   );
 }</code></pre>
-          <p>Or call it imperatively and get the typed return value:</p>
-<pre><code>const res = await fetch('/__what_action', {
-  method: 'POST',
-  headers: { 'x-what-action': 'createPost', 'content-type': 'application/json' },
-  body: JSON.stringify({ args: [{ title, body }] }),
-});
-const { slug } = await res.json();</code></pre>
+          <p>That renders hidden <code>_action</code>, <code>what-csrf-token</code> and <code>_redirect</code> inputs, then your children. Pass the action <em>function</em>, not its id string, so the two can never drift apart. On success the endpoint answers 303 and the browser follows <code>_redirect</code>.</p>
+          <p>On the client, <code>&lt;Form&gt;</code> finds the token itself (the <code>what-csrf-token</code> meta tag, else the <code>what-csrf</code> cookie). On the server there is no <code>document</code>, so a server-rendered form must be handed <code>csrfToken</code> explicitly; without it the double-submit check rejects the POST and nothing on the page says why. Note that cached pages (<code>mode: 'static'</code> or <code>'hybrid'</code>) deliberately carry no per-visitor token, because that HTML is shared between visitors: a form there still works with JavaScript on, since the enhancer falls back to the cookie, but it cannot submit with scripting off. Put those forms on a <code>mode: 'server'</code> page.</p>
+          <p>Or call the action and use its return value. On the client the wrapper posts to the same endpoint and attaches the token from the page:</p>
+<pre><code>import { createPostAction } from '../actions/posts.js';
+
+const { slug } = await createPostAction({ title, body });</code></pre>
+          <p>A hand-rolled <code>fetch</code> has to supply everything the wrapper does: the <code>X-What-Action</code> header, a JSON body shaped <code>{ args: [...] }</code>, <code>credentials: 'same-origin'</code>, and the <code>X-CSRF-Token</code> header. Omit the token and the endpoint answers 403.</p>
 
           <h2 id="revalidate">Revalidating after a mutation</h2>
-          <p>The <code>revalidate</code> / <code>revalidateTags</code> options fire automatically after the action resolves, purging the origin ISR cache (and any CDN) so the next request re-renders with fresh data. You can also call them by hand inside the action:</p>
+          <p>The <code>revalidate</code> / <code>revalidateTags</code> options fire after the action resolves, purging the origin ISR cache (and any CDN) so the next request re-renders with fresh data. Two conditions apply. They run only on the dispatched path, so calling the action function directly on the server (from a loader, a route, or another action) runs the function and revalidates nothing. And they need a bound cache engine: the deploy adapters bind whichever <code>what-isr</code> engine you hand them, and a manual server binds one itself with <code>setRevalidationHandler(engine)</code>. Unbound, both helpers are no-ops that log a dev warning. For the direct-call case, purge by hand:</p>
 <pre><code>import { revalidatePath, revalidateTag } from 'what-framework/server';
 
-revalidatePath('/');          // purge one path
-revalidateTag('posts');       // purge everything tagged 'posts'</code></pre>
+await revalidatePath('/');          // purge one path
+await revalidateTag('posts');       // purge everything tagged 'posts'</code></pre>
           <div class="callout callout-note">
             <p class="callout-title">Two revalidates, on purpose</p>
-            <p>Server <code>revalidatePath</code>/<code>revalidateTag</code> (cache) are distinct from the client router's <code>invalidatePath</code> (in-memory nav pub-sub). Server purges the rendered cache; the client one re-runs a client loader. See <a href="./caching-isr.html">Caching &amp; ISR</a>.</p>
+            <p><code>revalidatePath</code>/<code>revalidateTag</code> (cache) are distinct from <code>invalidatePath</code> (in-memory pub-sub). All three come from <code>what-framework/server</code>, not the router. The first pair purges the rendered cache through the bound engine; <code>invalidatePath</code> calls the callbacks you registered with <code>onRevalidate(path, cb)</code>, and nothing else. See <a href="./caching-isr.html">Caching &amp; ISR</a>.</p>
           </div>
 
           <h2 id="security">CSRF &amp; error masking</h2>
-          <p>The handler validates a CSRF token by default (inject one via <code>getCsrfToken</code>; a meta tag is emitted into the document). It fails closed: a missing or bad token is rejected. Thrown errors are masked to a generic 500 so internal details never reach the client — the real error is logged server-side.</p>
+          <p>The handler validates a CSRF token by default (inject one via <code>getCsrfToken</code>; a meta tag is emitted into uncached documents). It fails closed: a missing or bad token is rejected. Fetch clients send it as the <code>X-CSRF-Token</code> header, plain form posts as the <code>_csrf</code> or <code>what-csrf-token</code> field, and the header wins when both are present. Thrown errors are masked to a generic 500 so internal details never reach the client, and the real error is logged server-side.</p>
+          <p>An action returns a value; it does not own the HTTP response. There is no channel for it to set headers, so anything that must issue <code>Set-Cookie</code> (sign-in, sign-out, session rotation) belongs in a normal route handler, not an action.</p>
 
         </div>
 

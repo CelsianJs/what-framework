@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Stores — What Framework</title>
+  <title>Stores · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -96,13 +96,13 @@
 <pre><code><span class="keyword">import</span> { createStore, derived } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> useCounter = <span class="function">createStore</span>({
-  <span class="comment">// State — becomes signals automatically</span>
+  <span class="comment">// State: becomes signals automatically</span>
   count: <span class="number">0</span>,
 
-  <span class="comment">// Computed — uses derived() to declare</span>
+  <span class="comment">// Computed: uses derived() to declare</span>
   doubled: <span class="function">derived</span>(state =&gt; state.count * <span class="number">2</span>),
 
-  <span class="comment">// Actions — methods that mutate state</span>
+  <span class="comment">// Actions: methods that mutate state</span>
   <span class="function">increment</span>() { <span class="keyword">this</span>.count++; },
   <span class="function">decrement</span>() { <span class="keyword">this</span>.count--; },
 });</code></pre>
@@ -137,6 +137,22 @@
 });</code></pre>
 
           <p>When you read a state property from the store object returned by the hook, you get the current value directly. No need to call it as a function. The getter on the returned object calls the underlying signal for you.</p>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Read store properties inside a thunk</p>
+            <p>Because they are getters rather than accessors, the read happens exactly where you write it. Put it inside a <code>() =&gt; ...</code> (or an <code>effect</code>, or a <code>computed</code>) so it lands in a reactive position, otherwise you get a snapshot that never updates.</p>
+<pre><code><span class="keyword">const</span> store = <span class="function">useCounter</span>();
+
+<span class="comment">// LIVE - the read happens inside a reactive thunk</span>
+<span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, () =&gt; store.count)
+
+<span class="comment">// FROZEN - reads once, while building the element</span>
+<span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, store.count)
+
+<span class="comment">// FROZEN - destructuring is a read too</span>
+<span class="keyword">const</span> { count } = <span class="function">useCounter</span>();</code></pre>
+            <p>Also note <code>store.count</code> is a value, not a function: calling it as <code>store.count()</code> throws. Actions are ordinary properties and are safe to destructure.</p>
+          </div>
 
           <h2 id="derived-values">Derived Values</h2>
           <p>Use <code>derived(fn)</code> to declare computed properties that automatically update when the state they depend on changes:</p>
@@ -198,7 +214,7 @@
   },
 });</code></pre>
 
-          <p>All mutations inside a single action are automatically batched. If an action updates three signals, subscribers only re-render once after the action completes.</p>
+          <p>All mutations inside a single action are automatically batched. If an action updates three signals, subscribers run once after the action completes, not once per write.</p>
 
           <h2 id="using-stores">Using Stores in Components</h2>
           <p>The hook returned by <code>createStore</code> can be called in any component. Every component that calls the same hook shares the same underlying state:</p>
@@ -211,7 +227,6 @@
     <span class="function">h</span>(<span class="string">'ul'</span>, <span class="keyword">null</span>,
       () =&gt; todos.items.map(item =&gt;
         <span class="function">h</span>(<span class="string">'li'</span>, {
-          key: item.id,
           onClick: () =&gt; todos.toggleTodo(item.id),
           style: { textDecoration: item.done ? <span class="string">'line-through'</span> : <span class="string">'none'</span> },
         }, item.text)
@@ -237,6 +252,11 @@
 }</code></pre>
 
           <p>Both <code>TodoList</code> and <code>AddTodo</code> share the same store instance. When <code>AddTodo</code> calls <code>addTodo()</code>, the list in <code>TodoList</code> updates automatically.</p>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Keys need the compiler</p>
+            <p>There is deliberately no <code>key</code> on the <code>&lt;li&gt;</code> above. Keyed reconciliation is a compiler feature: <code>what-compiler</code> lowers a keyed <code>.map()</code> (and <code>&lt;For&gt;</code>) to <code>mapArray</code>. On the buildless <code>h()</code> path a <code>key</code> prop is ignored outright, so passing one only suggests a guarantee you do not have. Expect every row to be rebuilt when the list changes, which means lost focus, closed <code>&lt;details&gt;</code>, and restarted CSS transitions. Use the compiler if you need stable rows. See <a href="./control-flow.html">Control Flow</a>.</p>
+          </div>
 
           <h2 id="multiple-stores">Multiple Stores</h2>
           <p>Organize your application state by feature. Each store is independent and focused on a single concern:</p>
@@ -286,6 +306,12 @@
             <p>Use <strong>stores</strong> for global, application-wide state that many unrelated components need (auth, cart, theme). Use <strong>context</strong> for scoped state that only a subtree of components needs (form state, layout config). Stores are singletons; context can have multiple instances in different parts of the tree.</p>
           </div>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">Stores are per process, not per request</p>
+            <p><code>createStore</code> builds its signals once, when the module is evaluated. In the browser that is exactly what you want: one instance for the whole tab. On a server it means one instance for every concurrent request, so a store holding user-specific data (the <code>useAuth</code> example above is the worst case) can leak one visitor's state into another visitor's HTML.</p>
+            <p>Keep module-scope stores for client-only state. For per-request data, use the loader's data via <code>useLoaderData()</code> or a context provider created inside the render, both of which are scoped to one render.</p>
+          </div>
+
           <h2 id="how-it-works">How It Works</h2>
           <p>Under the hood, <code>createStore</code> does three things:</p>
           <ul>
@@ -293,7 +319,7 @@
             <li><strong>Derived values</strong> (wrapped with <code>derived()</code>) become <code>computed()</code> instances. They track which state signals they read and recompute only when those change.</li>
             <li><strong>Actions</strong> are wrapped in <code>batch()</code>. The <code>this</code> keyword inside actions is a proxy that reads and writes the underlying signals. Writing <code>this.count++</code> actually calls <code>countSignal.set(countSignal.peek() + 1)</code>.</li>
           </ul>
-          <p>The hook function returned by <code>createStore</code> creates a new proxy object each time it is called, but all proxies point to the same underlying signals. This means every component gets fresh getter bindings while sharing the same reactive state.</p>
+          <p>The hook function returned by <code>createStore</code> builds a fresh object of getters each time it is called, and all of them read the same underlying signals. This means every component gets its own getter bindings while sharing the same reactive state. (Real Proxy objects do appear inside a store, but only for the <code>state</code> argument handed to <code>derived()</code> and for <code>this</code> inside an action. The object the hook returns is a plain one.)</p>
 
           <div class="page-nav">
             <a href="./forms.html">

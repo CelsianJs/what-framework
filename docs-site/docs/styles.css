@@ -1,5 +1,5 @@
 /* ============================================
-   What Framework — Documentation Styles
+   What Framework: Documentation Styles
    Imports shared design system, adds docs layout
    ============================================ */
 
@@ -369,7 +369,7 @@ code {
 
 /* --- Code Blocks --- */
 /* Code blocks are always dark (syntax-highlight colors are tuned for a dark
-   background), so force a light text color regardless of theme — otherwise
+   background), so force a light text color regardless of theme, otherwise
    plain (non-tokenized) code is dark-on-dark and invisible in light mode. */
 pre {
   background: var(--code-bg);

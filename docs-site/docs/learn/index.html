@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Quick Start — What Framework</title>
+  <title>Quick Start · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -92,7 +92,7 @@
 
           <div class="callout callout-info">
             <p class="callout-title">Try it online</p>
-            <p>Want to see What Framework in action? Try the <a href="https://playground.whatfw.com">live playground</a> to write and run code in your browser — no install required.</p>
+            <p>Want to see What Framework in action? Try the <a href="https://playground.whatfw.com">live playground</a> to write and run code in your browser, no install required.</p>
           </div>
 
           <h2 id="create-project">Create a New Project</h2>
@@ -104,7 +104,12 @@ cd my-app
 npm install
 npm run dev</code></pre>
 
-          <p>Open <code>http://localhost:5173</code> and you'll see your app running.</p>
+          <p>The CLI asks three questions: which template (SPA or Full-stack), whether to add React library support, and a CSS approach. This page follows the default answers: the SPA template, no React support, vanilla CSS. Open <code>http://localhost:5173</code> and you'll see your app running.</p>
+
+          <div class="callout callout-note">
+            <p class="callout-title">If you answer differently</p>
+            <p>The <strong>Full-stack</strong> template is buildless: it has no Vite config, no <code>index.html</code> and no compiler, its pages are written with <code>h()</code> instead of JSX, and <code>npm run dev</code> serves on <code>http://localhost:3000</code>. Answering yes to <strong>React library support</strong> replaces the What compiler with the <code>what-react</code> Vite plugin. Everything below assumes the SPA template with the What compiler.</p>
+          </div>
 
           <h2 id="project-structure">Project Structure</h2>
           <p>Your new project looks like this:</p>
@@ -113,10 +118,15 @@ npm run dev</code></pre>
 ├── src/
 │   ├── main.jsx        <span class="comment"># App entry</span>
 │   └── styles.css      <span class="comment"># App styles</span>
-├── public/             <span class="comment"># Optional static assets</span>
+├── public/             <span class="comment"># Static assets (favicon.svg)</span>
 ├── index.html
-├── vite.config.js
+├── vite.config.js      <span class="comment"># Vite + what-compiler</span>
+├── eslint.config.js    <span class="comment"># eslint-plugin-what</span>
+├── .mcp.json           <span class="comment"># MCP devtools server</span>
+├── CLAUDE.md           <span class="comment"># Instructions for coding agents</span>
 └── package.json</code></pre>
+
+          <p>The scaffold also writes <code>tsconfig.json</code>, <code>README.md</code>, <code>.gitignore</code>, <code>AGENTS.md</code>, and editor config in <code>.cursor/</code> and <code>.vscode/</code>.</p>
 
           <h2 id="your-first-component">Your First Component</h2>
           <p>Let's build a counter. Open <code>src/main.jsx</code>:</p>
@@ -145,7 +155,7 @@ npm run dev</code></pre>
             <span class="step-number">1</span>
             <div class="step-content">
               <h4><code>signal(0)</code></h4>
-              <p>Creates a reactive value starting at 0. Unlike React's useState tuple, this returns one function: call it to read, call it with a value to write. <code>signal()</code> works anywhere — module scope, components, or stores.</p>
+              <p>Creates a reactive value starting at 0. Unlike React's useState tuple, this returns one function: call it to read, call it with a value to write. <code>signal()</code> works anywhere, module scope, components, or stores.</p>
             </div>
           </div>
 
@@ -161,7 +171,7 @@ npm run dev</code></pre>
             <span class="step-number">3</span>
             <div class="step-content">
               <h4><code>count(c => c + 1)</code></h4>
-              <p>Updates the signal — call it with the new value, or a function that receives the current value and returns the next. <code>count.set(c => c + 1)</code> is an equivalent explicit form. The DOM updates immediately.</p>
+              <p>Updates the signal: call it with the new value, or a function that receives the current value and returns the next. <code>count.set(c => c + 1)</code> is an equivalent explicit form. The DOM updates on the next microtask, and only the text node that reads <code>count</code> changes. Call <code>flushSync()</code> when you need the update to have landed on the very next line, which is mostly what tests need.</p>
             </div>
           </div>
 
@@ -202,7 +212,7 @@ npm run dev</code></pre>
 
           <div class="callout callout-warning">
             <p class="callout-title">Why not just <code>const doubled = count() * 2</code>?</p>
-            <p>In React, that works because the entire component function re-runs on every state change. In What, the component function runs <strong>once</strong> — so <code>count() * 2</code> evaluates to a plain number at creation time and never updates. <code>computed</code> creates a reactive derivation that stays in sync.</p>
+            <p>In React, that works because the entire component function re-runs on every state change. In What, the component function runs <strong>once</strong>: so <code>count() * 2</code> evaluates to a plain number at creation time and never updates. <code>computed</code> creates a reactive derivation that stays in sync.</p>
             <p>For simple one-off expressions in JSX, the compiler handles it: <code>&lt;p&gt;{count() * 2}&lt;/p&gt;</code> works directly. Use <code>computed</code> when you need the derived value in multiple places or want to pass it to child components.</p>
           </div>
 
@@ -228,7 +238,7 @@ npm run dev</code></pre>
   );
 }</code></pre>
 
-          <p>Effects auto-track their dependencies — no dependency array needed. Any signal read inside the effect becomes a dependency automatically.</p>
+          <p>Effects auto-track their dependencies, no dependency array needed. Any signal read inside the effect becomes a dependency automatically.</p>
 
           <h2 id="next-steps">Next Steps</h2>
           <p>You've learned the basics. Here's where to go next:</p>

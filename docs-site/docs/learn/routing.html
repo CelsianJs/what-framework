@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Routing — What Framework</title>
+  <title>Routing · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -127,7 +127,7 @@ mount(
   );
 }</code></pre>
 
-          <p>Link automatically adds an <code>active</code> class when the current URL matches (or starts with) the href. For exact matching, it also adds <code>exact-active</code>:</p>
+          <p>Link automatically adds an <code>active</code> class when the current path is the href or one of its sub-paths (<code>/</code> is the exception: it is active only on <code>/</code>). When the path and the href are identical it also adds <code>exact-active</code>:</p>
 
 <pre><code><span class="comment">// Customize active class names</span>
 &lt;<span class="function">Link</span> href="/blog" activeClass="nav-active" exactActiveClass="nav-exact"&gt;
@@ -171,8 +171,10 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 
           <div class="callout callout-note">
             <p class="callout-title">No Parentheses Needed</p>
-            <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties &mdash; no <code>()</code> call needed. They are still reactive and will trigger re-renders when they change.</p>
+            <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties, with no <code>()</code> call needed. They are still reactive and will trigger re-renders when they change.</p>
           </div>
+
+          <p><code>route.query</code> is a null-prototype object, so a crafted query string cannot reach <code>Object.prototype</code>. Reading, destructuring, spreading, <code>Object.keys()</code> and <code>JSON.stringify()</code> all behave normally, but inherited members are gone: use <code>'tab' in route.query</code> or <code>Object.prototype.hasOwnProperty.call(route.query, 'tab')</code> rather than <code>route.query.hasOwnProperty('tab')</code>. A repeated key collects into an array, so <code>?tag=a&amp;tag=b</code> gives <code>{ tag: ["a", "b"] }</code>.</p>
 
           <h2 id="dynamic-params">Dynamic Params</h2>
           <p>Use <code>:param</code> syntax in route paths to capture dynamic segments. The matched values are passed to your component as <code>params</code>:</p>
@@ -181,7 +183,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
   <span class="string">'/'</span>: Home,
   <span class="string">'/users/:id'</span>: UserProfile,
   <span class="string">'/posts/:slug'</span>: BlogPost,
-  <span class="string">'/files/*'</span>: FileViewer,          <span class="comment">// Catch-all</span>
+  <span class="string">'/files/*'</span>: FileViewer,          <span class="comment">// Catch-all: params.rest</span>
   <span class="string">'/docs/[...path]'</span>: DocsPage,     <span class="comment">// Named catch-all</span>
 });
 
@@ -193,12 +195,12 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
   <span class="keyword">return</span> &lt;p&gt;Path: {params.path}&lt;/p&gt;;  <span class="comment">// "guides/getting-started"</span>
 }</code></pre>
 
-          <p>File-based syntax like <code>[id]</code> and <code>[...path]</code> also works &mdash; it's converted to <code>:id</code> and catch-all internally.</p>
+          <p>File-based syntax like <code>[id]</code> and <code>[...path]</code> also works: it's converted to <code>:id</code> and catch-all internally.</p>
 
           <h2 id="nested-layouts">Nested Layouts</h2>
           <p>Wrap groups of routes in shared layouts. The layout component receives the matched route's element as <code>children</code>:</p>
 
-<pre><code><span class="keyword">import</span> { nestedRoutes } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
+<pre><code><span class="keyword">import</span> { Link, nestedRoutes } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">DashboardLayout</span>({ children }) {
   <span class="keyword">return</span> (
@@ -226,7 +228,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 
 <pre><code><span class="keyword">import</span> { guard } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
-<span class="comment">// Sync guard — redirect if not authenticated</span>
+<span class="comment">// Sync guard: redirect if not authenticated</span>
 <span class="keyword">const</span> requireAuth = <span class="function">guard</span>(
   () =&gt; isLoggedIn(),
   <span class="string">'/login'</span>           <span class="comment">// Redirect path on failure</span>
@@ -241,12 +243,14 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
     middleware: [
       ({ path, params }) =&gt; {
         <span class="keyword">if</span> (!isLoggedIn()) <span class="keyword">return</span> <span class="string">'/login'</span>; <span class="comment">// Redirect</span>
-        <span class="keyword">if</span> (!isAdmin()) <span class="keyword">return</span> <span class="keyword">false</span>;      <span class="comment">// Block (403)</span>
+        <span class="keyword">if</span> (!isAdmin()) <span class="keyword">return</span> <span class="keyword">false</span>;      <span class="comment">// Block</span>
         <span class="keyword">return</span> <span class="keyword">true</span>;                       <span class="comment">// Allow</span>
       }
     ],
   },
 });</code></pre>
+
+          <p>The two shapes are not interchangeable. <code>guard()</code> and <code>asyncGuard()</code> wrap a component and hand back a new one, so their result belongs in <code>component:</code>. Entries in a <code>middleware</code> array are predicates called with the match context: return <code>true</code> to allow, a path string to redirect, or <code>false</code> to block. Blocking renders the <code>Router</code>'s <code>fallback</code> component when one is set (the same component your 404s use) and a built-in 403 screen when it is not, so redirect to a dedicated route if you need to tell the two apart.</p>
 
           <p>For async checks (like verifying a session with the server), use <code>asyncGuard</code>:</p>
 
@@ -258,10 +262,13 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
     <span class="keyword">return</span> res.ok;
   },
   { fallback: <span class="string">'/login'</span>, loading: Spinner }
-);</code></pre>
+);
+
+<span class="comment">// asyncGuard returns a wrapper, so apply it to the component</span>
+<span class="keyword">const</span> ProtectedSettings = <span class="function">requireSession</span>(Settings);</code></pre>
 
           <h2 id="route-groups">Route Groups</h2>
-          <p>Group routes together to share a layout or middleware without affecting URL structure. The group name in parentheses is stripped from the URL:</p>
+          <p>Apply one layout and one middleware list to a set of routes. <code>routeGroup</code> never touches the paths, so write each URL out in full; the group name is a label for your own code:</p>
 
 <pre><code><span class="keyword">import</span> { routeGroup } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
@@ -275,7 +282,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
   ...<span class="function">routeGroup</span>(<span class="string">'app'</span>, [
     { path: <span class="string">'/dashboard'</span>, component: Dashboard },
     { path: <span class="string">'/settings'</span>, component: Settings },
-  ], { layout: AppLayout, middleware: [requireAuth] }),
+  ], { layout: AppLayout, middleware: [() =&gt; isLoggedIn() || <span class="string">'/login'</span>] }),
 ];</code></pre>
 
           <h2 id="loading-states">Loading &amp; Error States</h2>
@@ -284,15 +291,26 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 <pre><code><span class="keyword">const</span> routes = <span class="function">defineRoutes</span>({
   <span class="string">'/dashboard'</span>: {
     component: Dashboard,
-    loading: DashboardSkeleton,  <span class="comment">// Shown during navigation</span>
+    loading: DashboardSkeleton,  <span class="comment">// Shown while a navigation is pending</span>
     error: DashboardError,       <span class="comment">// Shown on render error</span>
   },
 });</code></pre>
 
-          <p>The <code>loading</code> component renders while <code>route.isNavigating</code> is true. The <code>error</code> component is wrapped in an <code>ErrorBoundary</code> that catches exceptions during rendering.</p>
+          <p>The <code>loading</code> component renders while <code>route.isNavigating</code> is true. <code>asyncGuard</code> never sets that flag, so a route it protects shows the guard's own <code>loading</code> option while the check is pending, never the route's. When both the route being left and the route being entered declare a <code>loading</code> component, the destination's wins.</p>
+
+          <p>The <code>error</code> component is wrapped in an <code>ErrorBoundary</code> that catches exceptions during rendering. It is called with <code>{ error, reset }</code>, and <code>reset</code> re-runs the failed subtree:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">DashboardError</span>({ error, reset }) {
+  <span class="keyword">return</span> (
+    &lt;div class="route-error"&gt;
+      &lt;p&gt;{error.message}&lt;/p&gt;
+      &lt;button onClick={reset}&gt;Retry&lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
 
           <h2 id="view-transitions">View Transitions</h2>
-          <p>What Router uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API">View Transitions API</a> by default for smooth page transitions. No configuration needed &mdash; just add CSS:</p>
+          <p>What Router uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API">View Transitions API</a> by default for smooth page transitions. No configuration needed, just add CSS:</p>
 
 <pre><code><span class="comment">/* Fade in/out by default */</span>
 ::view-transition-old(root) {
@@ -318,25 +336,26 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 }</code></pre>
 
           <h2 id="scroll-restoration">Scroll Restoration</h2>
-          <p>Enable automatic scroll position saving and restoration:</p>
+          <p>The router already saves the scroll position on every navigation and restores it on back/forward, with no setup. <code>enableScrollRestoration()</code> adds the two behaviors a router cannot guess for you:</p>
 
 <pre><code><span class="keyword">import</span> { enableScrollRestoration } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="function">enableScrollRestoration</span>();
-<span class="comment">// Now back/forward navigation restores scroll position</span>
 <span class="comment">// New navigations scroll to top</span>
 <span class="comment">// Hash links scroll to the target element</span></code></pre>
 
           <h2 id="prefetching">Prefetching</h2>
-          <p>Link components prefetch routes on hover by default. You can also prefetch programmatically:</p>
+          <p>Link components prefetch on hover by default. You can also prefetch programmatically:</p>
 
 <pre><code><span class="keyword">import</span> { prefetch } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
-<span class="comment">// Prefetch a route's assets</span>
+<span class="comment">// Appends &lt;link rel="prefetch"&gt; for this URL</span>
 <span class="function">prefetch</span>(<span class="string">'/dashboard'</span>);
 
 <span class="comment">// Disable prefetch on a specific Link</span>
 &lt;<span class="function">Link</span> href="/heavy-page" prefetch={<span class="keyword">false</span>}&gt;Heavy Page&lt;/<span class="function">Link</span>&gt;</code></pre>
+
+          <p>This is a hint to the browser to fetch that URL's document early. It does not pull in a <code>lazy()</code> route's JavaScript chunk, and each URL is prefetched at most once per page load.</p>
 
           <h2 id="use-route">useRoute Hook</h2>
           <p>Access reactive route state inside any component with the <code>useRoute</code> hook. Returns computed signals for each property:</p>

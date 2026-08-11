@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lifecycle — What Framework</title>
+  <title>Lifecycle · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -94,19 +94,21 @@
           <p>Run code once when a component first renders:</p>
 
 <pre><code><span class="keyword">import</span> { onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> Chart <span class="keyword">from</span> <span class="string">'chart.js/auto'</span>;
 
-<span class="keyword">function</span> <span class="function">Chart</span>({ data }) {
+<span class="keyword">function</span> <span class="function">LineChart</span>({ data }) {
   <span class="keyword">let</span> canvas;
 
   <span class="function">onMount</span>(() =&gt; {
-    <span class="comment">// Component is now in the DOM</span>
-    <span class="comment">// canvas ref is available</span>
+    <span class="comment">// The ref has fired and the canvas is in the DOM</span>
     <span class="keyword">const</span> chart = <span class="keyword">new</span> Chart(canvas, { data });
     console.log(<span class="string">'Chart initialized'</span>);
   });
 
   <span class="keyword">return</span> &lt;canvas ref={el =&gt; canvas = el} /&gt;;
 }</code></pre>
+
+          <p>Note the component is <code>LineChart</code>, not <code>Chart</code>. Naming it after the library would shadow the import, so <code>new Chart(...)</code> would re-enter the component instead of constructing the chart.</p>
 
           <p>Use <code>onMount</code> for:</p>
           <ul>
@@ -115,6 +117,12 @@
             <li>Initial data fetching</li>
             <li>Animations on enter</li>
           </ul>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Call these in the component body</p>
+            <p><code>onMount</code> and <code>onCleanup</code> resolve the current component from the render stack, so they must be called synchronously in the component body, never inside a callback, an effect, or after an <code>await</code>. In particular, calling <code>onCleanup</code> from inside an <code>onMount</code> callback throws, and the error is only logged to the console.</p>
+            <p><code>onMount</code> also ignores whatever you return from it. Teardown belongs in <code>onCleanup</code>.</p>
+          </div>
 
           <h2 id="oncleanup">onCleanup</h2>
           <p>Register cleanup code to run when the component unmounts:</p>
@@ -154,14 +162,15 @@
 <pre><code><span class="keyword">function</span> <span class="function">WindowSize</span>() {
   <span class="keyword">const</span> size = <span class="function">signal</span>({ width: <span class="number">0</span>, height: <span class="number">0</span> });
 
-  <span class="function">onMount</span>(() =&gt; {
-    <span class="keyword">const</span> updateSize = () =&gt; {
-      size.set({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
-    };
+  <span class="comment">// Declared in the body so both hooks can see it</span>
+  <span class="keyword">const</span> updateSize = () =&gt; {
+    size.set({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
+  };
 
+  <span class="function">onMount</span>(() =&gt; {
     updateSize();
     window.addEventListener(<span class="string">'resize'</span>, updateSize);
   });
@@ -176,21 +185,22 @@
           <h3>Timers</h3>
 <pre><code><span class="keyword">function</span> <span class="function">Clock</span>() {
   <span class="keyword">const</span> time = <span class="function">signal</span>(<span class="keyword">new</span> Date());
+  <span class="keyword">let</span> id;
 
   <span class="function">onMount</span>(() =&gt; {
-    <span class="keyword">const</span> id = setInterval(() =&gt; {
+    id = setInterval(() =&gt; {
       time.set(<span class="keyword">new</span> Date());
     }, <span class="number">1000</span>);
-
-    <span class="comment">// Return cleanup directly from onMount</span>
-    <span class="keyword">return</span> () =&gt; clearInterval(id);
   });
+
+  <span class="comment">// onMount discards its return value, so clear the timer here</span>
+  <span class="function">onCleanup</span>(() =&gt; clearInterval(id));
 
   <span class="keyword">return</span> &lt;p&gt;{<span class="function">() =&gt;</span> time().toLocaleTimeString()}&lt;/p&gt;;
 }</code></pre>
 
           <h3>Third-Party Libraries</h3>
-<pre><code><span class="keyword">function</span> <span class="function">Map</span>({ lat, lng }) {
+<pre><code><span class="keyword">function</span> <span class="function">LeafletMap</span>({ lat, lng }) {
   <span class="keyword">let</span> container;
   <span class="keyword">let</span> map;
 
@@ -211,12 +221,13 @@
 
 <pre><code><span class="keyword">import</span> { useEffect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
+<span class="comment">// The parent passes the signal itself: &lt;Profile userId={userIdSignal} /&gt;</span>
 <span class="keyword">function</span> <span class="function">Profile</span>({ userId }) {
   <span class="keyword">const</span> user = <span class="function">signal</span>(<span class="keyword">null</span>);
 
-  <span class="comment">// Runs on mount and when userId changes</span>
+  <span class="comment">// Runs on mount and again whenever userId changes</span>
   <span class="function">useEffect</span>(() =&gt; {
-    fetch(<span class="string">`/api/users/${userId}`</span>)
+    fetch(<span class="string">`/api/users/${userId()}`</span>)
       .then(r =&gt; r.json())
       .then(data =&gt; user.set(data));
 
@@ -224,10 +235,12 @@
     <span class="keyword">return</span> () =&gt; {
       console.log(<span class="string">'Cleanup'</span>);
     };
-  }, [userId]);  <span class="comment">// Dependencies</span>
+  }, [userId]);  <span class="comment">// Dependencies: signal accessors only</span>
 
   <span class="keyword">return</span> &lt;div&gt;{<span class="function">() =&gt;</span> user()?.name}&lt;/div&gt;;
 }</code></pre>
+
+          <p>A deps array only tracks entries that are signal accessors. Pass the value (<code>[userId()]</code>, or a plain prop) and the effect runs once and can never re-run, because in a run-once component a plain value never changes. What warns you in dev when it sees one. You can also drop the deps array entirely: <code>useEffect(fn)</code> auto-tracks every signal read inside the callback, exactly like <code>effect</code>.</p>
 
           <h2 id="comparison">Comparison</h2>
 
@@ -253,7 +266,7 @@
               </tr>
               <tr>
                 <td><code>effect</code></td>
-                <td>Reactive effect (auto-tracks signals)</td>
+                <td>Reactive effect (auto-tracks signals). The only entry here that does not clean itself up: pass its returned disposer to <code>onCleanup</code>.</td>
               </tr>
             </tbody>
           </table>
@@ -261,6 +274,7 @@
           <div class="callout callout-info">
             <p class="callout-title">Which to choose?</p>
             <p>Use <code>onMount</code>/<code>onCleanup</code> for one-time setup. Use <code>effect</code> for reactive side effects that depend on signals. Use <code>useEffect</code> for React compatibility.</p>
+            <p><code>onMount</code> and <code>onCleanup</code> are client-only. On a server render the component context is closed as soon as the component returns, so neither callback ever fires, and on a hydrated page they run at hydration rather than at server render.</p>
           </div>
 
           <div class="page-nav">

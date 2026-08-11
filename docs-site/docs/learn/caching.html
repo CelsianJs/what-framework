@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Caching — What Framework</title>
+  <title>Caching - What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -93,6 +93,8 @@
           <h2 id="swr-model">Stale-While-Revalidate</h2>
           <p>What's data fetching is built on the <strong>SWR</strong> pattern: show cached (stale) data immediately, then revalidate in the background and update when fresh data arrives. This means your UI never shows a loading spinner for data it's already fetched.</p>
 
+          <p>Everything on this page is the <strong>in-browser query cache</strong>: it lives in the tab, it is keyed by query key, and it disappears on reload. The server-side render cache is a separate system with its own vocabulary (<code>revalidatePath</code>, <code>revalidateTag</code>, CDN headers) and is documented in <a href="./caching-isr.html">Caching &amp; ISR</a>.</p>
+
 <pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">UserProfile</span>({ userId }) {
@@ -106,20 +108,26 @@
   <span class="comment">// On revisit: data shows instantly (cached), isValidating=true in background</span>
   <span class="comment">// When fresh data arrives: data updates seamlessly</span>
 
-  <span class="keyword">if</span> (isLoading()) <span class="keyword">return</span> &lt;p&gt;Loading...&lt;/p&gt;;
-  <span class="keyword">if</span> (error()) <span class="keyword">return</span> &lt;p&gt;Error: {error().message}&lt;/p&gt;;
-
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;h1&gt;{data().name}&lt;/h1&gt;
-      {isValidating() &amp;&amp; &lt;span class="badge"&gt;Refreshing...&lt;/span&gt;}
+      {() =&gt; {
+        <span class="keyword">if</span> (isLoading()) <span class="keyword">return</span> &lt;p&gt;Loading...&lt;/p&gt;;
+        <span class="keyword">if</span> (error()) <span class="keyword">return</span> &lt;p&gt;Error: {error()?.message}&lt;/p&gt;;
+        <span class="keyword">return</span> &lt;h1&gt;{() =&gt; data()?.name}&lt;/h1&gt;;
+      }}
+      {() =&gt; isValidating() ? &lt;span class="badge"&gt;Refreshing...&lt;/span&gt; : <span class="keyword">null</span>}
     &lt;/div&gt;
   );
 }</code></pre>
 
           <div class="callout callout-note">
             <p class="callout-title">Signal Getters</p>
-            <p><code>data()</code>, <code>error()</code>, <code>isLoading()</code>, and <code>isValidating()</code> are all signal getters &mdash; call them with parentheses to read the current value.</p>
+            <p><code>data()</code>, <code>error()</code>, <code>isLoading()</code>, and <code>isValidating()</code> are all signal getters, call them with parentheses to read the current value.</p>
+          </div>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Branch inside a thunk, never with an early return</p>
+            <p>Components run once, so <code>if (isLoading()) return &lt;p&gt;Loading...&lt;/p&gt;;</code> in the component body is evaluated a single time, while the first fetch is still in flight. The component is then pinned on "Loading..." forever. Put the branch inside a <code>{() =&gt; ...}</code> thunk (as above) or a <code>&lt;Show&gt;</code>, so it re-runs when the signals change. The same applies to every <code>useSWR</code> result on this page.</p>
           </div>
 
           <h2 id="shared-cache">Shared Cache</h2>
@@ -128,12 +136,12 @@
 <pre><code><span class="comment">// Both components read from the same cache entry</span>
 <span class="keyword">function</span> <span class="function">Header</span>() {
   <span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">'/api/user'</span>, fetchUser);
-  <span class="keyword">return</span> &lt;span&gt;Hi, {data()?.name}&lt;/span&gt;;
+  <span class="keyword">return</span> &lt;span&gt;Hi, {() =&gt; data()?.name}&lt;/span&gt;;
 }
 
 <span class="keyword">function</span> <span class="function">Sidebar</span>() {
   <span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">'/api/user'</span>, fetchUser);
-  <span class="keyword">return</span> &lt;img src={data()?.avatar} /&gt;;
+  <span class="keyword">return</span> &lt;img src={() =&gt; data()?.avatar} /&gt;;
 }
 
 <span class="comment">// Only ONE fetch request is made, and both components update together</span></code></pre>
@@ -158,9 +166,9 @@
 });</code></pre>
 
           <ul>
-            <li><strong>Focus revalidation</strong> &mdash; When the user switches back to your tab, all active queries re-fetch. Stale data is shown while fresh data loads.</li>
-            <li><strong>Reconnect revalidation</strong> &mdash; When the browser comes back online after losing connection, data is refreshed.</li>
-            <li><strong>Polling</strong> &mdash; Set <code>refreshInterval</code> for data that changes frequently (dashboards, feeds, stock prices).</li>
+            <li><strong>Focus revalidation</strong>: when the user switches back to your tab, all active queries re-fetch. Stale data is shown while fresh data loads.</li>
+            <li><strong>Reconnect revalidation</strong>: when the browser comes back online after losing connection, data is refreshed.</li>
+            <li><strong>Polling</strong>: set <code>refreshInterval</code> for data that changes frequently (dashboards, feeds, stock prices).</li>
           </ul>
 
           <h2 id="invalidation">Cache Invalidation</h2>
@@ -186,7 +194,7 @@
 
           <div class="callout callout-info">
             <p class="callout-title">Soft vs Hard</p>
-            <p><strong>Soft invalidation</strong> (default) keeps stale data on screen while re-fetching &mdash; the SWR pattern. <strong>Hard invalidation</strong> clears the cache entry immediately, causing <code>isLoading()</code> to become true and data to be null until the fresh response arrives.</p>
+            <p><strong>Soft invalidation</strong> (default) keeps stale data on screen while re-fetching (the SWR pattern). <strong>Hard invalidation</strong> clears the cache entry immediately, causing <code>isLoading()</code> to become true and data to be null until the fresh response arrives.</p>
           </div>
 
           <h2 id="manual-cache">Manual Cache Control</h2>
@@ -200,9 +208,9 @@
 <span class="comment">// Write to cache directly (updates all subscribers)</span>
 <span class="function">setQueryData</span>(<span class="string">'/api/user'</span>, { name: <span class="string">'Alice'</span>, role: <span class="string">'admin'</span> });
 
-<span class="comment">// Update cache based on current value</span>
+<span class="comment">// Update cache based on current value (it is null for a key nothing has fetched yet)</span>
 <span class="function">setQueryData</span>(<span class="string">'/api/posts'</span>, posts =&gt;
-  posts.map(p =&gt; p.id === <span class="number">42</span> ? { ...p, title: <span class="string">'Updated'</span> } : p)
+  (posts ?? []).map(p =&gt; p.id === <span class="number">42</span> ? { ...p, title: <span class="string">'Updated'</span> } : p)
 );
 
 <span class="comment">// Clear entire cache (useful for logout)</span>
@@ -215,9 +223,13 @@
   <span class="keyword">const</span> { data, mutate, revalidate } = <span class="function">useSWR</span>(<span class="string">'/api/todos'</span>, fetcher);
 
   <span class="keyword">async function</span> <span class="function">toggleTodo</span>(id) {
-    <span class="comment">// 1. Optimistically update the cache</span>
-    <span class="function">mutate</span>(todos =&gt;
-      todos.map(t =&gt; t.id === id ? { ...t, done: !t.done } : t)
+    <span class="comment">// 1. Optimistically update the cache. The second argument is</span>
+    <span class="comment">//    shouldRevalidate and it defaults to TRUE: leave it out and</span>
+    <span class="comment">//    mutate immediately re-fetches the server that has not been</span>
+    <span class="comment">//    updated yet, overwriting your optimistic value with the old one.</span>
+    <span class="function">mutate</span>(
+      todos =&gt; todos.map(t =&gt; t.id === id ? { ...t, done: !t.done } : t),
+      <span class="keyword">false</span>
     );
 
     <span class="comment">// 2. Send to server</span>
@@ -229,14 +241,19 @@
 
   <span class="keyword">return</span> (
     &lt;ul&gt;
-      {data()?.map(todo =&gt;
-        &lt;li onClick={() =&gt; toggleTodo(todo.id)}&gt;
+      {() =&gt; data()?.map(todo =&gt;
+        &lt;li key={todo.id} onClick={() =&gt; toggleTodo(todo.id)}&gt;
           {todo.done ? '&#x2713;' : '&#x25CB;'} {todo.text}
         &lt;/li&gt;
       )}
     &lt;/ul&gt;
   );
 }</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Why the <code>false</code> matters</p>
+            <p>With the default 2 second <code>dedupingInterval</code>, the revalidation <code>mutate</code> fires is usually swallowed as a duplicate, so the recipe looks fine while you are clicking quickly. On a slower interaction the re-fetch goes out, lands with the pre-mutation data, and the UI silently reverts.</p>
+          </div>
 
           <h2 id="prefetching">Prefetching</h2>
           <p>Pre-populate the cache before a component mounts. Useful for hover-to-prefetch patterns:</p>
@@ -257,10 +274,12 @@
   );
 }</code></pre>
 
-          <p>When the user hovers, the data is fetched and cached. If they click through, <code>useSWR</code> returns the cached data instantly &mdash; no loading spinner.</p>
+          <p>When the user hovers, the data is fetched and cached. If they click through, <code>useSWR</code> returns the cached data instantly, with no loading spinner.</p>
 
           <h2 id="conditional">Conditional Fetching</h2>
-          <p>Pass <code>null</code>, <code>undefined</code>, or <code>false</code> as the key to pause fetching. Useful for dependent queries where one fetch depends on another's result:</p>
+          <p>Pass <code>null</code>, <code>undefined</code>, or <code>false</code> as the key to pause fetching. The key is read once, when the component is created, so it gates on something you already have (a prop, a route param) and stays paused for the life of that component.</p>
+
+          <p>That makes a ternary key the wrong tool for a <strong>dependent</strong> query: <code>user.data() ? ... : null</code> is evaluated before the parent fetch has resolved, so the second query takes the paused branch and never fires. Create the dependent query inside a thunk instead, once the parent data has arrived:</p>
 
 <pre><code><span class="keyword">function</span> <span class="function">UserPosts</span>({ userId }) {
   <span class="keyword">const</span> user = <span class="function">useSWR</span>(
@@ -268,18 +287,19 @@
     fetcher
   );
 
-  <span class="comment">// Only fetch posts after user data is available</span>
-  <span class="keyword">const</span> posts = <span class="function">useSWR</span>(
-    user.data() ? <span class="string">`/api/users/${user.data().id}/posts`</span> : <span class="keyword">null</span>,
-    fetcher
-  );
-
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;h1&gt;{user.data()?.name}&lt;/h1&gt;
-      {posts.data()?.map(p =&gt; &lt;p&gt;{p.title}&lt;/p&gt;)}
+      &lt;h1&gt;{() =&gt; user.data()?.name}&lt;/h1&gt;
+      {() =&gt; user.data() ? &lt;Posts userId={user.data().id} /&gt; : <span class="keyword">null</span>}
     &lt;/div&gt;
   );
+}
+
+<span class="comment">// &lt;Posts&gt; is created only when the user query resolves, so its own</span>
+<span class="comment">// key is already correct the one time it is read.</span>
+<span class="keyword">function</span> <span class="function">Posts</span>({ userId }) {
+  <span class="keyword">const</span> posts = <span class="function">useSWR</span>(<span class="string">`/api/users/${userId}/posts`</span>, fetcher);
+  <span class="keyword">return</span> &lt;div&gt;{() =&gt; posts.data()?.map(p =&gt; &lt;p key={p.id}&gt;{p.title}&lt;/p&gt;)}&lt;/div&gt;;
 }</code></pre>
 
           <h2 id="cache-size">Cache Size &amp; Eviction</h2>
@@ -288,6 +308,7 @@
           <p>To customize, clear stale data on logout or route transitions:</p>
 
 <pre><code><span class="keyword">import</span> { clearCache } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { navigate } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">logout</span>() {
   <span class="function">clearCache</span>();         <span class="comment">// Remove all cached data</span>
@@ -306,22 +327,29 @@
           <h2 id="error-handling">Error Handling</h2>
           <p>Errors are captured and available via the <code>error()</code> signal. Use the <code>onError</code> and <code>onSuccess</code> callbacks for side effects:</p>
 
-<pre><code><span class="keyword">const</span> { data, error, revalidate } = <span class="function">useSWR</span>(<span class="string">'/api/data'</span>, fetcher, {
-  onError: (err, key) =&gt; {
-    console.error(<span class="string">`Failed to fetch ${key}:`</span>, err);
-    toast.error(<span class="string">'Something went wrong'</span>);
-  },
-  onSuccess: (result, key) =&gt; {
-    console.log(<span class="string">`Fetched ${key}:`</span>, result);
-  },
-});
+<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="comment">// Retry on error</span>
-<span class="keyword">if</span> (error()) {
+<span class="keyword">function</span> <span class="function">DataView</span>() {
+  <span class="keyword">const</span> { data, error, revalidate } = <span class="function">useSWR</span>(<span class="string">'/api/data'</span>, fetcher, {
+    onError: (err, key) =&gt; {
+      console.error(<span class="string">`Failed to fetch ${key}:`</span>, err);
+    },
+    onSuccess: (result, key) =&gt; {
+      console.log(<span class="string">`Fetched ${key}:`</span>, result);
+    },
+  });
+
+  <span class="comment">// Retry on error. The branch lives inside a thunk for the same reason as</span>
+  <span class="comment">// the first example: a bare `if (error())` in the body runs once, before</span>
+  <span class="comment">// the fetch has had a chance to fail.</span>
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;p&gt;Error: {error().message}&lt;/p&gt;
-      &lt;button onClick={revalidate}&gt;Retry&lt;/button&gt;
+      {() =&gt; error()
+        ? &lt;div&gt;
+            &lt;p&gt;Error: {error()?.message}&lt;/p&gt;
+            &lt;button onClick={() =&gt; <span class="function">revalidate</span>()}&gt;Retry&lt;/button&gt;
+          &lt;/div&gt;
+        : &lt;article&gt;{() =&gt; data()?.title}&lt;/article&gt;}
     &lt;/div&gt;
   );
 }</code></pre>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Animation — What Framework</title>
+  <title>Animation · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -91,7 +91,7 @@
           <p class="subtitle">Physics-based springs, tweens, transitions, and gesture detection.</p>
 
           <h2 id="spring">spring(initialValue, options)</h2>
-          <p>Creates a physics-based spring animation. Springs produce natural, fluid motion by simulating a damped harmonic oscillator. Unlike time-based animations, springs respond dynamically when interrupted — you can redirect a spring mid-flight and it will smoothly change course.</p>
+          <p>Creates a physics-based spring animation. Springs produce natural, fluid motion by simulating a damped harmonic oscillator. Unlike time-based animations, springs respond dynamically when interrupted: you can redirect a spring mid-flight and it will smoothly change course.</p>
 
 <pre><code><span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -115,25 +115,25 @@ console.log(position.velocity());     <span class="comment">// current speed</sp
 
           <p>The returned object exposes these reactive accessors and methods:</p>
           <ul>
-            <li><code>current()</code> — the current animated value (reactive signal)</li>
-            <li><code>target()</code> — the value the spring is heading toward</li>
-            <li><code>velocity()</code> — the current velocity of the animation</li>
-            <li><code>isAnimating()</code> — whether the spring is still in motion</li>
-            <li><code>set(target)</code> — start animating toward a new target</li>
-            <li><code>stop()</code> — halt the animation at its current position</li>
-            <li><code>snap(value)</code> — immediately jump to a value (no animation)</li>
+            <li><code>current()</code>: the current animated value (reactive signal)</li>
+            <li><code>target()</code>: the value the spring is heading toward</li>
+            <li><code>velocity()</code>: the current velocity of the animation</li>
+            <li><code>isAnimating()</code>: whether the spring is still in motion</li>
+            <li><code>set(target)</code>: start animating toward a new target</li>
+            <li><code>stop()</code>: halt the animation at its current position</li>
+            <li><code>snap(value)</code>: immediately jump to a value (no animation)</li>
+            <li><code>subscribe(fn)</code> to react to the current value directly</li>
           </ul>
 
           <div class="callout callout-note">
-            <p class="callout-title">Automatic Cleanup</p>
-            <p>When created inside a component, the spring's <code>requestAnimationFrame</code> loop is automatically cancelled when the component unmounts. No manual cleanup needed.</p>
+            <p class="callout-title">Automatic Cleanup (springs only)</p>
+            <p>When a <code>spring()</code> is created inside a component it registers its <code>stop()</code> as a cleanup callback, so its <code>requestAnimationFrame</code> loop is cancelled when the component unmounts. This applies to <code>spring()</code> alone. <code>tween()</code> registers nothing with the component lifecycle, so cancel it yourself (see below).</p>
           </div>
 
           <h3 id="spring-counter">Example: Animated Counter</h3>
           <p>A counter that springs smoothly between values instead of jumping:</p>
 
-<pre><code><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-<span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal, effect, spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">AnimatedCounter</span>() {
   <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
@@ -153,12 +153,14 @@ console.log(position.velocity());     <span class="comment">// current speed</sp
           <h2 id="tween">tween(from, to, options)</h2>
           <p>Creates a time-based animation that interpolates from one value to another over a fixed duration. Unlike springs, tweens have a predictable end time and use easing functions to control their curve.</p>
 
+          <p>A tween <strong>starts the moment it is created</strong>. There is no <code>play()</code> call: constructing it arms the first frame, and <code>isAnimating()</code> is already <code>true</code> before that frame runs. Create it at the point you want the motion to begin.</p>
+
 <pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="comment">// Animate from 0 to 100 over 500ms</span>
+<span class="comment">// Animate from 0 to 100 over 500ms, running as soon as this line executes</span>
 <span class="keyword">const</span> anim = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, {
   duration: <span class="number">500</span>,                    <span class="comment">// milliseconds (default: 300)</span>
-  easing: easings.easeOutCubic,     <span class="comment">// easing function</span>
+  easing: easings.easeOutCubic,     <span class="comment">// easing function (default: easeOutQuad)</span>
   onUpdate: (value, t) =&gt; {},       <span class="comment">// called each frame</span>
   onComplete: () =&gt; {},             <span class="comment">// called when finished</span>
 });
@@ -166,21 +168,32 @@ console.log(position.velocity());     <span class="comment">// current speed</sp
 <span class="comment">// Reactive accessors</span>
 anim.progress();     <span class="comment">// 0 to 1, raw progress</span>
 anim.value();        <span class="comment">// interpolated value (0 to 100)</span>
-anim.isAnimating();  <span class="comment">// true while running</span>
+anim.isAnimating();  <span class="comment">// true from creation until the last frame</span>
+
+<span class="comment">// Subscribe directly to the interpolated value</span>
+anim.subscribe((value) =&gt; {});
 
 <span class="comment">// Cancel mid-animation</span>
 anim.cancel();</code></pre>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">Tweens are not cleaned up for you</p>
+            <p>Unlike <code>spring()</code>, a <code>tween()</code> created in a component body registers nothing with that component's lifecycle. Its frame loop keeps running, and keeps writing its signals, after the component unmounts. Pair every component-scoped tween with <code>onCleanup(() =&gt; anim.cancel())</code>.</p>
+          </div>
+
           <h3 id="tween-progress">Example: Progress Bar</h3>
           <p>Animate a progress bar from 0% to 100% with a bounce easing:</p>
 
-<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { tween, easings, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">ProgressBar</span>() {
+  <span class="comment">// Starts filling immediately</span>
   <span class="keyword">const</span> bar = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, {
     duration: <span class="number">1200</span>,
     easing: easings.easeOutBounce,
   });
+
+  <span class="function">onCleanup</span>(() =&gt; bar.cancel());
 
   <span class="keyword">return</span> (
     &lt;div class=<span class="string">"progress-track"</span>&gt;
@@ -224,35 +237,44 @@ easings.easeOutBounce   <span class="comment">// bouncing settle</span></code></
 
 <span class="keyword">const</span> transition = <span class="function">useTransition</span>({
   duration: <span class="number">400</span>,                  <span class="comment">// ms (default: 300)</span>
-  easing: easings.easeOutCubic,   <span class="comment">// easing curve</span>
+  easing: easings.easeOutCubic,   <span class="comment">// easing curve (default: easeOutQuad)</span>
 });
 
 <span class="comment">// Reactive state</span>
 transition.isTransitioning();  <span class="comment">// true during animation</span>
 transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
-<span class="comment">// Start a transition — returns a Promise</span>
+<span class="comment">// Start a transition. Returns a Promise.</span>
 <span class="keyword">await</span> transition.start(() =&gt; {
   <span class="comment">// Callback runs when transition completes</span>
   swapContent();
 });</code></pre>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">progress() stays at 1 when the transition ends</p>
+            <p><code>start()</code> resets <code>progress()</code> to 0, ramps it to 1, then resolves. Nothing runs it back down, so after the promise settles <code>progress()</code> is still 1. Binding an opacity to a bare <code>1 - progress()</code> therefore leaves the element permanently at 0. Gate the binding on <code>isTransitioning()</code>, which is already back to <code>false</code> by the time your callback runs.</p>
+          </div>
+
           <h3 id="page-transition">Example: Page Transition</h3>
 
-<pre><code><span class="keyword">import</span> { useTransition } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-<span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal, useTransition } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">PageContainer</span>() {
   <span class="keyword">const</span> currentPage = <span class="function">signal</span>(<span class="string">'home'</span>);
   <span class="keyword">const</span> fade = <span class="function">useTransition</span>({ duration: <span class="number">250</span> });
 
   <span class="keyword">async function</span> <span class="function">navigate</span>(page) {
+    <span class="comment">// Fades out over 250ms, then swaps the page</span>
     <span class="keyword">await</span> fade.start(() =&gt; currentPage.set(page));
   }
 
   <span class="keyword">return</span> (
-    &lt;div style={() =&gt; <span class="string">`opacity: ${<span class="number">1</span> - fade.progress()}`</span>}&gt;
-      {() =&gt; renderPage(currentPage())}
+    &lt;div style={() =&gt; <span class="string">`opacity: ${fade.isTransitioning() ? <span class="number">1</span> - fade.progress() : <span class="number">1</span>}`</span>}&gt;
+      &lt;nav&gt;
+        &lt;button onClick={() =&gt; navigate(<span class="string">'home'</span>)}&gt;Home&lt;/button&gt;
+        &lt;button onClick={() =&gt; navigate(<span class="string">'about'</span>)}&gt;About&lt;/button&gt;
+      &lt;/nav&gt;
+      &lt;h1&gt;{() =&gt; currentPage()}&lt;/h1&gt;
     &lt;/div&gt;
   );
 }</code></pre>
@@ -260,54 +282,73 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
           <h2 id="use-gesture">useGesture</h2>
           <p>Attach multi-touch gesture handlers to an element. Supports drag, swipe, pinch, tap, and long press with velocity tracking. Works with both mouse and touch events.</p>
 
-<pre><code><span class="keyword">import</span> { useGesture } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+          <p><code>useGesture</code> needs a <strong>live DOM element</strong>, not a ref placeholder. Capture the node with a callback ref and call the hook from <code>onMount</code>, which runs after the element exists:</p>
 
-<span class="keyword">const</span> cardRef = { current: <span class="keyword">null</span> };
+<pre><code><span class="keyword">import</span> { useGesture, onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="keyword">const</span> gesture = <span class="function">useGesture</span>(cardRef, {
-  onDragStart: ({ x, y }) =&gt; {},
-  onDrag: ({ x, y, deltaX, deltaY, velocity }) =&gt; {},
-  onDragEnd: ({ deltaX, deltaY, velocity }) =&gt; {},
-  onSwipe: ({ direction, velocity }) =&gt; {},
-  onPinch: ({ scale, centerX, centerY }) =&gt; {},
-  onTap: ({ x, y }) =&gt; {},
-  onLongPress: ({ x, y }) =&gt; {},
-  preventDefault: <span class="keyword">false</span>,
-});</code></pre>
+<span class="keyword">function</span> <span class="function">Card</span>() {
+  <span class="keyword">let</span> el;
+
+  <span class="function">onMount</span>(() =&gt; {
+    <span class="function">useGesture</span>(el, {
+      onDragStart: ({ x, y }) =&gt; {},
+      onDrag: ({ x, y, deltaX, deltaY, velocity }) =&gt; {},
+      onDragEnd: ({ deltaX, deltaY, velocity }) =&gt; {},
+      onSwipe: ({ direction, velocity }) =&gt; {},
+      onPinch: ({ scale, centerX, centerY }) =&gt; {},
+      onTap: ({ x, y }) =&gt; {},
+      onLongPress: ({ x, y }) =&gt; {},
+      preventDefault: <span class="keyword">false</span>,
+    });
+  });
+
+  <span class="keyword">return</span> &lt;div ref={(node) =&gt; { el = node; }}&gt;Card&lt;/div&gt;;
+}</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Don't pass a ref placeholder</p>
+            <p><code>useGesture({ current: null }, handlers)</code> silently attaches nothing. A plain <code>{ current }</code> object is not a signal, so the internal effect that reads it runs once during the component body, before the element exists, sees <code>null</code>, and never re-runs. There is no error and no warning, the handlers simply never fire. Pass the element itself.</p>
+          </div>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Gesture listeners are not cleaned up for you</p>
+            <p>Passing the element registers no cleanup. <code>useGesture</code> returns its gesture state and nothing else, so the two listeners it adds to the element and the six it adds to <code>window</code> are still attached after the component unmounts. Use it on elements that live as long as the page, and expect a leak from a component that mounts and unmounts repeatedly.</p>
+          </div>
 
           <p>The returned state object provides reactive signals:</p>
           <ul>
-            <li><code>isDragging()</code> — whether a drag is in progress</li>
-            <li><code>currentX()</code>, <code>currentY()</code> — current pointer position</li>
-            <li><code>deltaX()</code>, <code>deltaY()</code> — distance from drag start</li>
-            <li><code>velocity()</code> — current velocity as <code>{ x, y }</code> in px/sec</li>
+            <li><code>isDragging()</code>: whether a drag is in progress</li>
+            <li><code>currentX()</code>, <code>currentY()</code>: current pointer position</li>
+            <li><code>deltaX()</code>, <code>deltaY()</code>: distance from drag start</li>
+            <li><code>velocity()</code>: current velocity as <code>{ x, y }</code> in px/sec</li>
           </ul>
 
           <h3 id="draggable-card">Example: Draggable Card</h3>
 
-<pre><code><span class="keyword">import</span> { useGesture, spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-<span class="keyword">import</span> { effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useGesture, spring, onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">DraggableCard</span>() {
-  <span class="keyword">const</span> ref = { current: <span class="keyword">null</span> };
+  <span class="keyword">let</span> el;
   <span class="keyword">const</span> x = <span class="function">spring</span>(<span class="number">0</span>);
   <span class="keyword">const</span> y = <span class="function">spring</span>(<span class="number">0</span>);
 
-  <span class="function">useGesture</span>(ref, {
-    onDrag: ({ deltaX, deltaY }) =&gt; {
-      x.snap(deltaX);
-      y.snap(deltaY);
-    },
-    onDragEnd: () =&gt; {
-      <span class="comment">// Spring back to origin</span>
-      x.set(<span class="number">0</span>);
-      y.set(<span class="number">0</span>);
-    },
+  <span class="function">onMount</span>(() =&gt; {
+    <span class="function">useGesture</span>(el, {
+      onDrag: ({ deltaX, deltaY }) =&gt; {
+        x.snap(deltaX);
+        y.snap(deltaY);
+      },
+      onDragEnd: () =&gt; {
+        <span class="comment">// Spring back to origin</span>
+        x.set(<span class="number">0</span>);
+        y.set(<span class="number">0</span>);
+      },
+    });
   });
 
   <span class="keyword">return</span> (
     &lt;div
-      ref={ref}
+      ref={(node) =&gt; { el = node; }}
       style={() =&gt; <span class="string">`transform: translate(${x.current()}px, ${y.current()}px)`</span>}
       class=<span class="string">"card"</span>
     &gt;
@@ -318,7 +359,7 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
           <div class="callout callout-warning">
             <p class="callout-title">Touch Events and Scrolling</p>
-            <p>By default, touch events use <code>{ passive: true }</code> to avoid blocking scroll. Set <code>preventDefault: true</code> if you need to call <code>e.preventDefault()</code> in your handlers (e.g., for a draggable element that should not scroll the page).</p>
+            <p>The element's <code>touchstart</code> listener is registered with <code>{ passive: true }</code> so it never blocks scroll. Setting <code>preventDefault: true</code> flips that one listener to non-passive, which is all the option does. The <code>touchmove</code> listeners are attached to <code>window</code> without options, so they follow the browser's default (passive at window level) and <code>e.preventDefault()</code> inside <code>onDrag</code> will not stop the page scrolling. For a draggable element, set <code>touch-action: none</code> on it in CSS instead.</p>
           </div>
 
           <h2 id="use-animated-value">useAnimatedValue</h2>
@@ -328,14 +369,21 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
 <span class="keyword">const</span> progress = <span class="function">useAnimatedValue</span>(<span class="number">0</span>);
 
-<span class="comment">// Spring to a target</span>
-progress.spring(<span class="number">100</span>, { stiffness: <span class="number">120</span>, damping: <span class="number">14</span> });
+<span class="comment">// Spring to a target. Both animators return { stop } so you can cancel.</span>
+<span class="keyword">const</span> run = progress.spring(<span class="number">100</span>, { stiffness: <span class="number">120</span>, damping: <span class="number">14</span> });
+run.stop();
 
 <span class="comment">// Or tween with timing</span>
 progress.timing(<span class="number">100</span>, { duration: <span class="number">500</span> });
 
 <span class="comment">// Read the current value</span>
 progress.value();  <span class="comment">// reactive</span>
+
+<span class="comment">// Jump straight to a value with no animation</span>
+progress.setValue(<span class="number">42</span>);
+
+<span class="comment">// Subscribe directly to the value</span>
+progress.subscribe((v) =&gt; {});
 
 <span class="comment">// Interpolate into a different range</span>
 <span class="keyword">const</span> opacity = progress.interpolate(
@@ -347,9 +395,9 @@ progress.value();  <span class="comment">// reactive</span>
 &lt;div style={() =&gt; <span class="string">`opacity: ${opacity()}`</span>} /&gt;</code></pre>
 
           <h2 id="css-transitions">CSS Transitions</h2>
-          <p>For CSS-class-based animations, use <code>createTransitionClasses()</code> and <code>cssTransition()</code>. These follow the enter/exit pattern used by CSS animation libraries.</p>
+          <p>For CSS-class-based animations, <code>createTransitionClasses()</code> generates the enter/exit class names used by CSS animation libraries, so the naming stays consistent between your JavaScript and your stylesheet.</p>
 
-<pre><code><span class="keyword">import</span> { createTransitionClasses, cssTransition } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { createTransitionClasses } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="comment">// Generate class names for a transition called "fade"</span>
 <span class="keyword">const</span> classes = <span class="function">createTransitionClasses</span>(<span class="string">'fade'</span>);
@@ -360,11 +408,27 @@ progress.value();  <span class="comment">// reactive</span>
 <span class="comment">//   exit: 'fade-exit',</span>
 <span class="comment">//   exitActive: 'fade-exit-active',</span>
 <span class="comment">//   exitDone: 'fade-exit-done',</span>
-<span class="comment">// }</span>
+<span class="comment">// }</span></code></pre>
 
-<span class="comment">// Apply the transition to an element</span>
-<span class="keyword">await</span> <span class="function">cssTransition</span>(element, <span class="string">'fade'</span>, <span class="string">'enter'</span>, <span class="number">300</span>);
-<span class="comment">// Adds fade-enter, then fade-enter-active, then fade-enter-done</span></code></pre>
+          <p>Apply them with <code>classList</code>. Add the start class, wait one frame so the browser records the starting style, then add the active class to let the CSS transition run:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">enter</span>(el, duration = <span class="number">300</span>) {
+  el.classList.add(classes.enter);
+
+  <span class="function">requestAnimationFrame</span>(() =&gt; {
+    el.classList.add(classes.enterActive);
+
+    <span class="function">setTimeout</span>(() =&gt; {
+      el.classList.remove(classes.enter, classes.enterActive);
+      el.classList.add(classes.enterDone);
+    }, duration);
+  });
+}</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">cssTransition() does not currently complete</p>
+            <p>The package also exports <code>cssTransition(element, name, type, duration)</code>, but as of 0.12.3 the promise it returns never settles and the element is left stuck on the start class (with the stylesheet below, that means <code>opacity: 0</code>). It queues a DOM read from inside the scheduler's write phase, which lands in an already-drained queue with no frame armed. Drive the classes yourself as shown above until this is fixed.</p>
+          </div>
 
           <p>Define matching CSS classes in your stylesheet:</p>
 
@@ -400,7 +464,7 @@ progress.value();  <span class="comment">// reactive</span>
           </script>
 
           <div class="playground">
-            <div class="playground-header">Live Demo — Spring Animation</div>
+            <div class="playground-header">Live Demo: Spring Animation</div>
             <div class="playground-result" id="demo-spring"></div>
           </div>
           <script>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>signal() — What Framework</title>
+  <title>signal() · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -58,7 +58,7 @@
           <h1>signal()</h1>
           <p class="subtitle">Create a reactive value that can be read and updated.</p>
 
-<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(initialValue)</code></pre>
+<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(initialValue, debugName?)</code></pre>
 
           <h2 id="parameters">Parameters</h2>
           <table>
@@ -70,6 +70,11 @@
                 <td><code>initialValue</code></td>
                 <td><code>T</code></td>
                 <td>The initial value for the signal</td>
+              </tr>
+              <tr>
+                <td><code>debugName</code></td>
+                <td><code>string</code></td>
+                <td>Optional. Names the signal in devtools and in <code>what_signals</code> output; without it the signal shows up as <code>signal_42</code>. The <code>what_lint</code> hint <code>module-scope-signal-missing-name</code> flags module-scope signals that omit it.</td>
               </tr>
             </tbody>
           </table>
@@ -95,8 +100,20 @@
                 <td>Update based on current value</td>
               </tr>
               <tr>
+                <td><code>signal(value)</code></td>
+                <td>Callable write form, equivalent to <code>signal.set(value)</code></td>
+              </tr>
+              <tr>
+                <td><code>signal(fn)</code></td>
+                <td>Callable update form, equivalent to <code>signal.set(fn)</code></td>
+              </tr>
+              <tr>
                 <td><code>signal.peek()</code></td>
                 <td>Read value without creating a subscription</td>
+              </tr>
+              <tr>
+                <td><code>signal.subscribe(fn)</code></td>
+                <td>Run <code>fn(value)</code> immediately with the current value, then again on every change. Returns an unsubscribe function.</td>
               </tr>
             </tbody>
           </table>
@@ -120,12 +137,17 @@ count.set(c =&gt; c + <span class="number">1</span>);
 console.log(count());  <span class="comment">// 6</span></code></pre>
 
           <h3>In Components</h3>
+          <p>Pass a thunk (<code>{() =&gt; ...}</code>) for anything that has to stay live. A bare
+          <code>{count()}</code> is only reactive when what-compiler runs, because the compiler
+          rewrites it to <code>() =&gt; count()</code>. On the automatic JSX runtime or with
+          hand-written <code>h()</code> it is read once when the component runs and never
+          updates. The thunk form works on every path.</p>
 <pre><code><span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>, <span class="string">'count'</span>);
 
   <span class="keyword">return</span> (
     &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">1</span>)}&gt;
-      Count: {count()}
+      {() =&gt; <span class="string">`Count: ${count()}`</span>}
     &lt;/button&gt;
   );
 }</code></pre>
@@ -159,8 +181,8 @@ items.set(arr =&gt; arr.filter(x =&gt; x !== <span class="number">2</span>));</c
 
           <h2 id="notes">Notes</h2>
           <ul>
-            <li>Signals should not be mutated directly. Always use <code>.set()</code> to update.</li>
-            <li>In JSX, read signals with <code>()</code>: <code>{count()}</code></li>
+            <li>Signals should not be mutated directly. Use <code>.set()</code> or the callable form <code>count(next)</code> to update.</li>
+            <li>In JSX, wrap the read in a thunk so the binding stays live: <code>{() =&gt; count()}</code>. A bare <code>{count()}</code> is only rewritten into a thunk by what-compiler.</li>
             <li>Use <code>peek()</code> when you need the value but don't want to create a subscription</li>
             <li>For derived values that depend on other signals, use <a href="./computed.html">computed()</a></li>
           </ul>

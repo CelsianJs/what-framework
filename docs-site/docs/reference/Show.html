@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>&lt;Show&gt; — What Framework</title>
+  <title>&lt;Show&gt; · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -71,7 +71,7 @@
               <tr>
                 <td><code>when</code></td>
                 <td><code>T | (() =&gt; T)</code></td>
-                <td>The condition to evaluate. Can be a signal or a plain value. Children render when this is truthy.</td>
+                <td>The condition to evaluate. Children render when this is truthy. A thunk (<code>when={() =&gt; user()}</code>) or an expression (<code>when={items().length &gt; 0}</code>) is always safe. The compiler calls a bare identifier as an accessor when it can tell the name is a signal (a local initialised by <code>signal()</code>, a destructured prop, or an import), so <code>when={flag}</code> throws if such a name holds a plain value; a property access is <em>not</em> called, so <code>when={props.user}</code> tests the function object and stays permanently truthy.</td>
               </tr>
               <tr>
                 <td><code>fallback</code></td>
@@ -87,7 +87,7 @@
           </table>
 
           <h2 id="returns">Returns</h2>
-          <p>When <code>when</code> is truthy, returns <code>children</code>. When falsy, returns <code>fallback</code> (or <code>null</code>).</p>
+          <p>A reactive region, not a value you handle yourself. <code>Show</code> returns a thunk that the renderer installs as a fine-grained effect; each time the effect runs it yields <code>children</code> if <code>when</code> is truthy and <code>fallback</code> (or <code>null</code>) if it is falsy, and the previous branch is disposed.</p>
 
           <h2 id="usage">Usage</h2>
 
@@ -118,31 +118,30 @@ user.set({ name: <span class="string">'Alice'</span> });</code></pre>
 &lt;/Show&gt;</code></pre>
 
           <h3>In a Component</h3>
-<pre><code><span class="keyword">function</span> <span class="function">UserProfile</span>({ user, loading }) {
+<pre><code><span class="keyword">function</span> <span class="function">UserProfile</span>({ user }) {
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;Show when={loading} fallback={
-        &lt;Show when={user} fallback={&lt;p&gt;No user found&lt;/p&gt;}&gt;
-          &lt;h2&gt;{() =&gt; user().name}&lt;/h2&gt;
-          &lt;p&gt;{() =&gt; user().email}&lt;/p&gt;
-        &lt;/Show&gt;
-      }&gt;
-        &lt;Spinner /&gt;
+      &lt;Show when={user} fallback={&lt;p&gt;No user found&lt;/p&gt;}&gt;
+        &lt;h2&gt;{() =&gt; user()?.name}&lt;/h2&gt;
+        &lt;p&gt;{() =&gt; user()?.email}&lt;/p&gt;
       &lt;/Show&gt;
     &lt;/div&gt;
   );
 }</code></pre>
+          <p><code>user</code> here is a signal passed down as a prop, which is what lets the compiler call it. Note the <code>?.</code>: the <code>&lt;h2&gt;</code> and <code>&lt;p&gt;</code> are plain elements, so their bindings run whether or not the branch is taken (see below).</p>
 
           <h2 id="how-it-works">How It Works</h2>
-          <p><code>Show</code> is a component function that evaluates the <code>when</code> prop. If <code>when</code> is a function (signal), it calls it to get the current value. If truthy, it returns <code>children</code>. If falsy, it returns <code>fallback</code>.</p>
-          <p>Because <code>Show</code> is a regular component, it participates in What's reactive rendering. When used inside a reactive context, changes to the <code>when</code> signal trigger a re-render that swaps between children and fallback.</p>
+          <p>Uncompiled (plain <code>h()</code> or the automatic JSX runtime), <code>Show</code> runs as an ordinary component and returns a reactive thunk. The renderer installs that thunk as a fine-grained region, and every time the region re-runs it reads <code>when</code>, calling it first if it is a function, and yields <code>children</code> or <code>fallback</code>. The region is reactive on its own; it does not need to be wrapped in anything.</p>
+          <p>Compiled, <code>Show</code> is never called at all. The babel plugin erases the tag and emits the same conditional thunk inline, with the condition behind a memo so only a change in truthiness rebuilds the branch. The uncompiled region has no such memo and re-runs on every write to the condition signal.</p>
+          <p>The two paths also differ in how eager the children are. <code>when</code> decides which nodes are <em>inserted</em>; it does not defer the children's bindings. Compiled, a plain-element child is built alongside the surrounding component and its bindings run immediately, so <code>&lt;Show when={user}&gt;&lt;h2&gt;{() =&gt; user().name}&lt;/h2&gt;&lt;/Show&gt;</code> throws while <code>user</code> is null. Either guard the binding (<code>user()?.name</code>) or move the body into a component child, which is genuinely created lazily.</p>
 
           <h2 id="notes">Notes</h2>
           <ul>
             <li><code>Show</code> is a convenience component. You can achieve the same result with a ternary expression: <code>{() =&gt; condition() ? &lt;A/&gt; : &lt;B/&gt;}</code>.</li>
-            <li>The <code>when</code> prop accepts both signals and plain values. If a signal is passed, <code>Show</code> calls it to read the current value.</li>
+            <li>Uncompiled, the <code>when</code> prop accepts a signal, a thunk or a plain value. Compiled, a bare identifier the compiler reads as a signal name is called, so a plain value passed that way throws; pass a thunk when the value might not be a function.</li>
             <li>For multiple conditions, use <code>&lt;Switch&gt;</code> and <code>&lt;Match&gt;</code> instead of nested <code>&lt;Show&gt;</code> components.</li>
-            <li>When <code>when</code> is falsy and no <code>fallback</code> is provided, nothing is rendered (returns <code>null</code>).</li>
+            <li>When <code>when</code> is falsy and no <code>fallback</code> is provided, nothing is rendered.</li>
+            <li>The compiler requires a <code>when</code> prop: <code>&lt;Show&gt;</code> without one is a build error.</li>
           </ul>
 
           <div class="page-nav">

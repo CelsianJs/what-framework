@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>computed() — What Framework</title>
+  <title>computed() · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -126,13 +126,34 @@ console.log(fullName());  <span class="comment">// "Jane Doe"</span></code></pre
 console.log(count());  <span class="comment">// 2</span></code></pre>
 
           <h3>In Components</h3>
-<pre><code><span class="keyword">function</span> <span class="function">PriceDisplay</span>({ price, taxRate }) {
+          <p>Props arrive exactly as the caller passed them. Call a prop only when the caller
+          passes a signal, and say so at the call site, otherwise the component throws
+          <code>TypeError: price is not a function</code>.</p>
+<pre><code><span class="keyword">import</span> { signal, computed, mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="comment">/* price and taxRate are signal accessors, not numbers */</span>
+<span class="keyword">function</span> <span class="function">PriceDisplay</span>({ price, taxRate }) {
   <span class="keyword">const</span> total = <span class="function">computed</span>(() =&gt;
     price() * (<span class="number">1</span> + taxRate())
   );
 
   <span class="keyword">return</span> &lt;span&gt;Total: ${() =&gt; total().toFixed(<span class="number">2</span>)}&lt;/span&gt;;
-}</code></pre>
+}
+
+<span class="keyword">const</span> price = <span class="function">signal</span>(<span class="number">10</span>, <span class="string">'price'</span>);
+<span class="keyword">const</span> taxRate = <span class="function">signal</span>(<span class="number">0.2</span>, <span class="string">'taxRate'</span>);
+
+<span class="function">mount</span>(&lt;PriceDisplay price={price} taxRate={taxRate} /&gt;, <span class="string">'#app'</span>);</code></pre>
+
+          <p>For plain-value props, drop the calls. The component then renders once with the
+          values it was given:</p>
+<pre><code><span class="keyword">function</span> <span class="function">PriceDisplay</span>({ price, taxRate }) {
+  <span class="keyword">const</span> total = price * (<span class="number">1</span> + taxRate);
+
+  <span class="keyword">return</span> &lt;span&gt;Total: ${total.toFixed(<span class="number">2</span>)}&lt;/span&gt;;
+}
+
+<span class="function">mount</span>(&lt;PriceDisplay price={<span class="number">10</span>} taxRate={<span class="number">0.2</span>} /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <h3>Chaining Computeds</h3>
 <pre><code><span class="keyword">const</span> items = <span class="function">signal</span>([<span class="number">10</span>, <span class="number">20</span>, <span class="number">30</span>]);

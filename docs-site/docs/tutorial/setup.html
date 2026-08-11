@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tutorial: Setup — What Framework</title>
+  <title>Tutorial: Setup · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -55,10 +55,12 @@
           <p>Open your terminal and run:</p>
 
           <div class="code-header">Terminal</div>
-<pre><code>npx create-what tic-tac-toe
+<pre><code>npx create-what tic-tac-toe --yes
 cd tic-tac-toe
 npm install
 npm run dev</code></pre>
+
+          <p><code>--yes</code> takes the defaults this tutorial assumes: the SPA template, no React compatibility layer, and vanilla CSS. Leave it off and <code>create-what</code> asks you those three questions before it writes anything.</p>
 
           <p>Open <code>http://localhost:5173</code> in your browser. You should see the default What app.</p>
 
@@ -80,7 +82,7 @@ npm run dev</code></pre>
 mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <h2 id="add-styles">Add Some Styles</h2>
-          <p>Create <code>src/styles.css</code> with the game styles:</p>
+          <p>The scaffold already created <code>src/styles.css</code> and already links it from <code>index.html</code>. Replace its contents with the game styles:</p>
 
           <div class="code-header">src/styles.css</div>
 <pre><code><span class="comment">/* Game Layout */</span>
@@ -161,18 +163,21 @@ mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'<
 }</code></pre>
 
           <h2 id="import-styles">Import the Styles</h2>
-          <p>Update your <code>main.jsx</code> to import the styles:</p>
+          <p>Add one line at the top of <code>main.jsx</code> so the stylesheet travels with the module. Keep the <code>mount()</code> call: <code>src/main.jsx</code> is the app entry (<code>index.html</code> loads it directly), so without it nothing renders.</p>
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
+<span class="keyword">import</span> { mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="keyword">return</span> (
     &lt;div className=<span class="string">"game"</span>&gt;
       &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <h2 id="checkpoint">Checkpoint</h2>
           <p>Your app should now show a centered "Tic-Tac-Toe" heading. If you see that, you're ready for the next step!</p>

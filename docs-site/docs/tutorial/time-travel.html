@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tutorial: Time Travel — What Framework</title>
+  <title>Tutorial: Time Travel · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -58,7 +58,7 @@
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
-<span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { mount, signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {
   <span class="keyword">const</span> lines = [
@@ -93,7 +93,7 @@
   );
 }
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="comment">// History is an array of board states</span>
   <span class="keyword">const</span> history = <span class="function">signal</span>([Array(<span class="number">9</span>).fill(<span class="keyword">null</span>)]);
   <span class="keyword">const</span> currentMove = <span class="function">signal</span>(<span class="number">0</span>);
@@ -147,7 +147,9 @@
       &lt;/div&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <h2 id="how-it-works">How Time Travel Works</h2>
 
@@ -202,12 +204,12 @@
           <p>You've built a complete tic-tac-toe game with:</p>
 
           <ul>
-            <li><strong>Signals</strong> — Reactive state that updates the UI</li>
-            <li><strong>Computed values</strong> — Derived state that stays in sync</li>
-            <li><strong>Components</strong> — Reusable UI pieces</li>
-            <li><strong>Event handling</strong> — User interactions</li>
-            <li><strong>Lifting state</strong> — Sharing state between components</li>
-            <li><strong>Immutable updates</strong> — Enabling time travel</li>
+            <li><strong>Signals</strong>: Reactive state that updates the UI</li>
+            <li><strong>Computed values</strong>: Derived state that stays in sync</li>
+            <li><strong>Components</strong>: Reusable UI pieces</li>
+            <li><strong>Event handling</strong>: User interactions</li>
+            <li><strong>Lifting state</strong>: Sharing state between components</li>
+            <li><strong>Immutable updates</strong>: Enabling time travel</li>
           </ul>
 
           <h2 id="next-steps">What's Next?</h2>

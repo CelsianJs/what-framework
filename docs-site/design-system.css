@@ -1,5 +1,5 @@
 /* ============================================
-   What Framework — Design System
+   What Framework: Design System
    Convex-inspired: warm darks + cream sections
    ============================================ */
 
@@ -27,6 +27,9 @@
   --accent-orange: #ee5d34;
   --accent-orange-dim: rgba(238, 93, 52, 0.12);
   --code-bg: #1a1a18;
+  /* The code surface is dark in BOTH themes, so its foreground has to be
+     too. Using --text here made light-mode code #1a1a18 on #1a1a18. */
+  --code-fg: #f0efe8;
   --code-border: #2e2e2a;
   --success: #3ecf8e;
   --warning: #f59e0b;
@@ -61,6 +64,9 @@
   --accent-orange: #d94e2b;
   --accent-orange-dim: rgba(217, 78, 43, 0.1);
   --code-bg: #1a1a18;
+  /* The code surface is dark in BOTH themes, so its foreground has to be
+     too. Using --text here made light-mode code #1a1a18 on #1a1a18. */
+  --code-fg: #f0efe8;
   --code-border: #2e2e2a;
   --success: #2ba86e;
   --warning: #d97706;

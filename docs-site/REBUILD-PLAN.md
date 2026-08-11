@@ -9,6 +9,12 @@
   `docs/reference/*` + `docs/tutorial/*`).
 - Chrome (head, nav, sidebar, `main.content`, toc) is **copy-pasted** across pages.
   Only the 4 full-stack learn pages are generated (`scripts/gen-fullstack-docs.mjs`).
+  > Retired 2026-08-11. The generator was never wired into the build, so the four
+  > pages it owned were edited as HTML like every other page and the script drifted
+  > behind three of them. Its only remaining effect was to revert those edits when
+  > anyone ran it, which is exactly what happened during the 0.12.3 docs audit. The
+  > HTML pages are now the single source of truth, as they already were for the
+  > other 36. The script is in git history if the templates are ever wanted back.
 - Drift already exists (e.g. nav badge `v0.10.0` on hand-written pages vs `v0.10`
   from the generator).
 - The `docs/learn/*` interactive demos use a **fake inline `window.What` mock**, not
