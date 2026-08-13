@@ -200,8 +200,18 @@ export default createCloudflareHandler({ routes, cache });</code></pre>
             <li><code>WHAT_REVALIDATE_SECRET</code>: the name the scaffold and the examples use for the secret you hand to <code>createRevalidateWebhook</code>. No framework package reads it for you.</li>
             <li><code>PORT</code>: same story. <code>createServer</code> returns a bare <code>http.Server</code>, so the port is whatever your <code>.listen()</code> call passes.</li>
           </ul>
-          <p>See the <a href="https://github.com/CelsianJs/what-framework/tree/main/examples">blog and shop examples</a> for fuller wiring. One caveat: both build their ISR engine without a <code>render</code>, so their poll schedulers throw on every tick (the trap described above). Take the engine setup from this page rather than from them.</p>
+          <p>See the <a href="https://github.com/CelsianJs/what-framework/tree/main/examples">blog and shop examples</a> for fuller wiring. Both build their engine with a <code>render</code> and register their scheduled route with <code>route</code> and <code>params</code>, so their poll schedulers actually keep a page warm.</p>
 
+          <div class="page-nav">
+            <a href="./caching-isr.html">
+              <span class="label">Previous</span>
+              <span class="title">Caching &amp; ISR</span>
+            </a>
+            <a href="./islands.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Islands Architecture</span>
+            </a>
+          </div>
         </div>
 
         <aside class="toc">

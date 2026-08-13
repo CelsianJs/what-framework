@@ -163,6 +163,16 @@ await revalidateTag('posts');       // purge everything tagged 'posts'</code></p
           <p>The handler validates a CSRF token by default (inject one via <code>getCsrfToken</code>; a meta tag is emitted into uncached documents). It fails closed: a missing or bad token is rejected. Fetch clients send it as the <code>X-CSRF-Token</code> header, plain form posts as the <code>_csrf</code> or <code>what-csrf-token</code> field, and the header wins when both are present. Thrown errors are masked to a generic 500 so internal details never reach the client, and the real error is logged server-side.</p>
           <p>An action returns a value; it does not own the HTTP response. There is no channel for it to set headers, so anything that must issue <code>Set-Cookie</code> (sign-in, sign-out, session rotation) belongs in a normal route handler, not an action.</p>
 
+          <div class="page-nav">
+            <a href="./data-loading.html">
+              <span class="label">Previous</span>
+              <span class="title">Data Loading</span>
+            </a>
+            <a href="./caching-isr.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Caching &amp; ISR</span>
+            </a>
+          </div>
         </div>
 
         <aside class="toc">

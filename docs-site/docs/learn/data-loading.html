@@ -148,6 +148,16 @@ function Post() {
 
           <p>Loader data belongs to the document the server sent, not to the current route. The client router has no loader handling at all, and the hydration payload is parsed once and cached for the life of the page, so after a client-side <code>navigate()</code> <code>useLoaderData()</code> still returns the first page's data. A route entered by client navigation has to fetch what it needs with <code>useSWR</code> or <code>useQuery</code>, or be entered with a full page load.</p>
 
+          <div class="page-nav">
+            <a href="./caching.html">
+              <span class="label">Previous</span>
+              <span class="title">Caching</span>
+            </a>
+            <a href="./actions.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Server Actions</span>
+            </a>
+          </div>
         </div>
 
         <aside class="toc">
