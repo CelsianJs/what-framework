@@ -89,11 +89,11 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>signal(value)</code></td><td>Create a reactive value. Returns getter function with <code>.set()</code>, <code>.peek()</code>, <code>.subscribe()</code></td></tr>
-              <tr><td><code>computed(fn)</code></td><td>Create a derived value that auto-updates when dependencies change</td></tr>
-              <tr><td><code>effect(fn)</code></td><td>Run a side effect when dependencies change. Returns dispose function</td></tr>
-              <tr><td><code>batch(fn)</code></td><td>Batch multiple signal writes: effects run once after batch completes</td></tr>
-              <tr><td><code>untrack(fn)</code></td><td>Read signals without creating subscriptions</td></tr>
+              <tr><td><a href="./signal.html"><code>signal(value)</code></a></td><td>Create a reactive value. Returns getter function with <code>.set()</code>, <code>.peek()</code>, <code>.subscribe()</code></td></tr>
+              <tr><td><a href="./computed.html"><code>computed(fn)</code></a></td><td>Create a derived value that auto-updates when dependencies change</td></tr>
+              <tr><td><a href="./effect.html"><code>effect(fn)</code></a></td><td>Run a side effect when dependencies change. Returns dispose function</td></tr>
+              <tr><td><a href="./batch.html"><code>batch(fn)</code></a></td><td>Batch multiple signal writes: effects run once after batch completes</td></tr>
+              <tr><td><a href="./untrack.html"><code>untrack(fn)</code></a></td><td>Read signals without creating subscriptions</td></tr>
               <tr><td><code>flushSync()</code></td><td>Force all pending effects to run synchronously</td></tr>
             </tbody>
           </table>
@@ -106,8 +106,8 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>h(tag, props, ...children)</code></td><td>Create an element (advanced/internal). JSX is compiled by the optimizer into direct DOM operations</td></tr>
-              <tr><td><code>mount(element, container)</code></td><td>Render an element tree into the DOM. Returns unmount function</td></tr>
+              <tr><td><a href="./h.html"><code>h(tag, props, ...children)</code></a></td><td>Create an element (advanced/internal). JSX is compiled by the optimizer into direct DOM operations</td></tr>
+              <tr><td><a href="./mount.html"><code>mount(element, container)</code></a></td><td>Render an element tree into the DOM. Returns unmount function</td></tr>
               <tr><td><code>Fragment({ children })</code></td><td>Group children without a wrapper element</td></tr>
               <tr><td><code>html`...`</code></td><td>Tagged template literal for HTML. No build step required</td></tr>
             </tbody>
@@ -120,8 +120,8 @@
               <tr><th>Component</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>&lt;Show when fallback&gt;</code></td><td>Conditionally render children based on a condition</td></tr>
-              <tr><td><code>&lt;For each fallback&gt;</code></td><td>Render a list. Keyed reconciliation needs the What compiler: on the runtime path <code>key</code> is ignored and every row is rebuilt on each change</td></tr>
+              <tr><td><a href="./Show.html"><code>&lt;Show when fallback&gt;</code></a></td><td>Conditionally render children based on a condition</td></tr>
+              <tr><td><a href="./For.html"><code>&lt;For each fallback&gt;</code></a></td><td>Render a list. Keyed reconciliation needs the What compiler: on the runtime path <code>key</code> is ignored and every row is rebuilt on each change</td></tr>
               <tr><td><code>&lt;Switch&gt; / &lt;Match when&gt;</code></td><td>Render one of multiple conditions</td></tr>
               <tr><td><code>&lt;Portal target&gt;</code></td><td>Render children into a different DOM container</td></tr>
               <tr><td><code>&lt;ErrorBoundary fallback onError&gt;</code></td><td>Catch errors in child components</td></tr>
