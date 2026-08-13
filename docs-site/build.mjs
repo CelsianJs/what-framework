@@ -106,9 +106,18 @@ function extract(srcHtml) {
 // Replace the old fake inline `window.What = {...}` mock with a classic <script>
 // that loads the REAL What global (built to /what.global.js). The demo scripts
 // (which read window.What synchronously) then run on the real framework.
+//
+// This ran on `trailing` only, and non-globally, until 2026-08-12. A page whose
+// demo <script> sits inside <main> is in `layoutInner`, not `trailing`, so the
+// substitution never reached it: docs/learn/animation and docs/learn/accessibility
+// shipped their "Live Demo" running on a 15-line hand-written signal/effect
+// reimplementation while the two pages that happened to put the script after
+// </div> got the real framework. A docs site whose demos are not the product is
+// the one kind of drift nobody thinks to check for, so this now runs over both
+// regions and replaces every occurrence.
 function useRealWhat(html) {
   return html.replace(
-    /<script>(?:(?!<\/script>)[\s\S])*?window\.What\s*=(?:(?!<\/script>)[\s\S])*?<\/script>/,
+    /<script>(?:(?!<\/script>)[\s\S])*?window\.What\s*=(?:(?!<\/script>)[\s\S])*?<\/script>/g,
     '<script src="/what.global.js"></script>'
   );
 }
@@ -173,10 +182,46 @@ const HEAD = (title) => `<head>
 // ---------------------------------------------------------------------------
 // Page render, chrome through What's renderToString, content preserved.
 // ---------------------------------------------------------------------------
+// The "On This Page" active-section highlight. This was hand-pasted into the
+// trailing <script> of individual pages, which meant 17 of the 29 pages that
+// have a .toc got it and 12 did not (every tutorial page, plus effects,
+// lifecycle, context, control-flow and coming-from-react), so their highlight
+// silently never moved. Emitting it from the shared chrome is the only version
+// of this that cannot drift; stripTocSpy() below removes the hand-pasted copies
+// on the way in so there is exactly one implementation.
+const TOC_SPY = `<script>
+  (function () {
+    var links = document.querySelectorAll('.toc-links a');
+    if (!links.length) return;
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        links.forEach(function (a) {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id);
+        });
+      });
+    }, { rootMargin: '-100px 0px -66%' });
+    document.querySelectorAll('h2[id], h3[id]').forEach(function (el) { observer.observe(el); });
+  })();
+</script>`;
+
+// Drop a page's own copy of the scroll-spy so the shared one is the only one.
+// Matches a <script> block that constructs an IntersectionObserver over .toc-links.
+function stripTocSpy(html) {
+  return html.replace(
+    /<script>(?:(?!<\/script>)[\s\S])*?IntersectionObserver(?:(?!<\/script>)[\s\S])*?toc-links(?:(?!<\/script>)[\s\S])*?<\/script>/g,
+    ''
+  ).replace(
+    /<script>(?:(?!<\/script>)[\s\S])*?toc-links(?:(?!<\/script>)[\s\S])*?IntersectionObserver(?:(?!<\/script>)[\s\S])*?<\/script>/g,
+    ''
+  );
+}
+
 function renderPage({ title, navSection, layoutInner, trailing }) {
   const nav = renderToString(h('nav', { dangerouslySetInnerHTML: { __html: navInner(navSection) } }));
   const layout = renderToString(h('div', { class: 'layout', dangerouslySetInnerHTML: { __html: layoutInner } }));
-  const body = `  ${nav}\n\n  ${layout}${trailing ? '\n\n  ' + trailing : ''}`;
+  const tocSpy = layoutInner.includes('toc-links') ? '\n\n  ' + TOC_SPY : '';
+  const body = `  ${nav}\n\n  ${layout}${trailing ? '\n\n  ' + trailing : ''}${tocSpy}`;
   return `<!DOCTYPE html>
 <html lang="en">
 ${HEAD(title)}
@@ -217,13 +262,13 @@ function buildSection({ dirRel, base, navSection }) {
       continue;
     }
     const { title, layoutInner, trailing } = extract(src);
-    const rewritten = rewriteLinks(layoutInner, base);
+    const rewritten = useRealWhat(rewriteLinks(layoutInner, base));
     indexPage({ route, title, section: navSection[0].toUpperCase() + navSection.slice(1), layoutInner: rewritten });
     const html = renderPage({
       title,
       navSection,
       layoutInner: rewritten,
-      trailing: useRealWhat(rewriteLinks(trailing, base)),
+      trailing: stripTocSpy(useRealWhat(rewriteLinks(trailing, base))),
     });
     write(route, html);
     count++;

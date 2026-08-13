@@ -469,47 +469,37 @@ progress.subscribe((v) =&gt; {});
           </div>
           <script>
 (function() {
-  const { signal, effect } = What;
+  // Uses the REAL spring() this page documents, with the same constants as the
+  // Animated Counter example above. The markup and the listeners are built once;
+  // the effect touches only the property that actually changes.
+  const { effect, spring } = What;
   const el = document.getElementById('demo-spring');
-  const position = signal(0);
-  const target = signal(0);
-  let velocity = 0;
-  const stiffness = 170, damping = 26, mass = 1;
+  const position = spring(0, { stiffness: 120, damping: 14 });
 
-  function tick() {
-    const x = position.peek();
-    const t = target.peek();
-    const springForce = -stiffness * (x - t);
-    const dampForce = -damping * velocity;
-    const acceleration = (springForce + dampForce) / mass;
-    velocity += acceleration * 0.016;
-    const newX = x + velocity * 0.016;
-    if (Math.abs(newX - t) < 0.5 && Math.abs(velocity) < 0.5) {
-      position.set(t);
-      velocity = 0;
-    } else {
-      position.set(newX);
-      requestAnimationFrame(tick);
-    }
+  el.innerHTML = `
+    <div style="margin-bottom:16px">
+      <div style="width:100%;height:48px;background:var(--code-bg);border-radius:8px;position:relative;overflow:hidden">
+        <div data-box style="position:absolute;top:4px;width:40px;height:40px;background:var(--accent);border-radius:8px;transform:translateX(-50%)"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button data-go="0">Left</button>
+      <button data-go="50">Center</button>
+      <button data-go="100">Right</button>
+      <span data-readout style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-muted);margin-left:auto"></span>
+    </div>`;
+
+  const box = el.querySelector('[data-box]');
+  const readout = el.querySelector('[data-readout]');
+  for (const btn of el.querySelectorAll('[data-go]')) {
+    btn.addEventListener('click', () => position.set(Number(btn.dataset.go)));
   }
 
+  effect(() => { box.style.left = position.current() + '%'; });
   effect(() => {
-    const x = position();
-    el.innerHTML = `
-      <div style="margin-bottom:16px">
-        <div style="width:100%;height:48px;background:#f4f4f5;border-radius:8px;position:relative;overflow:hidden">
-          <div style="position:absolute;left:${x}%;top:4px;width:40px;height:40px;background:#18181b;border-radius:8px;transition:none;transform:translateX(-50%)"></div>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px">
-        <button data-go="0" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Left</button>
-        <button data-go="50" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Center</button>
-        <button data-go="100" style="padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Right</button>
-      </div>`;
-    el.__go = (t) => { target.set(t); velocity = 0; requestAnimationFrame(tick); };
-    el.querySelectorAll('[data-go]').forEach((btn) => {
-      btn.addEventListener('click', () => el.__go(Number(btn.dataset.go)));
-    });
+    readout.textContent = position.isAnimating()
+      ? 'v ' + position.velocity().toFixed(1)
+      : 'settled';
   });
 })();
           </script>

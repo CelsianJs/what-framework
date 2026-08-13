@@ -485,26 +485,40 @@ Keys.End        <span class="comment">// 'End'</span>
   const sections = [
     { title: 'What are signals?', content: 'Signals are reactive primitives that hold a value and notify subscribers when it changes. They are the foundation of What Framework\'s reactivity system.' },
     { title: 'How do effects work?', content: 'Effects automatically track which signals they read. When any of those signals change, the effect re-runs. Effects can return cleanup functions.' },
-    { title: 'What about performance?', content: 'What Framework uses fine-grained reactivity \u2014 only the specific DOM nodes that depend on a changed signal update. Direct DOM manipulation, no diffing needed.' }
+    { title: 'What about performance?', content: 'What Framework uses fine-grained reactivity: only the specific DOM nodes that depend on a changed signal update. Direct DOM manipulation, no diffing needed.' }
   ];
   const openIndex = signal(-1);
 
-  effect(() => {
-    const idx = openIndex();
-    el.innerHTML = sections.map((s, i) => `
-      <div style="border:1px solid #e4e4e7;border-radius:8px;margin-bottom:8px;overflow:hidden">
-        <button
-          aria-expanded="${idx === i}"
-          data-idx="${i}"
-          style="width:100%;padding:12px 16px;border:none;background:${idx === i ? '#f4f4f5' : '#fff'};cursor:pointer;font-size:14px;font-weight:500;text-align:left;font-family:inherit;display:flex;justify-content:space-between;align-items:center">
-          ${s.title}
-          <span style="transform:rotate(${idx === i ? 180 : 0}deg);transition:transform 0.2s">\u25BC</span>
-        </button>
-        ${idx === i ? '<div role="region" style="padding:12px 16px;font-size:14px;color:#52525b;border-top:1px solid #e4e4e7">' + s.content + '</div>' : ''}
-      </div>`).join('');
-    el.__toggle = (i) => openIndex.set(openIndex.peek() === i ? -1 : i);
-    el.querySelectorAll('button[data-idx]').forEach((btn) => {
-      btn.addEventListener('click', () => el.__toggle(Number(btn.dataset.idx)));
+  // Built once, then updated per-section by fine-grained effects. The previous
+  // version of this demo rebuilt innerHTML on every toggle, which destroyed the
+  // very button the user had just activated and dropped focus to <body>. On a
+  // page about accessibility, that is the bug worth not shipping.
+  el.innerHTML = sections.map((s, i) => `
+    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden">
+      <button id="acc-btn-${i}" aria-controls="acc-panel-${i}" data-idx="${i}"
+        style="width:100%;padding:12px 16px;border:none;cursor:pointer;font-size:14px;font-weight:500;text-align:left;font-family:inherit;display:flex;justify-content:space-between;align-items:center">
+        <span>${s.title}</span>
+        <span data-chevron style="transition:transform 0.2s">\u25BC</span>
+      </button>
+      <div id="acc-panel-${i}" role="region" aria-labelledby="acc-btn-${i}"
+        style="padding:12px 16px;font-size:14px;color:var(--text-secondary);border-top:1px solid var(--border)">${s.content}</div>
+    </div>`).join('');
+
+  sections.forEach((_, i) => {
+    const btn = el.querySelector('#acc-btn-' + i);
+    const panel = el.querySelector('#acc-panel-' + i);
+    const chevron = btn.querySelector('[data-chevron]');
+    btn.addEventListener('click', () => openIndex.set(openIndex.peek() === i ? -1 : i));
+
+    effect(() => {
+      const open = openIndex() === i;
+      // ARIA enumerated attributes are STRINGS. A raw boolean here yields
+      // aria-expanded="" or drops the attribute entirely, which is not the same
+      // thing as "false" to a screen reader.
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.style.background = open ? 'var(--bg-surface)' : 'transparent';
+      chevron.style.transform = 'rotate(' + (open ? 180 : 0) + 'deg)';
+      panel.hidden = !open;
     });
   });
 })();
