@@ -178,6 +178,43 @@ export default function whatBabelPlugin({ types: t }) {
     return /^[A-Z]/.test(name);
   }
 
+  // Build the Error for a JSX shape the compiler refuses to lower.
+  //
+  // Every fine-grained transform is reachable two ways: from the JSXElement
+  // visitor, where `path` is a real NodePath, and recursively from a parent
+  // transform, which passes a SYNTHETIC `{ node: child }` (see the
+  // transformElementFineGrained / transformFragmentFineGrained calls further
+  // down). Only the visitor's path carries buildCodeFrameError, so calling it
+  // unguarded threw "path.buildCodeFrameError is not a function" — an internal
+  // crash in place of the diagnostic the author was meant to act on. That hit
+  // the ordinary shapes, not the exotic ones: `<div><Show>…</Show></div>` is
+  // already synthetic, so only a control-flow tag that was the ENTIRE return
+  // value ever reported properly.
+  //
+  // Guarding the call is not enough either. `throw new Error(message)` reaches
+  // the developer, but with no file and no line, which for a build error in a
+  // 300-file app is barely better than the crash. state.file is Babel's File
+  // for the module being compiled and its buildCodeFrameError(node, msg) pins
+  // the frame from the node's own loc, so a synthetic path still gets the same
+  // pointed-at source the visitor path does.
+  function compileError(path, state, message) {
+    if (typeof path?.buildCodeFrameError === 'function') {
+      return path.buildCodeFrameError(message);
+    }
+    const node = path?.node;
+    if (node && typeof state?.file?.buildCodeFrameError === 'function') {
+      return state.file.buildCodeFrameError(node, message);
+    }
+    // No NodePath and no File (a direct unit-test call, or a node the parser
+    // never produced). Name the file and line by hand so the message still
+    // says where to look.
+    const loc = node?.loc?.start;
+    const filename = state?.filename || state?.file?.opts?.filename || '<unknown>';
+    return new Error(
+      `[what-compiler] ${message} (${loc ? `${filename}:${loc.line}:${loc.column + 1}` : filename})`
+    );
+  }
+
   // Dotted tags (<Ctx.Provider>, <Foo.Bar.Baz>) are always components.
   function isComponentElement(el) {
     const name = el.openingElement ? el.openingElement.name : el.name;
@@ -812,14 +849,23 @@ export default function whatBabelPlugin({ types: t }) {
       // JSX returned without a key — bail out, but warn at compile time so
       // users notice they're missing keyed reconciliation. Only warn in dev
       // (production builds are noiseless).
+      //
+      // The message names ERR_MISSING_KEY because that is the code the docs and
+      // the MCP `what_fix` tool already publish for this exact mistake. Without
+      // the code in the text there was nothing anywhere in the toolchain that
+      // ever emitted it, so an agent reading the warning had no way to reach
+      // the diagnosis and the worked example filed under that name. This is a
+      // BUILD-time report, not a runtime one: whether a list has keys is
+      // settled by the source, and the compiler is the only place that sees it.
       if (process.env.NODE_ENV !== 'production') {
         const loc = returnExpr.loc;
         const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
         const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
         console.warn(
-          `[what-compiler] .map() returning JSX without a \`key\` prop at ${fileName}${lineInfo}. ` +
+          `[what-compiler] ERR_MISSING_KEY: .map() returning JSX without a \`key\` prop at ${fileName}${lineInfo}. ` +
           `Without a key, the list cannot use keyed reconciliation — items are re-created on every update. ` +
-          `Add key={...} to enable efficient updates.`
+          `Add key={...} to enable efficient updates. ` +
+          `Run what_fix({ error: 'ERR_MISSING_KEY' }) for the worked example.`
         );
       }
       return null;
@@ -2328,8 +2374,13 @@ export default function whatBabelPlugin({ types: t }) {
     if (!whenExpr) {
       // <Show> without a when prop has no defined semantics — fail loudly at
       // build time so the user fixes their source instead of seeing runtime
-      // confusion. buildCodeFrameError pins the error to the JSX location.
-      throw path.buildCodeFrameError(
+      // confusion. compileError pins the message to the JSX location from
+      // either a real NodePath or the synthetic `{ node }` a parent transform
+      // passes; calling path.buildCodeFrameError directly crashed on the
+      // second, which is the shape almost every real <Show> arrives as.
+      throw compileError(
+        path,
+        state,
         '<Show> requires a "when" prop. Example: <Show when={isOpen} fallback={null}>...</Show>'
       );
     }
@@ -2512,12 +2563,16 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     const unsupported = (why) => {
-      const message =
+      // The guard this used to carry (`path.buildCodeFrameError ? … : new
+      // Error(…)`) did keep the message reaching the developer from a
+      // synthetic path, but dropped the file and the line with it. compileError
+      // keeps both.
+      throw compileError(
+        path,
+        state,
         `<Switch> ${why}. The compiler needs to read its arms statically. ` +
-        'Write them out: <Switch fallback={...}><Match when={a}>…</Match><Match when={b}>…</Match></Switch>';
-      throw path.buildCodeFrameError
-        ? path.buildCodeFrameError(message)
-        : new Error(`[what-compiler] ${message}`);
+        'Write them out: <Switch fallback={...}><Match when={a}>…</Match><Match when={b}>…</Match></Switch>'
+      );
     };
 
     let fallbackExpr = null;

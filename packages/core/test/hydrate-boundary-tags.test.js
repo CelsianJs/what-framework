@@ -41,6 +41,7 @@ const { hydrate, spread, setProp } = await import('../src/render.js');
 const { ErrorBoundary, Suspense, lazy, reportError } = await import('../src/components.js');
 const { Portal } = await import('../src/helpers.js');
 const { onCleanup } = await import('../src/hooks.js');
+const { isServerRender } = await import('../src/server-context.js');
 const { renderToHydratableString } = await import('../../server/src/index.js');
 
 /**
@@ -189,6 +190,52 @@ describe('hydrating <ErrorBoundary>', () => {
     assert.equal(container.querySelector('p.fb'), null);
   });
 
+  it('does NOT catch an error thrown from an event handler', () => {
+    // The scope of "still live", stated as a test so nobody has to infer it.
+    //
+    // A hydrated boundary is live for what it was ever live for: an error thrown
+    // while a component is being CREATED. reportError is called from exactly two
+    // places (createComponent in dom.js and the component branch of hydrateNode),
+    // and both are creation. An event handler runs long after creation, with no
+    // component on the stack to walk up from, so the error goes to the page's
+    // own error handling and the boundary never hears about it.
+    //
+    // This is NOT a hydration gap: a client-only render behaves identically.
+    // Handlers that can fail have to try/catch and report it themselves.
+    const tree = () => h('div', { id: 'ev' },
+      h(ErrorBoundary, { fallback: ({ error }) => h('p', { class: 'fb' }, error.message) },
+        h('button', { class: 'go', onclick: () => { throw new Error('handler blew up'); } }, 'GO'),
+      ),
+    );
+
+    const { container } = boot(tree);
+    const button = container.querySelector('button.go');
+    assert.ok(button, 'precondition: the button hydrated');
+
+    let escaped = null;
+    // jsdom reports an uncaught listener error through its virtual console,
+    // which is the behaviour under test and would otherwise print a stack in
+    // the middle of a passing run.
+    const realError = console.error;
+    console.error = () => {};
+    try {
+      button.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    } catch (e) {
+      escaped = e;
+    } finally {
+      console.error = realError;
+    }
+    flushSync();
+
+    assert.equal(container.querySelector('p.fb'), null,
+      'the boundary caught a handler error — the docs say it does not');
+    assert.ok(container.querySelector('button.go'), 'the handler error took the subtree down');
+    // jsdom reports a listener that throws rather than rethrowing at the call
+    // site, so `escaped` is only sometimes populated. Either way the boundary
+    // is not what handled it, which is the point.
+    if (escaped) assert.equal(escaped.message, 'handler blew up');
+  });
+
   it('catches an error reported DURING the walk and replaces the server markup', () => {
     // The boundary's effect does not exist yet when this fires, so its very
     // first run is the one that has to notice the signal is already set and
@@ -211,6 +258,218 @@ describe('hydrating <ErrorBoundary>', () => {
       `the boundary did not catch a report made while hydrating: ${container.innerHTML}`);
     assert.equal(container.querySelector('p.ok'), null,
       'the claimed server markup was left behind under the fallback');
+  });
+
+  it('claims the fallback the SERVER rendered when a child threw during SSR', () => {
+    // The server has a boundary branch of its own, so a child that throws during
+    // SSR puts the FALLBACK in the response and the children never reach the
+    // wire. The client throws in the same place and lands on the same arm, which
+    // makes that fallback ordinary server markup — markup hydration must claim.
+    //
+    // hydrateBoundary walks the happy arm first and only learns the arm is wrong
+    // afterwards, and it used to hand the correction to its effect. The effect
+    // rebuilds, so the server's fallback went unclaimed, a second copy of it was
+    // built alongside, and the original was trimmed. The server rendered the
+    // fallback and the client threw it away: the destroy-and-rebuild these
+    // markers exist to prevent, on the one path where the two sides AGREE.
+    function Bad() { throw new Error('boom'); }
+
+    const tree = () => h('div', { id: 'ssr-arm' },
+      h(ErrorBoundary, { fallback: ({ error }) => h('p', { class: 'fb' }, `CAUGHT ${error.message}`) },
+        h(Bad, {}),
+      ),
+    );
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.innerHTML = renderToHydratableString(tree());
+    const serverFallback = container.querySelector('p.fb');
+    assert.ok(serverFallback, 'precondition: the server must emit the fallback');
+    assert.equal(serverFallback.textContent, 'CAUGHT boom');
+
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+    try {
+      hydrate(tree(), container);
+    } finally {
+      console.warn = realWarn;
+    }
+    flushSync();
+
+    assert.equal(container.querySelector('p.fb'), serverFallback,
+      `the server's fallback was rebuilt instead of claimed: ${container.innerHTML}`);
+    assert.equal(container.querySelectorAll('p.fb').length, 1, 'the fallback was rendered twice');
+    assert.deepEqual(mismatches(warnings), [],
+      'claiming the arm the server actually rendered is not a mismatch');
+  });
+
+  it('leaves the sibling behind an SSR-failed boundary alone', () => {
+    // The rebuild did not stop at the boundary. Its fallback was inserted INSIDE
+    // the region while the server's copy stayed outside, so every node behind
+    // the boundary was one slot out: the <footer> claimed the stale fallback,
+    // called it a mismatch, replaced it, and the real footer was trimmed off the
+    // end. One boundary catching during SSR cost every sibling after it.
+    function Bad() { throw new Error('boom'); }
+
+    const tree = () => h('div', { id: 'ssr-sib' },
+      h(ErrorBoundary, { fallback: ({ error }) => h('p', { class: 'fb' }, error.message) },
+        h(Bad, {}),
+      ),
+      h('footer', { class: 'ft' }, 'FOOTER'),
+    );
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.innerHTML = renderToHydratableString(tree());
+    const serverFallback = container.querySelector('p.fb');
+    const serverFooter = container.querySelector('footer.ft');
+
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+    try {
+      hydrate(tree(), container);
+    } finally {
+      console.warn = realWarn;
+    }
+    flushSync();
+
+    assert.equal(container.querySelector('p.fb'), serverFallback);
+    assert.equal(container.querySelector('footer.ft'), serverFooter,
+      `the sibling behind the boundary was rebuilt: ${container.innerHTML}`);
+    assert.equal(container.querySelectorAll('footer.ft').length, 1);
+    assert.deepEqual(mismatches(warnings), []);
+  });
+
+  it('stays a live boundary after claiming the server fallback', () => {
+    // The claimed nodes are the region's contents now, not markup that happens
+    // to be lying inside it. The first effect run has to skip WITHOUT latching
+    // the region shut, or a boundary that caught during SSR would show its
+    // fallback forever and reset() would do nothing.
+    const failing = signal(true);
+    function Flaky() {
+      if (failing()) throw new Error('boom');
+      return h('p', { class: 'ok' }, 'OK');
+    }
+
+    let resetBoundary = null;
+    const tree = () => h('div', { id: 'ssr-live' },
+      h(ErrorBoundary, {
+        fallback: ({ error, reset }) => {
+          resetBoundary = reset;
+          return h('p', { class: 'fb' }, error.message);
+        },
+      },
+        h(Flaky, {}),
+      ),
+      h('footer', { class: 'ft' }, 'FOOTER'),
+    );
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.innerHTML = renderToHydratableString(tree());
+    const serverFallback = container.querySelector('p.fb');
+    const serverFooter = container.querySelector('footer.ft');
+
+    hydrate(tree(), container);
+    flushSync();
+    assert.equal(container.querySelector('p.fb'), serverFallback, 'precondition: the fallback is claimed');
+
+    failing(false);
+    resetBoundary();
+    flushSync();
+
+    assert.ok(container.querySelector('p.ok'), `reset() did not restore the children: ${container.innerHTML}`);
+    assert.equal(container.querySelector('p.fb'), null, 'the claimed fallback outlived the reset');
+    assert.equal(container.querySelector('footer.ft'), serverFooter,
+      'the reset reached past the region and took the sibling with it');
+  });
+
+  it('refuses the claim when the server rendered NOTHING for the region', () => {
+    // Nothing in the server's bytes says where a boundary's region begins or
+    // ends, so "the markup at the cursor is mine" is never provable — only
+    // refutable. Here the server rendered the boundary as empty (its only child
+    // is client-only) and the node at the cursor belongs to the SIBLING. A
+    // boundary that claimed it anyway would be the <Portal> failure again:
+    // rewriting the footer into a fallback and rebuilding the footer behind it.
+    //
+    // The refutation is the fallback's own root: a <p> cannot have produced a
+    // <footer>, so the boundary keeps its hands off and rebuilds instead.
+    function ClientOnlyBoom() {
+      if (isServerRender()) return null;
+      throw new Error('client only');
+    }
+
+    const tree = () => h('div', { id: 'ssr-none' },
+      h(ErrorBoundary, { fallback: ({ error }) => h('p', { class: 'fb' }, error.message) },
+        h(ClientOnlyBoom, {}),
+      ),
+      h('footer', { class: 'ft' }, 'FOOTER'),
+    );
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.innerHTML = renderToHydratableString(tree());
+    assert.equal(container.innerHTML, '<div id="ssr-none"><footer class="ft">FOOTER</footer></div>',
+      'precondition: the server emits nothing for the boundary');
+    const serverFooter = container.querySelector('footer.ft');
+
+    hydrate(tree(), container);
+    flushSync();
+
+    assert.equal(container.querySelector('footer.ft'), serverFooter,
+      `the boundary claimed its sibling's node for the fallback: ${container.innerHTML}`);
+    assert.equal(container.querySelectorAll('footer.ft').length, 1);
+    assert.equal(container.querySelector('p.fb')?.textContent, 'client only');
+    const end = [...container.firstChild.childNodes].find((n) => n.nodeType === 8 && n.textContent === 'eb:end');
+    assert.equal(end.nextSibling, serverFooter, 'the footer ended up inside the region');
+  });
+
+  it('rebuilds when a child AHEAD of the thrower already claimed markup', () => {
+    // The remaining gap, pinned deliberately.
+    //
+    // The server renders ONLY the fallback here: the children are mapped as a
+    // unit, so the <h1> that came before the throwing child never reaches the
+    // wire either. On the client the <h1> hydrates FIRST, claims the fallback's
+    // <p>, calls it a mismatch and replaces it — the server's markup is gone
+    // before the boundary is told an error happened, so there is nothing left to
+    // claim and the region is rebuilt.
+    //
+    // Closing this needs the server to say which arm it rendered (the client
+    // cannot ask after the fact). If this assertion ever starts failing because
+    // the markup IS reused, the SSR paragraph in the docs has to change with it.
+    function Bad() { throw new Error('boom'); }
+
+    const tree = () => h('div', { id: 'ssr-late' },
+      h(ErrorBoundary, { fallback: ({ error }) => h('p', { class: 'fb' }, error.message) },
+        h('h1', { class: 'title' }, 'Dashboard'),
+        h(Bad, {}),
+      ),
+    );
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.innerHTML = renderToHydratableString(tree());
+    assert.equal(container.querySelector('h1.title'), null,
+      'precondition: the server emits the fallback alone, not the children');
+    const serverFallback = container.querySelector('p.fb');
+
+    const realWarn = console.warn;
+    console.warn = () => {};
+    try {
+      hydrate(tree(), container);
+    } finally {
+      console.warn = realWarn;
+    }
+    flushSync();
+
+    // Correct on screen either way — this is a lost reuse, not a lost node.
+    assert.equal(container.querySelectorAll('p.fb').length, 1);
+    assert.equal(container.querySelector('p.fb').textContent, 'boom');
+    assert.equal(container.querySelector('h1.title'), null, 'the failed arm was left on screen');
+    assert.notEqual(container.querySelector('p.fb'), serverFallback,
+      'the fallback is reused now — update the SSR docs paragraph and this test');
   });
 
   it('leaves the cursor where the end marker is when it swaps DURING the walk', () => {
@@ -443,19 +702,38 @@ describe('hydrating <Suspense>', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     container.innerHTML = renderToHydratableString(tree());
+    // The server suspended on the same chunk and emitted the same fallback, so
+    // both sides are on the SAME arm and the LOADING markup is the server's own.
+    const serverFallback = container.querySelector('p.load');
+    const serverFooter = container.querySelector('footer.ft');
+    assert.ok(serverFallback, 'precondition: the server emits the suspense fallback');
 
-    hydrate(tree(), container);
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+    try {
+      hydrate(tree(), container);
+    } finally {
+      console.warn = realWarn;
+    }
     flushSync();
 
-    // The server and the client are on DIFFERENT arms here, and nothing in the
-    // server's bytes says where a boundary's arm begins or ends, so the region
-    // rebuilds rather than reuses and the node behind it is warn-and-recreated.
-    // That is the documented mismatch fallback, not a lost node: what must hold
-    // is that the page is correct and stays correct.
     assert.ok(container.querySelector('p.load'),
       `the boundary swallowed the suspension and rendered nothing: ${container.innerHTML}`);
+    // Claimed, not rebuilt. This is the first-load shape of every lazy route:
+    // the chunk is still in flight while hydrate() runs, so the client suspends
+    // exactly where the server did. Rebuilding here replaced a spinner the user
+    // was already looking at, and cost the whole page behind it: the fallback's
+    // second copy pushed every following sibling one slot out of the cursor's
+    // reckoning, and the footer was warn-and-recreated.
+    assert.equal(container.querySelector('p.load'), serverFallback,
+      `the server's suspense fallback was rebuilt instead of claimed: ${container.innerHTML}`);
+    assert.equal(container.querySelector('footer.ft'), serverFooter,
+      `the sibling behind the boundary was rebuilt: ${container.innerHTML}`);
     assert.equal(container.querySelectorAll('footer.ft').length, 1,
       `the sibling behind the boundary was duplicated: ${container.innerHTML}`);
+    assert.deepEqual(mismatches(warnings), [],
+      'both sides rendered the fallback, so nothing here is a mismatch');
 
     resolveChunk({ default: () => h('p', { class: 'lz' }, 'LAZY') });
     await tick();

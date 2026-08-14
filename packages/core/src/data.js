@@ -87,18 +87,26 @@ function subscribeToKey(key, revalidateFn) {
   };
 }
 
-// Hooks whose data does NOT live in cacheSignals, and which walking that Map
-// therefore cannot empty. Only useInfiniteQuery is in this position today (see
-// the note above it on why its pages are local), and a clearCache() that left
-// the previous user's rows on screen is the exact failure clearCache exists to
-// prevent. A handler is registered for the lifetime of the hook's effect, the
-// same lifetime as its invalidation subscription, so it goes away on unmount
-// with everything else.
-const localCacheResets = new Set();
+// What clearCache() cannot reach by walking the cache Maps.
+//
+// Two different things live outside them. useInfiniteQuery keeps its pages in
+// signals local to the hook (see the note above it on why), so walking
+// cacheSignals emptied nothing at all for it. And EVERY hook keeps the request
+// it currently has in flight in a local AbortController: emptying the cache
+// does not cancel a request that is already on the wire, so the previous user's
+// response lands a moment after the clear and writes their data straight back
+// onto the screen. That is the exact failure clearCache exists to prevent, at
+// the exact moment (logout) it is called for, and it was guarded in
+// useInfiniteQuery and nowhere else.
+//
+// A handler is registered for the lifetime of the hook's effect, the same
+// lifetime as its invalidation subscription, so it goes away on unmount with
+// everything else.
+const clearCacheHandlers = new Set();
 
-function registerLocalCacheReset(reset) {
-  localCacheResets.add(reset);
-  return () => localCacheResets.delete(reset);
+function registerClearCacheHandler(handler) {
+  clearCacheHandlers.add(handler);
+  return () => clearCacheHandlers.delete(handler);
 }
 
 const inFlightRequests = new Map(); // key -> { promise, timestamp, refCount, epoch }
@@ -128,6 +136,28 @@ function unrefTimer(timer) {
   if (timer && typeof timer.unref === 'function') timer.unref();
   return timer;
 }
+
+// EVERY computed() in this file reads EVERY signal it depends on
+// UNCONDITIONALLY, even when a short circuit would let it skip one.
+//
+// This is not a style preference, it is a requirement of the reactive core. A
+// computed is backed by an effect, and _runEffect auto-promotes an effect to
+// "stable" when it had exactly one dependency before a re-run and the same
+// single dependency after it (the assumption being that a one-dependency effect
+// cannot have conditional reads). A stable effect re-runs with currentEffect
+// set to null: it still produces a fresh value, but it can never SUBSCRIBE to
+// anything it was not already subscribed to.
+//
+// So a computed of the shape `a() === 'x' && b()` is one re-run away from
+// permanent deafness to `b`: any re-run in which `a` is not 'x' reads only `a`,
+// promotes the computed, and from then on `b` can change without the computed
+// ever being notified. It goes stale silently and forever, and only for some
+// orderings of the writes, which is why both instances of this in the file
+// looked fine in tests and failed in an app. See the notes on useQuery's
+// `status` and useSWR's `isLoading` for what each one actually broke.
+//
+// Reading everything unconditionally fixes it whatever the promotion rule is:
+// the dependency set never varies, so there is nothing left to lose.
 
 // Create an effect scoped to the current component's lifecycle.
 // When the component unmounts, the effect is automatically disposed.
@@ -257,7 +287,7 @@ export function useFetch(url, options = {}) {
 // --- useSWR Hook ---
 // Stale-while-revalidate pattern with caching
 
-export function useSWR(key, fetcher, options = {}) {
+export function useSWR(rawKey, fetcher, options = {}) {
   const {
     revalidateOnFocus = true,
     revalidateOnReconnect = true,
@@ -271,7 +301,7 @@ export function useSWR(key, fetcher, options = {}) {
 
   // Support null/undefined/false key for conditional/dependent fetching
   // When key is falsy, don't fetch — return idle state
-  if (key == null || key === false) {
+  if (rawKey == null || rawKey === false) {
     const data = signal(fallbackData || null);
     const error = signal(null);
     return {
@@ -284,13 +314,42 @@ export function useSWR(key, fetcher, options = {}) {
     };
   }
 
+  // Normalized into the same flat string space every other cache-facing entry
+  // point uses (see normalizeQueryKey, which says every one of them must
+  // normalize identically). useSWR was the one that did not, so an ARRAY key
+  // was used as a Map key by object IDENTITY, and the documented array-key
+  // shape `useSWR(['/api/user', id], ...)` broke three ways at once: two
+  // components passing equal-but-distinct arrays got two cache entries and
+  // never saw each other's data, getQueryData(['/api/user', 1]) could not find
+  // what was there, and an Array reached invalidateQueries' predicate, where
+  // the documented `key => key.startsWith('/api/posts')` throws -- before any
+  // key has been bumped, so ONE array key anywhere in the app turned every
+  // predicate invalidation into a no-op that reported itself as a TypeError.
+  //
+  // The FETCHER still receives the original key. SWR's contract is
+  // `useSWR(['/api/user', id], ([url, id]) => ...)`, and how the cache spells a
+  // key internally is none of the fetcher's business.
+  const key = normalizeQueryKey(rawKey);
+
   // Shared reactive cache signals — all useSWR instances with the same key
   // read from these signals, so mutating from one component updates all others.
   const cacheS = getCacheSignal(key);
   const error = getErrorSignal(key);
   const isValidating = getValidatingSignal(key);
   const data = computed(() => cacheS() ?? fallbackData ?? null);
-  const isLoading = computed(() => cacheS() == null && isValidating());
+  // Both reads are unconditional. See the note on conditional reads above
+  // scopedEffect: as `cacheS() == null && isValidating()` this computed dropped
+  // to a single dependency on any re-run that found the cache full (a mutate(),
+  // a setQueryData(), a second successful fetch), was promoted to a stable
+  // effect there, and never tracked isValidating again -- after which
+  // isLoading() answered false for the rest of the page's life, including with
+  // an empty cache and a request in flight, which is the one state it exists to
+  // report.
+  const isLoading = computed(() => {
+    const empty = cacheS() == null;
+    const fetching = isValidating();
+    return empty && fetching;
+  });
 
   let abortController = null;
 
@@ -344,7 +403,8 @@ export function useSWR(key, fetcher, options = {}) {
 
     isValidating.set(true);
 
-    const promise = fetcher(key, { signal: abortSignal });
+    // rawKey, not the normalized one: see the note where `key` is derived.
+    const promise = fetcher(rawKey, { signal: abortSignal });
     inFlightRequests.set(key, { promise, timestamp: now, refCount: 1, epoch });
 
     try {
@@ -356,12 +416,12 @@ export function useSWR(key, fetcher, options = {}) {
       });
       cacheTimestamps.set(key, Date.now());
       lastFetchTimestamps.set(key, Date.now());
-      if (onSuccess) onSuccess(result, key);
+      if (onSuccess) onSuccess(result, rawKey);
       return result;
     } catch (e) {
       if (abortSignal.aborted) return;
       error.set(e);
-      if (onError) onError(e, key);
+      if (onError) onError(e, rawKey);
       throw e;
     } finally {
       if (!abortSignal.aborted) isValidating.set(false);
@@ -383,11 +443,24 @@ export function useSWR(key, fetcher, options = {}) {
   // Re-subscribing per run keeps the two halves in the same lifecycle.
   scopedEffect(() => {
     const unsubscribe = subscribeToKey(key, () => revalidate({ force: true }).catch(() => {}));
+    // clearCache() empties this key's shared signals, but the request already on
+    // the wire is not in any Map it can walk: it landed after the clear and put
+    // the previous user's data back. See registerClearCacheHandler.
+    const releaseHandler = registerClearCacheHandler(() => {
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
+      // isValidating is the SHARED signal for this key and clearCache has
+      // already set it false; the aborted request deliberately returns without
+      // touching it, so there is nothing left to reset here.
+    });
     revalidate().catch(() => {});
     // Cleanup: abort and unsubscribe on unmount
     return () => {
       if (abortController) abortController.abort();
       unsubscribe();
+      releaseHandler();
     };
   });
 
@@ -501,16 +574,34 @@ export function useQuery(options) {
   // clearCache is most likely to be called. Deriving keeps status and data
   // moving together whatever emptied the entry, instead of requiring every
   // writer of the shared cache to know about every hook reading it.
+  //
+  // All four reads are UNCONDITIONAL, and that is load-bearing rather than
+  // tidy. Written as `s === 'success' && cacheS() == null` this computed reads
+  // the cache only in the success branch, so a re-run that finds any other
+  // status reads rawStatus alone -- one dependency -- and the reactive core
+  // promotes it to a stable effect that can never subscribe to anything new.
+  // See the note on conditional reads above scopedEffect.
+  //
+  // A query created with `enabled: false` takes exactly that path and an
+  // enabled one does not, which is why this looked fixed: 'idle' -> 'loading'
+  // (refetch starts) is a one-dependency re-run, where an enabled query goes
+  // straight from 'loading' to 'success' in a batch that writes the cache too,
+  // and so keeps both dependencies. So after refetch() a disabled query's
+  // status was permanently deaf to its own cache, and clearCache() left it
+  // reporting 'success' with data() === undefined -- walking the guarded render
+  // above into the TypeError this computed was written to prevent, at logout,
+  // with the previous user's value still painted on screen.
   const status = computed(() => {
     const s = rawStatus();
-    const lostData = s === 'success' && cacheS() == null;
-    const lostError = s === 'error' && error() == null;
-    if (lostData || lostError) {
-      // 'loading' only when something really is on its way to refill it.
-      // clearCache() starts no request, so reporting 'loading' there would
-      // render a spinner that never comes down -- the same defect, moved.
-      return fetchStatus() === 'fetching' ? 'loading' : 'idle';
-    }
+    const hasData = cacheS() != null;
+    const hasError = error() != null;
+    // 'loading' only when something really is on its way to refill the entry.
+    // clearCache() starts no request, so reporting 'loading' there would render
+    // a spinner that never comes down -- the same defect, moved.
+    const refilling = fetchStatus() === 'fetching';
+    const lostData = s === 'success' && !hasData;
+    const lostError = s === 'error' && !hasError;
+    if (lostData || lostError) return refilling ? 'loading' : 'idle';
     return s;
   });
 
@@ -636,6 +727,32 @@ export function useQuery(options) {
     }
   }
 
+  // clearCache() empties this key's shared signals, but the request this hook
+  // already has in flight is local to it and went on running: it landed a
+  // moment after the clear and wrote the previous user's data back into the
+  // entry the component is reading. See registerClearCacheHandler.
+  //
+  // A manual refetch() is cancelled too, unlike in the effect cleanup below.
+  // The caller's promise then resolves with undefined, which is the right trade
+  // against painting a logged-out user's data: clearCache() is a nuke, and
+  // useInfiniteQuery has always treated it as one.
+  function resetOnClearCache() {
+    if (inFlight) {
+      inFlight.controller.abort();
+      inFlight = null;
+    }
+    // An aborted fetch deliberately returns without touching either status
+    // signal, so nothing else would ever clear them. fetchStatus is the one
+    // that must not be left behind: the derived status above reads it to decide
+    // whether an emptied entry is being refilled, so 'fetching' would describe
+    // a request that no longer exists as a load in progress, and render a
+    // spinner that never comes down.
+    batch(() => {
+      if (rawStatus.peek() !== 'idle') rawStatus.set('idle');
+      if (fetchStatus.peek() !== 'idle') fetchStatus.set('idle');
+    });
+  }
+
   // Initial fetch, plus the invalidation subscription for this key.
   // Subscribing inside the effect is deliberate: see the matching comment in
   // useSWR above. A query whose queryFn reads a signal re-runs this effect, and
@@ -643,6 +760,7 @@ export function useQuery(options) {
   // re-run, leaving the query permanently deaf to invalidateQueries().
   scopedEffect(() => {
     const unsubscribe = subscribeToKey(key, () => fetchQuery({ force: true }).catch(() => {}));
+    const releaseHandler = registerClearCacheHandler(resetOnClearCache);
     // Tracked read of the MIRRORED gate, so this effect re-runs when the gate
     // actually flips (and when the query function's own signals move), not
     // whenever some unrelated signal a gate thunk happens to touch moves.
@@ -667,6 +785,7 @@ export function useQuery(options) {
         inFlight = null;
       }
       unsubscribe();
+      releaseHandler();
     };
   });
 
@@ -792,7 +911,7 @@ export function useInfiniteQuery(options) {
   // pages, drop the error, and cancel anything in flight -- a request issued
   // for the PREVIOUS user would otherwise land after the clear and put their
   // rows back on screen, which is the whole thing we are preventing.
-  function resetLocalCache() {
+  function resetOnClearCache() {
     if (inFlight) {
       inFlight.controller.abort();
       inFlight = null;
@@ -819,7 +938,9 @@ export function useInfiniteQuery(options) {
     // Supersede the previous page fetch, whoever asked for it.
     if (inFlight) inFlight.controller.abort();
     const controller = new AbortController();
-    inFlight = { controller, manual };
+    // `direction` is recorded so the finally below can tell whether the request
+    // that replaced this one owns the same loading flag. See the note there.
+    inFlight = { controller, manual, direction };
     const { signal: abortSignal } = controller;
 
     const loading = direction === 'next' ? isFetchingNextPage : isFetchingPreviousPage;
@@ -904,7 +1025,23 @@ export function useInfiniteQuery(options) {
         }
       }
     } finally {
-      if (!abortSignal.aborted) loading.set(false);
+      // Clear this direction's loading flag unless a LIVE request in the SAME
+      // direction has taken it over.
+      //
+      // `if (!abortSignal.aborted)` alone was too blunt. It exists so that an
+      // aborted fetch cannot report "not fetching" over the top of the fetch
+      // that replaced it, which is only a risk when the replacement uses the
+      // same flag. Every other abort left the flag stuck true with nothing
+      // alive behind it: fetchPreviousPage() over a fetchNextPage() still in
+      // flight left isFetchingNextPage() true for the rest of the page's life,
+      // and so isFetching() with it, which is a "loading more" spinner that
+      // never comes down. The effect's cleanup abort (a gate flip, or the query
+      // function's own signals moving) does the same for whichever direction it
+      // interrupted.
+      const successor = inFlight && inFlight.controller !== controller ? inFlight : null;
+      if (!abortSignal.aborted || !successor || successor.direction !== direction) {
+        loading.set(false);
+      }
       // Release ownership, unless a newer fetch already superseded this one.
       if (inFlight && inFlight.controller === controller) inFlight = null;
     }
@@ -936,7 +1073,7 @@ export function useInfiniteQuery(options) {
     const unsubscribe = subscribeToKey(key, () => {
       if (gate.peek()) refetchAll().catch(() => {});
     });
-    const releaseReset = registerLocalCacheReset(resetLocalCache);
+    const releaseHandler = registerClearCacheHandler(resetOnClearCache);
     // Tracked read of the MIRRORED gate: this effect re-runs when the gate
     // actually flips, not whenever some unrelated signal a gate thunk happens
     // to touch moves. See createGate.
@@ -965,7 +1102,7 @@ export function useInfiniteQuery(options) {
         inFlight = null;
       }
       unsubscribe();
-      releaseReset();
+      releaseHandler();
     };
   });
 
@@ -995,16 +1132,42 @@ export function useInfiniteQuery(options) {
     // "Load more" is an explicit call from application code, so it is `manual`
     // for the same reason refetch() is: a re-run of the effect must not cancel
     // a page the user asked for and hand the caller back `undefined`.
+    //
+    // An EMPTY page list is answered by fetching page one, and the user's
+    // getNextPageParam/getPreviousPageParam is not consulted at all.
+    //
+    // Both of these are ungated by `enabled`, like refetch(), but a disabled
+    // query's state is always the empty list, and the empty list had no last
+    // page to derive a param from. So they called the user's callback with
+    // `undefined`, and the documented callback shape
+    // `(lastPage) => lastPage.nextCursor` throws on it -- while a defensive
+    // `lastPage?.nextCursor` returns undefined and made the call a silent
+    // no-op that fetched nothing. Either way refetch() was the only thing that
+    // could load a disabled list, so "explicit calls run either way" was true
+    // of one of the three. There is exactly one page it can mean here, and it
+    // is the first one; asking a getNextPageParam what follows a page that does
+    // not exist is not a question it can answer.
+    //
+    // `replace`, because this IS page one: it must land as the whole list, not
+    // as an append onto whatever a racing call left behind.
     fetchNextPage: async () => {
-      const lastPage = pages.peek()[pages.peek().length - 1];
-      const nextParam = getNextPageParam?.(lastPage, pages.peek());
+      const loaded = pages.peek();
+      if (loaded.length === 0) {
+        return fetchPage(initialPageParam, 'next', { replace: true, manual: true });
+      }
+      const nextParam = getNextPageParam?.(loaded[loaded.length - 1], loaded);
       if (nextParam !== undefined) {
         return fetchPage(nextParam, 'next', { manual: true });
       }
     },
     fetchPreviousPage: async () => {
-      const firstPage = pages.peek()[0];
-      const prevParam = getPreviousPageParam?.(firstPage, pages.peek());
+      const loaded = pages.peek();
+      if (loaded.length === 0) {
+        // Same reasoning, and the direction is kept so that a caller watching
+        // isFetchingPreviousPage() still sees the request it made.
+        return fetchPage(initialPageParam, 'previous', { replace: true, manual: true });
+      }
+      const prevParam = getPreviousPageParam?.(loaded[0], loaded);
       if (prevParam !== undefined) {
         return fetchPage(prevParam, 'previous', { manual: true });
       }
@@ -1138,10 +1301,14 @@ export function clearCache() {
       }
     }
 
-    // Data that never lived in the Maps above. An infinite query keeps its
-    // pages in signals local to the hook, so walking cacheSignals cleared
-    // nothing for it and the previous user's rows stayed on screen.
-    for (const reset of localCacheResets) reset();
+    // What walking the Maps above cannot reach: an infinite query's pages,
+    // which live in signals local to the hook, and every hook's in-flight
+    // REQUEST, which is not data at all but lands as data a moment later. See
+    // registerClearCacheHandler.
+    //
+    // Last, and inside the batch: the handlers read the emptied signals to
+    // decide what to settle to, so they must run after every key is emptied.
+    for (const handler of clearCacheHandlers) handler();
   });
   lastFetchTimestamps.clear();
   inFlightRequests.clear();

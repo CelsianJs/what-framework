@@ -2336,6 +2336,100 @@ function suspendDuringHydration(promise, ctx) {
 }
 
 /**
+ * Evidence that the node the cursor is parked on is NOT the one `vnode` would
+ * have produced on the server.
+ *
+ * A boundary's region has no delimiter in the server's bytes, so "the markup
+ * here belongs to this boundary" can never be PROVEN from the client. It can
+ * sometimes be refuted, and a refutation is all claimServerArm needs: a plain
+ * element or text vnode names exactly the node it wants, so a <p> facing a
+ * <footer> is a boundary reaching past its own region into its next sibling.
+ *
+ * Anything else — a component, a thunk, a nested boundary marker — cannot
+ * answer without being run, and "cannot tell" is deliberately NOT a refutation.
+ * Refusing there would give up the reuse for `fallback={() => <ErrorMessage />}`,
+ * which is the shape most apps actually write.
+ */
+function contradictsServerNode(vnode, node) {
+  if (typeof vnode === 'string' || typeof vnode === 'number') return node.nodeType !== 3;
+  if (vnode && vnode._vnode && typeof vnode.tag === 'string') {
+    return node.nodeType !== 1 || node.nodeName.toLowerCase() !== vnode.tag.toLowerCase();
+  }
+  return false;
+}
+
+/**
+ * Claim the server's markup for a boundary's FALLBACK, when the server rendered
+ * the fallback too.
+ *
+ * A child that throws during SSR is caught by the server's own boundary branch
+ * (packages/server/src/index.js), so the response carries the fallback and NOT
+ * the children. The same child throws again while hydrating, which flips the
+ * boundary's signal — but by then hydrateBoundary has already walked the happy
+ * arm, and the happy arm does not match a byte of what the server sent. The
+ * fallback markup went unclaimed, the boundary's effect built a second copy of
+ * it, and the first copy was trimmed: the server rendered the fallback and the
+ * client threw it away and rebuilt it.
+ *
+ * What makes this recoverable is that a child which throws before producing
+ * anything claims NOTHING, so the cursor is still parked exactly where the
+ * server's markup for this boundary starts and nothing in the region has been
+ * written over. Then the fallback can hydrate against it like ordinary markup.
+ *
+ * The refusals matter as much as the claim, because the region's extent is not
+ * knowable from the client (see contradictsServerNode):
+ *
+ *   - the failed arm produced something first, so the cursor has moved and
+ *     whatever it moved over has already been claimed or replaced. A child
+ *     ahead of the thrower is the ordinary case here: it claims the server's
+ *     fallback node, calls it a mismatch, and destroys it before the boundary
+ *     ever learns an error happened. Nothing left to reuse.
+ *   - the server left nothing at this position at all. The node at the cursor
+ *     then belongs to the boundary's next SIBLING, and claiming it would be the
+ *     <Portal> failure again: a boundary eating the footer behind it.
+ *   - the node that is there openly disagrees with the fallback's root.
+ *
+ * Every refusal falls back to the boundary's effect rebuilding the region,
+ * which is what this whole path did before and is always correct — a lost
+ * reuse, not a lost node.
+ *
+ * `getContent` is a thunk rather than a value so the refusals above cost
+ * nothing: on a refusal the effect is the one that builds the fallback, and
+ * running a user's `fallback={({ error }) => ...}` twice per catch to throw the
+ * first result away is a side effect this has no business causing.
+ *
+ * Returns true when the region now holds the fallback.
+ */
+function claimServerArm(parent, regionStart, getContent) {
+  // No cursor in this parent means nothing here was being claimed from the
+  // server in the first place.
+  if (regionStart < 0 || !_hydrationCursor || _hydrationCursor.parent !== parent) return false;
+
+  // The failed arm has to have produced NOTHING. Any movement of the cursor is
+  // a node this region has already committed to, claimed or created.
+  if (_hydrationCursor.index !== regionStart) return false;
+
+  // Nothing at this position means there is nothing to reuse. Asked first
+  // because it is the only question answerable without building the fallback.
+  const candidate = peekNode(parent);
+  if (!candidate) return false;
+
+  const content = getContent();
+  const vnodes = Array.isArray(content) ? content : [content];
+  const root = vnodes.find((v) => v != null && typeof v !== 'boolean');
+
+  // A fallback that renders nothing wants an empty region, and an empty region
+  // is what it already has. Claimed, with nothing to claim — and `candidate` is
+  // left for whoever it really belongs to.
+  if (root === undefined) return true;
+
+  if (contradictsServerNode(root, candidate)) return false;
+
+  for (const v of vnodes) hydrateNode(v, parent);
+  return true;
+}
+
+/**
  * Hydrate an <ErrorBoundary> or a <Suspense>.
  *
  * The two are the same machine with a different signal: a marked region whose
@@ -2361,8 +2455,16 @@ function suspendDuringHydration(promise, ctx) {
  * just claimed, or hydrating a boundary would be indistinguishable from
  * client-rendering it. But it cannot skip unconditionally either: a child that
  * threw or suspended WHILE hydrating flipped the signal before this effect
- * existed, and in that case the markup between the markers is the wrong arm and
- * has to be replaced.
+ * existed, and in that case the markup between the markers may be the wrong arm
+ * and has to be replaced.
+ *
+ * "May be", not "is", and that is the whole of claimServerArm below. When a
+ * child throws during the SERVER render the server catches it too and puts the
+ * FALLBACK in the HTML, so the two sides agree on the arm and the fallback is
+ * ordinary server markup that hydration should claim like any other. Hydrating
+ * the happy arm first and then rebuilding on the flipped signal threw that
+ * markup away and built a second copy of it, which is exactly the
+ * destroy-and-rebuild these markers exist to stop.
  */
 function hydrateBoundary(vnode, parent, { startText, endText, ctxExtras, state, contentFor }) {
   const children = vnode.children || [];
@@ -2398,6 +2500,12 @@ function hydrateBoundary(vnode, parent, { startText, endText, ctxExtras, state, 
     parent.appendChild(startComment);
   }
 
+  // Where the region's content begins, in cursor terms. The start marker has
+  // already consumed its slot, so this is the index the server's first node for
+  // this boundary sits at. claimServerArm needs it to tell "the failed arm
+  // touched nothing" from "the failed arm got part way in".
+  const regionStart = cursorInParent ? _hydrationCursor.index : -1;
+
   const stack = getComponentStack();
   stack.push(boundaryCtx);
   try {
@@ -2406,6 +2514,32 @@ function hydrateBoundary(vnode, parent, { startText, endText, ctxExtras, state, 
     }
   } finally {
     stack.pop();
+  }
+
+  // Which arm the boundary is on now that its children have run.
+  //
+  // Read UNTRACKED. This is the hydration walk, not the effect below, and a
+  // hydrate() reached from inside somebody else's effect would otherwise hand
+  // that effect a subscription to this boundary's private error/loading signal:
+  // an unrelated region upstream would re-render every time a boundary caught.
+  const armAfterWalk = untrack(state);
+
+  // Whether the markup between the markers is already the arm `armAfterWalk`
+  // names. True by construction when nothing flipped the signal (the walk just
+  // claimed the children the server rendered), and true again when the fallback
+  // below is claimed in place.
+  let regionHoldsArm = !armAfterWalk;
+
+  if (armAfterWalk) {
+    // Same re-push as the rebuild in the effect, for the same reason: a
+    // fallback that renders a component of its own must see the boundary in its
+    // parent chain, and contentFor is what runs that fallback.
+    stack.push(boundaryCtx);
+    try {
+      regionHoldsArm = claimServerArm(parent, regionStart, () => contentFor(armAfterWalk));
+    } finally {
+      stack.pop();
+    }
   }
 
   if (cursorInParent) {
@@ -2439,10 +2573,11 @@ function hydrateBoundary(vnode, parent, { startText, endText, ctxExtras, state, 
 
     if (claimedFromServer) {
       claimedFromServer = false;
-      // Falsy state on the first run means the server rendered the same arm the
-      // client is on, which is the normal case: the markup already in the
-      // region IS the answer, so leave it alone.
-      if (!current) return;
+      // The region already holds the arm this run would build: either the
+      // children the server rendered and the walk claimed (the normal case), or
+      // the fallback claimed in place by claimServerArm. The markup already
+      // there IS the answer, so leave it alone.
+      if (regionHoldsArm && current === armAfterWalk) return;
     }
 
     const host = startComment.parentNode;

@@ -64,15 +64,47 @@ process.on('exit', () => { try { rmSync(tmpDir, { recursive: true, force: true }
 
 let moduleId = 0;
 
-function compile(source) {
+function compile(source, filename = 'fixture.jsx') {
   return transformSync(source, {
-    filename: 'fixture.jsx',
+    filename,
     plugins: [[babelPlugin, { production: false }]],
     parserOpts: { plugins: ['jsx'] },
     configFile: false,
     babelrc: false,
     compact: false,
   }).code;
+}
+
+// Compile something expected to fail, and hand back the error rather than
+// letting it escape. Returns null when the compile unexpectedly succeeded.
+function compileExpectingError(source, filename = 'fixture.jsx') {
+  try {
+    compile(source, filename);
+    return null;
+  } catch (err) {
+    return err;
+  }
+}
+
+// @babel/code-frame colourises through picocolors, which turns colour ON when
+// `CI` is in the environment. So the same code frame is plain locally and full
+// of SGR escapes on the runner, and a regex matching '> 9 | <Show>' passes on a
+// laptop and fails in CI. Assert against the stripped text.
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;]*m/g;
+const plain = (text) => String(text).replace(ANSI, '');
+
+// Compile something expected to succeed, capturing console.warn.
+function compileCapturingWarnings(source, filename = 'fixture.jsx') {
+  const warnings = [];
+  const orig = console.warn;
+  console.warn = (...args) => { warnings.push(args.map(String).join(' ')); };
+  try {
+    compile(source, filename);
+  } finally {
+    console.warn = orig;
+  }
+  return warnings;
 }
 
 async function compileAndLoad(source) {
@@ -286,6 +318,163 @@ describe('#26 <Show> static children are lazy on the compiled path', () => {
     assert.match(mounted.result.innerHTML, /<em>loading<\/em>/);
     assert.doesNotMatch(mounted.result.innerHTML, /<p>/);
     mounted.result.remove();
+  });
+});
+
+describe('control-flow build errors reach the developer, not the stack trace', () => {
+  // The refusals themselves were fine: <Show> without `when` did fail the
+  // build, so "it is a build error" was technically true. What the author got
+  // was not the diagnostic. transformShowFineGrained called
+  // path.buildCodeFrameError unguarded, and `path` is only a real NodePath when
+  // the JSXElement visitor reached the element directly — i.e. when the <Show>
+  // was the WHOLE return value. Nested inside anything at all, a parent
+  // transform passes a synthetic `{ node: child }`, and the compile died with
+  //
+  //   TypeError: path.buildCodeFrameError is not a function
+  //
+  // which names neither the file, nor the line, nor the actual mistake. Since
+  // essentially every real <Show> lives inside a <div>, the working case was
+  // the rare one.
+  //
+  // These tests assert on the ERROR TEXT, which is the whole point: an
+  // assertion that the build merely failed passes in both worlds.
+  const nestedShowWithoutWhen = `
+    import { signal, Show } from 'what-framework';
+    const open = signal(true);
+    export function App() {
+      return (
+        <div>
+          <Show when={open}>
+            <div>
+              <Show>
+                <p>hi</p>
+              </Show>
+            </div>
+          </Show>
+        </div>
+      );
+    }
+  `;
+
+  it('a nested <Show> without `when` reports the mistake, not an internal TypeError', () => {
+    const err = compileExpectingError(nestedShowWithoutWhen, 'src/Nested.jsx');
+    assert.ok(err, 'a <Show> without a when prop must fail the build');
+    assert.doesNotMatch(err.message, /is not a function/,
+      `the compiler crashed instead of diagnosing:\n${err.stack}`);
+    assert.match(err.message, /<Show> requires a "when" prop/);
+    assert.match(err.message, /fallback=\{null\}/, 'the message keeps its worked example');
+  });
+
+  it('the diagnostic carries the file and points at the offending line', () => {
+    const err = compileExpectingError(nestedShowWithoutWhen, 'src/Nested.jsx');
+    assert.match(err.message, /src\/Nested\.jsx/, 'the message must name the file');
+    // Babel's code frame marks the offending line with a leading '>'. The inner
+    // <Show> is on line 9 of the fixture (line 1 is the leading newline).
+    assert.match(plain(err.message), />\s*9 \|\s*<Show>/,
+      `the code frame must point at the inner <Show>:\n${plain(err.message)}`);
+  });
+
+  it('a <Show> that IS the whole return value still reports (regression guard)', () => {
+    // This shape always worked, because the visitor hands it a real NodePath.
+    // Keep it working: the fix must not trade one path for the other.
+    const err = compileExpectingError(`
+      import { Show } from 'what-framework';
+      export function App() {
+        return <Show><p>hi</p></Show>;
+      }
+    `, 'src/Root.jsx');
+    assert.ok(err, 'a bare <Show> without when must still fail the build');
+    assert.match(err.message, /<Show> requires a "when" prop/);
+    assert.match(err.message, /src\/Root\.jsx/);
+  });
+
+  it('a nested <Switch> refusal keeps the file and line too', () => {
+    // <Switch> already guarded the call, so it never crashed — but its fallback
+    // was a bare `new Error(message)`, which reaches the developer with no
+    // location at all. In a large app that is a diagnostic you cannot act on.
+    const err = compileExpectingError(`
+      import { signal, Show, Switch } from 'what-framework';
+      const open = signal(true);
+      export function App() {
+        return (
+          <div>
+            <Show when={open}>
+              <div>
+                <Switch>{'not an arm'}</Switch>
+              </div>
+            </Show>
+          </div>
+        );
+      }
+    `, 'src/Sw.jsx');
+    assert.ok(err, 'a <Switch> whose arms cannot be read statically must fail the build');
+    assert.match(err.message, /<Switch> cannot read its arms from an expression child/);
+    assert.match(err.message, /src\/Sw\.jsx/, 'the message must name the file');
+    assert.match(plain(err.message), />\s*9 \|\s*<Switch>/,
+      `the code frame must point at the <Switch>:\n${plain(err.message)}`);
+  });
+
+  it('a well-formed <Show> compiles with no diagnostic at all', () => {
+    // Negative control: the refusal must stay attached to the actual mistake.
+    const warnings = compileCapturingWarnings(`
+      import { signal, Show } from 'what-framework';
+      const open = signal(true);
+      export function App() {
+        return <div><Show when={open} fallback={null}><p>hi</p></Show></div>;
+      }
+    `);
+    assert.deepEqual(warnings, [], `a valid <Show> warned: ${warnings.join(' | ')}`);
+  });
+});
+
+describe('ERR_MISSING_KEY is a code the toolchain actually emits', () => {
+  // docs-site/llms-full.txt lists ERR_MISSING_KEY among the codes the framework
+  // "detects and reports", and the MCP what_fix tool publishes a diagnosis and
+  // a worked example filed under that exact name. Nothing anywhere ever emitted
+  // the string. The DETECTION was real and already shipping — the compiler
+  // bails out of keyed reconciliation and warns — but the warning did not name
+  // the code, so an agent that read it had no way to reach the fix filed under
+  // it, and the docs' claim was unbacked.
+  //
+  // Note the channel: this is a BUILD-time report. Whether a list has keys is
+  // settled by the source, so the compiler is the only thing that can see it.
+  it('names the code when a .map() returns JSX without a key', () => {
+    const warnings = compileCapturingWarnings(`
+      import { signal } from 'what-framework';
+      const todos = signal([]);
+      export function List() {
+        return <ul>{() => todos().map(t => <li>{t.title}</li>)}</ul>;
+      }
+    `, 'src/List.jsx');
+    assert.equal(warnings.length, 1, `expected exactly one warning, got: ${warnings.join(' | ')}`);
+    assert.match(warnings[0], /ERR_MISSING_KEY/);
+    assert.match(warnings[0], /src\/List\.jsx:\d+:\d+/, 'the warning must locate the list');
+    assert.match(warnings[0], /what_fix/, 'an agent needs the route to the worked example');
+  });
+
+  it('stays silent on a keyed list', () => {
+    const warnings = compileCapturingWarnings(`
+      import { signal } from 'what-framework';
+      const todos = signal([]);
+      export function List() {
+        return <ul>{() => todos().map(t => <li key={t.id}>{t.title}</li>)}</ul>;
+      }
+    `, 'src/List.jsx');
+    assert.deepEqual(warnings, [], `a keyed list warned: ${warnings.join(' | ')}`);
+  });
+
+  it('stays silent on a bare index key', () => {
+    // A bare index key is deliberate positional reconciliation, which is what
+    // the unkeyed path already does correctly. It was exempted on purpose (see
+    // the reasoning in babel-plugin.js) and tagging the code must not revive it.
+    const warnings = compileCapturingWarnings(`
+      import { signal } from 'what-framework';
+      const board = signal([]);
+      export function Board() {
+        return <ul>{() => board().map((sq, i) => <li key={i}>{sq}</li>)}</ul>;
+      }
+    `, 'src/Board.jsx');
+    assert.deepEqual(warnings, [], `a bare index key warned: ${warnings.join(' | ')}`);
   });
 });
 

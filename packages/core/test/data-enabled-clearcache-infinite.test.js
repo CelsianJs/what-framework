@@ -26,7 +26,7 @@ global.document = dom.window.document;
 global.HTMLElement = dom.window.HTMLElement;
 global.Node = dom.window.Node;
 
-const { signal, flushSync } = await import('../src/reactive.js');
+const { signal, effect, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
 const {
@@ -828,5 +828,687 @@ describe('invalidateQueries reaches queries with no cache entry', () => {
     await tick();
     assert.equal(fetches, 2,
       'a predicate must see a query whose data never entered the cache Map');
+  });
+});
+
+// --- Third round ----------------------------------------------------------
+// Running the second round's fixes against the documented samples found three
+// more, every one of them the same shape as the last: correct for the case it
+// was tested on, silently wrong one step to the side.
+//
+// G. Round C's derived `status` reads the cache only inside
+//    `s === 'success' && ...`. A computed whose dependency set can shrink to a
+//    SINGLE signal is auto-promoted to a "stable" effect by the reactive core,
+//    and a stable effect re-runs without tracking, so it can never subscribe to
+//    anything it did not already have. A query created with `enabled: false`
+//    takes exactly the path that promotes it -- 'idle' -> 'loading' when
+//    refetch() starts is a re-run that reads rawStatus alone -- where an
+//    enabled query goes 'loading' -> 'success' in a batch that writes the cache
+//    too and so keeps both dependencies. Round C therefore fixed the enabled
+//    case only: for the documented `enabled: false` + refetch() form,
+//    clearCache() still left status on 'success' with data() === undefined, the
+//    guarded render still walked into a TypeError, and the previous user's
+//    value was still on screen. useSWR's `isLoading` had the identical defect.
+// H. fetchNextPage()/fetchPreviousPage() are ungated by `enabled`, but a
+//    disabled query's state is always the empty page list and the empty list
+//    has no last page. They called getNextPageParam(undefined, []), which
+//    throws on the documented `(lastPage) => lastPage.nextCursor` shape and
+//    fetches nothing at all on a defensive `lastPage?.nextCursor`.
+// I. clearCache() cancelled useInfiniteQuery's in-flight page and nothing else,
+//    so a useQuery or useSWR response already on the wire landed after the
+//    clear and wrote the previous user's data back onto the screen. And useSWR
+//    never normalized its key, so an ARRAY key was stored by object identity
+//    and reached invalidateQueries' predicate as an Array, where the documented
+//    `key => key.startsWith('/api/posts')` throws.
+//
+// NOT fixed, deliberately: queryKey is still read exactly once, at hook
+// creation. See the last describe() in this file for what that costs.
+
+describe('a disabled query and an enabled one agree about a cleared cache', () => {
+  beforeEach(() => clearCache());
+
+  // Two of these mount a component on purpose. The defect is in how the status
+  // computed TRACKS, and the promotion that breaks it only happens on a re-run,
+  // so it needs something reading status eagerly as it moves 'idle' ->
+  // 'loading' -> 'success' -- i.e. a render. Reading status() only at the ends
+  // never reproduces it, which is most of why the round-2 tests missed it.
+  it('keeps status with the data when a sibling empties the entry', async () => {
+    // clearCache() is deliberately NOT used here. It settles the status signals
+    // directly now, which masks this: the cache is SHARED, and a sibling's
+    // setQueryData(key, null) empties it with nothing but the derived status to
+    // notice. This is the case the status computed exists for.
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    let q;
+    const render = () => {
+      if (q.isLoading()) return 'Loading...';
+      if (q.isError()) return 'Error';
+      if (q.isIdle()) return 'Idle';
+      return q.data().name;
+    };
+
+    function Panel() {
+      q = useQuery({
+        queryKey: ['sibling-empties'],
+        queryFn: async () => ({ name: 'ada' }),
+        enabled: false,
+        refetchOnWindowFocus: false,
+      });
+      return h('p', {}, () => render());
+    }
+
+    mount(h(Panel, {}), container);
+    await tick();
+    flushSync();
+    await q.refetch();
+    flushSync();
+    assert.equal(container.textContent, 'ada');
+
+    setQueryData(['sibling-empties'], null);
+    flushSync();
+
+    assert.equal(q.data(), undefined, 'the data is gone');
+    assert.equal(q.status(), 'idle',
+      'and the status must go with it, exactly as it does for an enabled query');
+    assert.equal(render(), 'Idle', 'so no guard is walked past');
+    assert.equal(container.textContent, 'Idle',
+      "and the previous value is not left painted on screen");
+  });
+
+  it('settles a refetched enabled:false query when the cache is cleared', async () => {
+    const q = useQuery({
+      queryKey: ['gate-clear', 'usage'],
+      queryFn: async () => ({ total: 42 }),
+      enabled: false,
+      refetchOnWindowFocus: false,
+    });
+
+    await tick();
+    await q.refetch();
+    assert.equal(q.status(), 'success');
+    assert.deepEqual(q.data(), { total: 42 });
+
+    clearCache();
+    assert.equal(q.data(), undefined, 'the data is gone');
+    assert.equal(q.status(), 'idle',
+      'and the status must go with it, exactly as it does for an enabled query');
+    assert.equal(q.isSuccess(), false);
+  });
+
+  it('does not turn the guarded render into a TypeError, or leave the value on screen', async () => {
+    // The same canonical render as the enabled case above, on the form the docs
+    // now advertise as first class. `enabled: false` + refetch() reached the
+    // one state every guard was written to make unreachable.
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    let q;
+    let renderError = null;
+    function Panel() {
+      q = useQuery({
+        queryKey: ['gate-clear', 'panel'],
+        queryFn: async () => ({ name: 'ada' }),
+        enabled: false,
+        refetchOnWindowFocus: false,
+      });
+      return h('p', {}, () => {
+        try {
+          if (q.isLoading()) return 'Loading...';
+          if (q.isError()) return 'Error';
+          if (q.isIdle()) return 'Idle';
+          return q.data().name;
+        } catch (e) {
+          renderError = e;
+          return 'threw';
+        }
+      });
+    }
+
+    mount(h(Panel, {}), container);
+    await tick();
+    flushSync();
+    assert.equal(container.textContent, 'Idle');
+
+    await q.refetch();
+    flushSync();
+    assert.equal(container.textContent, 'ada');
+
+    clearCache();
+    flushSync();
+    assert.equal(renderError, null, 'no guard may be walked past');
+    assert.equal(container.textContent, 'Idle',
+      "the previous user's value must not stay painted after a logout");
+  });
+
+  it('reports a fetch into an emptied entry as loading, for a disabled query too', async () => {
+    // The other half of G: settling to 'idle' must not cost the ability to say
+    // 'loading'. The status computed still has to hear fetchStatus move.
+    let release = () => {};
+    let fetches = 0;
+    const q = useQuery({
+      queryKey: ['gate-clear', 'refilling'],
+      queryFn: async () => {
+        fetches++;
+        if (fetches > 1) await new Promise((resolve) => { release = resolve; });
+        return `v${fetches}`;
+      },
+      enabled: false,
+      refetchOnWindowFocus: false,
+    });
+
+    await tick();
+    await q.refetch();
+    assert.equal(q.status(), 'success');
+
+    const pending = q.refetch();
+    await tick();
+    assert.equal(q.data(), 'v1', 'the old value is still there during a soft refetch');
+    invalidateQueries(['gate-clear', 'refilling'], { hard: true });
+    assert.equal(q.data(), undefined);
+    assert.equal(q.status(), 'loading', 'something really is on its way to refill it');
+
+    release();
+    await pending.catch(() => {});
+    await ticks(2);
+    assert.equal(q.status(), 'success');
+    assert.equal(q.data(), 'v2');
+  });
+
+  it('keeps useSWR isLoading honest after a plain cache write', async () => {
+    // Same defect, same file: `cacheS() == null && isValidating()` reads the
+    // second signal only when the cache is empty, so any re-run that found it
+    // full -- a mutate(), a setQueryData(), a second successful fetch -- dropped
+    // the computed to one dependency, promoted it, and isLoading() answered
+    // false for the rest of the page's life.
+    let release;
+    let fetches = 0;
+    const s = useSWR('swr-loading', async () => {
+      fetches++;
+      if (fetches > 1) await new Promise((resolve) => { release = resolve; });
+      return `v${fetches}`;
+    }, { revalidateOnFocus: false, dedupingInterval: 0 });
+    // A subscriber, as a component rendering a spinner is. Without one the
+    // computed is only ever evaluated lazily at the points this test asserts,
+    // which is the one access pattern that never promotes it.
+    effect(() => { s.isLoading(); });
+
+    await tick();
+    assert.equal(s.data(), 'v1');
+    assert.equal(s.isLoading(), false);
+
+    // A cache write while the entry is full: the re-run that used to promote it.
+    setQueryData('swr-loading', 'edited');
+    flushSync();
+    assert.equal(s.data(), 'edited');
+
+    clearCache();
+    flushSync();
+    const pending = s.revalidate();
+    await tick();
+    assert.equal(s.data(), null, 'the entry is empty');
+    assert.equal(s.isValidating(), true, 'and a request is in flight');
+    assert.equal(s.isLoading(), true,
+      'which is the one state isLoading() exists to report');
+
+    release();
+    await pending.catch(() => {});
+    await ticks(2);
+    assert.equal(s.isLoading(), false);
+  });
+});
+
+describe('fetchNextPage() has an answer for an empty page list', () => {
+  beforeEach(() => clearCache());
+
+  it('fetches the first page instead of asking what follows a page that does not exist', async () => {
+    let askedAboutNothing = false;
+    const q = useInfiniteQuery({
+      queryKey: ['empty-next'],
+      queryFn: async ({ pageParam }) => ({ items: [`row-${pageParam}`], nextCursor: pageParam + 1 }),
+      // The documented callback shape, undefended on purpose: a defensive
+      // `lastPage?.nextCursor` would turn the defect into a silent no-op and
+      // this test would pass while fetching nothing.
+      getNextPageParam: (lastPage) => {
+        if (lastPage === undefined) askedAboutNothing = true;
+        return lastPage.nextCursor;
+      },
+      initialPageParam: 0,
+      enabled: false,
+    });
+
+    await tick();
+    assert.deepEqual(q.data().pages, [], 'a disabled list starts empty');
+
+    await q.fetchNextPage();
+    assert.equal(askedAboutNothing, false,
+      'the callback is never handed a page that does not exist');
+    assert.deepEqual(q.data().pages, [{ items: ['row-0'], nextCursor: 1 }],
+      'the next page of nothing is the first page');
+    assert.deepEqual(q.data().pageParams, [0]);
+    assert.equal(q.status(), 'success');
+
+    // and paging on from there is unchanged
+    await q.fetchNextPage();
+    assert.equal(q.data().pages.length, 2);
+    assert.deepEqual(q.data().pageParams, [0, 1]);
+  });
+
+  it('does the same for fetchPreviousPage()', async () => {
+    let askedAboutNothing = false;
+    const q = useInfiniteQuery({
+      queryKey: ['empty-prev'],
+      queryFn: async ({ pageParam }) => ({ items: [`row-${pageParam}`], prevCursor: pageParam - 1 }),
+      getNextPageParam: () => undefined,
+      getPreviousPageParam: (firstPage) => {
+        if (firstPage === undefined) askedAboutNothing = true;
+        return firstPage.prevCursor;
+      },
+      initialPageParam: 5,
+      enabled: false,
+    });
+
+    await tick();
+    await q.fetchPreviousPage();
+    assert.equal(askedAboutNothing, false);
+    assert.deepEqual(q.data().pages, [{ items: ['row-5'], prevCursor: 4 }]);
+    assert.deepEqual(q.data().pageParams, [5]);
+  });
+
+  it('still stops when the loaded list really has no next page', async () => {
+    // The guard against over-correcting: "empty list" is the only case that
+    // means "load page one". A list that has been loaded and says it is
+    // finished must stay finished.
+    let fetches = 0;
+    const q = useInfiniteQuery({
+      queryKey: ['exhausted'],
+      queryFn: async ({ pageParam }) => { fetches++; return `page-${pageParam}`; },
+      getNextPageParam: () => undefined,
+      initialPageParam: 0,
+    });
+
+    await tick();
+    assert.equal(fetches, 1);
+    assert.equal(q.hasNextPage(), false);
+
+    await q.fetchNextPage();
+    assert.equal(fetches, 1, 'a finished list does not silently reload page one');
+    assert.deepEqual(q.data().pages, ['page-0']);
+  });
+
+  it('retries page one when the first attempt failed and left the list empty', async () => {
+    let attempts = 0;
+    const q = useInfiniteQuery({
+      queryKey: ['first-page-failed'],
+      queryFn: async ({ pageParam }) => {
+        attempts++;
+        if (attempts === 1) throw new Error('offline');
+        return `page-${pageParam}`;
+      },
+      getNextPageParam: (lastPage) => (lastPage ? undefined : 0),
+      initialPageParam: 0,
+      retry: 0,
+    });
+
+    await ticks(2);
+    assert.equal(q.status(), 'error');
+    assert.deepEqual(q.data().pages, []);
+
+    await q.fetchNextPage();
+    assert.deepEqual(q.data().pages, ['page-0'], 'the only page there is to load is page one');
+    assert.equal(q.status(), 'success');
+    assert.equal(q.error(), null);
+  });
+});
+
+describe('a superseded page fetch does not leave its spinner running', () => {
+  beforeEach(() => clearCache());
+
+  // Found while checking that the empty-list change above could not make things
+  // worse; it is older than that change and reaches a LOADED list, which is why
+  // it is pinned separately. isFetchingNextPage and isFetchingPreviousPage are
+  // two flags and an aborted fetch cleared neither, so any abort that was not a
+  // same-direction replacement left one of them true with nothing behind it --
+  // and isFetching() reads both.
+
+  it('clears the flag when a fetch in the other direction supersedes it', async () => {
+    let release;
+    const arrival = new Promise((resolve) => { release = resolve; });
+    let fetches = 0;
+    const q = useInfiniteQuery({
+      queryKey: ['supersede-direction'],
+      queryFn: async ({ pageParam }) => {
+        fetches++;
+        if (fetches > 1) await arrival;
+        return { p: pageParam };
+      },
+      getNextPageParam: (last) => (last ? last.p + 1 : undefined),
+      getPreviousPageParam: (first) => (first ? first.p - 1 : undefined),
+      initialPageParam: 5,
+    });
+
+    await tick();
+    const next = q.fetchNextPage();
+    await tick();
+    assert.equal(q.isFetchingNextPage(), true);
+
+    const previous = q.fetchPreviousPage();
+    release();
+    await Promise.allSettled([next, previous]);
+    await ticks(3);
+
+    assert.equal(q.isFetchingNextPage(), false,
+      'the superseded direction is not still fetching');
+    assert.equal(q.isFetching(), false, 'so isFetching() comes back down');
+  });
+
+  it('clears it when the effect re-runs and interrupts a previous-page fetch', async () => {
+    // The same hole reached from the other side: the effect's cleanup aborts
+    // whatever it started, and the re-run always fetches forwards.
+    const filter = signal('a');
+    let release;
+    const arrival = new Promise((resolve) => { release = resolve; });
+    let fetches = 0;
+    const q = useInfiniteQuery({
+      queryKey: ['supersede-rerun'],
+      queryFn: async ({ pageParam }) => {
+        fetches++;
+        if (fetches === 2) await arrival;
+        return `${filter()}-${pageParam}`;
+      },
+      getNextPageParam: () => undefined,
+      getPreviousPageParam: () => 0,
+      initialPageParam: 1,
+    });
+
+    await tick();
+    const previous = q.fetchPreviousPage();
+    await tick();
+    assert.equal(q.isFetchingPreviousPage(), true);
+
+    filter('b');
+    flushSync();
+    release();
+    await Promise.allSettled([previous]);
+    await ticks(3);
+
+    assert.equal(q.isFetchingPreviousPage(), false,
+      'an interrupted backwards fetch does not leave its spinner running');
+    assert.equal(q.isFetching(), false);
+  });
+
+  it('still lets a same-direction replacement keep the flag up', async () => {
+    // The guard the blunt `if (!abortSignal.aborted)` was there for: while a
+    // replacement in the SAME direction is running, the flag must stay true.
+    let release;
+    const arrival = new Promise((resolve) => { release = resolve; });
+    let fetches = 0;
+    const q = useInfiniteQuery({
+      queryKey: ['supersede-same'],
+      queryFn: async ({ pageParam }) => {
+        fetches++;
+        if (fetches > 1) await arrival;
+        return { p: pageParam };
+      },
+      getNextPageParam: (last) => (last ? last.p + 1 : undefined),
+      initialPageParam: 0,
+    });
+
+    await tick();
+    const first = q.fetchNextPage();
+    const second = q.fetchNextPage();
+    await ticks(2);
+    assert.equal(q.isFetchingNextPage(), true,
+      'the replacement is still fetching, so the flag stays up');
+
+    release();
+    await Promise.allSettled([first, second]);
+    await ticks(3);
+    assert.equal(q.isFetchingNextPage(), false);
+  });
+});
+
+describe('clearCache() cancels what is already on the wire', () => {
+  beforeEach(() => clearCache());
+
+  it('does not let a useQuery response requested before the clear land after it', async () => {
+    let release;
+    const arrival = new Promise((resolve) => { release = resolve; });
+    const q = useQuery({
+      queryKey: ['inflight-me'],
+      queryFn: async () => { await arrival; return { name: 'user-A-secret' }; },
+      refetchOnWindowFocus: false,
+    });
+
+    await tick();
+    clearCache();
+    assert.equal(q.status(), 'idle',
+      'nothing is in flight any more, so nothing is loading either');
+
+    release();
+    await ticks(3);
+    assert.equal(q.data(), undefined,
+      "a request issued for the previous user must not put their data back");
+    assert.equal(q.status(), 'idle');
+  });
+
+  it('does the same for useSWR', async () => {
+    let release;
+    const arrival = new Promise((resolve) => { release = resolve; });
+    const s = useSWR('inflight-swr', async () => { await arrival; return 'user-A-secret'; },
+      { revalidateOnFocus: false });
+
+    await tick();
+    clearCache();
+    release();
+    await ticks(3);
+    assert.equal(s.data(), null,
+      "a request issued for the previous user must not put their data back");
+    assert.equal(s.isValidating(), false);
+  });
+
+  it('cancels a manual refetch too, rather than paint a logged-out user', async () => {
+    // The one place the manual/automatic ownership rule does NOT apply.
+    // clearCache() is a nuke: an explicit refetch() that lands after it is
+    // still the previous user's data, and useInfiniteQuery has always treated
+    // it that way. The caller's promise resolving with undefined is the cost.
+    let release;
+    const arrival = new Promise((resolve) => { release = resolve; });
+    const q = useQuery({
+      queryKey: ['inflight-manual'],
+      queryFn: async () => { await arrival; return 'late'; },
+      enabled: false,
+      refetchOnWindowFocus: false,
+    });
+
+    await tick();
+    const pending = q.refetch();
+    clearCache();
+    release();
+    assert.equal(await pending.catch(() => undefined), undefined);
+    await ticks(2);
+    assert.equal(q.data(), undefined);
+    assert.equal(q.status(), 'idle', 'and it is not wedged on a fetch that no longer exists');
+  });
+
+  it('leaves the query able to fetch again afterwards', async () => {
+    let fetches = 0;
+    const q = useQuery({
+      queryKey: ['inflight-recover'],
+      queryFn: async () => { fetches++; return `v${fetches}`; },
+      refetchOnWindowFocus: false,
+    });
+
+    await tick();
+    clearCache();
+    await q.refetch();
+    assert.equal(q.data(), 'v2', 'cancelling in flight must not detach the hook from its key');
+    assert.equal(q.status(), 'success');
+  });
+});
+
+describe('invalidateQueries hands its predicate a normalized key', () => {
+  beforeEach(() => clearCache());
+
+  it('does not break on a useSWR array key', async () => {
+    let fetches = 0;
+    useSWR(['/api/posts', 1], async () => { fetches++; return 'post-1'; },
+      { revalidateOnFocus: false, dedupingInterval: 0 });
+
+    await tick();
+    assert.equal(fetches, 1);
+
+    // The documented predicate. It was handed an Array and threw, and because
+    // the keys are selected before any of them is bumped, ONE array key
+    // anywhere in the app turned every predicate invalidation into a total
+    // no-op that announced itself as a TypeError.
+    invalidateQueries((key) => key.startsWith('/api/posts'));
+    await tick();
+    assert.equal(fetches, 2);
+  });
+
+  it('gives an array-keyed useSWR the same cache entry as everything else', async () => {
+    // normalizeQueryKey's contract: one key means one entry, whichever hook
+    // spelled it. useSWR stored the Array itself as a Map key, so two
+    // components passing equal-but-distinct arrays never saw each other's data
+    // and getQueryData could not find any of it.
+    const fetcherKeys = [];
+    useSWR(['/api/user', 7], async (key) => { fetcherKeys.push(key); return 'ada'; },
+      { revalidateOnFocus: false, dedupingInterval: 0 });
+
+    await tick();
+    assert.equal(getQueryData(['/api/user', 7]), 'ada',
+      'the entry must be addressable by an equal key, not only by that exact Array');
+    assert.deepEqual(fetcherKeys, [['/api/user', 7]],
+      'the fetcher still receives the original key: how the cache spells it is not its business');
+
+    setQueryData(['/api/user', 7], 'grace');
+    const second = useSWR(['/api/user', 7], async () => 'from-network',
+      { revalidateOnFocus: false, dedupingInterval: 60_000 });
+    assert.equal(second.data(), 'grace', 'a second consumer joins the same entry');
+  });
+});
+
+describe('KNOWN LIMITATION: queryKey is read once, at hook creation', () => {
+  beforeEach(() => clearCache());
+
+  // This describe() pins a DEFECT, not a design. It is here so the behaviour is
+  // written down and so that making queryKey reactive breaks a test on purpose
+  // rather than by surprise.
+  //
+  // `enabled` is a live gate; the KEY next to it is not. useQuery does
+  // `const key = normalizeQueryKey(queryKey)` once, and components run once, so
+  // the array literal `['posts', user.data()?.id]` has already been built
+  // before useQuery ever sees it -- there is nothing left in it to observe.
+  // Making the key reactive therefore cannot be done by reading it more often;
+  // it needs a thunk form for the key, a lifecycle for switching keys (cancel
+  // in flight, move the invalidation subscription, re-point the data and status
+  // computeds at the new signals, decide what to show while it switches), and
+  // the same again in useSWR and useInfiniteQuery. That is a release, not a
+  // patch, so it is not attempted here.
+
+  it('freezes the key at whatever the dependency was worth on the first run', async () => {
+    const user = useQuery({
+      queryKey: ['limitation-user'],
+      queryFn: async () => ({ id: 1 }),
+      refetchOnWindowFocus: false,
+    });
+
+    // The natural dependent form. The gate is live, so this DOES wait for the
+    // user and DOES fetch afterwards -- it is only the key that is stuck.
+    const posts = useQuery({
+      queryKey: ['limitation-posts', user.data()?.id],
+      queryFn: async () => ['rows-of-1'],
+      enabled: () => user.data() != null,
+      refetchOnWindowFocus: false,
+    });
+
+    await ticks(3);
+    assert.deepEqual(posts.data(), ['rows-of-1'], 'the query itself runs correctly');
+
+    assert.equal(getQueryData(['limitation-posts', 1]), undefined,
+      'but its data is not under the key the caller thinks it is under');
+    assert.deepEqual(getQueryData(['limitation-posts', undefined]), ['rows-of-1'],
+      'it is under the key as it read at creation, when the dependency was pending');
+
+    let woken = 0;
+    invalidateQueries((key) => {
+      if (key === 'limitation-posts:1') woken++;
+      return false;
+    });
+    assert.equal(woken, 0, 'and invalidateQueries([...,1]) has nothing to match');
+  });
+
+  it('and two such queries collide on that one frozen key', async () => {
+    // The consequence worth knowing about: every instance created while its
+    // dependency is pending freezes to the SAME key, so they are one cache
+    // entry no matter which user each of them goes on to fetch for.
+    const a = signal(null);
+    const b = signal(null);
+    const mk = (who) => useQuery({
+      queryKey: ['limitation-collide', who()?.id],
+      queryFn: async () => `rows-of-user-${who().id}`,
+      enabled: () => who() != null,
+      refetchOnWindowFocus: false,
+    });
+
+    const qa = mk(a);
+    const qb = mk(b);
+
+    a({ id: 1 });
+    flushSync();
+    await ticks(2);
+    assert.equal(qa.data(), 'rows-of-user-1');
+    assert.equal(qb.data(), 'rows-of-user-1',
+      "user 2's panel is showing user 1's rows, having fetched nothing");
+
+    b({ id: 2 });
+    flushSync();
+    await ticks(2);
+    assert.equal(qa.data(), 'rows-of-user-2',
+      "and user 1's panel has been overwritten with user 2's rows");
+  });
+
+  it('has a form that works today: create the query once the key is known', async () => {
+    // The supported shape, and the one the docs should be showing. No `enabled`
+    // is needed: the query is not CREATED until its key is real, so the key it
+    // captures is the right one, addressable and invalidatable, and each user
+    // gets their own entry.
+    const user = useQuery({
+      queryKey: ['workaround-user'],
+      queryFn: async () => ({ id: 1 }),
+      refetchOnWindowFocus: false,
+    });
+
+    let versions = 0;
+    function Posts({ userId }) {
+      const posts = useQuery({
+        queryKey: ['workaround-posts', userId],
+        queryFn: async () => `rows-of-${userId}-v${++versions}`,
+        refetchOnWindowFocus: false,
+      });
+      return h('p', {}, () => String(posts.data() ?? 'empty'));
+    }
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    mount(h('div', {}, () => {
+      const u = user.data();
+      return u ? h(Posts, { userId: u.id }) : h('span', {}, 'loading user');
+    }), container);
+
+    flushSync();
+    assert.equal(container.textContent, 'loading user');
+
+    await ticks(3);
+    flushSync();
+    assert.equal(container.textContent, 'rows-of-1-v1');
+    assert.equal(getQueryData(['workaround-posts', 1]), 'rows-of-1-v1',
+      'the key is the one the caller wrote');
+
+    invalidateQueries(['workaround-posts', 1]);
+    await ticks(2);
+    flushSync();
+    assert.equal(container.textContent, 'rows-of-1-v2', 'and the invalidation reaches it');
   });
 });
