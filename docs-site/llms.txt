@@ -9,6 +9,7 @@ Key facts an agent should know before writing code:
 - `computed()` is lazy, cached derived state. `effect()` auto-tracks signal reads (no dependency array). `batch()` flushes effects once and returns nothing.
 - Import the core from `'what-framework'` (the umbrella package re-exports it). SSR and server actions live on `'what-framework/server'`, routing on `'what-framework/router'`; those names are not on the umbrella.
 - Native What APIs are preferred. `what-react` is a secondary compatibility layer for the React ecosystem.
+- **Compiled JSX cannot be server-rendered.** The compiler lowers JSX to a module-level `_$template()` that calls `document.createElement` at MODULE LOAD TIME, so importing a compiled module in Node throws `ReferenceError: document is not defined` before any render function runs. Write server-rendered components with `h()` or the automatic JSX runtime (`jsx`/`jsxs`, which build vnodes at call time), and keep the template compiler for client-only bundles. The full-stack `create-what` scaffold is buildless and uses `h()` for this reason.
 
 ## Start here
 

@@ -12,6 +12,7 @@
 - **`effect()`** auto-tracks the signals it reads. No dependency array. Return a function to clean up. It returns a dispose function.
 - **`batch()`** groups writes so effects flush once. It returns nothing: the callback's value is discarded.
 - Import the core from `'what-framework'`. SSR and server actions come from `'what-framework/server'` and routing from `'what-framework/router'`; neither set is re-exported by the umbrella.
+- **Two render paths, and only one of them can be server-rendered.** The What compiler lowers JSX to a module-level `_$template()` call that runs `document.createElement` at MODULE LOAD TIME. So a compiled module cannot be imported in Node at all: the import throws `ReferenceError: document is not defined` before any render function is reached, and no SSR entry point can change that. Write anything you intend to server-render with `h()` or with the automatic JSX runtime (`jsx`/`jsxs`, which build vnodes at call time rather than templates at load time). Keep the template compiler for client-only bundles. The full-stack scaffold `create-what` generates is buildless and uses `h()` for exactly this reason. Where behaviour differs between the two paths (keyed list reconciliation, the `<For>` item protocol, whether `{sig()}` stays live) the compiled path is the one with the optimizations and the runtime path is the one that can run on a server.
 
 ---
 

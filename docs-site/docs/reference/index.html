@@ -320,6 +320,12 @@
           <h2 id="ssr">Server-Side Rendering</h2>
           <p>From <code>what-framework/server</code>, except <code>hydrate</code>, which is the client half and comes from <code>what-framework</code>. <a href="../learn/ssr.html">Learn more →</a></p>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">Every <code>element</code> below has to come from <code>h()</code> or the automatic JSX runtime</p>
+            <p>The What compiler lowers JSX to a module-level <code>_$template()</code> call, and that call runs <code>document.createElement</code> at MODULE LOAD TIME. So a compiled module cannot be <em>imported</em> in Node at all: the import itself throws <code>ReferenceError: document is not defined</code>, before any render function is reached. Nothing on this page can change that, because the failure happens before your code runs.</p>
+            <p>A server-rendered app therefore writes its components with <code>h()</code>, or with the automatic JSX runtime (<code>jsx</code>/<code>jsxs</code>, which build vnodes at call time rather than templates at load time), and leaves the template compiler for client-only bundles. The full-stack scaffold <code>create-what</code> generates is buildless and uses <code>h()</code> for exactly this reason. <code>hydrate()</code> has the same constraint on the client half: it reuses the server DOM for an <code>h()</code> tree, and a compiled tree cannot have produced that HTML in the first place.</p>
+          </div>
+
           <table>
             <thead>
               <tr><th>Function</th><th>Description</th></tr>
