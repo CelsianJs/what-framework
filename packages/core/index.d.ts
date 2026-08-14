@@ -28,7 +28,13 @@ export function signal<T>(initial: T, debugName?: string): Signal<T>;
 export function computed<T>(fn: () => T): Computed<T>;
 export function effect(fn: () => void | (() => void), opts?: { stable?: boolean }): () => void;
 export function signalMemo<T>(fn: () => T): Computed<T>;
-export function batch<T>(fn: () => T): T;
+/**
+ * Group signal writes so effects run once at the end. The callback's return
+ * value is DISCARDED: batch() returns undefined. It was declared as `<T>(fn: ()
+ * => T) => T`, so `const rows = batch(() => compute())` typechecked and handed
+ * back undefined at runtime.
+ */
+export function batch(fn: () => unknown): void;
 export function untrack<T>(fn: () => T): T;
 export function flushSync(): void;
 export function createRoot<T>(fn: (dispose: () => void) => T): T;
@@ -106,7 +112,16 @@ export function classList(el: Element, classes: Record<string, boolean | (() => 
 
 // --- Hooks ---
 
-export function useState<T>(initial: T | (() => T)): [T, (value: Updater<T>) => void];
+/**
+ * Returns [signal, setter]. The first element is the SIGNAL ITSELF, not a
+ * snapshot value: components run once, so there is no re-render to hand a new
+ * `T` to. Read it by calling it (`count()`), or pass it straight into JSX where
+ * insert() binds it reactively.
+ *
+ * It was declared as `[T, setter]`, which made the correct code (`count()`) a
+ * type error and the wrong code (`count + 1`) type-check.
+ */
+export function useState<T>(initial: T | (() => T)): [Signal<T>, (value: Updater<T>) => void];
 export function useSignal<T>(initial: T | (() => T)): Signal<T>;
 export function useComputed<T>(fn: () => T): Computed<T>;
 export function useEffect(fn: () => void | (() => void), deps?: unknown[]): void;

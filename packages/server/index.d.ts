@@ -14,6 +14,13 @@ export interface RenderRequestContext {
   params?: Record<string, string>;
   query?: Record<string, string>;
   request?: any;
+  /**
+   * The visitor's per-request CSRF token, on directly-rendered routes only.
+   * Return it from the loader to pass into <Form csrfToken> so the no-JS submit
+   * survives the double-submit check. A CACHED route never has one: its HTML is
+   * shared, so a form there only submits with the client enhancer active.
+   */
+  csrfToken?: string;
   [key: string]: any;
 }
 
@@ -66,10 +73,21 @@ export type { IslandOptions, IslandStore, IslandStatus } from './islands.js';
 // --- Server Actions ---
 
 export interface ActionOptions {
+  /** Stable id shared by the client and server bundles. The compiler emits one; pass it by hand only for uncompiled builds. */
   id?: string;
   onError?: (error: Error) => void;
   onSuccess?: (result: any) => void;
+  /** Paths to revalidate after the action succeeds. */
   revalidate?: string[];
+  /**
+   * Cache tags to purge after the action succeeds (handleActionRequest reads
+   * these off the registered action). The only way to purge by tag from an
+   * action declaration, so leaving it undeclared made the documented call a
+   * compile error.
+   */
+  revalidateTags?: string[];
+  /** Client-side fetch timeout in ms. Default 30000. */
+  timeout?: number;
 }
 
 /** Define a server action */
@@ -189,13 +207,21 @@ export function renderToStringAsync(
   ctx?: unknown,
 ): Promise<{ body: string; head: string; resources: Record<string, unknown> }>;
 
+// The five keys wrapHtmlDocument reads. `bodyAttrs`, `scripts` and `styles`
+// were declared here and read by nothing: `styles: ['/app.css']` typechecked,
+// shipped, and produced a page with no stylesheet and no error. (PageConfig's
+// scripts/styles are real; these were not.)
 export interface DocumentOptions {
+  /** <html lang>, default 'en'. */
   lang?: string;
+  /** Raw markup appended to <head>. */
   head?: string;
-  bodyAttrs?: string;
-  scripts?: string[];
-  styles?: string[];
-  [key: string]: any;
+  /** class attribute for <body>. */
+  bodyClass?: string;
+  /** Module script src for the hydration entry. */
+  clientEntry?: string;
+  /** Per-request CSRF token, inlined as <meta name="what-csrf-token">. The deploy adapter supplies this. */
+  csrfToken?: string;
 }
 
 /**
@@ -207,9 +233,6 @@ export function renderDocument(
   reqCtx?: RenderRequestContext,
   options?: DocumentOptions,
 ): Promise<string>;
-
-/** Render a PageConfig to a complete static HTML document. */
-export function generateStaticPage(page: PageConfig, data?: any): string;
 
 // --- <Form> ---
 // A real <form method="post"> that posts to the action endpoint, so it submits
@@ -248,10 +271,17 @@ export function csrfMetaTag(token: string): string;
 // --- Action handlers ---
 // Runtime-neutral core, plus the two host bindings.
 
+// The three options createActionHandler reads, and only those. `csrfSecret` and
+// `onError` were declared here and read by nothing: an `onError` handler that
+// is never called is worse than no handler, so the open index signature that
+// hid the mismatch is gone too.
 export interface ActionHandlerOptions {
-  csrfSecret?: string;
-  onError?: (error: unknown) => void;
-  [key: string]: any;
+  /** Resolve the session's CSRF token for a request (sync or async). Omit together with `skipCsrf: true`. */
+  getCsrfToken?: (reqLike: any) => string | null | undefined | Promise<string | null | undefined>;
+  /** Opt out of CSRF validation (e.g. a token-authed API behind another gateway). */
+  skipCsrf?: boolean;
+  /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. */
+  basePath?: string;
 }
 
 export function createActionHandler(options?: ActionHandlerOptions): (request: any) => Promise<any>;
@@ -260,14 +290,123 @@ export function fetchActionHandler(options?: ActionHandlerOptions): (request: Re
 
 // --- Deploy adapters ---
 
-export interface RequestHandlerOptions {
-  routes?: any[];
-  documentOptions?: DocumentOptions;
+/**
+ * A route the adapter can match and render. Open on purpose: routes carry
+ * app-specific metadata (titles, guards, nested children) the adapter ignores.
+ */
+export interface RouteDefinition {
+  path: string;
+  /**
+   * The page component. The `any` in `VNode<any>` is load-bearing, NOT laziness:
+   * `VNode<P>` carries P through `tag: string | Component<P>`, and `Component<P>`
+   * is contravariant in its props under strictFunctionTypes, so `VNode<P>` is
+   * effectively invariant. `h('div', { class: 'x' })` returns
+   * `VNode<{ class: string }>`, which is therefore NOT assignable to bare
+   * `VNode` (= `VNode<Record<string, any>>`). Writing `VNode` here made every
+   * route component built with h() and any props at all a TS2322, including the
+   * `h(Form, { csrfToken: loaderData.token })` page the csrfToken plumbing above
+   * exists to make writable. Only `() => null` and `h('div', {})` survived it.
+   */
+  component: (props: any) => VNode<any> | null;
+  /** Runs per request before the component. Receives `csrfToken` on directly-rendered (uncached) routes. */
+  loader?: (ctx: RenderRequestContext) => any;
+  mode?: 'static' | 'server' | 'client' | 'hybrid';
+  /** The route's cache config. Mirrors what-isr's PageCacheConfig structurally so what-server keeps working without what-isr installed. */
+  page?: {
+    mode?: 'static' | 'server' | 'client' | 'hybrid';
+    revalidate?: number;
+    swr?: number;
+    tags?: string[];
+    vary?: string[] | string;
+    [key: string]: any;
+  };
   [key: string]: any;
 }
 
+/** What the adapter passes to (and expects back from) a render function. */
+export interface RouteMatchContext {
+  path: string;
+  query: Record<string, string>;
+  params: Record<string, string>;
+  config: Record<string, any>;
+  route: RouteDefinition;
+  request: Request;
+  /** Present only on the direct-render path. Cached HTML is shared, so it never carries a per-visitor token. */
+  csrfToken?: string;
+  varyHeaders?: Record<string, string>;
+}
+
+// What a `render` override hands back. Closed, like the options above, so every
+// key has to be one the runtime reads: the adapter reads `html` and `status`,
+// and when a cache engine is present what-isr's makeEntry reads the whole object
+// (see its own declaration of the makeEntry input, which this mirrors).
+export interface RenderRouteResult {
+  html: string;
+  status?: number;
+  tags?: string[];
+  path?: string;
+  head?: string;
+  state?: unknown;
+  /**
+   * Keep this render out of the shared cache. what-isr stores an entry only when
+   * `status === 200 && !private`, and buildCacheHeaders strips the public
+   * directives from it. Leaving it off this interface made the one switch that
+   * stops a per-visitor page being served to every visitor a compile error,
+   * which is the same shape of hazard as baking a per-visitor CSRF token into
+   * cached HTML.
+   */
+  private?: boolean;
+  /** The render read request headers, so it is per-user: makeEntry folds this into `private`. */
+  usedRequestHeaders?: boolean;
+  /** A partial render (skeleton or streamed shell). buildCacheHeaders forces its s-maxage to 0. */
+  partial?: boolean;
+}
+
+/**
+ * The subset of what-isr's CacheEngine the adapter touches. Structural so
+ * what-server never has to import what-isr (an optional peer).
+ */
+export interface CacheEngineLike {
+  handle(routeMatch: RouteMatchContext, render?: () => any): Promise<{
+    html: string;
+    status?: number;
+    headers?: Record<string, string>;
+  }>;
+  revalidatePath?: (path: string, options?: any) => any;
+  revalidateTag?: (tag: string, options?: any) => any;
+}
+
+// Every key here is destructured by createRequestHandler. There is no index
+// signature: an option the adapter does not read is dead config, and
+// `documentOptions` (declared here, never read, the real key is `document`)
+// silently rendered every page without the caller's document options.
+export interface RequestHandlerOptions {
+  routes?: RouteDefinition[];
+  /** ISR engine. Omit for no caching. */
+  cache?: CacheEngineLike;
+  /** Replace the built-in route renderer. */
+  render?: (routeMatch: RouteMatchContext) => RenderRouteResult | Promise<RenderRouteResult>;
+  /** Handler for POST /__what_revalidate, e.g. what-isr's createRevalidateWebhook. */
+  revalidateWebhook?: (req: { headers: Record<string, string>; body: any }) => Promise<{ status: number; body: any }>;
+  /** Document shell options passed to renderDocument. */
+  document?: DocumentOptions;
+  /** Body for unmatched paths. */
+  notFound?: () => string;
+  /** Path prefix stripped before matching. */
+  basePath?: string;
+  /** Double-submit CSRF, on by default. */
+  csrf?: boolean;
+  /** Take over /__what_action entirely. A custom handler owns its own CSRF policy, so cookie/meta auto-provisioning is skipped. */
+  actionHandler?: (reqLike: any) => Promise<{ status: number; headers: Record<string, string>; body: any }>;
+}
+
+// Request in, Response out, and nothing else: the handler takes ONE argument.
+// It was declared with (request, env, ctx) like a Workers fetch handler, which
+// it is not. It can still BE one (createCloudflareHandler wraps it and puts
+// env/ctx on the request), and a one-argument function is assignable where a
+// three-argument one is expected, so nothing that worked stops working.
 /** Runtime-neutral request handler: Request in, Response out. */
-export function createRequestHandler(options?: RequestHandlerOptions): (request: Request, env?: any, ctx?: any) => Promise<Response>;
+export function createRequestHandler(options?: RequestHandlerOptions): (request: Request) => Promise<Response>;
 
 /** Cloudflare Workers entry wrapping createRequestHandler. */
 export function createCloudflareHandler(options?: RequestHandlerOptions): { fetch: (request: Request, env?: any, ctx?: any) => Promise<Response> };
