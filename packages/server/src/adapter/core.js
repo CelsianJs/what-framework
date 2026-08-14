@@ -51,12 +51,25 @@ async function readJsonBody(request) {
 
 function defaultRenderRoute(documentOptions) {
   return async function renderRoute(routeMatch) {
-    const { route, params, query, request } = routeMatch;
+    const { route, params, query, request, csrfToken } = routeMatch;
     const pageModule = { default: route.component, loader: route.loader };
-    const opts = routeMatch.csrfToken
-      ? { ...documentOptions, csrfToken: routeMatch.csrfToken }
+    // The token goes to the LOADER as well as the document. A server-rendered
+    // <Form> has to put the per-visitor token in a hidden field, and the loader
+    // is the only per-request hook a page has before its component runs, so
+    // without this the token exists (as a cookie and a <meta> tag) and is still
+    // unreachable from the markup: the form ships an empty field and the no-JS
+    // submit dies on the double-submit check with a silent 403. The create-what
+    // scaffold already hand-rolled its own renderRoute to do exactly this.
+    //
+    // Only the direct-render branch below sets routeMatch.csrfToken, so a
+    // CACHED route's loader still sees no token. That is deliberate, not an
+    // omission: cached HTML is shared between visitors and must never carry one
+    // visitor's token.
+    const reqCtx = csrfToken ? { params, query, request, csrfToken } : { params, query, request };
+    const opts = csrfToken
+      ? { ...documentOptions, csrfToken }
       : documentOptions;
-    const html = await renderDocument(pageModule, { params, query, request }, opts);
+    const html = await renderDocument(pageModule, reqCtx, opts);
     return {
       html,
       status: 200,

@@ -5,7 +5,7 @@
 
 import { signal, computed, effect, batch, untrack, createRoot, __DEV__ } from './reactive.js';
 import { getCurrentComponent } from './dom.js';
-import { getServerContext } from './server-context.js';
+import { getServerContext, isServerRender } from './server-context.js';
 import { getLoaderData as _getLoaderData, getResource as _getResource } from './hydration-data.js';
 
 // --- useLoaderData ---
@@ -14,7 +14,18 @@ import { getLoaderData as _getLoaderData, getResource as _getResource } from './
 // consolidated #__what_data payload). Intentionally NOT a component-scoped hook
 // (no hook slot) so it is safe to call anywhere — components, effects, helpers.
 export function useLoaderData() {
-  if (typeof document === 'undefined') {
+  // The branch is on "is a server render in progress", NOT on "does a document
+  // exist". Those are different questions, and `typeof document === 'undefined'`
+  // answers the wrong one: jsdom and happy-dom are loaded process-wide by a huge
+  // number of test setups, and some SSR runtimes ship a DOM shim outright, so a
+  // REAL server render routinely sees a `document`. It then took the client path
+  // and returned the #__what_data payload left over from a PREVIOUS render
+  // instead of this request's loader result — the page silently served another
+  // request's data, and under concurrency, another user's.
+  //
+  // isServerRender() asks the render scope (see server-context.js), which is the
+  // same correction 0.12.0 applied to renderToString.
+  if (isServerRender()) {
     const ctx = getServerContext();
     return ctx ? ctx.loaderData : undefined;
   }
@@ -337,7 +348,13 @@ export function createResource(fetcher, options = {}) {
   // --- Server branch: run the fetcher, cache by key on the render context, and
   // suspend (throw the promise) so the nearest Suspense shows its fallback until
   // the data resolves. On re-render the cached value is returned synchronously.
-  if (typeof document === 'undefined') {
+  //
+  // Gated on the render scope for the same reason as useLoaderData above: under
+  // a DOM shim a server render used to fall into the CLIENT branch, which starts
+  // a browser-style fetch, returns null immediately and never suspends. The
+  // server then emitted the empty state as final HTML and renderToStringAsync
+  // had nothing pending to await, so the resolve loop exited after one pass.
+  if (isServerRender()) {
     const ctx = getServerContext();
     if (ctx) {
       const key = options.key != null ? options.key : `__r${ctx.resourceCounter++}`;

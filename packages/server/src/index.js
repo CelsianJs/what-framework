@@ -100,6 +100,41 @@ const BOUNDARY_TAGS = new Set(['__errorBoundary', '__suspense']);
 // same app produces the same HTML whether or not a shim happens to be loaded.
 const SERVER_SKIPPED_TAGS = new Set(['__portal']);
 
+// The props a component is called with. The server has to hand a component
+// exactly what the client hands it, and it did not.
+//
+// dom.js:593 collapses the children list before it becomes a prop, and when
+// there are NO children it sets no `children` key at all, so an ordinary JS
+// default parameter
+//
+//     function SkipLink({ children = 'Skip to content' }) { ... }
+//
+// applies. The server passed `children: vnode.children` verbatim, which is `[]`
+// for a childless component, and `[]` is defined, so the default NEVER applied
+// server-side. A server-rendered <SkipLink /> shipped `<a href="#main"></a>`: a
+// link with no accessible name (a WCAG 2.4.4 failure) until the client hydrated
+// and replaced it, which is exactly the case where the markup has to stand on
+// its own. The divergence is general, not specific to SkipLink: every component
+// with a defaulted children prop rendered one thing on the client and another on
+// the server. The same blanket override also discarded children passed as a
+// plain PROP (`h(Card, { children: body })`), which the client keeps precisely
+// because there are no vnode children to replace it with.
+//
+// "Childless" has to mean what it means on the client: an EMPTY list. h() drops
+// null/false/true children (h.js:48,66) but keeps '' as the string child it is,
+// so `<Comp>{''}</Comp>` has one child and the default must NOT apply there.
+// Only length 0 counts, plus a hand-built vnode carrying no children array.
+//
+// Not yet matched: the client also UNWRAPS a single child (`[child]` -> `child`).
+// Aligning that here alone would break <Island>, which puts the prop straight
+// back onto a vnode's children (islands.js:243) where the element renderer
+// requires an array. That one needs both sides changed together.
+function _componentProps(vnode) {
+  const children = vnode.children;
+  if (!children || children.length === 0) return { ...vnode.props };
+  return { ...vnode.props, children };
+}
+
 function _boundaryFallback(vnode, error) {
   const fallback = vnode.props && vnode.props.fallback;
   if (typeof fallback !== 'function') return fallback;
@@ -178,7 +213,7 @@ function _renderHydratable(vnode) {
     const ctx = _beginComponentSSR(vnode.tag);
     let html;
     try {
-      html = _renderHydratable(vnode.tag({ ...vnode.props, children: vnode.children }));
+      html = _renderHydratable(vnode.tag(_componentProps(vnode)));
     } finally {
       _endComponentSSR(ctx);
     }
@@ -309,7 +344,7 @@ export function renderToString(vnode) {
   if (typeof vnode.tag === 'function') {
     const ctx = _beginComponentSSR(vnode.tag);
     try {
-      return renderToString(vnode.tag({ ...vnode.props, children: vnode.children }));
+      return renderToString(vnode.tag(_componentProps(vnode)));
     } finally {
       _endComponentSSR(ctx);
     }
@@ -532,7 +567,7 @@ export async function* renderToStream(vnode, ctx) {
     try {
       const result = runWithServerContext(
         ctx,
-        () => vnode.tag({ ...vnode.props, children: vnode.children })
+        () => vnode.tag(_componentProps(vnode))
       );
       // Support async components
       const resolved = result instanceof Promise ? await result : result;
@@ -584,10 +619,19 @@ export function definePage(config) {
 // Generate static HTML for a page
 export function generateStaticPage(page, data = {}) {
   const ctx = createRenderContext(data);
-  const html = runWithServerContext(ctx, () => {
-    const vnode = page.component(data);
-    return renderToString(vnode);
-  });
+  // Render the page as a vnode instead of calling the component and handing the
+  // result over. `page.component(data)` ran BARE, outside the component frame
+  // renderToString establishes, so nothing was on the component stack and every
+  // context-dependent hook threw: useState, useSignal, useEffect, useMemo,
+  // useRef, onMount and <Ctx.Provider> all resolve through
+  // getCurrentComponent(). One hook anywhere in the page component's own body
+  // meant THE documented static-generation entry point could not render it at
+  // all, which rules out most real pages.
+  //
+  // `data` still reaches the component as its props (the same convention
+  // renderPage uses), and the body HTML this produces is byte-identical for a
+  // page that does not use hooks, so what wrapDocument receives is unchanged.
+  const html = runWithServerContext(ctx, () => renderToString(h(page.component, data)));
   const islands = page.islands || [];
 
   return wrapDocument({
