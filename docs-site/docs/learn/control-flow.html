@@ -107,7 +107,7 @@
           <ul>
             <li><code>when</code>: the condition to check. Pass a signal by name (<code>when={user}</code>) or a thunk (<code>when={() =&gt; user()}</code>). The compiler calls a bare identifier as an accessor when it can tell the name is a signal (a local initialised by <code>signal()</code>, a destructured prop, or an import), so a plain value passed under such a name throws; and it does <em>not</em> call a property access, so <code>when={props.user}</code> tests the function object and stays permanently truthy. A thunk is always safe.</li>
             <li><code>fallback</code>: (optional) what to render when the condition is falsy.</li>
-            <li><strong>Compiled</strong>, <code>when</code> gates which nodes are <em>inserted</em>, not when the children's bindings run. Plain-element children are built alongside the surrounding component, so a binding inside them must survive the falsy case: write <code>{() =&gt; user()?.name}</code>, not <code>{() =&gt; user().name}</code>. Uncompiled, the children genuinely are lazy and the unguarded form does not throw, so the optional chain is the spelling that is safe on both paths. A component child (<code>&lt;Show when={user}&gt;&lt;Profile /&gt;&lt;/Show&gt;</code>) really is created lazily and needs no guard.</li>
+            <li>Children are lazy on both paths. Nothing inside the branch is built or run until <code>when</code> turns truthy, so a plain element child, a component child and a binding like <code>{() =&gt; user().name}</code> all survive a first render where <code>user</code> is still <code>null</code>. The one thing to know is the swap: compiled, a binding belonging to a branch that has closed can still re-run when the condition changes again, so an unguarded read of the value that just went away writes a <code>TypeError</code> to the console. The rendered DOM stays correct either way, and <code>{() =&gt; user()?.name}</code> keeps the console clean.</li>
           </ul>
 
           <h3>With Signals</h3>
@@ -153,16 +153,13 @@ isLoggedIn.set(<span class="keyword">true</span>);  <span class="comment">// Now
           </ul>
 
           <h3>Empty State</h3>
-          <p>The compiler reads only <code>each</code> and <code>key</code> off <code>&lt;For&gt;</code>, so a <code>fallback</code> prop on it renders on the uncompiled runtime path and is dropped from compiled output. Put the empty state beside the list, not around it:</p>
-<pre><code><span class="keyword">import</span> { For, Show } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+          <p>Give <code>&lt;For&gt;</code> a <code>fallback</code> and it renders that in place of the rows whenever the list is empty or <code>null</code>. Both paths honour it, so the empty state survives a move from a buildless setup to the Vite compiler:</p>
+<pre><code><span class="keyword">import</span> { For } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 &lt;ul&gt;
-  &lt;For each={items}&gt;
+  &lt;For each={items} fallback={&lt;li&gt;No items yet&lt;/li&gt;}&gt;
     {item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;}
   &lt;/For&gt;
-  &lt;Show when={<span class="function">() =&gt;</span> items().length === <span class="number">0</span>}&gt;
-    &lt;li&gt;No items yet&lt;/li&gt;
-  &lt;/Show&gt;
 &lt;/ul&gt;</code></pre>
 
           <h3>Reactive Updates</h3>
@@ -246,7 +243,7 @@ todos.set(t =&gt; t.map(item =&gt;
             <li>Notifications/toasts</li>
           </ul>
 
-          <p><code>&lt;Portal&gt;</code> is client-only. It returns <code>null</code> during server rendering, so its content is absent from the server HTML. Hydrating a tree that contains one creates the portal on the client, in its target, and logs <code>Hydration mismatch: expected &lt;__portal&gt;</code> in a dev build.</p>
+          <p><code>&lt;Portal&gt;</code> is client-only. It returns <code>null</code> during server rendering, so its content is absent from the server HTML. Hydrating a tree that contains one creates the portal on the client, in its target, and claims nothing at its own position, so the server's nodes on either side of it are left alone.</p>
 
           <h2 id="error-boundary">ErrorBoundary</h2>
           <p>Catch errors in child components:</p>
@@ -264,7 +261,18 @@ todos.set(t =&gt; t.map(item =&gt;
 
           <p>The fallback is called with a single object, <code>{ error, reset }</code>, so destructure it. Two positional parameters leave <code>reset</code> undefined and the retry button wired to nothing. There is also an optional <code>onError</code> prop for reporting the error somewhere.</p>
 
-          <p>One environment caveat: a boundary server-renders its children correctly, but hydration has no branch for the boundary tag in 0.12.3. Hydrating a tree that contains one logs <code>Hydration mismatch: expected &lt;__errorBoundary&gt;</code> and leaves the boundary's subtree empty. Until 0.13.0, keep boundaries inside client-rendered subtrees such as an island.</p>
+          <p>Boundaries work server-side too. A child that throws during a server render puts the fallback in the HTML instead of taking down the whole page response, and the boundary emits its subtree with no wrapper element of its own. Hydration then claims that markup in place rather than rebuilding it: the nodes the server sent are the nodes the browser keeps, no mismatch is logged, and the siblings after the boundary keep their server nodes too. <code>&lt;Suspense&gt;</code> behaves the same way, because a lazy component whose chunk is still loading suspends on the server as well, so the server sends the spinner and hydration claims it. That is the shape of every lazy route on first load.</p>
+
+          <p>One case still rebuilds. If the boundary has children <em>before</em> the child that throws, the server sends only the fallback (children render as a unit, so nothing ahead of the thrower reaches the wire either), and on the client those earlier children hydrate first and consume the fallback's markup before the boundary is told an error happened. Nothing is left to reuse, so the boundary discards the region and builds the fallback fresh, logging one hydration mismatch on the way. The page is correct either way; what is lost is the reuse. This cannot be closed from the client, because the server does not mark which arm it rendered, so a boundary whose failing child is its first or only child reuses the server's fallback, and one with content ahead of the failure rebuilds it. Two further cases rebuild deliberately, so a boundary can never claim a node belonging to something else: when the server rendered nothing at that position, and when the node sitting there plainly disagrees with the fallback's root element.</p>
+
+          <p>The boundary is fully live after hydration, and <code>reset</code> swaps the children back in. Be precise about what "live" covers, though: <code>ErrorBoundary</code> catches an error thrown while a component is being <em>created</em>, meaning the component function body running. That includes components created after hydration, so flipping a signal that instantiates a failing child does swap in the fallback. It does <strong>not</strong> catch an error thrown from an event handler or from an effect. A click handler that throws is not caught, the fallback does not appear, and the error goes to the browser's own error handling. This is not a hydration limitation: a client-only render behaves identically. Handlers and effects that can fail have to catch their own errors and drive the UI from state you own, which is the ordinary signal pattern:</p>
+
+<pre><code><span class="keyword">const</span> failure = <span class="function">signal</span>(<span class="keyword">null</span>);
+
+&lt;button onClick={<span class="function">() =&gt;</span> {
+  <span class="keyword">try</span> { save(); } <span class="keyword">catch</span> (e) { failure.set(e.message); }
+}}&gt;Save&lt;/button&gt;
+{<span class="function">() =&gt;</span> failure() ? &lt;p className=<span class="string">"error"</span>&gt;{failure()}&lt;/p&gt; : <span class="keyword">null</span>}</code></pre>
 
           <h2 id="comparison">Comparison with Plain JS</h2>
 

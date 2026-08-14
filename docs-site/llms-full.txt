@@ -1,6 +1,6 @@
 # What Framework, full agent guide
 
-> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect a running app, and core runtime errors are structured with a code, fix, and example. This file inlines the essentials an agent needs to write, debug, and ship correct What code.
+> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect a running app, and its `what_fix` tool returns a code, fix, and worked example for any What error code offline. This file inlines the essentials an agent needs to write, debug, and ship correct What code.
 
 ---
 
@@ -9,9 +9,9 @@
 - **Signals are functions.** `const count = signal(0, 'count')`. Read with `count()`. Write with `count(5)` or `count(c => c + 1)`. `count.set(...)` is the same write, and `count.peek()` reads without subscribing.
 - **Components run once.** The component function body executes a single time. It never re-runs on state change. Reactivity comes from signals creating fine-grained DOM effects, not from re-rendering.
 - **`computed()`** is lazy, cached derived state: `const doubled = computed(() => count() * 2)`.
-- **`effect()`** auto-tracks the signals it reads. No dependency array. Return a function to clean up.
-- **`batch()`** groups writes so effects flush once.
-- Import everything from `'what-framework'`.
+- **`effect()`** auto-tracks the signals it reads. No dependency array. Return a function to clean up. It returns a dispose function.
+- **`batch()`** groups writes so effects flush once. It returns nothing: the callback's value is discarded.
+- Import the core from `'what-framework'`. SSR and server actions come from `'what-framework/server'` and routing from `'what-framework/router'`; neither set is re-exported by the umbrella.
 
 ---
 
@@ -48,7 +48,7 @@ function Counter() {
 mount(<Counter />, '#app'); // returns a dispose function
 ```
 
-Signal reads inside JSX children and attributes are auto-wrapped by the compiler, you do not write `{() => count()}` manually.
+Signal reads inside JSX children and attributes are auto-wrapped by the compiler, you do not write `{() => count()}` manually. That is a COMPILED-path guarantee. Writing `h()` calls by hand there is no compiler, so `h('span', {}, \`n=${count()}\`)` renders once and never updates: pass a thunk (`() => \`n=${count()}\``) or the bare signal (`h('span', {}, count)`) instead.
 
 Manual setup without the scaffolder:
 
@@ -65,7 +65,7 @@ export default defineConfig({ plugins: [what()] });
 ## Signals API
 
 ```js
-import { signal, computed, effect, batch, onMount, onCleanup, mount } from 'what-framework';
+import { signal, computed, effect, batch, onMount, onCleanup, h, mount } from 'what-framework';
 
 // Create state. The second arg is an optional debug name (recommended, it
 // makes the signal traceable in DevTools and MCP).
@@ -89,9 +89,15 @@ effect(() => {
 // Batch multiple writes so effects run once at the end.
 batch(() => { count(0); /* ...other writes... */ });
 
-// Lifecycle.
-onMount(() => { /* runs after first mount; good for browser-only APIs */ });
-onCleanup(() => { /* runs on dispose */ });
+// Lifecycle. BOTH must be called inside a component function body: called
+// anywhere else they throw ("onMount() can only be called inside a component
+// function"). onMount runs asynchronously after the mount, so it is not
+// observable in the same tick as mount(); flushSync() does not pull it forward.
+function Widget() {
+  onMount(() => { /* runs after first mount; good for browser-only APIs */ });
+  onCleanup(() => { /* runs on unmount / dispose */ });
+  return h('div', {});
+}
 ```
 
 Lists: use `.map()` with a `key` prop. The compiler lowers it to keyed reconciliation.
@@ -112,12 +118,26 @@ items(prev => prev.map(i => i.id === id ? { ...i, done: true } : i)); // update 
 
 ## Common errors and fixes
 
-What's core runtime emits structured `WhatError` objects that serialize to JSON
-with a `code`, `message`, `suggestion`, and `codeExample`. The codes below are
-the ones the runtime detects and reports in dev mode.
+A `WhatError` serializes to JSON with `code`, `message`, `suggestion`,
+`codeExample`, `file`, `line`, `component`, `signal`, `effect`, and dev-mode
+collected errors are readable with `getCollectedErrors()`. Know which channel
+each condition actually arrives on, because they differ:
+
+- **Structured `WhatError`:** only ERR_MISSING_SIGNAL_READ, and only once the
+  signal-read guardrail is installed on a signal (what-devtools does this for
+  every signal it registers). Without devtools nothing detects it.
+- **Dev console warning, no code in the text, nothing collected:**
+  ERR_INFINITE_EFFECT, ERR_UNSAFE_INNERHTML, ERR_HYDRATION_MISMATCH.
+- **Build time, from the compiler:** ERR_MISSING_KEY.
+- **Not reported at all by anything:** ERR_SIGNAL_WRITE_IN_RENDER and
+  ERR_ORPHAN_EFFECT. They are still real mistakes and still valid input to
+  `what_fix`, but nothing will tell you when you make them.
 
 ### ERR_INFINITE_EFFECT, effect cycle
-An effect writes to a signal it also reads, creating a loop (capped at 25 flush iterations).
+An effect writes to a signal it also reads, creating a loop. The runtime caps
+the flush at 25 iterations, drops the pending effects, and warns in dev:
+`[what] Possible infinite effect loop detected (25 iterations)`, naming the
+looping effects.
 
 ```js
 // Bad, reads and writes count in the same effect:
@@ -129,15 +149,30 @@ effect(() => { count(untrack(count) + 1); });
 ```
 
 ### ERR_MISSING_SIGNAL_READ, signal used without calling it
-Renders `[Function]` instead of the value.
+Raised when a signal is coerced to a string or a number instead of being read,
+so the signal itself, not its value, ends up in the output or the comparison.
+This is the one code the runtime raises as a structured `WhatError`, and it is
+raised off the signal's own `toString`/`valueOf`, which only the guardrail
+installs. In an app without what-devtools the same mistake is SILENT: the
+template literal prints the function's source text and the comparison is false.
 
 ```jsx
-<span>{count}</span>    // Bad, renders "[Function]"
-<span>{count()}</span>  // Good, call the signal
+<p>{`Total: ${count}`}</p>    // Bad, prints the signal function's source text
+<p>{`Total: ${count()}`}</p>  // Good, call the signal
+
+if (count > 5) { }            // Bad, compares a function, always false
+if (count() > 5) { }          // Good
 ```
 
+A signal passed on its own as a JSX child or an attribute value is fine: a
+function there is What's reactive-binding protocol, so `<span>{count}</span>`
+renders the value and stays live.
+
 ### ERR_SIGNAL_WRITE_IN_RENDER, write during render
-The component body should read signals, not write them. Move writes into handlers, effects, or `onMount`.
+NOT DETECTED by anything today, in dev or otherwise: this one is on you. The
+component body should read signals, not write them. Move writes into handlers,
+effects, or `onMount`. (Defining a handler in the body is fine, components run
+once, so the handler does not execute during the render.)
 
 ```jsx
 // Bad:
@@ -148,7 +183,8 @@ function Counter() { return <button onClick={() => count(c => c + 1)}>{count()}<
 ```
 
 ### ERR_UNSAFE_INNERHTML, raw innerHTML
-Raw HTML must be opted into with the `__html` marker.
+Raw HTML must be opted into with the `__html` marker. A raw string is refused
+outright (the element is left empty) and warned about in dev.
 
 ```jsx
 <div innerHTML={userInput} />               // Bad, XSS risk, refused
@@ -156,12 +192,24 @@ Raw HTML must be opted into with the `__html` marker.
 ```
 
 ### ERR_HYDRATION_MISMATCH, server/client HTML differ
-Avoid reading browser-only APIs (`window`, `localStorage`) during the initial render; use `onMount` for client-only values.
+Avoid reading browser-only APIs (`window`, `localStorage`) during the initial render; use `onMount` for client-only values. On a mismatch the runtime warns in dev (`[what] Hydration mismatch: expected <div>, got SPAN. Falling back to client render.`) and rebuilds that node rather than reusing it.
 
-### ERR_ORPHAN_EFFECT / ERR_MISSING_KEY
-Create effects inside components or a `createRoot()` so they are cleaned up; give list items a stable `key`.
+### ERR_MISSING_KEY, list without a key
+Reported by the COMPILER at build time in dev, not by the runtime: whether a
+list has keys is settled by the source. A `.map()` that returns JSX with no
+`key` prop bails out of keyed reconciliation and prints
+`[what-compiler] ERR_MISSING_KEY: ... at src/List.jsx:5:24`. It stays silent for
+a keyed list, and for a bare index key (`key={i}`), which is read as deliberate
+positional reconciliation.
 
-Tip for agents: the MCP tool `what_fix({ errorCode })` returns the diagnosis, fix, and example for any code offline, use it as your first move when you hit a What error.
+### ERR_ORPHAN_EFFECT
+NOT DETECTED, and deliberately so: the only available signal is owner presence
+at effect creation, which is absent in component bodies, `onMount` callbacks and
+event handlers alike, so the check would fire on the pattern its own advice
+recommends. Create effects inside components or a `createRoot()` anyway so they
+are cleaned up.
+
+Tip for agents: the MCP tool `what_fix({ error })` returns the diagnosis, fix, and example for any code offline, use it as your first move when you hit a What error.
 
 ---
 
@@ -199,11 +247,11 @@ Useful workflows:
 - **Trace reactivity:** `what_signals({ filter })` → `what_dependency_graph({ signalId, direction: "downstream" })`.
 - **Before/after a change:** `what_diff_snapshot({ action: "save" })` → make the change → `what_diff_snapshot({ action: "diff" })`.
 - **Test a fix live:** `what_set_signal({ signalId, value })` then re-check with `what_diff_snapshot`.
-- **Validate code offline:** `what_lint({ code })`, `what_scaffold({ type, name })`, `what_fix({ errorCode })` work without a browser.
+- **Validate code offline:** `what_lint({ code })`, `what_scaffold({ type, name })`, `what_fix({ error })` work without a browser.
 
 Notes for agents:
 - Component and signal IDs are ephemeral, re-query `what_components` after any `what_set_signal` that may remount the tree.
-- `what_eval` is disabled by default (security); enable only with `--unsafe-eval` / `WHAT_UNSAFE_EVAL=1`.
+- `what_eval` refuses arbitrary code by default (security). A dotted read off `document`/`window`/`navigator`/`location`/`screen`/`performance`/`console` still works (`document.title`, `window.innerWidth`), minus the sensitive paths (`cookie`, `localStorage`, …). Anything else needs `--unsafe-eval` / `WHAT_UNSAFE_EVAL=1`.
 - Module-scope signals are not attributed to any component; use `what_signals` directly rather than per-component counts.
 
 ---

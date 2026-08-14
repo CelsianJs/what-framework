@@ -227,15 +227,17 @@ focus.blur();</code></pre>
 &lt;/LiveRegion&gt;</code></pre>
 
           <h2 id="aria-helpers">ARIA Helpers</h2>
-          <p>Hooks that hold ARIA state in signals, so the state a screen reader is told matches the state your UI is in.</p>
+          <p>Hooks that hold ARIA state in signals, so the state a screen reader is told matches the state your UI is in. Each one bundles its attributes and handlers into a props object you spread onto the element.</p>
+
+          <p>The values in those objects are accessors rather than snapshots, which is what keeps a spread live. <code>{...hook.buttonProps()}</code> is evaluated once, but every function-valued prop is wrapped in its own effect by the renderer, so the attribute follows the signal for the life of the element. Enumerated ARIA attributes are emitted as the strings <code>"true"</code> / <code>"false"</code> on all three paths (<code>h()</code>, compiled JSX, and server rendering), never as <code>aria-expanded=""</code> or a missing attribute.</p>
 
           <div class="callout callout-warning">
-            <p class="callout-title">Bind ARIA state as a thunk, never as a spread</p>
-            <p>A JSX spread is evaluated <strong>once</strong>. <code>{...hook.buttonProps()}</code> calls the function immediately and applies the plain object it returns, so the <code>expanded()</code> / <code>selected()</code> / <code>checked()</code> read inside it never becomes a live binding: the attribute keeps its initial value forever while your UI moves on. The worst case is a custom checkbox whose visible glyph flips while <code>aria-checked</code> stays <code>"false"</code>, telling a screen reader the opposite of what a sighted user sees. Bind each reactive attribute individually as <code>attr={() =&gt; ...}</code>, which the compiler wraps in an effect. Booleans are fine as-is: since 0.12.0, <code>aria-*</code> and <code>role</code> serialize to the strings <code>"true"</code> / <code>"false"</code> on every path, so no manual coercion is needed.</p>
+            <p class="callout-title">On 0.12.3 these props are snapshots, not accessors</p>
+            <p>The accessor behaviour above lands in the next release. On 0.12.3, the current version on npm, each helper reads its own signal (<code>'aria-expanded': expanded()</code>), so the single evaluation a spread performs bakes in the state at mount: an accordion built from <code>buttonProps()</code> announces <code>aria-expanded="false"</code> forever, no matter how many times it opens, and <code>panelProps().hidden</code> is stuck with it. Components run once in What, so nothing ever re-calls the helper to refresh it. Until then, bind the attribute yourself the way <a href="#use-aria-expanded">useAriaExpanded</a> below describes: <code>aria-expanded={() =&gt; disclosure.expanded()}</code> is reactive, and correctly serialized, on both versions.</p>
           </div>
 
           <h3 id="use-aria-expanded">useAriaExpanded</h3>
-          <p>Manage expandable UI like accordions, menus, and collapsible panels. The hook owns the open/closed signal and gives you the accessors to bind:</p>
+          <p>Manage expandable UI like accordions, menus, and collapsible panels. The hook owns the open/closed signal and hands you the button and panel props:</p>
 
 <pre><code><span class="keyword">import</span> { useAriaExpanded } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -244,18 +246,13 @@ focus.blur();</code></pre>
 
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;button
-        aria-expanded={() =&gt; disclosure.expanded()}
-        onClick={disclosure.toggle}
-      &gt;
-        {title}
-      &lt;/button&gt;
-      &lt;div hidden={() =&gt; !disclosure.expanded()}&gt;
-        {children}
-      &lt;/div&gt;
+      &lt;button {...disclosure.<span class="function">buttonProps</span>()}&gt;{title}&lt;/button&gt;
+      &lt;div {...disclosure.<span class="function">panelProps</span>()}&gt;{children}&lt;/div&gt;
     &lt;/div&gt;
   );
 }</code></pre>
+
+          <p><code>buttonProps()</code> carries <code>aria-expanded</code> plus an <code>onClick</code> that toggles. <code>panelProps()</code> carries <code>hidden</code>, which stays a real boolean: <code>hidden</code> is a genuine HTML boolean attribute, where present-or-absent is the correct serialization.</p>
 
           <p>The hook exposes the state directly:</p>
 
@@ -264,26 +261,18 @@ disclosure.toggle();    <span class="comment">// flip open/closed</span>
 disclosure.open();      <span class="comment">// force open</span>
 disclosure.close();     <span class="comment">// force closed</span></code></pre>
 
-          <p>It also ships <code>buttonProps()</code> and <code>panelProps()</code> convenience objects, but because of the spread rule above they are only safe for a <strong>static</strong> render (for example a server-rendered page you never toggle on the client). For anything interactive, bind the attributes yourself as shown.</p>
+          <p>Bind an attribute yourself when you want something the props object does not do, for example a button that opens but never closes: <code>aria-expanded={() =&gt; disclosure.expanded()}</code>. Both forms are reactive, so mix them freely.</p>
 
           <h3 id="use-aria-selected">useAriaSelected</h3>
-          <p>Track selection state for tab lists, listboxes, and similar patterns:</p>
+          <p>Track selection state for tab lists, listboxes, and similar patterns. <code>itemProps(value)</code> carries that item's <code>aria-selected</code> and an <code>onClick</code> that selects it, and it writes no <code>role</code>, so the one you set stays yours:</p>
 
 <pre><code><span class="keyword">import</span> { useAriaSelected } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> tabs = <span class="function">useAriaSelected</span>(<span class="string">'home'</span>);
 
 &lt;div role=<span class="string">"tablist"</span>&gt;
-  &lt;button
-    role=<span class="string">"tab"</span>
-    aria-selected={() =&gt; tabs.isSelected(<span class="string">'home'</span>)}
-    onClick={() =&gt; tabs.select(<span class="string">'home'</span>)}
-  &gt;Home&lt;/button&gt;
-  &lt;button
-    role=<span class="string">"tab"</span>
-    aria-selected={() =&gt; tabs.isSelected(<span class="string">'about'</span>)}
-    onClick={() =&gt; tabs.select(<span class="string">'about'</span>)}
-  &gt;About&lt;/button&gt;
+  &lt;button role=<span class="string">"tab"</span> {...tabs.<span class="function">itemProps</span>(<span class="string">'home'</span>)}&gt;Home&lt;/button&gt;
+  &lt;button role=<span class="string">"tab"</span> {...tabs.<span class="function">itemProps</span>(<span class="string">'about'</span>)}&gt;About&lt;/button&gt;
 &lt;/div&gt;
 
 <span class="comment">// Reactive state</span>
@@ -292,61 +281,61 @@ tabs.isSelected(<span class="string">'about'</span>);    <span class="comment">/
 tabs.select(<span class="string">'about'</span>);        <span class="comment">// switch selection</span></code></pre>
 
           <h3 id="use-aria-checked">useAriaChecked</h3>
-          <p>Build accessible custom checkboxes with proper keyboard support (Space and Enter toggle):</p>
+          <p>Build accessible custom checkboxes with proper keyboard support (Space and Enter toggle). <code>checkboxProps()</code> carries the role, the tab stop, <code>aria-checked</code>, and both handlers:</p>
 
-<pre><code><span class="keyword">import</span> { useAriaChecked, Keys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useAriaChecked } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> checkbox = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
 
-&lt;div
-  role=<span class="string">"checkbox"</span>
-  tabIndex={<span class="number">0</span>}
-  aria-checked={() =&gt; checkbox.checked()}
-  onClick={checkbox.toggle}
-  onKeyDown={(e) =&gt; {
-    <span class="keyword">if</span> (e.key === Keys.Space || e.key === Keys.Enter) {
-      e.preventDefault();
-      checkbox.toggle();
-    }
-  }}
-&gt;
+&lt;div {...checkbox.<span class="function">checkboxProps</span>()}&gt;
   {() =&gt; checkbox.checked() ? <span class="string">'[x]'</span> : <span class="string">'[ ]'</span>} Accept terms
 &lt;/div&gt;
 
 <span class="comment">// checkbox.checked() is a reactive boolean; checkbox.set(v) writes it directly.</span>
-<span class="comment">// The bundled checkboxProps() carries the same role, tabIndex and handlers,</span>
-<span class="comment">// but spreading it freezes aria-checked at its initial value.</span></code></pre>
+<span class="comment">// checkboxProps() = { role: 'checkbox', tabIndex: 0, aria-checked, onClick, onKeyDown }</span></code></pre>
+
+          <p>This is the one helper that writes a <code>role</code>, and it is always <code>"checkbox"</code>. Whether writing <code>role</code> beside the spread can override it depends on how the file is built, which is the reason not to try. Compiled, it cannot: the compiler folds static attributes into the element's template and applies the spread over the top, so <code>&lt;div role="switch" {...checkbox.checkboxProps()}&gt;</code> and <code>&lt;div {...checkbox.checkboxProps()} role="switch"&gt;</code> emit identical code and the helper wins both. Uncompiled, <code>h()</code> and the server renderer receive an ordinary object literal, so the last key wins and <code>h('div', { ...checkbox.checkboxProps(), role: 'switch' })</code> really does render <code>role="switch"</code>. A widget whose role changes when you turn the compiler on is not a widget worth shipping. For a switch, a menu item checkbox, or anything else that is checkable but not a checkbox, bind the pieces yourself:</p>
+
+<pre><code><span class="keyword">import</span> { useAriaChecked, Keys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> sw = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
+
+&lt;div
+  role=<span class="string">"switch"</span>
+  tabIndex={<span class="number">0</span>}
+  aria-checked={() =&gt; sw.checked()}
+  onClick={sw.toggle}
+  onKeyDown={(e) =&gt; {
+    <span class="keyword">if</span> (e.key === Keys.Space || e.key === Keys.Enter) {
+      e.preventDefault();
+      sw.toggle();
+    }
+  }}
+&gt;
+  Notifications
+&lt;/div&gt;</code></pre>
 
           <h2 id="keyboard-navigation">Keyboard Navigation</h2>
-          <p>The <code>useRovingTabIndex</code> hook tracks <strong>which item should be tabbable</strong> in a composite widget like a toolbar, menu, or listbox, and translates arrow keys into moves of that index. It is the bookkeeping half of the roving tabindex pattern: it never calls <code>focus()</code> on anything. Moving focus to the active item is your job, and without it the arrow keys change nothing a user can see.</p>
+          <p>The <code>useRovingTabIndex</code> hook implements the roving tabindex pattern for a composite widget like a toolbar, menu, tablist, or listbox: exactly one item is tabbable at a time, and the arrow keys move both that tab stop and real DOM focus. Spread <code>getItemProps(i)</code> onto each item and you are done.</p>
 
-<pre><code><span class="keyword">import</span> { useRovingTabIndex, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useRovingTabIndex } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Toolbar</span>() {
   <span class="keyword">const</span> items = [<span class="string">'Bold'</span>, <span class="string">'Italic'</span>, <span class="string">'Underline'</span>, <span class="string">'Link'</span>];
   <span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(items.length);
-  <span class="keyword">const</span> refs = [];
-
-  <span class="comment">// Focus follows the active index. Without this, arrow keys move nothing.</span>
-  <span class="function">effect</span>(() =&gt; { refs[roving.focusIndex()]?.focus(); });
 
   <span class="keyword">return</span> (
-    &lt;div role=<span class="string">"toolbar"</span>&gt;
+    &lt;div role=<span class="string">"toolbar"</span> aria-label=<span class="string">"Formatting"</span> {...roving.<span class="function">containerProps</span>()}&gt;
       {items.map((label, i) =&gt; (
-        &lt;button
-          key={label}
-          ref={(node) =&gt; { refs[i] = node; }}
-          {...roving.getItemProps(i)}
-          tabIndex={() =&gt; (roving.focusIndex() === i ? <span class="number">0</span> : -<span class="number">1</span>)}
-        &gt;{label}&lt;/button&gt;
+        &lt;button key={label} {...roving.<span class="function">getItemProps</span>(i)}&gt;{label}&lt;/button&gt;
       ))}
     &lt;/div&gt;
   );
 }</code></pre>
 
-          <p>Spreading <code>getItemProps(i)</code> wires up the <code>onKeyDown</code> and <code>onFocus</code> handlers, which are functions and therefore survive the spread. Its <code>tabIndex</code> does not, so the reactive <code>tabIndex</code> is bound after the spread and wins.</p>
+          <p><code>getItemProps(i)</code> returns the item's reactive <code>tabIndex</code>, an <code>onKeyDown</code>, an <code>onFocus</code>, and a <code>ref</code>. The ref is how the hook holds the node it has to focus, so do not spread a ref of your own after it. Pass one through instead and the hook chains both: <code>getItemProps(i, { ref })</code>.</p>
 
-          <p>Once that is in place, the hook's key handler maps these keys onto the active index:</p>
+          <p>The key handler moves the active item, and focus with it:</p>
           <ul>
             <li><strong>ArrowDown / ArrowRight</strong>: move to next item (wraps around)</li>
             <li><strong>ArrowUp / ArrowLeft</strong>: move to previous item (wraps around)</li>
@@ -354,21 +343,31 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
             <li><strong>End</strong>: jump to last item</li>
           </ul>
 
-          <div class="callout callout-note">
-            <p class="callout-title">containerProps() sets role="listbox"</p>
-            <p><code>roving.containerProps()</code> returns nothing but <code>{ role: 'listbox' }</code>. Because a spread is applied after the attributes written before it, <code>&lt;div role="toolbar" {...roving.containerProps()}&gt;</code> ends up as <code>role="listbox"</code>, silently overriding the role you asked for. Set the container's role yourself, as above.</p>
-          </div>
+          <p><code>containerProps()</code> writes no <code>role</code> of its own, because roving tabindex is the shared keyboard mechanic of toolbars, menus, trees, grids, tablists, radiogroups, and listboxes. Label the container yourself, as above, or ask the hook for a role explicitly:</p>
 
-          <p>You can also pass a signal or getter for dynamic item counts:</p>
+<pre><code><span class="comment">// Per hook</span>
+<span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(items.length, { role: <span class="string">'menu'</span> });
+
+<span class="comment">// Or per call site, which wins over the hook option</span>
+&lt;div {...roving.<span class="function">containerProps</span>({ role: <span class="string">'menu'</span>, <span class="string">'aria-label'</span>: <span class="string">'Actions'</span> })}&gt;</code></pre>
+
+          <p>Move focus yourself with <code>focusItem(index)</code>, which is what a menu wants when it opens. It returns the element it focused, or <code>null</code> when the index is out of range or the item is not in the DOM. <code>setFocusIndex(index)</code> moves the tab stop and follows it with focus only when focus is already inside the group, so syncing the index from application state cannot yank focus off an unrelated widget. Both refuse an index that does not exist rather than leaving the widget with no tabbable item.</p>
+
+          <p>You can also pass a signal or getter for dynamic item counts. If the list shrinks past the active index, the tab stop clamps to the last item so the widget never drops out of the tab order:</p>
 
 <pre><code><span class="keyword">const</span> itemCount = <span class="function">signal</span>(<span class="number">5</span>);
 <span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(() =&gt; itemCount());</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">0.12.3 ships a different hook</p>
+            <p>All of the above is the next release. On 0.12.3, the current version on npm, <code>useRovingTabIndex</code> takes no options object, and <code>getItemProps()</code> returns no <code>ref</code> and a plain number for <code>tabIndex</code>, so nothing holds the item nodes: run the Toolbar example above on it and ArrowRight moves the hook's internal index while the tab stop and real DOM focus both stay on the first button. <code>containerProps()</code> also hard-codes <code>role: "listbox"</code>, which overwrites the <code>role="toolbar"</code> written beside it. <code>focusItem()</code> does not exist. The published TypeScript declarations describe that older hook, so an editor will reject the options object, <code>focusItem</code>, and the <code>overrides</code> arguments until the next release lands.</p>
+          </div>
 
           <h2 id="skip-links">Skip Links &amp; Visually Hidden</h2>
           <p>Help keyboard users bypass navigation and provide screen-reader-only content.</p>
 
           <h3 id="skip-link">SkipLink</h3>
-          <p>Renders a link that is hidden until focused. When activated, it moves focus to the target element. <strong>Always pass an explicit label.</strong> The built-in default label only takes effect on the client. Every server-rendering path passes an empty children array, which is defined and therefore overrides the default, so a server-rendered <code>&lt;SkipLink /&gt;</code> ships an unlabelled link and only gains its text once the page hydrates.</p>
+          <p>Renders a link that is hidden until focused. When activated, it moves focus to the target element. A childless <code>&lt;SkipLink /&gt;</code> falls back to the label <code>Skip to content</code>, and it does so identically on the client and in server-rendered HTML, so the link ships with its accessible name rather than gaining it at hydration.</p>
 
 <pre><code><span class="keyword">import</span> { SkipLink } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -457,6 +456,11 @@ Keys.End        <span class="comment">// 'End'</span>
 (function() {
   if (window.What) return;
   let _current = null;
+  // NOTE: this inline mock never ships. docs-site/build.mjs useRealWhat()
+     replaces this whole <script> with <script src="/what.global.js">, the REAL
+     framework bundled by the build. It exists only so this file still opens
+     standalone from disk. Judge the demo against the BUILT page in dist/,
+     not against this block: they are deliberately different.
   window.What = {
     signal(initial) {
       let value = initial;

@@ -410,24 +410,30 @@ progress.subscribe((v) =&gt; {});
 <span class="comment">//   exitDone: 'fade-exit-done',</span>
 <span class="comment">// }</span></code></pre>
 
-          <p>Apply them with <code>classList</code>. Add the start class, wait one frame so the browser records the starting style, then add the active class to let the CSS transition run:</p>
+          <p><code>cssTransition()</code> drives those classes for you and returns a promise. It adds the start class, reads a layout property on the next frame so the browser commits that starting style, adds the active class to let the CSS transition run, then swaps both for the done class and resolves:</p>
 
-<pre><code><span class="keyword">function</span> <span class="function">enter</span>(el, duration = <span class="number">300</span>) {
-  el.classList.add(classes.enter);
+<pre><code><span class="keyword">import</span> { cssTransition, createTransitionClasses } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-  <span class="function">requestAnimationFrame</span>(() =&gt; {
-    el.classList.add(classes.enterActive);
+<span class="keyword">const</span> classes = <span class="function">createTransitionClasses</span>(<span class="string">'fade'</span>);
 
-    <span class="function">setTimeout</span>(() =&gt; {
-      el.classList.remove(classes.enter, classes.enterActive);
-      el.classList.add(classes.enterDone);
-    }, duration);
-  });
-}</code></pre>
+<span class="comment">// cssTransition(element, name, type, duration)</span>
+<span class="comment">// type defaults to 'enter', duration defaults to 300ms</span>
+<span class="keyword">await</span> <span class="function">cssTransition</span>(el, <span class="string">'fade'</span>, <span class="string">'enter'</span>, <span class="number">300</span>);
+<span class="comment">// el.className is now 'fade-enter-done'</span>
+
+<span class="comment">// Only the start and active classes are cleaned up, so drop the done</span>
+<span class="comment">// class yourself before running the opposite direction. Skip this and</span>
+<span class="comment">// you end up with 'fade-enter-done fade-exit-done' on the element.</span>
+el.classList.remove(classes.enterDone);
+
+<span class="keyword">await</span> <span class="function">cssTransition</span>(el, <span class="string">'fade'</span>, <span class="string">'exit'</span>, <span class="number">300</span>);
+<span class="comment">// el.className is now 'fade-exit-done'</span></code></pre>
+
+          <p><code>duration</code> is a timer, not a listener: it is how long the active class stays on before the done class replaces it, so it has to match the <code>transition</code> duration in your CSS or the animation is cut short. The first class lands on the next animation frame rather than synchronously, so read the element's <code>classList</code> after awaiting, not straight after the call. The promise resolves with <code>undefined</code>, and there is no cancel handle.</p>
 
           <div class="callout callout-warning">
-            <p class="callout-title">cssTransition() does not currently complete</p>
-            <p>The package also exports <code>cssTransition(element, name, type, duration)</code>, but as of 0.12.3 the promise it returns never settles and the element is left stuck on the start class (with the stylesheet below, that means <code>opacity: 0</code>). It queues a DOM read from inside the scheduler's write phase, which lands in an already-drained queue with no frame armed. Drive the classes yourself as shown above until this is fixed.</p>
+            <p class="callout-title">cssTransition does not settle on 0.12.3</p>
+            <p>This section describes the next release. On 0.12.3, the current version on npm, <code>cssTransition()</code> hangs: the promise never resolves and the element is left on its start class (<code>fade-enter</code>), so an <code>await</code> on it never returns. The cause is the frame scheduler rather than this function. <code>cssTransition</code> asks for a layout read from inside a write, and the read phase of that frame has already been drained, so the request lands in an already-drained queue with no frame armed and waits there until unrelated code happens to poke the scheduler. Nothing else on this page is affected: <code>spring()</code> and <code>tween()</code> drive their own <code>requestAnimationFrame</code> loops and never touch the scheduler.</p>
           </div>
 
           <p>Define matching CSS classes in your stylesheet:</p>
@@ -446,6 +452,11 @@ progress.subscribe((v) =&gt; {});
           <script>
 (function() {
   let _current = null;
+  // NOTE: this inline mock never ships. docs-site/build.mjs useRealWhat()
+     replaces this whole <script> with <script src="/what.global.js">, the REAL
+     framework bundled by the build. It exists only so this file still opens
+     standalone from disk. Judge the demo against the BUILT page in dist/,
+     not against this block: they are deliberately different.
   window.What = {
     signal(initial) {
       let value = initial;

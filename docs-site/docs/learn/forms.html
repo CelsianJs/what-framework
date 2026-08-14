@@ -102,7 +102,7 @@
   resolver: <span class="keyword">undefined</span>,     <span class="comment">// no resolver means no validation at all</span>
 });</code></pre>
 
-          <p>All validation lives in <code>resolver</code>. Without one, <code>validate()</code> resolves <code>true</code> immediately and <code>handleSubmit</code> always takes the valid branch, which leaves <code>mode</code> and <code>reValidateMode</code> with nothing to do. Per-field rules in the second argument to <code>register</code> (the React Hook Form shape, <code>register('email', { required: true })</code>) are not supported: <code>register</code> reads only <code>type</code> and <code>ref</code> from its options and ignores the rest.</p>
+          <p>All validation lives in <code>resolver</code>. Without one, <code>validate()</code> resolves <code>true</code> immediately and <code>handleSubmit</code> always takes the valid branch, which leaves <code>mode</code> and <code>reValidateMode</code> with nothing to do. Per-field rules in the second argument to <code>register</code> (the React Hook Form shape, <code>register('email', { required: true })</code>) are not supported: <code>register</code> reads only <code>type</code>, <code>value</code>, and <code>ref</code> from its options and ignores the rest.</p>
 
           <h3 id="use-form-returns">Return Value</h3>
           <p><code>useForm</code> returns an object with the following properties:</p>
@@ -188,8 +188,11 @@
 <span class="comment">// Returns: { name, value, oninput, onBlur, onFocus, ref }</span>
 <span class="comment">// The event key is lowercase 'oninput'. There is no 'onInput'.</span>
 
-<span class="comment">// register(name, { type: 'checkbox' }) and { type: 'radio' } swap</span>
-<span class="comment">// value/oninput for: { name, checked, onchange, onBlur, onFocus, ref }</span>
+<span class="comment">// register(name, { type: 'checkbox' }) swaps value/oninput for:</span>
+<span class="comment">//   { name, checked, onchange, onBlur, onFocus, ref }</span>
+
+<span class="comment">// register(name, { type: 'radio', value }) returns:</span>
+<span class="comment">//   { name, value, checked, onchange, onBlur, onFocus, ref }</span>
 
 <span class="comment">// Spread onto any input element</span>
 &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> /&gt;
@@ -201,7 +204,7 @@
 
           <p>Each registered field gets its own internal signal. This means typing into the email field only updates components that read the email value, not every field in the form.</p>
 
-          <p>A spread input is <em>uncontrolled</em>. <code>value</code> is a getter, and spreading reads it exactly once, when the element is created. Typing flows into form state, but <code>setValue</code> and <code>reset</code> move form state without moving the DOM. When you need the input to follow the state (a reset button, prefilling from a fetch), bind the value as a thunk instead of spreading it:</p>
+          <p>A spread text, select, or checkbox input is <em>uncontrolled</em>. Its <code>value</code> (or <code>checked</code>) is a getter, and spreading reads it exactly once, when the element is created. Typing flows into form state, but <code>setValue</code> and <code>reset</code> move form state without moving the DOM. When you need the input to follow the state (a reset button, prefilling from a fetch), bind the value as a thunk instead of spreading it:</p>
 
 <pre><code>&lt;<span class="tag">input</span>
   <span class="attr">name</span>=<span class="string">"email"</span>
@@ -209,9 +212,16 @@
   <span class="attr">oninput</span>={<span class="function">register</span>(<span class="string">'email'</span>).oninput}
 /&gt;</code></pre>
 
+          <p>A registered radio is the exception: its <code>checked</code> comes back as a thunk rather than a getter, so the renderer keeps it live and a spread radio does follow <code>setValue</code> and <code>reset</code>.</p>
+
           <div class="callout callout-note">
-            <p class="callout-title">Checkbox handling</p>
-            <p><code>register</code> automatically detects <code>type="checkbox"</code> inputs and reads <code>e.target.checked</code> instead of <code>e.target.value</code>, so boolean fields work out of the box. It does the same for <code>type="radio"</code>, which stores <code>true</code> rather than the selected radio's value, so radio groups need the manual wiring shown under <a href="#form-components">Form Components</a>.</p>
+            <p class="callout-title">Checkbox and radio handling</p>
+            <p><code>register</code> automatically detects <code>type="checkbox"</code> inputs and reads <code>e.target.checked</code> instead of <code>e.target.value</code>, so boolean fields work out of the box. Radios work differently, because every radio in a group shares one field that holds the <em>selected</em> option's value. Tell the registration which value this radio contributes, <code>register('plan', { type: 'radio', value: 'pro' })</code>, or let <a href="#form-components"><code>Radio</code></a> do it for you. A bare <code>register('plan')</code> spread onto an <code>&lt;input type="radio"&gt;</code> warns at mount in development, because the registration's own <code>value</code> binding overwrites the input's value and the group is then unable to record a choice.</p>
+          </div>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Radios do not work on 0.12.3</p>
+            <p>Everything this page says about radios describes the next release. On 0.12.3, the current version on npm, a radio registration treats the field as a plain boolean instead of comparing it against the radio's own value: every radio in a group renders checked at mount, <code>setValue</code> and <code>reset</code> do not move the selection, and picking one writes <code>true</code> into the shared field rather than the value it stands for. <a href="#form-components"><code>Radio</code></a> fares slightly better and still does not work: it paints the initial selection correctly, then goes nowhere. <code>setValue</code> and <code>reset</code> do not move it, and clicking one leaves the field untouched, because its change handler calls a key <code>register</code> has never defined. Pass it an <code>onChange</code>, <code>onBlur</code> or <code>onFocus</code> of your own and only one of the two handlers runs. Text inputs, selects, textareas and checkboxes are unaffected: they behave exactly as described here on both versions.</p>
           </div>
 
           <h2 id="validation">Validation</h2>
@@ -287,14 +297,15 @@
           <h2 id="schema-validation">Schema Validation</h2>
           <p>For complex forms, use <code>zodResolver</code> or <code>yupResolver</code> to validate against a schema. This keeps validation logic declarative and co-located with your type definitions.</p>
 
-          <div class="callout callout-warning">
-            <p class="callout-title">zodResolver targets Zod 3</p>
-            <p>It collects problems from <code>ZodError.errors</code>, which exists in Zod 3. Zod 4 renamed that field to <code>issues</code>, so under Zod 4 the resolver finds nothing, reports zero errors, and the form submits as valid. Install <code>zod@^3</code>, or write a custom resolver that reads <code>issues</code>. <code>yupResolver</code> reads <code>ValidationError.inner</code>.</p>
+          <div class="callout callout-note">
+            <p class="callout-title">Resolvers fail closed</p>
+            <p><code>zodResolver</code> works on both Zod 3 and Zod 4. It reads <code>ZodError.issues</code> and falls back to the <code>errors</code> alias that only Zod 3 carries. If a schema throws something that is not a validation error, at all, both <code>zodResolver</code> and <code>yupResolver</code> rethrow rather than reporting the form as valid, so a broken schema is loud instead of silently disabling validation.</p>
+            <p>Both of those are the next release. On 0.12.3, the current version on npm, <code>zodResolver</code> reads only the Zod 3 <code>errors</code> alias, so a Zod 4 schema hands back an empty error map, <code>isValid()</code> is true, and <code>handleSubmit</code> takes the valid branch with an invalid form. A schema that throws a <code>TypeError</code> does the same thing. Pin Zod 3 until then, or write the resolver by hand: it is any async <code>(values) =&gt; ({ values, errors })</code>.</p>
           </div>
 
           <h3 id="zod-example">Zod Example</h3>
 
-<pre><code><span class="keyword">import</span> { z } <span class="keyword">from</span> <span class="string">'zod'</span>;  <span class="comment">// zod@^3</span>
+<pre><code><span class="keyword">import</span> { z } <span class="keyword">from</span> <span class="string">'zod'</span>;  <span class="comment">// zod 3 or 4</span>
 <span class="keyword">import</span> { useForm, zodResolver } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> schema = z.<span class="function">object</span>({
@@ -393,17 +404,38 @@
               <tr><td><code>Textarea</code></td><td><code>&lt;textarea&gt;</code></td><td>Sets <code>aria-invalid</code> when you pass an <code>error</code> prop</td></tr>
               <tr><td><code>Select</code></td><td><code>&lt;select&gt;</code></td><td>Pass <code>&lt;option&gt;</code> elements as children</td></tr>
               <tr><td><code>Checkbox</code></td><td><code>&lt;input type="checkbox"&gt;</code></td><td>Takes its initial <code>checked</code> from the registered value; toggling writes back</td></tr>
+              <tr><td><code>Radio</code></td><td><code>&lt;input type="radio"&gt;</code></td><td>Needs its own <code>value</code>. Writes that value to the shared field and keeps <code>checked</code> in sync in both directions</td></tr>
               <tr><td><code>ErrorMessage</code></td><td><code>&lt;span role="alert"&gt;</code></td><td>Shows error text or uses a custom <code>render</code> prop. Place it inside a thunk (see <a href="#error-display">Displaying Errors</a>)</td></tr>
             </tbody>
           </table>
 
-          <p>None of the <em>input</em> components consults <code>formState</code>. <code>ErrorMessage</code> is the exception: it reads <code>formState.error(name)</code>, so it needs <code>formState</code> passed to it or it renders nothing. <code>aria-invalid</code> comes from an <code>error</code> prop you pass yourself, read once when the element is created. Pass the error value rather than a thunk: a function is always truthy, so it marks the field invalid from first paint. And because they spread <code>register()</code>, the inputs they produce are uncontrolled in exactly the same way.</p>
+          <p>None of the <em>input</em> components consults <code>formState</code>. <code>ErrorMessage</code> is the exception: it reads <code>formState.error(name)</code>, so it needs <code>formState</code> passed to it or it renders nothing. <code>aria-invalid</code> comes from an <code>error</code> prop you pass yourself, read once when the element is created. Pass the error value rather than a thunk: a function is always truthy, so it marks the field invalid from first paint.</p>
 
-          <p>There is no working radio component. A radio has to track the field to know whether it is the selected one, and <code>register</code>'s handler stores <code>checked</code> rather than the radio's <code>value</code>, so wire radios by hand:</p>
+          <p>Because <code>Input</code>, <code>Textarea</code>, <code>Select</code>, and <code>Checkbox</code> spread <code>register()</code> over your props, the inputs they produce are uncontrolled in the same way as a hand-spread <code>register()</code>, and the registration wins every prop it defines, so an <code>onBlur</code>, <code>onFocus</code>, or <code>ref</code> handed to them is dropped. <code>Radio</code> is the exception on both counts: its <code>checked</code> is a live binding, and it composes your <code>onChange</code>, <code>onBlur</code>, <code>onFocus</code>, and <code>ref</code> with the registration's rather than replacing them.</p>
 
-<pre><code>&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"basic"</span>
-  <span class="attr">checked</span>={() =&gt; <span class="function">getValue</span>(<span class="string">'plan'</span>) === <span class="string">'basic'</span>}
-  <span class="attr">oninput</span>={() =&gt; <span class="function">setValue</span>(<span class="string">'plan'</span>, <span class="string">'basic'</span>)} /&gt;</code></pre>
+          <p>Reach for <code>Radio</code> when you need a radio group. Every radio in the group shares one field, and that field holds the selected option's value, so each one declares the value it contributes:</p>
+
+<pre><code><span class="keyword">import</span> { Radio } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+&lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"free"</span> <span class="attr">register</span>={register} /&gt; Free&lt;/<span class="tag">label</span>&gt;
+&lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"pro"</span> <span class="attr">register</span>={register} /&gt; Pro&lt;/<span class="tag">label</span>&gt;
+&lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"team"</span> <span class="attr">register</span>={register} /&gt; Team&lt;/<span class="tag">label</span>&gt;</code></pre>
+
+          <p>Picking one writes its value into <code>plan</code>, and the binding runs the other way too, so <code>setValue('plan', 'pro')</code>, <code>reset()</code>, and a <code>defaultValues</code> entry all move the selection on screen.</p>
+
+          <p>To wire a radio by hand, register it with its own value and keep <code>type="radio"</code> on the element. The <code>type</code> option tells the <em>registration</em> how to behave and does not set the element's type, so an input without the attribute is a text box that no click will ever change:</p>
+
+<pre><code>&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> {...<span class="function">register</span>(<span class="string">'plan'</span>, { type: <span class="string">'radio'</span>, value: <span class="string">'free'</span> })} /&gt;
+&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> {...<span class="function">register</span>(<span class="string">'plan'</span>, { type: <span class="string">'radio'</span>, value: <span class="string">'pro'</span> })} /&gt;
+
+<span class="comment">// Client-only alternative: leave the value option off and let each input</span>
+<span class="comment">// carry its own, the way a plain HTML radio group already works.</span>
+&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> <span class="attr">value</span>=<span class="string">"sm"</span> {...<span class="function">register</span>(<span class="string">'size'</span>, { type: <span class="string">'radio'</span> })} /&gt;
+&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> <span class="attr">value</span>=<span class="string">"lg"</span> {...<span class="function">register</span>(<span class="string">'size'</span>, { type: <span class="string">'radio'</span> })} /&gt;</code></pre>
+
+          <p>Those two forms behave identically in the browser: mount, <code>setValue</code>, <code>reset</code>, and a real click move the selection the same way either way. They are <em>not</em> the same on the server. A declared <code>value</code> gives the registration something to compare the field against, so the selected radio ships already checked, <code>&lt;input type="radio" name="plan" value="pro" checked&gt;</code>. Without one the registration has no value until an element hands it one through the <code>ref</code>, and the server renderer skips <code>ref</code> entirely, so every radio in the group serializes unchecked: a server-rendered page paints an empty radio group and only fills it in at hydration. Declare the <code>value</code> on anything you render on the server.</p>
+
+          <p>A radio that cannot say which value it stands for is treated as a mistake rather than given a default, since the DOM reports <code>"on"</code> for all of them and a group of those cannot record a choice. A <code>Radio</code> with no <code>value</code> warns in development and renders an unregistered input, so it never touches form state. A <code>register(name, { type: 'radio' })</code> on an input carrying no <code>value</code> attribute warns when it changes and leaves the field alone.</p>
 
           <h3 id="components-example">Building a Form with Components</h3>
 
@@ -522,6 +554,11 @@
   <script>
   (function() {
     let _current = null;
+    // NOTE: this inline mock never ships. docs-site/build.mjs useRealWhat()
+       replaces this whole <script> with <script src="/what.global.js">, the REAL
+       framework bundled by the build. It exists only so this file still opens
+       standalone from disk. Judge the demo against the BUILT page in dist/,
+       not against this block: they are deliberately different.
     window.What = {
       signal(initial) {
         let value = initial;
@@ -571,32 +608,50 @@
       }
     }
 
-    effect(() => {
-      const inputStyle = 'padding:8px 12px;border-radius:6px;border:1px solid #e4e4e7;font-size:14px;width:100%;outline:none;font-family:inherit';
-      const errorStyle = 'color:#ef4444;font-size:12px;margin-top:4px';
-      const e = errors();
-      const s = submitted();
+    // Built once, then updated per-binding. An earlier version of this demo read
+    // name() and email() inside an effect that rewrote el.innerHTML, which meant
+    // every keystroke destroyed the input being typed into and dropped focus
+    // after one character. Rebuilding the DOM on each change is the thing this
+    // framework exists to avoid, so a demo on the Forms page should not do it.
+    const inputStyle = 'padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;width:100%;outline:none;font-family:inherit';
+    const errorStyle = 'color:var(--error);font-size:12px;margin-top:4px';
 
-      el.innerHTML = `
-        <div style="max-width:320px">
-          ${s ? '<div style="padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-size:14px;margin-bottom:16px">Form submitted successfully!</div>' : ''}
-          <div style="margin-bottom:12px">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Name</label>
-            <input id="demo-name" style="${inputStyle}${e.name ? ';border-color:#ef4444' : ''}" value="${name()}" placeholder="Jane Doe">
-            ${e.name ? '<div style="' + errorStyle + '">' + e.name + '</div>' : ''}
-          </div>
-          <div style="margin-bottom:16px">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Email</label>
-            <input id="demo-email" style="${inputStyle}${e.email ? ';border-color:#ef4444' : ''}" value="${email()}" placeholder="jane@example.com">
-            ${e.email ? '<div style="' + errorStyle + '">' + e.email + '</div>' : ''}
-          </div>
-          <button id="demo-submit" style="padding:8px 20px;border-radius:6px;border:none;background:#18181b;color:#fff;cursor:pointer;font-size:14px;font-family:inherit">Sign Up</button>
-        </div>`;
+    el.innerHTML = `
+      <div style="max-width:320px">
+        <div data-ok hidden style="padding:12px 16px;background:var(--bg-surface);border:1px solid var(--success);border-radius:8px;color:var(--success);font-size:14px;margin-bottom:16px">Form submitted successfully!</div>
+        <div style="margin-bottom:12px">
+          <label for="demo-name" style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Name</label>
+          <input id="demo-name" style="${inputStyle}" placeholder="Jane Doe" aria-describedby="demo-name-err">
+          <div id="demo-name-err" data-err="name" hidden style="${errorStyle}"></div>
+        </div>
+        <div style="margin-bottom:16px">
+          <label for="demo-email" style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Email</label>
+          <input id="demo-email" style="${inputStyle}" placeholder="jane@example.com" aria-describedby="demo-email-err">
+          <div id="demo-email-err" data-err="email" hidden style="${errorStyle}"></div>
+        </div>
+        <button id="demo-submit">Sign Up</button>
+      </div>`;
 
-      el.querySelector('#demo-name').addEventListener('input', (ev) => name.set(ev.target.value));
-      el.querySelector('#demo-email').addEventListener('input', (ev) => email.set(ev.target.value));
-      el.querySelector('#demo-submit').addEventListener('click', handleSubmit);
-    });
+    const ok = el.querySelector('[data-ok]');
+    const fields = {
+      name: { input: el.querySelector('#demo-name'), err: el.querySelector('[data-err="name"]'), sig: name },
+      email: { input: el.querySelector('#demo-email'), err: el.querySelector('[data-err="email"]'), sig: email },
+    };
+
+    for (const [key, f] of Object.entries(fields)) {
+      f.input.addEventListener('input', (ev) => f.sig.set(ev.target.value));
+      effect(() => {
+        const message = errors()[key];
+        // ARIA enumerated values are strings; a raw boolean is not "false" here.
+        f.input.setAttribute('aria-invalid', message ? 'true' : 'false');
+        f.input.style.borderColor = message ? 'var(--error)' : 'var(--border)';
+        f.err.textContent = message || '';
+        f.err.hidden = !message;
+      });
+    }
+
+    el.querySelector('#demo-submit').addEventListener('click', handleSubmit);
+    effect(() => { ok.hidden = !submitted(); });
   })();
   </script>
 </body>

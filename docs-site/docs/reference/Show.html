@@ -128,12 +128,13 @@ user.set({ name: <span class="string">'Alice'</span> });</code></pre>
     &lt;/div&gt;
   );
 }</code></pre>
-          <p><code>user</code> here is a signal passed down as a prop, which is what lets the compiler call it. Note the <code>?.</code>: the <code>&lt;h2&gt;</code> and <code>&lt;p&gt;</code> are plain elements, so their bindings run whether or not the branch is taken (see below).</p>
+          <p><code>user</code> here is a signal passed down as a prop, which is what lets the compiler call it. The <code>?.</code> is not what makes the first render work: the branch is not built at all while <code>user</code> is null. It earns its place on the way back out, when the branch closes again (see below).</p>
 
           <h2 id="how-it-works">How It Works</h2>
           <p>Uncompiled (plain <code>h()</code> or the automatic JSX runtime), <code>Show</code> runs as an ordinary component and returns a reactive thunk. The renderer installs that thunk as a fine-grained region, and every time the region re-runs it reads <code>when</code>, calling it first if it is a function, and yields <code>children</code> or <code>fallback</code>. The region is reactive on its own; it does not need to be wrapped in anything.</p>
           <p>Compiled, <code>Show</code> is never called at all. The babel plugin erases the tag and emits the same conditional thunk inline, with the condition behind a memo so only a change in truthiness rebuilds the branch. The uncompiled region has no such memo and re-runs on every write to the condition signal.</p>
-          <p>The two paths also differ in how eager the children are. <code>when</code> decides which nodes are <em>inserted</em>; it does not defer the children's bindings. Compiled, a plain-element child is built alongside the surrounding component and its bindings run immediately, so <code>&lt;Show when={user}&gt;&lt;h2&gt;{() =&gt; user().name}&lt;/h2&gt;&lt;/Show&gt;</code> throws while <code>user</code> is null. Either guard the binding (<code>user()?.name</code>) or move the body into a component child, which is genuinely created lazily.</p>
+          <p>Children are lazy on both paths. Nothing in the branch is constructed and no binding inside it runs until <code>when</code> is truthy, so <code>&lt;Show when={user}&gt;&lt;h2&gt;{() =&gt; user().name}&lt;/h2&gt;&lt;/Show&gt;</code> renders the fallback instead of throwing while <code>user</code> is null. That holds for a plain element child and for a component child alike, and closing the branch removes it again: <code>onCleanup</code> in a component child fires on the swap.</p>
+          <p>Where the two paths still differ is that swap back. Compiled, a binding that belonged to a branch which has closed can re-run when the condition changes again, and an unguarded read of the value that has just gone away prints <code>[what] Uncaught error in effect during update</code>. The rendered DOM is correct either way, so this is console noise rather than a broken screen, and writing <code>user()?.name</code> removes it.</p>
 
           <h2 id="notes">Notes</h2>
           <ul>
@@ -141,7 +142,15 @@ user.set({ name: <span class="string">'Alice'</span> });</code></pre>
             <li>Uncompiled, the <code>when</code> prop accepts a signal, a thunk or a plain value. Compiled, a bare identifier the compiler reads as a signal name is called, so a plain value passed that way throws; pass a thunk when the value might not be a function.</li>
             <li>For multiple conditions, use <code>&lt;Switch&gt;</code> and <code>&lt;Match&gt;</code> instead of nested <code>&lt;Show&gt;</code> components.</li>
             <li>When <code>when</code> is falsy and no <code>fallback</code> is provided, nothing is rendered.</li>
-            <li>The compiler requires a <code>when</code> prop: <code>&lt;Show&gt;</code> without one is a build error.</li>
+            <li>The compiler requires a <code>when</code> prop: <code>&lt;Show&gt;</code> without one fails the build. The message names the file and prints a code frame at the offending tag, wherever it appears in the file:
+<pre><code>SyntaxError: src/Nested.jsx: &lt;Show&gt; requires a "when" prop.
+Example: &lt;Show when={isOpen} fallback={null}&gt;...&lt;/Show&gt;
+
+   6 |       &lt;section&gt;
+&gt;  7 |         &lt;Show&gt;
+     |         ^
+   8 |           &lt;p&gt;hi&lt;/p&gt;</code></pre>
+            <code>&lt;Switch&gt;</code> refuses the same way, with its own text, when an arm is missing a <code>when</code> prop or when the arms cannot be read statically.</li>
           </ul>
 
           <div class="page-nav">

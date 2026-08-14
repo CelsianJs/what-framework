@@ -336,13 +336,18 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 }</code></pre>
 
           <h2 id="scroll-restoration">Scroll Restoration</h2>
-          <p>The router already saves the scroll position on every navigation and restores it on back/forward, with no setup. <code>enableScrollRestoration()</code> adds the two behaviors a router cannot guess for you:</p>
+          <p>The router already saves the scroll position on every navigation and restores it on back/forward, with no setup. <code>enableScrollRestoration()</code> applies three rules to ordinary forward navigations as well, checked in this order:</p>
 
 <pre><code><span class="keyword">import</span> { enableScrollRestoration } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="function">enableScrollRestoration</span>();
-<span class="comment">// New navigations scroll to top</span>
-<span class="comment">// Hash links scroll to the target element</span></code></pre>
+<span class="comment">// 1. Hash links scroll to the target element</span>
+<span class="comment">// 2. Returning to a URL you already scrolled restores that position</span>
+<span class="comment">// 3. Everything else scrolls to top</span></code></pre>
+
+          <p>The order matters. A URL carrying a hash always goes to its element, even when a position is saved for that exact URL, so clicking the same <code>#install</code> link twice lands on the section both times. Positions are keyed by the full URL, path and query and hash together, so <code>/list?tab=inbox</code> and <code>/list?tab=archive</code> each remember their own place.</p>
+
+          <p>Rule 2 is the one that surprises people: a nav-bar link back to a page you scrolled earlier in the session lands where you left it rather than at the top, and switching back to a tab you have already opened does the same. Saved positions live in memory for the life of the page, so a reload starts clean and the browser's own <code>history.scrollRestoration</code> takes over.</p>
 
           <h2 id="prefetching">Prefetching</h2>
           <p>Link components prefetch on hover by default. You can also prefetch programmatically:</p>

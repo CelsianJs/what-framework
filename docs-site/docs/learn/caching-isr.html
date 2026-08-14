@@ -91,7 +91,7 @@
           <p class="subtitle">Origin-first incremental static regeneration: stale-while-revalidate, on-demand purge by path or tag, scheduled poll regeneration, and getStaticPaths fallbacks, on any host, no CDN required.</p>
 
           <h2 id="model">The model</h2>
-          <p>What's caching is <strong>origin-first</strong>. A render cache lives next to your server and does the full job: it serves fresh hits instantly, serves stale content while regenerating in the background, dedupes concurrent regenerations, and purges on demand. A CDN is <em>optional upside</em>: when present, the engine emits the right <code>Cache-Control</code> headers and fans purges out to it. Nothing about your code changes whether or not you have one.</p>
+          <p>What's caching is <strong>origin-first</strong>. A render cache lives next to your server and does the full job: it serves fresh hits instantly, serves stale content while regenerating in the background, dedupes concurrent regenerations, and purges on demand. A CDN is <em>optional upside</em>: when present, the engine emits <code>Cache-Control</code> headers a standards-compliant edge can act on, and fans purges out to it. Nothing about your code changes whether or not you have one.</p>
           <p>This page is the <strong>server render cache</strong>: it caches whole rendered pages, it lives in the <code>what-isr</code> package, and its vocabulary is <code>revalidatePath</code> / <code>revalidateTag</code>. The in-browser query cache that <code>useSWR</code> and <code>invalidateQueries</code> talk to is a different system, documented in <a href="./caching.html">Caching</a>.</p>
 <pre><code>import { createCacheEngine, createMemoryStore } from 'what-isr';
 import { createRequestHandler, renderDocument } from 'what-framework/server';
@@ -112,11 +112,18 @@ async function renderRoute(routeMatch) {
 const cache = createCacheEngine({ store: createMemoryStore(), render: renderRoute });
 
 const handler = createRequestHandler({ routes, cache, document: documentOptions });</code></pre>
-          <p>Leaving <code>render</code> out is easy, and it half-works, which is worse. The adapter supplies its own render for each incoming request, so ordinary traffic looks fine; every regeneration the adapter does <em>not</em> drive (the scheduler, a <code>{ regenerate: true }</code> purge) calls the engine's own <code>render</code> and throws <code>doRender is not a function</code>. Passing the engine as <code>cache</code> also binds it for <code>revalidatePath</code> / <code>revalidateTag</code>, covered below.</p>
+          <p>Leaving <code>render</code> out is easy, and it half-works, which is worse. The adapter supplies its own render for each incoming request, so ordinary traffic looks fine; every regeneration the adapter does <em>not</em> drive (the scheduler, a <code>{ regenerate: true }</code> purge) calls the engine's own <code>render</code> and raises <code>TypeError: doRender is not a function</code>. Passing the engine as <code>cache</code> also binds it for <code>revalidatePath</code> / <code>revalidateTag</code>, covered below.</p>
+          <p>That TypeError does not reach you. Both of those call sites catch it, so the failure is a log line at most and the call still looks like it worked:</p>
+          <ul>
+            <li>The scheduler logs <code>[what-isr] scheduled regenerate failed: TypeError: doRender is not a function</code> and reschedules, so it repeats on every tick for the life of the process.</li>
+            <li><code>revalidatePath(path, { regenerate: true })</code> logs <code>[what-isr] regen after revalidatePath failed: ...</code> and still returns the keys it purged, so the purge reports success and nothing re-renders.</li>
+            <li><code>revalidateTag(tag, { regenerate: true, routeResolver })</code> swallows it with no message at all, deliberately: a purge must not fail because a regeneration did.</li>
+          </ul>
+          <p>Only <code>cache.regenerate(routeMatch)</code>, called directly, throws to its caller. Watch the log rather than waiting for a crash.</p>
           <p>Swap the store without touching pages: <code>createMemoryStore()</code> (default, fast, single-process), <code>createFilesystemStore({ dir })</code> (survives restarts, multi-process), or <code>createRedisStore({ client })</code> (multi-instance).</p>
 
           <h2 id="config">Per-page config</h2>
-          <p>A page declares its caching policy with the static <code>page</code> export, a flat object of JSON literals:</p>
+          <p>A page declares its caching policy with the static <code>page</code> export, a plain object literal of JSON-shaped values:</p>
 <pre><code>export const page = {
   mode: 'static',     // 'static' | 'hybrid' | 'server'
   revalidate: 60,     // seconds until a cached entry goes stale
@@ -133,9 +140,16 @@ const handler = createRequestHandler({ routes, cache, document: documentOptions 
             <li><code>swr</code> omitted defaults to <code>revalidate</code>, not to zero.</li>
             <li><code>vary: ['cookie:theme']</code> splits the <em>origin</em> cache by those request signals (a bare string is shorthand for a one-element list). A route that declares <code>vary</code> is never marked <code>public</code>: it answers <code>Cache-Control: private, no-store</code>, so no shared cache or CDN will hold it. If the adapter supplies no request headers to resolve the declaration against, the route is served uncached rather than sharing one entry between users.</li>
           </ul>
+          <div class="callout callout-note">
+            <p class="callout-title">The build reads this statically</p>
+            <p>The literal is tokenized at build time, so every value has to be one. Strings, numbers, booleans, <code>null</code>, arrays and nested objects all work, and so do comments, trailing commas, and apostrophes, colons or <code>//</code> inside a string value. What the build cannot do is evaluate, so <code>revalidate: 60 * 60</code>, a template interpolation or a reference to an imported constant is a parse failure. A page whose config cannot be read falls back to <code>mode: 'client'</code> in the generated routes table, which drops it out of static generation, and the build names the file and prints the parser's own complaint. <code>export const page = { mode: 'static', revalidate: 60 * 60 };</code> in <code>src/pages/blog.js</code> gets you:</p>
+<pre><code>[what] Ignoring unparseable `export const page` config in src/pages/blog.js: Expected ',' or '}' after property value in JSON at position 37 (line 1 column 38)
+       This page falls back to mode 'client', so static generation will skip it.
+       `page` must be a plain object literal of JSON-shaped values (strings, numbers, booleans, null, arrays, nested objects).</code></pre>
+          </div>
           <div class="callout callout-warning">
-            <p class="callout-title">The build reads this with a regex, not a parser</p>
-            <p>Three shapes make it give up: a nested object, a string value containing a colon (<code>'cookie:theme'</code>), and a trailing comma followed by a line comment on the last property. When it gives up, the route is recorded as <code>mode: 'client'</code> in the generated routes table.</p>
+            <p class="callout-title">Released 0.12.3 reads this config with a regex</p>
+            <p>Everything above describes the tokenizer, which lands in the next release. On 0.12.3, the current version on npm, the build matches the literal with a chain of regexes that cannot see string boundaries, so a value carrying a parser-significant character corrupts the whole export: <code>vary: ['cookie:theme']</code>, <code>canonical: 'https://x.com/a'</code>, <code>title: "What's new"</code> and any nested object each make the entire <code>page</code> declaration unreadable. There is no diagnostic on 0.12.3 either, in any of those cases or for a real parse failure like <code>revalidate: 60 * 60</code>. The page silently becomes <code>mode: 'client'</code> and drops out of static generation.</p>
           </div>
 
           <h2 id="swr">Stale-while-revalidate</h2>
@@ -176,7 +190,7 @@ scheduler.register(
 // register() only queues the task. Hand the scheduler to createServer and the
 // Node adapter starts it and stops it on SIGTERM/SIGINT.
 createServer({ routes, cache, scheduler }).listen(3000);</code></pre>
-          <p>On any other host, call <code>scheduler.start()</code> yourself and <code>scheduler.stop()</code> on shutdown. Do not do both: <code>register()</code> alone schedules nothing, and starting twice leaves two timer chains running per task. The scheduler calls the engine's own <code>render</code>, so an engine built without one throws on the first tick.</p>
+          <p>On any other host, call <code>scheduler.start()</code> yourself and <code>scheduler.stop()</code> on shutdown. Do not do both: <code>register()</code> alone schedules nothing, and starting twice leaves two timer chains running per task. The scheduler calls the engine's own <code>render</code>, so an engine built without one fails on the first tick and on every tick after it: the task is rescheduled either way, and each failure is a <code>logger.error</code> line rather than an exception anyone can catch.</p>
 
           <h2 id="webhook">Revalidation webhook</h2>
           <p>Let a CMS trigger purges over HTTP. Mount <code>createRevalidateWebhook</code> (the adapters expose it at <code>POST /__what_revalidate</code>) with a secret:</p>
@@ -201,22 +215,29 @@ const handler = createRequestHandler({ routes, cache, revalidateWebhook: webhook
           <p>The secret travels in the <code>x-what-revalidate-secret</code> header, never in the body, and is compared in constant time over fixed-width digests so neither its contents nor its length leak through response timing. A request without a matching header gets a 401 before anything is purged. One request may carry at most 100 paths and tags combined.</p>
 
           <h2 id="headers">Cache headers</h2>
-          <p>When a CDN is in front, the engine emits standard headers so the edge caches and revalidates in lockstep with the origin:</p>
+          <p>When a CDN is in front, the engine attaches standard headers to every response it serves and the request handler passes them through untouched. A route declaring <code>revalidate: 60, swr: 600, tags: ['posts']</code> answers:</p>
 <pre><code>Cache-Control: public, s-maxage=60, stale-while-revalidate=600
 Cache-Tag: posts            // Cloudflare / Fastly (comma-separated)
 Surrogate-Key: posts        // Fastly surrogate keys (space-separated)
-X-What-Cache: HIT | STALE | MISS | BYPASS</code></pre>
-          <p>Server-mode responses send <code>private, no-store</code>, and so does any route that declares <code>vary</code>, any non-200 render, and any render marked private. Skeleton (fallback <code>true</code>) responses send <code>s-maxage=0</code> so the edge doesn't pin a placeholder.</p>
+X-What-Cache: HIT | STALE | MISS</code></pre>
+          <p>Server-mode responses send <code>private, no-store</code>, and so does any route that declares <code>vary</code>, any non-200 render, and any render marked private. A route declaring <code>vary</code> also gets a <code>Vary</code> header naming the request headers a shared cache would have to key on, so <code>vary: ['cookie:theme']</code> answers <code>Vary: Cookie</code> next to its <code>no-store</code>. Skeleton (fallback <code>true</code>) responses send <code>s-maxage=0</code>, so no edge can serve one as fresh. The <code>swr</code> window is not zeroed alongside it (a route with <code>swr: 600</code> answers <code>public, s-maxage=0, stale-while-revalidate=600</code>), so a CDN honouring <code>stale-while-revalidate</code> can still hand the placeholder out while it revalidates.</p>
+          <p><code>X-What-Cache: BYPASS</code> is an engine-level status for a render the engine refused to cache, and the shipped request handler does not produce it: <code>mode: 'server'</code> never reaches the engine at all, and answers <code>private, no-store</code> with no <code>X-What-Cache</code> header. You will see it if you call <code>cache.handle()</code> yourself without supplying request headers for a route that declares <code>vary</code>.</p>
+          <div class="callout callout-warning">
+            <p class="callout-title">The edge is not tracking origin freshness</p>
+            <p>These headers let a standards-compliant CDN run its own SWR cycle. They do not keep it in step with the origin store, and two cases are worth knowing before you put a CDN in front.</p>
+            <p><code>s-maxage</code> comes from the route's declared <code>revalidate</code>, so a <code>static</code> route that declares none answers <code>public, s-maxage=0, stale-while-revalidate=0</code>. That entry is durable at the origin until an explicit purge, and the header tells a shared cache to revalidate on every request. It is also byte-identical to what <code>revalidate: 0</code> emits, which means the opposite at the origin. Declare a <code>revalidate</code> on anything you want the edge to hold.</p>
+            <p>A <code>STALE</code> response carries the same full <code>s-maxage</code> as a fresh one, so the edge starts a new window from a copy the origin has already expired. The two caches run separate clocks; a purge is what brings them back together.</p>
+          </div>
 
           <h2 id="degradation">No-CDN vs CDN: graceful degradation</h2>
           <p>Every capability works at the origin. A CDN only changes <em>where</em> the cache also lives.</p>
           <table>
             <thead><tr><th>Capability</th><th>Origin only (no CDN)</th><th>With a CDN</th></tr></thead>
             <tbody>
-              <tr><td>Fresh / stale serving (SWR)</td><td>✓ origin store</td><td>✓ origin + edge</td></tr>
+              <tr><td>Fresh / stale serving (SWR)</td><td>✓ origin store</td><td>✓ origin + edge, once <code>revalidate</code> is declared (see above)</td></tr>
               <tr><td>In-flight dedupe</td><td>✓ per-process (not cross-instance)</td><td>✓ same</td></tr>
-              <tr><td>revalidatePath / revalidateTag</td><td>✓ purges origin store</td><td>✓ purges origin <em>and</em> edge (<code>CDNAdapter.purge</code>)</td></tr>
-              <tr><td>Poll regeneration</td><td>✓ scheduler in the server process</td><td>✓ same (origin re-render → edge revalidate)</td></tr>
+              <tr><td>revalidatePath / revalidateTag</td><td>✓ purges origin store</td><td>✓ purges origin <em>and</em> edge (<code>CDNAdapter.purge</code> / <code>purgeTags</code>). The Vercel adapter purges by tag only: its path purge is a no-op</td></tr>
+              <tr><td>Poll regeneration</td><td>✓ scheduler in the server process</td><td>✓ same at the origin. The re-render does not purge the edge, which refreshes when its own <code>s-maxage</code> lapses</td></tr>
               <tr><td>getStaticPaths fallback</td><td>✓ render-on-first-hit</td><td>✓ same, then edge-cached</td></tr>
               <tr><td>Edge latency</td><td>origin round-trip</td><td>✓ served from nearest PoP</td></tr>
             </tbody>

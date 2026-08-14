@@ -92,7 +92,7 @@
               <tr><td><a href="./signal.html"><code>signal(value)</code></a></td><td>Create a reactive value. Returns getter function with <code>.set()</code>, <code>.peek()</code>, <code>.subscribe()</code></td></tr>
               <tr><td><a href="./computed.html"><code>computed(fn)</code></a></td><td>Create a derived value that auto-updates when dependencies change</td></tr>
               <tr><td><a href="./effect.html"><code>effect(fn)</code></a></td><td>Run a side effect when dependencies change. Returns dispose function</td></tr>
-              <tr><td><a href="./batch.html"><code>batch(fn)</code></a></td><td>Batch multiple signal writes: effects run once after batch completes</td></tr>
+              <tr><td><a href="./batch.html"><code>batch(fn)</code></a></td><td>Batch multiple signal writes: effects run once after batch completes. Returns nothing, the callback's value is discarded</td></tr>
               <tr><td><a href="./untrack.html"><code>untrack(fn)</code></a></td><td>Read signals without creating subscriptions</td></tr>
               <tr><td><code>flushSync()</code></td><td>Force all pending effects to run synchronously</td></tr>
             </tbody>
@@ -121,12 +121,12 @@
             </thead>
             <tbody>
               <tr><td><a href="./Show.html"><code>&lt;Show when fallback&gt;</code></a></td><td>Conditionally render children based on a condition</td></tr>
-              <tr><td><a href="./For.html"><code>&lt;For each fallback&gt;</code></a></td><td>Render a list. Keyed reconciliation needs the What compiler: on the runtime path <code>key</code> is ignored and every row is rebuilt on each change</td></tr>
+              <tr><td><a href="./For.html"><code>&lt;For each fallback&gt;</code></a></td><td>Render a list, with <code>fallback</code> shown while the list is empty on both the compiled and the runtime path. Keyed reconciliation needs the What compiler: on the runtime path <code>key</code> is ignored and every row is rebuilt on each change</td></tr>
               <tr><td><code>&lt;Switch&gt; / &lt;Match when&gt;</code></td><td>Render one of multiple conditions</td></tr>
               <tr><td><code>&lt;Portal target&gt;</code></td><td>Render children into a different DOM container</td></tr>
               <tr><td><code>&lt;ErrorBoundary fallback onError&gt;</code></td><td>Catch errors in child components</td></tr>
               <tr><td><code>&lt;Suspense fallback&gt;</code></td><td>Show fallback while lazy components load</td></tr>
-              <tr><td><code>memo(Component, areEqual)</code></td><td>No-op identity wrapper, kept for React source compatibility. There is no re-render to skip in the run-once model, and <code>areEqual</code> is never called</td></tr>
+              <tr><td><code>memo(Component, areEqual)</code></td><td>No-op pass-through wrapper, kept for React source compatibility. There is no re-render to skip in the run-once model, and <code>areEqual</code> is never called</td></tr>
               <tr><td><code>lazy(loader)</code></td><td>Code-split a component. Works with Suspense on the client. Under SSR only <code>renderToStream</code> resolves it; <code>renderToString</code> and <code>renderToStringAsync</code> emit the Suspense fallback</td></tr>
               <tr><td><code>&lt;Island component mode&gt;</code></td><td>Deferred hydration: load, idle, visible, interaction, media</td></tr>
             </tbody>
@@ -140,14 +140,14 @@
               <tr><th>Hook</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>useState(initial)</code></td><td>Returns [accessor, setter]. Read with <code>accessor()</code>; in JSX pass <code>{accessor}</code> bare so the binding stays live. Components run once, so the setter drives fine-grained DOM effects, it does not re-run the component</td></tr>
+              <tr><td><code>useState(initial)</code></td><td>Returns <code>[Signal&lt;T&gt;, setter]</code>. The first element is the signal itself, not a snapshot: read it with <code>count()</code> and it also carries <code>.peek()</code> and <code>.set()</code>. In JSX pass <code>{count}</code> bare so the binding stays live. Components run once, so the setter drives fine-grained DOM effects, it does not re-run the component</td></tr>
               <tr><td><code>useSignal(initial)</code></td><td>Returns the raw signal for direct signal() and signal.set() access</td></tr>
               <tr><td><code>useComputed(fn)</code></td><td>Returns a computed signal (read-only derived value)</td></tr>
               <tr><td><code>useEffect(fn, deps)</code></td><td>Side effect after mount. Return a function from <code>fn</code> to register cleanup; <code>useEffect</code> itself returns nothing. No <code>deps</code> auto-tracks signals, <code>[]</code> runs once, <code>[a, b]</code> expects signal accessors</td></tr>
-              <tr><td><code>useMemo(fn, deps)</code></td><td>Memoized computation based on dependencies</td></tr>
+              <tr><td><code>useMemo(fn, deps)</code></td><td>Memoized computation. Returns a <code>Computed&lt;T&gt;</code> accessor, not the value, so call it to read: <code>const total = useMemo(() =&gt; a() + b()); total()</code>. <code>deps</code> is accepted for React familiarity and ignored: the computation auto-tracks the signals it reads</td></tr>
               <tr><td><code>useCallback(fn, deps)</code></td><td>Memoized callback function</td></tr>
               <tr><td><code>useRef(initial)</code></td><td>Mutable ref that doesn't trigger re-renders. Returns { current }</td></tr>
-              <tr><td><code>useReducer(reducer, init)</code></td><td>State with reducer function. Returns [state, dispatch]</td></tr>
+              <tr><td><code>useReducer(reducer, initial, init)</code></td><td>State with a reducer function. Returns <code>[Signal&lt;S&gt;, dispatch]</code>: the first element is the signal itself, so read it with <code>state()</code> and pass it bare into JSX to keep the binding live. The optional third argument is the lazy initializer, applied to <code>initial</code> once</td></tr>
             </tbody>
           </table>
 
@@ -185,14 +185,14 @@
             </thead>
             <tbody>
               <tr><td><code>useFetch(url, options)</code></td><td>Simple fetch wrapper. Returns data(), error(), isLoading(), refetch()</td></tr>
-              <tr><td><code>useSWR(key, fetcher, opts)</code></td><td>Stale-while-revalidate with caching, dedup, revalidation on focus/reconnect</td></tr>
-              <tr><td><code>useQuery(options)</code></td><td>Full query management: retry, staleTime, cacheTime, refetchInterval, select</td></tr>
-              <tr><td><code>useInfiniteQuery(options)</code></td><td>Infinite scroll/pagination with getNextPageParam, fetchNextPage</td></tr>
-              <tr><td><code>invalidateQueries(keyOrPredicate, opts)</code></td><td>Trigger refetch. An array key matches as a prefix on segment boundaries, so <code>['todos']</code> also invalidates <code>['todos', 1]</code>. Pass <code>{ exact: true }</code> for that key alone, <code>{ hard: true }</code> to clear data immediately, or a predicate function to select keys</td></tr>
+              <tr><td><code>useSWR(key, fetcher, opts)</code></td><td>Stale-while-revalidate with caching, dedup, revalidation on focus/reconnect. An array key is normalized into the same key space as <code>useQuery</code>, so <code>useSWR(['/api/user', 7], ...)</code> and <code>useQuery({ queryKey: ['/api/user', 7] })</code> share one cache entry that <code>getQueryData</code> and <code>invalidateQueries</code> both reach. The fetcher still receives the original key, so <code>useSWR(['/api/user', id], ([url, id]) =&gt; ...)</code> is unchanged</td></tr>
+              <tr><td><code>useQuery(options)</code></td><td>Full query management: retry, staleTime, cacheTime, refetchInterval, select, placeholderData, and <code>enabled</code>. <code>enabled</code> takes a boolean, a signal or a thunk and is read reactively, so a query disabled at mount starts the moment the flag flips. Disabled with nothing cached it reports <code>status() === 'idle'</code> (<code>isIdle()</code>, and <code>isLoading()</code> is false); <code>refetch()</code> is never gated by <code>enabled</code> and never answered from the staleTime window. <code>queryKey</code> is the opposite: it is read exactly ONCE, when the hook is created, so every value in it has to be known by then. Gate on a value the key does not contain with <code>enabled</code>; when the key itself depends on data still loading, render the dependent component conditionally and pass the id in as a prop instead of writing <code>['posts', user.data()?.id]</code>, which freezes as <code>'posts:undefined'</code></td></tr>
+              <tr><td><code>useInfiniteQuery(options)</code></td><td>Infinite scroll/pagination with getNextPageParam, fetchNextPage. Honours <code>enabled</code> (same rules as <code>useQuery</code>), <code>select</code>, <code>retry</code>, <code>retryDelay</code> and <code>onSuccess</code>/<code>onError</code>/<code>onSettled</code>, and exposes <code>error()</code>, <code>status()</code>, <code>isLoading()</code>, <code>isError()</code>, <code>isSuccess()</code>, <code>isIdle()</code>, <code>isFetching()</code>. Its <code>data()</code> is the page container <code>{ pages, pageParams }</code>, not a flat array. On an EMPTY list <code>fetchNextPage()</code> and <code>fetchPreviousPage()</code> fetch the first page from <code>initialPageParam</code> without consulting <code>getNextPageParam</code>/<code>getPreviousPageParam</code> at all, so either can start a list created with <code>enabled: false</code> or retry a first page that failed; on a loaded list a <code>getNextPageParam</code> that returns undefined is still a no-op. Its pages live in hook-local signals, so <code>getQueryData</code>, <code>setQueryData</code>, <code>staleTime</code>, <code>cacheTime</code>, <code>placeholderData</code>, <code>refetchOnWindowFocus</code> and <code>refetchInterval</code> do not reach it; <code>invalidateQueries</code> and <code>clearCache</code> do</td></tr>
+              <tr><td><code>invalidateQueries(keyOrPredicate, opts)</code></td><td>Trigger refetch. An array key matches as a prefix on segment boundaries, so <code>['todos']</code> also invalidates <code>['todos', 1]</code>. Pass <code>{ exact: true }</code> for that key alone, <code>{ hard: true }</code> to clear data immediately, or a predicate function to select keys. A predicate is handed the NORMALIZED key, so an array key arrives joined (<code>['/api/posts', 1]</code> as <code>'/api/posts:1'</code>) and <code>key =&gt; key.startsWith('/api/posts')</code> is safe; a non-string non-array key (a number, an object) is passed through unchanged. It is synchronous and returns nothing, so awaiting it does not wait for the refetches. Every form reaches infinite queries and queries that have subscribed but not yet resolved. A query whose <code>enabled</code> is false is deliberately left asleep</td></tr>
               <tr><td><code>prefetchQuery(key, fetcher)</code></td><td>Pre-fill cache before component mounts</td></tr>
               <tr><td><code>setQueryData(key, updater)</code></td><td>Manually set cache data</td></tr>
               <tr><td><code>getQueryData(key)</code></td><td>Read cached data</td></tr>
-              <tr><td><code>clearCache()</code></td><td>Clear all cached data</td></tr>
+              <tr><td><code>clearCache()</code></td><td>Empty every cached entry, including the pages of an infinite query. A key a mounted component is still reading is emptied in place, so the clear shows on screen and a later write to that key (<code>setQueryData</code>, a sibling's fetch, <code>prefetchQuery</code>) still reaches the component. Afterwards <code>getQueryData()</code> reports the key as absent, and a query left with nothing settles on <code>status() === 'idle'</code> whether it was created enabled or disabled. It also aborts requests already in flight, including one started by an explicit <code>refetch()</code>, so a response that lands after the clear is discarded and <code>await q.refetch()</code> raced by a logout resolves with <code>undefined</code></td></tr>
             </tbody>
           </table>
 
@@ -204,14 +204,14 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>useForm(options)</code></td><td>Complete form management: register, handleSubmit, validate, formState</td></tr>
-              <tr><td><code>useField(name, opts)</code></td><td>Individual field control: value(), error(), inputProps()</td></tr>
+              <tr><td><code>useForm(options)</code></td><td>Complete form management: register, handleSubmit, validate, formState (values, errors, <code>error(name)</code>, touched, isDirty, isValid, isValidating, isSubmitting, isSubmitted, submitCount, dirtyFields)</td></tr>
+              <tr><td><code>useField(name, opts)</code></td><td>Individual field control: value(), error(), inputProps(). Both <code>inputProps()</code> and <code>register()</code> bind the input's value ONE WAY today: typing updates form state, but a programmatic <code>setValue()</code> or <code>reset()</code> moves the state without moving the DOM input, so a form that writes its own fields has to set <code>el.value</code> itself</td></tr>
               <tr><td><code>zodResolver(schema)</code></td><td>Zod validation schema adapter</td></tr>
               <tr><td><code>yupResolver(schema)</code></td><td>Yup validation schema adapter</td></tr>
               <tr><td><code>rules.required()</code></td><td>Built-in: required, minLength, maxLength, min, max, pattern, email, url, match, custom</td></tr>
               <tr><td><code>Input / Textarea / Select</code></td><td>Pre-built controlled form components</td></tr>
-              <tr><td><code>Checkbox / Radio</code></td><td>Pre-built controlled toggle components</td></tr>
-              <tr><td><code>ErrorMessage({ name })</code></td><td>Display field validation errors</td></tr>
+              <tr><td><code>Checkbox / Radio</code></td><td>Pre-built controlled toggle components. Radios in a group share one field holding the selected option, so every <code>&lt;Radio&gt;</code> needs its own <code>value</code></td></tr>
+              <tr><td><code>ErrorMessage({ name, formState, errors, render })</code></td><td>Display a field's validation error. It looks the error up in what you hand it, in this order: <code>formState.error(name)</code> (the <code>useForm()</code> shape), then <code>formState.errors[name]</code>, then <code>errors[name]</code> (an object or an accessor). There is no form-context lookup, so <code>ErrorMessage({ name })</code> on its own resolves to null and renders nothing even when the field has an error. It resolves ONCE, when it is created, like any component: to show an error that arrives later, put it behind a thunk that reads the error, e.g. <code>() =&gt; form.formState.error('email') &amp;&amp; h(ErrorMessage, { name: 'email', formState: form.formState })</code>. Default output is <code>&lt;span class="what-error" role="alert"&gt;</code>; <code>render({ message, type })</code> replaces it</td></tr>
             </tbody>
           </table>
 
@@ -240,9 +240,10 @@
               <tr><td><code>tween(from, to, opts)</code></td><td>Time-based easing. Options: duration, easing, onUpdate, onComplete</td></tr>
               <tr><td><code>easings</code></td><td>Built-in: linear, easeInQuad, easeOutQuad, easeInOutCubic, easeOutBounce, etc.</td></tr>
               <tr><td><code>useTransition(opts)</code></td><td>Animate state transitions: isTransitioning(), progress(), start()</td></tr>
-              <tr><td><code>useGesture(el, handlers)</code></td><td>Multi-touch: onDrag, onPinch, onSwipe, onTap, onLongPress</td></tr>
+              <tr><td><code>useGesture(el, handlers)</code></td><td>Multi-touch: onDragStart, onDrag, onDragEnd, onPinch, onSwipe, onTap, onLongPress, plus a boolean <code>preventDefault</code>. Returns the live gesture state: <code>isDragging</code>, <code>currentX</code>, <code>currentY</code>, <code>deltaX</code>, <code>deltaY</code>, <code>velocity</code> as signals (<code>startX</code>/<code>startY</code> are plain numbers rewritten at gesture start)</td></tr>
               <tr><td><code>useAnimatedValue(initial)</code></td><td>React Native-like: spring(), timing(), interpolate()</td></tr>
               <tr><td><code>createTransitionClasses(name)</code></td><td>CSS transition class name generator</td></tr>
+              <tr><td><code>cssTransition(el, name, type, ms)</code></td><td>Drive one of those class sets on an element: start class, forced reflow, active class, and after <code>ms</code> the done class. Returns a promise that resolves once the done class has landed</td></tr>
             </tbody>
           </table>
 
@@ -259,10 +260,10 @@
               <tr><td><code>useFocusTrap(ref)</code></td><td>Trap focus in container: activate(), deactivate()</td></tr>
               <tr><td><code>FocusTrap({ active })</code></td><td>Component wrapper that traps focus</td></tr>
               <tr><td><code>announce(msg, opts)</code></td><td>Screen reader announcement: priority, timeout</td></tr>
-              <tr><td><code>useAriaExpanded()</code></td><td>Toggle expanded state: buttonProps(), panelProps()</td></tr>
-              <tr><td><code>useAriaSelected()</code></td><td>Selection state: itemProps(value)</td></tr>
-              <tr><td><code>useAriaChecked()</code></td><td>Checkbox state: checkboxProps()</td></tr>
-              <tr><td><code>useRovingTabIndex(count)</code></td><td>Keyboard navigation: getItemProps(i), containerProps()</td></tr>
+              <tr><td><code>useAriaExpanded()</code></td><td>Toggle expanded state: buttonProps(), panelProps(). Both return accessor-valued props, so the documented <code>&lt;button {...buttonProps()}&gt;</code> spread keeps <code>aria-expanded</code> in sync as the state changes</td></tr>
+              <tr><td><code>useAriaSelected()</code></td><td>Selection state: itemProps(value), accessor-valued like the rest</td></tr>
+              <tr><td><code>useAriaChecked()</code></td><td>Checkbox state: checkboxProps(), accessor-valued. It also sets <code>role="checkbox"</code>, and whichever role is applied LAST wins. On the <code>h()</code> path that is object order: <code>{ ...checkboxProps(), role: 'switch' }</code> comes out a switch, <code>{ role: 'switch', ...checkboxProps() }</code> comes out a checkbox. In compiled JSX a LITERAL attribute is baked into the cloned template and the spread runs over it afterwards, so neither <code>&lt;div {...checkboxProps()} role="switch"&gt;</code> nor <code>&lt;div role="switch" {...checkboxProps()}&gt;</code> is a switch; a dynamic <code>role={r}</code> written after the spread compiles to a <code>setProp</code> that runs after it and does win</td></tr>
+              <tr><td><code>useRovingTabIndex(count, opts)</code></td><td>Keyboard navigation: getItemProps(i), containerProps(overrides), focusItem(i), setFocusIndex(i), focusIndex(). Arrow/Home/End move real DOM focus and keep exactly one item tabbable. No container role is emitted, pass your own per hook (<code>{ role: 'toolbar' }</code>) or per call (<code>containerProps({ role: 'toolbar' })</code>)</td></tr>
               <tr><td><code>SkipLink / VisuallyHidden</code></td><td>Skip navigation and screen-reader-only content</td></tr>
               <tr><td><code>useId() / useDescribedBy()</code></td><td>Unique IDs and ARIA attribute linking</td></tr>
               <tr><td><code>Keys / onKey() / onKeys()</code></td><td>Keyboard event constants and handlers</td></tr>
@@ -327,7 +328,10 @@
               <tr><td><code>renderToString(element)</code></td><td>Synchronous render to HTML string. Body only: any <code>&lt;Head&gt;</code> tags are dropped</td></tr>
               <tr><td><code>renderToStringWithHead(element)</code></td><td>Same render, returning <code>{ body, head }</code> with the collected head as HTML</td></tr>
               <tr><td><code>renderToHydratableString(element)</code></td><td>Render with hydration markers so the client can reuse the server DOM</td></tr>
+              <tr><td><code>renderToStringAsync(element, ctx)</code></td><td>Render, await whatever suspended (a <code>createResource</code> fetch), then render the whole tree again, up to 12 passes. Returns <code>{ body, head, loaderData, resources, ctx }</code>. It resolves a <code>createResource</code> only when the resource was given an explicit <code>key</code>: an unkeyed one is auto-named per pass (<code>__r0</code>, <code>__r1</code>, …), never matches what the previous pass cached, and burns all 12 passes with the Suspense fallback still in the body. Component bodies re-run once per pass. A suspension with no <code>&lt;Suspense&gt;</code> above it is not contained: the returned promise rejects with the thrown promise</td></tr>
               <tr><td><code>renderToStream(element)</code></td><td>Async generator for streaming SSR. The only entry point that resolves a suspended <code>lazy()</code> component</td></tr>
+              <tr><td><code>renderDocument(pageModule, reqCtx, opts)</code></td><td>The full-stack entry: runs the page's <code>loader</code>, renders through <code>renderToStringAsync</code>, and returns a complete HTML document with the collected head and one <code>&lt;script id="__what_data"&gt;</code> hydration payload (<code>loaderData</code> is <code>null</code> there when the module has no loader). <code>pageModule</code> may be <code>{ default, loader }</code> or a bare component, and <code>reqCtx.params</code> are spread onto it as props beside <code>loaderData</code>. Because it goes through <code>renderToStringAsync</code>, the keyed-resource rule above and the <code>lazy()</code> limitation both apply, and the body is plain <code>renderToString</code> output carrying no hydration markers (<code>renderToHydratableString</code> is the entry point that emits those). Options: <code>clientEntry</code> (the only thing that emits a client <code>&lt;script type="module"&gt;</code>), <code>lang</code>, <code>bodyClass</code>, <code>head</code>, <code>csrfToken</code></td></tr>
+              <tr><td><code>generateStaticPage(page, data)</code></td><td>Build-time HTML for a <code>definePage()</code> config. The page component renders inside a component frame, so hooks in its own body (useState, useEffect, onMount, a root Context.Provider) work</td></tr>
               <tr><td><code>hydrate(element, container)</code></td><td>Client counterpart to <code>mount()</code>. Reuses the server-rendered DOM instead of clearing it</td></tr>
               <tr><td><code>definePage(config)</code></td><td>Page config: mode (static/server/client/hybrid), title, meta, islands</td></tr>
               <tr><td><code>server(Component)</code></td><td>Mark component as server-only (no JS shipped)</td></tr>
@@ -342,7 +346,7 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>action(fn, options)</code></td><td>Define server action callable from client via fetch</td></tr>
+              <tr><td><code>action(fn, options)</code></td><td>Define server action callable from client via fetch. Options: <code>id</code>, <code>onSuccess</code>, <code>onError</code>, <code>revalidate</code> (paths), <code>revalidateTags</code> (cache tags purged through the bound engine after the action succeeds), <code>timeout</code> (client fetch timeout in ms, default 30000)</td></tr>
               <tr><td><code>formAction(actionFn, opts)</code></td><td>Form submission wrapper with FormData handling</td></tr>
               <tr><td><code>useAction(actionFn)</code></td><td>Action state: trigger(), isPending(), error(), data(), reset()</td></tr>
               <tr><td><code>useMutation(mutationFn, opts)</code></td><td>Simple mutation: mutate(), isPending(), error(), data(), reset()</td></tr>
@@ -428,7 +432,8 @@
 <span class="comment">// Server</span>
 <span class="keyword">import</span> {
   renderToString, renderToStringWithHead,
-  renderToHydratableString, renderToStream,
+  renderToHydratableString, renderToStringAsync,
+  renderToStream, renderDocument, generateStaticPage,
   definePage, server,
   action, formAction, useAction, useMutation, useOptimistic,
   generateCsrfToken,

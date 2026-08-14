@@ -1,13 +1,13 @@
 # What Framework
 
-> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect every signal, effect, and component in a running app, and core runtime errors are structured with a code, fix, and example so agents can repair them in one pass.
+> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect every signal, effect, and component in a running app, and its `what_fix` tool returns a diagnosis, fix, and worked example for any What error code offline.
 
 Key facts an agent should know before writing code:
 
 - State is a `signal(initialValue, 'debugName')`. Read with `count()`, write with `count(5)` or `count(c => c + 1)` (also `count.set(...)`).
 - Components run **once**. The function body never re-executes, signals create fine-grained DOM effects instead of re-rendering.
-- `computed()` is lazy, cached derived state. `effect()` auto-tracks signal reads (no dependency array). `batch()` flushes effects once.
-- Import everything from `'what-framework'` (the umbrella package re-exports the core).
+- `computed()` is lazy, cached derived state. `effect()` auto-tracks signal reads (no dependency array). `batch()` flushes effects once and returns nothing.
+- Import the core from `'what-framework'` (the umbrella package re-exports it). SSR and server actions live on `'what-framework/server'`, routing on `'what-framework/router'`; those names are not on the umbrella.
 - Native What APIs are preferred. `what-react` is a secondary compatibility layer for the React ecosystem.
 
 ## Start here
