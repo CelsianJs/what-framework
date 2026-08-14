@@ -2,22 +2,41 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]: server rendering emitted JavaScript source, invalid elements, and duplicate attributes
+## [Unreleased]: everything the documentation said was broken, and several things it did not
 
-Six correctness fixes, from two techniques that paired well.
+Twenty-eight correctness fixes, all found by one technique and all kept honest by
+another.
 
-Two came from auditing the documentation against the runtime. Reading every code
-sample on whatfw.com and then RUNNING it is a bug-finding technique in its own
-right: the docs describe what the framework is supposed to do, so each place the
-docs were "wrong" was equally likely to be a place the framework was wrong. The
-attribute leak and the `key={i}` freeze were both found that way, and both were
-things the docs had been teaching correctly all along.
+The technique that found them: reading every code sample on whatfw.com and then
+RUNNING it. The docs describe what the framework is supposed to do, so each place
+the docs were "wrong" was equally likely to be a place the framework was wrong.
+That produced the first six fixes directly. It also produced a list of things the
+docs had to describe as permanent limitations, because the audit's job was to be
+accurate and the framework genuinely did not do them: `<For fallback>` silently
+dropped by the compiler, `useQuery({ enabled: false })` permanently dead,
+`generateStaticPage` unable to render any component with a hook, `Radio` exported
+and inert, `cssTransition` never settling, `zodResolver` silently passing every
+invalid form under Zod 4. That list became this release.
 
-The other four came from asking one question systematically: which cases does the
-client render path handle that the server path does not? Every special vnode tag
-in `dom.js` was checked against `packages/server`. Three of the four gaps that
-turned up (`__errorBoundary`, `__suspense` on the hydratable path, `__portal`)
-were in that list, and the fourth surfaced while fixing them.
+The technique that kept it honest: every fix was verified by an independent pass
+whose instructions were to REFUTE it by running it, not to read it. That pass
+rejected five of eleven groups. Several fixes were worse than the bugs they
+closed. `useRovingTabIndex` located items by an id that `hydrate()` renumbers, so
+with two islands on a page keyboard focus jumped out of the widget the user was
+in and into an unrelated one. `clearCache()` wiped shared data but could not
+reach the per-hook status signal, turning a stale render into a TypeError on
+logout. A reactive `enabled` gate aborted an in-flight explicit `refetch()` and
+resolved its promise with `undefined`. Boundary hydration desynced the cursor and
+put a second copy of the trailing element on screen. Every one of those was
+demonstrated with a public-API reproduction, repaired, and re-checked by a third
+pass whose specific job was to confirm the repair had not quietly regressed to
+the original bug in order to kill the regression.
+
+The general lesson is in that paragraph rather than in any individual fix: a test
+that asserts on the DOM cannot see an inserter leak, a type test written to the
+fix passes for any fix, and a hydration test with no trailing sibling structurally
+cannot detect a cursor desync. Four of the defects below shipped originally
+because the test that should have caught them was shaped like the bug.
 
 ### Fixed
 
@@ -83,6 +102,152 @@ were in that list, and the fourth surfaced while fixing them.
   `key={`${item.type}-${i}`}` changes the moment a row moves. A key built from a
   variable declared in the callback body warns for the same reason it used to
   crash.
+
+- **`zodResolver` silently disabled validation under Zod 4.** Zod 3 exposed the
+  issue list as both `.issues` and a legacy `.errors` alias; Zod 4 dropped
+  `.errors`. The resolver read `.errors` alone, collected nothing, returned an
+  empty error map, and `handleSubmit` reads "no errors" as VALID, so every
+  invalid form submitted. No test in CI could catch it: the repo only resolves
+  zod 3.25.76, transitively, through devtools-mcp. Two adjacent holes went with
+  it: anything thrown that was not a `ZodError` was swallowed and reported as
+  zero errors, and a symbol path segment threw inside `path.join('.')` and
+  discarded every issue in the list. `yupResolver` had the same non-validation
+  hole. Every resolver now reports errors or rethrows. None can answer "no
+  errors" because it failed to understand its own library.
+
+- **`Radio` was exported and completely inert.** Its change handler called
+  `registered.onInput`, a key `register` never defines, so nothing was ever
+  written; it registered untyped, so it would have stored a boolean for a group
+  sharing one field; and its `checked` was a one-shot read, which never updates
+  because components run once. Fixing it surfaced that spreading a registration
+  clobbers a caller's `onBlur`/`onFocus`, and that `setProp` keys listener
+  bookkeeping by event NAME so a caller's `onChange` died against the
+  registration's `onchange`. Handlers now compose.
+
+- **`useQuery({ enabled: false })` had no working form at all.** `enabled` was
+  captured once, `refetch()` was gated by the same check, and `status()` stayed
+  `'loading'` forever, so a disabled query was indistinguishable from a loading
+  one and the button-click-to-fetch pattern was unreachable. `enabled` now takes
+  a boolean, signal or thunk; an explicit `refetch()` is ungated and cannot be
+  cancelled by an unrelated re-render; a disabled query reports `idle`.
+
+- **`clearCache()` permanently detached every mounted component.** It emptied the
+  Maps while live components held the old signal objects, contradicting the
+  documented promise that components sharing a key share one set of signals. It
+  now resets in place, moving status and data together, clears
+  `useInfiniteQuery` data, and drops rather than nulls a module-scope query's key.
+
+- **`useInfiniteQuery` ignored every base option.** `enabled`, `staleTime`,
+  `select`, `retry` and `onSuccess` fell into an unused rest parameter, it never
+  joined the shared cache despite computing a normalized key, it had no error or
+  status surface, and it duplicated `initialPageParam` in `pageParams`.
+
+- **The ARIA prop helpers froze on the first read.** `buttonProps()`,
+  `panelProps()`, `itemProps()`, `checkboxProps()` and `getItemProps()` returned
+  plain objects built from an eager signal read, so the spread form every reader
+  reaches for snapshotted the ARIA state at mount. An accordion's `aria-expanded`
+  never changed. They now return accessor-valued props, and every enumerated
+  value is emitted as the string `"true"`/`"false"`: a raw boolean renders as
+  `aria-expanded=""` or drops the attribute, and neither is "false" to a screen
+  reader.
+
+- **`useRovingTabIndex` never moved focus**, which is the entire point of the
+  WAI-ARIA pattern it is named after, and its container hard-coded
+  `role="listbox"` over whatever the caller wrote. `focusItem()` is now
+  bounds-checked and `focusIndex` is clamped when a dynamic count shrinks: both
+  previously left every item at `tabindex="-1"`, dropping the widget out of the
+  tab order entirely.
+
+- **`cssTransition()` never settled.** It asks for a reflow READ from inside a
+  WRITE, and `flushScheduler` drained reads before writes and cleared its
+  `scheduled` flag last, while `schedule()` short-circuits while that flag is
+  true, so the read landed in an already-drained queue with no frame armed. Fixed
+  in the scheduler, because scheduling from within a flush is a property it
+  should have regardless of the caller: leftover work arms another frame.
+
+- **An `<ErrorBoundary>` or `<Portal>` lost its subtree on hydration.**
+  `hydrateNode` had no branch for the marker tags, so a boundary anywhere in a
+  server-rendered tree warned `expected <__errorBoundary>, got P` and dropped its
+  children. Boundary end markers are on `claimNode`'s skip list so a cursor
+  desync cannot destroy one.
+
+- **`spread()` dropped `ref` on the compiled path.** Unlike `applyProps` and
+  `setProp`, which both special-case it, `spread()` had no `ref` branch, so a ref
+  landed in the reactive-prop branch and was invoked with NO ARGUMENT. Every
+  `{...register(...)}` spread silently lost its ref.
+
+- **`generateStaticPage` could not render a component that used a hook.** It
+  called `page.component(data)` bare, outside the component frame
+  `renderToString` establishes, so `useState`, `useSignal`, `useEffect`,
+  `useMemo`, `useRef`, `onMount` and `Context.Provider` all threw. It was
+  presented as the static-generation entry point while being unusable for most
+  real pages.
+
+- **A defaulted `children` prop rendered on the client but not the server.**
+  `dom.js` passes `undefined` for a childless component so a JS default parameter
+  applies; all three server call sites passed `children: vnode.children`, and
+  `[]` is defined. `SkipLink` was the visible case, shipping a server-rendered
+  link with no accessible name, a WCAG 2.4.4 failure.
+
+- **`useLoaderData()` took the client path during a real server render.** It
+  branched on `typeof document === 'undefined'`, so under jsdom or happy-dom it
+  returned the stale hydration payload instead of the loader's result. Same
+  defect class 0.12.0 fixed for `renderToString`.
+
+- **`<Form>`'s dev warning was false.** It told developers `csrfToken` is passed
+  to loaders. It was not, on any stock path, so following the runtime's own
+  advice shipped a form with an empty token and a silent 403 on the no-JS
+  submit. The token is threaded where it is legitimately available and the
+  warning says when that is. It is deliberately NOT invented for a cached
+  response, because cached HTML is shared between visitors.
+
+- **A guarded JSX arm was hoisted out of its guard.** `{cond() && <p>{cond().message}</p>}`
+  evaluated `cond().message` unconditionally at mount and threw, and so did the
+  ternary form. That is the idiomatic React shape.
+
+- **`<Show>` did not make its static children lazy when compiled.** Children were
+  built alongside the enclosing component with their bindings running
+  synchronously, so `<Show when={user}><p>{() => user().name}</p></Show>` threw
+  when `user` was null. The same JSX was already correct uncompiled.
+
+- **The compiler silently discarded `fallback` on `<For>`.** Its attribute loop
+  read only `each` and `key` and emitted no diagnostic, while the runtime `For`
+  implements it, so upgrading a buildless app to the Vite compiler lost its empty
+  state with nothing on the console.
+
+- **`extractPageConfig` silently returned `{ mode: 'client' }` for valid
+  configs.** It quoted bare keys with a regex over the whole matched object, so a
+  colon inside a string value corrupted `vary: ['cookie:theme']` into invalid
+  JSON, and it stripped `//` comments AFTER collapsing trailing commas. Both
+  failures were silent, and that config is what `what generate` reads, so a route
+  that legitimately declared `vary` was quietly skipped by static generation.
+
+- **`enableScrollRestoration()` could not restore a position.** Three writers
+  disagreed about the stored shape and the key, so the restore effect handed
+  `window.scrollTo` an object, which coerces to NaN and jumps to the top. A URL
+  with a hash now reaches its anchor even when a position is saved for that exact
+  URL, so clicking the same `#install` link twice lands on the section both
+  times.
+
+- **Type declarations contradicted the runtime.** `useState`'s first element is a
+  signal accessor, not a `T`. `batch` returns undefined. `ActionOptions` omitted
+  `revalidateTags` and `timeout`, both of which the runtime reads, so the
+  documented working call failed excess-property checking. `pollInterval` was
+  declared on `PageCacheConfig` and read by nothing.
+
+### Known limitations, unchanged
+
+- `<Suspense>` still does not hydrate. `hydrateNode`'s component branch swallows a
+  thrown thenable instead of suspending, so a `lazy()` child whose chunk has not
+  landed, which is always true on a real first load, never flips `loading`.
+  `<ErrorBoundary>` and `<Portal>` hydration are fixed; Suspense is not.
+- There is still no keyed reconciliation on the uncompiled runtime path, and no
+  portable spelling for a keyed `<For>`: compiled keyed mode passes a signal
+  accessor and uncompiled passes the raw item.
+- There is still no cross-instance ISR regeneration lock, so with the Redis store
+  and N instances, N concurrent regenerations of the same key can run.
+- `renderToStream` still runs `useEffect` bodies on the server while
+  `renderToString` suppresses them.
 
 ### Changed
 
