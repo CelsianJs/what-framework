@@ -1484,6 +1484,31 @@ export default function whatBabelPlugin({ types: t }) {
     return false;
   }
 
+  // Does `path` sit in a slot its parent only evaluates SOMETIMES?
+  //
+  // Used to decide whether a JSX root's setup statements may be hoisted out to
+  // the enclosing statement. Anything in one of these slots must not be: the
+  // source deliberately said "only build this when the guard opens", and the
+  // hoist turns that into "always build this".
+  //
+  // Only the slots that are genuinely skipped count. A logical expression's
+  // LEFT operand and a ternary's TEST always run, so JSX there is not guarded
+  // and keeps the cheaper hoist.
+  function isConditionallyEvaluated(path) {
+    const parent = path.parent;
+    if (!parent) return false;
+    if (t.isLogicalExpression(parent)) return path.key === 'right';
+    if (t.isConditionalExpression(parent)) {
+      return path.key === 'consequent' || path.key === 'alternate';
+    }
+    // `maybe?.render(<jsx/>)` skips its whole argument list when the chain
+    // short-circuits, so an argument is guarded; the callee/object is not.
+    if (t.isOptionalCallExpression(parent) || t.isOptionalMemberExpression(parent)) {
+      return path.key !== 'callee' && path.key !== 'object';
+    }
+    return false;
+  }
+
   // If `expr` is a conditional (ternary / && / ||) with a reactive test and a
   // DOM-producing branch, hoist the test into `const _c$N = _$memo(...)` (pushed
   // onto `statements`) and return the expression rewritten to read the memo.
@@ -2071,11 +2096,13 @@ export default function whatBabelPlugin({ types: t }) {
 
     let eachExpr = null;
     let keyExpr = null;
+    let fallbackExpr = null;
     for (const attr of attributes) {
       if (t.isJSXAttribute(attr)) {
         const name = getAttrName(attr);
         if (name === 'each') eachExpr = getAttributeValue(attr.value);
         else if (name === 'key') keyExpr = getAttributeValue(attr.value);
+        else if (name === 'fallback') fallbackExpr = getAttributeValue(attr.value);
       }
     }
 
@@ -2100,13 +2127,184 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     state.needsMapArray = true;
-    const args = [eachExpr, renderFn];
-    if (keyExpr) {
-      args.push(t.objectExpression([
-        t.objectProperty(t.identifier('key'), keyExpr)
-      ]));
+
+    // `_$mapArray(source, renderFn[, { key }])` — built from whichever source
+    // expression the caller wants, because the fallback lowering below has to
+    // read the source twice and therefore binds it to a const first.
+    const buildMapArrayCall = (sourceExpr) => {
+      const args = [sourceExpr, renderFn];
+      if (keyExpr) {
+        args.push(t.objectExpression([
+          t.objectProperty(t.identifier('key'), keyExpr)
+        ]));
+      }
+      return t.callExpression(t.identifier('_$mapArray'), args);
+    };
+
+    if (!fallbackExpr) {
+      return buildMapArrayCall(eachExpr);
     }
-    return t.callExpression(t.identifier('_$mapArray'), args);
+
+    // `fallback` used to be read by nobody: the loop above only looked at
+    // `each` and `key`, so the attribute was silently discarded. The RUNTIME
+    // For (packages/core/src/components.js) does implement it, so an app that
+    // moved from a buildless setup to the Vite compiler lost its empty state
+    // with nothing on the console.
+    //
+    // mapArray has no fallback of its own, and the obvious lowering — gate the
+    // WHOLE thing on emptiness, `() => empty() ? _$mapArray(...) : fallback` —
+    // is a trap. `insert()` has a fast path for a mapArray inserter: it
+    // recognises `child._mapArray` and installs the list ONCE for the life of
+    // the component. A thunk is not that, so the gated form falls through to
+    // the generic reactive branch, whose effect calls the thunk again on every
+    // flip and gets a BRAND NEW inserter each time. Nothing disposes the old
+    // one, so it stays subscribed to the source forever: every empty -> fill
+    // cycle permanently adds one more live list. Measured row-render-fn calls
+    // per two writes, over successive cycles, went 2 -> 9 -> 16 -> 23 while
+    // logging "NotFoundError: The child can not be found in the parent" from
+    // the orphans reconciling against the detached fragment they captured. The
+    // DOM stayed correct, which is why it looked fine.
+    //
+    // So keep the list permanent and give the fallback its OWN inserter beside
+    // it, both anchored to the same marker:
+    //     _$insert(el, _$mapArray(each, fn), marker)          // permanent
+    //     _$insert(el, () => empty() ? null : fallback, marker)
+    // Only one of the two ever has content, and each reconciles independently.
+    //
+    // This function has to return a single expression, and a <For> can land in
+    // a component's return, an element child, a component prop or a fragment.
+    // Rather than teach all of those to emit two inserts, wrap the pair in one
+    // inserter that performs both when it is mounted, and copy the list's own
+    // marker properties onto it with Object.assign so it IS a mapArray inserter
+    // to every consumer: `insert`, `createDOM`, `hydrateNode` and the server's
+    // `_mapArrayToArray` all key off `_mapArray` and the `_mapArraySource` /
+    // `_mapArrayFn` / `_mapArrayKeyed` trio. Object.assign copies exactly the
+    // own enumerable properties mapArray sets, so this keeps working if the
+    // runtime adds another one.
+    //
+    // Two more things this has to get right:
+    //  - The source expression is evaluated ONCE and shared, so the list and
+    //    the emptiness test can never disagree about which list they see.
+    //  - The emptiness test is MEMOIZED, so a write that leaves the list
+    //    non-empty does not re-run the fallback thunk and rebuild its DOM.
+    if (!state._pendingSetup) state._pendingSetup = [];
+    const forIndex = state.nextForIndex();
+    const eachId = `_each$${forIndex}`;
+    const listId = `_for$${forIndex}`;
+    const fallbackId = `_fb$${forIndex}`;
+    const emptyId = state.nextMemoId();
+    state.needsMemo = true;
+    state.needsInsert = true;
+
+    // `each` has to be a signal, or some other accessor. The typeof guard below
+    // is NOT plain-array support and must not be read as advertising any: it
+    // only keeps this memo total. `_$mapArray` calls its source, so
+    // `each={["a","b"]}` throws "source is not a function" the moment the list
+    // mounts — identically to the no-fallback lowering above, which hands the
+    // same value straight to `_$mapArray`. The guard is here so that failure
+    // arrives from the list, with that message, instead of from the emptiness
+    // test first with a less obvious one.
+    const resolvedId = path.scope
+      ? path.scope.generateUidIdentifier('list')
+      : t.identifier('_list');
+    const resolveList = t.conditionalExpression(
+      t.binaryExpression('===',
+        t.unaryExpression('typeof', t.identifier(eachId)),
+        t.stringLiteral('function')
+      ),
+      t.callExpression(t.identifier(eachId), []),
+      t.identifier(eachId)
+    );
+
+    state._pendingSetup.push(
+      t.variableDeclaration('const', [
+        t.variableDeclarator(t.identifier(eachId), eachExpr)
+      ]),
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier(emptyId),
+          t.callExpression(t.identifier('_$memo'), [
+            t.arrowFunctionExpression([], t.blockStatement([
+              t.variableDeclaration('const', [
+                t.variableDeclarator(resolvedId, resolveList)
+              ]),
+              t.returnStatement(
+                t.unaryExpression('!', t.unaryExpression('!',
+                  t.logicalExpression('&&',
+                    t.cloneNode(resolvedId),
+                    t.memberExpression(t.cloneNode(resolvedId), t.identifier('length'))
+                  )
+                ))
+              )
+            ]))
+          ])
+        )
+      ]),
+      t.variableDeclaration('const', [
+        t.variableDeclarator(t.identifier(listId), buildMapArrayCall(t.identifier(eachId)))
+      ]),
+      // The fallback thunk is hoisted rather than written inline in the
+      // inserter below so that the inserter's body mentions no user code at
+      // all. Its parameters can then be given fixed names without any risk of
+      // capturing an identifier the fallback expression wanted from an outer
+      // scope — this function is also called with a synthetic `{ node }` path
+      // that carries no scope to generate a unique name from.
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier(fallbackId),
+          t.arrowFunctionExpression([], t.conditionalExpression(
+            t.callExpression(t.identifier(emptyId), []),
+            t.nullLiteral(),
+            fallbackExpr
+          ))
+        )
+      ])
+    );
+
+    const parentParam = t.identifier('_parent');
+    const markerParam = t.identifier('_marker');
+    const endId = t.identifier('_end');
+    return t.callExpression(
+      t.memberExpression(t.identifier('Object'), t.identifier('assign')),
+      [
+        t.arrowFunctionExpression(
+          [parentParam, markerParam],
+          t.blockStatement([
+            // The list goes in first so its `<!--/list-->` end marker sits
+            // BEFORE the fallback: rows render above the empty state, and the
+            // return value stays the end marker every other mapArray inserter
+            // hands back.
+            t.variableDeclaration('const', [
+              t.variableDeclarator(endId, t.callExpression(t.identifier(listId), [
+                t.cloneNode(parentParam),
+                t.cloneNode(markerParam)
+              ]))
+            ]),
+            // The thunk is wrapped in an ARRAY on purpose. `insert()` has two
+            // ways to mount a function and only one of them survives here:
+            //  - passed bare, it takes insert's own reactive branch, whose
+            //    effect closes over the `parent` it was handed. When this
+            //    inserter is mounted through createDOM (a <For> as a component's
+            //    return value, at a fragment root, or inside a <Show> arm)
+            //    that parent is a throwaway DocumentFragment which is emptied
+            //    into the real container straight after. Every later run then
+            //    reconciles against a detached node, so the fallback was never
+            //    removed once rows arrived and stayed on screen underneath them.
+            //  - wrapped in an array, it goes through valuesToNodes -> createDOM,
+            //    whose reactive branch re-reads `endMarker.parentNode` on every
+            //    run. That is the same live-parent resolution mapArray does for
+            //    exactly this reason, so both halves survive being moved.
+            t.expressionStatement(t.callExpression(t.identifier('_$insert'), [
+              t.cloneNode(parentParam),
+              t.arrayExpression([t.identifier(fallbackId)]),
+              t.cloneNode(markerParam)
+            ])),
+            t.returnStatement(t.cloneNode(endId))
+          ])
+        ),
+        t.identifier(listId)
+      ]
+    );
   }
 
   function transformShowFineGrained(path, state) {
@@ -2147,7 +2345,22 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     if (!contentExpr) {
-      // Static children — collect and transform them
+      // Static children — collect and transform them.
+      //
+      // The arm's element setup belongs INSIDE the arm, exactly as it does for
+      // a <Match> arm (see the identical splice in transformSwitchFineGrained).
+      // transformElementFineGrained pushes `const _el$N = _tmpl$X()` and every
+      // binding it needs into state._pendingSetup, and _pendingSetup is drained
+      // next to the thunk this function returns. So without the splice the arm
+      // was built, and its bindings ran, alongside the enclosing component:
+      //   <Show when={user}><p>{() => user().name}</p></Show>
+      // threw at first render with a null user, and logged an uncaught effect
+      // error on every transition back to falsy because the binding stayed
+      // subscribed. Uncompiled, the same JSX is lazy — children of the runtime
+      // Show really are deferred — so this was a compiled-vs-runtime
+      // divergence, not just a bug.
+      if (!state._pendingSetup) state._pendingSetup = [];
+      const setupMark = state._pendingSetup.length;
       const transformedChildren = [];
       for (const child of children) {
         if (t.isJSXText(child)) {
@@ -2163,6 +2376,13 @@ export default function whatBabelPlugin({ types: t }) {
         contentExpr = t.arrayExpression(transformedChildren);
       } else {
         contentExpr = t.nullLiteral();
+      }
+      const setup = state._pendingSetup.splice(setupMark);
+      if (setup.length > 0) {
+        contentExpr = t.callExpression(
+          t.arrowFunctionExpression([], t.blockStatement([...setup, t.returnStatement(contentExpr)])),
+          []
+        );
       }
     }
 
@@ -2533,10 +2753,19 @@ export default function whatBabelPlugin({ types: t }) {
       // hoist references to closure variables out of scope.
       let stmtPath = path;
       let crossedFunctionBoundary = false;
+      // Setup hoisted out of a guard runs whether the guard opens or not.
+      // `return user() && <p>{user().name}</p>` is the React shape everybody
+      // writes, and hoisting built the <p> and ran `() => user().name` at
+      // mount, so the very first render threw on a null user. Same for a
+      // ternary arm and for a guarded arm sitting in a component prop.
+      // A guarded arm has to be CONSTRUCTED INSIDE its guard, which is exactly
+      // what the IIFE path below does.
+      let crossedGuard = false;
       while (stmtPath && !stmtPath.isStatement()) {
         if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
           crossedFunctionBoundary = true;
         }
+        if (isConditionallyEvaluated(stmtPath)) crossedGuard = true;
         stmtPath = stmtPath.parentPath;
       }
       // We can safely hoist setup as siblings of `stmtPath` ONLY if
@@ -2557,15 +2786,16 @@ export default function whatBabelPlugin({ types: t }) {
         && stmtPath.isStatement()
         && (stmtPath.listKey === 'body' || stmtPath.listKey === 'consequent')
         && Array.isArray(stmtPath.container);
-      if (inStatementList && !crossedFunctionBoundary) {
+      if (inStatementList && !crossedFunctionBoundary && !crossedGuard) {
         // Same function scope — safe to hoist setup before the enclosing
         // statement. Works for return statements too: `insertBefore`
         // places setup above `return <jsx/>` without wrapping in an IIFE.
         stmtPath.insertBefore(pending);
         path.replaceWith(transformed);
       } else {
-        // Crossed a function boundary or no enclosing statement found —
-        // fall back to IIFE so closure variables remain in scope.
+        // Crossed a function boundary or a guard, or no enclosing statement
+        // was found — fall back to IIFE, which keeps closure variables in
+        // scope AND keeps the construction where the source put it.
         pending.push(t.returnStatement(transformed));
         path.replaceWith(
           t.callExpression(
@@ -2721,9 +2951,16 @@ export default function whatBabelPlugin({ types: t }) {
           state.templateCount = 0;
           state._varCounter = 0;
           state._memoCounter = 0;
+          // Separate counter from nextVarId: a <For each> source is not an
+          // element, and calling it _el$N would make the emitted code lie.
+          // One index names the whole group a <For fallback> lowers to, so the
+          // source (_each$N), the list inserter (_for$N) it feeds and the
+          // fallback thunk (_fb$N) beside it are visibly the same <For>.
+          state._listCounter = 0;
           state._pendingSetup = [];
           state.nextVarId = () => `_el$${state._varCounter++}`;
           state.nextMemoId = () => `_c$${state._memoCounter++}`;
+          state.nextForIndex = () => state._listCounter++;
 
           state.serverActionBindings = new Set();
           state.serverActionNamespaces = new Set();
