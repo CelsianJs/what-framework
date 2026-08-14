@@ -268,6 +268,35 @@ export function SkipLink({ href = '#main', children = 'Skip to content' }) {
 
 // --- ARIA Helpers ---
 
+// Every *Props() helper below returns ACCESSOR-valued ARIA props, never a
+// resolved value.
+//
+// The obvious and documented way to consume them is a spread,
+//
+//     <button {...buttonProps()}>
+//
+// and a spread evaluates its argument exactly once. When the helper read the
+// signal itself (`'aria-expanded': expanded()`), that single evaluation baked
+// the state at mount into a plain boolean: an accordion announced
+// aria-expanded="false" forever, no matter how many times it opened. Components
+// run once in What, so nothing ever re-called buttonProps() to refresh it.
+// Handing back a thunk instead moves the read to where the renderer can track
+// it. Both spread paths already treat a function-valued prop as a reactive
+// accessor and wrap it in a micro-effect (render.js spread() for compiled JSX,
+// dom.js setProp() for h()), and renderToString() calls it during SSR, so the
+// same object works on all three.
+//
+// The values are coerced to the STRINGS "true"/"false" rather than left as
+// booleans. aria-*/role are enumerated attributes: `aria-checked=""` is not a
+// valid value and an absent aria-expanded means "unsupported" to assistive
+// technology rather than "collapsed". The render paths normalize this too (see
+// _isAriaAttr in dom.js), but the helper is the layer that knows the attribute
+// is ARIA, so it should not depend on a downstream branch ordering to be
+// correct, and callers who log or diff the returned object see the real value.
+function ariaBool(value) {
+  return value ? 'true' : 'false';
+}
+
 export function useAriaExpanded(initialExpanded = false) {
   const expanded = signal(initialExpanded);
 
@@ -277,11 +306,13 @@ export function useAriaExpanded(initialExpanded = false) {
     open: () => expanded.set(true),
     close: () => expanded.set(false),
     buttonProps: () => ({
-      'aria-expanded': expanded(),
+      'aria-expanded': () => ariaBool(expanded()),
       onClick: () => expanded.set(!expanded.peek()),
     }),
     panelProps: () => ({
-      hidden: !expanded(),
+      // `hidden` is a genuine HTML boolean attribute, so it stays a boolean:
+      // present-or-absent is the correct serialization here, unlike ARIA.
+      hidden: () => !expanded(),
     }),
   };
 }
@@ -294,7 +325,7 @@ export function useAriaSelected(initialSelected = null) {
     select: (value) => selected.set(value),
     isSelected: (value) => selected() === value,
     itemProps: (value) => ({
-      'aria-selected': selected() === value,
+      'aria-selected': () => ariaBool(selected() === value),
       onClick: () => selected.set(value),
     }),
   };
@@ -309,7 +340,7 @@ export function useAriaChecked(initialChecked = false) {
     set: (value) => checked.set(value),
     checkboxProps: () => ({
       role: 'checkbox',
-      'aria-checked': checked(),
+      'aria-checked': () => ariaBool(checked()),
       tabIndex: 0,
       onClick: () => checked.set(!checked.peek()),
       onKeyDown: (e) => {
@@ -325,49 +356,229 @@ export function useAriaChecked(initialChecked = false) {
 // --- Roving Tab Index ---
 // For keyboard navigation in lists, toolbars, etc.
 
-export function useRovingTabIndex(itemCountOrSignal) {
+export function useRovingTabIndex(itemCountOrSignal, options = {}) {
   // Accept either a static number or a signal/getter for dynamic lists
   const getCount = typeof itemCountOrSignal === 'function'
     ? itemCountOrSignal
     : () => itemCountOrSignal;
   const focusIndex = signal(0);
 
+  // The container role belongs to the CALLER, so this hook emits none of its
+  // own. Every call site has the shape
+  //
+  //     <div role="toolbar" {...containerProps()}>
+  //
+  // and a default inside containerProps() wins that object literal by being
+  // spread last, so a hard-coded role="listbox" silently relabelled every
+  // toolbar, menu, tablist and radiogroup built on the hook. containerProps()
+  // cannot see the props written beside it, so the ONLY way for the caller's
+  // role to survive is to not emit one. A role can still be asked for
+  // explicitly, per hook (useRovingTabIndex(n, { role: 'menu' })) or per call
+  // site (containerProps({ role: 'menu' })). Roving tabindex is the shared
+  // keyboard mechanic of toolbars, menus, trees, grids, tablists, radiogroups
+  // and listboxes; guessing one of those for the caller is wrong more often
+  // than it is right.
+  const configuredRole = options?.role || null;
+
+  // --- Item registration ---
+  //
+  // The hook holds the item nodes DIRECTLY, through a ref object per index that
+  // getItemProps() hands back for the caller to install.
+  //
+  // It must not hold anything else. The previous attempt located items with
+  // document.querySelector on a `data-what-roving` group id allocated from the
+  // useId counter, and that counter is not stable in the architecture What
+  // ships as a headline feature: render.js hydrate() calls __resetIdCounter()
+  // on EVERY invocation and islands hydrate one at a time, each through its own
+  // hydrate() call. So (1) a single island on a page where anything earlier
+  // consumed a useId computes a different id than the server wrote, the
+  // selector matches nothing and focus never moves, and (2) two islands both
+  // restart the counter at 1, both compute the SAME id, and the second one's
+  // selector resolves into the first one's subtree, so ArrowRight moved focus
+  // out of the widget the user was in and into an unrelated one. Worse, the
+  // static `data-what-roving` attribute is never reconciled during hydration
+  // (hydrateElementProps skips static props), so the DOM keeps the server's id
+  // and the mismatch is invisible in the markup. An identifier that a later
+  // render can renumber cannot be the thing that identifies an element.
+  //
+  // A ref OBJECT rather than a callback ref, because all three prop paths
+  // accept an object and only two accept a function: render.js spread() treats
+  // any function-valued prop as a reactive accessor and would CALL a callback
+  // ref with no arguments. An object is assigned `.current` by dom.js
+  // applyProps (h()), render.js setProp() (compiled spread) and
+  // hydrateElementProps() (SSR) alike, and renderToString() skips `ref`
+  // entirely, so nothing lands in the HTML and there is no hydration mismatch
+  // to have.
+  const itemEls = [];
+  const itemRefs = [];
+  const callerRefs = [];
+
+  function refFor(index) {
+    let ref = itemRefs[index];
+    if (!ref) {
+      ref = {
+        get current() { return itemEls[index] || null; },
+        set current(el) {
+          itemEls[index] = el || null;
+          // Forward to a ref the caller passed through
+          // getItemProps(index, { ref }). Ours has to be the one in the props
+          // object, so wanting the node back must not cost them focus movement.
+          const caller = callerRefs[index];
+          if (typeof caller === 'function') caller(el);
+          else if (caller && typeof caller === 'object') caller.current = el;
+        },
+      };
+      itemRefs[index] = ref;
+    }
+    return ref;
+  }
+
+  // Nothing clears a ref on unmount, so an index can still hold a node from a
+  // previous render. focus() on a detached node is a silent no-op that leaves
+  // document.activeElement on <body>, so an element that has left the document
+  // counts as missing. (`isConnected === false` rather than a truthiness test:
+  // a DOM shim without the property should not disable the whole hook.)
+  function itemElement(index) {
+    const el = itemEls[index];
+    if (!el) return null;
+    return el.isConnected === false ? null : el;
+  }
+
+  // Move REAL DOM focus onto the active item. This is the whole point of the
+  // WAI-ARIA roving tabindex pattern and it was missing: arrow keys only
+  // shuffled a tabIndex value between props objects, so the user pressed
+  // ArrowDown and focus never left the first item (and a screen reader stayed
+  // on it). Holding the node means this is correct inside a shadow root, a
+  // portal or a second island for free, none of which a selector was.
+  function focusItemElement(index) {
+    const el = itemElement(index);
+    if (!el || typeof el.focus !== 'function') return null;
+    // Re-focusing the already-focused element would fire a redundant focus
+    // event, and the handler in getItemProps writes focusIndex on focus.
+    if (typeof document === 'undefined' || document.activeElement !== el) el.focus();
+    return el;
+  }
+
+  // True when focus is already inside this group, so a programmatic index
+  // change can follow it without yanking focus off an unrelated widget. An
+  // item may itself contain the focused node (a link inside a grid cell), so
+  // containment counts, not just identity.
+  function groupHasFocus() {
+    if (typeof document === 'undefined') return false;
+    const active = document.activeElement;
+    if (!active) return false;
+    for (let i = 0; i < itemEls.length; i++) {
+      const el = itemEls[i];
+      if (!el) continue;
+      if (el === active) return true;
+      if (typeof el.contains === 'function' && el.contains(active)) return true;
+    }
+    return false;
+  }
+
+  // WAI-ARIA requires exactly one tabbable item in a roving group at all times.
+  // A dynamic list that shrinks below focusIndex (End on four items, then the
+  // list filters down to two) would otherwise leave the index pointing past the
+  // last item, every item at tabindex="-1", and the whole widget silently out
+  // of the tab order. Clamping happens on READ rather than on write because the
+  // count can shrink without anyone calling into the hook, and reading
+  // getCount() here is what makes a signal-backed count re-run the tabIndex
+  // effects. The stored index is left alone so a list that filters and then
+  // restores puts the user back where they were.
+  function clampIndex(index, count) {
+    if (!(count > 0)) return 0;
+    if (index < 0) return 0;
+    if (index > count - 1) return count - 1;
+    return index;
+  }
+
+  function activeIndex() {
+    return clampIndex(focusIndex(), getCount());
+  }
+
+  // Out-of-range indexes handed in from application code are REFUSED rather
+  // than clamped. focusItem(99) used to write 99 into the signal and return
+  // null: no item matched, so every item went to tabindex="-1" and the widget
+  // dropped out of the tab order entirely. Clamping instead would move focus
+  // somewhere the caller never asked for, which is a worse surprise than
+  // ignoring an index that does not exist.
+  function isValidIndex(i) {
+    return Number.isInteger(i) && i >= 0 && i < getCount();
+  }
+
   function handleKeyDown(e) {
     const count = getCount();
     if (count <= 0) return;
+    const current = clampIndex(focusIndex.peek(), count);
+    let next = current;
     switch (e.key) {
       case 'ArrowDown':
       case 'ArrowRight':
-        e.preventDefault();
-        focusIndex.set((focusIndex.peek() + 1) % count);
+        next = (current + 1) % count;
         break;
       case 'ArrowUp':
       case 'ArrowLeft':
-        e.preventDefault();
-        focusIndex.set((focusIndex.peek() - 1 + count) % count);
+        next = (current - 1 + count) % count;
         break;
       case 'Home':
-        e.preventDefault();
-        focusIndex.set(0);
+        next = 0;
         break;
       case 'End':
-        e.preventDefault();
-        focusIndex.set(count - 1);
+        next = count - 1;
         break;
+      default:
+        return;
     }
+    e.preventDefault();
+    focusIndex.set(next);
+    focusItemElement(next);
   }
 
   return {
-    focusIndex: () => focusIndex(),
-    setFocusIndex: (i) => focusIndex.set(i),
-    getItemProps: (index) => ({
-      tabIndex: focusIndex() === index ? 0 : -1,
-      onKeyDown: handleKeyDown,
-      onFocus: () => focusIndex.set(index),
-    }),
-    containerProps: () => ({
-      role: 'listbox',
-    }),
+    focusIndex: () => activeIndex(),
+    // Follows focus only when the group already owns it, so syncing the index
+    // from application state cannot steal focus from elsewhere on the page.
+    // Use focusItem() when moving focus is the intent.
+    setFocusIndex: (i) => {
+      if (!isValidIndex(i)) return;
+      focusIndex.set(i);
+      if (groupHasFocus()) focusItemElement(i);
+    },
+    // Explicitly move focus to an item, e.g. a menu focusing its first item on
+    // open. Returns the element it focused, or null when the index is out of
+    // range or the item is not in the DOM.
+    focusItem: (i) => {
+      if (!isValidIndex(i)) return null;
+      focusIndex.set(i);
+      return focusItemElement(i);
+    },
+    // `overrides` are spread last and win, except for `ref`, which is chained
+    // (see refFor) because this hook needs the node to move focus at all.
+    getItemProps: (index, overrides) => {
+      const { ref: callerRef, ...rest } = overrides || {};
+      callerRefs[index] = callerRef || null;
+      return {
+        ref: refFor(index),
+        // Accessor, not a snapshot: exactly one item is tabbable at a time and
+        // which one has to change as focus roves. See the ariaBool note above
+        // for why a resolved value cannot survive a spread.
+        tabIndex: () => (activeIndex() === index ? 0 : -1),
+        onKeyDown: handleKeyDown,
+        // The ref is the registration; this is a free corrective for it. A call
+        // site that spreads its own ref AFTER getItemProps() replaces ours, and
+        // an element reporting its own focus event is first-hand evidence of
+        // which node index `index` rendered to.
+        onFocus: (e) => {
+          const el = e && (e.currentTarget || e.target);
+          if (el) itemEls[index] = el;
+          focusIndex.set(index);
+        },
+        ...rest,
+      };
+    },
+    containerProps: (overrides) => (
+      configuredRole ? { role: configuredRole, ...overrides } : { ...overrides }
+    ),
   };
 }
 

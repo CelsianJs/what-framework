@@ -520,6 +520,14 @@ export function createTransitionClasses(name) {
 }
 
 // Apply CSS transition
+//
+// The write -> read -> write dance is required by CSS, not by the scheduler:
+// the browser only animates between two style states it has actually computed,
+// so the start class has to be committed and a layout property read (forcing a
+// reflow) before the active class lands. That means asking for a READ from
+// inside a WRITE, whose phase the scheduler has already drained. The scheduler
+// re-arms a frame for work queued mid-flush, so this chain continues on the
+// next frame instead of being dropped (see flushScheduler in scheduler.js).
 export async function cssTransition(element, name, type = 'enter', duration = 300) {
   const classes = createTransitionClasses(name);
 
