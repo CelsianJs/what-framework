@@ -2,7 +2,34 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]: everything the documentation said was broken, and several things it did not
+## [0.12.4] - 2026-08-15: everything the documentation said was broken, and several things it did not
+
+### Read this before upgrading
+
+This is a patch release, but five of the fixes change behaviour you may be
+relying on. None is a gratuitous change: in each case the old behaviour was the
+defect. They are collected here so an `npm update` does not surprise you.
+
+- **`zodResolver` and `yupResolver` now rethrow** anything that is not a
+  validation error. They used to swallow it and report the form as VALID, which
+  is why this release exists. If a schema of yours throws (a mis-built schema, a
+  failed fetch inside an async `.refine()`), submission now fails loudly where it
+  previously went through. That is the point, but it is a change.
+- **`refetch()` now issues a request even inside `staleTime`.** It previously
+  returned the cached value. An explicit refetch should refetch, but a component
+  calling it on a timer will now do real work.
+- **Type declarations were corrected to match the runtime**, so code written
+  around the WRONG declarations will now fail `tsc`: `useState`'s first element
+  is a signal accessor and not a `T`, `batch` returns undefined, `useMemo`
+  returns a computed accessor, and `useReducer`'s state shape changed. Runtime
+  behaviour is unchanged; only the types moved.
+- **`enableScrollRestoration()` now restores a saved position on ordinary
+  forward navigation**, not just on back/forward. A nav-bar link back to a page
+  you scrolled earlier lands where you left it rather than at the top. Hash links
+  still win over a saved position.
+- **`<Radio>` writes its own `value`** instead of a boolean, and a `<Radio>` with
+  no `value` now dev-warns and renders unregistered instead of writing the DOM
+  default `"on"` and rendering the whole group checked.
 
 Twenty-eight correctness fixes, all found by one technique and all kept honest by
 another.

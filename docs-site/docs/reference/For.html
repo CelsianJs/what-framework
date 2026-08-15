@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.12.3</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -175,7 +175,7 @@ todos.set(t =&gt; t.filter(item =&gt; item.id !== targetId));
             <li>The <code>children</code> of <code>&lt;For&gt;</code> must be a single render function, not JSX elements. The runtime <code>For</code> warns and renders the fallback; the compiler warns at build time and falls back to <code>h()</code>, which puts a literal <code>&lt;for&gt;</code> element in the page.</li>
             <li>Do not derive anything user-visible from <code>index</code>. It is a snapshot taken when the row was created, so a row number computed from it goes stale as soon as anything is inserted above it.</li>
             <li>A reactive <code>.map()</code> with a <code>key</code> prop is the default What idiom for lists. Reach for <code>&lt;For&gt;</code> when you want the signal-wrapped item accessors that keyed mode provides.</li>
-            <li><code>&lt;For&gt;</code> does render on the server as of 0.12.3, and uncompiled its rows are reused on hydration: the row nodes on screen are the ones the server sent, and a <code>fallback</code> standing in for an empty list is reused too. Compiled, the tag is gone by then (it lowers to a list inserter), and that inserter builds its own rows rather than claiming the server's, so every row is discarded and rebuilt. This is <em>not</em> a <code>&lt;For&gt;</code>-only caveat: the recommended <code>.map()</code> with a <code>key</code> prop lowers to the same inserter and pays the same cost, keyed or not. What you lose is only the reuse. The rows come out with the right count, the right order and the right text, nothing warns (there is no hydration mismatch to report), and the markup around the list is still claimed normally, so the cost is confined to the rows themselves. Reusing them needs list boundary markers in the server HTML, tracked for 0.13.0.</li>
+            <li><code>&lt;For&gt;</code> does render on the server as of 0.12.4, and uncompiled its rows are reused on hydration: the row nodes on screen are the ones the server sent, and a <code>fallback</code> standing in for an empty list is reused too. Compiled, the tag is gone by then (it lowers to a list inserter), and that inserter builds its own rows rather than claiming the server's, so every row is discarded and rebuilt. This is <em>not</em> a <code>&lt;For&gt;</code>-only caveat: the recommended <code>.map()</code> with a <code>key</code> prop lowers to the same inserter and pays the same cost, keyed or not. What you lose is only the reuse. The rows come out with the right count, the right order and the right text, nothing warns (there is no hydration mismatch to report), and the markup around the list is still claimed normally, so the cost is confined to the rows themselves. Reusing them needs list boundary markers in the server HTML, tracked for 0.13.0.</li>
           </ul>
 
           <div class="page-nav">

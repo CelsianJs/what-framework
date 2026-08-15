@@ -8,11 +8,11 @@
     "preview": "vite preview --port 4590"
   },
   "dependencies": {
-    "what-framework": "0.12.3"
+    "what-framework": "0.12.4"
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
-    "what-compiler": "0.12.3",
+    "what-compiler": "0.12.4",
     "vite": "^7.3.5"
   }
 }
