@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>effect() — What Framework</title>
+  <title>effect() · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -74,7 +74,7 @@
               <tr>
                 <td><code>opts</code></td>
                 <td><code>{ stable?: boolean }</code></td>
-                <td>Optional. When <code>stable: true</code>, the effect skips re-tracking dependencies on re-run (assumes deps never change after first run).</td>
+                <td>Optional. When <code>stable: true</code>, the effect skips re-tracking dependencies on re-run (assumes deps never change after first run). It also runs synchronously and inline on each write outside a <code>batch()</code>, instead of being queued for the microtask flush. Only use it when the dependency set is provably fixed.</td>
               </tr>
             </tbody>
           </table>
@@ -107,7 +107,10 @@
   console.log(<span class="string">'Count:'</span>, count());
 });
 
-count.set(<span class="number">5</span>);  <span class="comment">// Logs: "Count: 5"</span></code></pre>
+count.set(<span class="number">5</span>);
+<span class="comment">// Nothing logged yet: the re-run is queued.</span>
+<span class="keyword">await</span> Promise.resolve();
+<span class="comment">// Now logged: "Count: 5"</span></code></pre>
 
           <h3>With Cleanup</h3>
 <pre><code><span class="keyword">const</span> url = <span class="function">signal</span>(<span class="string">'/api/data'</span>);
@@ -124,27 +127,44 @@ count.set(<span class="number">5</span>);  <span class="comment">// Logs: "Count
 });</code></pre>
 
           <h3>Disposing an Effect</h3>
-<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
+          <p>A write only queues the re-run. Flush it with <code>flushSync()</code> when you
+          need the effect applied before the next line, because <code>dispose()</code> on the
+          line after a write cancels the queued run and it never happens at all.</p>
+<pre><code><span class="keyword">import</span> { signal, effect, flushSync } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
 
 <span class="keyword">const</span> dispose = <span class="function">effect</span>(() =&gt; {
   console.log(count());
 });
 
-count.set(<span class="number">1</span>);  <span class="comment">// Logs: 1</span>
+count.set(<span class="number">1</span>);
+<span class="function">flushSync</span>();  <span class="comment">// Logs: 1</span>
 
 dispose();
 
-count.set(<span class="number">2</span>);  <span class="comment">// Nothing happens — effect is disposed</span></code></pre>
+count.set(<span class="number">2</span>);  <span class="comment">// Nothing happens, the effect is disposed</span></code></pre>
 
           <h3>Event Listener Pattern</h3>
-<pre><code><span class="function">effect</span>(() =&gt; {
-  <span class="keyword">const</span> handler = () =&gt; console.log(<span class="string">'resize'</span>);
-  window.addEventListener(<span class="string">'resize'</span>, handler);
+          <p>An <code>effect()</code> in a component body is not tied to that component, so
+          capture its dispose function and hand it to <code>onCleanup()</code>. Without that the
+          listener survives unmount.</p>
+<pre><code><span class="keyword">import</span> { effect, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-  <span class="keyword">return</span> () =&gt; {
-    window.removeEventListener(<span class="string">'resize'</span>, handler);
-  };
-});</code></pre>
+<span class="keyword">function</span> <span class="function">ResizeWatcher</span>() {
+  <span class="keyword">const</span> stop = <span class="function">effect</span>(() =&gt; {
+    <span class="keyword">const</span> handler = () =&gt; console.log(<span class="string">'resize'</span>);
+    window.addEventListener(<span class="string">'resize'</span>, handler);
+
+    <span class="keyword">return</span> () =&gt; {
+      window.removeEventListener(<span class="string">'resize'</span>, handler);
+    };
+  });
+
+  <span class="function">onCleanup</span>(stop);
+
+  <span class="keyword">return</span> &lt;div /&gt;;
+}</code></pre>
 
           <h3>Document Title Sync</h3>
 <pre><code><span class="keyword">const</span> title = <span class="function">signal</span>(<span class="string">'My App'</span>);
@@ -162,17 +182,38 @@ count.set(<span class="number">2</span>);  <span class="comment">// Nothing happ
   console.log(a() + b());
 });
 
-<span class="comment">// Both writes happen synchronously — effect runs once via microtask</span>
+<span class="comment">// Both writes happen in one synchronous block, so the effect is</span>
+<span class="comment">// queued once and runs once on the next microtask.</span>
 a.set(<span class="number">10</span>);
 b.set(<span class="number">20</span>);
-<span class="comment">// Logs: 30 (not 12 then 30)</span></code></pre>
+<span class="comment">// Output: 3 at creation, then 30 on the next microtask. Never 12.</span></code></pre>
+
+          <h3>The single-dependency fast path</h3>
+          <p>An effect that tracked exactly one signal, and returned no cleanup, is promoted to a
+          fast path after its first re-run. From then on it runs <strong>synchronously and inline</strong>
+          at write time instead of going through the queue. So the most common effect shape behaves
+          asynchronously on the first change and synchronously on every change after that.</p>
+<pre><code><span class="keyword">const</span> s = <span class="function">signal</span>(<span class="number">0</span>);
+<span class="keyword">const</span> logs = [];
+
+<span class="function">effect</span>(() =&gt; { logs.push(s()); });   <span class="comment">// logs: [0]</span>
+
+s.set(<span class="number">1</span>);
+<span class="comment">// still [0] here, the re-run is queued</span>
+<span class="keyword">await</span> Promise.resolve();          <span class="comment">// logs: [0, 1]</span>
+
+s.set(<span class="number">2</span>);
+<span class="comment">// already [0, 1, 2] here, no await needed</span></code></pre>
+          <p>Do not write code that depends on either timing. Use <code>flushSync()</code> when you need
+          effects applied before the next line, and <a href="./batch.html">batch()</a> when you need a
+          consistent view across multiple writes.</p>
 
           <h2 id="notes">Notes</h2>
           <ul>
-            <li>Effects run immediately on creation (synchronously), then re-run asynchronously via microtask when dependencies change.</li>
+            <li>Effects run immediately on creation (synchronously), then re-run asynchronously via microtask when dependencies change. The single-dependency fast path above is the exception.</li>
             <li>Only signals actually read during execution are tracked. Conditional branches that are not taken do not create subscriptions.</li>
-            <li>If an effect reads and writes the same signal, it can cause infinite loops. What detects this and warns after 100 iterations. Use <a href="./untrack.html">untrack()</a> to read without subscribing.</li>
-            <li>Effects created inside a component are automatically disposed when the component unmounts.</li>
+            <li>If an effect reads and writes the same signal, it can cause infinite loops. What detects this and warns after 25 flush iterations, then drops the pending queue so the cycle stops instead of hanging the tab. Use <a href="./untrack.html">untrack()</a> to read without subscribing.</li>
+            <li>An <code>effect()</code> created in a component body is <strong>not</strong> disposed when the component unmounts. It keeps re-running on every later write. Capture its dispose function and pass it to <code>onCleanup()</code>, or use <code>useEffect()</code>, which registers with the component context.</li>
             <li>For derived values, prefer <a href="./computed.html">computed()</a> over setting a signal inside an effect.</li>
             <li>The cleanup function runs before each re-execution and on final disposal.</li>
           </ul>

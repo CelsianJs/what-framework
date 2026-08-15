@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tutorial: Adding State — What Framework</title>
+  <title>Tutorial: Adding State · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -52,7 +52,7 @@
           <p class="subtitle">Use signals to track the game state and make squares interactive.</p>
 
           <h2 id="intro-signals">Introducing Signals</h2>
-          <p>Right now our squares don't remember anything. We need <strong>state</strong> — data that changes over time and updates the UI.</p>
+          <p>Right now our squares don't remember anything. We need <strong>state</strong>: data that changes over time and updates the UI.</p>
 
           <p>In What Framework, we use <strong>signals</strong> for state. A signal is a container for a value that can change. When the value changes, any part of the UI that uses it updates automatically.</p>
 
@@ -65,30 +65,31 @@
   <span class="keyword">return</span> (
     &lt;div&gt;
       &lt;p&gt;Count: {count()}&lt;/p&gt;
-      <span class="comment">// Update signals in event handlers</span>
+      <span class="comment">{/* Update signals in event handlers */}</span>
       &lt;button onClick={() =&gt; count.set(count() + <span class="number">1</span>)}&gt;+1&lt;/button&gt;
       &lt;button onClick={() =&gt; count.set(<span class="number">0</span>)}&gt;Reset&lt;/button&gt;
     &lt;/div&gt;
   );
 }</code></pre>
 
-          <p><code>signal(0)</code> creates the signal. <code>count()</code> reads it. <code>count.set(value)</code> updates it — always inside an <strong>event handler</strong> or <strong>effect</strong>, never bare in the component body.</p>
+          <p><code>signal(0)</code> creates the signal. <code>count()</code> reads it. <code>count.set(value)</code> updates it, and calling the signal with an argument is the same write, so <code>count(value)</code> and <code>count(c =&gt; c + 1)</code> also work (that is the form the generated starter file uses). Updates belong in an <strong>event handler</strong> or an <strong>effect</strong>, because that is where something actually changes.</p>
 
           <div class="callout callout-warning">
-            <p class="callout-title">Never call .set() in the component body</p>
-            <p>Calling <code>.set()</code> directly in a component function (outside event handlers or effects) causes an infinite loop — the update triggers a re-render, which calls <code>.set()</code> again, forever.</p>
-<pre><code><span class="comment">// BAD — infinite loop!</span>
-<span class="keyword">function</span> <span class="function">Broken</span>() {
+            <p class="callout-title">Components run once</p>
+            <p>A What component body runs <strong>exactly once</strong>. There is no re-render, so a <code>.set()</code> sitting in the body is just a one-time assignment that happens before the first paint: harmless, but pointless. Give <code>signal()</code> the value you wanted instead.</p>
+<pre><code><span class="comment">// Pointless: the body runs once, so just start at 1</span>
+<span class="keyword">function</span> <span class="function">Odd</span>() {
   <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
-  count.set(<span class="number">1</span>);  <span class="comment">// Re-renders → calls set again → forever</span>
+  count.set(<span class="number">1</span>);
   <span class="keyword">return</span> &lt;p&gt;{count()}&lt;/p&gt;;
 }
 
-<span class="comment">// GOOD — update in response to events</span>
+<span class="comment">// Better: update in response to events</span>
 <span class="keyword">function</span> <span class="function">Works</span>() {
   <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
   <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set(<span class="number">1</span>)}&gt;Set&lt;/button&gt;;
 }</code></pre>
+            <p>The write that really does bite is one inside a <code>computed()</code>. That function re-runs whenever its dependencies change, so a write in there can feed itself. What logs a warning when it sees one.</p>
           </div>
 
           <h2 id="board-state">Adding State to the Board</h2>
@@ -96,7 +97,7 @@
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
-<span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { mount, signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (
@@ -132,14 +133,16 @@
   );
 }
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="keyword">return</span> (
     &lt;div className=<span class="string">"game"</span>&gt;
       &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
       &lt;Board /&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <p>Try clicking squares now. Each one you click shows an "X"!</p>
 
@@ -157,7 +160,7 @@
 
           <div class="callout callout-warning">
             <p class="callout-title">Common Mistake</p>
-            <p>If you write <code>{squares().map(...)}</code> without the arrow function, it won't update when the signal changes. The arrow function makes it reactive.</p>
+            <p>Writing <code>{squares().map(...)}</code> without the arrow still works <em>here</em>, because the What compiler wraps any JSX expression that reads a signal for you. It does not work in code the compiler never sees, such as hand-written <code>h()</code> calls in a buildless app, where an unwrapped read is evaluated once and never updates again. Writing the arrow yourself keeps the binding reactive either way.</p>
           </div>
 
           <h2 id="immutability">Why Copy the Array?</h2>
@@ -177,8 +180,8 @@ current[i] = <span class="string">'X'</span>;  <span class="comment">// Mutation
           <h2 id="checkpoint">Checkpoint</h2>
           <p>Test your game:</p>
           <ul>
-            <li>Click a square — it should show "X"</li>
-            <li>Click another square — it should also show "X"</li>
+            <li>Click a square, it should show "X"</li>
+            <li>Click another square, it should also show "X"</li>
             <li>You can fill the whole board with X's</li>
           </ul>
 

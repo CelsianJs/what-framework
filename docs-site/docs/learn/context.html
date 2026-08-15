@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Context — What Framework</title>
+  <title>Context · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -119,12 +119,14 @@
           <p>This is called <strong>prop drilling</strong>. Context solves it.</p>
 
           <h2 id="creating-context">Creating Context</h2>
-          <p>Create a context with a default value:</p>
+          <p>Create a context with a default value. Give the default the same shape as the value your providers pass, because a component rendered outside any provider gets the default and will use it the same way:</p>
 
-<pre><code><span class="keyword">import</span> { createContext } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { createContext, signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="comment">// Create the context</span>
-<span class="keyword">const</span> ThemeContext = <span class="function">createContext</span>(<span class="string">'light'</span>);</code></pre>
+<span class="comment">// Providers below pass a signal, so the default is a signal too</span>
+<span class="keyword">const</span> ThemeContext = <span class="function">createContext</span>(<span class="function">signal</span>(<span class="string">'light'</span>));</code></pre>
+
+          <p>If the default were the bare string <code>'light'</code>, the consumer below would call <code>theme()</code> on a string and throw the moment it rendered outside a provider.</p>
 
           <h2 id="providing-context">Providing Context</h2>
           <p>Wrap your tree with the context provider:</p>
@@ -142,7 +144,7 @@
 }</code></pre>
 
           <h2 id="consuming-context">Consuming Context</h2>
-          <p>Access the value anywhere in the tree:</p>
+          <p>Access the value from any component in the tree:</p>
 
 <pre><code><span class="keyword">import</span> { useContext } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -157,6 +159,12 @@
 }</code></pre>
 
           <p>No more prop drilling! Components in between don't need to know about theme at all.</p>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">Call useContext during render</p>
+            <p><code>useContext</code> resolves the nearest provider by walking up from the component being rendered. Call it from an event handler, an effect, or any other deferred callback and there is no component to walk up from: it silently returns the context <strong>default</strong> and logs a dev warning. Read it once in the component body and close over the result.</p>
+            <p>This is also why a guard like the <code>useAuth</code> hook below cannot catch the mistake unless the default is <code>null</code>. A non-null default looks like a successful read.</p>
+          </div>
 
           <h2 id="complete-example">Complete Example</h2>
 
@@ -219,12 +227,15 @@
 }</code></pre>
 
           <h2 id="nested-providers">Nested Providers</h2>
-          <p>You can nest providers to override values in subtrees:</p>
+          <p>You can nest providers to override values in subtrees. Every provider must carry the shape consumers expect, which here is a signal:</p>
 
-<pre><code>&lt;ThemeContext.Provider value={<span class="string">'light'</span>}&gt;
+<pre><code><span class="keyword">const</span> light = <span class="function">signal</span>(<span class="string">'light'</span>);
+<span class="keyword">const</span> dark = <span class="function">signal</span>(<span class="string">'dark'</span>);
+
+&lt;ThemeContext.Provider value={light}&gt;
   &lt;Header /&gt;  <span class="comment">{/* uses 'light' */}</span>
 
-  &lt;ThemeContext.Provider value={<span class="string">'dark'</span>}&gt;
+  &lt;ThemeContext.Provider value={dark}&gt;
     &lt;Sidebar /&gt;  <span class="comment">{/* uses 'dark' */}</span>
   &lt;/ThemeContext.Provider&gt;
 
@@ -287,16 +298,18 @@
   decrement() { <span class="keyword">this</span>.count--; },
 });
 
-<span class="comment">// Use anywhere in your app — no Provider needed</span>
+<span class="comment">// Use anywhere in your app, no Provider needed</span>
 <span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="keyword">const</span> { count, doubled, increment } = <span class="function">useCounter</span>();
+  <span class="keyword">const</span> store = <span class="function">useCounter</span>();
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;p&gt;Count: {count()} / Doubled: {doubled()}&lt;/p&gt;
-      &lt;button onClick={increment}&gt;+&lt;/button&gt;
+      &lt;p&gt;Count: {<span class="function">() =&gt;</span> store.count} / Doubled: {<span class="function">() =&gt;</span> store.doubled}&lt;/p&gt;
+      &lt;button onClick={store.increment}&gt;+&lt;/button&gt;
     &lt;/div&gt;
   );
 }</code></pre>
+
+          <p>Keep the store object and read through it inside a thunk. State and derived keys on the returned object are plain getters over the underlying signals, not accessors, so <code>count()</code> throws and <code>const { count } = useCounter()</code> snapshots the value at that instant and never updates. Actions are ordinary properties and can be destructured safely. See <a href="./stores.html">Stores</a>.</p>
 
           <div class="callout callout-info">
             <p class="callout-title">Why derived()?</p>

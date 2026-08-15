@@ -56,7 +56,24 @@ export function flushScheduler() {
     try { fn(); } catch (e) { console.error('[what] Scheduler write error:', e); }
   }
 
+  // Clear the flag BEFORE checking for leftovers so schedule() can arm a frame.
   scheduled = false;
+
+  // A callback may queue work whose phase has already run in this flush. The
+  // canonical case is cssTransition(): it asks for a reflow READ from inside a
+  // WRITE, and the read queue was drained before the write phase started.
+  // schedule() short-circuits while `scheduled` is true, so that request used
+  // to land in a drained queue with no frame armed and sat there until some
+  // unrelated code happened to poke the scheduler again (cssTransition's
+  // promise never settled and the element stayed on its start class).
+  //
+  // Arm another frame for whatever is left instead of dropping it. We defer by
+  // a frame rather than looping here on purpose: a callback that re-schedules
+  // itself unconditionally then costs one iteration per frame, the same bound
+  // as a plain requestAnimationFrame loop, instead of spinning the main thread
+  // forever inside a single flush. One frame is armed no matter how many
+  // leftovers there are, because schedule() is idempotent.
+  if (readQueue.length > 0 || writeQueue.length > 0) schedule();
 }
 
 // --- Internal scheduling ---

@@ -2,7 +2,8 @@
   "$comment": "Gzip byte ceilings for scripts/check-size.mjs (esbuild bundle, production condition, min+gzip). Measured 2026-06-09: core-counter 5651 B, scaffold-counter 5754 B (audit's real vite-scaffold counter measured 7.10 KB). Ceilings = measured reality rounded up to the next 64 B; raise only deliberately, in the same PR as the growth. Headroom is deliberately small, so a raise is a decision rather than a drift. core-counter is set from its 2026-07-27 measurement of 6512 B, having accounted for all 781 B of growth over 63a896a commit by commit: 557 B bought Critical and High fixes (URL and handler sanitization, the compiled children protocol, Suspense, hydration and redirect correctness), 18 B was a signal-write perf trade, and the other 206 B is esbuild alone declining to tree-shake Suspense and ErrorBoundary past their _deferChildren markers, which Rollup drops.",
   "scenarios": {
     "core-counter": {
-      "limitGzipBytes": 6528,
+      "$raise-2026-08-15": "6528 -> 6592 for the 0.12.4 correctness release. Measured 6529 B, i.e. it went over by ONE byte, so the ceiling moves to the next 64 B boundary as the convention above requires. Growth over the 6512 B baseline is 17 B, against 1836 changed lines of packages/core/src. Almost all of that release tree-shakes out of a counter app entirely (data.js, form.js, a11y.js and animation.js are never reached by an app that imports signal/h/mount), so the residue is the code every app pulls in: spread() gaining the `ref` case it was missing, the boundary branches in hydrateNode, and flushScheduler re-arming a frame when a callback schedules work during a flush. 17 B for a release that closes a validation library failing open and a hydration path that duplicated nodes is a trade worth making explicitly.",
+      "limitGzipBytes": 6592,
       "description": "what-core runtime imported by a typical h()-based counter app (production condition)"
     },
     "scaffold-counter": {

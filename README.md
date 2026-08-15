@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/what-framework)](https://www.npmjs.com/package/what-framework)
 [![license](https://img.shields.io/npm/l/what-framework)](https://github.com/CelsianJs/what-framework/blob/main/LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/CelsianJs/what-framework/ci.yml?branch=main&label=tests)](https://github.com/CelsianJs/what-framework/actions)
+[![CI](https://img.shields.io/github/checks-status/CelsianJs/what-framework/main?label=CI)](https://github.com/CelsianJs/what-framework/commits/main)
 
 **The web framework built for AI agents.**
 
@@ -18,7 +18,7 @@
 - **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
 - **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast**: fine-grained, no VDOM. Measured (production build, min+gzip, via `npm run check:size`): the reactive core in a counter app is ~5.6KB; a typical app ~8KB. Minimal dependencies, fully tree-shakeable
+- **Small & Fast**: fine-grained, no VDOM. Measured by `npm run check:size` (production build, min+gzip): a counter app is 6.38KB, and the same app from the scaffold is 6.48KB. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 

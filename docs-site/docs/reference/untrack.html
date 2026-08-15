@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>untrack() — What Framework</title>
+  <title>untrack() · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -117,18 +117,23 @@
 });</code></pre>
 
           <h3>Event Handlers</h3>
-          <p>What wraps all event handlers in <code>untrack()</code> automatically, so signal reads in event handlers never create subscriptions:</p>
+          <p>A handler fired by the browser runs with no tracking context, so signal reads inside it
+          create no subscription. That holds on both render paths, but for different reasons, and the
+          two diverge if you invoke a handler yourself from inside an effect or a computed. Handlers
+          attached through <code>h()</code> are wrapped in <code>untrack()</code> by the DOM layer;
+          compiled JSX routes handlers through event delegation, which does not wrap them, so a
+          handler called from inside a tracking context <em>does</em> subscribe there.</p>
 <pre><code><span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
-  <span class="keyword">const</span> step = <span class="function">signal</span>(<span class="number">1</span>);
+  <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>, <span class="string">'count'</span>);
+  <span class="keyword">const</span> step = <span class="function">signal</span>(<span class="number">1</span>, <span class="string">'step'</span>);
 
   <span class="keyword">return</span> (
     &lt;button onClick={() =&gt; {
-      <span class="comment">// step() is read here, but since event handlers</span>
-      <span class="comment">// are automatically untracked, no subscription is created</span>
-      count.set(c =&gt; c + step());
+      <span class="comment">// peek() reads step without subscribing, so calling this handler</span>
+      <span class="comment">// from inside an effect or computed adds no dependency on step.</span>
+      count.set(c =&gt; c + step.peek());
     }}&gt;
-      Count: {count()}
+      {() =&gt; <span class="string">`Count: ${count()}`</span>}
     &lt;/button&gt;
   );
 }</code></pre>
@@ -150,7 +155,7 @@
           <ul>
             <li><code>untrack()</code> is functionally equivalent to <code>signal.peek()</code> for a single signal, but works with any number of signal reads inside the callback.</li>
             <li>Use <code>peek()</code> when reading a single known signal. Use <code>untrack()</code> when calling a function that may read multiple signals internally.</li>
-            <li>Event handlers in JSX are automatically wrapped in <code>untrack()</code> by What's DOM layer.</li>
+            <li>Handlers attached through <code>h()</code> are wrapped in <code>untrack()</code> by What's DOM layer. Compiled JSX uses event delegation and does not wrap them, so use <code>peek()</code> or <code>untrack()</code> rather than relying on the wrapper.</li>
             <li>The callback is executed synchronously. It does not defer or schedule anything.</li>
             <li>Useful for breaking read-write cycles where an effect needs to read a signal that it also writes to.</li>
           </ul>

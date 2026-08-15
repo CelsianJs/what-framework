@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Deployment — What Framework</title>
+  <title>Deployment · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -88,59 +88,130 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Deployment</h1>
-          <p class="subtitle">One Web-Fetch handler powers Node, static export, Vercel, and Cloudflare. Pick an adapter in what.config.js; the ISR engine and actions come along for free.</p>
+          <p class="subtitle">One Web-Fetch handler powers Node, static export, Vercel, and Cloudflare. Each target is its own entry file that imports the matching adapter; the ISR engine and actions come along for free.</p>
 
-          <p>All adapters are thin shells over one framework-agnostic core: <code>(request) =&gt; Response</code>. Match a route, intercept <code>/__what_action</code> and <code>/__what_revalidate</code>, consult the ISR engine, render, and emit cache headers. Choosing a target is a config line, not a rewrite.</p>
+          <p>The three request-serving adapters (<code>node</code>, <code>vercel</code>, <code>cloudflare</code>) are thin shells over one framework-agnostic core, <code>createRequestHandler(options)</code>, which returns <code>(request) =&gt; Response</code>. Match a route, intercept <code>/__what_action</code> and (when you pass a <code>revalidateWebhook</code>) <code>/__what_revalidate</code>, consult the ISR engine, render, and emit cache headers. The fourth adapter, <code>static</code>, is the exception to all of that: <code>exportStatic</code> is a build-time renderer rather than a request handler, and never touches that core. Switching hosts means swapping the adapter import in one entry file, not rewriting the app. The <code>adapter</code> key that <code>what.config.js</code> scaffolds is informational only today: <code>what start</code> prints it and nothing else reads it.</p>
+
+          <p>Two practical notes before the snippets. First, <code>createServer</code>, <code>toNodeListener</code>, <code>whatMiddleware</code>, <code>exportStatic</code>, <code>createVercelHandler</code> and <code>buildVercelOutput</code> resolve through what-server's <code>node</code> export condition, so they belong in build scripts and long-running servers; <code>createRequestHandler</code> and <code>createCloudflareHandler</code> live in the default entry and resolve in edge bundles too. Second, every adapter here imports and server-renders your route components, so those components have to be importable outside a browser: write them with <code>h()</code> or the automatic JSX runtime. Components put through what-compiler build their templates with <code>document.createElement</code> at module load time, which throws the moment a server imports them.</p>
 
           <h2 id="adapters">Adapter matrix</h2>
           <table>
             <thead><tr><th>Adapter</th><th>Best for</th><th>ISR mechanism</th><th>Poll scheduler</th></tr></thead>
             <tbody>
               <tr><td><code>node</code></td><td>Long-running server, full control</td><td>origin store (memory/fs/redis)</td><td>✓ in-process</td></tr>
-              <tr><td><code>static</code></td><td>Pure SSG to any static host</td><td>build-time pre-render</td><td>— (use external cron → webhook)</td></tr>
-              <tr><td><code>vercel</code></td><td>Serverless + edge ISR</td><td>prerender + <code>expiration</code></td><td>— (Vercel Cron → webhook)</td></tr>
-              <tr><td><code>cloudflare</code></td><td>Workers at the edge</td><td>Cache API / KV + <code>waitUntil</code></td><td>— (Cron Trigger → webhook)</td></tr>
+              <tr><td><code>static</code></td><td>Pure SSG to any static host</td><td>build-time pre-render</td><td>none (re-run the export)</td></tr>
+              <tr><td><code>vercel</code></td><td>Serverless + edge ISR</td><td><code>s-maxage</code> / <code>stale-while-revalidate</code> headers</td><td>none (Vercel Cron → webhook)</td></tr>
+              <tr><td><code>cloudflare</code></td><td>Workers at the edge</td><td>origin store + <code>Cache-Control</code> / <code>Cache-Tag</code> headers</td><td>none (Cron Trigger → webhook)</td></tr>
             </tbody>
           </table>
           <div class="callout callout-note">
             <p class="callout-title">Serverless &amp; polling</p>
-            <p>Serverless platforms have no always-on process, so the in-process poll scheduler doesn't run there. Use the platform's cron to hit <code>POST /__what_revalidate</code> on a schedule — same effect, platform-native.</p>
+            <p>Serverless platforms have no always-on process, so the in-process poll scheduler doesn't run there. Use the platform's cron to hit <code>POST /__what_revalidate</code> on a schedule instead. Note it is not quite the same effect: <code>createRevalidateWebhook</code> defaults to <code>regenerate: false</code>, so the endpoint <em>deletes</em> the cached entry rather than re-rendering it, and the next visitor pays a cold blocking render. The poll scheduler leaves a warm entry behind. That endpoint only exists if you passed a <code>revalidateWebhook</code>, and it expects an <code>x-what-revalidate-secret</code> header plus a JSON body of <code>{ "paths": [...], "tags": [...] }</code> capped at 100 entries. A wrong or missing secret is a 401.</p>
           </div>
 
           <h2 id="node">Node</h2>
-<pre><code>import { createServer } from 'what-framework/server';
-import { createCacheEngine, createMemoryStore } from 'what-isr';
+<pre><code>import { createServer, renderDocument } from 'what-framework/server';
+import {
+  createCacheEngine,
+  createMemoryStore,
+  createRevalidateWebhook,
+  createScheduler,
+} from 'what-isr';
+import { routes } from './src/routes.js';
+
+const documentOptions = { clientEntry: '/src/entry-client.js' };
+
+// The scheduler drives the engine directly, with no adapter in the loop, so the
+// engine needs its own `render`. Leave it out and every scheduled tick throws.
+async function renderRoute({ route, path, params, query, request }) {
+  const pageModule = { default: route.component, loader: route.loader };
+  return {
+    html: await renderDocument(pageModule, { params, query, request }, documentOptions),
+    status: 200,
+    path,
+  };
+}
+
+const cache = createCacheEngine({ store: createMemoryStore(), render: renderRoute });
+
+// Keep the home route warm every 5 minutes regardless of traffic.
+const scheduler = createScheduler(cache);
+scheduler.register(
+  { path: '/', query: {}, params: {}, config: routes[0].page, route: routes[0] },
+  { intervalMs: 5 * 60 * 1000 },
+);
 
 const server = createServer({
   routes,
-  cache: createCacheEngine({ store: createMemoryStore() }),
+  cache,
+  scheduler,
+  revalidateWebhook: createRevalidateWebhook(cache, { secret: process.env.WHAT_REVALIDATE_SECRET }),
+  document: documentOptions,
 });
-server.listen(3000);</code></pre>
-          <p>Run it with <code>what start</code> (or <code>node server.js</code>). SIGTERM stops the scheduler cleanly.</p>
+server.listen(Number(process.env.PORT) || 3000);</code></pre>
+          <p>Run it with <code>what start</code>, which spawns <code>./server.js</code> from the project root and forwards SIGINT/SIGTERM to it, or with <code>node server.js</code> directly. The <code>scheduler</code> option is what installs the SIGTERM/SIGINT handlers, so leave it out and there is nothing to stop cleanly. The <code>document.clientEntry</code> option is what emits the <code>&lt;script type="module"&gt;</code> tag; leave it out and the page server-renders but never hydrates.</p>
+          <p><code>createServer</code> answers matched routes plus <code>/__what_action</code> and <code>/__what_revalidate</code>, and 404s everything else: it has no static-file branch, so it will not serve that client entry itself. Put a CDN or reverse proxy in front of it, or build the server the way the scaffold does, wrapping <code>toNodeListener(createRequestHandler(...))</code> in your own <code>http.createServer</code> that serves an allowlist of client files first.</p>
 
           <h2 id="static">Static export</h2>
-          <p>Render every static/hybrid route (expanding <code>getStaticPaths</code>) to <code>index.html</code> + a <code>__what_data.json</code> for client navigation:</p>
+          <p>Renders every route that declares <code>mode: 'static'</code> or <code>mode: 'hybrid'</code> (expanding <code>getStaticPaths</code> for dynamic ones) to an <code>index.html</code>. A route with no mode is skipped in silence, so declare it:</p>
 <pre><code>import { exportStatic } from 'what-framework/server';
-await exportStatic({ routes, outDir: 'dist' });
-// or: what build --static</code></pre>
+import { Home, Post, loadPost } from './src/pages.js';
+
+const routes = [
+  { path: '/', component: Home, page: { mode: 'static' } },
+  {
+    path: '/posts/:slug',
+    component: Post,
+    loader: loadPost,
+    page: { mode: 'static' },
+    getStaticPaths: async () =&gt; ({ paths: [{ params: { slug: 'hello-world' } }] }),
+  },
+];
+
+await exportStatic({ routes, outDir: 'dist' });</code></pre>
+          <p>Routes that export a <code>loader</code> also get a <code>__what_data.json</code> beside their <code>index.html</code>. That file is a build artifact for your own client-side navigation code to fetch; the framework itself hydrates from the inline <code>&lt;script id="__what_data"&gt;</code> in the page, not from the sidecar.</p>
+          <p><code>what generate</code> is the CLI's separate SSG path, and it takes a different input: it walks page modules under <code>src/pages/</code> rather than a routes array, and skips dynamic routes because it has no params to pre-render. There is no <code>--static</code> flag on <code>what build</code>.</p>
 
           <h2 id="vercel">Vercel</h2>
-<pre><code>import { buildVercelOutput } from 'what-framework/server';
-await buildVercelOutput({ routes }); // emits .vercel/output (Build Output API v3)</code></pre>
-          <p>Static routes become prerenders with an <code>expiration</code> equal to <code>revalidate</code>; dynamic routes become a render function.</p>
+<pre><code>import { readFileSync } from 'node:fs';
+import { buildVercelOutput } from 'what-framework/server';
+
+// build/render.mjs is your bundled function entry. It exports the runtime handler:
+//   import { createVercelHandler } from 'what-framework/server';
+//   export default createVercelHandler({ routes, cache });
+await buildVercelOutput({
+  files: { 'index.mjs': readFileSync('build/render.mjs', 'utf8') },
+  staticDir: 'dist',   // copied to .vercel/output/static, served by the CDN first
+});</code></pre>
+          <p><code>buildVercelOutput</code> writes <code>.vercel/output</code> (Build Output API v3): a <code>config.json</code> that tries the filesystem first and falls through to <code>functions/render.func/</code>, which it builds from <code>files</code>. It takes no <code>routes</code> option, so your routes have to be inside the bundle you hand it. Called without <code>files</code> it writes <code>config.json</code> alone, which points every request at a function that was never emitted.</p>
+          <p>There is no prerender manifest and no <code>expiration</code> field. ISR on Vercel rides the <code>Cache-Control: public, s-maxage=…, stale-while-revalidate=…</code> headers the cache engine already emits, which is why it needs no extra config.</p>
 
           <h2 id="cloudflare">Cloudflare</h2>
 <pre><code>import { createCloudflareHandler } from 'what-framework/server';
-export default { fetch: createCloudflareHandler({ routes, cache }) };</code></pre>
-          <p>ISR uses the Cache API (or KV) and <code>ctx.waitUntil</code> for background SWR.</p>
+import { routes } from './src/routes.js';
+import { cache } from './src/cache.js';
+
+export default createCloudflareHandler({ routes, cache });</code></pre>
+          <p><code>createCloudflareHandler</code> returns the worker object itself, <code>{ fetch(request, env, ctx) }</code>, so export it directly. Wrapping it in another <code>{ fetch: … }</code> hands Workers an object where it expects a function, and the worker will not boot.</p>
+          <p>ISR here is the same origin engine every other adapter uses. The handler attaches <code>env</code> to <code>request.__env</code> and <code>ctx</code> to <code>request.__ctx</code>, then delegates to the core handler. Give the engine <code>createRedisStore({ client })</code> from what-isr if you want cache entries shared across isolates, and pass <code>createCloudflareCDN({ zoneId, apiToken })</code> as the engine's <code>cdn</code> to purge the edge on <code>revalidatePath</code> / <code>revalidateTag</code>. The <code>Cache-Control</code> and <code>Cache-Tag</code> headers the engine emits are what let Cloudflare's own cache serve the edge tier.</p>
 
           <h2 id="env">Environment</h2>
           <ul>
-            <li><code>WHAT_REVALIDATE_SECRET</code> — required to authorize the revalidation webhook.</li>
-            <li><code>PORT</code> — Node server port (default 3000).</li>
+            <li><code>WHAT_REVALIDATE_SECRET</code>: the name the scaffold and the examples use for the secret you hand to <code>createRevalidateWebhook</code>. No framework package reads it for you.</li>
+            <li><code>PORT</code>: same story. <code>createServer</code> returns a bare <code>http.Server</code>, so the port is whatever your <code>.listen()</code> call passes.</li>
           </ul>
-          <p>See the <a href="https://github.com/zvndev/what-fw/tree/main/examples">blog and shop examples</a> for complete, tested setups.</p>
+          <p>See the <a href="https://github.com/CelsianJs/what-framework/tree/main/examples">blog and shop examples</a> for fuller wiring. Both build their engine with a <code>render</code> and register their scheduled route with <code>route</code> and <code>params</code>, so their poll schedulers actually keep a page warm.</p>
 
+          <div class="page-nav">
+            <a href="./caching-isr.html">
+              <span class="label">Previous</span>
+              <span class="title">Caching &amp; ISR</span>
+            </a>
+            <a href="./islands.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Islands Architecture</span>
+            </a>
+          </div>
         </div>
 
         <aside class="toc">

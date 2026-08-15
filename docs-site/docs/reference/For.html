@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>&lt;For&gt; — What Framework</title>
+  <title>&lt;For&gt; · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -56,9 +56,9 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>&lt;For&gt;</h1>
-          <p class="subtitle">Efficient list rendering with automatic key detection and fine-grained list updates via mapArray.</p>
+          <p class="subtitle">List rendering over a reactive array. When the compiler runs it lowers to <code>mapArray</code>; without it, the list is rebuilt on every change.</p>
 
-<pre><code>&lt;<span class="function">For</span> each={list} fallback={emptyState}&gt;
+<pre><code>&lt;<span class="function">For</span> each={list}&gt;
   {(item, index) =&gt; &lt;Item /&gt;}
 &lt;/<span class="function">For</span>&gt;</code></pre>
 
@@ -70,24 +70,29 @@
             <tbody>
               <tr>
                 <td><code>each</code></td>
-                <td><code>T[] | (() =&gt; T[])</code></td>
-                <td>The array to iterate over. Can be a signal or a plain array.</td>
+                <td><code>() =&gt; T[]</code></td>
+                <td>The array to iterate over. Pass the signal itself, or a thunk. A plain array works only on the uncompiled runtime path; compiled output calls <code>each()</code> and throws <code>source is not a function</code> on an array (so <code>each={items()}</code> throws too).</td>
+              </tr>
+              <tr>
+                <td><code>key</code></td>
+                <td><code>(item: T) =&gt; string | number</code></td>
+                <td>Optional, compiled path only. Identifies rows so they can be moved instead of rebuilt. With a <code>key</code>, the render function receives a signal <em>accessor</em> rather than the raw item. The runtime <code>For</code> ignores this prop.</td>
               </tr>
               <tr>
                 <td><code>fallback</code></td>
                 <td><code>Element | null</code></td>
-                <td>Optional. What to render when the array is empty or <code>null</code>. Defaults to <code>null</code>.</td>
+                <td>Optional. What to render in place of the rows when the array is empty or <code>null</code>. Honoured on both paths, and it composes with <code>key</code>.</td>
               </tr>
               <tr>
                 <td><code>children</code></td>
-                <td><code>(item: T, index: number) =&gt; Element</code></td>
-                <td>A render function that receives each item and its index. Must return a DOM element.</td>
+                <td><code>(item, index: number) =&gt; VNodeChild</code></td>
+                <td>A render function returning the content for one row. <code>index</code> is captured when the row is created and is not refreshed when rows move. <code>item</code> is the raw value, unless a <code>key</code> is set on a compiled <code>&lt;For&gt;</code>, in which case it is an accessor you call.</td>
               </tr>
             </tbody>
           </table>
 
           <h2 id="returns">Returns</h2>
-          <p>An array of DOM nodes (one per item), or the <code>fallback</code> if the list is empty.</p>
+          <p>A reactive region. <code>For</code> returns a thunk that the renderer installs as a fine-grained effect; you never handle the return value yourself. On the compiled path the <code>&lt;For&gt;</code> tag is erased entirely and replaced with a <code>mapArray</code> inserter.</p>
 
           <h2 id="usage">Usage</h2>
 
@@ -102,18 +107,21 @@
 
 &lt;ul&gt;
   &lt;For each={items}&gt;
-    {(item, index) =&gt; (
-      &lt;li key={item.id}&gt;
-        {index + <span class="number">1</span>}. {item.name}
-      &lt;/li&gt;
+    {item =&gt; (
+      &lt;li&gt;{item.name}&lt;/li&gt;
     )}
   &lt;/For&gt;
 &lt;/ul&gt;</code></pre>
 
           <h3>Empty State</h3>
-<pre><code>&lt;For each={items} fallback={&lt;p&gt;No items yet.&lt;/p&gt;}&gt;
-  {item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;}
-&lt;/For&gt;</code></pre>
+          <p>A <code>fallback</code> prop on <code>&lt;For&gt;</code> replaces the rows while the array is empty or <code>null</code>, on both paths:</p>
+<pre><code><span class="keyword">import</span> { For } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+&lt;ul&gt;
+  &lt;For each={items} fallback={&lt;li&gt;No items yet.&lt;/li&gt;}&gt;
+    {item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;}
+  &lt;/For&gt;
+&lt;/ul&gt;</code></pre>
 
           <h3>With Reactive Updates</h3>
 <pre><code><span class="keyword">const</span> todos = <span class="function">signal</span>([]);
@@ -127,7 +135,7 @@ todos.set(t =&gt; t.filter(item =&gt; item.id !== targetId));
 <span class="comment">// The list updates automatically</span>
 &lt;For each={todos}&gt;
   {todo =&gt; (
-    &lt;div key={todo.id}&gt;
+    &lt;div&gt;
       &lt;span&gt;{todo.text}&lt;/span&gt;
       &lt;button onClick={() =&gt; removeTodo(todo.id)}&gt;Delete&lt;/button&gt;
     &lt;/div&gt;
@@ -139,36 +147,35 @@ todos.set(t =&gt; t.filter(item =&gt; item.id !== targetId));
 
 &lt;For each={tags}&gt;
   {tag =&gt; &lt;span className=<span class="string">"tag"</span>&gt;{tag}&lt;/span&gt;}
-&lt;/For&gt;
-<span class="comment">// For primitive items, the item value itself is used as the key</span></code></pre>
+&lt;/For&gt;</code></pre>
 
-          <h2 id="auto-keys">Automatic Key Detection</h2>
-          <p><code>For</code> automatically detects keys to enable efficient fine-grained list updates:</p>
+          <h3>Keyed Lists</h3>
+<pre><code><span class="comment">// Compiled path only. The key goes on &lt;For&gt; itself, and the</span>
+<span class="comment">// render function then receives an accessor, not the raw item.</span>
+&lt;For each={todos} key={todo =&gt; todo.id}&gt;
+  {todo =&gt; &lt;li&gt;{() =&gt; todo().text}&lt;/li&gt;}
+&lt;/For&gt;</code></pre>
+
+          <h2 id="auto-keys">Keys</h2>
+          <p>A <code>key</code> prop on the element the render function returns does nothing. The runtime render path never reads <code>vnode.key</code>, and the compiler strips <code>key</code> from an element it lowers into a template. Only two spellings actually key a list, and both require the compiler:</p>
           <ul>
-            <li>If the element returned by the render function already has a <code>key</code> prop, it is used as-is.</li>
-            <li>If the item is an object with an <code>id</code> property, <code>item.id</code> is used as the key.</li>
-            <li>If the item is an object with a <code>key</code> property, <code>item.key</code> is used.</li>
-            <li>If the item is a string or number, the item value itself is used as the key.</li>
+            <li><code>{() =&gt; items().map(item =&gt; &lt;li key={item.id}&gt;…&lt;/li&gt;)}</code>, which the compiler auto-lowers to a keyed <code>mapArray</code> in raw mode (the render function keeps the raw item). This is the recommended form, and a dev build prints a compiler advisory pointing at it for any file that uses a <code>&lt;For&gt;</code>.</li>
+            <li><code>&lt;For each={items} key={item =&gt; item.id}&gt;</code>, which keys in accessor mode: the item arrives as a signal getter, so an item that is replaced but keeps its key updates in place instead of recreating its DOM.</li>
           </ul>
-          <p>This means you often do not need to provide a <code>key</code> prop explicitly if your data has standard <code>id</code> fields.</p>
+          <p>Without the compiler there is no keyed reconciliation at all. Every row is disposed and rebuilt on every list change, so focus is lost, an open <code>&lt;details&gt;</code> closes, and CSS transitions restart. This is tracked for 0.13.0.</p>
 
           <h2 id="how-it-works">How It Works</h2>
-          <p><code>For</code> is a component function that:</p>
-          <ol>
-            <li>Reads the <code>each</code> prop (calling it if it is a signal)</li>
-            <li>Returns <code>fallback</code> if the list is empty or null</li>
-            <li>Maps each item through the render function (first child)</li>
-            <li>Attaches auto-detected keys to elements that lack explicit keys</li>
-            <li>Returns the array of DOM nodes, performing fine-grained list reconciliation via mapArray</li>
-          </ol>
-          <p>What uses a keyed list reconciliation algorithm with Longest Increasing Subsequence (LIS) for O(n log n) minimal DOM moves. Only the specific items that changed are updated — no full-list diffing.</p>
+          <p>There are two paths, and they are not identical.</p>
+          <p><strong>Uncompiled</strong> (plain <code>h()</code> or the automatic JSX runtime): <code>For</code> runs as an ordinary component and returns a reactive thunk. On each run it reads <code>each</code>, returns <code>fallback</code> if the list is empty or null, and otherwise maps every item through the render function with the raw item and its index. There is no reconciliation: the whole region is rebuilt.</p>
+          <p><strong>Compiled</strong>: the babel plugin erases the <code>&lt;For&gt;</code> tag and emits <code>mapArray(each, renderFn, { key })</code>, an inserter that diffs the list in place. With a <code>key</code> it identifies rows by key; without one it identifies them by item reference, so a replaced object is a new row. Either way it skips the common prefix and suffix and then positions the remainder with a Longest Increasing Subsequence pass, moving only the rows that actually have to move.</p>
+          <p>A <code>fallback</code> adds a memoised emptiness test alongside that same inserter rather than wrapping it, so the list is still built once and rows are still reconciled across an empty-and-refill cycle.</p>
 
           <h2 id="notes">Notes</h2>
           <ul>
-            <li>The <code>children</code> of <code>&lt;For&gt;</code> must be a single render function, not JSX elements. If a non-function is passed, a console warning is displayed.</li>
-            <li>Always provide stable keys (like <code>id</code> fields) for list items. Avoid using array indices as keys when items can be reordered or removed.</li>
-            <li>For static arrays known at render time, plain <code>.map()</code> works fine. Use <code>&lt;For&gt;</code> when the list is reactive (a signal).</li>
-            <li>The <code>each</code> prop accepts both signals and plain arrays. If a signal is passed, <code>For</code> calls it to read the current array.</li>
+            <li>The <code>children</code> of <code>&lt;For&gt;</code> must be a single render function, not JSX elements. The runtime <code>For</code> warns and renders the fallback; the compiler warns at build time and falls back to <code>h()</code>, which puts a literal <code>&lt;for&gt;</code> element in the page.</li>
+            <li>Do not derive anything user-visible from <code>index</code>. It is a snapshot taken when the row was created, so a row number computed from it goes stale as soon as anything is inserted above it.</li>
+            <li>A reactive <code>.map()</code> with a <code>key</code> prop is the default What idiom for lists. Reach for <code>&lt;For&gt;</code> when you want the signal-wrapped item accessors that keyed mode provides.</li>
+            <li><code>&lt;For&gt;</code> does render on the server as of 0.12.4, and uncompiled its rows are reused on hydration: the row nodes on screen are the ones the server sent, and a <code>fallback</code> standing in for an empty list is reused too. Compiled, the tag is gone by then (it lowers to a list inserter), and that inserter builds its own rows rather than claiming the server's, so every row is discarded and rebuilt. This is <em>not</em> a <code>&lt;For&gt;</code>-only caveat: the recommended <code>.map()</code> with a <code>key</code> prop lowers to the same inserter and pays the same cost, keyed or not. What you lose is only the reuse. The rows come out with the right count, the right order and the right text, nothing warns (there is no hydration mismatch to report), and the markup around the list is still claimed normally, so the cost is confined to the rows themselves. Reusing them needs list boundary markers in the server HTML, tracked for 0.13.0.</li>
           </ul>
 
           <div class="page-nav">

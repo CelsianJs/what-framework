@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Accessibility — What Framework</title>
+  <title>Accessibility · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -103,45 +103,60 @@
 <span class="comment">// Read the currently focused element (reactive)</span>
 focus.current();  <span class="comment">// HTMLElement or null</span>
 
-<span class="comment">// Programmatically focus an element</span>
-focus.focus(myButtonRef.current);
+<span class="comment">// Programmatically focus an element (pass a real DOM node)</span>
+focus.focus(document.querySelector(<span class="string">'#search'</span>));
 
 <span class="comment">// Blur the active element</span>
 focus.blur();</code></pre>
 
+          <p>Inside a component, capture the node with a callback ref and focus it from <code>onMount</code>, once the element exists:</p>
+
+<pre><code><span class="keyword">import</span> { useFocus, onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">SearchBox</span>() {
+  <span class="keyword">let</span> input;
+  <span class="keyword">const</span> focus = <span class="function">useFocus</span>();
+
+  <span class="function">onMount</span>(() =&gt; focus.focus(input));
+
+  <span class="keyword">return</span> &lt;input ref={(node) =&gt; { input = node; }} /&gt;;
+}</code></pre>
+
           <h3 id="use-focus-restore">useFocusRestore()</h3>
           <p>Capture trigger focus before opening overlays, then restore it after close:</p>
 
-<pre><code><span class="keyword">import</span> { useFocusRestore } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal, useFocusRestore } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
+<span class="keyword">const</span> isOpen = <span class="function">signal</span>(<span class="keyword">false</span>);
 <span class="keyword">const</span> focusRestore = <span class="function">useFocusRestore</span>();
 
 <span class="keyword">function</span> <span class="function">openDialog</span>(e) {
   focusRestore.<span class="function">capture</span>(e.currentTarget);
-  setOpen(<span class="keyword">true</span>);
+  isOpen.set(<span class="keyword">true</span>);
 }
 
 <span class="keyword">function</span> <span class="function">closeDialog</span>() {
-  setOpen(<span class="keyword">false</span>);
+  isOpen.set(<span class="keyword">false</span>);
   focusRestore.<span class="function">restore</span>();
 }</code></pre>
 
           <h3 id="use-focus-trap">useFocusTrap(containerRef)</h3>
           <p>Trap focus within a container element. When active, pressing Tab at the last focusable element wraps to the first, and Shift+Tab at the first wraps to the last. Essential for modals, dialogs, and dropdown menus.</p>
 
-<pre><code><span class="keyword">import</span> { useFocusTrap } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useFocusTrap, onMount, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="keyword">function</span> <span class="function">Modal</span>({ onClose }) {
+<span class="keyword">function</span> <span class="function">Modal</span>({ onClose, onConfirm }) {
   <span class="keyword">const</span> ref = { current: <span class="keyword">null</span> };
   <span class="keyword">const</span> trap = <span class="function">useFocusTrap</span>(ref);
+  <span class="keyword">let</span> release;
 
   <span class="comment">// Activate the trap (focuses first focusable element)</span>
-  onMount(() =&gt; {
-    <span class="keyword">const</span> cleanup = trap.activate();
-    <span class="keyword">return</span> () =&gt; {
-      cleanup?.();
-      trap.deactivate();
-    };
+  <span class="function">onMount</span>(() =&gt; { release = trap.activate(); });
+
+  <span class="comment">// Tear it down here, because onMount ignores anything you return from it</span>
+  <span class="function">onCleanup</span>(() =&gt; {
+    release?.();
+    trap.deactivate();
   });
 
   <span class="keyword">return</span> (
@@ -149,25 +164,39 @@ focus.blur();</code></pre>
       &lt;h2&gt;Confirm Action&lt;/h2&gt;
       &lt;p&gt;Are you sure you want to proceed?&lt;/p&gt;
       &lt;button onClick={onClose}&gt;Cancel&lt;/button&gt;
-      &lt;button onClick={handleConfirm}&gt;Confirm&lt;/button&gt;
+      &lt;button onClick={onConfirm}&gt;Confirm&lt;/button&gt;
     &lt;/div&gt;
   );
 }</code></pre>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">onMount does not accept a cleanup return</p>
+            <p>Unlike React's <code>useEffect</code>, <code>onMount</code> <strong>discards</strong> a function you return from it. Returning the trap's teardown leaves its <code>keydown</code> listener attached to a removed container and never restores focus to the trigger. Always register teardown with <code>onCleanup</code>.</p>
+          </div>
+
           <h3 id="focus-trap-component">FocusTrap Component</h3>
           <p>Wrap the dialog subtree and conditionally mount it while open:</p>
 
-<pre><code><span class="keyword">import</span> { FocusTrap } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal, FocusTrap } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-{isOpen() ? (
-  &lt;FocusTrap&gt;
-    &lt;div class=<span class="string">"dropdown-menu"</span> role=<span class="string">"dialog"</span> aria-modal={<span class="keyword">true</span>}&gt;
-      &lt;a href=<span class="string">"/profile"</span>&gt;Profile&lt;/a&gt;
-      &lt;a href=<span class="string">"/settings"</span>&gt;Settings&lt;/a&gt;
-      &lt;button onClick={logout}&gt;Log out&lt;/button&gt;
+<span class="keyword">function</span> <span class="function">AccountMenu</span>({ onLogout }) {
+  <span class="keyword">const</span> isOpen = <span class="function">signal</span>(<span class="keyword">false</span>);
+
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      &lt;button onClick={() =&gt; isOpen.set(o =&gt; !o)}&gt;Account&lt;/button&gt;
+      {() =&gt; isOpen() ? (
+        &lt;FocusTrap&gt;
+          &lt;div class=<span class="string">"dropdown-menu"</span> role=<span class="string">"dialog"</span> aria-modal={<span class="keyword">true</span>}&gt;
+            &lt;a href=<span class="string">"/profile"</span>&gt;Profile&lt;/a&gt;
+            &lt;a href=<span class="string">"/settings"</span>&gt;Settings&lt;/a&gt;
+            &lt;button onClick={onLogout}&gt;Log out&lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/FocusTrap&gt;
+      ) : <span class="keyword">null</span>}
     &lt;/div&gt;
-  &lt;/FocusTrap&gt;
-) : <span class="keyword">null</span>}</code></pre>
+  );
+}</code></pre>
 
           <div class="callout callout-note">
             <p class="callout-title">Focus Restoration</p>
@@ -185,7 +214,7 @@ focus.blur();</code></pre>
   timeout: <span class="number">1000</span>,         <span class="comment">// auto-clear after ms (default: 1000)</span>
 });
 
-<span class="comment">// Assertive shortcut — interrupts current speech for urgent alerts</span>
+<span class="comment">// Assertive shortcut, interrupts current speech for urgent alerts</span>
 <span class="function">announceAssertive</span>(<span class="string">'Form submission failed. Please check your input.'</span>);</code></pre>
 
           <h3 id="live-region">LiveRegion Component</h3>
@@ -198,10 +227,17 @@ focus.blur();</code></pre>
 &lt;/LiveRegion&gt;</code></pre>
 
           <h2 id="aria-helpers">ARIA Helpers</h2>
-          <p>Hooks that manage ARIA attributes as reactive signals, keeping your markup in sync without manual bookkeeping.</p>
+          <p>Hooks that hold ARIA state in signals, so the state a screen reader is told matches the state your UI is in. Each one bundles its attributes and handlers into a props object you spread onto the element.</p>
+
+          <p>The values in those objects are accessors rather than snapshots, which is what keeps a spread live. <code>{...hook.buttonProps()}</code> is evaluated once, but every function-valued prop is wrapped in its own effect by the renderer, so the attribute follows the signal for the life of the element. Enumerated ARIA attributes are emitted as the strings <code>"true"</code> / <code>"false"</code> on all three paths (<code>h()</code>, compiled JSX, and server rendering), never as <code>aria-expanded=""</code> or a missing attribute.</p>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">On 0.12.4 these props are snapshots, not accessors</p>
+            <p>The accessor behaviour above lands in the next release. On 0.12.4, the current version on npm, each helper reads its own signal (<code>'aria-expanded': expanded()</code>), so the single evaluation a spread performs bakes in the state at mount: an accordion built from <code>buttonProps()</code> announces <code>aria-expanded="false"</code> forever, no matter how many times it opens, and <code>panelProps().hidden</code> is stuck with it. Components run once in What, so nothing ever re-calls the helper to refresh it. Until then, bind the attribute yourself the way <a href="#use-aria-expanded">useAriaExpanded</a> below describes: <code>aria-expanded={() =&gt; disclosure.expanded()}</code> is reactive, and correctly serialized, on both versions.</p>
+          </div>
 
           <h3 id="use-aria-expanded">useAriaExpanded</h3>
-          <p>Manage expandable UI like accordions, menus, and collapsible panels. Returns reactive props for the trigger button and the content panel:</p>
+          <p>Manage expandable UI like accordions, menus, and collapsible panels. The hook owns the open/closed signal and hands you the button and panel props:</p>
 
 <pre><code><span class="keyword">import</span> { useAriaExpanded } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -210,33 +246,33 @@ focus.blur();</code></pre>
 
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;button {...disclosure.buttonProps()}&gt;
-        {title}
-      &lt;/button&gt;
-      &lt;div {...disclosure.panelProps()}&gt;
-        {children}
-      &lt;/div&gt;
+      &lt;button {...disclosure.<span class="function">buttonProps</span>()}&gt;{title}&lt;/button&gt;
+      &lt;div {...disclosure.<span class="function">panelProps</span>()}&gt;{children}&lt;/div&gt;
     &lt;/div&gt;
   );
 }</code></pre>
 
-          <p>The <code>buttonProps()</code> spread gives the button <code>aria-expanded</code> and an <code>onClick</code> toggle handler. The <code>panelProps()</code> spread sets <code>hidden</code> based on the expanded state. You can also control the state directly:</p>
+          <p><code>buttonProps()</code> carries <code>aria-expanded</code> plus an <code>onClick</code> that toggles. <code>panelProps()</code> carries <code>hidden</code>, which stays a real boolean: <code>hidden</code> is a genuine HTML boolean attribute, where present-or-absent is the correct serialization.</p>
+
+          <p>The hook exposes the state directly:</p>
 
 <pre><code>disclosure.expanded();  <span class="comment">// reactive boolean</span>
 disclosure.toggle();    <span class="comment">// flip open/closed</span>
 disclosure.open();      <span class="comment">// force open</span>
 disclosure.close();     <span class="comment">// force closed</span></code></pre>
 
+          <p>Bind an attribute yourself when you want something the props object does not do, for example a button that opens but never closes: <code>aria-expanded={() =&gt; disclosure.expanded()}</code>. Both forms are reactive, so mix them freely.</p>
+
           <h3 id="use-aria-selected">useAriaSelected</h3>
-          <p>Track selection state for tab lists, listboxes, and similar patterns:</p>
+          <p>Track selection state for tab lists, listboxes, and similar patterns. <code>itemProps(value)</code> carries that item's <code>aria-selected</code> and an <code>onClick</code> that selects it, and it writes no <code>role</code>, so the one you set stays yours:</p>
 
 <pre><code><span class="keyword">import</span> { useAriaSelected } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> tabs = <span class="function">useAriaSelected</span>(<span class="string">'home'</span>);
 
 &lt;div role=<span class="string">"tablist"</span>&gt;
-  &lt;button role=<span class="string">"tab"</span> {...tabs.itemProps(<span class="string">'home'</span>)}&gt;Home&lt;/button&gt;
-  &lt;button role=<span class="string">"tab"</span> {...tabs.itemProps(<span class="string">'about'</span>)}&gt;About&lt;/button&gt;
+  &lt;button role=<span class="string">"tab"</span> {...tabs.<span class="function">itemProps</span>(<span class="string">'home'</span>)}&gt;Home&lt;/button&gt;
+  &lt;button role=<span class="string">"tab"</span> {...tabs.<span class="function">itemProps</span>(<span class="string">'about'</span>)}&gt;About&lt;/button&gt;
 &lt;/div&gt;
 
 <span class="comment">// Reactive state</span>
@@ -245,20 +281,42 @@ tabs.isSelected(<span class="string">'about'</span>);    <span class="comment">/
 tabs.select(<span class="string">'about'</span>);        <span class="comment">// switch selection</span></code></pre>
 
           <h3 id="use-aria-checked">useAriaChecked</h3>
-          <p>Build accessible custom checkboxes with proper keyboard support (Space and Enter toggle):</p>
+          <p>Build accessible custom checkboxes with proper keyboard support (Space and Enter toggle). <code>checkboxProps()</code> carries the role, the tab stop, <code>aria-checked</code>, and both handlers:</p>
 
 <pre><code><span class="keyword">import</span> { useAriaChecked } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> checkbox = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
 
-&lt;div {...checkbox.checkboxProps()}&gt;
+&lt;div {...checkbox.<span class="function">checkboxProps</span>()}&gt;
   {() =&gt; checkbox.checked() ? <span class="string">'[x]'</span> : <span class="string">'[ ]'</span>} Accept terms
 &lt;/div&gt;
 
-<span class="comment">// checkboxProps() provides: role, aria-checked, tabIndex, onClick, onKeyDown</span></code></pre>
+<span class="comment">// checkbox.checked() is a reactive boolean; checkbox.set(v) writes it directly.</span>
+<span class="comment">// checkboxProps() = { role: 'checkbox', tabIndex: 0, aria-checked, onClick, onKeyDown }</span></code></pre>
+
+          <p>This is the one helper that writes a <code>role</code>, and it is always <code>"checkbox"</code>. Whether writing <code>role</code> beside the spread can override it depends on how the file is built, which is the reason not to try. Compiled, it cannot: the compiler folds static attributes into the element's template and applies the spread over the top, so <code>&lt;div role="switch" {...checkbox.checkboxProps()}&gt;</code> and <code>&lt;div {...checkbox.checkboxProps()} role="switch"&gt;</code> emit identical code and the helper wins both. Uncompiled, <code>h()</code> and the server renderer receive an ordinary object literal, so the last key wins and <code>h('div', { ...checkbox.checkboxProps(), role: 'switch' })</code> really does render <code>role="switch"</code>. A widget whose role changes when you turn the compiler on is not a widget worth shipping. For a switch, a menu item checkbox, or anything else that is checkable but not a checkbox, bind the pieces yourself:</p>
+
+<pre><code><span class="keyword">import</span> { useAriaChecked, Keys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> sw = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
+
+&lt;div
+  role=<span class="string">"switch"</span>
+  tabIndex={<span class="number">0</span>}
+  aria-checked={() =&gt; sw.checked()}
+  onClick={sw.toggle}
+  onKeyDown={(e) =&gt; {
+    <span class="keyword">if</span> (e.key === Keys.Space || e.key === Keys.Enter) {
+      e.preventDefault();
+      sw.toggle();
+    }
+  }}
+&gt;
+  Notifications
+&lt;/div&gt;</code></pre>
 
           <h2 id="keyboard-navigation">Keyboard Navigation</h2>
-          <p>The <code>useRovingTabIndex</code> hook implements the roving tabindex pattern for keyboard navigation in composite widgets like toolbars, menus, and listboxes. Only the focused item has <code>tabIndex="0"</code>; all others have <code>tabIndex="-1"</code>.</p>
+          <p>The <code>useRovingTabIndex</code> hook implements the roving tabindex pattern for a composite widget like a toolbar, menu, tablist, or listbox: exactly one item is tabbable at a time, and the arrow keys move both that tab stop and real DOM focus. Spread <code>getItemProps(i)</code> onto each item and you are done.</p>
 
 <pre><code><span class="keyword">import</span> { useRovingTabIndex } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -267,40 +325,61 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
   <span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(items.length);
 
   <span class="keyword">return</span> (
-    &lt;div role=<span class="string">"toolbar"</span> {...roving.containerProps()}&gt;
-      {items.map((label, i) =&gt;
-        &lt;button {...roving.getItemProps(i)}&gt;{label}&lt;/button&gt;
-      )}
+    &lt;div role=<span class="string">"toolbar"</span> aria-label=<span class="string">"Formatting"</span> {...roving.<span class="function">containerProps</span>()}&gt;
+      {items.map((label, i) =&gt; (
+        &lt;button key={label} {...roving.<span class="function">getItemProps</span>(i)}&gt;{label}&lt;/button&gt;
+      ))}
     &lt;/div&gt;
   );
 }</code></pre>
 
-          <p>Supported keys:</p>
+          <p><code>getItemProps(i)</code> returns the item's reactive <code>tabIndex</code>, an <code>onKeyDown</code>, an <code>onFocus</code>, and a <code>ref</code>. The ref is how the hook holds the node it has to focus, so do not spread a ref of your own after it. Pass one through instead and the hook chains both: <code>getItemProps(i, { ref })</code>.</p>
+
+          <p>The key handler moves the active item, and focus with it:</p>
           <ul>
-            <li><strong>ArrowDown / ArrowRight</strong> — move to next item (wraps around)</li>
-            <li><strong>ArrowUp / ArrowLeft</strong> — move to previous item (wraps around)</li>
-            <li><strong>Home</strong> — jump to first item</li>
-            <li><strong>End</strong> — jump to last item</li>
+            <li><strong>ArrowDown / ArrowRight</strong>: move to next item (wraps around)</li>
+            <li><strong>ArrowUp / ArrowLeft</strong>: move to previous item (wraps around)</li>
+            <li><strong>Home</strong>: jump to first item</li>
+            <li><strong>End</strong>: jump to last item</li>
           </ul>
 
-          <p>You can also pass a signal or getter for dynamic item counts:</p>
+          <p><code>containerProps()</code> writes no <code>role</code> of its own, because roving tabindex is the shared keyboard mechanic of toolbars, menus, trees, grids, tablists, radiogroups, and listboxes. Label the container yourself, as above, or ask the hook for a role explicitly:</p>
+
+<pre><code><span class="comment">// Per hook</span>
+<span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(items.length, { role: <span class="string">'menu'</span> });
+
+<span class="comment">// Or per call site, which wins over the hook option</span>
+&lt;div {...roving.<span class="function">containerProps</span>({ role: <span class="string">'menu'</span>, <span class="string">'aria-label'</span>: <span class="string">'Actions'</span> })}&gt;</code></pre>
+
+          <p>Move focus yourself with <code>focusItem(index)</code>, which is what a menu wants when it opens. It returns the element it focused, or <code>null</code> when the index is out of range or the item is not in the DOM. <code>setFocusIndex(index)</code> moves the tab stop and follows it with focus only when focus is already inside the group, so syncing the index from application state cannot yank focus off an unrelated widget. Both refuse an index that does not exist rather than leaving the widget with no tabbable item.</p>
+
+          <p>You can also pass a signal or getter for dynamic item counts. If the list shrinks past the active index, the tab stop clamps to the last item so the widget never drops out of the tab order:</p>
 
 <pre><code><span class="keyword">const</span> itemCount = <span class="function">signal</span>(<span class="number">5</span>);
 <span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(() =&gt; itemCount());</code></pre>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">0.12.4 ships a different hook</p>
+            <p>All of the above is the next release. On 0.12.4, the current version on npm, <code>useRovingTabIndex</code> takes no options object, and <code>getItemProps()</code> returns no <code>ref</code> and a plain number for <code>tabIndex</code>, so nothing holds the item nodes: run the Toolbar example above on it and ArrowRight moves the hook's internal index while the tab stop and real DOM focus both stay on the first button. <code>containerProps()</code> also hard-codes <code>role: "listbox"</code>, which overwrites the <code>role="toolbar"</code> written beside it. <code>focusItem()</code> does not exist. The published TypeScript declarations describe that older hook, so an editor will reject the options object, <code>focusItem</code>, and the <code>overrides</code> arguments until the next release lands.</p>
+          </div>
 
           <h2 id="skip-links">Skip Links &amp; Visually Hidden</h2>
           <p>Help keyboard users bypass navigation and provide screen-reader-only content.</p>
 
           <h3 id="skip-link">SkipLink</h3>
-          <p>Renders a link that is hidden until focused. When activated, it moves focus to the target element:</p>
+          <p>Renders a link that is hidden until focused. When activated, it moves focus to the target element. A childless <code>&lt;SkipLink /&gt;</code> falls back to the label <code>Skip to content</code>, and it does so identically on the client and in server-rendered HTML, so the link ships with its accessible name rather than gaining it at hydration.</p>
 
 <pre><code><span class="keyword">import</span> { SkipLink } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="comment">// Default: skips to #main</span>
-&lt;SkipLink /&gt;
+<span class="comment">// Default target is #main</span>
+&lt;SkipLink&gt;Skip to content&lt;/SkipLink&gt;
 
 <span class="comment">// Custom target and label</span>
 &lt;SkipLink href=<span class="string">"#content"</span>&gt;Skip to main content&lt;/SkipLink&gt;</code></pre>
+
+          <p>Give the target a <code>tabindex="-1"</code> as well. <code>SkipLink</code> calls <code>focus()</code> on whatever the href matches, and a plain <code>&lt;main id="main"&gt;</code> is not focusable, so without it the page scrolls but keyboard focus stays on the link:</p>
+
+<pre><code>&lt;main id=<span class="string">"main"</span> tabindex=<span class="string">"-1"</span>&gt;...&lt;/main&gt;</code></pre>
 
           <h3 id="visually-hidden">VisuallyHidden</h3>
           <p>Hides content visually while keeping it accessible to screen readers. Uses the standard clip/overflow technique:</p>
@@ -316,14 +395,14 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
 &lt;VisuallyHidden as=<span class="string">"div"</span>&gt;Loading complete&lt;/VisuallyHidden&gt;</code></pre>
 
           <h2 id="id-generation">ID Generation</h2>
-          <p>Generate unique, stable IDs for connecting ARIA attributes across elements.</p>
+          <p>Generate unique, stable IDs for connecting ARIA attributes across elements. One counter is shared by every prefix and by both helpers, so the number in an id reflects its position in the render's allocation order, not a per-prefix sequence. On the server the counter is scoped to the render and <code>hydrate()</code> restarts the sequence, so the ids the client produces reproduce the server's and <code>for</code> / <code>aria-labelledby</code> links survive hydration.</p>
 
 <pre><code><span class="keyword">import</span> { useId, useIds, useDescribedBy, useLabelledBy } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="comment">// Single unique ID</span>
+<span class="comment">// Single unique ID, the first allocation in this render</span>
 <span class="keyword">const</span> id = <span class="function">useId</span>(<span class="string">'dialog'</span>);  <span class="comment">// () => 'dialog-1'</span>
 
-<span class="comment">// Multiple IDs at once</span>
+<span class="comment">// Multiple IDs at once, continuing the same shared counter</span>
 <span class="keyword">const</span> [titleId, bodyId] = <span class="function">useIds</span>(<span class="number">2</span>, <span class="string">'section'</span>);
 <span class="comment">// ['section-2', 'section-3']</span></code></pre>
 
@@ -347,9 +426,11 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h2 id="keyboard-helpers">Keyboard Helpers</h2>
           <p>Utility functions and constants for keyboard event handling.</p>
 
-<pre><code><span class="keyword">import</span> { Keys, onKey, onKeys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal, Keys, onKey, onKeys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-<span class="comment">// Keys constant — avoids string typos</span>
+<span class="keyword">const</span> isOpen = <span class="function">signal</span>(<span class="keyword">true</span>);
+
+<span class="comment">// Keys constant, avoids string typos</span>
 Keys.Enter      <span class="comment">// 'Enter'</span>
 Keys.Space      <span class="comment">// ' '</span>
 Keys.Escape     <span class="comment">// 'Escape'</span>
@@ -360,21 +441,26 @@ Keys.Home       <span class="comment">// 'Home'</span>
 Keys.End        <span class="comment">// 'End'</span>
 
 <span class="comment">// Handle a single key</span>
-&lt;input onKeyDown={<span class="function">onKey</span>(Keys.Escape, () =&gt; close())} /&gt;
+&lt;input onKeyDown={<span class="function">onKey</span>(Keys.Escape, () =&gt; isOpen.set(<span class="keyword">false</span>))} /&gt;
 
 <span class="comment">// Handle multiple keys</span>
 &lt;div onKeyDown={<span class="function">onKeys</span>(
   [Keys.Enter, Keys.Space],
-  (e) =&gt; { e.preventDefault(); activate(); }
+  (e) =&gt; { e.preventDefault(); isOpen.set(o =&gt; !o); }
 )} /&gt;</code></pre>
 
           <h2 id="live-demo">Live Demo</h2>
-          <p>An accessible accordion built with <code>aria-expanded</code> attributes. Try using your keyboard — each button correctly announces its expanded state to screen readers.</p>
+          <p>An accessible accordion built with <code>aria-expanded</code> attributes. Try using your keyboard, each button correctly announces its expanded state to screen readers.</p>
 
           <script>
 (function() {
   if (window.What) return;
   let _current = null;
+  // NOTE: this inline mock never ships. docs-site/build.mjs useRealWhat()
+     replaces this whole <script> with <script src="/what.global.js">, the REAL
+     framework bundled by the build. It exists only so this file still opens
+     standalone from disk. Judge the demo against the BUILT page in dist/,
+     not against this block: they are deliberately different.
   window.What = {
     signal(initial) {
       let value = initial;
@@ -393,7 +479,7 @@ Keys.End        <span class="comment">// 'End'</span>
           </script>
 
           <div class="playground">
-            <div class="playground-header">Live Demo — Accessible Accordion</div>
+            <div class="playground-header">Live Demo: Accessible Accordion</div>
             <div class="playground-result" id="demo-a11y"></div>
           </div>
           <script>
@@ -403,36 +489,51 @@ Keys.End        <span class="comment">// 'End'</span>
   const sections = [
     { title: 'What are signals?', content: 'Signals are reactive primitives that hold a value and notify subscribers when it changes. They are the foundation of What Framework\'s reactivity system.' },
     { title: 'How do effects work?', content: 'Effects automatically track which signals they read. When any of those signals change, the effect re-runs. Effects can return cleanup functions.' },
-    { title: 'What about performance?', content: 'What Framework uses fine-grained reactivity \u2014 only the specific DOM nodes that depend on a changed signal update. Direct DOM manipulation, no diffing needed.' }
+    { title: 'What about performance?', content: 'What Framework uses fine-grained reactivity: only the specific DOM nodes that depend on a changed signal update. Direct DOM manipulation, no diffing needed.' }
   ];
   const openIndex = signal(-1);
 
-  effect(() => {
-    const idx = openIndex();
-    el.innerHTML = sections.map((s, i) => `
-      <div style="border:1px solid #e4e4e7;border-radius:8px;margin-bottom:8px;overflow:hidden">
-        <button
-          aria-expanded="${idx === i}"
-          data-idx="${i}"
-          style="width:100%;padding:12px 16px;border:none;background:${idx === i ? '#f4f4f5' : '#fff'};cursor:pointer;font-size:14px;font-weight:500;text-align:left;font-family:inherit;display:flex;justify-content:space-between;align-items:center">
-          ${s.title}
-          <span style="transform:rotate(${idx === i ? 180 : 0}deg);transition:transform 0.2s">\u25BC</span>
-        </button>
-        ${idx === i ? '<div role="region" style="padding:12px 16px;font-size:14px;color:#52525b;border-top:1px solid #e4e4e7">' + s.content + '</div>' : ''}
-      </div>`).join('');
-    el.__toggle = (i) => openIndex.set(openIndex.peek() === i ? -1 : i);
-    el.querySelectorAll('button[data-idx]').forEach((btn) => {
-      btn.addEventListener('click', () => el.__toggle(Number(btn.dataset.idx)));
+  // Built once, then updated per-section by fine-grained effects. The previous
+  // version of this demo rebuilt innerHTML on every toggle, which destroyed the
+  // very button the user had just activated and dropped focus to <body>. On a
+  // page about accessibility, that is the bug worth not shipping.
+  el.innerHTML = sections.map((s, i) => `
+    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden">
+      <button id="acc-btn-${i}" aria-controls="acc-panel-${i}" data-idx="${i}"
+        style="width:100%;padding:12px 16px;border:none;cursor:pointer;font-size:14px;font-weight:500;text-align:left;font-family:inherit;display:flex;justify-content:space-between;align-items:center">
+        <span>${s.title}</span>
+        <span data-chevron style="transition:transform 0.2s">\u25BC</span>
+      </button>
+      <div id="acc-panel-${i}" role="region" aria-labelledby="acc-btn-${i}"
+        style="padding:12px 16px;font-size:14px;color:var(--text-secondary);border-top:1px solid var(--border)">${s.content}</div>
+    </div>`).join('');
+
+  sections.forEach((_, i) => {
+    const btn = el.querySelector('#acc-btn-' + i);
+    const panel = el.querySelector('#acc-panel-' + i);
+    const chevron = btn.querySelector('[data-chevron]');
+    btn.addEventListener('click', () => openIndex.set(openIndex.peek() === i ? -1 : i));
+
+    effect(() => {
+      const open = openIndex() === i;
+      // ARIA enumerated attributes are STRINGS. A raw boolean here yields
+      // aria-expanded="" or drops the attribute entirely, which is not the same
+      // thing as "false" to a screen reader.
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.style.background = open ? 'var(--bg-surface)' : 'transparent';
+      chevron.style.transform = 'rotate(' + (open ? 180 : 0) + 'deg)';
+      panel.hidden = !open;
     });
   });
 })();
           </script>
 
           <div class="page-nav">
-            <a href="./islands.html">
+            <a href="./animation.html">
               <span class="label">Previous</span>
-              <span class="title">Islands</span>
+              <span class="title">Animation</span>
             </a>
+            <div></div>
           </div>
         </div>
 

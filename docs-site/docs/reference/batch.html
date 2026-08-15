@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>batch() — What Framework</title>
+  <title>batch() · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -80,24 +80,33 @@
           <h2 id="usage">Usage</h2>
 
           <h3>Basic Batching</h3>
+          <p>The difference <code>batch()</code> makes is <strong>timing</strong>, not the number of runs.
+          Two writes in the same synchronous block already collapse into a single queued run. What
+          <code>batch()</code> changes is that the run happens synchronously at the closing brace, so
+          the code after the batch sees the effect already applied.</p>
 <pre><code><span class="keyword">import</span> { signal, effect, batch } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">const</span> firstName = <span class="function">signal</span>(<span class="string">'John'</span>);
 <span class="keyword">const</span> lastName = <span class="function">signal</span>(<span class="string">'Doe'</span>);
 
+<span class="keyword">const</span> seen = [];
 <span class="function">effect</span>(() =&gt; {
-  console.log(<span class="string">`Name: ${firstName()} ${lastName()}`</span>);
+  seen.push(<span class="string">`${firstName()} ${lastName()}`</span>);
 });
 
-<span class="comment">// Without batch: effect runs twice</span>
-firstName.set(<span class="string">'Jane'</span>);  <span class="comment">// effect runs</span>
-lastName.set(<span class="string">'Smith'</span>);  <span class="comment">// effect runs again</span>
+<span class="comment">// Without batch: one run, but not until the next microtask</span>
+firstName.set(<span class="string">'Jane'</span>);
+lastName.set(<span class="string">'Smith'</span>);
+console.log(seen);          <span class="comment">// ["John Doe"] - not applied yet</span>
+<span class="keyword">await</span> Promise.resolve();
+console.log(seen);          <span class="comment">// ["John Doe", "Jane Smith"]</span>
 
-<span class="comment">// With batch: effect runs once</span>
+<span class="comment">// With batch: the same single run, flushed before the next line</span>
 <span class="function">batch</span>(() =&gt; {
   firstName.set(<span class="string">'Bob'</span>);
   lastName.set(<span class="string">'Jones'</span>);
-});  <span class="comment">// effect runs once with "Bob Jones"</span></code></pre>
+});
+console.log(seen);          <span class="comment">// ["John Doe", "Jane Smith", "Bob Jones"]</span></code></pre>
 
           <h3>Form State Updates</h3>
 <pre><code><span class="keyword">const</span> formData = <span class="function">signal</span>({ name: <span class="string">''</span>, email: <span class="string">''</span> });
@@ -113,7 +122,7 @@ lastName.set(<span class="string">'Smith'</span>);  <span class="comment">// eff
 }</code></pre>
 
           <h3>Nested Batching</h3>
-<pre><code><span class="comment">// Batch calls can be nested — effects flush</span>
+<pre><code><span class="comment">// Batch calls can be nested. Effects flush</span>
 <span class="comment">// only when the outermost batch completes</span>
 <span class="function">batch</span>(() =&gt; {
   firstName.set(<span class="string">'Alice'</span>);
@@ -133,7 +142,7 @@ lastName.set(<span class="string">'Smith'</span>);  <span class="comment">// eff
             <li>Effects already batch naturally via microtask scheduling. If multiple signal writes happen in the same synchronous block, effects run once in the next microtask. Use <code>batch()</code> when you need to guarantee effects see a consistent state across multiple writes.</li>
             <li>Batch calls can be nested. Effects only flush when the outermost batch completes.</li>
             <li>The flush inside batch is synchronous, unlike the default microtask scheduling. This can be useful when you need effects to run before continuing.</li>
-            <li>If the function passed to <code>batch()</code> throws, the batch depth is still decremented correctly and pending effects are still flushed.</li>
+            <li>If the function passed to <code>batch()</code> throws, the batch depth is still decremented correctly and pending effects are still flushed, and the error is then re-thrown to the caller. <code>batch()</code> uses <code>try/finally</code>, it is not a <code>try/catch</code>.</li>
           </ul>
 
           <div class="page-nav">

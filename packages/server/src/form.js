@@ -35,8 +35,10 @@ function resolveActionId(action) {
   throw new Error('[what] <Form> requires an `action` prop: a server action or its id.');
 }
 
-// On the server there is no document, so the per-request token must be handed in
-// (typically from a loader). On the client it can be recovered from the page.
+// On the server there is no document, so the per-request token must be handed
+// in: the adapter puts it on the loader context as `ctx.csrfToken`, and the
+// page returns it in loader data. On the client it can be recovered from the
+// page (meta tag, then cookie).
 function readClientCsrfToken() {
   if (typeof document === 'undefined') return null;
   const meta = document.querySelector('meta[name="what-csrf-token"]');
@@ -62,10 +64,15 @@ export function Form({
     && typeof process !== 'undefined'
     && process.env?.NODE_ENV !== 'production'
   ) {
+    // Both halves of the contract, because only naming the first one sends
+    // developers looking for a token on a cached page that will never have one.
     console.warn(
-      `[what] <Form action="${actionId}"> has no CSRF token. Server-rendered forms must ` +
-      'receive one (`csrfToken` is passed to loaders), otherwise the double-submit ' +
-      'check rejects the POST and the failure is silent.'
+      `[what] <Form action="${actionId}"> has no CSRF token. Pass one: the adapter hands ` +
+      'the per-request token to the route loader as `ctx.csrfToken`, so return it in ' +
+      'loader data and set `csrfToken` on the form. Cached routes (page mode "static" or ' +
+      '"hybrid") have no per-visitor token by design, since their HTML is shared, so a ' +
+      'form that must submit without JavaScript belongs on a "server" mode route. ' +
+      'Otherwise the double-submit check rejects the POST and the failure is silent.'
     );
   }
 

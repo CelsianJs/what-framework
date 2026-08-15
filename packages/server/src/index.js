@@ -61,6 +61,94 @@ export function renderToHydratableString(vnode) {
   return _renderHydratable(vnode);
 }
 
+// <ErrorBoundary> and <Suspense> are not elements. They return vnodes carrying
+// the internal marker tags '__errorBoundary' / '__suspense', which every client
+// path routes to a boundary handler (dom.js:349-353). The server had no such
+// routing outside renderToString's suspense case, so the marker tags fell
+// through to the generic element renderer and three things went wrong at once:
+//
+//   <ErrorBoundary>            ->  <__errorBoundary><p>ok</p></__errorBoundary>
+//   <Suspense> (hydratable)    ->  <__suspense boundary="[object Object]"
+//                                             fallback="[object Object]">...
+//
+// An invalid element name in the response, the boundary's internal props
+// stringified into attributes, and, worst of the three, a component that threw
+// during SSR took down the WHOLE page render instead of being contained:
+// renderToString and renderToHydratableString both propagated the error, so the
+// one construct whose entire purpose is to stop a subtree failure from becoming
+// a page failure did nothing on the server. The stream path did not throw but
+// emitted an HTML comment where the fallback belonged.
+//
+// A thenable is deliberately re-thrown rather than caught: that is a suspended
+// resource, not an error, and it belongs to the nearest <Suspense>.
+const BOUNDARY_TAGS = new Set(['__errorBoundary', '__suspense']);
+
+// <Portal> is client-only by the framework's own decision: Portal() returns null
+// when there is no `document` (helpers.js:153). That guard is environmental, not
+// a server check, so SSR under a DOM shim (jsdom, happy-dom, a test harness, any
+// runtime that polyfills document) sailed past it, built the vnode, and handed
+// the server a '__portal' tag it had no branch for. The result was
+//
+//   <__portal container="[object HTMLDivElement]"><p>inside</p></__portal>
+//
+// which is three wrongs at once: an invalid element, a DOM node stringified into
+// an attribute, and the portal's content emitted INLINE at the portal's own
+// position rather than at its target. Hydration would then move it, so the
+// server markup contradicted the client's on purpose.
+//
+// Rendering nothing is the answer that agrees with the no-document path, so the
+// same app produces the same HTML whether or not a shim happens to be loaded.
+const SERVER_SKIPPED_TAGS = new Set(['__portal']);
+
+// The props a component is called with. The server has to hand a component
+// exactly what the client hands it, and it did not.
+//
+// dom.js:593 collapses the children list before it becomes a prop, and when
+// there are NO children it sets no `children` key at all, so an ordinary JS
+// default parameter
+//
+//     function SkipLink({ children = 'Skip to content' }) { ... }
+//
+// applies. The server passed `children: vnode.children` verbatim, which is `[]`
+// for a childless component, and `[]` is defined, so the default NEVER applied
+// server-side. A server-rendered <SkipLink /> shipped `<a href="#main"></a>`: a
+// link with no accessible name (a WCAG 2.4.4 failure) until the client hydrated
+// and replaced it, which is exactly the case where the markup has to stand on
+// its own. The divergence is general, not specific to SkipLink: every component
+// with a defaulted children prop rendered one thing on the client and another on
+// the server. The same blanket override also discarded children passed as a
+// plain PROP (`h(Card, { children: body })`), which the client keeps precisely
+// because there are no vnode children to replace it with.
+//
+// "Childless" has to mean what it means on the client: an EMPTY list. h() drops
+// null/false/true children (h.js:48,66) but keeps '' as the string child it is,
+// so `<Comp>{''}</Comp>` has one child and the default must NOT apply there.
+// Only length 0 counts, plus a hand-built vnode carrying no children array.
+//
+// Not yet matched: the client also UNWRAPS a single child (`[child]` -> `child`).
+// Aligning that here alone would break <Island>, which puts the prop straight
+// back onto a vnode's children (islands.js:243) where the element renderer
+// requires an array. That one needs both sides changed together.
+function _componentProps(vnode) {
+  const children = vnode.children;
+  if (!children || children.length === 0) return { ...vnode.props };
+  return { ...vnode.props, children };
+}
+
+function _boundaryFallback(vnode, error) {
+  const fallback = vnode.props && vnode.props.fallback;
+  if (typeof fallback !== 'function') return fallback;
+  const reset = (vnode.props && vnode.props.reset) || (() => {});
+  try {
+    return fallback({ error, reset });
+  } catch (e) {
+    if (_isDevMode) {
+      console.warn(`[what-server] <ErrorBoundary> fallback threw during SSR: ${e.message}`);
+    }
+    return null;
+  }
+}
+
 function _renderHydratable(vnode) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
@@ -105,13 +193,27 @@ function _renderHydratable(vnode) {
     return `<!--[]-->${vnode.map(_renderHydratable).join('')}<!--/[]-->`;
   }
 
+  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
+
+  // Boundary markers render their subtree, never themselves.
+  if (BOUNDARY_TAGS.has(vnode.tag)) {
+    try {
+      return (vnode.children || []).map(_renderHydratable).join('');
+    } catch (e) {
+      const suspended = e && typeof e.then === 'function';
+      if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
+      if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
+      return _renderHydratable(_boundaryFallback(vnode, suspended ? null : e));
+    }
+  }
+
   // Component — add hydration key to root element
   if (typeof vnode.tag === 'function') {
     const hkId = nextHydrationId();
     const ctx = _beginComponentSSR(vnode.tag);
     let html;
     try {
-      html = _renderHydratable(vnode.tag({ ...vnode.props, children: vnode.children }));
+      html = _renderHydratable(vnode.tag(_componentProps(vnode)));
     } finally {
       _endComponentSSR(ctx);
     }
@@ -141,6 +243,19 @@ function injectHydrationKey(html, hkId) {
     const prefix = match[1];
     const tagName = match[2];
     const insertAt = prefix.length + 1 + tagName.length; // after '<tagName'
+
+    // One element, one key. Every component in a chain injects into the first
+    // element of its rendered output, and a component that returns another
+    // component (the most ordinary composition there is) resolves to the SAME
+    // element at every level, so `Outer -> Middle -> Inner -> <p>` emitted
+    // `<p data-hk="h0" data-hk="h1" data-hk="h2">`: a duplicate attribute, which
+    // is invalid HTML, and browsers silently keep only the first. The innermost
+    // component is the one that actually owns the element, and it wins because
+    // it renders first, so an existing key means there is nothing to do here.
+    const openTagEnd = html.indexOf('>', insertAt);
+    const openTag = html.slice(insertAt, openTagEnd === -1 ? undefined : openTagEnd);
+    if (/[\s"']data-hk\s*=/.test(openTag) || /^\s*data-hk\s*=/.test(openTag)) return html;
+
     return html.slice(0, insertAt) + ` data-hk="${hkId}"` + html.slice(insertAt);
   }
   return html;
@@ -197,17 +312,26 @@ export function renderToString(vnode) {
     return vnode.map(renderToString).join('');
   }
 
-  // Suspense boundary — render children; if a child suspends (throws a thenable),
-  // show the fallback (a synchronous render cannot await). renderToStringAsync /
-  // renderToStream await the pending resources and re-render with real content.
-  if (vnode.tag === '__suspense') {
+  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
+
+  // Boundary markers render their subtree, never themselves.
+  //
+  // <Suspense>: if a child suspends (throws a thenable), show the fallback, since
+  // a synchronous render cannot await. renderToStringAsync / renderToStream await
+  // the pending resources and re-render with real content.
+  //
+  // <ErrorBoundary>: if a child throws a real error, show the fallback. Before
+  // this branch existed the error propagated out of renderToString and killed the
+  // whole page response, which is precisely the failure an ErrorBoundary exists
+  // to prevent.
+  if (BOUNDARY_TAGS.has(vnode.tag)) {
     try {
       return (vnode.children || []).map(renderToString).join('');
     } catch (e) {
-      if (e && typeof e.then === 'function') {
-        return renderToString(vnode.props && vnode.props.fallback);
-      }
-      throw e;
+      const suspended = e && typeof e.then === 'function';
+      if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
+      if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
+      return renderToString(_boundaryFallback(vnode, suspended ? null : e));
     }
   }
 
@@ -220,7 +344,7 @@ export function renderToString(vnode) {
   if (typeof vnode.tag === 'function') {
     const ctx = _beginComponentSSR(vnode.tag);
     try {
-      return renderToString(vnode.tag({ ...vnode.props, children: vnode.children }));
+      return renderToString(vnode.tag(_componentProps(vnode)));
     } finally {
       _endComponentSSR(ctx);
     }
@@ -392,6 +516,24 @@ export async function* renderToStream(vnode, ctx) {
     return;
   }
 
+  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return;
+
+  // Error boundary: render the subtree, and on a real error emit the fallback
+  // rather than the generic component-error comment the catch below would
+  // produce. Rendered eagerly into a string instead of streamed, because a
+  // boundary that has already yielded half its subtree cannot take it back.
+  if (vnode.tag === '__errorBoundary') {
+    let html;
+    try {
+      html = runWithServerContext(ctx, () => (vnode.children || []).map(renderToString).join(''));
+    } catch (e) {
+      if (e && typeof e.then === 'function') throw e; // suspended; belongs to <Suspense>
+      html = runWithServerContext(ctx, () => renderToString(_boundaryFallback(vnode, e)));
+    }
+    yield html;
+    return;
+  }
+
   // Suspense boundary — render the subtree, awaiting any suspended resources,
   // then emit the resolved content. (In-order; out-of-order swap is a future
   // enhancement.) The synchronous render runs inside the threaded ctx.
@@ -425,7 +567,7 @@ export async function* renderToStream(vnode, ctx) {
     try {
       const result = runWithServerContext(
         ctx,
-        () => vnode.tag({ ...vnode.props, children: vnode.children })
+        () => vnode.tag(_componentProps(vnode))
       );
       // Support async components
       const resolved = result instanceof Promise ? await result : result;
@@ -477,10 +619,19 @@ export function definePage(config) {
 // Generate static HTML for a page
 export function generateStaticPage(page, data = {}) {
   const ctx = createRenderContext(data);
-  const html = runWithServerContext(ctx, () => {
-    const vnode = page.component(data);
-    return renderToString(vnode);
-  });
+  // Render the page as a vnode instead of calling the component and handing the
+  // result over. `page.component(data)` ran BARE, outside the component frame
+  // renderToString establishes, so nothing was on the component stack and every
+  // context-dependent hook threw: useState, useSignal, useEffect, useMemo,
+  // useRef, onMount and <Ctx.Provider> all resolve through
+  // getCurrentComponent(). One hook anywhere in the page component's own body
+  // meant THE documented static-generation entry point could not render it at
+  // all, which rules out most real pages.
+  //
+  // `data` still reaches the component as its props (the same convention
+  // renderPage uses), and the body HTML this produces is byte-identical for a
+  // page that does not use hooks, so what wrapDocument receives is unchanged.
+  const html = runWithServerContext(ctx, () => renderToString(h(page.component, data)));
   const islands = page.islands || [];
 
   return wrapDocument({
@@ -602,10 +753,40 @@ function assertSafeTag(tag) {
 
 function renderAttrs(props) {
   let out = '';
-  for (const [key, val] of Object.entries(props)) {
+  for (const [key, rawVal] of Object.entries(props)) {
     if (key === 'key' || key === 'ref' || key === 'children' || key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
     const lowerKey = key.toLowerCase();
     if (lowerKey.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
+
+    // A remaining function value is a reactive accessor, so CALL it. Every
+    // client path already does (setProp and setAttr both resolve a function
+    // value); only the server did not, and fell through to String(val), which
+    // stringifies a function as its SOURCE TEXT. So the documented way to make
+    // an attribute reactive,
+    //
+    //     <span className={() => theme()}>
+    //
+    // server-rendered as class="() =&gt; theme()": the page shipped JavaScript
+    // source in its class attribute, lost the real class until hydration
+    // replaced it, and any CSS keyed on that class did not apply to the HTML a
+    // crawler or a no-JS visitor saw. what-router's <Link> hit it on every
+    // link, because Link always passes a thunk as `class`.
+    //
+    // Fail soft on a throw, matching the rest of this function: one attribute
+    // that cannot resolve must not take down the whole response.
+    let val = rawVal;
+    if (typeof val === 'function') {
+      try {
+        val = val();
+      } catch (e) {
+        if (_isDevMode) {
+          console.warn(`[what-server] Skipping attribute ${JSON.stringify(key)}: its value threw during SSR: ${e.message}`);
+        }
+        continue;
+      }
+      // A resolved value that is itself a function is not an attribute value.
+      if (typeof val === 'function') continue;
+    }
     // aria-*/role are enumerated, so `false` is a real value and must survive:
     // an absent `aria-expanded` means "unsupported", `aria-expanded="false"`
     // means "collapsed". Every other attribute keeps HTML boolean semantics,

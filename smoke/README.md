@@ -8,7 +8,20 @@ npm run smoke:apps                              # workspace source (pre-release)
 npm run smoke:apps:npm                          # published `latest`
 node smoke/run.mjs --source=npm --version=0.12.2 # a specific release
 node smoke/run.mjs --apps=storefront --keep      # one app, keep the workdir
+
+npm run smoke:ports                             # what is still holding a smoke port
+npm run smoke:clean                             # stop the ones that are ours
 ```
+
+App servers are started detached, because a dev server spawns children that
+outlive a bare `child.kill()` and keep holding the port. The harness kills the
+whole group on exit, SIGINT and SIGTERM, which covers a normal run and a Ctrl-C.
+It cannot cover the runner being SIGKILLed, the machine sleeping mid-run, or
+someone running `npm run dev` in an app directory by hand. Those leak, and a
+leaked server is not harmless: `assertPortFree` refuses to start against a busy
+port, so the next run reports a stale process instead of a result. `smoke:clean`
+is the reaper, and it only stops processes working inside this repo or a runner
+temp directory, because this machine runs dev servers for other projects too.
 
 ## Why this exists
 

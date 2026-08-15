@@ -5,7 +5,7 @@
 import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
 import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
-import { _injectIslandRuntime } from './components.js';
+import { _injectIslandRuntime, reportError } from './components.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
@@ -1359,6 +1359,22 @@ export function spread(el, props) {
   for (const key in props) {
     const value = props[key];
 
+    // Ref — the element, not a reactive getter.
+    //
+    // This is the one prop whose FUNCTION form is a callback taking the element
+    // rather than an accessor returning a value, which is exactly why the other
+    // two call sites special-case it before the reactive-prop test (setProp
+    // below, and applyProps in dom.js). Spread did not, so a function ref fell
+    // into the reactive branch and was invoked as `value()` with NO ARGUMENT.
+    // Every `{...register('email')}`-shaped API broke in silence on the
+    // compiled path: the ref saw `undefined`, guarded, and returned, so no
+    // element was ever registered and nothing threw to say so.
+    if (key === 'ref') {
+      if (typeof value === 'function') value(el);
+      else if (value && typeof value === 'object') value.current = el;
+      continue;
+    }
+
     if (_isEventProp(key)) {
       // Event handler — direct assignment. Use $$name for delegated events.
       if (typeof value !== 'function') continue;
@@ -1719,6 +1735,36 @@ function trimUnclaimed(parent) {
 }
 
 /**
+ * Comment markers that belong to the machinery, not to the page.
+ *
+ * '$' / '/$' and '[]' / '/[]' come from the server's hydratable output. The
+ * rest are planted by the hydration walk itself as it goes: 'fn' / '/fn' bound
+ * a reactive region (the function branch of hydrateNode), 'eb:*' and 'sb:*'
+ * bound an <ErrorBoundary> or a <Suspense> (hydrateBoundary), and 'portal' /
+ * 'portal:empty' are a <Portal>'s placeholder.
+ *
+ * In every case the cursor is advanced past the marker at the moment it goes
+ * in, so a later sibling REACHING one means the cursor has desynced. Skipping
+ * is what keeps that desync from turning destructive. No vnode form in this
+ * framework produces a comment node, so the element and text branches treat a
+ * claimed comment as a mismatch and replaceChild() it away: a sibling that
+ * claimed a region's end marker would delete the marker, leave the region
+ * unterminated, and send its next update walking off the end of the parent.
+ * Losing one node's reuse is a scratch; losing a marker is fatal to the region.
+ */
+const _HYDRATION_MARKERS = new Set([
+  '$', '/$', '[]', '/[]',
+  'fn', '/fn',
+  'eb:start', 'eb:end',
+  'sb:start', 'sb:end',
+  'portal', 'portal:empty',
+]);
+
+function _isHydrationMarker(node) {
+  return node.nodeType === 8 && _HYDRATION_MARKERS.has(node.textContent);
+}
+
+/**
  * Claim the next DOM node from the hydration cursor.
  * Returns the existing DOM node or null if none available.
  */
@@ -1726,17 +1772,9 @@ function claimNode(parent) {
   const children = parent.childNodes;
   while (_hydrationCursor.index < children.length) {
     const node = children[_hydrationCursor.index];
-    // Skip hydration comment markers. 'fn' / '/fn' are the reactive-region
-    // markers hydration itself inserts as it walks (see the function branch of
-    // hydrateNode); the cursor is adjusted when they go in, and skipping them
-    // here keeps a later sibling from ever claiming one as its node.
-    if (node.nodeType === 8) { // Comment node
-      const text = node.textContent;
-      if (text === '$' || text === '/$' || text === '[]' || text === '/[]'
-          || text === 'fn' || text === '/fn') {
-        _hydrationCursor.index++;
-        continue;
-      }
+    if (_isHydrationMarker(node)) {
+      _hydrationCursor.index++;
+      continue;
     }
     _hydrationCursor.index++;
     return node;
@@ -1756,13 +1794,7 @@ function peekNode(parent) {
   const children = parent.childNodes;
   for (let i = _hydrationCursor.index; i < children.length; i++) {
     const node = children[i];
-    if (node.nodeType === 8) {
-      const text = node.textContent;
-      if (text === '$' || text === '/$' || text === '[]' || text === '/[]'
-          || text === 'fn' || text === '/fn') {
-        continue;
-      }
-    }
+    if (_isHydrationMarker(node)) continue;
     return node;
   }
   return null;
@@ -2071,9 +2103,29 @@ function hydrateNode(vnode, parent) {
         if (endChildrenPass) endChildrenPass();
       } catch (error) {
         componentStack.pop();
-        // Same classification as createComponent: a navigation signal carries
-        // its own handler and is not a render failure.
-        if (!_handleNavigationSignal(error)) {
+        // Same classification as createComponent, and it has to be the same or
+        // the two paths disagree about what a throw MEANS:
+        //
+        //   - a navigation signal carries its own handler and is not a failure.
+        //   - a thrown thenable is a SUSPENSION. It is how lazy() says "my
+        //     chunk has not landed yet", and during hydration that is not an
+        //     edge case but the normal one: on a real first load the dynamic
+        //     import is still in flight when hydrate() runs. Logging it and
+        //     returning null left `loading` unflipped, so the <Suspense> region
+        //     came out EMPTY, the server's fallback markup was left unclaimed
+        //     and then trimmed, and the chunk resolving re-rendered nothing.
+        //     The boundary sat permanently blank, which is the one outcome
+        //     Suspense exists to prevent.
+        //   - anything else is a real error and belongs to the nearest
+        //     <ErrorBoundary>, exactly as in a client-only render.
+        //
+        // Unlike createComponent this never RE-THROWS when nothing handles it.
+        // An exception escaping here escapes hydrate() itself and the rest of
+        // the page never hydrates at all; whatever this component was, its
+        // siblings are still recoverable.
+        if (!_handleNavigationSignal(error)
+            && !(error && typeof error.then === 'function' && suspendDuringHydration(error, ctx))
+            && !reportError(error, ctx)) {
           console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', error);
         }
         return null;
@@ -2111,6 +2163,10 @@ function hydrateNode(vnode, parent) {
         // A region root falls back to the parent element instead. That disposes
         // later than ideal (when the parent goes, not when the component does),
         // and disposing late is strictly better than disposing while mounted.
+        //
+        // A boundary root needs no case here: hydrateBoundary returns its start
+        // MARKER rather than its contents, and a marker is stable by
+        // construction.
         const rootIsRegion = typeof result === 'function'
           || (Array.isArray(result) && result.some((child) => typeof child === 'function'));
         const first = Array.isArray(node) ? node[0] : node;
@@ -2120,6 +2176,65 @@ function hydrateNode(vnode, parent) {
       } finally {
         componentStack.pop();
       }
+    }
+
+    // Boundary marker tags — NOT elements, and never rendered as themselves.
+    //
+    // <ErrorBoundary>, <Suspense> and <Portal> each return one of these instead
+    // of a DOM tag, and every other render path routes them to a boundary
+    // handler rather than to createElement (dom.js createDOM, and the same
+    // three tags in the server's renderer). Hydration was the one path with no
+    // branch for them, so a marker tag fell through to the ELEMENT branch below
+    // and went looking for a `<__errorBoundary>` element in the server HTML.
+    // What it found was the first node of the boundary's OWN subtree, which it
+    // warned about and destroyed:
+    //
+    //   server:  <div id="x"><p>INNER</p></div>
+    //   client:  <div id="x"><!--eb:start--></div>
+    //
+    // One <ErrorBoundary> anywhere in a server-rendered page blanked everything
+    // under it. The construct whose entire job is to contain a failure was
+    // itself the failure.
+    if (vnode.tag === '__errorBoundary') {
+      const { errorState, fallback, reset, handleError } = vnode.props;
+      return hydrateBoundary(vnode, parent, {
+        startText: 'eb:start',
+        endText: 'eb:end',
+        ctxExtras: { _errorBoundary: handleError },
+        state: errorState,
+        contentFor: (error) => {
+          if (!error) return vnode.children || [];
+          return typeof fallback === 'function' ? fallback({ error, reset }) : fallback;
+        },
+      });
+    }
+
+    if (vnode.tag === '__suspense') {
+      const { boundary, fallback, loading } = vnode.props;
+      return hydrateBoundary(vnode, parent, {
+        startText: 'sb:start',
+        endText: 'sb:end',
+        ctxExtras: { _suspenseBoundary: boundary },
+        state: loading,
+        contentFor: (isLoading) => (isLoading ? fallback : (vnode.children || [])),
+      });
+    }
+
+    // <Portal> renders NOTHING on the server, by the same decision that makes
+    // Portal() return null when there is no document: its content belongs to a
+    // container somewhere else on the page, not to this position. So there is
+    // no server markup here to claim and the portal mounts client-side exactly
+    // as it does in a client-only render.
+    //
+    // The element branch did the opposite. It CLAIMED the next node, which is
+    // the server's next real sibling, warned about a mismatch that never
+    // existed, and replaced that sibling with the portal's placeholder comment.
+    // The claimed node was destroyed and everything after it shifted, so a
+    // portal in the middle of a server-rendered list cost every node behind it:
+    // a modal host declared before the page content rebuilt the entire page.
+    if (vnode.tag === '__portal') {
+      const placeholder = createDOM(vnode, parent);
+      return placeholder ? insertAtCursor(parent, placeholder) : null;
     }
 
     // Element — claim existing DOM element
@@ -2196,6 +2311,360 @@ function hydrateNode(vnode, parent) {
 
   // Fallback — create text node
   return insertAtCursor(parent, document.createTextNode(String(vnode)));
+}
+
+/**
+ * Hand a thrown thenable to the nearest <Suspense> above `ctx`.
+ *
+ * The twin of the private `suspend()` in dom.js: the same walk up the same
+ * `_parentCtx` chain to the same `_suspenseBoundary`. It is written out again
+ * rather than shared because dom.js keeps its copy module-private, and the two
+ * halves it depends on (the chain, and the boundary's onSuspend) are fixed
+ * shapes that createSuspenseBoundary and hydrateBoundary both build.
+ *
+ * Returns false when nothing above can take the suspension, which makes the
+ * thenable an ordinary unhandled error again.
+ */
+function suspendDuringHydration(promise, ctx) {
+  for (let c = ctx; c; c = c._parentCtx) {
+    if (c._suspenseBoundary) {
+      c._suspenseBoundary.onSuspend(promise);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Evidence that the node the cursor is parked on is NOT the one `vnode` would
+ * have produced on the server.
+ *
+ * A boundary's region has no delimiter in the server's bytes, so "the markup
+ * here belongs to this boundary" can never be PROVEN from the client. It can
+ * sometimes be refuted, and a refutation is all claimServerArm needs: a plain
+ * element or text vnode names exactly the node it wants, so a <p> facing a
+ * <footer> is a boundary reaching past its own region into its next sibling.
+ *
+ * Anything else — a component, a thunk, a nested boundary marker — cannot
+ * answer without being run, and "cannot tell" is deliberately NOT a refutation.
+ * Refusing there would give up the reuse for `fallback={() => <ErrorMessage />}`,
+ * which is the shape most apps actually write.
+ */
+function contradictsServerNode(vnode, node) {
+  if (typeof vnode === 'string' || typeof vnode === 'number') return node.nodeType !== 3;
+  if (vnode && vnode._vnode && typeof vnode.tag === 'string') {
+    return node.nodeType !== 1 || node.nodeName.toLowerCase() !== vnode.tag.toLowerCase();
+  }
+  return false;
+}
+
+/**
+ * Claim the server's markup for a boundary's FALLBACK, when the server rendered
+ * the fallback too.
+ *
+ * A child that throws during SSR is caught by the server's own boundary branch
+ * (packages/server/src/index.js), so the response carries the fallback and NOT
+ * the children. The same child throws again while hydrating, which flips the
+ * boundary's signal — but by then hydrateBoundary has already walked the happy
+ * arm, and the happy arm does not match a byte of what the server sent. The
+ * fallback markup went unclaimed, the boundary's effect built a second copy of
+ * it, and the first copy was trimmed: the server rendered the fallback and the
+ * client threw it away and rebuilt it.
+ *
+ * What makes this recoverable is that a child which throws before producing
+ * anything claims NOTHING, so the cursor is still parked exactly where the
+ * server's markup for this boundary starts and nothing in the region has been
+ * written over. Then the fallback can hydrate against it like ordinary markup.
+ *
+ * The refusals matter as much as the claim, because the region's extent is not
+ * knowable from the client (see contradictsServerNode):
+ *
+ *   - the failed arm produced something first, so the cursor has moved and
+ *     whatever it moved over has already been claimed or replaced. A child
+ *     ahead of the thrower is the ordinary case here: it claims the server's
+ *     fallback node, calls it a mismatch, and destroys it before the boundary
+ *     ever learns an error happened. Nothing left to reuse.
+ *   - the server left nothing at this position at all. The node at the cursor
+ *     then belongs to the boundary's next SIBLING, and claiming it would be the
+ *     <Portal> failure again: a boundary eating the footer behind it.
+ *   - the node that is there openly disagrees with the fallback's root.
+ *
+ * Every refusal falls back to the boundary's effect rebuilding the region,
+ * which is what this whole path did before and is always correct — a lost
+ * reuse, not a lost node.
+ *
+ * `getContent` is a thunk rather than a value so the refusals above cost
+ * nothing: on a refusal the effect is the one that builds the fallback, and
+ * running a user's `fallback={({ error }) => ...}` twice per catch to throw the
+ * first result away is a side effect this has no business causing.
+ *
+ * Returns true when the region now holds the fallback.
+ */
+function claimServerArm(parent, regionStart, getContent) {
+  // No cursor in this parent means nothing here was being claimed from the
+  // server in the first place.
+  if (regionStart < 0 || !_hydrationCursor || _hydrationCursor.parent !== parent) return false;
+
+  // The failed arm has to have produced NOTHING. Any movement of the cursor is
+  // a node this region has already committed to, claimed or created.
+  if (_hydrationCursor.index !== regionStart) return false;
+
+  // Nothing at this position means there is nothing to reuse. Asked first
+  // because it is the only question answerable without building the fallback.
+  const candidate = peekNode(parent);
+  if (!candidate) return false;
+
+  const content = getContent();
+  const vnodes = Array.isArray(content) ? content : [content];
+  const root = vnodes.find((v) => v != null && typeof v !== 'boolean');
+
+  // A fallback that renders nothing wants an empty region, and an empty region
+  // is what it already has. Claimed, with nothing to claim — and `candidate` is
+  // left for whoever it really belongs to.
+  if (root === undefined) return true;
+
+  if (contradictsServerNode(root, candidate)) return false;
+
+  for (const v of vnodes) hydrateNode(v, parent);
+  return true;
+}
+
+/**
+ * Hydrate an <ErrorBoundary> or a <Suspense>.
+ *
+ * The two are the same machine with a different signal: a marked region whose
+ * contents are the children while the signal is falsy and the fallback once it
+ * is not. The client builds both with createErrorBoundary / createSuspenseBoundary
+ * in dom.js, and this is the hydrating twin of those two functions.
+ *
+ * Three things have to be true when this returns, and each was a separate bug:
+ *
+ *   - the server's markup is still on screen. The children hydrate against it
+ *     in place; nothing is rebuilt.
+ *   - the boundary's context is on the component stack while those children
+ *     hydrate. reportError and suspend() both find their boundary by walking
+ *     `_parentCtx` up from the component that threw, so a boundary missing from
+ *     that chain catches nothing: the error escapes to the console and the page
+ *     dies exactly as it would with no boundary at all.
+ *   - the region is owned by an effect from here on, bounded by real comment
+ *     markers. Without the markers there is no insertion point and no stable
+ *     node to hang the disposer on, which is the same pair of failures the
+ *     reactive-region branch documents above.
+ *
+ * The first effect run is the subtle one. It must NOT rebuild what hydration
+ * just claimed, or hydrating a boundary would be indistinguishable from
+ * client-rendering it. But it cannot skip unconditionally either: a child that
+ * threw or suspended WHILE hydrating flipped the signal before this effect
+ * existed, and in that case the markup between the markers may be the wrong arm
+ * and has to be replaced.
+ *
+ * "May be", not "is", and that is the whole of claimServerArm below. When a
+ * child throws during the SERVER render the server catches it too and puts the
+ * FALLBACK in the HTML, so the two sides agree on the arm and the fallback is
+ * ordinary server markup that hydration should claim like any other. Hydrating
+ * the happy arm first and then rebuilding on the flipped signal threw that
+ * markup away and built a second copy of it, which is exactly the
+ * destroy-and-rebuild these markers exist to stop.
+ */
+function hydrateBoundary(vnode, parent, { startText, endText, ctxExtras, state, contentFor }) {
+  const children = vnode.children || [];
+  const cursorInParent = !!(_hydrationCursor && _hydrationCursor.parent === parent);
+  const startComment = document.createComment(startText);
+  const endComment = document.createComment(endText);
+
+  // Same shape as the contexts the client boundaries build, for the same
+  // reasons: `_parentCtx` keeps useContext resolving through the boundary, and
+  // the marker references let a teardown find the region from the context.
+  const boundaryCtx = {
+    hooks: [],
+    hookIndex: 0,
+    effects: [],
+    cleanups: [],
+    mounted: false,
+    disposed: false,
+    _parentCtx: captureOwner(),
+    _startComment: startComment,
+    _endComment: endComment,
+    ...ctxExtras,
+  };
+
+  // Open the region at the slot the cursor points at, before anything is
+  // hydrated into it, so everything the children claim lands inside the pair.
+  // (Anchoring the markers afterwards to whatever the children produced is
+  // wrong for a boundary that produced nothing, and interleaves nested regions
+  // instead of nesting them. See the reactive-region branch.)
+  if (cursorInParent) {
+    parent.insertBefore(startComment, parent.childNodes[_hydrationCursor.index] || null);
+    _hydrationCursor.index++;
+  } else {
+    parent.appendChild(startComment);
+  }
+
+  // Where the region's content begins, in cursor terms. The start marker has
+  // already consumed its slot, so this is the index the server's first node for
+  // this boundary sits at. claimServerArm needs it to tell "the failed arm
+  // touched nothing" from "the failed arm got part way in".
+  const regionStart = cursorInParent ? _hydrationCursor.index : -1;
+
+  const stack = getComponentStack();
+  stack.push(boundaryCtx);
+  try {
+    for (const child of children) {
+      hydrateNode(child, parent);
+    }
+  } finally {
+    stack.pop();
+  }
+
+  // Which arm the boundary is on now that its children have run.
+  //
+  // Read UNTRACKED. This is the hydration walk, not the effect below, and a
+  // hydrate() reached from inside somebody else's effect would otherwise hand
+  // that effect a subscription to this boundary's private error/loading signal:
+  // an unrelated region upstream would re-render every time a boundary caught.
+  const armAfterWalk = untrack(state);
+
+  // Whether the markup between the markers is already the arm `armAfterWalk`
+  // names. True by construction when nothing flipped the signal (the walk just
+  // claimed the children the server rendered), and true again when the fallback
+  // below is claimed in place.
+  let regionHoldsArm = !armAfterWalk;
+
+  if (armAfterWalk) {
+    // Same re-push as the rebuild in the effect, for the same reason: a
+    // fallback that renders a component of its own must see the boundary in its
+    // parent chain, and contentFor is what runs that fallback.
+    stack.push(boundaryCtx);
+    try {
+      regionHoldsArm = claimServerArm(parent, regionStart, () => contentFor(armAfterWalk));
+    } finally {
+      stack.pop();
+    }
+  }
+
+  if (cursorInParent) {
+    parent.insertBefore(endComment, parent.childNodes[_hydrationCursor.index] || null);
+    _hydrationCursor.index++;
+  } else {
+    parent.appendChild(endComment);
+  }
+
+  let claimedFromServer = true;
+  // Generation guard, carried over from createSuspenseBoundary in dom.js, where
+  // it exists because a child suspending mid-rebuild flips the state signal from
+  // inside the loop below: if that re-entered the effect, the inner run would
+  // replace the region and the outer run would then append the rest of the arm
+  // it was already committed to, putting both arms on screen at once.
+  //
+  // It is honest to say this is currently UNREACHABLE and kept for parity. An
+  // effect cannot re-enter itself here: reactive.js's notify() only executes
+  // subscribers at notifyDepth 0 and queues them otherwise, so a write made
+  // during an effect's own run is always drained after that run returns. Every
+  // shape tried against it (two- and three-deep lazy waterfalls, and a staged
+  // suspender behind a signal so the effect was auto-promoted to _stable and
+  // therefore running INLINE) came back with a nesting depth of 1.
+  //
+  // Keeping it costs four lines and removes a way for the two boundary
+  // implementations to disagree. The invariant it leans on lives in another
+  // module and is not part of any contract this one can see.
+  let generation = 0;
+  const dispose = effect(() => {
+    const current = state();
+
+    if (claimedFromServer) {
+      claimedFromServer = false;
+      // The region already holds the arm this run would build: either the
+      // children the server rendered and the walk claimed (the normal case), or
+      // the fallback claimed in place by claimServerArm. The markup already
+      // there IS the answer, so leave it alone.
+      if (regionHoldsArm && current === armAfterWalk) return;
+    }
+
+    const host = startComment.parentNode;
+    if (!host) return; // region detached before this run; nothing to update
+
+    const gen = ++generation;
+
+    // Same teardown as the client boundaries: everything between the markers
+    // goes, disposed first so nested effects and component contexts die with
+    // the nodes rather than outliving them.
+    while (startComment.nextSibling && startComment.nextSibling !== endComment) {
+      const old = startComment.nextSibling;
+      disposeTree(old);
+      host.removeChild(old);
+    }
+
+    // Re-push the boundary for the rebuild. This effect re-runs long after the
+    // hydration walk has unwound the stack, and anything built with an empty
+    // stack gets `parentCtx = null`: a fallback that itself contains a
+    // component would sit outside every context it was written inside.
+    stack.push(boundaryCtx);
+    try {
+      const content = contentFor(current);
+      const vnodes = Array.isArray(content) ? content : [content];
+      for (const v of vnodes) {
+        const node = createDOM(v, host);
+        if (gen !== generation) {
+          // A newer run already rebuilt the region. Whatever this node is, it
+          // belongs to a superseded arm: dispose it rather than insert it
+          // alongside the arm that won.
+          if (node) disposeTree(node);
+          break;
+        }
+        // endComment can be gone if that newer run tore the region down.
+        if (!node) continue;
+        if (endComment.parentNode) endComment.parentNode.insertBefore(node, endComment);
+        else disposeTree(node);
+      }
+    } finally {
+      stack.pop();
+    }
+  });
+
+  // Put the cursor back where the END MARKER actually ended up.
+  //
+  // The effect above runs SYNCHRONOUSLY, and when the state was already truthy
+  // it has just removed R nodes from the region and inserted I of its own. The
+  // cursor was fixed at endComment+1 a few lines earlier and knows nothing
+  // about that, so it is off by (R - I) and the rest of the walk pays:
+  //
+  //   - drifting forward SKIPS the boundary's next server sibling, which then
+  //     warns "got nothing" and is rendered a SECOND time. A page with a
+  //     boundary above the footer got two footers.
+  //   - drifting backward makes that sibling claim a node it must not, which
+  //     before the marker skip list above meant claiming the boundary's own
+  //     end marker and replaceChild()ing it away.
+  //
+  // Re-reading the marker's real index is the same re-sync the _mapArray branch
+  // does, and for the same reason: once something has moved nodes behind the
+  // walk's back, the only trustworthy answer to "where is the cursor now" is
+  // where the marker physically is.
+  if (cursorInParent && _hydrationCursor && _hydrationCursor.parent === parent) {
+    const endIndex = Array.prototype.indexOf.call(parent.childNodes, endComment);
+    if (endIndex >= 0) _hydrationCursor.index = endIndex + 1;
+  }
+
+  boundaryCtx.effects.push(dispose);
+  // The client registers a boundary context in dom.js's comment->ctx WeakMap;
+  // the hydration disposer registry is the same idea reached from out here, and
+  // disposeTree walks both. Registered on BOTH markers, matching the
+  // reactive-region branch: whichever one a teardown happens to walk, the
+  // boundary dies. disposeComponent latches on ctx.disposed, so being reached
+  // twice is harmless.
+  addHydratedComponent(startComment, boundaryCtx);
+  addHydratedComponent(endComment, boundaryCtx);
+
+  // The START MARKER is the boundary's node, not its current contents.
+  //
+  // This matches the client exactly: createErrorBoundary returns a fragment
+  // whose first node is that same start comment. It also matters for whoever
+  // hydrated us. A component anchors its context to the first node its output
+  // produced, and the contents of a boundary are the one thing that is
+  // guaranteed to be replaced later, so returning them handed the enclosing
+  // component a self-destructing anchor: the boundary catching an error
+  // disposed the very component that wrapped the boundary. The markers outlive
+  // every value the region holds, which is what an anchor has to do.
+  return startComment;
 }
 
 /**

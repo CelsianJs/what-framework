@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tutorial: Taking Turns — What Framework</title>
+  <title>Tutorial: Taking Turns · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -83,7 +83,7 @@
   );
 }</code></pre>
 
-          <p>Now when you click, it alternates between X and O. But there's still a problem — you can overwrite existing moves. Let's fix that.</p>
+          <p>Now when you click, it alternates between X and O. But there's still a problem, you can overwrite existing moves. Let's fix that.</p>
 
           <h2 id="prevent-overwrite">Preventing Overwrites</h2>
           <p>We should ignore clicks on squares that already have a value:</p>
@@ -148,7 +148,7 @@
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
-<span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { mount, signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (
@@ -189,14 +189,16 @@
   );
 }
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="keyword">return</span> (
     &lt;div className=<span class="string">"game"</span>&gt;
       &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
       &lt;Board /&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <h2 id="checkpoint">Checkpoint</h2>
           <p>Your game should now:</p>

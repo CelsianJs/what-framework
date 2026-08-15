@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Data Fetching — What Framework</title>
+  <title>Data Fetching · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -94,6 +94,11 @@
 
 <pre><code><span class="keyword">import</span> { useFetch, useSWR, useQuery, useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;</code></pre>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">These four hooks are client-side</p>
+            <p>None of them contributes anything to server-rendered HTML. During a server render the request does go out, but it cannot resolve inside the synchronous render, so the markup ships with the empty state, and whatever <code>useSWR</code> or <code>useQuery</code> resolves afterwards is written into a module-level cache shared by every request in that process. Polling is worse: on the server there is no unmount to clear the timer, so a component rendered with <code>refreshInterval</code> or <code>refetchInterval</code> keeps calling its fetcher after the response has been sent. For data that has to be in the HTML, use a page <a href="./data-loading.html">loader</a> and keep these hooks for what loads after hydration.</p>
+          </div>
+
           <h2 id="use-fetch">useFetch</h2>
           <p><code>useFetch</code> is the simplest way to load data. It fires a request on mount, aborts it on unmount, and gives you reactive <code>data</code>, <code>error</code>, and <code>isLoading</code> signals.</p>
 
@@ -101,11 +106,11 @@
 
           <p><strong>Options:</strong></p>
           <ul>
-            <li><code>method</code> — HTTP method (<code>'GET'</code> by default)</li>
-            <li><code>body</code> — Request body (automatically JSON-stringified)</li>
-            <li><code>headers</code> — Additional headers (merged with <code>Content-Type: application/json</code>)</li>
-            <li><code>transform</code> — Function to transform the parsed JSON before storing</li>
-            <li><code>initialData</code> — Value to use before the first response arrives</li>
+            <li><code>method</code>: HTTP method (<code>'GET'</code> by default)</li>
+            <li><code>body</code>: Request body (automatically JSON-stringified)</li>
+            <li><code>headers</code>: Additional headers (merged with <code>Content-Type: application/json</code>)</li>
+            <li><code>transform</code>: Function to transform the parsed JSON before storing</li>
+            <li><code>initialData</code>: Value to use before the first response arrives</li>
           </ul>
 
           <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>refetch()</code>, <code>mutate(newData)</code></p>
@@ -139,24 +144,24 @@
 
           <p><strong>Key concepts:</strong></p>
           <ul>
-            <li><strong>Cache key</strong> — A string that uniquely identifies the data. All <code>useSWR</code> calls with the same key share a single cache entry.</li>
-            <li><strong>Deduplication</strong> — If two components mount at the same time with the same key, only one network request fires (controlled by <code>dedupingInterval</code>).</li>
-            <li><strong>Revalidation</strong> — Data is automatically re-fetched when the browser tab regains focus or the network reconnects.</li>
+            <li><strong>Cache key</strong>: a string or an array that uniquely identifies the data. All <code>useSWR</code> calls with the same key share a single cache entry, and an array key is normalized into the same key space <code>useQuery</code> uses: <code>useSWR(['/api/user', 7], ...)</code> and <code>useQuery({ queryKey: ['/api/user', 7] })</code> are one entry, <code>getQueryData(['/api/user', 7])</code> finds it, <code>invalidateQueries</code> reaches it, and two components passing equal-but-distinct arrays share it rather than quietly getting two. The <em>fetcher</em> still receives the original key, so <code>useSWR(['/api/user', id], ([url, id]) =&gt; ...)</code> is unaffected.</li>
+            <li><strong>Deduplication</strong>: If two components mount at the same time with the same key, only one network request fires (controlled by <code>dedupingInterval</code>).</li>
+            <li><strong>Revalidation</strong>: Data is automatically re-fetched when the browser tab regains focus or the network reconnects.</li>
           </ul>
 
           <p><strong>Options:</strong></p>
           <ul>
-            <li><code>revalidateOnFocus</code> — Re-fetch when the tab becomes visible (default <code>true</code>)</li>
-            <li><code>revalidateOnReconnect</code> — Re-fetch when the browser comes back online (default <code>true</code>)</li>
-            <li><code>refreshInterval</code> — Poll at this interval in ms (<code>0</code> to disable)</li>
-            <li><code>dedupingInterval</code> — Suppress duplicate requests within this window (default <code>2000</code> ms)</li>
-            <li><code>fallbackData</code> — Data to use before the first fetch completes</li>
-            <li><code>onSuccess(data, key)</code> — Callback after a successful fetch</li>
-            <li><code>onError(error, key)</code> — Callback after a failed fetch</li>
-            <li><code>suspense</code> — Reserved for future Suspense integration</li>
+            <li><code>revalidateOnFocus</code>: Re-fetch when the tab becomes visible (default <code>true</code>)</li>
+            <li><code>revalidateOnReconnect</code>: Re-fetch when the browser comes back online (default <code>true</code>)</li>
+            <li><code>refreshInterval</code>: Poll at this interval in ms (<code>0</code> to disable)</li>
+            <li><code>dedupingInterval</code>: Suppress duplicate requests within this window (default <code>2000</code> ms)</li>
+            <li><code>fallbackData</code>: Data to use before the first fetch completes</li>
+            <li><code>onSuccess(data, key)</code>: Callback after a successful fetch</li>
+            <li><code>onError(error, key)</code>: Callback after a failed fetch</li>
+            <li><code>suspense</code>: accepted and ignored. It is read out of the options object and never used, so it changes nothing today.</li>
           </ul>
 
-          <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>isValidating()</code>, <code>mutate(newData, shouldRevalidate?)</code>, <code>revalidate()</code></p>
+          <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>isValidating()</code>, <code>mutate(newData, shouldRevalidate?)</code>, <code>revalidate(options?)</code></p>
 
 <pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -177,16 +182,25 @@
 
           <p>The fetcher receives the cache key as the first argument and an options object with an <code>AbortSignal</code> as the second. Always forward the signal so What can cancel in-flight requests when the component unmounts or a new request starts.</p>
 
+          <p><code>revalidate()</code> is answered from the freshness window: inside <code>dedupingInterval</code> it resolves from the cache without touching the network. <code>revalidate({ force: true })</code> is the unconditional form. <code>mutate(newData)</code> revalidates by the same rule, so an optimistic write made within 2 seconds of the last fetch is not confirmed against the server unless you force it.</p>
+
           <h3 id="conditional-fetching">Conditional Fetching</h3>
-          <p>Pass a falsy key (<code>null</code>, <code>undefined</code>, or <code>false</code>) to skip fetching entirely. This is useful for dependent queries where you need to wait for another value first.</p>
+          <p>Pass a falsy key (<code>null</code>, <code>undefined</code>, or <code>false</code>) to skip fetching entirely. The hook returns an idle result (<code>data()</code> is <code>fallbackData</code> or <code>null</code>, <code>isLoading()</code> is <code>false</code>) and the fetcher is never called.</p>
+
+          <p>The key is read once, when the component runs. Since components run once, a key computed from a signal is frozen at whatever that signal held at creation time and never becomes truthy later. For a dependent query, create the component only once the value it depends on exists. This is not a <code>useSWR</code> quirk: <code>useQuery</code> reads its <code>queryKey</code> exactly once too, so the same shape is the answer in both hooks. <code>useQuery</code>'s <a href="#use-query"><code>enabled</code></a> option is read reactively, but it gates <em>fetching</em> and never moves the key.</p>
 
 <pre><code><span class="keyword">const</span> userId = <span class="function">signal</span>(<span class="keyword">null</span>);
 
-<span class="comment">// Won't fetch until userId is set</span>
-<span class="keyword">const</span> { data } = <span class="function">useSWR</span>(
-  userId() ? <span class="string">`/api/users/${userId()}`</span> : <span class="keyword">null</span>,
-  fetcher
-);</code></pre>
+<span class="keyword">function</span> <span class="function">UserCard</span>({ id }) {
+  <span class="keyword">const</span> { data } = <span class="function">useSWR</span>(<span class="string">`/api/users/${id}`</span>, fetcher);
+  <span class="keyword">return</span> () =&gt; &lt;h2&gt;{data() ? data().name : <span class="string">'Loading...'</span>}&lt;/h2&gt;;
+}
+
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="comment">// The thunk re-runs when userId changes, so UserCard is created</span>
+  <span class="comment">// with a real id and useSWR gets a key it can fetch.</span>
+  <span class="keyword">return</span> &lt;div&gt;{() =&gt; userId() ? &lt;UserCard id={userId()} /&gt; : &lt;p&gt;Pick a user&lt;/p&gt;}&lt;/div&gt;;
+}</code></pre>
 
           <h2 id="use-query">useQuery</h2>
           <p><code>useQuery</code> offers the most control. It mirrors the TanStack Query API with stale times, automatic retries with exponential backoff, and fine-grained status tracking.</p>
@@ -195,21 +209,84 @@
 
           <p><strong>Options:</strong></p>
           <ul>
-            <li><code>queryKey</code> — String or array that uniquely identifies the query (arrays are joined with <code>:</code>)</li>
-            <li><code>queryFn({ queryKey, signal })</code> — The async function that fetches data</li>
-            <li><code>enabled</code> — Set to <code>false</code> to prevent automatic fetching (default <code>true</code>)</li>
-            <li><code>staleTime</code> — How long data is considered fresh in ms (default <code>0</code>)</li>
-            <li><code>cacheTime</code> — How long inactive data stays in cache (default <code>300000</code> ms / 5 min)</li>
-            <li><code>refetchOnWindowFocus</code> — Re-fetch on tab focus (default <code>true</code>)</li>
-            <li><code>refetchInterval</code> — Poll interval in ms (<code>false</code> to disable)</li>
-            <li><code>retry</code> — Number of retry attempts on failure (default <code>3</code>)</li>
-            <li><code>retryDelay(attempt)</code> — Delay function (default: exponential backoff capped at 30 s)</li>
-            <li><code>onSuccess(data)</code>, <code>onError(error)</code>, <code>onSettled(data, error)</code> — Lifecycle callbacks</li>
-            <li><code>select(data)</code> — Transform cached data before returning it</li>
-            <li><code>placeholderData</code> — Synchronous placeholder until real data loads</li>
+            <li><code>queryKey</code>: string or array that uniquely identifies the query. It is read <strong>exactly once</strong>, when the hook is created, and never again, so every value that appears in it has to be known by then. Array segments are JSON-stringified when they are not strings, and any <code>:</code> or <code>\</code> inside a segment is escaped before the segments are joined with <code>:</code>, so <code>['user', 'a:b']</code> cannot collide with <code>['user', 'a', 'b']</code>. The predicate form of <code>invalidateQueries</code> receives this normalized string, not the array.</li>
+            <li><code>queryFn({ queryKey, signal })</code>: The async function that fetches data</li>
+            <li><code>enabled</code>: gates automatic fetching (default <code>true</code>). It accepts a boolean, a signal, or a thunk, and is read reactively, so a query that starts disabled begins fetching the moment the flag turns true. Only <em>automatic</em> fetching is gated (the mount fetch, focus, polling, invalidation); an explicit <code>refetch()</code> runs regardless. A disabled query with nothing cached reports <code>status() === 'idle'</code>, so <code>isLoading()</code> is <code>false</code> and <code>isIdle()</code> is <code>true</code>. A thunk may read as many signals as it likes: the query restarts only when the gate's value actually flips, not every time something inside the thunk moves. <code>enabled</code> is the live half of a query and <code>queryKey</code> is the frozen half, which is why a gate cannot express a dependency that also appears in the key.</li>
+            <li><code>staleTime</code>: how long this hook treats its data as fresh, in ms (default <code>0</code>). Freshness is tracked per hook instance, not per cache key, so a second component mounting on the same key inside the window still issues its own request.</li>
+            <li><code>cacheTime</code>: How long inactive data stays in cache (default <code>300000</code> ms / 5 min)</li>
+            <li><code>refetchOnWindowFocus</code>: Re-fetch on tab focus (default <code>true</code>)</li>
+            <li><code>refetchInterval</code>: Poll interval in ms (<code>false</code> to disable)</li>
+            <li><code>retry</code>: maximum number of attempts including the first (default <code>3</code>, which is one call plus two retries). <code>retry: 1</code> or <code>retry: 0</code> means a single attempt with no retry.</li>
+            <li><code>retryDelay(attempt)</code>: delay function (default: exponential backoff capped at 30 s). The first retry calls it with <code>attempt = 1</code>, so the default waits 2 s before it.</li>
+            <li><code>onSuccess(data)</code>, <code>onError(error)</code>, <code>onSettled(data, error)</code>: Lifecycle callbacks</li>
+            <li><code>select(data)</code>: Transform cached data before returning it</li>
+            <li><code>placeholderData</code>: Synchronous placeholder until real data loads</li>
           </ul>
 
-          <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>status()</code>, <code>fetchStatus()</code>, <code>isLoading()</code>, <code>isError()</code>, <code>isSuccess()</code>, <code>isFetching()</code>, <code>refetch()</code></p>
+          <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>status()</code>, <code>fetchStatus()</code>, <code>isLoading()</code>, <code>isError()</code>, <code>isSuccess()</code>, <code>isIdle()</code>, <code>isFetching()</code>, <code>isEnabled()</code>, <code>refetch()</code></p>
+
+          <p><code>refetch()</code> takes no arguments and always goes to the network. It is not answered from the <code>staleTime</code> freshness window and it is not gated by <code>enabled</code>, so it is the supported way to run a query on demand. It returns a promise that resolves with the fetched data, or rejects with the query function's error once the retries are exhausted. A refetch in flight is not cancelled by unrelated re-renders, nor by the query being disabled underneath it; only a newer fetch of the same query, the component unmounting, or a <a href="#clear-cache"><code>clearCache()</code></a> cancels it, and in those three cases its promise resolves with <code>undefined</code>. So <code>const report = await query.refetch()</code> has to tolerate <code>undefined</code> anywhere a logout can race it.</p>
+
+          <p>That makes "disabled query, fetch on a button click" a first-class shape: keep <code>enabled: false</code>, branch on <code>isIdle()</code> for the not-yet-run state, and call <code>refetch()</code> from the handler.</p>
+
+<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Report</span>() {
+  <span class="keyword">const</span> report = <span class="function">useQuery</span>({
+    queryKey: [<span class="string">'report'</span>, <span class="string">'monthly'</span>],
+    <span class="function">queryFn</span>: <span class="keyword">async</span> ({ signal }) =&gt; {
+      <span class="keyword">const</span> res = <span class="keyword">await</span> <span class="function">fetch</span>(<span class="string">'/api/report'</span>, { signal });
+      <span class="keyword">return</span> res.json();
+    },
+    enabled: <span class="keyword">false</span>,        <span class="comment">// nothing runs until it is asked for</span>
+  });
+
+  <span class="keyword">return</span> () =&gt; (
+    &lt;div&gt;
+      &lt;button onClick={() =&gt; report.<span class="function">refetch</span>()}&gt;Run report&lt;/button&gt;
+      {() =&gt; {
+        <span class="keyword">if</span> (report.isIdle())    <span class="keyword">return</span> &lt;p&gt;Not run yet&lt;/p&gt;;
+        <span class="keyword">if</span> (report.isLoading()) <span class="keyword">return</span> &lt;p&gt;Running...&lt;/p&gt;;
+        <span class="keyword">if</span> (report.isError())   <span class="keyword">return</span> &lt;p&gt;Failed: {report.error().message}&lt;/p&gt;;
+        <span class="keyword">return</span> &lt;p&gt;Total: {report.data().total}&lt;/p&gt;;
+      }}
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+          <p>That shape survives a <a href="#clear-cache"><code>clearCache()</code></a>: the query goes back to <code>isIdle()</code>, the panel returns to "Not run yet", and the button runs it again. The one thing to remember is that a clear cancels the request it catches, so if you read the result as <code>const data = await report.refetch()</code> rather than off <code>report.data()</code>, that <code>data</code> can be <code>undefined</code>.</p>
+
+          <h3 id="dependent-queries">Dependent Queries</h3>
+          <p>A dependent query is one whose key contains something it has to wait for. Because <code>queryKey</code> is read once and <code>enabled</code> only gates fetching, the gate cannot express that dependency on its own.</p>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">A pending value in the key freezes there</p>
+            <p>Components run once, so an array literal like <code>['posts', user.data()?.id]</code> is fully evaluated before <code>useQuery</code> ever sees it, and there is nothing left in it to observe. Writing <code>queryKey: ['posts', user.data()?.id]</code> alongside <code>enabled: () =&gt; user.data() != null</code> does gate correctly and the query does fetch, but it stores what it fetched under <code>['posts', undefined]</code>: <code>getQueryData(['posts', 1])</code> returns <code>undefined</code> and <code>invalidateQueries(['posts', 1])</code> never reaches it. Worse, every instance created while the dependency is still pending freezes to that <em>same</em> key, so two of them are one cache entry: one panel displays the other user's rows before it has fetched anything, and the first panel is then silently overwritten with the second user's data. This is a known limitation of <code>queryKey</code>, not something the gate can be made to cover.</p>
+          </div>
+
+          <p>Create the query only once its key is known instead, by rendering the dependent component conditionally with the id as a prop. No <code>enabled</code> is needed, because the query does not exist until its key is real:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Posts</span>({ userId }) {
+  <span class="keyword">const</span> posts = <span class="function">useQuery</span>({
+    queryKey: [<span class="string">'posts'</span>, userId],   <span class="comment">// already correct the one time it is read</span>
+    <span class="function">queryFn</span>: () =&gt; <span class="function">fetchPosts</span>(userId),
+  });
+
+  <span class="keyword">return</span> &lt;ul&gt;{() =&gt; (posts.<span class="function">data</span>() ?? []).map(p =&gt; &lt;li key={p.id}&gt;{p.title}&lt;/li&gt;)}&lt;/ul&gt;;
+}
+
+<span class="keyword">function</span> <span class="function">Profile</span>() {
+  <span class="keyword">const</span> user = <span class="function">useQuery</span>({ queryKey: [<span class="string">'user'</span>], queryFn: fetchUser });
+
+  <span class="comment">// The thunk re-runs when the user arrives, and &lt;Posts&gt; is created then.</span>
+  <span class="keyword">return</span> &lt;div&gt;{() =&gt; user.<span class="function">data</span>() ? &lt;Posts userId={user.<span class="function">data</span>().id} /&gt; : &lt;Spinner /&gt;}&lt;/div&gt;;
+}</code></pre>
+
+          <p>Each user then gets their own entry: <code>getQueryData(['posts', 1])</code> returns that user's rows, <code>invalidateQueries(['posts', 1])</code> reaches that query, and user 1's entry keeps user 1's data when user 2 arrives.</p>
+
+          <p><code>enabled</code> remains the right option whenever the key does <em>not</em> depend on the pending value: a feature flag, a tab or route being active, or the "disabled query, fetch it on a button click" form above. Same rule either way, and it is worth stating plainly: the gate is live, the key is captured once, so any value that appears in the key must be known before the hook is created.</p>
+
+          <p>Most queries need none of this, and read like this:</p>
 
 <pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -222,7 +299,7 @@
       <span class="keyword">return</span> res.json();
     },
     staleTime: <span class="number">60000</span>,        <span class="comment">// fresh for 1 minute</span>
-    retry: <span class="number">2</span>,                <span class="comment">// retry twice on failure</span>
+    retry: <span class="number">2</span>,                <span class="comment">// 2 attempts total (1 retry)</span>
     <span class="function">select</span>: (data) =&gt; data.filter(r =&gt; !r.archived),
   });
 
@@ -239,24 +316,34 @@
 
           <div class="callout callout-note">
             <p class="callout-title">Status vs. FetchStatus</p>
-            <p><code>status()</code> tells you about the <em>data</em> — <code>'loading'</code> (no data yet), <code>'error'</code>, or <code>'success'</code>. <code>fetchStatus()</code> tells you about the <em>network</em> — <code>'fetching'</code> or <code>'idle'</code>. A query can be <code>status: 'success'</code> and <code>fetchStatus: 'fetching'</code> at the same time during a background revalidation.</p>
+            <p><code>status()</code> tells you about the <em>data</em>: <code>'idle'</code> (nothing fetched and nothing on its way, which is what a disabled query reports), <code>'loading'</code> (no data yet, request in flight), <code>'error'</code>, or <code>'success'</code>. <code>fetchStatus()</code> tells you about the <em>network</em>: <code>'fetching'</code> or <code>'idle'</code>. A query can be <code>status: 'success'</code> and <code>fetchStatus: 'fetching'</code> at the same time during a background revalidation.</p>
           </div>
 
           <h2 id="use-infinite-query">useInfiniteQuery</h2>
-          <p><code>useInfiniteQuery</code> manages paginated or infinite-scroll data. Each "page" is fetched sequentially, and the hook tracks whether more pages are available in either direction.</p>
+          <p><code>useInfiniteQuery</code> manages paginated or infinite-scroll data. It fetches one page at a time and tracks whether more pages are available in either direction.</p>
 
 <pre><code><span class="function">useInfiniteQuery</span>(options)</code></pre>
 
-          <p><strong>Options</strong> (in addition to base query options):</p>
+          <p><strong>Options:</strong></p>
           <ul>
-            <li><code>queryKey</code> — String or array identifying the query</li>
-            <li><code>queryFn({ queryKey, pageParam, signal })</code> — Fetcher that receives the current page param</li>
-            <li><code>getNextPageParam(lastPage, allPages)</code> — Return the next page param, or <code>undefined</code> to signal the end</li>
-            <li><code>getPreviousPageParam(firstPage, allPages)</code> — Return the previous page param (optional)</li>
-            <li><code>initialPageParam</code> — The param for the first page</li>
+            <li><code>queryKey</code>: string or array identifying the query. It is handed to <code>queryFn</code> and it is what <code>invalidateQueries</code> matches on. The pages themselves live in local signals rather than in the shared query cache.</li>
+            <li><code>queryFn({ queryKey, pageParam, signal })</code>: Fetcher that receives the current page param</li>
+            <li><code>getNextPageParam(lastPage, allPages)</code>: Return the next page param, or <code>undefined</code> to signal the end</li>
+            <li><code>getPreviousPageParam(firstPage, allPages)</code>: Return the previous page param (optional)</li>
+            <li><code>initialPageParam</code>: The param for the first page</li>
+            <li><code>enabled</code>: the same gate as <code>useQuery</code>, boolean, signal or thunk. While it is false nothing is fetched automatically and <code>status()</code> is <code>'idle'</code>; when it turns true the list loads from page one. <code>refetch()</code>, <code>fetchNextPage()</code> and <code>fetchPreviousPage()</code> are explicit calls and run either way. On an <em>empty</em> page list all three fetch the first page from <code>initialPageParam</code>, and <code>getNextPageParam</code> / <code>getPreviousPageParam</code> are not consulted at all: the next page of nothing is page one, and there is no last page to derive a param from. So any of the three can load a list created with <code>enabled: false</code>, and <code>fetchNextPage()</code> can retry a first page whose fetch failed.</li>
+            <li><code>select(collection)</code>: transforms the whole <code>{ pages, pageParams }</code> object, not one page, and <code>data()</code> returns whatever it returns. Useful for flattening: <code>select: (all) =&gt; all.pages.flatMap(p =&gt; p.rows)</code>.</li>
+            <li><code>retry</code> / <code>retryDelay(attempt)</code>: per page, with the same accounting as <code>useQuery</code>.</li>
+            <li><code>onSuccess(page)</code>, <code>onError(error)</code>, <code>onSettled(page, error)</code>: fired once per page fetch, not once per list.</li>
           </ul>
 
-          <p><strong>Returns:</strong> <code>data()</code> (object with <code>pages</code> and <code>pageParams</code> arrays), <code>hasNextPage()</code>, <code>hasPreviousPage()</code>, <code>fetchNextPage()</code>, <code>fetchPreviousPage()</code>, <code>refetch()</code></p>
+          <p><code>staleTime</code>, <code>cacheTime</code>, <code>placeholderData</code>, <code>refetchOnWindowFocus</code> and <code>refetchInterval</code> are the options this hook does not read, because each of them describes an entry in the shared cache and an infinite query does not have one. Passing them changes nothing.</p>
+
+          <p><strong>Returns:</strong> <code>data()</code> (object with <code>pages</code> and <code>pageParams</code> arrays, unless <code>select</code> reshapes it), <code>error()</code>, <code>status()</code>, <code>isLoading()</code>, <code>isError()</code>, <code>isSuccess()</code>, <code>isIdle()</code>, <code>isFetching()</code>, <code>isEnabled()</code>, <code>hasNextPage()</code>, <code>hasPreviousPage()</code>, <code>isFetchingNextPage()</code>, <code>isFetchingPreviousPage()</code>, <code>fetchNextPage()</code>, <code>fetchPreviousPage()</code>, <code>refetch()</code>. <code>pageParams[i]</code> names <code>pages[i]</code>: one page in, it reads <code>[0]</code>.</p>
+
+          <p><code>status()</code> covers the whole list: <code>'loading'</code> only while the first page is on its way, then <code>'success'</code> or <code>'error'</code>, and <code>'idle'</code> while the query is disabled. Paging through an existing list keeps <code>status()</code> at <code>'success'</code> and reports itself through <code>isFetchingNextPage()</code>, so a list does not blink back to a spinner every time it grows. A failed <code>fetchNextPage()</code> also rejects the promise it returns and leaves the existing pages in place, so attach a handler to it. On a list that already has pages, <code>fetchNextPage()</code> asks <code>getNextPageParam</code> what comes next and does nothing at all when it answers <code>undefined</code>; reaching the end of a list never reloads page one.</p>
+
+          <p><code>invalidateQueries</code> reaches an infinite query, by string key, by array prefix, or through a predicate, and refetches it from page one. <code>setQueryData</code> and <code>getQueryData</code> do not: they only ever touch the shared cache, so a <code>useQuery</code> and a <code>useInfiniteQuery</code> that name the same key do not share data.</p>
 
 <pre><code><span class="keyword">import</span> { useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -277,7 +364,10 @@
         page.items.map(item =&gt; &lt;Card key={item.id} item={item} /&gt;)
       )}
       {feed.hasNextPage() &amp;&amp; (
-        &lt;button onClick={() =&gt; feed.fetchNextPage()}&gt;
+        &lt;button
+          onClick={() =&gt; feed.fetchNextPage().catch(() =&gt; {})}
+          disabled={feed.isFetchingNextPage()}
+        &gt;
           Load more
         &lt;/button&gt;
       )}
@@ -287,11 +377,11 @@
 
           <div class="callout callout-note">
             <p class="callout-title">Refetch Behavior</p>
-            <p>When you call <code>refetch()</code> on an infinite query, the existing pages remain visible while the first page is re-fetched in the background (SWR pattern). Once the fresh first page arrives, all pages are replaced atomically. Page fetches are always sequential to preserve ordering.</p>
+            <p>When you call <code>refetch()</code> on an infinite query, the existing pages remain visible while the first page is re-fetched in the background (SWR pattern). Once the fresh first page arrives it replaces the whole list, so the query is back to a single page. An <code>invalidateQueries</code> that matches the key does the same thing, and so does the moment a disabled query becomes enabled. Page fetches are not queued: starting one aborts any request still in flight, and two <code>fetchNextPage()</code> calls made before the first resolves read the same last page and request the same param twice. Disable the control while <code>isFetchingNextPage()</code> is true, as the sample above does.</p>
           </div>
 
           <h2 id="cache-management">Cache Management</h2>
-          <p>What provides standalone functions to read, write, and invalidate the shared query cache from anywhere in your application.</p>
+          <p>What provides standalone functions to read, write, and invalidate the shared query cache from anywhere in your application. There is one entry per key, shared by every hook that names it, and the fetcher is not part of the key: two components reading the same key with different fetchers overwrite each other's data, last write wins. Keep a key unique per pair of data and fetcher.</p>
 
 <pre><code><span class="keyword">import</span> {
   invalidateQueries,
@@ -302,24 +392,33 @@
 } <span class="keyword">from</span> <span class="string">'what-framework'</span>;</code></pre>
 
           <h3 id="invalidate"><code>invalidateQueries(keyOrPredicate, options?)</code></h3>
-          <p>Marks one or more cache entries as stale and triggers all active subscribers to re-fetch.</p>
+          <p>Tells every mounted subscriber of a key to fetch again now. It is a "re-fetch immediately" signal rather than a flag stored on the entry: it deliberately bypasses <code>staleTime</code> and <code>dedupingInterval</code>. Request coalescing is a <code>useSWR</code> feature only, so waking three <code>useSWR</code> hooks on one key sends one request, while waking three <code>useQuery</code> hooks on one key sends three. A key with nothing mounted on it is not re-fetched, and a soft invalidation leaves its cached value readable. A query whose <code>enabled</code> gate is currently closed is not woken either: an invalidation is automatic fetching, so call <code>refetch()</code> when you mean "even if it is disabled".</p>
           <ul>
-            <li>Pass a <strong>string</strong> to invalidate a single key.</li>
-            <li>Pass a <strong>function</strong> <code>(key) => boolean</code> to invalidate all matching keys.</li>
+            <li>Pass a <strong>string</strong> to invalidate that one key.</li>
+            <li>Pass an <strong>array</strong> to invalidate a prefix: <code>['todos']</code> also invalidates <code>['todos', 1]</code>. Matching is on segment boundaries, so <code>['todo']</code> never matches <code>todos</code>.</li>
+            <li>Add <code>{ exact: true }</code> to treat an array as one exact key instead of a prefix.</li>
+            <li>Pass a <strong>function</strong> <code>(key) => boolean</code> to invalidate all matching keys. Every array key arrives normalized, so it is a string whichever hook registered it and <code>key =&gt; key.startsWith('/api/posts')</code> is safe. A key that is neither a string nor an array (a number, an object) is passed through unchanged, so guard for that if you use one.</li>
             <li>Set <code>{ hard: true }</code> to clear the cached data immediately (shows a loading state). The default soft invalidation keeps stale data visible while re-fetching.</li>
           </ul>
 
-<pre><code><span class="comment">// Soft invalidation — keeps stale data visible</span>
+<pre><code><span class="comment">// Soft invalidation: keeps stale data visible</span>
 <span class="function">invalidateQueries</span>(<span class="string">'/api/stats'</span>);
 
-<span class="comment">// Hard invalidation — clears data, shows loading state</span>
+<span class="comment">// Hard invalidation: clears data, shows loading state</span>
 <span class="function">invalidateQueries</span>(<span class="string">'/api/stats'</span>, { hard: <span class="keyword">true</span> });
+
+<span class="comment">// Prefix: also invalidates ['todos', 1] and ['todos', 'archived']</span>
+<span class="function">invalidateQueries</span>([<span class="string">'todos'</span>]);
+
+<span class="comment">// The 'todos' entry and nothing under it</span>
+<span class="function">invalidateQueries</span>([<span class="string">'todos'</span>], { exact: <span class="keyword">true</span> });
 
 <span class="comment">// Invalidate all keys matching a predicate</span>
 <span class="function">invalidateQueries</span>(key =&gt; key.startsWith(<span class="string">'/api/users'</span>));</code></pre>
 
           <h3 id="prefetch"><code>prefetchQuery(key, fetcher)</code></h3>
           <p>Pre-fills the cache before a component mounts. Useful for route prefetching on hover.</p>
+          <p>Its fetcher contract differs from <code>useSWR</code>'s: it is called with the key only, with no options object and no <code>AbortSignal</code>, so the request cannot be cancelled and a fetcher written as <code>(key, { signal }) =&gt; ...</code> throws when passed here. An array key also arrives <em>normalized</em>, as the joined string <code>'/api/posts:7'</code> rather than the array, where <code>useSWR</code> hands its fetcher the original; the two still land on the same cache entry, so only the fetcher body has to know. The component that later mounts on the key paints the prefetched value immediately and still revalidates in the background.</p>
 
 <pre><code><span class="comment">// Prefetch on link hover</span>
 &lt;a
@@ -339,18 +438,26 @@
 );</code></pre>
 
           <h3 id="get-query-data"><code>getQueryData(key)</code></h3>
-          <p>Synchronously read the current cached value for a key. Returns <code>undefined</code> if the key has never been fetched.</p>
+          <p>Synchronously read the current cached value for a key. Returns <code>undefined</code> if the key has never been fetched, and also for a key <code>clearCache()</code> has emptied.</p>
 
 <pre><code><span class="keyword">const</span> cached = <span class="function">getQueryData</span>(<span class="string">'/api/user'</span>);
 <span class="keyword">if</span> (cached) console.log(cached.name);</code></pre>
 
           <h3 id="clear-cache"><code>clearCache()</code></h3>
-          <p>Removes every entry from the cache. Useful during logout or testing.</p>
+          <p>Empties the cache. It is safe to call with components on screen, which is what makes it the right call on logout: a key something is still reading is reset in place rather than dropped, so the clear is immediately visible (<code>data()</code> reads <code>undefined</code>, or your <code>placeholderData</code> if you set one, and <code>error()</code> reads <code>null</code>), and later writes to that key still reach the components that were already mounted. Keys nothing is reading are dropped outright, so <code>getQueryData</code> reports every cleared key as absent either way. A <code>useInfiniteQuery</code> is emptied too: its <code>data()</code> goes back to <code>{ pages: [], pageParams: [] }</code>.</p>
 
-<pre><code><span class="keyword">function</span> <span class="function">logout</span>() {
-  <span class="function">clearCache</span>();
-  <span class="function">navigate</span>(<span class="string">'/login'</span>);
-}</code></pre>
+          <p>Status goes with the data. Every emptied query reads <code>status() === 'idle'</code>, <code>data() === undefined</code>, <code>isSuccess() === false</code> and <code>isLoading() === false</code>, and the value it was displaying leaves the DOM. That holds whether the query was created enabled or created with <code>enabled: false</code> and loaded by <code>refetch()</code>, so the canonical guarded render lands on its idle arm instead of dereferencing a value that is gone. The same is true when any other writer empties a shared entry, for instance a sibling calling <code>setQueryData(key, null)</code>.</p>
+
+          <p>The request already on the wire is cancelled as well, for all three hooks, so a response that would have arrived just after the clear is discarded instead of writing the previous user's data back onto the screen. That includes a request an explicit <code>refetch()</code> started: it is cancelled too, and its promise resolves with <code>undefined</code>. Anywhere a logout can race one, write <code>await</code> so it tolerates that.</p>
+
+<pre><code><span class="comment">// On logout, with the app still on screen</span>
+<span class="keyword">async function</span> <span class="function">logout</span>() {
+  <span class="keyword">await</span> <span class="function">fetch</span>(<span class="string">'/api/logout'</span>, { method: <span class="string">'POST'</span> });
+  <span class="function">clearCache</span>();  <span class="comment">// every mounted query empties on screen</span>
+}
+
+<span class="comment">// Between tests</span>
+<span class="function">afterEach</span>(() =&gt; <span class="function">clearCache</span>());</code></pre>
 
           <div class="page-nav">
             <a href="./context.html">
@@ -396,6 +503,11 @@
   // Mini reactive runtime for live demos
   (function() {
     let _current = null;
+    // NOTE: this inline mock never ships. docs-site/build.mjs useRealWhat()
+       replaces this whole <script> with <script src="/what.global.js">, the REAL
+       framework bundled by the build. It exists only so this file still opens
+       standalone from disk. Judge the demo against the BUILT page in dist/,
+       not against this block: they are deliberately different.
     window.What = {
       signal(initial) {
         let value = initial;
@@ -421,7 +533,7 @@
   </script>
 
   <div class="playground">
-    <div class="playground-header">Live Demo — Data Fetching</div>
+    <div class="playground-header">Live Demo: Data Fetching</div>
     <div class="playground-result" id="demo-fetch"></div>
   </div>
   <script>
@@ -441,25 +553,45 @@
       }, 1200);
     }
 
+    // Built once, then updated per-binding, rather than rebuilding innerHTML on
+    // every state change. Rebuilding destroys the Refetch button along with the
+    // rest, so a keyboard user loses focus the moment they activate it, and the
+    // listener has to be re-attached on each pass.
+    el.innerHTML = `
+      <div data-status role="status" style="color:var(--text-muted);font-size:14px"></div>
+      <div data-card hidden style="display:flex;gap:16px;align-items:center">
+        <div data-avatar style="width:48px;height:48px;background:var(--bg-surface);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:18px"></div>
+        <div>
+          <div data-name style="font-weight:600;font-size:15px"></div>
+          <div data-meta style="color:var(--text-secondary);font-size:13px"></div>
+        </div>
+        <button id="demo-refetch" style="margin-left:auto">Refetch</button>
+      </div>`;
+
+    const status = el.querySelector('[data-status]');
+    const card = el.querySelector('[data-card]');
+    const parts = {
+      avatar: el.querySelector('[data-avatar]'),
+      name: el.querySelector('[data-name]'),
+      meta: el.querySelector('[data-meta]'),
+    };
+    el.querySelector('#demo-refetch').addEventListener('click', fetchUser);
+
     effect(() => {
-      if (loading()) {
-        el.innerHTML = '<div style="color:#a1a1aa;font-size:14px">Loading user data...</div>';
-      } else if (error()) {
-        el.innerHTML = '<div style="color:#ef4444;font-size:14px">Error: ' + error() + '</div>';
-      } else {
-        const u = data();
-        el.innerHTML = `
-          <div style="display:flex;gap:16px;align-items:center">
-            <div style="width:48px;height:48px;background:#e4e4e7;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:18px">${u.name[0]}</div>
-            <div>
-              <div style="font-weight:600;font-size:15px">${u.name}</div>
-              <div style="color:#52525b;font-size:13px">${u.email} · ${u.role}</div>
-            </div>
-            <button id="demo-refetch" style="margin-left:auto;padding:6px 14px;border-radius:6px;border:1px solid #e4e4e7;background:#fff;cursor:pointer;font-size:13px">Refetch</button>
-          </div>`;
-        el.__refetch = fetchUser;
-        el.querySelector('#demo-refetch')?.addEventListener('click', () => el.__refetch());
-      }
+      const busy = loading();
+      const err = error();
+      status.hidden = !busy && !err;
+      status.textContent = busy ? 'Loading user data...' : err ? 'Error: ' + err : '';
+      status.style.color = err ? 'var(--error)' : 'var(--text-muted)';
+      card.hidden = busy || !!err;
+    });
+
+    effect(() => {
+      const u = data();
+      if (!u) return;
+      parts.avatar.textContent = u.name[0];
+      parts.name.textContent = u.name;
+      parts.meta.textContent = u.email + ' · ' + u.role;
     });
 
     fetchUser();

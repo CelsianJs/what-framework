@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tutorial: Declaring a Winner — What Framework</title>
+  <title>Tutorial: Declaring a Winner · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -52,7 +52,7 @@
           <p class="subtitle">Check for winning combinations and display when someone wins.</p>
 
           <h2 id="winning-logic">The Winning Logic</h2>
-          <p>A player wins when they have 3 marks in a row — horizontally, vertically, or diagonally. There are exactly 8 winning combinations:</p>
+          <p>A player wins when they have 3 marks in a row, horizontally, vertically, or diagonally. There are exactly 8 winning combinations:</p>
 
 <pre><code><span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {
   <span class="keyword">const</span> lines = [
@@ -81,7 +81,7 @@
           <h2 id="computed-status">Using Computed for the Status</h2>
           <p>Now we can use <code>computed</code> to create a derived value for the status message. A computed value automatically updates when its dependencies change:</p>
 
-          <div class="code-header">src/main.jsx</div>
+          <div class="code-header">src/main.jsx (updated pieces)</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
 <span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -148,7 +148,7 @@
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
-<span class="keyword">import</span> { signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { mount, signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">calculateWinner</span>(squares) {
   <span class="keyword">const</span> lines = [
@@ -202,14 +202,16 @@
   );
 }
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="keyword">return</span> (
     &lt;div className=<span class="string">"game"</span>&gt;
       &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
       &lt;Board /&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <h2 id="checkpoint">Checkpoint</h2>
           <p>Your game is now fully playable!</p>

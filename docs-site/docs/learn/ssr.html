@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Server Rendering — What Framework</title>
+  <title>Server Rendering · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -90,22 +90,26 @@
           <h1>Server Rendering</h1>
           <p class="subtitle">Render pages on the server for instant loads and SEO.</p>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">Server modules cannot go through what-compiler</p>
+            <p>what-compiler lowers JSX to module-scope templates built with <code>document.createElement('template')</code>, so a compiled module touches <code>document</code> the moment it is imported. A server has no <code>document</code>, and the import throws <code>ReferenceError: document is not defined</code> before any render can start. Write server-rendered views with <code>h()</code>, which is what the <code>fullstack</code> scaffold does (it has no compiler and no JSX), or compile them with the automatic JSX runtime (<code>jsxImportSource: "what-framework"</code>) rather than with what-compiler. Every server-side example on this page uses <code>h()</code>.</p>
+          </div>
+
           <h2 id="render-to-string">renderToString</h2>
           <p>The simplest way to render on the server. Pass a virtual node tree and get back a complete HTML string synchronously. Components are called as functions, event handlers are stripped, and all attributes are properly escaped:</p>
 
-<pre><code><span class="keyword">import</span> { renderToString } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+<pre><code><span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { renderToString } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">function</span> <span class="function">Greeting</span>({ name }) {
-  <span class="keyword">return</span> (
-    &lt;div class="greeting"&gt;
-      &lt;h1&gt;Hello, {name}!&lt;/h1&gt;
-      &lt;p&gt;Welcome to the site.&lt;/p&gt;
-    &lt;/div&gt;
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, { class: <span class="string">'greeting'</span> },
+    <span class="function">h</span>(<span class="string">'h1'</span>, {}, <span class="string">`Hello, ${name}!`</span>),
+    <span class="function">h</span>(<span class="string">'p'</span>, {}, <span class="string">'Welcome to the site.'</span>),
   );
 }
 
 <span class="keyword">const</span> html = <span class="function">renderToString</span>(
-  &lt;<span class="function">Greeting</span> name=<span class="string">"Alice"</span> /&gt;
+  <span class="function">h</span>(Greeting, { name: <span class="string">'Alice'</span> })
 );
 
 console.log(html);
@@ -113,17 +117,20 @@ console.log(html);
 
           <p>Use this in your server handler to return fully rendered HTML. It handles text nodes, arrays, nested components, void elements (like <code>&lt;img&gt;</code> and <code>&lt;br&gt;</code>), and properly escapes all attribute values and text content to prevent XSS.</p>
 
+          <p>To make that HTML interactive, the client calls <code>hydrate(vnode, container)</code> from <code>what-framework</code> with a tree that matches what the server rendered.</p>
+
           <h2 id="render-to-stream">renderToStream</h2>
           <p>For large pages, streaming sends HTML to the browser as it is generated instead of waiting for the entire page to finish. <code>renderToStream</code> returns an async generator that yields HTML chunks:</p>
 
-<pre><code><span class="keyword">import</span> { renderToStream } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+<pre><code><span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { renderToStream } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// In your server handler (Node.js example)</span>
 app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req, res) =&gt; {
   res.setHeader(<span class="string">'Content-Type'</span>, <span class="string">'text/html'</span>);
 
   <span class="keyword">const</span> stream = <span class="function">renderToStream</span>(
-    &lt;<span class="function">App</span> url={req.url} /&gt;
+    <span class="function">h</span>(App, { url: req.url })
   );
 
   <span class="keyword">for await</span> (<span class="keyword">const</span> chunk <span class="keyword">of</span> stream) {
@@ -135,18 +142,20 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
 
           <p>Streaming is especially powerful with async components. If a component returns a Promise, <code>renderToStream</code> awaits it and continues streaming once the data is ready. The browser can start painting the page header while the database query for the content is still running.</p>
 
+          <p>One difference from <code>renderToString</code>: a streamed render keeps each component frame open across its await points, so <code>useEffect</code> bodies <em>do</em> run on the server here. <code>renderToString</code> suppresses them, and <code>onMount</code> callbacks never run on either path. Keep browser-only work in <code>onMount</code> so switching a page from one entry point to the other cannot change what executes server-side.</p>
+
           <h2 id="define-page">definePage</h2>
-          <p>Use <code>definePage</code> to declare how a page should be rendered. It supports four modes:</p>
+          <p>Use <code>definePage</code> to declare how a page should be rendered. The call itself just returns your config with <code>mode</code> defaulting to <code>'static'</code>; the static exporter and the deploy adapter are what read it. Four modes are recognized:</p>
           <ul>
-            <li><strong><code>static</code></strong> (default) -- Pre-render at build time. No JavaScript shipped. Best for content that rarely changes.</li>
-            <li><strong><code>server</code></strong> -- Render on every request. Use for personalized or dynamic pages that depend on cookies, headers, or real-time data.</li>
-            <li><strong><code>client</code></strong> -- Render entirely in the browser as a single-page app. The server sends a minimal HTML shell.</li>
-            <li><strong><code>hybrid</code></strong> -- Static HTML shell with interactive islands. The best of both worlds for content-heavy pages with a few interactive widgets.</li>
+            <li><strong><code>static</code></strong> (default) -- Pre-render at build time. The static exporter writes the route to disk, and <code>generateStaticPage</code> drops your own <code>scripts</code> array. Best for content that rarely changes.</li>
+            <li><strong><code>server</code></strong> -- Render on every request. The deploy adapter bypasses the ISR cache for this mode and answers with <code>Cache-Control: private, no-store</code>. Use it for personalized or dynamic pages that depend on cookies, headers, or real-time data.</li>
+            <li><strong><code>client</code></strong> -- Not pre-rendered: the static exporter skips the route. It does not mean the server sends an empty shell, because both the request-time adapter and <code>generateStaticPage</code> still render the component to real HTML. <code>generateStaticPage</code> additionally appends <code>&lt;script type="module" src="/@what/client.js"&gt;</code>, a URL no What runtime serves, so point the page at your own client entry instead.</li>
+            <li><strong><code>hybrid</code></strong> -- Pre-rendered at build time like <code>static</code>, with interactive islands layered on top. The best of both worlds for content-heavy pages with a few interactive widgets.</li>
           </ul>
 
 <pre><code><span class="keyword">import</span> { definePage } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
-<span class="comment">// Static blog post — built once at deploy time</span>
+<span class="comment">// src/pages/blog/[slug].js: static blog post, built once at deploy time</span>
 <span class="keyword">export default</span> <span class="function">definePage</span>({
   mode: <span class="string">'static'</span>,
   component: BlogPost,
@@ -154,14 +163,14 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
   meta: { description: <span class="string">'An introduction to What Framework.'</span> },
 });
 
-<span class="comment">// Server-rendered dashboard — fresh data on each request</span>
+<span class="comment">// src/pages/dashboard.js: server-rendered, fresh data on each request</span>
 <span class="keyword">export default</span> <span class="function">definePage</span>({
   mode: <span class="string">'server'</span>,
   component: Dashboard,
   title: <span class="string">'Dashboard'</span>,
 });
 
-<span class="comment">// Hybrid product page — static shell, interactive cart island</span>
+<span class="comment">// src/pages/products/[id].js: hybrid, static page plus a cart island</span>
 <span class="keyword">export default</span> <span class="function">definePage</span>({
   mode: <span class="string">'hybrid'</span>,
   component: ProductPage,
@@ -170,25 +179,22 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
 });</code></pre>
 
           <h2 id="server-components">Server Components</h2>
-          <p>Mark a component as server-only with <code>server()</code>. Server components render on the server and send pure HTML to the client. No JavaScript for these components is ever shipped to the browser:</p>
+          <p><code>server()</code> tags a component as server-only. Be precise about what that buys you today: the whole implementation is <code>Component._server = true</code>, and nothing else in What reads that flag. There is no bundler integration, no compiler handling and no client/server split, so the component still ends up in your client bundle and its body still runs if the client renders it:</p>
 
-<pre><code><span class="keyword">import</span> { server } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+<pre><code><span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { server } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
-<span class="keyword">const</span> UserProfile = <span class="function">server</span>(<span class="keyword">function</span>({ userId }) {
-  <span class="comment">// This code only runs on the server</span>
-  <span class="comment">// Safe to access databases, env vars, secrets</span>
-  <span class="keyword">const</span> user = db.users.find(userId);
-
-  <span class="keyword">return</span> (
-    &lt;div class="profile"&gt;
-      &lt;img src={user.avatar} alt={user.name} /&gt;
-      &lt;h2&gt;{user.name}&lt;/h2&gt;
-      &lt;p&gt;{user.bio}&lt;/p&gt;
-    &lt;/div&gt;
+<span class="comment">// Marks intent for your own tooling. It does not remove the</span>
+<span class="comment">// component from the client bundle, so keep secrets out of it.</span>
+<span class="keyword">const</span> UserProfile = <span class="function">server</span>(<span class="keyword">function</span>({ user }) {
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, { class: <span class="string">'profile'</span> },
+    <span class="function">h</span>(<span class="string">'img'</span>, { src: user.avatar, alt: user.name }),
+    <span class="function">h</span>(<span class="string">'h2'</span>, {}, user.name),
+    <span class="function">h</span>(<span class="string">'p'</span>, {}, user.bio),
   );
 });</code></pre>
 
-          <p>Server components are ideal for data-heavy content that does not need client-side interactivity: user profiles, product details, article bodies, admin tables.</p>
+          <p>Do not put a database query, an env var or a secret inside a component and rely on <code>server()</code> to keep it off the client. The surfaces that genuinely only ever run on the server are a page module's <code>export const loader</code>, your own API routes, and the body of an <code>action()</code> reached through <code>/__what_action</code>. Fetch there, then pass plain data down as props to components like the one above.</p>
 
           <h2 id="server-actions">Server Actions</h2>
           <p>Server actions let you define server-side functions that can be called directly from client code. Define an action on the server, and the client calls it via an automatic RPC mechanism over <code>fetch</code>:</p>
@@ -200,9 +206,13 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
   <span class="keyword">const</span> user = <span class="keyword">await</span> db.users.create(data);
   <span class="keyword">return</span> { success: <span class="keyword">true</span>, id: user.id };
 }, {
+  id: <span class="string">'saveUser'</span>,
   onSuccess: (result) =&gt; console.log(<span class="string">'Saved:'</span>, result.id),
   revalidate: [<span class="string">'/users'</span>],
 });</code></pre>
+
+          <p>Give every action an explicit <code>id</code> unless you build with <code>what-compiler</code>, which supplies a deterministic one. Without either, <code>action()</code> generates a random id per process and warns; the client and server bundles then disagree about the name and every dispatch answers 404.</p>
+          <p><code>revalidate</code> does two different things depending on which side runs. In the served endpoint it purges those paths from the ISR cache. In the client wrapper it fires the in-memory <code>invalidatePath</code> subscribers instead, and <code>revalidateTags</code> is ignored there.</p>
 
           <h3 id="use-action">useAction</h3>
           <p>The <code>useAction</code> hook wraps a server action with reactive state for pending status, errors, and response data:</p>
@@ -216,16 +226,19 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
     &lt;div&gt;
       &lt;button
         onClick={() =&gt; trigger({ name: <span class="string">'Alice'</span>, email: <span class="string">'alice@example.com'</span> })}
-        disabled={isPending()}
+        disabled={() =&gt; isPending()}
       &gt;
-        {isPending() ? <span class="string">'Saving...'</span> : <span class="string">'Save User'</span>}
+        {() =&gt; (isPending() ? <span class="string">'Saving...'</span> : <span class="string">'Save User'</span>)}
       &lt;/button&gt;
 
-      {error() &amp;&amp; &lt;p class="error"&gt;{error().message}&lt;/p&gt;}
-      {data() &amp;&amp; &lt;p class="success"&gt;Saved with ID: {data().id}&lt;/p&gt;}
+      {() =&gt; (error() ? &lt;p class="error"&gt;{error().message}&lt;/p&gt; : <span class="keyword">null</span>)}
+      {() =&gt; (data() ? &lt;p class="success"&gt;Saved with ID: {data().id}&lt;/p&gt; : <span class="keyword">null</span>)}
     &lt;/div&gt;
   );
 }</code></pre>
+
+          <p>The thunks are load-bearing here, so keep them. <code>isPending</code>, <code>error</code> and <code>data</code> arrive by destructuring a call, which the compiler cannot recognize as signals, so every bare read of them is evaluated once at creation and never again. A bare <code>{isPending()}</code> leaves the button on its first label for the life of the page, and a bare <code>{error() &amp;&amp; &lt;p&gt;{error().message}&lt;/p&gt;}</code> is worse in a quieter way: the guard is tested once while <code>error()</code> is still <code>null</code>, so the paragraph is never built and the error never appears at all, with nothing on the console to say so. Wrapping each dynamic part in <code>() =&gt;</code> gives the compiler the reactive region it needs, and works identically on the compiled and the <code>h()</code> paths.</p>
+          <p>The guarded arm itself is safe either way as of 0.12.4: the compiler now builds it inside the <code>&amp;&amp;</code> rather than ahead of it, so <code>error().message</code> is not evaluated while <code>error()</code> is <code>null</code> and the component no longer throws at mount. That is why the failure is now a silent one. Older builds threw a <code>TypeError</code> here instead.</p>
 
           <h3 id="use-mutation">useMutation</h3>
           <p>For simpler cases where you just need pending/error/data tracking around any async function, use <code>useMutation</code>:</p>
@@ -270,21 +283,21 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
 
   <span class="keyword">return</span> (
     &lt;button onClick={handleLike}&gt;
-      Like ({likes.value()})
+      Like ({() =&gt; likes.<span class="function">value</span>()})
     &lt;/button&gt;
   );
 }</code></pre>
 
           <p>The <code>withOptimistic</code> helper applies the optimistic action immediately, runs the async function, and either resolves with the server value or rolls back to the previous state on error.</p>
+          <p>Note the thunk around <code>likes.value()</code>. <code>likes</code> is an object returned by a call, not a signal binding the compiler tracks, so a bare <code>{likes.value()}</code> is inserted once and the count never moves. <code>{() =&gt; likes.value()}</code> is what makes the label follow the optimistic state.</p>
 
           <h2 id="csrf-protection">CSRF Protection</h2>
-          <p>Server actions include built-in CSRF protection. What provides three utilities for token management and a fail-closed default that prevents silent security vulnerabilities:</p>
+          <p>Server actions include built-in CSRF protection. What provides utilities for token management and a fail-closed default that prevents silent security vulnerabilities:</p>
 
 <pre><code><span class="keyword">import</span> {
   generateCsrfToken,
-  validateCsrfToken,
   csrfMetaTag,
-  handleActionRequest,
+  nodeActionMiddleware,
 } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="comment">// Server: generate a token per session</span>
@@ -303,24 +316,22 @@ app.use((req, res, next) =&gt; {
 `</span>;
 <span class="comment">// Renders: &lt;meta name="what-csrf-token" content="abc-123..."&gt;</span>
 
-<span class="comment">// Server: handle action requests with CSRF validation</span>
-app.post(<span class="string">'/__what_action'</span>, <span class="keyword">async</span> (req, res) =&gt; {
-  <span class="keyword">const</span> { actionId, args } = req.body;
-  <span class="keyword">const</span> result = <span class="keyword">await</span> <span class="function">handleActionRequest</span>(req, actionId, args, {
-    csrfToken: req.session.csrfToken,
-  });
-  res.status(result.status).json(result.body);
-});</code></pre>
+<span class="comment">// Server: mount the /__what_action endpoint</span>
+app.use(<span class="function">nodeActionMiddleware</span>({
+  getCsrfToken: (req) =&gt; req.session.csrfToken,
+}));</code></pre>
 
-          <p><code>handleActionRequest</code> uses fail-closed semantics: if you forget to pass a CSRF token, it returns a 500 error explaining the misconfiguration rather than silently accepting the request. Token comparison uses constant-time string matching to prevent timing attacks. The client reads the token from the <code>&lt;meta&gt;</code> tag automatically and sends it with every action request.</p>
+          <p>Mount the endpoint with <code>nodeActionMiddleware</code> rather than writing the route by hand. The client wrapper sends the action name in an <code>X-What-Action</code> header and posts only <code>{ args }</code> as the body, while a plain no-JS form sends it as a hidden <code>_action</code> field, so a handwritten route that reads <code>req.body.actionId</code> answers 404 to every request. The middleware handles both shapes, parses the body by content type, caps it at 1 MB and then dispatches through <code>handleActionRequest</code>, which is the low-level dispatcher rather than a route handler. On edge runtimes (Deno, Bun, Cloudflare Workers) use <code>fetchActionHandler({ getCsrfToken })</code> instead, which takes a <code>Request</code> and returns a <code>Response</code>.</p>
+
+          <p><code>handleActionRequest</code> uses fail-closed semantics: if no CSRF token reaches it, it returns a 500 error explaining the misconfiguration rather than silently accepting the request. Token comparison uses constant-time string matching to prevent timing attacks. The client reads the token from the <code>&lt;meta&gt;</code> tag automatically (falling back to the <code>what-csrf</code> cookie) and sends it with every action request.</p>
 
           <div class="callout callout-warning">
             <p class="callout-title">Server Runtime Required</p>
-            <p>Server actions need a server runtime to handle the <code>/__what_action</code> endpoint. They work with Node.js, Deno, and Bun. For purely static sites without a server, use client-side <code>fetch</code> calls to your API instead of server actions.</p>
+            <p>Server actions need a server runtime to handle the <code>/__what_action</code> endpoint. They work with Node.js, Deno, Bun, and edge runtimes such as Cloudflare Workers. For purely static sites without a server, use client-side <code>fetch</code> calls to your API instead of server actions.</p>
           </div>
 
           <h2 id="static-generation">Static Site Generation</h2>
-          <p>Use <code>generateStaticPage</code> to pre-render pages at build time. It calls <code>renderToString</code> internally and wraps the output in a full HTML document with the configured title, meta tags, styles, and island scripts:</p>
+          <p>Use <code>generateStaticPage</code> to pre-render pages at build time. It renders your page component through <code>renderToString</code> inside a server render scope, then wraps the output in a full HTML document with the configured title, meta tags, styles, and island scripts. Because the component gets a real component frame, a statically generated page can use <code>useState</code>, <code>useSignal</code>, <code>useMemo</code>, <code>useRef</code> and a root <code>Context.Provider</code>; as on every <code>renderToString</code> path, <code>useEffect</code> bodies are suppressed and <code>onMount</code> never runs. The <code>data</code> object is passed to the component as its props, minus a <code>key</code> field if you have one, which the vnode layer consumes:</p>
 
 <pre><code><span class="keyword">import</span> { generateStaticPage, definePage } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
@@ -336,16 +347,22 @@ app.post(<span class="string">'/__what_action'</span>, <span class="keyword">asy
 <span class="keyword">const</span> html = <span class="function">generateStaticPage</span>(page, { slug: <span class="string">'my-post'</span> });
 <span class="comment">// Full HTML document with &lt;!DOCTYPE html&gt;, &lt;head&gt;, island hydration script</span></code></pre>
 
-          <p>For <code>hybrid</code> pages with islands, the generated HTML includes an automatic <code>&lt;script type="module"&gt;</code> that imports and calls <code>hydrateIslands()</code>. For <code>static</code> pages, no script tags are included at all.</p>
+          <p>The island hydration script, a <code>&lt;script type="module"&gt;</code> that imports and calls <code>hydrateIslands()</code>, is emitted whenever the page declares a non-empty <code>islands</code> array, in any mode. What <code>mode: 'static'</code> changes is your own <code>scripts</code> array, which is dropped. The names inside <code>islands</code> are only used as a has-islands switch; they are never written into the document, so each island still needs its own <code>Island</code> marker in the component and its own <code>island()</code> registration on the client.</p>
+
+          <div class="callout callout-warning">
+            <p class="callout-title">generateStaticPage drops &lt;Head&gt; tags</p>
+            <p><code>generateStaticPage</code> opens a head sink for the render but never serializes it, so a <code>&lt;Head&gt;</code> declared inside the page contributes nothing to the document. The <code>&lt;head&gt;</code> it emits is built only from the <code>title</code> and <code>meta</code> you hand <code>definePage</code>. For per-page head tags, render with <code>renderToStringWithHead</code> and place the returned <code>head</code> string in your own document, or use <code>renderDocument</code>, which serializes the head into the document it returns and emits the hydration payload as well. Both were checked: each one carries the page's title, meta and link tags through. <code>renderPage</code> and <code>renderToStringAsync</code> return the same <code>head</code> string if you are already using one of them.</p>
+            <p>One thing to get right whichever you pick: <code>&lt;Head&gt;</code> collects from its <code>title</code>, <code>meta</code> and <code>link</code> <em>props</em>, and those are the only tags that reach the head. Anything written as a <em>child</em> of <code>&lt;Head&gt;</code> is passed straight through and renders where the component sits, which is in the body. So <code>h(Head, { meta: [{ name: 'description', content: '…' }] })</code> lands in the head, while <code>&lt;Head&gt;&lt;meta name="description" …/&gt;&lt;/Head&gt;</code> puts a stray <code>&lt;meta&gt;</code> in your <code>&lt;body&gt;</code> on every path, including both of the ones above.</p>
+          </div>
 
           <div class="page-nav">
-            <a href="./animation.html">
+            <a href="./islands.html">
               <span class="label">Previous</span>
-              <span class="title">Animation</span>
+              <span class="title">Islands Architecture</span>
             </a>
-            <a href="./islands.html" class="next">
+            <a href="./animation.html" class="next">
               <span class="label">Next</span>
-              <span class="title">Islands</span>
+              <span class="title">Animation</span>
             </a>
           </div>
         </div>

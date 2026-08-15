@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Components — What Framework</title>
+  <title>Components · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -196,6 +196,7 @@
           <div class="callout callout-info">
             <p class="callout-title">Components Run Once</p>
             <p>Unlike React, What components only run once when first rendered. Updates happen through signals, not by re-running the component function. This is a key difference from React's mental model.</p>
+            <p>It has one consequence worth internalizing now: <strong>a prop passed as a value is frozen forever.</strong> <code>&lt;Greeting name={name()} /&gt;</code> reads the signal once, at the call site, and the child will still say "Alice" after <code>name.set('Bob')</code>. Pass the signal itself (<code>name={name}</code>) and read it as <code>name()</code> in the child, or pass a thunk (<code>name={() =&gt; name()}</code>). See <a href="#best-practices">Pass Signals, Not Values</a> below.</p>
           </div>
 
           <h2 id="composition">Composition Patterns</h2>
@@ -218,6 +219,7 @@
     &lt;div className=<span class="string">"tab-list"</span>&gt;
       {children.map((child, i) =&gt; (
         &lt;button
+          key={child}
           className={<span class="function">() =&gt;</span> activeTab() === i ? <span class="string">'active'</span> : <span class="string">''</span>}
           onClick={() =&gt; activeTab.set(i)}
         &gt;
@@ -234,7 +236,25 @@
       {<span class="function">() =&gt;</span> children[activeTab()]}
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+<span class="comment">// Usage: Tabs calls children(activeTab), so pass a function</span>
+&lt;Tabs&gt;
+  {(activeTab) =&gt; (
+    &lt;&gt;
+      &lt;TabList activeTab={activeTab}&gt;
+        &lt;span&gt;One&lt;/span&gt;
+        &lt;span&gt;Two&lt;/span&gt;
+      &lt;/TabList&gt;
+      &lt;TabPanels activeTab={activeTab}&gt;
+        &lt;p&gt;First panel&lt;/p&gt;
+        &lt;p&gt;Second panel&lt;/p&gt;
+      &lt;/TabPanels&gt;
+    &lt;/&gt;
+  )}
+&lt;/Tabs&gt;</code></pre>
+
+          <p>Function-as-children is what makes this pattern work in a run-once framework. There is no re-render to thread the active index back down, so the parent hands its <code>activeTab</code> signal to the children instead, and each child subscribes to it where it needs it.</p>
 
           <h3 id="render-props">Render Props</h3>
           <p>Pass a function as children for flexible rendering:</p>
@@ -256,24 +276,27 @@
 &lt;/Toggle&gt;</code></pre>
 
           <h2 id="how-jsx-compiles">How JSX Compiles</h2>
-          <p>What Framework uses an optimizing compiler that transforms JSX into direct DOM operations. The compiler extracts static HTML into cloneable templates and wraps dynamic parts in fine-grained effects.</p>
+          <p>With the What compiler (the Vite and SPA setup), JSX is transformed into direct DOM operations: static HTML is extracted into cloneable templates and dynamic parts are wrapped in fine-grained effects. The compiler is optional. Without it, JSX goes through the runtime <code>h()</code> path, which is correct but does not do keyed list reconciliation, and the <code>fullstack</code> scaffold has no compiler and no JSX at all (you write <code>h()</code> directly there).</p>
 
-          <p>The pipeline works like this:</p>
+          <p>Here is what the compiler actually emits:</p>
 <pre><code><span class="comment">// Your JSX:</span>
 &lt;div className="card"&gt;
   &lt;p&gt;Count: {count()}&lt;/p&gt;
 &lt;/div&gt;
 
-<span class="comment">// Compiler output (simplified):</span>
-<span class="keyword">const</span> _tmpl = <span class="function">template</span>(<span class="string">'&lt;div class="card"&gt;&lt;p&gt;Count: &lt;/p&gt;&lt;/div&gt;'</span>);
+<span class="comment">// Compiler output:</span>
+<span class="keyword">import</span> { _$template, insert <span class="keyword">as</span> _$insert } <span class="keyword">from</span> <span class="string">"what-framework/render"</span>;
 
-<span class="keyword">function</span> <span class="function">render</span>() {
-  <span class="keyword">const</span> _el = _tmpl.cloneNode(<span class="keyword">true</span>);
-  <span class="function">insert</span>(_el.firstChild, () =&gt; count());
-  <span class="keyword">return</span> _el;
-}
+<span class="keyword">const</span> _tmpl$0 = <span class="function">_$template</span>(<span class="string">'&lt;div class="card"&gt;&lt;p&gt;Count: &lt;!--$--&gt;&lt;/p&gt;&lt;/div&gt;'</span>);
 
-<span class="comment">// Pipeline: JSX -> compiler -> template() + insert() + effect() -> DOM</span></code></pre>
+<span class="keyword">export function</span> <span class="function">Card</span>() {
+  <span class="keyword">const</span> _el$0 = <span class="function">_tmpl$0</span>();
+  <span class="keyword">const</span> _el$1 = _el$0.firstChild;
+  <span class="function">_$insert</span>(_el$1, () =&gt; count(), _el$1.firstChild.nextSibling);
+  <span class="keyword">return</span> _el$0;
+}</code></pre>
+
+          <p>Two details are worth reading closely. <code>_$template(...)</code> returns a <em>factory</em>, so <code>_tmpl$0()</code> hands back a fresh clone each time. And the <code>&lt;!--$--&gt;</code> in the template string is the anchor: it marks the exact position the dynamic child occupies, which is the third argument to <code>_$insert</code>, so the effect can update that one spot without touching its siblings. There is no separate <code>render()</code> function, the component body <em>is</em> the render.</p>
 
           <div class="callout callout-info">
             <p class="callout-title">Fine-Grained Rendering</p>
@@ -301,9 +324,11 @@
 
   {<span class="comment">/* Arrays */</span>}
   &lt;ul&gt;
-    {items.map(item =&gt; &lt;li&gt;{item}&lt;/li&gt;)}
+    {items.map(item =&gt; &lt;li key={item}&gt;{item}&lt;/li&gt;)}
   &lt;/ul&gt;
 &lt;/div&gt;</code></pre>
+
+          <p>Give the <code>.map()</code> callback a <code>key</code>. With one, the compiler lowers the map to keyed reconciliation and only touches the rows that actually changed. Without one it warns at build time and rebuilds every row on each update. Use something stable on the item itself (<code>item.id</code>, or the item when it is a unique string, as here) rather than the index, which is a position and cannot survive a reorder.</p>
 
           <h3 id="attributes">Attributes</h3>
           <p>Some differences from HTML:</p>
@@ -312,15 +337,17 @@
 &lt;div className=<span class="string">"container"</span>&gt;
 
 <span class="comment">// camelCase for multi-word attributes</span>
-&lt;input tabIndex=<span class="number">1</span> autoFocus /&gt;
+&lt;input tabIndex={<span class="number">1</span>} autoFocus /&gt;
 
 <span class="comment">// style as an object</span>
-&lt;div style={{ color: <span class="string">'red'</span>, fontSize: <span class="number">16</span> }}&gt;
+&lt;div style={{ color: <span class="string">'red'</span>, fontSize: <span class="string">'16px'</span> }}&gt;
 
 <span class="comment">// boolean attributes</span>
 &lt;input disabled /&gt;
 &lt;input disabled={<span class="keyword">true</span>} /&gt;
 &lt;input disabled={isDisabled()} /&gt;</code></pre>
+
+          <p>Two things to watch. A numeric attribute value has to be an expression, so <code>tabIndex={1}</code>, not <code>tabIndex=1</code>, which is a JSX syntax error. And unlike React, What does not append <code>px</code> to numbers in a style object: <code>fontSize: 16</code> is rejected by the CSSOM and silently dropped, so write the unit yourself. Genuinely unitless properties such as <code>opacity</code> and <code>zIndex</code> take numbers fine.</p>
 
           <h3 id="fragments">Fragments</h3>
           <p>Return multiple elements without a wrapper:</p>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Control Flow — What Framework</title>
+  <title>Control Flow · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -88,7 +88,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Control Flow</h1>
-          <p class="subtitle">Components for conditional rendering and lists. Cleaner than ternaries and .map() calls.</p>
+          <p class="subtitle">Components for conditional rendering and lists. Cleaner than nested ternaries.</p>
 
           <h2 id="show">Show</h2>
           <p>Conditionally render content based on a condition:</p>
@@ -98,16 +98,16 @@
 <span class="keyword">function</span> <span class="function">UserGreeting</span>({ user }) {
   <span class="keyword">return</span> (
     &lt;Show when={user} fallback={&lt;p&gt;Please log in&lt;/p&gt;}&gt;
-      &lt;p&gt;Welcome back, {<span class="function">() =&gt;</span> user().name}!&lt;/p&gt;
+      &lt;p&gt;Welcome back, {<span class="function">() =&gt;</span> user()?.name}!&lt;/p&gt;
     &lt;/Show&gt;
   );
 }</code></pre>
 
           <h3>How Show Works</h3>
           <ul>
-            <li><code>when</code> — The condition to check. Can be a signal or value.</li>
-            <li><code>fallback</code> — (Optional) What to render when condition is false.</li>
-            <li>Children render only when <code>when</code> is truthy.</li>
+            <li><code>when</code>: the condition to check. Pass a signal by name (<code>when={user}</code>) or a thunk (<code>when={() =&gt; user()}</code>). The compiler calls a bare identifier as an accessor when it can tell the name is a signal (a local initialised by <code>signal()</code>, a destructured prop, or an import), so a plain value passed under such a name throws; and it does <em>not</em> call a property access, so <code>when={props.user}</code> tests the function object and stays permanently truthy. A thunk is always safe.</li>
+            <li><code>fallback</code>: (optional) what to render when the condition is falsy.</li>
+            <li>Children are lazy on both paths. Nothing inside the branch is built or run until <code>when</code> turns truthy, so a plain element child, a component child and a binding like <code>{() =&gt; user().name}</code> all survive a first render where <code>user</code> is still <code>null</code>. The one thing to know is the swap: compiled, a binding belonging to a branch that has closed can still re-run when the condition changes again, so an unguarded read of the value that just went away writes a <code>TypeError</code> to the console. The rendered DOM stays correct either way, and <code>{() =&gt; user()?.name}</code> keeps the console clean.</li>
           </ul>
 
           <h3>With Signals</h3>
@@ -122,7 +122,7 @@ isLoggedIn.set(<span class="keyword">true</span>);  <span class="comment">// Now
 
           <div class="callout callout-info">
             <p class="callout-title">Why Show instead of ternary?</p>
-            <p>Show is optimized for fine-grained reactivity. It only re-evaluates when the condition changes, and it properly handles cleanup when toggling between states.</p>
+            <p>Show reads as a gate rather than an expression, and it disposes the branch it is leaving on every swap. With the compiler in the build it also routes the condition through a memo, so only a change in truthiness rebuilds the branch. Without the compiler (plain <code>h()</code> or the automatic JSX runtime) the region re-runs on every write to the condition signal, so keep <code>when</code> narrow if that signal holds an object you replace often.</p>
           </div>
 
           <h2 id="for">For</h2>
@@ -138,25 +138,29 @@ isLoggedIn.set(<span class="keyword">true</span>);  <span class="comment">// Now
 
 &lt;ul&gt;
   &lt;For each={items}&gt;
-    {(item, index) =&gt; (
-      &lt;li key={item.id}&gt;
-        {index + <span class="number">1</span>}. {item.name}
-      &lt;/li&gt;
+    {item =&gt; (
+      &lt;li&gt;{item.name}&lt;/li&gt;
     )}
   &lt;/For&gt;
 &lt;/ul&gt;</code></pre>
 
           <h3>How For Works</h3>
           <ul>
-            <li><code>each</code> — The array to iterate (can be a signal)</li>
-            <li>Children is a function receiving <code>(item, index)</code></li>
-            <li>Always provide a <code>key</code> for efficient updates</li>
+            <li><code>each</code>: the array to iterate. Pass the signal itself, or a thunk. Compiled output calls <code>each()</code>, so a literal array (or <code>each={items()}</code>) throws <code>source is not a function</code>.</li>
+            <li>Children is a function receiving <code>(item, index)</code>. <code>index</code> is captured when the row is created and is not refreshed when rows move, so do not use it as a live position counter.</li>
+            <li>A <code>key</code> on the row element does nothing. The key belongs on <code>&lt;For&gt;</code> itself (<code>&lt;For each={items} key={item =&gt; item.id}&gt;</code>), and keyed reconciliation only exists when the compiler runs. Note that a keyed compiled <code>&lt;For&gt;</code> hands the render function a signal <em>accessor</em>, so the body becomes <code>{item =&gt; &lt;li&gt;{() =&gt; item().name}&lt;/li&gt;}</code>.</li>
+            <li>Without the compiler (plain <code>h()</code> or the automatic JSX runtime) there is no keyed reconciliation at all: every row is rebuilt on every list change, which loses focus, closes an open <code>&lt;details&gt;</code> and restarts CSS transitions.</li>
           </ul>
 
           <h3>Empty State</h3>
-<pre><code>&lt;For each={items} fallback={&lt;p&gt;No items yet&lt;/p&gt;}&gt;
-  {item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;}
-&lt;/For&gt;</code></pre>
+          <p>Give <code>&lt;For&gt;</code> a <code>fallback</code> and it renders that in place of the rows whenever the list is empty or <code>null</code>. Both paths honour it, so the empty state survives a move from a buildless setup to the Vite compiler:</p>
+<pre><code><span class="keyword">import</span> { For } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+&lt;ul&gt;
+  &lt;For each={items} fallback={&lt;li&gt;No items yet&lt;/li&gt;}&gt;
+    {item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;}
+  &lt;/For&gt;
+&lt;/ul&gt;</code></pre>
 
           <h3>Reactive Updates</h3>
 <pre><code><span class="keyword">const</span> todos = <span class="function">signal</span>([]);
@@ -192,18 +196,23 @@ todos.set(t =&gt; t.map(item =&gt;
 &lt;/Switch&gt;</code></pre>
 
           <h3>With Data</h3>
-          <p>Match can pass data to children:</p>
+          <p><code>Match</code> does not hand the matched value to its children: a function written in child position is treated as an ordinary reactive child and called with no arguments. Derive the data separately and read it inside the arm:</p>
 
-<pre><code><span class="keyword">const</span> result = <span class="function">signal</span>({ type: <span class="string">'success'</span>, data: [...] });
+<pre><code><span class="keyword">import</span> { Switch, Match, signal, computed } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">const</span> result = <span class="function">signal</span>({ type: <span class="string">'success'</span>, data: [] });
+<span class="keyword">const</span> rows = <span class="function">computed</span>(<span class="function">() =&gt;</span> result().data || []);
 
 &lt;Switch&gt;
-  &lt;Match when={<span class="function">() =&gt;</span> result().type === <span class="string">'success'</span> && result().data}&gt;
-    {data =&gt; &lt;DataTable items={data} /&gt;}
+  &lt;Match when={<span class="function">() =&gt;</span> result().type === <span class="string">'success'</span>}&gt;
+    &lt;DataTable items={rows} /&gt;
   &lt;/Match&gt;
   &lt;Match when={<span class="function">() =&gt;</span> result().type === <span class="string">'error'</span>}&gt;
-    &lt;Error /&gt;
+    &lt;ErrorMessage /&gt;
   &lt;/Match&gt;
 &lt;/Switch&gt;</code></pre>
+
+          <p>Two build-time rules apply to <code>&lt;Switch&gt;</code>: the compiler reads its arms statically, so write every <code>&lt;Match&gt;</code> out literally (arms produced by <code>{arms.map(...)}</code>, or a spread on <code>&lt;Switch&gt;</code>, are a build error), and each <code>&lt;Match&gt;</code> needs a <code>when</code> prop.</p>
 
           <h2 id="portal">Portal</h2>
           <p>Render children into a different DOM node:</p>
@@ -213,7 +222,7 @@ todos.set(t =&gt; t.map(item =&gt;
 <span class="keyword">function</span> <span class="function">Modal</span>({ isOpen, onClose, children }) {
   <span class="keyword">return</span> (
     &lt;Show when={isOpen}&gt;
-      &lt;Portal mount={document.body}&gt;
+      &lt;Portal target={document.body}&gt;
         &lt;div className=<span class="string">"modal-overlay"</span> onClick={onClose}&gt;
           &lt;div className=<span class="string">"modal"</span> onClick={e =&gt; e.stopPropagation()}&gt;
             {children}
@@ -224,6 +233,8 @@ todos.set(t =&gt; t.map(item =&gt;
   );
 }</code></pre>
 
+          <p>The prop is <code>target</code>, and it takes an element or a CSS selector string (<code>target="#modal-root"</code>). A target that does not resolve is not an error: Portal simply renders nothing.</p>
+
           <p>Common uses for Portal:</p>
           <ul>
             <li>Modals and dialogs</li>
@@ -232,19 +243,36 @@ todos.set(t =&gt; t.map(item =&gt;
             <li>Notifications/toasts</li>
           </ul>
 
+          <p><code>&lt;Portal&gt;</code> is client-only. It returns <code>null</code> during server rendering, so its content is absent from the server HTML. Hydrating a tree that contains one creates the portal on the client, in its target, and claims nothing at its own position, so the server's nodes on either side of it are left alone.</p>
+
           <h2 id="error-boundary">ErrorBoundary</h2>
           <p>Catch errors in child components:</p>
 
 <pre><code><span class="keyword">import</span> { ErrorBoundary } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
-&lt;ErrorBoundary fallback={(err, reset) =&gt; (
+&lt;ErrorBoundary fallback={({ error, reset }) =&gt; (
   &lt;div className=<span class="string">"error"</span>&gt;
-    &lt;p&gt;Something went wrong: {err.message}&lt;/p&gt;
+    &lt;p&gt;Something went wrong: {error.message}&lt;/p&gt;
     &lt;button onClick={reset}&gt;Try again&lt;/button&gt;
   &lt;/div&gt;
 )}&gt;
   &lt;RiskyComponent /&gt;
 &lt;/ErrorBoundary&gt;</code></pre>
+
+          <p>The fallback is called with a single object, <code>{ error, reset }</code>, so destructure it. Two positional parameters leave <code>reset</code> undefined and the retry button wired to nothing. There is also an optional <code>onError</code> prop for reporting the error somewhere.</p>
+
+          <p>Boundaries work server-side too. A child that throws during a server render puts the fallback in the HTML instead of taking down the whole page response, and the boundary emits its subtree with no wrapper element of its own. Hydration then claims that markup in place rather than rebuilding it: the nodes the server sent are the nodes the browser keeps, no mismatch is logged, and the siblings after the boundary keep their server nodes too. <code>&lt;Suspense&gt;</code> behaves the same way, because a lazy component whose chunk is still loading suspends on the server as well, so the server sends the spinner and hydration claims it. That is the shape of every lazy route on first load.</p>
+
+          <p>One case still rebuilds. If the boundary has children <em>before</em> the child that throws, the server sends only the fallback (children render as a unit, so nothing ahead of the thrower reaches the wire either), and on the client those earlier children hydrate first and consume the fallback's markup before the boundary is told an error happened. Nothing is left to reuse, so the boundary discards the region and builds the fallback fresh, logging one hydration mismatch on the way. The page is correct either way; what is lost is the reuse. This cannot be closed from the client, because the server does not mark which arm it rendered, so a boundary whose failing child is its first or only child reuses the server's fallback, and one with content ahead of the failure rebuilds it. Two further cases rebuild deliberately, so a boundary can never claim a node belonging to something else: when the server rendered nothing at that position, and when the node sitting there plainly disagrees with the fallback's root element.</p>
+
+          <p>The boundary is fully live after hydration, and <code>reset</code> swaps the children back in. Be precise about what "live" covers, though: <code>ErrorBoundary</code> catches an error thrown while a component is being <em>created</em>, meaning the component function body running. That includes components created after hydration, so flipping a signal that instantiates a failing child does swap in the fallback. It does <strong>not</strong> catch an error thrown from an event handler or from an effect. A click handler that throws is not caught, the fallback does not appear, and the error goes to the browser's own error handling. This is not a hydration limitation: a client-only render behaves identically. Handlers and effects that can fail have to catch their own errors and drive the UI from state you own, which is the ordinary signal pattern:</p>
+
+<pre><code><span class="keyword">const</span> failure = <span class="function">signal</span>(<span class="keyword">null</span>);
+
+&lt;button onClick={<span class="function">() =&gt;</span> {
+  <span class="keyword">try</span> { save(); } <span class="keyword">catch</span> (e) { failure.set(e.message); }
+}}&gt;Save&lt;/button&gt;
+{<span class="function">() =&gt;</span> failure() ? &lt;p className=<span class="string">"error"</span>&gt;{failure()}&lt;/p&gt; : <span class="keyword">null</span>}</code></pre>
 
           <h2 id="comparison">Comparison with Plain JS</h2>
 
@@ -264,7 +292,7 @@ todos.set(t =&gt; t.map(item =&gt;
               </tr>
               <tr>
                 <td>List</td>
-                <td><code>{items.map(i =&gt; &lt;Li/&gt;)}</code></td>
+                <td><code>{() =&gt; items().map(i =&gt; &lt;Li key={i.id}/&gt;)}</code></td>
                 <td><code>&lt;For each={items}&gt;{i =&gt; &lt;Li/&gt;}&lt;/For&gt;</code></td>
               </tr>
               <tr>
@@ -277,7 +305,8 @@ todos.set(t =&gt; t.map(item =&gt;
 
           <div class="callout callout-success">
             <p class="callout-title">When to use components vs plain JS</p>
-            <p>Control flow components are optimized for reactive updates and provide better semantics. Use them when the condition depends on signals. For static conditions known at render time, plain JS works fine.</p>
+            <p>Control flow components read better than nested expressions, and the framework owns the swap rather than your ternary. Use them when the condition depends on signals. For static conditions known at render time, plain JS works fine.</p>
+            <p>Lists are the exception. A reactive <code>.map()</code> with a <code>key</code> prop is the form the compiler lowers to keyed reconciliation, so it is the default What idiom, and a dev build prints a compiler advisory pointing at it for any file that uses a <code>&lt;For&gt;</code>. Reach for <code>&lt;For&gt;</code> when you want signal-wrapped item accessors.</p>
           </div>
 
           <div class="page-nav">

@@ -166,7 +166,9 @@ export async function navigate(to, opts = {}) {
   const doNavigation = () => {
     // Skip history manipulation on popstate (browser already updated the URL)
     if (!_fromPopstate) {
-      // Save scroll position for current URL before navigating away
+      // Save scroll position for current URL before navigating away.
+      // Full URL as the key, { x, y } as the value: see scrollPositions below,
+      // every writer and the reader must agree on both.
       if (typeof window !== 'undefined') {
         scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
       }
@@ -716,32 +718,95 @@ export function prefetch(href) {
 
 // --- Scroll Restoration ---
 
+// Saved viewport offsets. ONE key (the full URL: path + search + hash) and ONE
+// shape ({ x, y }) shared by every writer and by the reader below.
+//
+// They used to disagree on both. navigate() and the popstate handler wrote
+// { x, y } keyed by the full URL, while enableScrollRestoration()'s own
+// beforeunload handler wrote a bare NUMBER keyed by location.pathname, and the
+// restore effect looked the entry up by route.path (the pattern-stripped path,
+// never the query or the hash) and handed it straight to
+// `window.scrollTo(0, savedPosition)`. A hit on a { x, y } record therefore
+// produced `scrollTo(0, NaN)`, which browsers normalize to 0 and which jumps
+// the page to the TOP; a URL carrying a query string or a hash missed the
+// lookup entirely and got the same jump. Restoration could not work at all.
+// If you add a writer, key it by the full URL and store { x, y }.
 const scrollPositions = new Map();
 
 export function enableScrollRestoration() {
   if (typeof window === 'undefined') return;
 
-  // Save scroll position before navigation
-  window.addEventListener('beforeunload', () => {
-    scrollPositions.set(location.pathname, window.scrollY);
-  });
+  // There is deliberately no beforeunload writer. scrollPositions is an
+  // in-memory Map that dies with the document, so anything written while the
+  // page is unloading can never be read back. The only case where the write
+  // survived is the one where the document does NOT go away (the user cancels
+  // the "leave site?" prompt), and there it poisoned the map with an entry of
+  // the wrong shape under the wrong key. Restoring scroll across a RELOAD is
+  // the browser's job (history.scrollRestoration), and the first-run guard
+  // below is what keeps this effect out of its way.
 
-  // Restore scroll position after navigation
+  // The effect's first run is the URL the document loaded with, not a
+  // navigation this router performed: the browser has already positioned the
+  // document (top for a fresh load, the previous offset for a reload or a
+  // document-recreating back). Scrolling to the top there would undo exactly
+  // the restoration the comment above defers to. Nothing else is affected,
+  // because scrollPositions is necessarily empty on the first run, so the
+  // guard can only ever suppress the scroll-to-top branch.
+  let firstRun = true;
+
+  // Restore the saved position after each committed navigation. Reading
+  // route.url subscribes to the URL signal, so this re-runs for query-only and
+  // hash-only changes too, which is the granularity the map is keyed at.
   effect(() => {
-    const path = route.path;
-    const savedPosition = scrollPositions.get(path);
+    const url = route.url;
+    const saved = scrollPositions.get(url);
+    // Read inside the effect, not inside the frame callback: by the time the
+    // frame runs another navigation may already have moved the URL on. Same
+    // reason the first-run latch is consumed here rather than in the frame.
+    const hash = route.hash;
+    const isFirstRun = firstRun;
+    firstRun = false;
 
     requestAnimationFrame(() => {
-      if (savedPosition !== undefined) {
-        window.scrollTo(0, savedPosition);
-      } else if (route.hash) {
-        const el = document.querySelector(route.hash);
+      // Hash BEFORE saved, and the order is load-bearing. A URL carrying a
+      // hash is a request for a specific ELEMENT, and it outranks any offset
+      // saved under that same URL: clicking a "/guide#api" link a second time
+      // has to land on #api, not on wherever the user happened to be standing
+      // the last time they left /guide#api. Because navigate() keys the map by
+      // the full URL (hash included), checking `saved` first made this branch
+      // unreachable for every hash URL the user had already visited, and it
+      // also fought navigate()'s own same-page hash handling: that path
+      // scrollIntoViews the anchor synchronously, and a `saved` hit here
+      // clobbered it one frame later.
+      if (hash) {
+        // Deferred to the frame because an SSR-less deep link renders the
+        // target element after the URL commits, so it does not exist yet here.
+        const el = queryFragment(hash);
+        // No fallback when the anchor is missing: it may simply not have
+        // rendered yet, and yanking the page to the top (or to some unrelated
+        // saved offset) is the worse answer to "I asked for #api".
         el?.scrollIntoView();
-      } else {
+      } else if (saved) {
+        window.scrollTo(saved.x, saved.y);
+      } else if (!isFirstRun) {
         window.scrollTo(0, 0);
       }
     });
   });
+}
+
+// Resolve a URL fragment to its element. A fragment is an id, and an id is not
+// necessarily a valid CSS selector: "#1" is legal HTML that browsers navigate
+// to happily, while querySelector('#1') THROWS "Invalid selector". The throw
+// happened inside a requestAnimationFrame callback, where nothing could catch
+// it, so a single numeric anchor took out the frame as an uncaught error.
+function queryFragment(hash) {
+  try {
+    return document.querySelector(hash);
+  } catch {
+    // Not selector-parseable, so ask the way the browser itself does.
+    return document.getElementById(hash.slice(1));
+  }
 }
 
 // --- View Transition Helpers ---

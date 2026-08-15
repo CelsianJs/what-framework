@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Effects — What Framework</title>
+  <title>Effects · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -109,14 +109,14 @@
   console.log(<span class="string">'Count is now:'</span>, count());
 });
 
-count.set(<span class="number">5</span>);  <span class="comment">// Logs: "Count is now: 5"</span></code></pre>
+count.set(<span class="number">5</span>);  <span class="comment">// Logs "Count is now: 5" on the next microtask</span></code></pre>
 
           <h2 id="how-effects-work">How Effects Work</h2>
           <p>When you create an effect:</p>
           <ol>
             <li>The function runs immediately</li>
             <li>What tracks which signals are read during execution</li>
-            <li>When any of those signals change, the effect re-runs</li>
+            <li>When any of those signals change, the effect is queued and re-runs on the next microtask</li>
           </ol>
 
 <pre><code><span class="keyword">const</span> a = <span class="function">signal</span>(<span class="number">1</span>);
@@ -126,8 +126,15 @@ count.set(<span class="number">5</span>);  <span class="comment">// Logs: "Count
   console.log(a() + b());  <span class="comment">// Tracks both a and b</span>
 });
 
-a.set(<span class="number">10</span>);  <span class="comment">// Effect re-runs, logs 12</span>
-b.set(<span class="number">20</span>);  <span class="comment">// Effect re-runs, logs 30</span></code></pre>
+a.set(<span class="number">10</span>);
+b.set(<span class="number">20</span>);
+<span class="comment">// Nothing logged yet. One re-run on the next microtask, logging 30</span></code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">When effects run</p>
+            <p>Only the very first run is synchronous. After that a write queues the effect and the queue is drained on the next microtask, so several writes in the same tick produce a single re-run with the final values. Wrap the writes in <code>batch()</code> to have that run happen before the block returns, or call <code>flushSync()</code> to drain the queue on the spot. Both are exported from <code>what-framework</code>.</p>
+            <p>Do not build anything on top of the exact timing. What promotes some single-dependency effects to a faster inline path once their dependency set is proven stable, so an effect that ran on a microtask earlier may run synchronously later. In a test, always <code>await</code> a microtask or call <code>flushSync()</code> before asserting.</p>
+          </div>
 
           <div class="callout callout-info">
             <p class="callout-title">No dependency arrays</p>
@@ -156,6 +163,22 @@ b.set(<span class="number">20</span>);  <span class="comment">// Effect re-runs,
             <li>Closing connections</li>
           </ul>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">An effect in a component is not disposed for you</p>
+            <p><code>effect()</code> returns a dispose function, and inside a component nothing calls it: the effect (and its cleanup) keeps running after the component unmounts. Register the disposer yourself, or use <code>useEffect</code>, which registers itself with the component.</p>
+<pre><code><span class="keyword">import</span> { effect, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Widget</span>({ userId }) {
+  <span class="keyword">const</span> dispose = <span class="function">effect</span>(() =&gt; {
+    console.log(<span class="string">'watching'</span>, userId());
+  });
+  <span class="function">onCleanup</span>(dispose);
+
+  <span class="keyword">return</span> &lt;div /&gt;;
+}</code></pre>
+            <p>A module-scope effect has no component to belong to and lives for the life of the page. That is by design, and most of the examples below are that kind.</p>
+          </div>
+
           <h2 id="practical-examples">Practical Examples</h2>
 
           <h3>Document Title</h3>
@@ -175,15 +198,24 @@ b.set(<span class="number">20</span>);  <span class="comment">// Effect re-runs,
 
 <span class="function">effect</span>(() =&gt; {
   <span class="keyword">const</span> id = userId();
+  <span class="keyword">const</span> controller = <span class="keyword">new</span> AbortController();
   loading.set(<span class="keyword">true</span>);
 
-  fetch(<span class="string">`/api/users/${id}`</span>)
+  fetch(<span class="string">`/api/users/${id}`</span>, { signal: controller.signal })
     .then(r =&gt; r.json())
     .then(data =&gt; {
       user.set(data);
       loading.set(<span class="keyword">false</span>);
+    })
+    .catch(err =&gt; {
+      <span class="keyword">if</span> (err.name !== <span class="string">'AbortError'</span>) loading.set(<span class="keyword">false</span>);
     });
+
+  <span class="comment">// Abort the in-flight request before the next run</span>
+  <span class="keyword">return</span> () =&gt; controller.abort();
 });</code></pre>
+
+          <p>Without the abort, a slow response for the old <code>userId</code> can land after a fast one for the new <code>userId</code> and overwrite it. For anything beyond a demo, reach for <code>createResource</code>, <code>useQuery</code> or <code>useSWR</code>, which handle aborting, loading state and errors for you. See <a href="./data-fetching.html">Data Fetching</a>.</p>
 
           <h3>Local Storage Sync</h3>
 <pre><code><span class="keyword">const</span> theme = <span class="function">signal</span>(
@@ -193,6 +225,8 @@ b.set(<span class="number">20</span>);  <span class="comment">// Effect re-runs,
 <span class="function">effect</span>(() =&gt; {
   localStorage.setItem(<span class="string">'theme'</span>, theme());
 });</code></pre>
+
+          <p>This one and the document-title example above both touch browser globals at module scope, and an effect body runs the moment the module is evaluated. If the same module is ever imported on the server that throws before any component renders, so guard the access (<code>typeof localStorage !== 'undefined'</code>) or move the work into <a href="./lifecycle.html"><code>onMount</code></a>, which never runs on the server.</p>
 
           <h3>Debounced Search</h3>
 <pre><code><span class="keyword">const</span> query = <span class="function">signal</span>(<span class="string">''</span>);
@@ -280,8 +314,8 @@ details.set(<span class="string">'newer'</span>);  <span class="comment">// Trig
             <li><strong>Keep effects focused.</strong> One effect, one purpose.</li>
             <li><strong>Always clean up.</strong> If you add a listener, remove it in cleanup.</li>
             <li><strong>Prefer computed for derived values.</strong> Effects are for side effects only.</li>
-            <li><strong>Don't modify signals you're reading.</strong> This can cause infinite loops.</li>
-            <li><strong>Never call <code>.set()</code> in the component body.</strong> Use event handlers, effects, or <a href="./lifecycle.html"><code>onMount</code></a>.</li>
+            <li><strong>Don't modify signals you're reading.</strong> An effect that writes a signal it also reads re-triggers itself, and What stops it with a loop warning. Use <code>peek()</code>, <code>untrack()</code>, or the updater form <code>count.set(c =&gt; c + 1)</code>, none of which subscribe.</li>
+            <li><strong>Dispose effects you create in a component.</strong> Pass the returned disposer to <code>onCleanup</code>, or use <code>useEffect</code>.</li>
             <li><strong>Use <code>onMount</code> for one-time setup.</strong> Don't use <code>effect</code> when you just need code to run once.</li>
             <li><strong>Handle errors.</strong> Wrap async code in try/catch.</li>
           </ul>

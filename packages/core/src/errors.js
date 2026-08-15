@@ -163,11 +163,18 @@ catch (e) { if (e.name === 'RouterRedirect') return Response.redirect(e.to, 302)
 // Structured error class with full context for agent consumption.
 
 export class WhatError extends Error {
-  constructor({ code, message, suggestion, file, line, component, signal, effect }) {
+  // codeExample carries the bad/good pair from the error's ERROR_CODES entry.
+  // Every entry above already had one; the class simply dropped it on the
+  // floor, so the field the docs promise on the serialized error was never
+  // there and `suggestion` had to carry the whole fix in prose. It matters more
+  // here than in a framework aimed at humans: the audience reading toJSON() is
+  // usually an agent, and a diff-shaped example is the part it can copy.
+  constructor({ code, message, suggestion, codeExample, file, line, component, signal, effect }) {
     super(message);
     this.name = 'WhatError';
     this.code = code;
     this.suggestion = suggestion;
+    this.codeExample = codeExample;
     this.file = file;
     this.line = line;
     this.component = component;
@@ -180,6 +187,7 @@ export class WhatError extends Error {
       code: this.code,
       message: this.message,
       suggestion: this.suggestion,
+      codeExample: this.codeExample,
       file: this.file,
       line: this.line,
       component: this.component,
@@ -214,6 +222,9 @@ export function createWhatError(errorCode, context = {}) {
     code: def.code,
     message,
     suggestion: def.suggestion,
+    // Verbatim from the definition: codeExample is a worked bad/good pair, not
+    // a template, so there is nothing in it to interpolate.
+    codeExample: def.codeExample,
     file: context.file,
     line: context.line,
     component: context.component,

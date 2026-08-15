@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Coming from React — What Framework</title>
+  <title>Coming from React</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -94,7 +94,7 @@
 
           <p>In React, when state changes, the <strong>entire component function re-runs</strong>. Every variable is recalculated, every expression is re-evaluated, and React diffs a tree of objects to figure out what changed in the DOM.</p>
 
-          <p>In What, component functions run <strong>once</strong>. Signals update the specific DOM nodes that depend on them — no intermediate representation, no diffing, no re-running the whole function. The compiler transforms JSX into direct DOM operations at build time.</p>
+          <p>In What, component functions run <strong>once</strong>. Signals update the specific DOM nodes that depend on them: no intermediate representation, no diffing, no re-running the whole function. The compiler transforms JSX into direct DOM operations at build time.</p>
 
           <p>This is faster, but it means some React patterns don't translate directly.</p>
 
@@ -107,7 +107,7 @@
 
           <h2 id="state">State: useState vs useSignal</h2>
 
-          <p>To ease the transition, What ships <code>useSignal</code> — a thin shim that mirrors React's <code>use*</code> naming. It's used throughout this page so the React↔What mapping stays one-to-one. The canonical API is plain <a href="#signal-vs-usesignal"><code>signal()</code></a>, which works everywhere and returns the same object; reach for it once the hook habit fades.</p>
+          <p>To ease the transition, What ships <code>useSignal</code>, a thin shim that mirrors React's <code>use*</code> naming. It's used throughout this page so the React↔What mapping stays one-to-one. The canonical API is plain <a href="#signal-vs-usesignal"><code>signal()</code></a>, which works everywhere and returns the same object; reach for it once the hook habit fades.</p>
 
           <table>
             <thead>
@@ -123,7 +123,7 @@
               </tr>
               <tr>
                 <td><code>x</code> (read)</td>
-                <td><code>x()</code> (read — call it like a function)</td>
+                <td><code>x()</code> (read, call it like a function)</td>
               </tr>
               <tr>
                 <td><code>setX(5)</code></td>
@@ -152,11 +152,11 @@
 
           <p>This is the #1 thing that trips up React developers.</p>
 
-          <p>In React, <code>const doubled = count * 2</code> just works because the whole function re-runs on every state change — <code>doubled</code> gets recalculated every time.</p>
+          <p>In React, <code>const doubled = count * 2</code> just works because the whole function re-runs on every state change: <code>doubled</code> gets recalculated every time.</p>
 
           <p>In What, the component function runs <strong>once</strong>. So <code>const doubled = count() * 2</code> evaluates to a plain number at creation time and <strong>never updates</strong>:</p>
 
-<pre><code><span class="comment">// BROKEN — doubled is a dead number, computed once, never updates</span>
+<pre><code><span class="comment">// BROKEN: doubled is a dead number, computed once, never updates</span>
 <span class="keyword">function</span> <span class="function">App</span>() {
   <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
   <span class="keyword">const</span> doubled = count() * <span class="number">2</span>;  <span class="comment">// Evaluates to 0, stays 0 forever</span>
@@ -166,7 +166,7 @@
 
           <p>Use <code>useComputed</code> to create a derived signal that tracks its dependencies and updates automatically:</p>
 
-<pre><code><span class="comment">// CORRECT — useComputed tracks count and re-derives when it changes</span>
+<pre><code><span class="comment">// CORRECT: useComputed tracks count and re-derives when it changes</span>
 <span class="keyword">function</span> <span class="function">App</span>() {
   <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
   <span class="keyword">const</span> doubled = <span class="function">useComputed</span>(() =&gt; count() * <span class="number">2</span>);
@@ -177,7 +177,7 @@
           <div class="callout callout-info">
             <p class="callout-title">When do you need useComputed?</p>
             <p>If you're computing a value from signals and need to use it in <strong>multiple places</strong> or pass it to child components, use <code>useComputed</code>. It caches the result and only recomputes when dependencies change.</p>
-            <p>For simple expressions used only once in JSX, the compiler handles reactivity automatically — <code>{count() * 2}</code> works directly in JSX because the compiler wraps it.</p>
+            <p>For simple expressions used only once in JSX, the compiler handles reactivity automatically: <code>{count() * 2}</code> works directly in JSX because <code>what-compiler</code> wraps it in an effect. That is the default setup <code>create-what</code> scaffolds, and it is what every sample on this page assumes. Without the compiler (the buildless full-stack template, which uses <code>h()</code> rather than JSX) the same expression is evaluated once and never updates, so write it as a thunk instead: <code>h('p', {}, () =&gt; count() * 2)</code>.</p>
           </div>
 
           <h3>The rule</h3>
@@ -205,18 +205,18 @@
             </tbody>
           </table>
 
-          <h2 id="set-in-body">Never Call .set() in the Component Body</h2>
+          <h2 id="set-in-body">Writing a Signal in the Component Body</h2>
 
-          <p>In React, calling <code>setState</code> during render is bad practice but React catches it and shows a warning. In What, it's an <strong>instant infinite loop</strong>:</p>
+          <p>In React, calling <code>setState</code> during render is bad practice but React catches it and shows a warning. What has no render pass to re-enter: the component body runs exactly once, inside <code>untrack()</code>, so a write there cannot re-trigger the component. It is not an error and it is not a loop, it is just a slower way of writing the initial value:</p>
 
-<pre><code><span class="comment">// INFINITE LOOP — don't do this</span>
-<span class="keyword">function</span> <span class="function">Broken</span>() {
+<pre><code><span class="comment">// REDUNDANT, not broken. The body runs once, so this renders 1</span>
+<span class="keyword">function</span> <span class="function">Redundant</span>() {
   <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
-  count.set(c =&gt; c + <span class="number">1</span>);  <span class="comment">// Signal updates → component re-runs → set again → forever</span>
+  count.set(c =&gt; c + <span class="number">1</span>);  <span class="comment">// Runs once. No re-render, no loop.</span>
   <span class="keyword">return</span> &lt;p&gt;{count()}&lt;/p&gt;;
 }</code></pre>
 
-          <p>Signal writes always go in one of these places:</p>
+          <p>Give the signal the value you actually want (<code>useSignal(1)</code>) and keep the body free of writes, so the component reads as a description of its starting state. Signal writes that depend on something belong in one of these places:</p>
 
 <pre><code><span class="comment">// 1. Event handlers</span>
 &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">1</span>)}&gt;+1&lt;/button&gt;
@@ -237,18 +237,18 @@
 
           <p>React effects require you to list dependencies manually:</p>
 
-<pre><code><span class="comment">// React — you manage the deps array</span>
+<pre><code><span class="comment">// React: you manage the deps array</span>
 useEffect(() =&gt; {
   document.title = <span class="string">`Count: ${count}`</span>;
 }, [count]);  <span class="comment">// Must list count or it won't re-run</span></code></pre>
 
-          <p>What effects <strong>auto-track</strong> — any signal read inside the effect becomes a dependency automatically:</p>
+          <p>What effects <strong>auto-track</strong>: any signal read inside the effect becomes a dependency automatically:</p>
 
-<pre><code><span class="comment">// What — no deps array needed</span>
+<pre><code><span class="comment">// What: no deps array needed</span>
 <span class="function">effect</span>(() =&gt; {
   document.title = <span class="string">`Count: ${count()}`</span>;
   <span class="comment">// Automatically re-runs when count changes</span>
-  <span class="comment">// No dependency array — tracking is automatic</span>
+  <span class="comment">// No dependency array, tracking is automatic</span>
 });</code></pre>
 
           <div class="callout callout-info">
@@ -292,7 +292,7 @@ useEffect(() =&gt; {
               </tr>
               <tr>
                 <td><code>useEffect(() =&gt; { return cleanup }, [])</code></td>
-                <td><code>onMount(() =&gt; { return cleanup })</code></td>
+                <td><code>onMount(fn)</code> plus <code>onCleanup(cleanup)</code></td>
               </tr>
               <tr>
                 <td><code>useEffect(fn, [dep])</code></td>
@@ -304,6 +304,8 @@ useEffect(() =&gt; {
               </tr>
             </tbody>
           </table>
+
+          <p>One difference worth memorising: unlike React's <code>useEffect</code>, <code>onMount</code> <strong>ignores a function you return from it</strong>. The return value is dropped, so a React teardown ported one-to-one leaks its listener or timer silently. Register teardown with <code>onCleanup</code> instead, as below.</p>
 
 <pre><code><span class="keyword">import</span> { onMount, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
@@ -323,7 +325,7 @@ useEffect(() =&gt; {
 
           <h2 id="signal-vs-usesignal">signal() vs useSignal()</h2>
 
-          <p><code>signal()</code> is the canonical API — use it everywhere: module scope, inside components, and in stores. Because What components <strong>run once</strong>, a <code>signal()</code> declared in a component body executes exactly once (not per-render like a React hook), so there is no hook-ordering rule and no need for a separate component-only primitive.</p>
+          <p><code>signal()</code> is the canonical API. Use it everywhere: module scope, inside components, and in stores. Because What components <strong>run once</strong>, a <code>signal()</code> declared in a component body executes exactly once (not per-render like a React hook), so there is no hook-ordering rule and no need for a separate component-only primitive.</p>
 
           <table>
             <thead>
@@ -336,7 +338,7 @@ useEffect(() =&gt; {
             <tbody>
               <tr>
                 <td><code>signal(value)</code></td>
-                <td>Anywhere — module scope, components, stores</td>
+                <td>Anywhere: module scope, components, stores</td>
                 <td><strong>Canonical.</strong> Read with <code>count()</code>, write with <code>count(v)</code> (or the explicit <code>count.set(v)</code>)</td>
               </tr>
               <tr>
@@ -347,17 +349,17 @@ useEffect(() =&gt; {
             </tbody>
           </table>
 
-<pre><code><span class="comment">// Module-level signal — shared between all components</span>
+<pre><code><span class="comment">// Module-level signal: shared between all components</span>
 <span class="keyword">const</span> theme = <span class="function">signal</span>(<span class="string">'dark'</span>);
 
 <span class="keyword">function</span> <span class="function">Counter</span>() {
-  <span class="comment">// Component-level signal — runs once, local to this component</span>
+  <span class="comment">// Component-level signal: runs once, local to this component</span>
   <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
 
   <span class="keyword">return</span> &lt;button onClick={() =&gt; count(c =&gt; c + <span class="number">1</span>)}&gt;{count()}&lt;/button&gt;;
 }</code></pre>
 
-          <p>Rule of thumb: reach for <code>signal()</code> everywhere. <code>useSignal()</code> exists if you prefer the React <code>use*</code> naming inside components — it returns the same thing.</p>
+          <p>Rule of thumb: reach for <code>signal()</code> everywhere. <code>useSignal()</code> exists if you prefer the React <code>use*</code> naming inside components, and it returns the same thing.</p>
 
           <h2 id="quick-reference">Quick Reference</h2>
 
@@ -408,12 +410,12 @@ useEffect(() =&gt; {
               <tr>
                 <td><code>createContext</code></td>
                 <td><code>createContext</code></td>
-                <td>Same pattern</td>
+                <td>Pass the signal to <code>Provider</code>, not its current value</td>
               </tr>
               <tr>
                 <td><code>useContext</code></td>
                 <td><code>useContext</code></td>
-                <td>Same API</td>
+                <td>Call it in the component body, never in a handler</td>
               </tr>
               <tr>
                 <td><code>Suspense</code></td>
@@ -428,53 +430,84 @@ useEffect(() =&gt; {
             </tbody>
           </table>
 
+          <h3>Context: two rules the run-once model adds</h3>
+
+          <p>The names match React, but the run-once model changes how you feed and read a context. A <code>Provider</code> body also runs once, so a <code>value</code> computed from a signal is captured at that moment and never refreshed. Pass the <strong>signal itself</strong> and let the consumer call it. And read the context during the component body: <code>useContext</code> called inside an event handler has no component to walk up from, so it returns the context's default value and logs a warning.</p>
+
+<pre><code><span class="comment">// BROKEN: value is read once, consumers never see a change</span>
+&lt;Theme.Provider value={theme()}&gt;&lt;Panel /&gt;&lt;/Theme.Provider&gt;;
+
+<span class="comment">// CORRECT: hand over the signal itself</span>
+&lt;Theme.Provider value={theme}&gt;&lt;Panel /&gt;&lt;/Theme.Provider&gt;;
+
+<span class="keyword">function</span> <span class="function">Panel</span>() {
+  <span class="keyword">const</span> theme = <span class="function">useContext</span>(Theme);  <span class="comment">// read in the body</span>
+  <span class="keyword">const</span> onClick = () =&gt; console.log(theme());  <span class="comment">// close over it</span>
+
+  <span class="keyword">return</span> &lt;div onClick={onClick}&gt;{() =&gt; theme()}&lt;/div&gt;;
+}</code></pre>
+
           <h2 id="common-mistakes">Common Mistakes from React Habits</h2>
 
           <h3>1. Forgetting to call the signal</h3>
-<pre><code><span class="comment">// React habit — count is already a value</span>
+<pre><code><span class="comment">// React habit: count is already a value</span>
 &lt;p&gt;{count}&lt;/p&gt;
 
-<span class="comment">// What — count is a function, call it</span>
+<span class="comment">// What: count is a function, call it</span>
 &lt;p&gt;{count()}&lt;/p&gt;</code></pre>
 
           <h3>2. Inline math without useComputed</h3>
-<pre><code><span class="comment">// React habit — works because component re-runs</span>
+<pre><code><span class="comment">// React habit: works because component re-runs</span>
 <span class="keyword">const</span> doubled = count * <span class="number">2</span>;
 
-<span class="comment">// What — need useComputed for derived values</span>
+<span class="comment">// What: need useComputed for derived values</span>
 <span class="keyword">const</span> doubled = <span class="function">useComputed</span>(() =&gt; count() * <span class="number">2</span>);</code></pre>
 
-          <h3>3. Calling .set() in the component body</h3>
-<pre><code><span class="comment">// Infinite loop in What</span>
+          <h3>3. Writing a signal in the component body</h3>
+<pre><code><span class="comment">// Harmless but pointless. The body runs once, so this is a slow useSignal(1)</span>
 <span class="keyword">function</span> <span class="function">Bad</span>() {
   <span class="keyword">const</span> x = <span class="function">useSignal</span>(<span class="number">0</span>);
-  x.set(<span class="number">1</span>);  <span class="comment">// Triggers re-render → set → re-render → forever</span>
+  x.set(<span class="number">1</span>);
   <span class="keyword">return</span> &lt;p&gt;{x()}&lt;/p&gt;;
 }
 
-<span class="comment">// Use onMount for initialization</span>
+<span class="comment">// Start the signal at the value you want</span>
 <span class="keyword">function</span> <span class="function">Good</span>() {
-  <span class="keyword">const</span> x = <span class="function">useSignal</span>(<span class="number">0</span>);
-  <span class="function">onMount</span>(() =&gt; x.set(<span class="number">1</span>));
+  <span class="keyword">const</span> x = <span class="function">useSignal</span>(<span class="number">1</span>);
   <span class="keyword">return</span> &lt;p&gt;{x()}&lt;/p&gt;;
 }</code></pre>
 
           <h3>4. Adding unnecessary dependency arrays</h3>
-<pre><code><span class="comment">// React habit — manually listing deps</span>
+<pre><code><span class="comment">// React habit: manually listing deps</span>
 <span class="function">effect</span>(() =&gt; {
   document.title = count();
 }, [count]);  <span class="comment">// ← Not needed, and doesn't do what you think</span>
 
-<span class="comment">// What — just use the signal, tracking is automatic</span>
+<span class="comment">// What: just use the signal, tracking is automatic</span>
 <span class="function">effect</span>(() =&gt; {
   document.title = count();
 });</code></pre>
 
           <h2 id="react-compat">Using React Libraries in What</h2>
 
-          <p>You don't have to choose between What and the React ecosystem. The <code>what-react</code> compat layer lets you use React libraries (zustand, TanStack Query, Radix UI, and <a href="https://react.whatfw.com">many more</a>) directly in What components:</p>
+          <p>You don't have to choose between What and the React ecosystem. The <code>what-react</code> compat layer runs real React libraries on What's engine. The libraries verified end to end (headless browser plus CI) are zustand, TanStack Query, react-hook-form, react-hot-toast, Headless UI, Framer Motion and Recharts. Anything beyond those seven is plausible but untested on the current runtime, so treat it as unverified until you have tried it.</p>
 
-<pre><code><span class="keyword">import</span> { mount, useSignal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+          <div class="callout callout-warning">
+            <p class="callout-title">Inside a compat component, React semantics apply, not What's</p>
+            <p>Compat works by aliasing every <code>react</code> and <code>react-dom</code> import to <code>what-react</code> and pointing JSX at the React runtime, for the whole project. Inside a compat component the rules above do not apply: hooks return values rather than accessors, and a bare <code>{count()}</code> renders once and never updates. Compat components are also client-only and cannot be server-rendered.</p>
+          </div>
+
+<pre><code><span class="comment">// vite.config.js: reactCompat() sets up the aliases and the JSX runtime</span>
+<span class="keyword">import</span> { defineConfig } <span class="keyword">from</span> <span class="string">'vite'</span>;
+<span class="keyword">import</span> { reactCompat } <span class="keyword">from</span> <span class="string">'what-react/vite'</span>;
+
+<span class="keyword">export</span> <span class="keyword">default</span> <span class="function">defineConfig</span>({
+  plugins: [<span class="function">reactCompat</span>()],
+});</code></pre>
+
+          <p>With that in place, the component is ordinary React code and the library works untouched:</p>
+
+<pre><code><span class="keyword">import</span> { mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 <span class="keyword">import</span> { create } <span class="keyword">from</span> <span class="string">'zustand'</span>;
 
 <span class="keyword">const</span> useStore = <span class="function">create</span>((set) =&gt; ({
@@ -486,12 +519,13 @@ useEffect(() =&gt; {
   <span class="keyword">const</span> count = <span class="function">useStore</span>((s) =&gt; s.count);
   <span class="keyword">const</span> increment = <span class="function">useStore</span>((s) =&gt; s.increment);
 
+  <span class="comment">// React semantics: count is a number, not an accessor</span>
   <span class="keyword">return</span> &lt;button onClick={increment}&gt;{count}&lt;/button&gt;;
 }
 
 <span class="function">mount</span>(&lt;App /&gt;, <span class="string">'#app'</span>);</code></pre>
 
-          <p>See the <a href="https://react.whatfw.com">React Compat docs</a> for setup instructions.</p>
+          <p>The fastest way to get a working project is <code>create-what</code> with React support enabled, which wires the plugin and ships this zustand demo. See the <a href="https://react.whatfw.com">React Compat docs</a> for the full verified matrix and the known limitations: no server rendering, a minimal <code>Suspense</code> that unmounts suspended subtrees (losing their state), and errors thrown inside effects being logged rather than routed to an error boundary.</p>
 
           <div class="page-nav">
             <a href="./">
@@ -511,7 +545,7 @@ useEffect(() =&gt; {
             <li><a href="#the-big-difference">The Big Difference</a></li>
             <li><a href="#state">useState vs useSignal</a></li>
             <li><a href="#derived-values">Why useComputed Exists</a></li>
-            <li><a href="#set-in-body">Never .set() in Body</a></li>
+            <li><a href="#set-in-body">.set() in the Body</a></li>
             <li><a href="#effects">Effects: Auto-Tracking</a></li>
             <li><a href="#lifecycle">onMount vs useEffect</a></li>
             <li><a href="#signal-vs-usesignal">signal() vs useSignal()</a></li>

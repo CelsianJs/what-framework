@@ -178,6 +178,43 @@ export default function whatBabelPlugin({ types: t }) {
     return /^[A-Z]/.test(name);
   }
 
+  // Build the Error for a JSX shape the compiler refuses to lower.
+  //
+  // Every fine-grained transform is reachable two ways: from the JSXElement
+  // visitor, where `path` is a real NodePath, and recursively from a parent
+  // transform, which passes a SYNTHETIC `{ node: child }` (see the
+  // transformElementFineGrained / transformFragmentFineGrained calls further
+  // down). Only the visitor's path carries buildCodeFrameError, so calling it
+  // unguarded threw "path.buildCodeFrameError is not a function" — an internal
+  // crash in place of the diagnostic the author was meant to act on. That hit
+  // the ordinary shapes, not the exotic ones: `<div><Show>…</Show></div>` is
+  // already synthetic, so only a control-flow tag that was the ENTIRE return
+  // value ever reported properly.
+  //
+  // Guarding the call is not enough either. `throw new Error(message)` reaches
+  // the developer, but with no file and no line, which for a build error in a
+  // 300-file app is barely better than the crash. state.file is Babel's File
+  // for the module being compiled and its buildCodeFrameError(node, msg) pins
+  // the frame from the node's own loc, so a synthetic path still gets the same
+  // pointed-at source the visitor path does.
+  function compileError(path, state, message) {
+    if (typeof path?.buildCodeFrameError === 'function') {
+      return path.buildCodeFrameError(message);
+    }
+    const node = path?.node;
+    if (node && typeof state?.file?.buildCodeFrameError === 'function') {
+      return state.file.buildCodeFrameError(node, message);
+    }
+    // No NodePath and no File (a direct unit-test call, or a node the parser
+    // never produced). Name the file and line by hand so the message still
+    // says where to look.
+    const loc = node?.loc?.start;
+    const filename = state?.filename || state?.file?.opts?.filename || '<unknown>';
+    return new Error(
+      `[what-compiler] ${message} (${loc ? `${filename}:${loc.line}:${loc.column + 1}` : filename})`
+    );
+  }
+
   // Dotted tags (<Ctx.Provider>, <Foo.Bar.Baz>) are always components.
   function isComponentElement(el) {
     const name = el.openingElement ? el.openingElement.name : el.name;
@@ -620,6 +657,111 @@ export default function whatBabelPlugin({ types: t }) {
     return false;
   }
 
+  // Names bound by a parameter pattern. Destructuring counts, so
+  // `({ id }, i) => <li key={id}>` binds `id` and a key of `id` resolves fine.
+  function collectPatternNames(node, out) {
+    if (!node || typeof node !== 'object') return out;
+    switch (node.type) {
+      case 'Identifier': out.add(node.name); break;
+      case 'AssignmentPattern': collectPatternNames(node.left, out); break;
+      case 'RestElement': collectPatternNames(node.argument, out); break;
+      case 'ArrayPattern':
+        for (const el of node.elements) collectPatternNames(el, out);
+        break;
+      case 'ObjectPattern':
+        for (const p of node.properties) {
+          collectPatternNames(p.type === 'RestElement' ? p.argument : p.value, out);
+        }
+        break;
+      default: break;
+    }
+    return out;
+  }
+
+  // The key function is extracted OUT of the map callback and rebuilt as
+  // `(item) => keyExpr`, taking only the first parameter. So any name the key
+  // expression gets from somewhere else inside the callback becomes a free
+  // variable in the emitted code. This collects exactly those names: the
+  // parameters after the first, and everything declared in the callback body
+  // that is in scope at the return.
+  //
+  // Nested function bodies are deliberately not descended into. Their bindings
+  // cannot reach the return expression, so counting them would reject keys that
+  // are perfectly fine. A nested function's own name is hoisted, so that one
+  // is collected.
+  function namesInvisibleToKeyFn(mapFn) {
+    const out = new Set();
+    for (let i = 1; i < mapFn.params.length; i++) collectPatternNames(mapFn.params[i], out);
+
+    const visit = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(visit); return; }
+      switch (node.type) {
+        case 'VariableDeclaration':
+          for (const d of node.declarations) collectPatternNames(d.id, out);
+          return;
+        case 'FunctionDeclaration':
+        case 'ClassDeclaration':
+          if (node.id) out.add(node.id.name);
+          return; // body is its own scope
+        case 'FunctionExpression':
+        case 'ArrowFunctionExpression':
+        case 'ClassExpression':
+          return; // own scope
+        case 'CatchClause':
+          collectPatternNames(node.param, out);
+          visit(node.body);
+          return;
+        case 'ForStatement':
+        case 'ForInStatement':
+        case 'ForOfStatement':
+          visit(node.init); visit(node.left); visit(node.body);
+          return;
+        default: break;
+      }
+      for (const k of Object.keys(node)) {
+        if (k === 'loc' || k === 'start' || k === 'end' || k === 'type' ||
+            k === 'leadingComments' || k === 'trailingComments' || k === 'innerComments') continue;
+        const v = node[k];
+        if (v && typeof v === 'object') visit(v);
+      }
+    };
+
+    if (t.isBlockStatement(mapFn.body)) visit(mapFn.body.body);
+
+    // The first parameter IS passed to the key function, so anything it binds
+    // stays visible even if a nested scope happens to reuse the name.
+    for (const name of collectPatternNames(mapFn.params[0], new Set())) out.delete(name);
+    return out;
+  }
+
+  // Does `node` reference any of `names` as a value? Property positions are
+  // skipped so `item.i` does not look like a use of `i`, but the check is
+  // otherwise deliberately generous: a false positive costs keyed
+  // reconciliation, a false negative ships a ReferenceError.
+  function referencesAny(node, names) {
+    if (names.size === 0) return null;
+    let found = null;
+    const visit = (n) => {
+      if (found || !n || typeof n !== 'object') return;
+      if (Array.isArray(n)) { n.forEach(visit); return; }
+      if (n.type === 'Identifier') {
+        if (names.has(n.name)) found = n.name;
+        return;
+      }
+      for (const k of Object.keys(n)) {
+        if (k === 'loc' || k === 'start' || k === 'end' || k === 'type' ||
+            k === 'leadingComments' || k === 'trailingComments' || k === 'innerComments') continue;
+        if (n.type === 'MemberExpression' && k === 'property' && !n.computed) continue;
+        if ((n.type === 'ObjectProperty' || n.type === 'ObjectMethod') && k === 'key' && !n.computed) continue;
+        const v = n[k];
+        if (v && typeof v === 'object') visit(v);
+      }
+    };
+    visit(node);
+    return found;
+  }
+
   // --- Auto-lower .map() to mapArray ---
   // Detects: source().map((item) => <Comp key={expr} .../>)
   // or wrapped in an arrow: () => source().map(...)
@@ -707,14 +849,23 @@ export default function whatBabelPlugin({ types: t }) {
       // JSX returned without a key — bail out, but warn at compile time so
       // users notice they're missing keyed reconciliation. Only warn in dev
       // (production builds are noiseless).
+      //
+      // The message names ERR_MISSING_KEY because that is the code the docs and
+      // the MCP `what_fix` tool already publish for this exact mistake. Without
+      // the code in the text there was nothing anywhere in the toolchain that
+      // ever emitted it, so an agent reading the warning had no way to reach
+      // the diagnosis and the worked example filed under that name. This is a
+      // BUILD-time report, not a runtime one: whether a list has keys is
+      // settled by the source, and the compiler is the only place that sees it.
       if (process.env.NODE_ENV !== 'production') {
         const loc = returnExpr.loc;
         const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
         const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
         console.warn(
-          `[what-compiler] .map() returning JSX without a \`key\` prop at ${fileName}${lineInfo}. ` +
+          `[what-compiler] ERR_MISSING_KEY: .map() returning JSX without a \`key\` prop at ${fileName}${lineInfo}. ` +
           `Without a key, the list cannot use keyed reconciliation — items are re-created on every update. ` +
-          `Add key={...} to enable efficient updates.`
+          `Add key={...} to enable efficient updates. ` +
+          `Run what_fix({ error: 'ERR_MISSING_KEY' }) for the worked example.`
         );
       }
       return null;
@@ -723,6 +874,60 @@ export default function whatBabelPlugin({ types: t }) {
     // Extract the key expression
     const keyValue = getAttributeValue(keyAttr.value);
     if (!keyValue) return null;
+
+    // The key function is rebuilt as `(item) => keyExpr` and hoisted out of the
+    // callback, so it only sees the first parameter. A key built from the index
+    // (`key={i}`, the pattern the tutorial itself taught) compiled to
+    // `key: t => i` with `i` free, and the failure was about as bad as it gets:
+    // the list rendered correctly the first time, then the reconciler threw
+    // `ReferenceError: i is not defined` inside its effect, the effect error
+    // handler swallowed it to a single console.error, and the list stayed
+    // frozen on its first render forever. Nothing visibly crashed. A key built
+    // from a variable declared in the callback body failed the same way.
+    //
+    // Falling back is also the semantically right answer, not just the safe
+    // one. A key derived from the index IS the position, so it carries no
+    // identity across an update: an item that moves gets a different key and
+    // reads as a different item. That is precisely what the unkeyed path
+    // already does, correctly and more cheaply, so hand it that.
+    const invisible = namesInvisibleToKeyFn(mapFn);
+    const unreachable = referencesAny(keyValue, invisible);
+    if (unreachable) {
+      // A BARE index key (`key={i}`, exactly the second parameter and nothing
+      // else) is deliberate and now behaves correctly, so it gets no warning.
+      // The author wrote "position is identity", positional reconciliation is
+      // precisely that, and there is no edit that would improve the output. The
+      // framework's own tutorial keys a fixed nine-square board this way, where
+      // it is not merely acceptable but the right answer, and a build-time
+      // warning on step two of a beginner tutorial reads as something being
+      // broken when nothing is.
+      //
+      // Everything else still warns, because everything else looks stable and is
+      // not: `key={`${t.type}-${i}`}` reads like a composite identity but changes
+      // the moment a row moves, and a key built from a variable declared in the
+      // callback body would have been a ReferenceError before this fallback
+      // existed. Those are worth interrupting someone over. A bare index is not.
+      const isBareIndex = t.isIdentifier(keyValue)
+        && mapFn.params[1]
+        && t.isIdentifier(mapFn.params[1], { name: keyValue.name });
+
+      if (!isBareIndex && process.env.NODE_ENV !== 'production') {
+        const loc = returnExpr.loc;
+        const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+        const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+        const usesIndex = mapFn.params[1] && t.isIdentifier(mapFn.params[1], { name: unreachable });
+        console.warn(
+          `[what-compiler] key={...} at ${fileName}${lineInfo} reads \`${unreachable}\`, which is not available ` +
+          `to the key function (it only receives the item). ` +
+          (usesIndex
+            ? `A key built from the index is the item's position, not its identity, so it cannot survive a reorder. `
+            : `\`${unreachable}\` is declared inside the map callback. `) +
+          `Falling back to positional reconciliation. Key by something stable on the item (key={item.id}) ` +
+          `to get keyed reconciliation.`
+        );
+      }
+      return null;
+    }
 
     // Remove the key prop from the JSX element (mapArray handles keying, not the DOM)
     returnExpr.openingElement.attributes = attrs.filter(a => a !== keyAttr);
@@ -1325,6 +1530,31 @@ export default function whatBabelPlugin({ types: t }) {
     return false;
   }
 
+  // Does `path` sit in a slot its parent only evaluates SOMETIMES?
+  //
+  // Used to decide whether a JSX root's setup statements may be hoisted out to
+  // the enclosing statement. Anything in one of these slots must not be: the
+  // source deliberately said "only build this when the guard opens", and the
+  // hoist turns that into "always build this".
+  //
+  // Only the slots that are genuinely skipped count. A logical expression's
+  // LEFT operand and a ternary's TEST always run, so JSX there is not guarded
+  // and keeps the cheaper hoist.
+  function isConditionallyEvaluated(path) {
+    const parent = path.parent;
+    if (!parent) return false;
+    if (t.isLogicalExpression(parent)) return path.key === 'right';
+    if (t.isConditionalExpression(parent)) {
+      return path.key === 'consequent' || path.key === 'alternate';
+    }
+    // `maybe?.render(<jsx/>)` skips its whole argument list when the chain
+    // short-circuits, so an argument is guarded; the callee/object is not.
+    if (t.isOptionalCallExpression(parent) || t.isOptionalMemberExpression(parent)) {
+      return path.key !== 'callee' && path.key !== 'object';
+    }
+    return false;
+  }
+
   // If `expr` is a conditional (ternary / && / ||) with a reactive test and a
   // DOM-producing branch, hoist the test into `const _c$N = _$memo(...)` (pushed
   // onto `statements`) and return the expression rewritten to read the memo.
@@ -1912,11 +2142,13 @@ export default function whatBabelPlugin({ types: t }) {
 
     let eachExpr = null;
     let keyExpr = null;
+    let fallbackExpr = null;
     for (const attr of attributes) {
       if (t.isJSXAttribute(attr)) {
         const name = getAttrName(attr);
         if (name === 'each') eachExpr = getAttributeValue(attr.value);
         else if (name === 'key') keyExpr = getAttributeValue(attr.value);
+        else if (name === 'fallback') fallbackExpr = getAttributeValue(attr.value);
       }
     }
 
@@ -1941,13 +2173,184 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     state.needsMapArray = true;
-    const args = [eachExpr, renderFn];
-    if (keyExpr) {
-      args.push(t.objectExpression([
-        t.objectProperty(t.identifier('key'), keyExpr)
-      ]));
+
+    // `_$mapArray(source, renderFn[, { key }])` — built from whichever source
+    // expression the caller wants, because the fallback lowering below has to
+    // read the source twice and therefore binds it to a const first.
+    const buildMapArrayCall = (sourceExpr) => {
+      const args = [sourceExpr, renderFn];
+      if (keyExpr) {
+        args.push(t.objectExpression([
+          t.objectProperty(t.identifier('key'), keyExpr)
+        ]));
+      }
+      return t.callExpression(t.identifier('_$mapArray'), args);
+    };
+
+    if (!fallbackExpr) {
+      return buildMapArrayCall(eachExpr);
     }
-    return t.callExpression(t.identifier('_$mapArray'), args);
+
+    // `fallback` used to be read by nobody: the loop above only looked at
+    // `each` and `key`, so the attribute was silently discarded. The RUNTIME
+    // For (packages/core/src/components.js) does implement it, so an app that
+    // moved from a buildless setup to the Vite compiler lost its empty state
+    // with nothing on the console.
+    //
+    // mapArray has no fallback of its own, and the obvious lowering — gate the
+    // WHOLE thing on emptiness, `() => empty() ? _$mapArray(...) : fallback` —
+    // is a trap. `insert()` has a fast path for a mapArray inserter: it
+    // recognises `child._mapArray` and installs the list ONCE for the life of
+    // the component. A thunk is not that, so the gated form falls through to
+    // the generic reactive branch, whose effect calls the thunk again on every
+    // flip and gets a BRAND NEW inserter each time. Nothing disposes the old
+    // one, so it stays subscribed to the source forever: every empty -> fill
+    // cycle permanently adds one more live list. Measured row-render-fn calls
+    // per two writes, over successive cycles, went 2 -> 9 -> 16 -> 23 while
+    // logging "NotFoundError: The child can not be found in the parent" from
+    // the orphans reconciling against the detached fragment they captured. The
+    // DOM stayed correct, which is why it looked fine.
+    //
+    // So keep the list permanent and give the fallback its OWN inserter beside
+    // it, both anchored to the same marker:
+    //     _$insert(el, _$mapArray(each, fn), marker)          // permanent
+    //     _$insert(el, () => empty() ? null : fallback, marker)
+    // Only one of the two ever has content, and each reconciles independently.
+    //
+    // This function has to return a single expression, and a <For> can land in
+    // a component's return, an element child, a component prop or a fragment.
+    // Rather than teach all of those to emit two inserts, wrap the pair in one
+    // inserter that performs both when it is mounted, and copy the list's own
+    // marker properties onto it with Object.assign so it IS a mapArray inserter
+    // to every consumer: `insert`, `createDOM`, `hydrateNode` and the server's
+    // `_mapArrayToArray` all key off `_mapArray` and the `_mapArraySource` /
+    // `_mapArrayFn` / `_mapArrayKeyed` trio. Object.assign copies exactly the
+    // own enumerable properties mapArray sets, so this keeps working if the
+    // runtime adds another one.
+    //
+    // Two more things this has to get right:
+    //  - The source expression is evaluated ONCE and shared, so the list and
+    //    the emptiness test can never disagree about which list they see.
+    //  - The emptiness test is MEMOIZED, so a write that leaves the list
+    //    non-empty does not re-run the fallback thunk and rebuild its DOM.
+    if (!state._pendingSetup) state._pendingSetup = [];
+    const forIndex = state.nextForIndex();
+    const eachId = `_each$${forIndex}`;
+    const listId = `_for$${forIndex}`;
+    const fallbackId = `_fb$${forIndex}`;
+    const emptyId = state.nextMemoId();
+    state.needsMemo = true;
+    state.needsInsert = true;
+
+    // `each` has to be a signal, or some other accessor. The typeof guard below
+    // is NOT plain-array support and must not be read as advertising any: it
+    // only keeps this memo total. `_$mapArray` calls its source, so
+    // `each={["a","b"]}` throws "source is not a function" the moment the list
+    // mounts — identically to the no-fallback lowering above, which hands the
+    // same value straight to `_$mapArray`. The guard is here so that failure
+    // arrives from the list, with that message, instead of from the emptiness
+    // test first with a less obvious one.
+    const resolvedId = path.scope
+      ? path.scope.generateUidIdentifier('list')
+      : t.identifier('_list');
+    const resolveList = t.conditionalExpression(
+      t.binaryExpression('===',
+        t.unaryExpression('typeof', t.identifier(eachId)),
+        t.stringLiteral('function')
+      ),
+      t.callExpression(t.identifier(eachId), []),
+      t.identifier(eachId)
+    );
+
+    state._pendingSetup.push(
+      t.variableDeclaration('const', [
+        t.variableDeclarator(t.identifier(eachId), eachExpr)
+      ]),
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier(emptyId),
+          t.callExpression(t.identifier('_$memo'), [
+            t.arrowFunctionExpression([], t.blockStatement([
+              t.variableDeclaration('const', [
+                t.variableDeclarator(resolvedId, resolveList)
+              ]),
+              t.returnStatement(
+                t.unaryExpression('!', t.unaryExpression('!',
+                  t.logicalExpression('&&',
+                    t.cloneNode(resolvedId),
+                    t.memberExpression(t.cloneNode(resolvedId), t.identifier('length'))
+                  )
+                ))
+              )
+            ]))
+          ])
+        )
+      ]),
+      t.variableDeclaration('const', [
+        t.variableDeclarator(t.identifier(listId), buildMapArrayCall(t.identifier(eachId)))
+      ]),
+      // The fallback thunk is hoisted rather than written inline in the
+      // inserter below so that the inserter's body mentions no user code at
+      // all. Its parameters can then be given fixed names without any risk of
+      // capturing an identifier the fallback expression wanted from an outer
+      // scope — this function is also called with a synthetic `{ node }` path
+      // that carries no scope to generate a unique name from.
+      t.variableDeclaration('const', [
+        t.variableDeclarator(
+          t.identifier(fallbackId),
+          t.arrowFunctionExpression([], t.conditionalExpression(
+            t.callExpression(t.identifier(emptyId), []),
+            t.nullLiteral(),
+            fallbackExpr
+          ))
+        )
+      ])
+    );
+
+    const parentParam = t.identifier('_parent');
+    const markerParam = t.identifier('_marker');
+    const endId = t.identifier('_end');
+    return t.callExpression(
+      t.memberExpression(t.identifier('Object'), t.identifier('assign')),
+      [
+        t.arrowFunctionExpression(
+          [parentParam, markerParam],
+          t.blockStatement([
+            // The list goes in first so its `<!--/list-->` end marker sits
+            // BEFORE the fallback: rows render above the empty state, and the
+            // return value stays the end marker every other mapArray inserter
+            // hands back.
+            t.variableDeclaration('const', [
+              t.variableDeclarator(endId, t.callExpression(t.identifier(listId), [
+                t.cloneNode(parentParam),
+                t.cloneNode(markerParam)
+              ]))
+            ]),
+            // The thunk is wrapped in an ARRAY on purpose. `insert()` has two
+            // ways to mount a function and only one of them survives here:
+            //  - passed bare, it takes insert's own reactive branch, whose
+            //    effect closes over the `parent` it was handed. When this
+            //    inserter is mounted through createDOM (a <For> as a component's
+            //    return value, at a fragment root, or inside a <Show> arm)
+            //    that parent is a throwaway DocumentFragment which is emptied
+            //    into the real container straight after. Every later run then
+            //    reconciles against a detached node, so the fallback was never
+            //    removed once rows arrived and stayed on screen underneath them.
+            //  - wrapped in an array, it goes through valuesToNodes -> createDOM,
+            //    whose reactive branch re-reads `endMarker.parentNode` on every
+            //    run. That is the same live-parent resolution mapArray does for
+            //    exactly this reason, so both halves survive being moved.
+            t.expressionStatement(t.callExpression(t.identifier('_$insert'), [
+              t.cloneNode(parentParam),
+              t.arrayExpression([t.identifier(fallbackId)]),
+              t.cloneNode(markerParam)
+            ])),
+            t.returnStatement(t.cloneNode(endId))
+          ])
+        ),
+        t.identifier(listId)
+      ]
+    );
   }
 
   function transformShowFineGrained(path, state) {
@@ -1971,8 +2374,13 @@ export default function whatBabelPlugin({ types: t }) {
     if (!whenExpr) {
       // <Show> without a when prop has no defined semantics — fail loudly at
       // build time so the user fixes their source instead of seeing runtime
-      // confusion. buildCodeFrameError pins the error to the JSX location.
-      throw path.buildCodeFrameError(
+      // confusion. compileError pins the message to the JSX location from
+      // either a real NodePath or the synthetic `{ node }` a parent transform
+      // passes; calling path.buildCodeFrameError directly crashed on the
+      // second, which is the shape almost every real <Show> arrives as.
+      throw compileError(
+        path,
+        state,
         '<Show> requires a "when" prop. Example: <Show when={isOpen} fallback={null}>...</Show>'
       );
     }
@@ -1988,7 +2396,22 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     if (!contentExpr) {
-      // Static children — collect and transform them
+      // Static children — collect and transform them.
+      //
+      // The arm's element setup belongs INSIDE the arm, exactly as it does for
+      // a <Match> arm (see the identical splice in transformSwitchFineGrained).
+      // transformElementFineGrained pushes `const _el$N = _tmpl$X()` and every
+      // binding it needs into state._pendingSetup, and _pendingSetup is drained
+      // next to the thunk this function returns. So without the splice the arm
+      // was built, and its bindings ran, alongside the enclosing component:
+      //   <Show when={user}><p>{() => user().name}</p></Show>
+      // threw at first render with a null user, and logged an uncaught effect
+      // error on every transition back to falsy because the binding stayed
+      // subscribed. Uncompiled, the same JSX is lazy — children of the runtime
+      // Show really are deferred — so this was a compiled-vs-runtime
+      // divergence, not just a bug.
+      if (!state._pendingSetup) state._pendingSetup = [];
+      const setupMark = state._pendingSetup.length;
       const transformedChildren = [];
       for (const child of children) {
         if (t.isJSXText(child)) {
@@ -2004,6 +2427,13 @@ export default function whatBabelPlugin({ types: t }) {
         contentExpr = t.arrayExpression(transformedChildren);
       } else {
         contentExpr = t.nullLiteral();
+      }
+      const setup = state._pendingSetup.splice(setupMark);
+      if (setup.length > 0) {
+        contentExpr = t.callExpression(
+          t.arrowFunctionExpression([], t.blockStatement([...setup, t.returnStatement(contentExpr)])),
+          []
+        );
       }
     }
 
@@ -2133,12 +2563,16 @@ export default function whatBabelPlugin({ types: t }) {
     }
 
     const unsupported = (why) => {
-      const message =
+      // The guard this used to carry (`path.buildCodeFrameError ? … : new
+      // Error(…)`) did keep the message reaching the developer from a
+      // synthetic path, but dropped the file and the line with it. compileError
+      // keeps both.
+      throw compileError(
+        path,
+        state,
         `<Switch> ${why}. The compiler needs to read its arms statically. ` +
-        'Write them out: <Switch fallback={...}><Match when={a}>…</Match><Match when={b}>…</Match></Switch>';
-      throw path.buildCodeFrameError
-        ? path.buildCodeFrameError(message)
-        : new Error(`[what-compiler] ${message}`);
+        'Write them out: <Switch fallback={...}><Match when={a}>…</Match><Match when={b}>…</Match></Switch>'
+      );
     };
 
     let fallbackExpr = null;
@@ -2374,10 +2808,19 @@ export default function whatBabelPlugin({ types: t }) {
       // hoist references to closure variables out of scope.
       let stmtPath = path;
       let crossedFunctionBoundary = false;
+      // Setup hoisted out of a guard runs whether the guard opens or not.
+      // `return user() && <p>{user().name}</p>` is the React shape everybody
+      // writes, and hoisting built the <p> and ran `() => user().name` at
+      // mount, so the very first render threw on a null user. Same for a
+      // ternary arm and for a guarded arm sitting in a component prop.
+      // A guarded arm has to be CONSTRUCTED INSIDE its guard, which is exactly
+      // what the IIFE path below does.
+      let crossedGuard = false;
       while (stmtPath && !stmtPath.isStatement()) {
         if (stmtPath.isArrowFunctionExpression() || stmtPath.isFunctionExpression()) {
           crossedFunctionBoundary = true;
         }
+        if (isConditionallyEvaluated(stmtPath)) crossedGuard = true;
         stmtPath = stmtPath.parentPath;
       }
       // We can safely hoist setup as siblings of `stmtPath` ONLY if
@@ -2398,15 +2841,16 @@ export default function whatBabelPlugin({ types: t }) {
         && stmtPath.isStatement()
         && (stmtPath.listKey === 'body' || stmtPath.listKey === 'consequent')
         && Array.isArray(stmtPath.container);
-      if (inStatementList && !crossedFunctionBoundary) {
+      if (inStatementList && !crossedFunctionBoundary && !crossedGuard) {
         // Same function scope — safe to hoist setup before the enclosing
         // statement. Works for return statements too: `insertBefore`
         // places setup above `return <jsx/>` without wrapping in an IIFE.
         stmtPath.insertBefore(pending);
         path.replaceWith(transformed);
       } else {
-        // Crossed a function boundary or no enclosing statement found —
-        // fall back to IIFE so closure variables remain in scope.
+        // Crossed a function boundary or a guard, or no enclosing statement
+        // was found — fall back to IIFE, which keeps closure variables in
+        // scope AND keeps the construction where the source put it.
         pending.push(t.returnStatement(transformed));
         path.replaceWith(
           t.callExpression(
@@ -2562,9 +3006,16 @@ export default function whatBabelPlugin({ types: t }) {
           state.templateCount = 0;
           state._varCounter = 0;
           state._memoCounter = 0;
+          // Separate counter from nextVarId: a <For each> source is not an
+          // element, and calling it _el$N would make the emitted code lie.
+          // One index names the whole group a <For fallback> lowers to, so the
+          // source (_each$N), the list inserter (_for$N) it feeds and the
+          // fallback thunk (_fb$N) beside it are visibly the same <For>.
+          state._listCounter = 0;
           state._pendingSetup = [];
           state.nextVarId = () => `_el$${state._varCounter++}`;
           state.nextMemoId = () => `_c$${state._memoCounter++}`;
+          state.nextForIndex = () => state._listCounter++;
 
           state.serverActionBindings = new Set();
           state.serverActionNamespaces = new Set();

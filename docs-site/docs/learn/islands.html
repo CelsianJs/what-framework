@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Islands Architecture — What Framework</title>
+  <title>Islands Architecture · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -96,6 +96,7 @@
 
           <h2 id="hydration-modes">Hydration Modes</h2>
           <p>What gives you fine-grained control over <em>when</em> each island hydrates. Choose the mode that matches the island's purpose:</p>
+          <p>Every trigger has two spellings. The samples below declare it as the <code>mode</code> prop on the <code>Island</code> marker, which writes it into <code>data-island-mode</code>; that attribute is what <code>hydrateIslands()</code> reads. In a compiled build you can write the same trigger as a <code>client:</code> directive on a JSX component, for example <code>&lt;NavMenu client:load /&gt;</code>. The names line up one for one except for the first-interaction trigger, which the directive spells <code>client:interaction</code> and the marker spells <code>mode: 'action'</code>.</p>
 
           <h3 id="client-load"><code>client:load</code></h3>
           <p>Hydrate immediately when the page loads. Use this for islands that must be interactive right away, such as a navigation menu or authentication widget.</p>
@@ -113,31 +114,37 @@
 <pre><code><span class="function">Island</span>({ name: <span class="string">'CommentSection'</span>, mode: <span class="string">'visible'</span> })</code></pre>
 
           <h3 id="client-interaction"><code>client:interaction</code></h3>
-          <p>Hydrate on the first user interaction -- click, focus, hover, or touch. The island renders as static HTML until the user actually tries to use it. Perfect for accordions, tabs, or dropdown menus.</p>
+          <p>Hydrate on the first user interaction -- click, focus, hover, or touch. Nothing is fetched or executed until the user actually reaches for the widget. Perfect for accordions, tabs, or dropdown menus.</p>
 
 <pre><code><span class="function">Island</span>({ name: <span class="string">'Accordion'</span>, mode: <span class="string">'action'</span> })</code></pre>
 
           <h3 id="client-media"><code>client:media</code></h3>
           <p>Hydrate when a CSS media query matches. Use this for mobile-only or desktop-only interactivity. For example, a hamburger menu that only needs JS on small screens:</p>
 
-<pre><code><span class="function">island</span>(<span class="string">'MobileMenu'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./MobileMenu.js'</span>), {
-  mode: <span class="string">'media'</span>,
+<pre><code><span class="keyword">import</span> { Island, island } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+
+<span class="comment">// Server: the marker carries the trigger</span>
+<span class="function">Island</span>({ name: <span class="string">'MobileMenu'</span>, mode: <span class="string">'media'</span> })
+
+<span class="comment">// Client: the registration carries the query</span>
+<span class="function">island</span>(<span class="string">'MobileMenu'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./MobileMenu.js'</span>), {
   media: <span class="string">'(max-width: 768px)'</span>,
 })</code></pre>
 
           <h2 id="island-component">The Island Component</h2>
-          <p>During server rendering, use the <code>Island</code> component to mark where an island should appear. It renders a wrapper <code>&lt;div&gt;</code> with <code>data-island</code> attributes that the client uses for hydration:</p>
+          <p>During server rendering, use the <code>Island</code> component to mark where an island should appear. It renders a wrapper <code>&lt;div&gt;</code> with <code>data-island</code> attributes that the client uses for hydration, and nothing else. The marker carries the island's <em>name</em>, not a reference to the component, so the server has nothing to render into it and it stays empty until <code>hydrateIslands()</code> loads and mounts the island:</p>
 
-<pre><code><span class="keyword">import</span> { Island } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+<pre><code><span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { Island } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">function</span> <span class="function">ProductPage</span>({ product }) {
   <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'div'</span>, <span class="keyword">null</span>,
-    <span class="comment">// Static HTML — no JS shipped</span>
+    <span class="comment">// Static HTML, no JS shipped</span>
     <span class="function">h</span>(<span class="string">'h1'</span>, <span class="keyword">null</span>, product.name),
     <span class="function">h</span>(<span class="string">'p'</span>, <span class="keyword">null</span>, product.description),
     <span class="function">h</span>(<span class="string">'img'</span>, { src: product.image, alt: product.name }),
 
-    <span class="comment">// Interactive island — JS loaded on interaction</span>
+    <span class="comment">// Interactive island, JS loaded on interaction</span>
     <span class="function">Island</span>({
       name: <span class="string">'AddToCart'</span>,
       mode: <span class="string">'action'</span>,
@@ -153,7 +160,12 @@
   );
 }</code></pre>
 
-          <p>Props passed to the <code>Island</code> component are serialized as JSON in a <code>data-island-props</code> attribute and automatically deserialized when the island hydrates on the client.</p>
+          <p>Props passed to the <code>Island</code> component are serialized as JSON in a <code>data-island-props</code> attribute and automatically deserialized when the island hydrates on the client. Children are the only thing that ends up inside the marker on the server, so the two markers above are blank regions for crawlers and for the paint before their triggers fire. You can pass <code>children</code> to fill that gap, but keep in mind that <code>hydrateIslands()</code> hydrates the island <em>over</em> any children it finds rather than replacing them, so they have to match what the island component renders.</p>
+
+          <div class="callout callout-note">
+            <p class="callout-title">Two different components are called Island</p>
+            <p>The <code>Island</code> imported from <code>what-framework/server</code> is the registry marker documented here: it knows only the island's name, so the server cannot render the component and the marker is empty unless you supply children. The <code>Island</code> exported from <code>what-framework</code> is a different component that takes the component itself: <code>h(Island, { component: AddToCart, mode: 'action', productId: 1 })</code>. Rendered on the server that one puts the component's real HTML inside the marker, on the client it hydrates in place over that HTML, and it sets <code>data-island-self</code> so <code>hydrateIslands()</code> leaves it alone. what-compiler emits the same component for a <code>client:</code> directive such as <code>&lt;AddToCart client:interaction /&gt;</code>. Reach for it when the island has content worth putting in the HTML; the registry form suits widgets with no meaningful static representation, or components your server build does not have.</p>
+          </div>
 
           <h2 id="registering-islands">Registering Islands</h2>
           <p>On the client side, register each island with a name and a dynamic import loader. This tells What which component to load when it is time to hydrate:</p>
@@ -163,10 +175,7 @@
 <span class="comment">// Register islands with lazy loaders</span>
 <span class="function">island</span>(<span class="string">'AddToCart'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/AddToCart.js'</span>));
 <span class="function">island</span>(<span class="string">'ReviewSection'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/ReviewSection.js'</span>));
-<span class="function">island</span>(<span class="string">'NavMenu'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/NavMenu.js'</span>), {
-  mode: <span class="string">'load'</span>,
-  priority: <span class="number">10</span>,
-});
+<span class="function">island</span>(<span class="string">'NavMenu'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./components/NavMenu.js'</span>));
 
 <span class="comment">// Find all [data-island] elements and schedule hydration</span>
 <span class="function">hydrateIslands</span>();</code></pre>
@@ -184,29 +193,47 @@
           <h2 id="island-stores">Island Stores</h2>
           <p>When multiple islands need to share state (for example, a cart icon in the header and an "Add to Cart" button in the body), use <code>createIslandStore</code>. These stores are serialized during SSR and hydrated on the client so state survives the server-to-client transition:</p>
 
-<pre><code><span class="keyword">import</span> { createIslandStore } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+<pre><code><span class="keyword">import</span> { h } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { createIslandStore, useIslandStore } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
-<span class="comment">// Create a shared store — same name = same instance</span>
+<span class="comment">// Declare a shared store. Same name = same instance.</span>
 <span class="keyword">const</span> cartStore = <span class="function">createIslandStore</span>(<span class="string">'cart'</span>, {
   items: [],
   count: <span class="number">0</span>,
 });
 
-<span class="comment">// Read and write like a normal object</span>
-cartStore.count;           <span class="comment">// reactive read</span>
-cartStore.count = <span class="number">5</span>;       <span class="comment">// reactive write</span>
-cartStore.items = [...cartStore.items, newItem];</code></pre>
+<span class="comment">// Islands read and write the store like a normal object</span>
+<span class="keyword">function</span> <span class="function">AddToCart</span>({ product }) {
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'button'</span>, {
+    onclick: () =&gt; {
+      cartStore.items = [...cartStore.items, product];
+      cartStore.count = cartStore.count + <span class="number">1</span>;
+    },
+  }, <span class="string">'Add to cart'</span>);
+}
 
-          <p>On the server, call <code>serializeIslandStores()</code> to embed state into the HTML. On the client, <code>hydrateIslandStores()</code> restores it before islands hydrate:</p>
+<span class="comment">// A second island reads the same store by name</span>
+<span class="keyword">function</span> <span class="function">CartBadge</span>() {
+  <span class="keyword">const</span> cart = <span class="function">useIslandStore</span>(<span class="string">'cart'</span>, { items: [], count: <span class="number">0</span> });
+  <span class="keyword">return</span> <span class="function">h</span>(<span class="string">'span'</span>, {}, () =&gt; <span class="string">`Cart (${cart.count})`</span>);
+}</code></pre>
 
-<pre><code><span class="comment">// Server-side: embed store state in the HTML</span>
-<span class="keyword">const</span> storeData = <span class="function">serializeIslandStores</span>();
-<span class="keyword">const</span> html = <span class="string">`
-  &lt;script data-island-stores&gt;${storeData}&lt;/script&gt;
-`</span>;
+          <div class="callout callout-warning">
+            <p class="callout-title">Module-scope stores are request-scoped on the server</p>
+            <p>A <code>createIslandStore()</code> call at module scope returns a concrete store in the browser, but on the server it returns a lazy handle. Reading or writing it outside an active render throws <code>[what-server] Island store "cart" was accessed outside an active server render.</code> That is deliberate: it is what stops one request from observing another request's cart. Touch the store only from inside a component that <code>renderDocument</code> or <code>renderPage</code> is rendering, never at module scope. Only keys present in the initial state become reactive properties, so a key added later is inert.</p>
+          </div>
 
-<span class="comment">// Client-side: hydrateIslands() automatically restores stores</span>
-<span class="comment">// from any &lt;script data-island-stores&gt; tag on the page</span></code></pre>
+          <p>You do not have to serialize the stores yourself. <code>renderDocument()</code> takes a snapshot at the end of the render and writes it into the consolidated <code>&lt;script id="__what_data"&gt;</code> payload, and <code>hydrateIslands()</code> reads <code>islandStores</code> back out of that same script before it hydrates anything:</p>
+
+<pre><code><span class="comment">// Server: renderDocument emits the payload for you</span>
+<span class="comment">// &lt;script id="__what_data" type="application/json"&gt;</span>
+<span class="comment">//   {"loaderData":null,"resources":{},"islandStores":{"cart":{"items":[],"count":3}}}</span>
+<span class="comment">// &lt;/script&gt;</span>
+
+<span class="comment">// Client: hydrateIslands() restores the stores first, then the islands</span>
+<span class="function">hydrateIslands</span>();</code></pre>
+
+          <p>If you assemble the document by hand instead of using <code>renderDocument</code>, call <code>serializeIslandStores()</code> during the render and emit it under that same <code>id="__what_data"</code> script as an <code>islandStores</code> key, or call <code>hydrateIslandStores(data)</code> yourself on the client. <code>serializeIslandStores()</code> returns <code>{}</code> when called outside a render, because there is no request whose stores it could snapshot.</p>
 
           <h2 id="progressive-enhancement">Progressive Enhancement</h2>
           <p>Not every interactive feature needs a full island. For simple enhancements -- like a form that submits via fetch instead of a page reload -- use the progressive enhancement helpers:</p>
@@ -224,9 +251,10 @@ cartStore.items = [...cartStore.items, newItem];</code></pre>
   });
 });</code></pre>
 
-          <p>Enhanced forms dispatch <code>form:response</code> and <code>form:error</code> custom events so you can react to the result without mounting a full component:</p>
+          <p>Enhanced forms dispatch <code>form:response</code> and <code>form:error</code> custom events so you can react to the result without mounting a full component. A same-origin form needs a CSRF token before <code>enhanceForms</code> will submit it at all: put <code>&lt;meta name="what-csrf-token"&gt;</code> in the head (that is what <code>csrfMetaTag()</code> emits, and the deploy adapters emit it on uncached renders), or set <code>data-no-csrf="true"</code> on a form that posts somewhere with its own policy. Without one, the enhancer issues no request, warns on the console and dispatches <code>form:error</code> with "Missing CSRF token":</p>
 
 <pre><code><span class="comment">// In your HTML</span>
+<span class="comment">// &lt;meta name="what-csrf-token" content="abc-123..."&gt;</span>
 <span class="comment">// &lt;form data-enhance method="POST" action="/subscribe"&gt;</span>
 <span class="comment">//   &lt;input name="email" type="email" /&gt;</span>
 <span class="comment">//   &lt;button&gt;Subscribe&lt;/button&gt;</span>
@@ -234,27 +262,27 @@ cartStore.items = [...cartStore.items, newItem];</code></pre>
 
 <span class="comment">// Listen for the response</span>
 document.querySelector(<span class="string">'form'</span>).addEventListener(<span class="string">'form:response'</span>, (e) =&gt; {
+  <span class="comment">// A followed same-origin redirect would navigate away and</span>
+  <span class="comment">// discard this innerHTML. Cancel the event to stay put.</span>
+  e.<span class="function">preventDefault</span>();
   <span class="keyword">if</span> (e.detail.ok) {
     e.target.innerHTML = <span class="string">'&lt;p&gt;Subscribed!&lt;/p&gt;'</span>;
   }
 });</code></pre>
 
+          <p>The <code>form:response</code> detail is <code>{ response, ok, redirected }</code> and the event is cancelable. If the fetch followed a same-origin redirect and you do not cancel, the enhancer navigates the page there so the enhanced submit lands where a plain HTML submit would. The encoding follows the form's own <code>enctype</code>, exactly as a browser submit does, so add <code>enctype="multipart/form-data"</code> when you need to upload file bytes rather than just file names. The token is looked up from the meta tag, then a hidden <code>what-csrf-token</code> or <code>_csrf</code> field, then the <code>what-csrf</code> cookie, and is never attached to a cross-origin request.</p>
+
           <h2 id="priority-hydration">Priority Hydration</h2>
           <p>When multiple islands are scheduled to hydrate at the same time, What processes them in priority order. Higher priority islands hydrate first:</p>
 
-<pre><code><span class="comment">// Critical island — hydrates first</span>
-<span class="function">island</span>(<span class="string">'SearchBar'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./SearchBar.js'</span>), {
-  mode: <span class="string">'load'</span>,
-  priority: <span class="number">10</span>,
-});
+<pre><code><span class="comment">// Critical island, hydrates first</span>
+<span class="function">Island</span>({ name: <span class="string">'SearchBar'</span>, mode: <span class="string">'load'</span>, priority: <span class="number">10</span> })
 
-<span class="comment">// Low priority — hydrates after everything else</span>
-<span class="function">island</span>(<span class="string">'Analytics'</span>, () =&gt; <span class="keyword">import</span>(<span class="string">'./Analytics.js'</span>), {
-  mode: <span class="string">'idle'</span>,
-  priority: <span class="number">0</span>,
-});</code></pre>
+<span class="comment">// Low priority, hydrates after everything else</span>
+<span class="function">Island</span>({ name: <span class="string">'Analytics'</span>, mode: <span class="string">'idle'</span>, priority: <span class="number">0</span> })</code></pre>
 
-          <p>You can also boost an island's priority at runtime with <code>boostIslandPriority(name, newPriority)</code>, for example when a user starts interacting near a pending island.</p>
+          <p>Priority only orders islands against each other <em>inside the hydration queue</em>, and an island joins the queue when its trigger fires, not when it is registered. The mode adds its own weight on the way in: <code>load</code> adds 1000 to the declared priority and <code>action</code> adds 500, so a <code>priority</code> number really orders islands within the same mode.</p>
+          <p><code>boostIslandPriority(name, newPriority)</code> re-sorts entries that are already queued. An island still waiting on <code>requestIdleCallback</code>, an <code>IntersectionObserver</code>, a media query or a first interaction is not queued yet, so boosting it does nothing.</p>
 
           <h2 id="debugging">Debugging</h2>
           <p>Call <code>getIslandStatus()</code> at any time to inspect the current state of the island system:</p>
@@ -268,7 +296,7 @@ console.log(status);
 <span class="comment">//   hydrated: 1,</span>
 <span class="comment">//   pending: 2,</span>
 <span class="comment">//   queue: [</span>
-<span class="comment">//     { name: 'AddToCart', priority: 0 },</span>
+<span class="comment">//     { name: 'AddToCart', priority: 500 },   // mode 'action' adds 500</span>
 <span class="comment">//     { name: 'ReviewSection', priority: 0 },</span>
 <span class="comment">//   ],</span>
 <span class="comment">//   stores: ['cart'],</span>
@@ -282,13 +310,13 @@ console.log(status);
           </div>
 
           <div class="page-nav">
-            <a href="./ssr.html">
+            <a href="./deployment.html">
               <span class="label">Previous</span>
-              <span class="title">Server Rendering</span>
+              <span class="title">Deployment</span>
             </a>
-            <a href="./accessibility.html" class="next">
+            <a href="./ssr.html" class="next">
               <span class="label">Next</span>
-              <span class="title">Accessibility</span>
+              <span class="title">Server Rendering</span>
             </a>
           </div>
         </div>

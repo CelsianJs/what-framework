@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Data Loading — What Framework</title>
+  <title>Data Loading · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -88,13 +88,17 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Data Loading</h1>
-          <p class="subtitle">Co-locate a server loader with a page; its data is rendered on the server and hydrated on the client — no waterfalls, no client fetch on first paint.</p>
+          <p class="subtitle">Co-locate a server loader with a page; its data is rendered on the server and hydrated on the client: no waterfalls, no client fetch on first paint.</p>
 
           <p>A <strong>loader</strong> runs on the server before a page renders. What awaits it, renders the page with the resolved data in scope, and serializes that data into the HTML so the client hydrates without re-fetching. This is the data path for SSR and ISR pages.</p>
 
+          <p>A loader only runs where something on the server runs it: a page reached through a server entry built on <code>what-framework/server</code>, or one pre-rendered by the static export. A client-only SPA never calls it, and <code>useLoaderData()</code> returns <code>undefined</code> there. Write these pages with <code>h()</code>, the way the <code>fullstack</code> scaffold does. what-compiler lowers JSX into module-scope templates that call <code>document.createElement</code> at import time, so a compiled JSX page cannot be imported by a server at all (see <a href="./ssr.html">Server Rendering</a>).</p>
+
           <h2 id="loader">The loader export</h2>
-          <p>Export a function named <code>loader</code> from a page module. It receives <code>{ params, query, request }</code> and returns data (sync or async).</p>
-<pre><code>// src/pages/blog/[slug].jsx
+          <p>Export a function named <code>loader</code> from a page module. It receives at least <code>{ params, query, request }</code> and returns data (sync or async).</p>
+<pre><code>// src/pages/blog/[slug].js
+import { h, useLoaderData } from 'what-framework';
+
 export const loader = async ({ params, query, request }) =&gt; {
   const post = await db.posts.find(params.slug);
   return { post };
@@ -102,46 +106,69 @@ export const loader = async ({ params, query, request }) =&gt; {
 
 export default function Post() {
   const { post } = useLoaderData();
-  return &lt;article&gt;&lt;h1&gt;{post.title}&lt;/h1&gt;&lt;p&gt;{post.body}&lt;/p&gt;&lt;/article&gt;;
+  return h('article', {}, h('h1', {}, post.title), h('p', {}, post.body));
 }</code></pre>
           <ul>
-            <li><code>params</code> — dynamic route segments (e.g. <code>{ slug: 'hello' }</code> for <code>/blog/[slug]</code>).</li>
-            <li><code>query</code> — parsed query string as an object.</li>
-            <li><code>request</code> — the standard <code>Request</code> (read cookies/headers for auth).</li>
+            <li><code>params</code>: dynamic route segments (e.g. <code>{ slug: 'hello' }</code> for <code>/blog/[slug]</code>).</li>
+            <li><code>query</code>: parsed query string as an object.</li>
+            <li><code>request</code>: the standard <code>Request</code> (read cookies/headers for auth). It is only there when the page is rendered per request. The static export and <code>what generate</code> call loaders with <code>{ params, query: {} }</code> and no request, so guard it, and expect that an auth-dependent page cannot be pre-rendered.</li>
+            <li><code>csrfToken</code>: a fourth field, present only sometimes. The request-time adapter adds it when it renders a page directly, which means <code>mode: 'server'</code> or any route with no cache engine configured, and only while CSRF is on (the default). It is the per-visitor token, handed to the loader because the loader is the only per-request hook a page has before its component runs, so a server-rendered <code>&lt;Form&gt;</code> can put it in a hidden field for no-JS submits. It is deliberately absent on the cached branch, because cached HTML is shared between visitors and must never carry one visitor's token, and absent entirely under <code>csrf: false</code>. Treat it as optional and never assume the object has exactly three keys.</li>
           </ul>
           <div class="callout callout-note">
             <p class="callout-title">Runs before render</p>
-            <p>The loader resolves <em>outside</em> the synchronous render, so the value handed to the component is plain data — never a promise. That keeps render fast and concurrency-safe.</p>
+            <p>The loader resolves <em>outside</em> the synchronous render, so the value handed to the component is plain data, never a promise. That keeps render fast and concurrency-safe.</p>
           </div>
 
           <h2 id="use-loader-data">useLoaderData</h2>
-          <p><code>useLoaderData()</code> returns the current page's loader data. It is isomorphic: on the server it reads the render-scoped context; on the client it reads the hydration payload (<code>&lt;script id="__what_data"&gt;</code>). It is not a hook-slot consumer, so you can call it anywhere in a component.</p>
+          <p><code>useLoaderData()</code> returns the current page's loader data. It is isomorphic: on the server it reads the render-scoped context; on the client it reads the hydration payload (<code>&lt;script id="__what_data"&gt;</code>). The branch is decided by whether a server render is in progress, not by whether a <code>document</code> exists, so a server render under a DOM shim (jsdom or happy-dom in a test) still returns that request's data. It is not a hook-slot consumer, so you can call it anywhere in a component.</p>
 <pre><code>import { useLoaderData } from 'what-framework';
 
 function Post() {
   const { post } = useLoaderData();
   // ...
 }</code></pre>
+          <p>The server render paths do also hand the page component a <code>loaderData</code> prop, but no client path supplies it, so a component that reads the prop instead renders its empty branch on hydration and reports a hydration mismatch. Read the data with <code>useLoaderData()</code>.</p>
+
+          <p>One API writes that payload: <code>renderDocument(pageModule, reqCtx, options)</code>, the full-stack server entry. It runs the page's <code>loader</code>, renders through <code>renderToStringAsync</code> so <code>createResource</code> and <code>&lt;Suspense&gt;</code> resolve first, and returns a complete HTML document ending in <code>&lt;script id="__what_data"&gt;</code> holding <code>{ loaderData, resources, islandStores }</code>, followed by a module script for <code>options.clientEntry</code> when you pass one. Every other entry point hands back pieces and emits no payload:</p>
+          <ul>
+            <li><code>renderPage</code> returns <code>{ body, head, loaderData }</code>. This is the one to watch: like <code>renderDocument</code> it takes a page module and runs the <code>loader</code>, so it looks like the full-stack entry, but it stops at the body and writes nothing for the client to hydrate from.</li>
+            <li><code>renderToStringAsync</code> returns <code>{ body, head, loaderData, resources, ctx }</code>.</li>
+            <li><code>renderToStringWithHead</code> returns <code>{ body, head }</code>.</li>
+            <li><code>renderToHydratableString</code> returns body HTML with a <code>data-hk</code> key on each component's root element.</li>
+            <li><code>renderToString</code> and <code>renderToStream</code> return body HTML only, and <code>generateStaticPage</code> returns a whole document without a payload in it.</li>
+          </ul>
+          <p>Assemble a document from any of those and you have to serialize the payload yourself, or <code>useLoaderData()</code> finds nothing after hydration.</p>
 
           <h2 id="static-paths">getStaticPaths</h2>
-          <p>For dynamic routes that should be pre-rendered, export <code>getStaticPaths</code>. It returns the set of paths to build ahead of time plus a <code>fallback</code> policy for everything else.</p>
+          <p>For dynamic routes that should be pre-rendered, export <code>getStaticPaths</code>. It returns the set of paths to build ahead of time.</p>
 <pre><code>export async function getStaticPaths() {
   const posts = await db.posts.all();
   return {
     paths: posts.map((p) =&gt; ({ params: { slug: p.slug } })),
-    fallback: 'blocking', // 'blocking' | true | false
   };
 }</code></pre>
           <ul>
-            <li><code>'blocking'</code> — an unbuilt path renders on first request, then is cached (default-feeling, great for ISR).</li>
-            <li><code>true</code> — serve a skeleton immediately, then swap in the rendered page.</li>
-            <li><code>false</code> — anything not in <code>paths</code> is a 404.</li>
+            <li><code>paths</code> is read at build time by the static export, which writes one HTML file per entry. A dynamic route that exports no <code>getStaticPaths</code> is skipped, because there is nothing to enumerate.</li>
+            <li>A path that was not pre-built is rendered on demand at request time by the deploy adapter, and cached like any other page when a cache engine is configured. Nothing 404s for being absent from the list.</li>
+            <li>A <code>fallback</code> field is accepted and ignored today: nothing in the build or request path reads it, so a value there changes nothing. <code>what-isr</code> exports a <code>decideFallback</code> helper that implements the blocking / skeleton / 404 policies if you want to apply them in your own handler.</li>
           </ul>
           <p>Because <code>getStaticPaths</code> is a function (it can't be JSON), it is a <strong>named export</strong>, never part of the <code>page</code> config object.</p>
 
           <h2 id="vs-fetching">Loaders vs client fetching</h2>
           <p>Use a <strong>loader</strong> for data the page needs to render on the server (SEO content, the primary record). Use the client <a href="./data-fetching.html">data-fetching hooks</a> (<code>useSWR</code>, <code>useQuery</code>) for data that loads after hydration (user-specific widgets, polling dashboards). They compose: a loader seeds the first paint, hooks keep it live.</p>
 
+          <p>Loader data belongs to the document the server sent, not to the current route. The client router has no loader handling at all, and the hydration payload is parsed once and cached for the life of the page, so after a client-side <code>navigate()</code> <code>useLoaderData()</code> still returns the first page's data. A route entered by client navigation has to fetch what it needs with <code>useSWR</code> or <code>useQuery</code>, or be entered with a full page load.</p>
+
+          <div class="page-nav">
+            <a href="./caching.html">
+              <span class="label">Previous</span>
+              <span class="title">Caching</span>
+            </a>
+            <a href="./actions.html" class="next">
+              <span class="label">Next</span>
+              <span class="title">Server Actions</span>
+            </a>
+          </div>
         </div>
 
         <aside class="toc">

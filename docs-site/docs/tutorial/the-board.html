@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tutorial: Building the Board — What Framework</title>
+  <title>Tutorial: Building the Board · What Framework</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.10.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.12.4</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -56,6 +56,7 @@
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
+<span class="keyword">import</span> { mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (
@@ -65,14 +66,16 @@
   );
 }
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="keyword">return</span> (
     &lt;div className=<span class="string">"game"</span>&gt;
       &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
       &lt;Square value=<span class="string">"X"</span> onClick={() =&gt; console.log(<span class="string">'clicked'</span>)} /&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <p>Click the square and check your browser console. You should see "clicked" logged.</p>
 
@@ -83,8 +86,8 @@
 
           <p>This is a component that receives two props:</p>
           <ul>
-            <li><code>value</code> — What to display in the square (null, "X", or "O")</li>
-            <li><code>onClick</code> — A function to call when the square is clicked</li>
+            <li><code>value</code>: What to display in the square (null, "X", or "O")</li>
+            <li><code>onClick</code>: A function to call when the square is clicked</li>
           </ul>
 
           <p>The component returns a button with these props wired up.</p>
@@ -94,6 +97,7 @@
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
+<span class="keyword">import</span> { mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (
@@ -119,14 +123,16 @@
   );
 }
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="keyword">return</span> (
     &lt;div className=<span class="string">"game"</span>&gt;
       &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
       &lt;Board /&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <p>You should now see a 3x3 grid of empty squares. The CSS we added earlier handles the grid layout.</p>
 
@@ -154,7 +160,7 @@
 
           <div class="callout callout-info">
             <p class="callout-title">Why <code>key={i}</code>?</p>
-            <p>When rendering lists, each item needs a unique <code>key</code> prop. This helps What efficiently update the DOM when the list changes. For now, the index works fine.</p>
+            <p>When you render a list with <code>.map()</code>, give each item a <code>key</code> so What can match items up across updates. An index like <code>i</code> is the item's <em>position</em>, not its identity, so the compiler cannot use it for keyed reconciliation: it falls back to positional reconciliation and prints a note in your terminal saying so. That is the right answer for a fixed board of 9 squares that never reorders. For a list that can reorder, key on something stable that belongs to the item itself, like <code>key={item.id}</code>.</p>
           </div>
 
           <h2 id="checkpoint">Checkpoint</h2>
@@ -162,6 +168,7 @@
 
           <div class="code-header">src/main.jsx (complete)</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;
+<span class="keyword">import</span> { mount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
   <span class="keyword">return</span> (
@@ -187,14 +194,16 @@
   );
 }
 
-<span class="keyword">export default function</span> <span class="function">Game</span>() {
+<span class="keyword">function</span> <span class="function">Game</span>() {
   <span class="keyword">return</span> (
     &lt;div className=<span class="string">"game"</span>&gt;
       &lt;h1&gt;Tic-Tac-Toe&lt;/h1&gt;
       &lt;Board /&gt;
     &lt;/div&gt;
   );
-}</code></pre>
+}
+
+mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'</span>);</code></pre>
 
           <p>You have a board with 9 clickable squares. Next, we'll add state to track the game!</p>
 
