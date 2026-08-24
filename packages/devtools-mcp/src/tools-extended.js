@@ -1000,6 +1000,7 @@ export function registerExtendedTools(server, bridge) {
       }
 
       // Get writer info from browser
+      /** @type {Record<string, any>} */
       let writers = { recentWrites: [], totalWrites: 0 };
       try {
         writers = await bridge.sendCommand('get-signal-writers', { signalId }, 5000);
@@ -1048,6 +1049,7 @@ export function registerExtendedTools(server, bridge) {
 
       // Trace from recent writes
       for (const write of (writers.recentWrites || []).slice(-5)) {
+        /** @type {Record<string, any>} */
         const entry = {
           timestamp: write.timestamp,
           previousValue: write.previousValue,

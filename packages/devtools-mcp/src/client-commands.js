@@ -601,7 +601,7 @@ export async function handleExtendedCommand(command, args, devtools) {
           tag: el.tagName.toLowerCase(),
           type: el.getAttribute('type') || undefined,
           label: label || '(unlabeled)',
-          disabled: el.disabled || undefined,
+          disabled: /** @type {any} */ (el).disabled || undefined,
           rect: rectOf(el),
         });
       }
@@ -768,7 +768,7 @@ export async function handleExtendedCommand(command, args, devtools) {
         const canvas = document.createElement('canvas');
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
-        const ctx = canvas.getContext('2d');
+        const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
         ctx.scale(scale * dpr, scale * dpr);
 
         // Load SVG blob as image
@@ -801,7 +801,7 @@ export async function handleExtendedCommand(command, args, devtools) {
           const smallCanvas = document.createElement('canvas');
           smallCanvas.width = Math.ceil(canvasWidth / 2);
           smallCanvas.height = Math.ceil(canvasHeight / 2);
-          const smallCtx = smallCanvas.getContext('2d');
+          const smallCtx = /** @type {CanvasRenderingContext2D} */ (smallCanvas.getContext('2d'));
           smallCtx.drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
           dataUrl = smallCanvas.toDataURL('image/jpeg', 0.3);
           base64 = dataUrl.split(',')[1];

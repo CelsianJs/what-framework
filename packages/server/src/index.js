@@ -442,6 +442,13 @@ export async function renderDocument(pageModule, reqCtx = {}, options = {}) {
   return wrapHtmlDocument({ body, head, payload, options });
 }
 
+/**
+ * @param {object} args
+ * @param {string} args.body
+ * @param {string} args.head
+ * @param {any} args.payload
+ * @param {{ lang?: string, clientEntry?: string, csrfToken?: string, head?: string, bodyClass?: string }} [args.options]
+ */
 function wrapHtmlDocument({ body, head, payload, options = {} }) {
   const lang = options.lang || 'en';
   const dataScript = `<script id="__what_data" type="application/json">${serializeState(payload)}</script>`;

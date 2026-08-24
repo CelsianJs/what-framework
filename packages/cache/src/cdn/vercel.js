@@ -2,6 +2,12 @@
 // a thin on-demand purge via the project API when a token is supplied; it
 // no-ops (header-only mode) without one.
 
+/**
+ * @param {object} [credentials]
+ * @param {string} [credentials.token]
+ * @param {string} [credentials.projectId]
+ * @param {string} [credentials.teamId]
+ */
 export function createVercelCDN({ token, projectId, teamId } = {}) {
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const qs = teamId ? `?teamId=${teamId}` : '';

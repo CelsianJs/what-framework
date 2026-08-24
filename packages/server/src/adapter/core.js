@@ -46,7 +46,9 @@ async function readJsonBody(request) {
   let read;
   try { read = await readFetchBodyCapped(request); } catch { return { json: {} }; }
   if (read.tooLarge) return { tooLarge: true };
-  try { return { json: JSON.parse(read.raw) }; } catch { return { json: {} }; }
+  // `raw` is absent on the tooLarge branch, which returned above; `?? ''` keeps
+  // the parse throwing into the same catch it always did.
+  try { return { json: JSON.parse(read.raw ?? '') }; } catch { return { json: {} }; }
 }
 
 function defaultRenderRoute(documentOptions) {

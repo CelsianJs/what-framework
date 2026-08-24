@@ -74,6 +74,16 @@ function injectStyles() {
 
 // --- Skeleton Component ---
 
+/**
+ * @param {object} props
+ * @param {number|string} [props.width]
+ * @param {number|string} [props.height]
+ * @param {'shimmer'|'pulse'|'wave'} [props.variant]
+ * @param {boolean} [props.circle]
+ * @param {string} [props.class]
+ * @param {Record<string, any>} [props.style]
+ * @param {number} [props.count]
+ */
 export function Skeleton({
   width,
   height,
@@ -137,6 +147,11 @@ export function SkeletonText({
 
 // --- Skeleton Avatar ---
 
+/**
+ * @param {object} props
+ * @param {number} [props.size]
+ * @param {'shimmer'|'pulse'|'wave'} [props.variant]
+ */
 export function SkeletonAvatar({
   size = 40,
   variant = 'shimmer',

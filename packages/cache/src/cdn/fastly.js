@@ -2,8 +2,15 @@
 
 import { safeLocalPath } from '../local-path.js';
 
+/**
+ * @param {object} [credentials]
+ * @param {string} [credentials.serviceId]
+ * @param {string} [credentials.apiToken]
+ * @param {string} [credentials.baseUrl]
+ */
 export function createFastlyCDN({ serviceId, apiToken, baseUrl } = {}) {
-  const headers = { 'Fastly-Key': apiToken, Accept: 'application/json' };
+  /** @type {Record<string, string>} */
+  const headers = { 'Fastly-Key': apiToken ?? '', Accept: 'application/json' };
 
   // A URL purge is a request to an arbitrary host carrying the Fastly API key,
   // so only local paths resolved against the configured baseUrl are ever sent.

@@ -42,3 +42,10 @@ export function isHydrating(): boolean;
 // SVG counterpart to template(): elements are created in the SVG namespace, which
 // a plain innerHTML template cannot do.
 export function svgTemplate(html: string): () => Element;
+
+/**
+ * @internal The component-call helper the compiler emits for `<Component />`.
+ * Re-exported by what-framework/render so compiled output can import it from
+ * the package a scaffolded app actually depends on.
+ */
+export function _$createComponent(component: unknown, props?: unknown, ...args: unknown[]): unknown;

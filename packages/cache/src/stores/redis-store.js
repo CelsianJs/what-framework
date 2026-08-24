@@ -5,6 +5,11 @@
 
 import { redactVary } from '../key.js';
 
+/**
+ * @param {object} [options]
+ * @param {any} [options.client] ioredis / node-redis shaped client
+ * @param {string} [options.namespace]
+ */
 export function createRedisStore({ client, namespace = 'what' } = {}) {
   if (!client) throw new Error('[what-isr] createRedisStore requires { client }');
 

@@ -1669,7 +1669,8 @@ export default function whatBabelPlugin({ types: t }) {
       let prevVar = null;
       let prevIndex = 0;
       for (const entry of entriesNeedingRef) {
-        const idx = entry.childIndex;
+        // Only 'fragment' entries omit childIndex, and the filter above drops them.
+        const idx = /** @type {number} */ (entry.childIndex);
         const markerVar = state.nextVarId();
         markerVars.set(idx, markerVar);
         let init;

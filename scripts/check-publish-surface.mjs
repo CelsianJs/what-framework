@@ -348,6 +348,27 @@ try {
     createServer({ routes: [] });
     toNodeListener(async () => new Response('ok'));
     void exportStatic;
+
+    // The shapes a TypeScript user actually writes. Every one of these failed
+    // to compile through 0.12.4, because VNode is invariant in its props type
+    // and VNodeChild referred to the default \`VNode<Record<string, any>>\`:
+    // any element built with typed props was rejected as a child, and so was
+    // the whole tree at mount(). Nothing exercised the types from a consumer's
+    // position, so nothing caught it.
+    import { h, mount, Fragment, type Component, type VNodeChild } from 'what-core';
+
+    const nested = h('div', { class: 'wrap' },
+      h('h1', { style: 'font-size:48px' }, '404'),
+      h('p', { style: 'color:#64748b' }, 'Page not found'),
+    );
+    mount(nested, 'body');
+    mount(nested, document.createElement('div'));
+    mount(nested, document.createDocumentFragment());
+
+    const Card: Component<{ title: string }> = ({ title, children }) =>
+      h('section', {}, h('h2', {}, title), children as VNodeChild);
+    mount(h('main', {}, h(Card, { title: 'hi' }, 'body text')), 'body');
+    mount(h(Fragment, {}, h('span', { id: 'a' }, 'x')), 'body');
   `);
 
   execFileSync(

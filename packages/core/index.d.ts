@@ -52,10 +52,17 @@ export function onRootCleanup(fn: () => void): void;
 // --- Virtual DOM ---
 
 export type PrimitiveChild = string | number | boolean | null | undefined;
-export type VNodeChild = PrimitiveChild | VNode | (() => VNodeChild) | VNodeChild[];
+
+// `VNode<any>`, not `VNode`. VNode is invariant in P (its `tag` holds a
+// `Component<P>`, whose parameter position is contravariant under
+// strictFunctionTypes), so `VNode` — which means `VNode<Record<string, any>>` —
+// rejects every specifically-typed node. `h('div', {}, h('h1', { style: '' }))`
+// did not compile for any TypeScript user before 0.12.5, and neither did
+// passing that tree to mount().
+export type VNodeChild = PrimitiveChild | VNode<any> | (() => VNodeChild) | VNodeChild[];
 
 /** A component may legitimately render nothing, so `null` is part of the contract. */
-export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNode | null) & {
+export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNode<any> | null) & {
   /**
    * Opt out of realizing compiled children before the component runs.
    *
@@ -89,7 +96,7 @@ export function html(strings: TemplateStringsArray, ...values: any[]): VNode | V
 
 // --- DOM ---
 
-export function mount(vnode: VNodeChild, container: string | Element): () => void;
+export function mount(vnode: VNodeChild, container: string | Element | DocumentFragment): () => void;
 
 /** Attach reactive bindings to server-rendered DOM instead of creating it. */
 export function hydrate(vnode: VNodeChild, container: Element): Node | null;
@@ -965,3 +972,24 @@ export function getMountedComponents(): unknown[];
 export function registerSignal(sig: unknown): void;
 export function unregisterSignal(sig: unknown): void;
 export function getActiveSignals(): unknown[];
+
+// --- Internal cross-package exports ---
+// Underscore-prefixed names are not public API and carry no compatibility
+// promise. They are declared here because sibling packages in this repo import
+// them across the package boundary (what-server, what-text), and an
+// undeclared cross-package import is exactly the rename that ships broken:
+// `hygiene:types` skips `_`-prefixed names in its reverse direction, so
+// nothing else would have caught it. Application code should not use these.
+
+/** @internal Used by what-server. True for `aria-*` and `data-*` attribute names. */
+export function _isAriaAttr(name: string): boolean;
+/** @internal Used by what-server. Opens an SSR component scope. */
+export function _beginComponentSSR(...args: unknown[]): unknown;
+/** @internal Used by what-server. Closes the scope opened by `_beginComponentSSR`. */
+export function _endComponentSSR(...args: unknown[]): unknown;
+/** @internal Used by what-server. The keyed-array mapping `<For>` compiles down to. */
+export function _mapArrayToArray(...args: unknown[]): unknown;
+/** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
+export function __installServerContextStorage(storage: unknown): void;
+/** @internal Used by what-text. Lets the text engine intercept text-node insertion. */
+export function _setTextInsertHook(hook: unknown): void;

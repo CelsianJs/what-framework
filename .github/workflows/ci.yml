@@ -127,6 +127,10 @@ jobs:
       - name: Typecheck declarations
         run: npm run -s typecheck
 
+
+      - name: Typecheck implementation (allowJs + checkJs over packages/*/src)
+        run: npm run -s typecheck:src
+
       - name: Production build smoke gate (no blank-screen regression)
         run: npm run -s test:prod
 

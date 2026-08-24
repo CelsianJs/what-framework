@@ -13,6 +13,14 @@ import { makeEntry, isFresh, isServableStale } from './stores/store-interface.js
 import { buildCacheHeaders } from './headers.js';
 import { safeLocalPath } from './local-path.js';
 
+/**
+ * @param {object} [options]
+ * @param {any} [options.store] cache store (see stores/store-interface.js)
+ * @param {(routeMatch: any, ctx?: any) => any} [options.render] injected by the adapter
+ * @param {any} [options.cdn] optional CDN adapter for edge fan-out
+ * @param {() => number} [options.now]
+ * @param {any} [options.logger]
+ */
 export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console } = {}) {
   const inFlight = new Map(); // key -> Promise<entry>  (dedupe)
 
@@ -113,6 +121,10 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
 
   // --- On-demand invalidation (origin purge + optional CDN fan-out) ---
 
+  /**
+   * @param {string} path
+   * @param {{ regenerate?: boolean, routeResolver?: (path: string) => any }} [options]
+   */
   async function revalidatePath(path, { regenerate: regen = false, routeResolver } = {}) {
     // Never let a caller-supplied target reach the CDN adapter: a purge carries
     // the CDN API token, so an absolute URL would exfiltrate it (SSRF).
@@ -138,6 +150,10 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     return deleted;
   }
 
+  /**
+   * @param {string} tag
+   * @param {{ regenerate?: boolean, routeResolver?: (key: string) => any }} [options]
+   */
   async function revalidateTag(tag, { regenerate: regen = false, routeResolver } = {}) {
     const deleted = await store.deleteByTag(tag);
     if (cdn && cdn.purgeTags) await cdn.purgeTags([tag]);

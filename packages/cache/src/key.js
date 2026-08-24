@@ -157,8 +157,16 @@ function varyString(vary) {
     .join('&');
 }
 
-/** Build the canonical cache key for a request. `vary` may be a resolved
- * name -> value map, or a declared list resolved here against `headers`. */
+/**
+ * Build the canonical cache key for a request. `vary` may be a resolved
+ * name -> value map, or a declared list resolved here against `headers`.
+ *
+ * @param {object} [request]
+ * @param {string} [request.path]
+ * @param {string|Record<string, any>} [request.query]
+ * @param {string|string[]|Record<string, any>} [request.vary]
+ * @param {Record<string, any>} [request.headers]
+ */
 export function cacheKey({ path, query, vary, headers } = {}) {
   // A string or an array is a DECLARATION and has to be resolved against the
   // request. A plain object is an already-resolved name -> value map (what the

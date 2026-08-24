@@ -139,7 +139,7 @@ function disposeComponent(ctx) {
     }
   }
 
-  if (__DEV__ && __devtools?.onComponentUnmount) __devtools.onComponentUnmount(ctx);
+  if (__DEV__ && __devtools?.onComponentUnmount) __devtools.onComponentUnmount?.(ctx);
   mountedComponents.delete(ctx);
 }
 
@@ -436,6 +436,7 @@ export function _beginComponentSSR(Component) {
   const ctx = {
     hooks: [],
     hookIndex: 0,
+    /** @type {Array<() => void>} */
     effects: [],
     cleanups: [],
     mounted: false,
@@ -563,6 +564,7 @@ function createComponent(vnode, parent, isSvg) {
   const ctx = {
     hooks: [],
     hookIndex: 0,
+    /** @type {Array<() => void>} */
     effects: [],
     cleanups: [],
     mounted: false,
@@ -587,7 +589,7 @@ function createComponent(vnode, parent, isSvg) {
 
   // Track for disposal
   mountedComponents.add(ctx);
-  if (__DEV__ && __devtools?.onComponentMount) __devtools.onComponentMount(ctx);
+  if (__DEV__ && __devtools?.onComponentMount) __devtools.onComponentMount?.(ctx);
 
   // Props signal for reactive updates from parent
   const propsChildren = children.length === 0 ? undefined : children.length === 1 ? children[0] : children;
@@ -699,7 +701,9 @@ function createErrorBoundary(vnode, parent) {
   const endComment = document.createComment('eb:end');
 
   const boundaryCtx = {
-    hooks: [], hookIndex: 0, effects: [], cleanups: [],
+    hooks: /** @type {any[]} */ ([]), hookIndex: 0,
+    effects: /** @type {Array<() => void>} */ ([]),
+    cleanups: /** @type {Array<() => void>} */ ([]),
     mounted: false, disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
     _errorBoundary: handleError,
@@ -719,11 +723,12 @@ function createErrorBoundary(vnode, parent) {
     componentStack.push(boundaryCtx);
 
     // Remove old content between comment boundaries
-    if (startComment.parentNode) {
+    const openParent = startComment.parentNode;
+    if (openParent) {
       while (startComment.nextSibling && startComment.nextSibling !== endComment) {
         const old = startComment.nextSibling;
         disposeTree(old);
-        old.parentNode.removeChild(old);
+        openParent.removeChild(old);
       }
     }
 
@@ -767,7 +772,9 @@ function createSuspenseBoundary(vnode, parent) {
   const endComment = document.createComment('sb:end');
 
   const boundaryCtx = {
-    hooks: [], hookIndex: 0, effects: [], cleanups: [],
+    hooks: /** @type {any[]} */ ([]), hookIndex: 0,
+    effects: /** @type {Array<() => void>} */ ([]),
+    cleanups: /** @type {Array<() => void>} */ ([]),
     mounted: false, disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
     _suspenseBoundary: boundary,
@@ -795,11 +802,12 @@ function createSuspenseBoundary(vnode, parent) {
     componentStack.push(boundaryCtx);
 
     // Remove old content between comment boundaries
-    if (startComment.parentNode) {
+    const openParent = startComment.parentNode;
+    if (openParent) {
       while (startComment.nextSibling && startComment.nextSibling !== endComment) {
         const old = startComment.nextSibling;
         disposeTree(old);
-        old.parentNode.removeChild(old);
+        openParent.removeChild(old);
       }
     }
 
@@ -840,7 +848,9 @@ function createPortalDOM(vnode, _parent) {
   }
 
   const portalCtx = {
-    hooks: [], hookIndex: 0, effects: [], cleanups: [],
+    hooks: /** @type {any[]} */ ([]), hookIndex: 0,
+    effects: /** @type {Array<() => void>} */ ([]),
+    cleanups: /** @type {Array<() => void>} */ ([]),
     mounted: false, disposed: false,
     _parentCtx: componentStack[componentStack.length - 1] || null,
   };

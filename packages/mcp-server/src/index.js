@@ -695,7 +695,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case 'what_cli':
       return { content: [{ type: 'text', text: DOCS.cli }] };
     case 'what_search': {
-      const query = args?.query?.toLowerCase() || '';
+      const query = String(args?.query ?? '').toLowerCase();
       const results = [];
 
       for (const [topic, content] of Object.entries(DOCS)) {
