@@ -21,6 +21,7 @@ function _applyRef(ref, el) {
 function _composeHandlers(registered, callerHandler) {
   if (typeof registered !== 'function') return callerHandler;
   if (typeof callerHandler !== 'function') return registered;
+  /** @this {any} */
   return function composedHandler(...args) {
     registered.apply(this, args);
     return callerHandler.apply(this, args);

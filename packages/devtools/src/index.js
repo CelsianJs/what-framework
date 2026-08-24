@@ -141,9 +141,11 @@ export function safeSerialize(value, depth = 0, seen) {
 
   // DOM nodes
   if (typeof Node !== 'undefined' && value instanceof Node) {
+    // id/className live on Element, not Node; a text or comment node has neither.
+    const el = /** @type {Element} */ (/** @type {unknown} */ (value));
     const tag = value.nodeName?.toLowerCase() || 'node';
-    const id = value.id ? `#${value.id}` : '';
-    const cls = value.className ? `.${String(value.className).split(' ')[0]}` : '';
+    const id = el.id ? `#${el.id}` : '';
+    const cls = el.className ? `.${String(el.className).split(' ')[0]}` : '';
     return `[DOM: <${tag}${id}${cls}>]`;
   }
 

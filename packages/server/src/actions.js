@@ -157,6 +157,7 @@ export function action(fn, options = {}) {
       return result;
     } catch (error) {
       if (error.name === 'AbortError') {
+        /** @type {Error & { code?: string }} */
         const timeoutError = new Error(`Action "${id}" timed out after ${timeout}ms`);
         timeoutError.code = 'TIMEOUT';
         if (onError) onError(timeoutError);
@@ -187,7 +188,7 @@ export function formAction(actionFn, options = {}) {
 
     if (formDataOrEvent instanceof Event) {
       formDataOrEvent.preventDefault();
-      form = formDataOrEvent.target;
+      form = /** @type {HTMLFormElement} */ (formDataOrEvent.target);
       formData = new FormData(form);
     } else {
       formData = formDataOrEvent;
@@ -290,7 +291,7 @@ export function useFormAction(actionFn, options = {}) {
 
 export function useOptimistic(initialValue, reducer) {
   const value = signal(initialValue);
-  const pending = signal([]);
+  const pending = signal(/** @type {any[]} */ ([]));
   const baseValue = signal(initialValue); // Track the confirmed server value
 
   function addOptimistic(action) {

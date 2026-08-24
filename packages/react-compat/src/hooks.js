@@ -306,7 +306,7 @@ export function useId() {
 
 // ---- useDebugValue ----
 
-export function useDebugValue() {}
+export function useDebugValue(_value, _format) {}
 
 // ---- use (React 19-style, minimal) ----
 // Context → useContext. Thenable → resolved value or throw for Suspense.

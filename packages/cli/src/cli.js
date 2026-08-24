@@ -112,6 +112,10 @@ class SimpleWebSocketServer {
 class SimpleWebSocket {
   constructor(socket) {
     this.socket = socket;
+    /** @type {(() => void) | null} Assigned by the server that owns this client. */
+    this.onclose = null;
+    /** @type {((event: { data: string }) => void) | null} */
+    this.onmessage = null;
     this.socket.on('close', () => this.onclose?.());
     this.socket.on('error', () => this.onclose?.());
     this.socket.on('data', (data) => this._handleData(data));
@@ -261,7 +265,7 @@ async function dev() {
   const runtimeDirs = requireRuntimeDirs('what dev');
 
   const server = createServer(async (req, res) => {
-    const url = new URL(req.url, `http://${host}:${port}`);
+    const url = new URL(req.url || '/', `http://${host}:${port}`);
     let pathname = url.pathname;
 
     // Handle server actions
@@ -576,7 +580,7 @@ async function preview() {
   }
 
   const server = createServer((req, res) => {
-    let pathname = new URL(req.url, `http://localhost:${port}`).pathname;
+    let pathname = new URL(req.url || '/', `http://localhost:${port}`).pathname;
     if (pathname === '/') pathname = '/index.html';
 
     // Security: Prevent path traversal

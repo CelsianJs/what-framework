@@ -112,14 +112,14 @@ function _$templateImpl(html) {
     const t = document.createElement('template');
     t.innerHTML = tableInfo.wrap + trimmed + tableInfo.unwrap;
     // Pre-navigate to the target element once — avoids per-clone traversal.
-    let target = t.content.firstChild;
-    for (let i = 0; i < tableInfo.depth; i++) target = target.firstChild;
+    let target = /** @type {Node} */ (t.content.firstChild);
+    for (let i = 0; i < tableInfo.depth; i++) target = /** @type {Node} */ (target.firstChild);
     return () => target.cloneNode(true);
   }
 
   const t = document.createElement('template');
   t.innerHTML = trimmed;
-  return () => t.content.firstChild.cloneNode(true);
+  return () => /** @type {Node} */ (t.content.firstChild).cloneNode(true);
 }
 
 // Public export — warns in dev mode that this is a compiler internal.
@@ -157,13 +157,13 @@ export function svgTemplate(html) {
     // Complete <svg> element — parse in a div (browsers handle the namespace)
     const t = document.createElement('template');
     t.innerHTML = trimmed;
-    return () => t.content.firstChild.cloneNode(true);
+    return () => /** @type {Node} */ (t.content.firstChild).cloneNode(true);
   }
 
   // Inner SVG element (path, circle, g, etc.) — wrap in <svg> for namespace context
   const t = document.createElement('template');
   t.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg">${trimmed}</svg>`;
-  return () => t.content.firstChild.firstChild.cloneNode(true);
+  return () => /** @type {Node} */ (/** @type {Node} */ (t.content.firstChild).firstChild).cloneNode(true);
 }
 
 // --- insert(parent, child, marker?) ---

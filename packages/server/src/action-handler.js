@@ -299,6 +299,7 @@ function readRawBody(req) {
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
+        /** @type {Error & { code?: string }} */
         const e = new Error('Body too large');
         e.code = 'BODY_TOO_LARGE';
         reject(e);

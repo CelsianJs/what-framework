@@ -130,7 +130,8 @@ function escapeHtml(str) {
 function escapeSelectorValue(key) {
   const s = String(key);
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
-  return s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c.codePointAt(0).toString(16)} `);
+  // `c` is a single matched code unit, so codePointAt(0) is always defined.
+  return s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${/** @type {number} */ (c.codePointAt(0)).toString(16)} `);
 }
 
 function setHeadTag(tag, key, attrs) {

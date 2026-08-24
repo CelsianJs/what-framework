@@ -169,6 +169,18 @@ export class WhatError extends Error {
   // there and `suggestion` had to carry the whole fix in prose. It matters more
   // here than in a framework aimed at humans: the audience reading toJSON() is
   // usually an agent, and a diff-shaped example is the part it can copy.
+  /**
+   * @param {object} init
+   * @param {string} init.code
+   * @param {string} [init.message]
+   * @param {string} [init.suggestion]
+   * @param {{ bad?: string, good?: string } | string} [init.codeExample]
+   * @param {string} [init.file]
+   * @param {number} [init.line]
+   * @param {string} [init.component]
+   * @param {string} [init.signal]
+   * @param {string} [init.effect]
+   */
   constructor({ code, message, suggestion, codeExample, file, line, component, signal, effect }) {
     super(message);
     this.name = 'WhatError';

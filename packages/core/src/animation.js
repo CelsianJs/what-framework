@@ -213,7 +213,7 @@ export function useTransition(options = {}) {
     isTransitioning.set(true);
     progress.set(0);
 
-    return new Promise((resolve) => {
+    return /** @type {Promise<void>} */ (new Promise((resolve) => {
       const startTime = performance.now();
 
       function tick(time) {
@@ -231,7 +231,7 @@ export function useTransition(options = {}) {
       }
 
       requestAnimationFrame(tick);
-    });
+    }));
   }
 
   return {
@@ -530,7 +530,7 @@ export function createTransitionClasses(name) {
 export async function cssTransition(element, name, type = 'enter', duration = 300) {
   const classes = createTransitionClasses(name);
 
-  return new Promise((resolve) => {
+  return /** @type {Promise<void>} */ (new Promise((resolve) => {
     scheduleWrite(() => {
       // Initial state
       element.classList.add(classes[type]);
@@ -553,5 +553,5 @@ export async function cssTransition(element, name, type = 'enter', duration = 30
         });
       });
     });
-  });
+  }));
 }

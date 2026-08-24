@@ -44,6 +44,10 @@ function patternMatches(pattern, value) {
  *  - version: `import('vite')` exports `version`; major ≥ 8 means rolldown.
  *
  * Exported for unit tests.
+ *
+ * @param {object} [signals]
+ * @param {string|number} [signals.rolldownVersion]
+ * @param {string|number} [signals.viteVersion]
  */
 export function jsxPreserveConfig({ rolldownVersion, viteVersion } = {}) {
   const major = parseInt(String(viteVersion ?? ''), 10);

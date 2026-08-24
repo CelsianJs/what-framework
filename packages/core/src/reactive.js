@@ -30,6 +30,7 @@ export const __DEV__ =
 
 // DevTools hooks — set by what-devtools when installed.
 // These are no-ops in production (dead-code eliminated with __DEV__).
+/** @type {WhatDevToolsHooks | null} */
 export let __devtools = null;
 
 /** @internal Install devtools hooks. Called by what-devtools. */
@@ -96,7 +97,7 @@ export function signal(initial, debugName) {
     // Invalidate lastTracked since value changed — any effect that reads
     // this signal during re-run needs to re-track.
     lastTracked = null;
-    if (__DEV__ && __devtools) __devtools.onSignalUpdate(sig);
+    if (__DEV__ && __devtools) __devtools.onSignalUpdate?.(sig);
     if (subs.size > 0) notify(subs);
   }
 
@@ -148,7 +149,7 @@ export function signal(initial, debugName) {
   }
 
   // Notify devtools of signal creation
-  if (__DEV__ && __devtools) __devtools.onSignalCreate(sig);
+  if (__DEV__ && __devtools) __devtools.onSignalCreate?.(sig);
 
   return sig;
 }
@@ -347,7 +348,7 @@ export function effect(fn, opts) {
   //   effect could never re-fire anyway, so releasing is safe.
   if (e.deps.length === 0 && e._cleanup === null) {
     e.disposed = true;
-    if (__DEV__ && __devtools) __devtools.onEffectDispose(e);
+    if (__DEV__ && __devtools) __devtools.onEffectDispose?.(e);
     return _noopDispose;
   }
 
@@ -379,6 +380,7 @@ function _createEffect(fn, lazy) {
   // IMPORTANT: V8 optimizes objects with a consistent "hidden class" (shape).
   // All properties must be declared upfront even if null — adding properties
   // later causes shape transitions which deoptimize property access globally.
+  /** @type {WhatEffectNode} */
   const e = {
     fn,
     deps: [],            // array of subscriber sets (cheaper than Set for typical 1-3 deps)
@@ -395,7 +397,7 @@ function _createEffect(fn, lazy) {
     _cleanup: null,       // cleanup function returned by effect fn (declared upfront for shape)
     _epoch: 0,           // incremented on cleanup — used by signal lastTracked cache
   };
-  if (__DEV__ && __devtools) __devtools.onEffectCreate(e);
+  if (__DEV__ && __devtools) __devtools.onEffectCreate?.(e);
   return e;
 }
 
@@ -419,12 +421,12 @@ function _runEffect(e) {
       const result = e.fn();
       if (typeof result === 'function') e._cleanup = result;
     } catch (err) {
-      if (__devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
+      if (__devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
       if (__DEV__) console.warn('[what] Error in stable effect:', err);
     } finally {
       currentEffect = prev;
     }
-    if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
+    if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun?.(e);
     return;
   }
 
@@ -436,7 +438,7 @@ function _runEffect(e) {
   // Run effect cleanup from previous run
   if (e._cleanup) {
     try { e._cleanup(); } catch (err) {
-      if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: 'effect-cleanup', effect: e });
+      if (__DEV__ && __devtools?.onError) __devtools.onError?.(err, { type: 'effect-cleanup', effect: e });
       if (__DEV__) console.warn('[what] Error in effect cleanup:', err);
     }
     e._cleanup = null;
@@ -451,7 +453,7 @@ function _runEffect(e) {
     }
   } catch (err) {
     if (err === NEEDS_UPSTREAM) throw err; // Iterative eval sentinel — not a real error
-    if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
+    if (__DEV__ && __devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
     throw err;
   } finally {
     currentEffect = prev;
@@ -468,12 +470,12 @@ function _runEffect(e) {
     e._stable = true;
   }
 
-  if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun(e);
+  if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun?.(e);
 }
 
 function _disposeEffect(e) {
   e.disposed = true;
-  if (__DEV__ && __devtools) __devtools.onEffectDispose(e);
+  if (__DEV__ && __devtools) __devtools.onEffectDispose?.(e);
   cleanup(e);
   // Run cleanup on dispose
   if (e._cleanup) {
@@ -523,7 +525,7 @@ function _processSubscriber(e) {
           e._cleanup = result;
         }
       } catch (err) {
-        if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
+        if (__DEV__ && __devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
         if (__DEV__) console.warn('[what] Error in stable effect:', err);
       } finally {
         currentEffect = prev;
@@ -627,7 +629,7 @@ function flush() {
             _runEffect(e);
           } catch (err) {
             if (err === NEEDS_UPSTREAM) throw err;
-            if (__DEV__ && __devtools?.onError) __devtools.onError(err, { type: 'effect', effect: e });
+            if (__DEV__ && __devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
             // Surface in production too — an uncaught reactive-update error is a
             // real bug; staying silent (as the old throw-out-of-flush did once it
             // escaped) hides it. console.error never aborts the batch.
@@ -796,6 +798,7 @@ export function createRoot(fn) {
   const prevRoot = currentRoot;
   const prevOwner = currentOwner;
   const root = {
+    /** @type {Array<() => void>} */
     disposals: [],
     owner: currentOwner,     // parent owner for ownership tree
     children: [],            // child roots (ownership tree)
@@ -866,6 +869,7 @@ export function _createItemScope(fn) {
   const prevRoot = currentRoot;
   const prevOwner = currentOwner;
   const scope = {
+    /** @type {Array<() => void>} */
     disposals: [],
     owner: null,          // No parent registration
     children: [],         // Kept for compat with effects that create sub-roots
@@ -924,6 +928,7 @@ if (__DEV__ && typeof WeakRef !== 'undefined') {
   // needed before the devtools entry point runs; once devtools install, the
   // buffer is drained and subsequent creations flow through the real hooks.
   const PREINSTALL_CAP = 2000;
+  /** @type {{ signals: Set<any>, effects: Set<any>, components: any[] }} */
   const buffer = { signals: new Set(), effects: new Set(), components: [] };
   __devtools = {
     __isPreinstallBuffer: true,
@@ -950,9 +955,10 @@ if (__DEV__ && typeof WeakRef !== 'undefined') {
  * __setDevToolsHooks replaces the placeholder. Returns arrays of live refs.
  */
 export function __drainPreinstallBuffer() {
-  if (!__DEV__) return { signals: [], effects: [], components: [] };
+  if (!__DEV__) return /** @type {{ signals: any[], effects: any[], components: any[] }} */ ({ signals: [], effects: [], components: [] });
   // If the current __devtools is the real one (no __isPreinstallBuffer), the
   // caller installed late and there is nothing to drain from this side.
+  /** @type {{ signals: any[], effects: any[], components: any[] }} */
   const out = { signals: [], effects: [], components: [] };
   const buf = (typeof __preinstallSnapshot !== 'undefined') ? __preinstallSnapshot : null;
   if (!buf) return out;
@@ -964,6 +970,7 @@ export function __drainPreinstallBuffer() {
 
 // Capture the placeholder buffer at module load so __drainPreinstallBuffer
 // can return it AFTER __setDevToolsHooks has replaced __devtools.
+/** @type {WhatDevToolsHooks['__buffer'] | null} */
 let __preinstallSnapshot = null;
 if (__DEV__ && __devtools?.__isPreinstallBuffer) {
   __preinstallSnapshot = __devtools.__buffer;

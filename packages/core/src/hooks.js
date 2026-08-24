@@ -295,7 +295,7 @@ export function createContext(defaultValue) {
   };
   // The context value is only published once the provider body runs, so
   // compiled children must not be built during this call. See createComponent.
-  context.Provider._deferChildren = true;
+  /** @type {any} */ (context.Provider)._deferChildren = true;
   return context;
 }
 

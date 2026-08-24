@@ -123,7 +123,7 @@ function serverStoreHandle(name, initialState) {
     return createConcreteStore(storeMap, name, definition.initialState);
   };
 
-  definition.handle = new Proxy({}, {
+  definition.handle = /** @type {any} */ (new Proxy({}, {
     get(_target, property) {
       return Reflect.get(resolve(), property);
     },
@@ -140,7 +140,7 @@ function serverStoreHandle(name, initialState) {
       const descriptor = Reflect.getOwnPropertyDescriptor(resolve(), property);
       return descriptor ? { ...descriptor, configurable: true } : undefined;
     },
-  });
+  }));
 
   serverStoreDefinitions.set(name, definition);
   return definition.handle;
@@ -310,7 +310,7 @@ export function hydrateIslands() {
 
   const islands = document.querySelectorAll('[data-island]');
 
-  for (const el of islands) {
+  for (const el of /** @type {NodeListOf<HTMLElement>} */ (islands)) {
     // Compiler-emitted islands (`<Counter client:idle />`) carry a direct
     // component reference and schedule their own hydration, so they are not in
     // the registry and must not be claimed here.

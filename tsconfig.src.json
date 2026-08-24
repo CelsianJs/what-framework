@@ -1,0 +1,52 @@
+{
+  // Typechecks the *implementation*. tsconfig.json only ever sees the hand-written
+  // .d.ts files, which left every .js file under packages/*/src with no static
+  // analysis at all. This config turns TypeScript loose on the real code.
+  //
+  // Two strict-family flags are deliberately off, and it is worth saying why:
+  //
+  //   noImplicitAny            1,191 errors with it on, 208 with it off, and the
+  //                            difference is almost entirely un-annotated function
+  //                            parameters. Annotating 636 of those is a TypeScript
+  //                            migration, not a typecheck. Everything that finds
+  //                            *bugs* (TS2339 unknown property, TS2345 wrong
+  //                            argument, TS18047 possibly-null, TS2554 wrong arity)
+  //                            fires with it off.
+  //
+  //   useUnknownInCatchVariables
+  //                            `catch (e) { e.message }` is the house idiom in ~45
+  //                            places. In JS that is right in every case that
+  //                            actually occurs here, and narrowing all of them buys
+  //                            nothing.
+  //
+  // Turning either on later is a real improvement, not a rewrite: they can be
+  // enabled per-package with an override once the annotations exist.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "paths": {
+      "what-core": ["./packages/core/index.d.ts"],
+      "what-core/*": ["./packages/core/*.d.ts"],
+      "what-server": ["./packages/server/index.d.ts"],
+      "what-server/*": ["./packages/server/*.d.ts"],
+      "what-router": ["./packages/router/index.d.ts"],
+      "what-framework": ["./packages/what/index.d.ts"],
+      "what-framework/*": ["./packages/what/*.d.ts"],
+      "what-react": ["./packages/react-compat/index.d.ts"],
+      "what-react/*": ["./packages/react-compat/*.d.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.js", "types/**/*.d.ts"],
+  "exclude": ["**/node_modules", "**/dist"]
+}

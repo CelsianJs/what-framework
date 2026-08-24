@@ -477,6 +477,7 @@ export function registerTools(server, bridge) {
       const classified = errors.map((err, idx) => {
         const msg = err.message || err.error || '';
         const parsed = parseStack(err.stack, knownComponents);
+        /** @type {Record<string, any>} */
         let classification = {
           id: `err_${idx}`,
           severity: 'error',
@@ -773,6 +774,7 @@ function error(message) {
  * what-core, what-devtools, node_modules, vite/, /@id/, internal anonymous).
  */
 function parseStack(stack, knownComponents = []) {
+  /** @type {{ file: string|null, line: number|null, column: number|null, component: string|null }} */
   const out = { file: null, line: null, column: null, component: null };
   if (!stack || typeof stack !== 'string') return out;
 

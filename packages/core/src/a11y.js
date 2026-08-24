@@ -21,7 +21,7 @@ export function useFocus() {
   return {
     current: () => focusedElement(),
     focus: (element) => element?.focus(),
-    blur: () => document.activeElement?.blur(),
+    blur: () => /** @type {HTMLElement | null} */ (document.activeElement)?.blur(),
   };
 }
 
@@ -241,7 +241,7 @@ export function SkipLink({ href = '#main', children = 'Skip to content' }) {
     class: 'what-skip-link',
     onClick: (e) => {
       e.preventDefault();
-      const target = document.querySelector(href);
+      const target = /** @type {HTMLElement | null} */ (document.querySelector(href));
       if (target) {
         target.focus();
         target.scrollIntoView();

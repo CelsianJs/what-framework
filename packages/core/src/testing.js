@@ -180,7 +180,11 @@ export function trackSignals(fn) {
   // a probe signal: after the run, the probe's subscriber Set holds exactly
   // the effect that read it.
   const probe = signal(0, '__trackSignals_probe__');
-  let dispose = null;
+  // Held in a box rather than a `let`: the assignment happens inside
+  // createRoot's callback, and the finally below has to run it whether the
+  // tracked fn returned or threw.
+  /** @type {{ current: (() => void) | null }} */
+  const root = { current: null };
   let thrown = null;
 
   const collectReads = (depSets, seen) => {
@@ -202,7 +206,7 @@ export function trackSignals(fn) {
   __setDevToolsHooks(trackingHooks);
   try {
     createRoot((disposeRoot) => {
-      dispose = disposeRoot;
+      root.current = disposeRoot;
       effect(() => {
         probe();
         fn();
@@ -215,7 +219,7 @@ export function trackSignals(fn) {
     thrown = err;
   } finally {
     // Deps are read before this: disposal clears them.
-    if (dispose) dispose();
+    root.current?.();
     __setDevToolsHooks(previousHooks);
   }
 
@@ -288,18 +292,12 @@ export function mockSignal(name, initialValue) {
 
 function queryByText(container, text) {
   const regex = text instanceof RegExp ? text : null;
-  const walker = document.createTreeWalker(
-    container,
-    NodeFilter.SHOW_TEXT,
-    null,
-    false
-  );
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
 
   while (walker.nextNode()) {
     const node = walker.currentNode;
-    const matches = regex
-      ? regex.test(node.textContent)
-      : node.textContent.includes(text);
+    const content = node.textContent || '';
+    const matches = regex ? regex.test(content) : content.includes(text);
     if (matches) {
       return node.parentElement;
     }
@@ -310,18 +308,12 @@ function queryByText(container, text) {
 function queryAllByText(container, text) {
   const results = [];
   const regex = text instanceof RegExp ? text : null;
-  const walker = document.createTreeWalker(
-    container,
-    NodeFilter.SHOW_TEXT,
-    null,
-    false
-  );
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
 
   while (walker.nextNode()) {
     const node = walker.currentNode;
-    const matches = regex
-      ? regex.test(node.textContent)
-      : node.textContent.includes(text);
+    const content = node.textContent || '';
+    const matches = regex ? regex.test(content) : content.includes(text);
     if (matches) {
       results.push(node.parentElement);
     }
@@ -460,9 +452,9 @@ export async function act(callback) {
   // Synchronously flush all pending effects
   flushSync();
   // Wait for microtasks to flush
-  await new Promise(r => queueMicrotask(r));
+  await /** @type {Promise<void>} */ (new Promise(r => queueMicrotask(() => r())));
   // Wait for any scheduled effects
-  await new Promise(r => setTimeout(r, 0));
+  await /** @type {Promise<void>} */ (new Promise(r => setTimeout(() => r(), 0)));
   return result;
 }
 

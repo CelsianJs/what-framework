@@ -422,7 +422,7 @@ export function cloneElement(element, props, ...children) {
 
 export function createFactory(type) {
   const factory = createElement.bind(null, type);
-  factory.type = type;
+  /** @type {any} */ (factory).type = type;
   return factory;
 }
 

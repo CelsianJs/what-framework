@@ -17,9 +17,14 @@ function safeEqual(a, b) {
 const MAX_BATCH = 100;
 
 /**
- * @param engine  cache engine (revalidatePath / revalidateTag)
- * @param options { secret, header='x-what-revalidate-secret', regenerate=false, maxBatch=100 }
- * @returns async (reqLike:{headers, body:{paths?,tags?}}) -> { status, body }
+ * @param {{ revalidatePath: Function, revalidateTag: Function }} engine cache engine
+ * @param {object} [options]
+ * @param {string} [options.secret] shared secret the caller must present
+ * @param {string} [options.header] header carrying the secret
+ * @param {boolean} [options.regenerate] re-render each invalidated entry
+ * @param {number} [options.maxBatch] cap on paths + tags per request
+ * @returns {(reqLike: { headers?: Record<string, any>, body?: any }) =>
+ *   Promise<{ status: number, body: any }>}
  */
 export function createRevalidateWebhook(engine, options = {}) {
   const { secret, header = 'x-what-revalidate-secret', regenerate = false, maxBatch = MAX_BATCH } = options;
@@ -46,6 +51,7 @@ export function createRevalidateWebhook(engine, options = {}) {
       return { status: 400, body: { message: `Too many entries: ${total} exceeds the ${maxBatch} per-request limit` } };
     }
 
+    /** @type {{ paths: any[], tags: any[] }} */
     const revalidated = { paths: [], tags: [] };
     if (Array.isArray(paths)) {
       for (const p of paths) {

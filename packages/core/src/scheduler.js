@@ -89,11 +89,11 @@ function schedule() {
 // Returns a promise that resolves with the value.
 
 export function measure(fn) {
-  return new Promise(resolve => {
+  return /** @type {Promise<void>} */ (new Promise(resolve => {
     scheduleRead(() => {
       resolve(fn());
     });
-  });
+  }));
 }
 
 // --- Mutate helper ---
@@ -101,12 +101,12 @@ export function measure(fn) {
 // Returns a promise that resolves when the write is done.
 
 export function mutate(fn) {
-  return new Promise(resolve => {
+  return /** @type {Promise<void>} */ (new Promise(resolve => {
     scheduleWrite(() => {
       fn();
       resolve();
     });
-  });
+  }));
 }
 
 // --- useScheduledEffect ---
@@ -142,7 +142,7 @@ export function nextFrame() {
       reject(new Error('Cancelled'));
     };
   });
-  promise.cancel = cancel;
+  /** @type {any} */ (promise).cancel = cancel;
   return promise;
 }
 
@@ -228,7 +228,7 @@ export function onIntersect(element, callback, options = {}) {
 export function smoothScrollTo(element, options = {}) {
   const { duration = 300, easing = t => t * (2 - t) } = options;
 
-  return new Promise(resolve => {
+  return /** @type {Promise<void>} */ (new Promise(resolve => {
     let startY;
     let targetY;
     let startTime;
@@ -259,5 +259,5 @@ export function smoothScrollTo(element, options = {}) {
         });
       });
     }
-  });
+  }));
 }

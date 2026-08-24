@@ -519,7 +519,7 @@ function mountElement(v, container, svg, owner) {
 
   const rn = {
     kind: KIND_ELEMENT, vnode: v, key: v.key ?? null, dom: el,
-    children: [], ref: props.ref || null,
+    children: /** @type {any[]} */ ([]), ref: props.ref || null,
   };
 
   // Children
@@ -578,7 +578,7 @@ function mountPortal(v, container, owner) {
   const dom = document.createComment('w:portal');
   container.appendChild(dom);
   const target = v.props && v.props.container;
-  const rn = { kind: KIND_PORTAL, vnode: v, key: v.key ?? null, dom, container: target || null, children: [] };
+  const rn = { kind: KIND_PORTAL, vnode: v, key: v.key ?? null, dom, container: target || null, children: /** @type {any[]} */ ([]) };
   if (!target) {
     console.warn('[what-react] createPortal: target container not found');
     return rn;
@@ -620,7 +620,7 @@ function mountOpaque(v, container) {
       let n = start.nextSibling;
       while (n && n !== end) {
         const next = n.nextSibling;
-        holder.appendChild(n);
+        /** @type {DocumentFragment} */ (holder).appendChild(n);
         n = next;
       }
       try { dispose(); } catch { /* already disposed */ }
@@ -1054,6 +1054,7 @@ function changeEventFor(el) {
   return 'change';
 }
 
+/** @this {any} */
 function eventProxy(e) {
   if (!e.nativeEvent) e.nativeEvent = e;
   if (!e.persist) e.persist = noop;
@@ -1061,6 +1062,7 @@ function eventProxy(e) {
   if (handler) return handler(e);
 }
 
+/** @this {any} */
 function eventProxyCapture(e) {
   if (!e.nativeEvent) e.nativeEvent = e;
   if (!e.persist) e.persist = noop;

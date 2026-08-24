@@ -229,6 +229,7 @@ const NAV_SIGNAL = Symbol.for('what.navigation.signal');
 export function redirect(to, options = {}) {
   if (!isSafeUrl(to)) {
     const target = typeof to === 'string' ? to : Object.prototype.toString.call(to);
+    /** @type {Error & { code?: string, suggestion?: string, codeExample?: string }} */
     const err = new Error(`[what-router] redirect() refused an unsafe target: ${target}`);
     err.code = 'ERR_UNSAFE_REDIRECT';
     err.suggestion = 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.';
@@ -240,6 +241,7 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`;
     throw err;
   }
 
+  /** @type {Error & { code?: string, suggestion?: string, codeExample?: string, to?: any, options?: any }} */
   const sig = new Error(`[what-router] redirect to ${to}`);
   sig.name = 'RouterRedirect';
   sig.code = 'ERR_REDIRECT_NOT_CAUGHT';

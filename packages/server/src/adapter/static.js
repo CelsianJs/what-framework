@@ -32,6 +32,13 @@ function resolveInsideOutDir(outDir, urlPath) {
   return dirPath;
 }
 
+/**
+ * @param {object} [options]
+ * @param {any[]} [options.routes]
+ * @param {string} [options.outDir]
+ * @param {(route: any, documentOptions: any) => any} [options.render]
+ * @param {Record<string, any>} [options.documentOptions]
+ */
 export async function exportStatic({ routes = [], outDir, render, documentOptions = {} } = {}) {
   const written = [];
 

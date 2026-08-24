@@ -13,6 +13,12 @@ import { join } from 'path';
 const MAX_EVENT_LOG = 1000;
 const MAX_ERROR_LOG = 100;
 
+/**
+ * @param {object} [options]
+ * @param {number} [options.port]
+ * @param {string} [options.host]
+ * @param {(err: any) => void} [options.onError]
+ */
 export function createBridge({ port = 9229, host = '127.0.0.1', onError } = {}) {
   let latestSnapshot = null;
   const eventLog = [];
