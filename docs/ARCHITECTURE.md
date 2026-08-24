@@ -1,5 +1,12 @@
 # What Framework -- Architecture
 
+> **This document is about how the framework works** — the mental model, the
+> rendering pipeline, islands, the agent surface.
+>
+> For **where the code lives** — the package graph, what each directory is for,
+> which gate protects what, which CI is authoritative — see
+> [ARCHITECTURE.md](../ARCHITECTURE.md) at the repository root.
+
 ## Overview
 
 WhatFW is a fine-grained reactive framework built for AI agents and developers who want the closest thing to vanilla JS with a React-familiar authoring experience.

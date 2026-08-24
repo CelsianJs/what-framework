@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/CelsianJs/what-framework/blob/main/SECURITY.md
+    about: >-
+      Report privately by email, not as a public issue. SECURITY.md has the
+      address and the response timeline.
+  - name: Getting started
+    url: https://whatfw.com
+    about: Docs, guides and the API reference.

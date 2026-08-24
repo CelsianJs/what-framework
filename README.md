@@ -171,12 +171,18 @@ release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DE
 - [Getting Started](GETTING-STARTED.md) -- Setup for agents and developers
 - [Quick Start](docs/QUICKSTART.md) -- Tutorial
 - [API Reference](docs/API.md) -- Full API
-- [Architecture](docs/ARCHITECTURE.md) -- Deep-dive
+- [Architecture](docs/ARCHITECTURE.md) -- Deep-dive on how the framework works
 - [MCP DevTools](docs/MCP-DEVTOOLS.md) -- MCP tools reference
 - [Agent Patterns](docs/AGENT-PATTERNS.md) -- Best practices
 - [Gotchas](docs/GOTCHAS.md) -- Common mistakes
 - [Migration from React](docs/MIGRATION-FROM-REACT.md) · [TypeScript](docs/TYPESCRIPT.md) · [Styling](docs/STYLING.md) · [Development](docs/DEVELOPMENT.md) · [Release](docs/RELEASE.md)
 - [Ecosystem Roadmap](docs/ECOSYSTEM-PLAN.md) -- planned `@what/*` packages
+
+### Contributing
+
+- [Contributing](CONTRIBUTING.md) -- setup, the gates, the PR workflow
+- [Repository Architecture](ARCHITECTURE.md) -- where the code lives and what protects it
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## License
 

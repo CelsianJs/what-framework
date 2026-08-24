@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose something the framework should do and does not
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        What has a deliberately small surface. The strongest case for adding
+        something is a problem that cannot be solved from outside the
+        framework — not a convenience that could live in userland.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does it get stuck today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do instead today
+      description: >
+        If there is a workaround, describe it. If it works, say why it is not
+        good enough — that is the actual case for the feature.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would add
+      description: API sketch, if you have one.
+      render: jsx
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Where it belongs
+      options:
+        - what-core
+        - what-compiler
+        - what-router
+        - what-server
+        - what-isr
+        - what-react
+        - Tooling (CLI, devtools, ESLint, MCP)
+        - Not sure
+    validations:
+      required: true
