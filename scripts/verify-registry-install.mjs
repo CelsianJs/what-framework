@@ -15,7 +15,8 @@ const packages = [
   'what-isr',
   'what-compiler',
   'what-devtools',
-  'what-mcp',
+  // what-mcp is deprecated and frozen, so it no longer tracks the release
+  // version. See FROZEN_PACKAGES in scripts/bump-version.mjs.
   'what-devtools-mcp',
   'eslint-plugin-what',
   'what-react',

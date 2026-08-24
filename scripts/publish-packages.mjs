@@ -16,7 +16,9 @@ const PACKAGE_ORDER = [
   'packages/cache',
   'packages/compiler',
   'packages/devtools',
-  'packages/mcp-server',
+  // packages/mcp-server (what-mcp) is deliberately absent: it is deprecated on
+  // npm in favour of what-devtools-mcp and is frozen at the version it last
+  // shipped. See FROZEN_PACKAGES in scripts/bump-version.mjs.
   'packages/devtools-mcp',
   'packages/eslint-plugin',
   'packages/react-compat',

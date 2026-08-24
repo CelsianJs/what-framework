@@ -24,7 +24,16 @@ const args = process.argv.slice(2);
 const dry = args.includes('--dry');
 const bumpArg = args.find((a) => !a.startsWith('--')) || 'patch';
 
+// Deprecated packages stop moving. `what-mcp` was superseded by
+// what-devtools-mcp and carries an npm deprecation notice, but the release
+// pipeline kept bumping and republishing it every time, which makes an
+// abandoned package look maintained. It stays at whatever version it last
+// shipped; unfreezing is deleting a line here and in publish-packages.mjs and
+// verify-registry-install.mjs.
+const FROZEN_PACKAGES = new Set(['mcp-server']);
+
 const pkgDirs = readdirSync(pkgsDir)
+  .filter((d) => !FROZEN_PACKAGES.has(d))
   .map((d) => join(pkgsDir, d))
   .filter((d) => existsSync(join(d, 'package.json')));
 
