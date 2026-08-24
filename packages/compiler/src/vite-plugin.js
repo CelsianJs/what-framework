@@ -102,10 +102,14 @@ export default function whatVitePlugin(options = {}) {
   function registerActionId(metadata) {
     const existing = actionIdRegistry.get(metadata.id);
     if (existing && existing.key !== metadata.key) {
-      throw new Error(
-        `Duplicate server action ID "${metadata.id}". ` +
-        `First declared by "${existing.bindingName}" at ${existing.source}; ` +
-        `conflicts with "${metadata.bindingName}" at ${metadata.source}.`
+      // ERROR_CODES.DUPLICATE_ACTION_ID
+      throw Object.assign(
+        new Error(
+          `Duplicate server action ID "${metadata.id}". ` +
+          `First declared by "${existing.bindingName}" at ${existing.source}; ` +
+          `conflicts with "${metadata.bindingName}" at ${metadata.source}.`
+        ),
+        { code: 'ERR_DUPLICATE_ACTION_ID' },
       );
     }
     actionIdRegistry.set(metadata.id, metadata);

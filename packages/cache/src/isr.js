@@ -34,7 +34,11 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
   function keyFor(routeMatch) {
     const vary = varyFor(routeMatch);
     if (vary === null) {
-      throw new Error('[what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache');
+      // ERROR_CODES.ISR_VARY_NO_HEADERS
+      throw Object.assign(
+        new Error('[what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache'),
+        { code: 'ERR_ISR_VARY_NO_HEADERS' },
+      );
     }
     return cacheKey({ path: routeMatch.path, query: routeMatch.query, vary });
   }

@@ -27,7 +27,11 @@ function resolveInsideOutDir(outDir, urlPath) {
   const root = resolve(outDir);
   const dirPath = resolve(join(outDir, urlPath === '/' ? '' : urlPath));
   if (dirPath !== root && !dirPath.startsWith(root + sep)) {
-    throw new Error(`[what-server] Refusing to write outside outDir: ${urlPath}`);
+    // ERROR_CODES.STATIC_WRITE_ESCAPE
+    throw Object.assign(
+      new Error(`[what-server] Refusing to write outside outDir: ${urlPath}`),
+      { code: 'ERR_STATIC_WRITE_ESCAPE' },
+    );
   }
   return dirPath;
 }

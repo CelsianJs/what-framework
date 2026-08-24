@@ -53,7 +53,11 @@ export function generateCsrfToken() {
     return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
   }
   // Last resort — should not be reached in modern environments
-  throw new Error('[what] No secure random source available for CSRF token generation');
+  // ERROR_CODES.NO_SECURE_RANDOM
+  throw Object.assign(
+    new Error('[what] No secure random source available for CSRF token generation'),
+    { code: 'ERR_NO_SECURE_RANDOM' },
+  );
 }
 
 // Server: validate CSRF token from request header against session token
@@ -141,7 +145,10 @@ export function action(fn, options = {}) {
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({ message: 'Action failed' }));
-        throw new Error(error.message || 'Action failed');
+        // ERROR_CODES.ACTION_FAILED
+      throw Object.assign(new Error(error.message || 'Action failed'), {
+        code: 'ERR_ACTION_FAILED',
+      });
       }
 
       const result = await response.json();

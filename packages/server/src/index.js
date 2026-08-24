@@ -754,7 +754,11 @@ const SAFE_TAG_NAME = /^[a-zA-Z_][a-zA-Z0-9._:-]*$/;
 
 function assertSafeTag(tag) {
   if (typeof tag !== 'string' || !SAFE_TAG_NAME.test(tag)) {
-    throw new Error(`[what-server] Invalid tag name in SSR: ${JSON.stringify(tag)}`);
+    // ERROR_CODES.INVALID_SSR_TAG
+    throw Object.assign(
+      new Error(`[what-server] Invalid tag name in SSR: ${JSON.stringify(tag)}`),
+      { code: 'ERR_INVALID_SSR_TAG' },
+    );
   }
 }
 

@@ -874,6 +874,15 @@ export interface ErrorCodeDefinition {
 
 export const ERROR_CODES: Record<string, ErrorCodeDefinition>;
 
+/**
+ * Look up a catalogue entry by its `ERR_*` code.
+ *
+ * Errors thrown outside what-core carry only their code — the suggestion and
+ * the worked example live once, in the catalogue, so that the client bundle
+ * does not have to ship the prose. This is how they are recovered.
+ */
+export function getErrorDefinition(code: string): ErrorCodeDefinition | undefined;
+
 export interface WhatErrorJSON {
   code: string;
   message: string;

@@ -330,7 +330,11 @@ export function use(usable) {
       return useContext(usable);
     }
   }
-  throw new Error('[what-react] use() expects a promise or a context.');
+  // ERROR_CODES.USE_INVALID_ARG
+  throw Object.assign(
+    new Error('[what-react] use() expects a promise or a context.'),
+    { code: 'ERR_USE_INVALID_ARG' },
+  );
 }
 
 // ---- useSignal (escape hatch) ----

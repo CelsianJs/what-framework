@@ -11,7 +11,12 @@ import { redactVary } from '../key.js';
  * @param {string} [options.namespace]
  */
 export function createRedisStore({ client, namespace = 'what' } = {}) {
-  if (!client) throw new Error('[what-isr] createRedisStore requires { client }');
+  // ERROR_CODES.ISR_MISSING_CLIENT
+  if (!client) {
+    throw Object.assign(new Error('[what-isr] createRedisStore requires { client }'), {
+      code: 'ERR_ISR_MISSING_CLIENT',
+    });
+  }
 
   const ck = (key) => `${namespace}:cache:${key}`;
   const tk = (tag) => `${namespace}:tag:${tag}`;
