@@ -110,6 +110,9 @@ jobs:
         run: npm run -s hygiene:publish
       - name: Type parity gate (declarations match runtime exports, both ways)
         run: npm run -s hygiene:types
+
+      - name: Error-code catalogue gate (every ERR_* literal is catalogued)
+        run: npm run -s check:error-codes
       - name: Typecheck declarations
         run: npm run -s typecheck
 

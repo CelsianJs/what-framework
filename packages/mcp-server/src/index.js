@@ -720,7 +720,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: 'text', text }] };
     }
     default:
-      throw new Error(`Unknown tool: ${name}`);
+      // ERROR_CODES.UNKNOWN_TOOL
+      throw Object.assign(new Error(`Unknown tool: ${name}`), { code: 'ERR_UNKNOWN_TOOL' });
   }
 });
 

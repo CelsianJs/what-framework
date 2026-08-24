@@ -57,11 +57,15 @@ export function _getCurrentInstance() {
 
 export function _requireInstance(hookName) {
   if (!currentInstance) {
-    throw new Error(
-      `[what-react] ${hookName}() called outside of a component render. ` +
-      `Hooks can only be called while a what-react component is rendering. ` +
-      `If this happens inside a React library, make sure ALL react imports are ` +
-      `aliased to what-react (one module instance) — see the reactCompat() vite plugin.`
+    // ERROR_CODES.HOOK_OUTSIDE_RENDER
+    throw Object.assign(
+      new Error(
+        `[what-react] ${hookName}() called outside of a component render. ` +
+        `Hooks can only be called while a what-react component is rendering. ` +
+        `If this happens inside a React library, make sure ALL react imports are ` +
+        `aliased to what-react (one module instance) — see the reactCompat() vite plugin.`
+      ),
+      { code: 'ERR_HOOK_OUTSIDE_RENDER' },
     );
   }
   return currentInstance;

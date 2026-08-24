@@ -177,7 +177,11 @@ export function cacheKey({ path, query, vary, headers } = {}) {
   const isResolvedMap = vary == null || (typeof vary === 'object' && !Array.isArray(vary));
   const resolved = isDeclaration ? resolveVary(vary, headers) : (isResolvedMap ? vary : null);
   if (resolved === null) {
-    throw new Error('[what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request (unsupported shape, or no request headers were supplied)');
+    // ERROR_CODES.ISR_VARY_UNRESOLVED
+    throw Object.assign(
+      new Error('[what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request (unsupported shape, or no request headers were supplied)'),
+      { code: 'ERR_ISR_VARY_UNRESOLVED' },
+    );
   }
   return [normalizePath(path), normalizeQuery(query), varyString(resolved)].join(KEY_SEP);
 }

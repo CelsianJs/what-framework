@@ -115,9 +115,13 @@ function serverStoreHandle(name, initialState) {
   const resolve = () => {
     const storeMap = activeServerStoreMap();
     if (!storeMap) {
-      throw new Error(
-        `[what-server] Island store "${name}" was accessed outside an active server render. ` +
-        'Read or write module-scoped island stores from a component rendered by renderDocument/renderPage.'
+      // ERROR_CODES.ISLAND_STORE_OUTSIDE_RENDER
+      throw Object.assign(
+        new Error(
+          `[what-server] Island store "${name}" was accessed outside an active server render. ` +
+          'Read or write module-scoped island stores from a component rendered by renderDocument/renderPage.'
+        ),
+        { code: 'ERR_ISLAND_STORE_OUTSIDE_RENDER' },
       );
     }
     return createConcreteStore(storeMap, name, definition.initialState);

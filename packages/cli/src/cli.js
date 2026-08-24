@@ -644,7 +644,10 @@ async function generate() {
     try {
       const mod = await import(pathToFileURL(page).href);
       if (typeof (mod.default || mod) !== 'function') {
-        throw new Error('no default-exported component');
+        // ERROR_CODES.PAGE_NO_DEFAULT_EXPORT
+        throw Object.assign(new Error('no default-exported component'), {
+          code: 'ERR_PAGE_NO_DEFAULT_EXPORT',
+        });
       }
       const { body, head } = await renderPage(mod, { params: {}, query: {}, path: route });
       html = staticDocument(body, head);

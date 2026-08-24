@@ -43,10 +43,14 @@ export async function ensurePretext() {
     return mod;
   }).catch((err) => {
     pretextLoadPromise = null;
-    throw new Error(
-      `[what-text] Failed to load @chenglou/pretext. ` +
-      `Install it with: npm install @chenglou/pretext\n` +
-      `Original error: ${err.message}`
+    // ERROR_CODES.PRETEXT_NOT_INSTALLED
+    throw Object.assign(
+      new Error(
+        `[what-text] Failed to load @chenglou/pretext. ` +
+        `Install it with: npm install @chenglou/pretext\n` +
+        `Original error: ${err.message}`
+      ),
+      { code: 'ERR_PRETEXT_NOT_INSTALLED' },
     );
   });
   return pretextLoadPromise;

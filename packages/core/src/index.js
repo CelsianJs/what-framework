@@ -178,6 +178,7 @@ export {
 export {
   WhatError,
   ERROR_CODES,
+  getErrorDefinition,
   createWhatError,
   classifyError,
   collectError,

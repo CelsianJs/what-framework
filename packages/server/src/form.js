@@ -27,12 +27,20 @@ function resolveActionId(action) {
   if (typeof action === 'function') {
     const id = action._actionId;
     if (id) return id;
-    throw new Error(
-      '[what] <Form action={fn}>: that function is not a server action. ' +
-      'Wrap it with action() from what-server, or pass the action id as a string.'
+    // ERROR_CODES.FORM_ACTION_NOT_REGISTERED
+    throw Object.assign(
+      new Error(
+        '[what] <Form action={fn}>: that function is not a server action. ' +
+        'Wrap it with action() from what-server, or pass the action id as a string.'
+      ),
+      { code: 'ERR_FORM_ACTION_NOT_REGISTERED' },
     );
   }
-  throw new Error('[what] <Form> requires an `action` prop: a server action or its id.');
+  // ERROR_CODES.FORM_ACTION_MISSING
+  throw Object.assign(
+    new Error('[what] <Form> requires an `action` prop: a server action or its id.'),
+    { code: 'ERR_FORM_ACTION_MISSING' },
+  );
 }
 
 // On the server there is no document, so the per-request token must be handed

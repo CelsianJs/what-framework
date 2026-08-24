@@ -382,7 +382,11 @@ export const Children = {
   only(children) {
     const arr = Children.toArray(children);
     if (arr.length !== 1) {
-      throw new Error('React.Children.only expected to receive a single React element child.');
+      // ERROR_CODES.CHILDREN_ONLY
+    throw Object.assign(
+      new Error('React.Children.only expected to receive a single React element child.'),
+      { code: 'ERR_CHILDREN_ONLY' },
+    );
     }
     return arr[0];
   },
