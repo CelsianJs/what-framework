@@ -4,15 +4,18 @@
   "description": "Optional text engine for What Framework, powered by @chenglou/pretext",
   "type": "module",
   "main": "src/index.js",
+  "types": "index.d.ts",
   "module": "src/index.js",
   "exports": {
     ".": {
+      "types": "./index.d.ts",
       "import": "./src/index.js",
       "default": "./src/index.js"
     }
   },
   "files": [
-    "src"
+    "src",
+    "index.d.ts"
   ],
   "sideEffects": false,
   "peerDependencies": {
