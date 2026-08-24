@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import CountUp from 'react-countup';
 
 export function CountUpTest() {

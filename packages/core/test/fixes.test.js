@@ -1,7 +1,7 @@
 // Tests for Phase 1, Phase 2, and Round 2 fixes
 // Covers: microtask deferral, diamond dependency, marker array patching,
 // _parentCtx chain, reactive cache, memo redesign, createResource lifecycle
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { signal, computed, effect, batch, untrack, flushSync } from '../src/reactive.js';
 

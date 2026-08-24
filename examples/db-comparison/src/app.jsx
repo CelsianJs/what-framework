@@ -1,4 +1,4 @@
-import { mount, signal, effect, computed, onMount, onCleanup, batch, mapArray } from 'what-framework';
+import { mount, signal, computed, onMount, onCleanup, mapArray } from 'what-framework';
 import { createPrismaAdapter } from './adapters/prisma-mock.js';
 import { createBatadataAdapter } from './adapters/batadata-mock.js';
 

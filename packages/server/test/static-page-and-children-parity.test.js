@@ -19,7 +19,7 @@
 // server renders run through `asServer()`, which removes it, so the SSR
 // assertions describe a real server and not a jsdom-flavoured one.
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 

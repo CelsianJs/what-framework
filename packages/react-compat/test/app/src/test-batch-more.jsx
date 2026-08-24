@@ -1,7 +1,7 @@
 /**
  * Batch test: More packages — AG Grid, react-aria, more MUI, TanStack Router/Form, etc.
  */
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 
 class TB extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }

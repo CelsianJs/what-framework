@@ -3,7 +3,7 @@
 // product pages should regenerate — so each action revalidates the `products`
 // tag (covers the grid and every /product/[id]) plus the home path.
 
-import { action, revalidateTag, revalidatePath } from 'what-framework/server';
+import { action } from 'what-framework/server';
 import { addToCart, removeFromCart } from '../db.js';
 
 export const addToCartAction = action(

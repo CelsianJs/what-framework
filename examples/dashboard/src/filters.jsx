@@ -1,8 +1,8 @@
 // Filters — search input + status dropdown that filter the table reactively
 // Demonstrates: controlled inputs, useEffect for debouncing, signal-based filtering
 
-import { useSignal, useEffect, useRef } from 'what-framework';
-import { statusFilter, setSearch, setStatusFilter, totalFiltered, data } from './store.js';
+import { useSignal, useEffect } from 'what-framework';
+import { setSearch, setStatusFilter, totalFiltered, data } from './store.js';
 
 export default function Filters() {
   // Local signal for debounced search input

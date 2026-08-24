@@ -339,7 +339,7 @@ export function useGesture(element, handlers = {}) {
     }
   }
 
-  function handleEnd(e) {
+  function handleEnd(_e) {
     if (!state.isDragging.peek()) return;
 
     if (longPressTimer) {
@@ -453,7 +453,6 @@ export function useGesture(element, handlers = {}) {
 
 export function useAnimatedValue(initialValue) {
   const value = signal(initialValue);
-  const animations = [];
 
   return {
     value: () => value(),

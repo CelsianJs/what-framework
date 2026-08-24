@@ -2,12 +2,7 @@
 // Demonstrates: createStore, derived, useSignal, useEffect, useRef,
 // useMemo, mount, batch, spring animation, localStorage, JSX
 
-import {
-  mount, batch,
-  createStore, derived,
-  useSignal, useEffect, useRef, useMemo,
-  spring, cls,
-} from 'what-framework';
+import { mount, createStore, derived, useSignal, useEffect, useRef, useMemo, spring, cls } from 'what-framework';
 
 // --- Store ----------------------------------------
 // Global state with derived computeds and actions using `this`

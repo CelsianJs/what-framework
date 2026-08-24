@@ -1,10 +1,5 @@
 // Projects — showcases: createStore, spring, batch, For, Show, Switch, effect, announce
-import {
-  h, useState, useEffect, useRef, useMemo,
-  signal, computed, batch,
-  spring,
-  announce,
-} from 'what-framework';
+import { h, useState, useEffect, useRef, useMemo, spring } from 'what-framework';
 import { useAppStore } from '../app.js';
 import { TASKS, PEOPLE } from '../data.js';
 
@@ -81,7 +76,7 @@ function AddTaskForm({ column, onAdd, onClose }) {
 }
 
 // ─── Kanban Card ───
-function KanbanCard({ task, onMove }) {
+function KanbanCard({ task}) {
   const assignee = getAssignee(task.assignee);
   const dragRef = useRef(null);
   const scaleRef = useRef(null);

@@ -9,7 +9,7 @@ export function HookFormTest() {
     register,
     handleSubmit,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors },
     reset,
   } = useForm({
     defaultValues: { name: '', email: '', age: '' },

@@ -1,5 +1,5 @@
 // Tests for What Framework - Animation Primitives
-import { describe, it, beforeEach, afterEach, mock } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Track RAF timeouts for cleanup

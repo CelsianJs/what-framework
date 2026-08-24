@@ -1,5 +1,5 @@
-import { signal, mount, h } from 'what-core';
-import { Router, Link, NavLink, route, navigate } from 'what-router';
+import { mount, h } from 'what-core';
+import { Router, NavLink, route, navigate } from 'what-router';
 
 // Pages
 function Home() {

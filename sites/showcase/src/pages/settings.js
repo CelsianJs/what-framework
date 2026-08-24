@@ -1,18 +1,12 @@
 // Settings — showcases: useForm, validation rules, stores, signals, theme toggle, accessibility, announce
-import {
-  h, useState, useEffect, useMemo,
-  signal, effect,
-  useForm, rules, simpleResolver,
-  announce,
-  useLocalStorage,
-} from 'what-framework';
+import { h, useState, useForm, rules, simpleResolver, announce } from 'what-framework';
 import { useAppStore } from '../app.js';
 
 // ─── Profile Form ───
 function ProfileForm() {
   const store = useAppStore();
 
-  const { register, handleSubmit, formState, reset, setValue } = useForm({
+  const { register, handleSubmit, formState, reset } = useForm({
     defaultValues: {
       name: 'Elena Vasquez',
       email: 'elena@flux.dev',
@@ -30,7 +24,7 @@ function ProfileForm() {
 
   const [saved, setSaved] = useState(false);
 
-  const onSubmit = (data) => {
+  const onSubmit = (_data) => {
     setSaved(true);
     store.addNotification('Profile updated successfully', 'success');
     setTimeout(() => setSaved(false), 2000);

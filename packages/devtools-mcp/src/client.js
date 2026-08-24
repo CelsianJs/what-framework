@@ -7,7 +7,6 @@
 // Branded console logger
 const BADGE = 'background:#6366f1;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold';
 const BADGE_CMD = 'background:#22c55e;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold';
-const BADGE_EVENT = 'background:#f97316;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold';
 const BADGE_WARN = 'background:#eab308;color:#000;padding:2px 6px;border-radius:3px;font-weight:bold';
 const DIM = 'color:#888';
 

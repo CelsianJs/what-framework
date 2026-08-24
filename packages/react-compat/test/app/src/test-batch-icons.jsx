@@ -1,7 +1,7 @@
 /**
  * Batch test: Icon libraries + simple utility packages
  */
-import React, { useState } from 'react';
+import React from 'react';
 
 class TB extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }

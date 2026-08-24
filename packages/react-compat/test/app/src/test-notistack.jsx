@@ -1,8 +1,8 @@
-import React from 'react';
+
 import { SnackbarProvider, useSnackbar } from 'notistack';
 
 function NotistackInner() {
-  const { enqueueSnackbar, closeSnackbar } = useSnackbar();
+  const { enqueueSnackbar } = useSnackbar();
 
   return (
     <div>

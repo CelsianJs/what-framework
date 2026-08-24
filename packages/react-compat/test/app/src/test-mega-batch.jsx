@@ -2,7 +2,7 @@
  * Mega-batch test — tests ALL expected & new packages in one page.
  * Each test is wrapped in an ErrorBoundary to isolate failures.
  */
-import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
+import React, { useState } from 'react';
 
 // ── Error Boundary ──
 class TestBoundary extends React.Component {
@@ -235,7 +235,7 @@ function TestCountUp() {
 }
 
 // 19. usehooks-ts
-import { useLocalStorage, useBoolean } from 'usehooks-ts';
+import { useBoolean } from 'usehooks-ts';
 function TestUsehooksTs() {
   const { value, setTrue, setFalse } = useBoolean(false);
   return <div>
@@ -246,7 +246,7 @@ function TestUsehooksTs() {
 }
 
 // 20. react-use
-import { useToggle as useToggleRU, useMouse } from 'react-use';
+import { useToggle as useToggleRU } from 'react-use';
 function TestReactUse() {
   const [on, toggle] = useToggleRU(false);
   return <div>
@@ -381,7 +381,7 @@ function TestChartjs() {
 
 // 30. @mui/material
 import Button from '@mui/material/Button';
-import TextField from '@mui/material/TextField';
+
 import Chip from '@mui/material/Chip';
 import Switch from '@mui/material/Switch';
 function TestMUI() {

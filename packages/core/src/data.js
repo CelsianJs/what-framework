@@ -288,16 +288,7 @@ export function useFetch(url, options = {}) {
 // Stale-while-revalidate pattern with caching
 
 export function useSWR(rawKey, fetcher, options = {}) {
-  const {
-    revalidateOnFocus = true,
-    revalidateOnReconnect = true,
-    refreshInterval = 0,
-    dedupingInterval = 2000,
-    fallbackData,
-    onSuccess,
-    onError,
-    suspense = false,
-  } = options;
+  const { revalidateOnFocus = true, revalidateOnReconnect = true, refreshInterval = 0, dedupingInterval = 2000, fallbackData, onSuccess, onError } = options;
 
   // Support null/undefined/false key for conditional/dependent fetching
   // When key is falsy, don't fetch — return idle state

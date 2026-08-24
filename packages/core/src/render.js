@@ -2,9 +2,9 @@
 // Solid-style rendering: components run once, signals create individual DOM effects.
 // No VDOM diffing — direct DOM manipulation with surgical signal-driven updates.
 
-import { effect, untrack, createRoot, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
+import { effect, untrack, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { createDOM, disposeTree, getCurrentComponent, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { createDOM, disposeTree, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
 import { _injectIslandRuntime, reportError } from './components.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
@@ -1094,7 +1094,6 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       // Backward move: old[from] = new[to], old[to..from-1] = new[to+1..from]
 
       const fromRel = mm1; // first mismatch - the moved item was here in old OR went here in new
-      let movedKey = null;
       let fromAbs = -1, toAbs = -1;
       let isMove = false;
 
@@ -1121,7 +1120,6 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
             isMove = true;
             fromAbs = start + fromRel;
             toAbs = start + destRel;
-            movedKey = candidateKey;
           }
         }
       }
@@ -1148,7 +1146,6 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
               isMove = true;
               fromAbs = start + srcRel;
               toAbs = start + fromRel;
-              movedKey = candidateKey2;
             }
           }
         }
@@ -1392,7 +1389,7 @@ export function spread(el, props) {
       // If a previous spread/setProp already registered an effect for this
       // key, dispose it first to avoid double-tracking.
       if (el._propEffects[key]) {
-        try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+        try { el._propEffects[key](); } catch { /* already disposed */ }
       }
       if (key === 'class' || key === 'className') {
         el._propEffects[key] = effect(() => {
@@ -1441,7 +1438,7 @@ export function setProp(el, key, value) {
   if (typeof value === 'function' && !_isEventProp(key)) {
     if (!el._propEffects) el._propEffects = {};
     if (el._propEffects[key]) {
-      try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+      try { el._propEffects[key](); } catch { /* already disposed */ }
     }
     el._propEffects[key] = effect(() => setProp(el, key, value()));
     return;
@@ -1494,7 +1491,7 @@ export function setProp(el, key, value) {
     // and property-reflected branches. Reflected props (e.g. el.title) are reset
     // first so removeAttribute() clears both the attribute and the property.
     if (key in el) {
-      try { el[key] = ''; } catch (e) { /* read-only reflected prop */ }
+      try { el[key] = ''; } catch { /* read-only reflected prop */ }
     }
     el.removeAttribute(key);
   } else if (key.startsWith('data-') || key.startsWith('aria-')) {
@@ -1529,7 +1526,7 @@ export function setProp(el, key, value) {
 function _wrapPropAccessor(el, key, accessor, apply) {
   if (!el._propEffects) el._propEffects = {};
   if (el._propEffects[key]) {
-    try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+    try { el._propEffects[key](); } catch { /* already disposed */ }
   }
   el._propEffects[key] = effect(() => apply(el, accessor()));
 }

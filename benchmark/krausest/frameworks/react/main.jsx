@@ -1,7 +1,7 @@
 // React 19 keyed implementation — canonical react-hooks style (memo rows,
 // stable callbacks, immutable updates), mirroring the official
 // js-framework-benchmark frameworks/keyed/react-hooks entry.
-import React, { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../shared/main.css';
 

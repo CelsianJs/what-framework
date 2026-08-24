@@ -54,7 +54,7 @@ export function AgGridTest() {
     minWidth: 100,
   }), []);
 
-  const onGridReady = useCallback((params) => {
+  const onGridReady = useCallback((_params) => {
     console.log('[AG Grid] Grid ready, API available');
   }, []);
 

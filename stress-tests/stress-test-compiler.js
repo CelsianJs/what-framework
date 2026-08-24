@@ -115,8 +115,9 @@ describe('STRESS: Reactivity detection', () => {
     // Pure static content should not have effect/insert calls
     const hasEffect = code.includes('_$effect(') || code.includes('effect(');
     const hasInsert = code.includes('_$insert(') || code.includes('insert(');
-    // Static text is in the template, no runtime effect needed
+    // Static text is in the template, no runtime effect or insert needed.
     assert.ok(!hasEffect, `Static text should not produce effect. Code:\n${code}`);
+    assert.ok(!hasInsert, `Static text should not produce insert. Code:\n${code}`);
   });
 
   it('Math.max with signal args is reactive, without is not', () => {
@@ -137,9 +138,11 @@ describe('STRESS: Reactivity detection', () => {
       }
     `);
 
-    // Reactive version should have effect/insert
+    // Reactive version should have effect/insert; the static one should not.
     const reactiveHasInsert = codeReactive.includes('_$insert') || codeReactive.includes('insert(');
     assert.ok(reactiveHasInsert, `Math.max with signals should be reactive. Code:\n${codeReactive}`);
+    const staticHasInsert = codeStatic.includes('_$insert') || codeStatic.includes('insert(');
+    assert.ok(!staticHasInsert, `Math.max without signals should stay static. Code:\n${codeStatic}`);
   });
 
   it('useState destructured value is detected as reactive', () => {

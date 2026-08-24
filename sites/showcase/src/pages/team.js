@@ -1,11 +1,5 @@
 // Team — showcases: useSWR, search with signals, skeleton loaders, For, Show, effects, useRef
-import {
-  h, useState, useEffect, useRef, useMemo,
-  signal, effect,
-  useSWR,
-  Skeleton,
-  announce,
-} from 'what-framework';
+import { h, useState, useEffect, useRef, useMemo, useSWR, announce } from 'what-framework';
 import { useAppStore } from '../app.js';
 import { fetchPeople } from '../data.js';
 
@@ -75,7 +69,7 @@ function TeamStats({ people }) {
 
 // ─── Team Page ───
 export function Team() {
-  const store = useAppStore();
+  useAppStore(); // subscribes this page to the store
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const inputRef = useRef(null);

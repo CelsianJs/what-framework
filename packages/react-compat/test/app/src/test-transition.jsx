@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
 
 export function TransitionTest() {

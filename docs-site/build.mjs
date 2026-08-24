@@ -2,7 +2,7 @@
 // renderToString). Chrome (head/nav/sidebar) is authored as What; page content
 // is preserved verbatim via dangerouslySetInnerHTML so visuals never drift.
 // Output: dist/<clean-route>/index.html  (no .html in URLs).
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToString } from 'what-framework/server';

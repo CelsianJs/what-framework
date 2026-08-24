@@ -3,10 +3,10 @@ import { useToggle, useCounter, useList, useCopyToClipboard, useWindowSize, useL
 export function ReactUseTest() {
   const [on, toggle] = useToggle(false);
   const [count, { inc, dec, reset }] = useCounter(0);
-  const [list, { push, removeAt, clear }] = useList(['Apple', 'Banana']);
+  const [list, { push, removeAt }] = useList(['Apple', 'Banana']);
   const [clipState, copyToClipboard] = useCopyToClipboard();
   const { width, height } = useWindowSize();
-  const [stored, setStored] = useLocalStorage('test-key', 'hello');
+  useLocalStorage('test-key', 'hello'); // exercised for the hook contract; nothing renders it
 
   return (
     <div>

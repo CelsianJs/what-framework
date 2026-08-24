@@ -2,8 +2,8 @@
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
-import { effect, batch, untrack, signal, __DEV__, __devtools } from './reactive.js';
-import { reportError, _injectGetCurrentComponent, shallowEqual } from './components.js';
+import { effect, untrack, signal, __DEV__, __devtools } from './reactive.js';
+import { reportError, _injectGetCurrentComponent } from './components.js';
 import { _setComponentRef } from './helpers.js';
 // SVG elements that need namespace
 const SVG_ELEMENTS = new Set([
@@ -119,7 +119,7 @@ function disposeComponent(ctx) {
   // Run effect disposals
   if (ctx.effects) {
     for (const dispose of ctx.effects) {
-      try { dispose(); } catch (e) { /* already disposed */ }
+      try { dispose(); } catch { /* already disposed */ }
     }
   }
 
@@ -169,7 +169,7 @@ export function disposeTree(node) {
     const disposers = node._hydrationDisposers;
     node._hydrationDisposers = null;
     for (let i = 0; i < disposers.length; i++) {
-      try { disposers[i](); } catch (e) { /* already disposed */ }
+      try { disposers[i](); } catch { /* already disposed */ }
     }
   }
   // Check comment node WeakMap for component context — only for comment nodes
@@ -181,12 +181,12 @@ export function disposeTree(node) {
   }
   // Dispose reactive function child effects ({() => ...} wrappers)
   if (node._dispose) {
-    try { node._dispose(); } catch (e) { /* already disposed */ }
+    try { node._dispose(); } catch { /* already disposed */ }
   }
   // Dispose reactive prop effects (value: () => ..., class: () => ..., etc.)
   if (node._propEffects) {
     for (const key in node._propEffects) {
-      try { node._propEffects[key](); } catch (e) { /* already disposed */ }
+      try { node._propEffects[key](); } catch { /* already disposed */ }
     }
   }
   // Recursively dispose children
@@ -384,7 +384,7 @@ const _propsProxyHandler = {
     }
     return undefined;
   },
-  set(target, key) {
+  set(_target, _key) {
     // Props are read-only from the component's perspective.
     // Reject all writes — especially dangerous prototype-chain keys.
     return false;
@@ -830,7 +830,7 @@ function createSuspenseBoundary(vnode, parent) {
 }
 
 // Portal component handler
-function createPortalDOM(vnode, parent) {
+function createPortalDOM(vnode, _parent) {
   const { container } = vnode.props;
   const children = vnode.children;
 
@@ -942,7 +942,7 @@ function setProp(el, key, value, isSvg) {
   if (typeof value === 'function' && !_isEventProp(key) && key !== 'ref') {
     if (!el._propEffects) el._propEffects = {};
     if (el._propEffects[key]) {
-      try { el._propEffects[key](); } catch (e) { /* already disposed */ }
+      try { el._propEffects[key](); } catch { /* already disposed */ }
     }
     el._propEffects[key] = effect(() => {
       const resolved = value();
@@ -1056,7 +1056,7 @@ function setProp(el, key, value, isSvg) {
   // reset first so removeAttribute() clears both the attribute and the property.
   if (value == null) {
     if (key in el) {
-      try { el[key] = ''; } catch (e) { /* read-only reflected prop */ }
+      try { el[key] = ''; } catch { /* read-only reflected prop */ }
     }
     el.removeAttribute(key);
     return;

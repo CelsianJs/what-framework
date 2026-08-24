@@ -4,8 +4,8 @@
  * Components run ONCE. Signals create individual DOM micro-effects.
  */
 
-import { signal, batch, effect, flushSync, createRoot } from '../../packages/core/src/reactive.js';
-import { template, insert, mapArray, delegateEvents } from '../../packages/core/src/render.js';
+import { signal, batch, effect, flushSync } from '../../packages/core/src/reactive.js';
+import { template, mapArray, delegateEvents } from '../../packages/core/src/render.js';
 
 // --- Event delegation for click ---
 delegateEvents(['click']);

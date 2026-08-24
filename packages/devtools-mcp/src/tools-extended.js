@@ -33,7 +33,7 @@ export function registerExtendedTools(server, bridge) {
     };
   }
 
-  function noSnapshot(tool) {
+  function noSnapshot(_tool) {
     return {
       content: [{
         type: 'text',
@@ -1114,7 +1114,6 @@ export function registerExtendedTools(server, bridge) {
 
         const { componentName, boundingRect, styles, textContent, childElements, totalChildren, layout, viewport, accessibility } = result;
 
-        const styleDesc = Object.entries(styles || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
         const childDesc = Object.entries(childElements || {}).map(([k, v]) => `${v} ${k}${v > 1 ? 's' : ''}`).join(', ');
 
         const summary = `${componentName}: ${boundingRect.width}×${boundingRect.height}px at (${boundingRect.x},${boundingRect.y}). ` +

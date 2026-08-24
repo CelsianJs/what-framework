@@ -31,6 +31,7 @@
     "bench:update": "node scripts/update-benchmarks.mjs",
     "check:size": "node scripts/check-size.mjs",
     "deploy:vercel": "node scripts/deploy-vercel.mjs",
+    "lint": "eslint .",
     "hygiene:publish": "node scripts/check-publish-surface.mjs",
     "hygiene:types": "node scripts/check-type-parity.mjs",
     "typecheck": "tsc --noEmit",
@@ -54,8 +55,11 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",
     "esbuild": "^0.28.1",
+    "eslint": "^10.9.0",
+    "globals": "^17.11.0",
     "jsdom": "^29.1.1",
     "playwright": "^1.58.2",
     "typescript": "^5.7.3"

@@ -1,8 +1,8 @@
-import React from 'react';
+
 import { useInView } from 'react-intersection-observer';
 
 function InViewBox({ label, threshold }) {
-  const { ref, inView, entry } = useInView({ threshold: threshold || 0 });
+  const { ref, inView } = useInView({ threshold: threshold || 0 });
   return (
     <div
       ref={ref}

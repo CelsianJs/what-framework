@@ -1,5 +1,5 @@
 // Stress Test: React-compat hooks with run-once component model
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -20,12 +20,9 @@ if (!global.customElements) {
 }
 
 const { h } = await import('../packages/core/src/h.js');
-const { mount, createDOM } = await import('../packages/core/src/dom.js');
-const {
-  useState, useEffect, useRef, useMemo, useCallback,
-  useReducer, useContext, createContext, onMount, onCleanup
-} = await import('../packages/core/src/hooks.js');
-const { signal, effect, flushSync } = await import('../packages/core/src/reactive.js');
+const { mount } = await import('../packages/core/src/dom.js');
+const { useState, useEffect, useRef, useMemo, useReducer, useContext, createContext } = await import('../packages/core/src/hooks.js');
+await import('../packages/core/src/reactive.js'); // imported for module-init order; no binding is used here
 
 function getContainer() {
   const el = document.getElementById('app');

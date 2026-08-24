@@ -1,4 +1,4 @@
-import React from 'react';
+
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
 } from 'recharts';

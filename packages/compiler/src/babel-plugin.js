@@ -516,10 +516,9 @@ export default function whatBabelPlugin({ types: t }) {
     return signalNames;
   }
 
-  // Legacy wrapper for backward compat (used in collectSignalNames calls)
-  function collectSignalNames(path) {
-    return collectSignalNamesFromScope(path);
-  }
+  // A `collectSignalNames` wrapper lived here, commented "legacy wrapper for
+  // backward compat (used in collectSignalNames calls)". Nothing called it;
+  // every call site uses collectSignalNamesFromScope directly.
 
   // Check if a call expression is a safe (non-reactive) global call
   function isSafeGlobalCall(expr) {

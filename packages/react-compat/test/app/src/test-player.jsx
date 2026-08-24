@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import ReactPlayer from 'react-player';
 
 export function PlayerTest() {

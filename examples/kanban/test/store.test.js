@@ -2,7 +2,7 @@
 // Validates that the kanban store's invariants hold across mutations,
 // including persistence shape, corruption recovery, and DnD semantics.
 
-import { describe, it, before, beforeEach } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Mock localStorage before importing the store, since the module reads it at

@@ -623,7 +623,7 @@ function mountOpaque(v, container) {
         holder.appendChild(n);
         n = next;
       }
-      try { dispose(); } catch (e) { /* already disposed */ }
+      try { dispose(); } catch { /* already disposed */ }
     }),
   };
 }
@@ -984,7 +984,7 @@ export function getBridge(renderFn) {
     const rn = runInCommit(() => mountRNode(vnode, KIND_COMPONENT, frag, false, null));
     try {
       whatOnCleanup(() => unmountRNode(rn, false));
-    } catch (e) {
+    } catch {
       // Not inside a core component (unusual) — leak-free unmount unavailable.
     }
     return frag;
@@ -1180,7 +1180,7 @@ export function setProperty(el, name, value, oldValue, svg) {
     try {
       el[name] = value == null ? '' : value;
       return;
-    } catch (e) { /* read-only property — fall through to attribute */ }
+    } catch { /* read-only property — fall through to attribute */ }
   }
   if (value == null || value === false) el.removeAttribute(name);
   else el.setAttribute(name, value === true ? '' : value);

@@ -1,7 +1,7 @@
 // Tests for What Framework - Dev-mode warnings and error messages
 // Validates that hooks throw clear errors outside components,
 // signal.set inside computed warns, and useEffect dep validation works.
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -14,8 +14,8 @@ global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
 
 // Now import framework
-const { signal, computed, effect, batch, flushSync } = await import('../src/reactive.js');
-const { h, Fragment } = await import('../src/h.js');
+const { signal, computed, effect } = await import('../src/reactive.js');
+const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
 
 const {
@@ -31,12 +31,6 @@ const {
   onCleanup,
 } = await import('../src/hooks.js');
 
-// Helper: flush microtask queue (multiple rounds for nested scheduling)
-async function flush() {
-  for (let i = 0; i < 5; i++) {
-    await new Promise(r => queueMicrotask(r));
-  }
-}
 
 function getContainer() {
   const el = document.getElementById('app');
@@ -136,7 +130,7 @@ describe('hooks outside component context', () => {
 
   it('useReducer throws with clear error mentioning the hook name', () => {
     assert.throws(
-      () => useReducer((s, a) => s, 0),
+      () => useReducer((s, _a) => s, 0),
       (err) => {
         assert(err instanceof Error);
         assert(err.message.includes('useReducer()'));
@@ -177,7 +171,7 @@ describe('hooks outside component context', () => {
     function TestComponent() {
       // All of these should work without throwing
       const sig = useSignal(0);
-      const [state, setState] = useState(1);
+      const [state] = useState(1);
       const comp = useComputed(() => sig() * 2);
       const ref = useRef(null);
       const cb = useCallback(() => {}, []);

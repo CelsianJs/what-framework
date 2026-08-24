@@ -1,12 +1,5 @@
 // Dashboard — showcases: signals, computed, spring animation, useSWR, skeleton, Show/For, effect
-import {
-  h, useState, useEffect, useMemo, useRef,
-  signal, computed, effect, batch,
-  spring, tween, easings,
-  useSWR,
-  Skeleton, SkeletonText,
-  announce,
-} from 'what-framework';
+import { h, useState, useEffect, useMemo, useRef, spring, useSWR, announce } from 'what-framework';
 import { useAppStore } from '../app.js';
 import { fetchStats, fetchActivity, CHART_DATA } from '../data.js';
 
@@ -144,7 +137,7 @@ function QuickStats() {
   return h('div', { class: 'stat-grid' },
     loading
       ? [
-          ...[1,2,3,4].map(i =>
+          ...[1,2,3,4].map(_i =>
             h('div', { class: 'stat-card' },
               h('div', { class: 'skeleton', style: 'width: 80px; height: 12px; margin-bottom: 8px;' }),
               h('div', { class: 'skeleton', style: 'width: 60px; height: 28px; margin-bottom: 4px;' }),
@@ -182,7 +175,7 @@ function LiveClock() {
 
 // ─── Dashboard Page ───
 export function Dashboard() {
-  const store = useAppStore();
+  useAppStore(); // subscribes this page to the store
 
   return h('div', null,
     // Welcome

@@ -178,7 +178,10 @@ describe('STRESS: Full SSR -> Hydration round-trip', () => {
     const originalHeader = container.querySelector('header');
     hydrate(vnode, container);
 
-    // Verify structure is correct
+    // Verify structure is correct, and that hydration adopted the server's
+    // header rather than replacing it. The identity was captured and never
+    // compared.
+    assert.equal(container.querySelector('header'), originalHeader, 'server header is reused');
     assert.ok(container.querySelector('header'), 'header should exist');
     assert.ok(container.querySelector('main'), 'main should exist');
     assert.equal(container.querySelectorAll('li').length, 2);

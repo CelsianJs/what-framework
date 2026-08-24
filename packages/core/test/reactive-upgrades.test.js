@@ -4,10 +4,7 @@
 // 3. Ownership tree for automatic disposal
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  signal, computed, effect, memo, batch, untrack, flushSync, createRoot,
-  getOwner, runWithOwner, onCleanup,
-} from '../src/reactive.js';
+import { signal, computed, effect, memo, batch, untrack, flushSync, createRoot, getOwner, runWithOwner, onCleanup } from '../src/reactive.js';
 
 // Helper: flush microtask queue
 async function flush() {
@@ -457,27 +454,36 @@ describe('ownership tree', () => {
     });
   });
 
+  // This test asserted nothing and never called runWithOwner. It captured an
+  // owner, ran an empty setTimeout, disposed, captured a second owner and
+  // ended. The name described behaviour that was not being exercised.
   it('runWithOwner allows registering effects with a specific owner', () => {
-    const s = signal(0);
+    const s = signal(0, 'runWithOwner-source');
     let runs = 0;
     let savedOwner;
+    let disposeOwner;
 
-    createRoot(dispose => {
+    createRoot((dispose) => {
       savedOwner = getOwner();
-
-      // Outside the root, register an effect with the saved owner
-      setTimeout(() => {
-        // Simulate async code registering back with the owner
-      }, 0);
-
-      dispose();
+      disposeOwner = dispose;
     });
 
-    // Use runWithOwner to register effect with the saved owner
-    createRoot(dispose => {
-      savedOwner = getOwner();
-      dispose();
+    // Register from outside the root, the way async code that resumed after
+    // the synchronous body would. Without runWithOwner this effect would
+    // belong to no owner and outlive the root.
+    runWithOwner(savedOwner, () => {
+      effect(() => { s(); runs++; });
     });
+    assert.equal(runs, 1, 'effect runs once on creation');
+
+    s(1);
+    flushSync();
+    assert.equal(runs, 2, 'effect is live and tracking');
+
+    disposeOwner();
+    s(2);
+    flushSync();
+    assert.equal(runs, 2, 'disposing the owner must dispose an effect registered through runWithOwner');
   });
 
   it('effects created inside createRoot are tracked for disposal', () => {

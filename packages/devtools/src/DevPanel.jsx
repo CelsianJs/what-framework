@@ -19,7 +19,7 @@
  * Works WITHOUT MCP devtools connected.
  */
 
-import { signal, effect, onCleanup } from 'what-core';
+import { signal, onCleanup } from 'what-core';
 import { subscribe, getSnapshot, getErrors, installDevTools, _suppressDevtools } from './index.js';
 
 export function DevPanel() {
@@ -111,11 +111,10 @@ function DevPanelBody() {
 
   // --- Tab: Overview ---
   const renderOverview = () => {
-    const data = snapshot();
-    const health = getHealth();
-    const errs = recentErrors();
-    const recentErrs = errs.slice(-3).reverse();
-
+    // Everything below reads snapshot()/getHealth()/recentErrors() inside a
+    // thunk so it stays reactive. Four eager copies used to be taken here and
+    // then shadowed; had anything rendered them directly it would have frozen
+    // at first paint.
     return (
       <div style="padding:12px;">
         {/* Health indicator */}

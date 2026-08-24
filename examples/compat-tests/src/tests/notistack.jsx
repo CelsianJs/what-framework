@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { SnackbarProvider, useSnackbar } from 'notistack';
 
 function NotificationButtons() {
-  const { enqueueSnackbar, closeSnackbar } = useSnackbar();
+  const { enqueueSnackbar } = useSnackbar();
   const [count, setCount] = useState(0);
 
   function showNotification(variant) {

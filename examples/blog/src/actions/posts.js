@@ -3,7 +3,7 @@
 // through the /__what_action handler. revalidatePath purges the origin ISR cache
 // (and any CDN) so the new post shows up immediately.
 
-import { action, revalidatePath } from 'what-framework/server';
+import { action } from 'what-framework/server';
 import { createPost } from '../db.js';
 
 export const createPostAction = action(

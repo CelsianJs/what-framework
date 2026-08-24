@@ -26,7 +26,7 @@ if (!global.customElements) {
 }
 
 const { signal, effect, flushSync } = await import('../src/reactive.js');
-const { mount, disposeTree } = await import('../src/dom.js');
+const { disposeTree } = await import('../src/dom.js');
 const { mapArray, insert, setProp, spread } = await import('../src/render.js');
 const { h } = await import('../src/h.js');
 
@@ -493,7 +493,7 @@ describe('createComponent: component creation is untracked from parent effects',
     const container = getContainer();
 
     let childCreations = 0;
-    function Child(props) {
+    function Child(_props) {
       childCreations++;
       const el = document.createElement('span');
       el.className = 'child';
@@ -512,7 +512,6 @@ describe('createComponent: component creation is untracked from parent effects',
       // Only mount once on first run to avoid duplicating in this naive setup;
       // subsequent runs simulate "parent signal changes don't recreate child".
       if (!container.firstChild) {
-        const node = h(Child, { tag: val });
         // Use insert with a function so any reactive leak from Child would
         // attach to this outer effect.
         insert(container, () => h(Child, { tag: val }));
@@ -704,6 +703,10 @@ describe('reconcileKeyed: swap and single-move fast paths', () => {
     const allNodes = [...container.childNodes].filter(n => n.nodeType === 1);
     const bIdx = allNodes.findIndex(n => n.dataset?.id === 'b');
     assert.ok(bIdx >= 0, 'found b');
+    // The point of a keyed swap: the moved items keep their nodes. Both were
+    // captured before the swap and neither was compared.
+    assert.equal(nodeMap.get('b'), nodeB, 'b keeps its nodes across the swap');
+    assert.equal(nodeMap.get('d'), nodeD, 'd keeps its nodes across the swap');
     assert.equal(allNodes[bIdx + 1]?.textContent, 'b-b', 'b fragment node 2 follows');
     assert.equal(allNodes[bIdx + 2]?.textContent, 'b-c', 'b fragment node 3 follows');
     assert.equal(createCount(), cc, 'no new nodes');

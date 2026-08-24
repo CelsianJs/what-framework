@@ -6,7 +6,7 @@
 // Covers BOTH client setProp paths (dom.js h()/createDOM + render.js compiler)
 // and the SSR serializer, plus the preserved semantics for legitimate values:
 // 0, "" (empty attr), false (boolean-attr removal), and on* handlers.
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -27,7 +27,7 @@ if (!global.customElements) {
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
-const { mount, createDOM } = await import('../src/dom.js');
+const { createDOM } = await import('../src/dom.js');
 const { setProp, setAttr, spread } = await import('../src/render.js');
 const { renderToString } = await import('../../server/src/index.js');
 

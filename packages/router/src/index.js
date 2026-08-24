@@ -3,7 +3,7 @@
 // route groups, view transitions, and middleware.
 
 import { signal, effect, computed, batch, h, ErrorBoundary } from 'what-core';
-import { compilePath, matchRoute, parseQuery } from './match.js';
+import { matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
 // Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed),
@@ -196,7 +196,7 @@ export async function navigate(to, opts = {}) {
         viewTransition.ready.catch(() => {});
       }
       await viewTransition.finished;
-    } catch (e) {
+    } catch {
       // Transition failed, navigation still happened
     }
   } else {

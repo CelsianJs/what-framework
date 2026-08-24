@@ -3,13 +3,13 @@
  * Tests real-world library operations at scale.
  * Timing is done by the comparison runner (wall-clock round-trip).
  */
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { create } from 'zustand';
 import { useForm } from 'react-hook-form';
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender } from '@tanstack/react-table';
-import { atom, useAtom, useAtomValue, useSetAtom, createStore, Provider as JotaiProvider } from 'jotai';
+import { atom, useAtom, useAtomValue } from 'jotai';
 import { configureStore, createSlice } from '@reduxjs/toolkit';
 import { Provider as ReduxProvider, useSelector, useDispatch } from 'react-redux';
 import { useVirtualizer } from '@tanstack/react-virtual';

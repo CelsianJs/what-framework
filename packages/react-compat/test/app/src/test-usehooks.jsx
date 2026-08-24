@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { useCopyToClipboard, useDebounce, useToggle, useClickAway, useWindowSize, usePrevious } from '@uidotdev/usehooks';
+import { useState, useRef } from 'react';
+import { useCopyToClipboard, useToggle, useClickAway, useWindowSize, usePrevious } from '@uidotdev/usehooks';
 
 export function UidotdevHooksTest() {
   const [copiedText, copyToClipboard] = useCopyToClipboard();

@@ -2,10 +2,7 @@
 // Demonstrates: signals, computed, batch, useSignal, useEffect,
 // useRef, useMemo, JSX components, data fetching, SSE
 
-import {
-  mount, batch,
-  useSignal, useComputed, useEffect, useRef, useMemo,
-} from 'what-framework';
+import { mount, batch, useSignal, useComputed } from 'what-framework';
 
 // --- Signals (module-level reactive state) ---
 const tasks = useSignal([]);

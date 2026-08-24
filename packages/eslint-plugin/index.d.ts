@@ -55,6 +55,13 @@ export interface WhatFlatConfig {
     ecmaVersion: 'latest' | number;
     sourceType: 'module' | 'script';
     parserOptions?: { ecmaFeatures?: { jsx?: boolean }; [key: string]: unknown };
+    /**
+     * Only the `compiler` preset sets this, declaring the control-flow tags
+     * the What compiler lowers itself (`For`, `Show`, `Switch`, `Match`).
+     * Under the compiler they need no import; without it they must be
+     * imported, so the other presets leave `no-undef` free to say so.
+     */
+    globals?: Record<string, 'readonly' | 'writable' | 'off'>;
     [key: string]: unknown;
   };
   plugins: Record<string, WhatPlugin>;
@@ -66,7 +73,10 @@ export interface WhatConfigs {
   recommended: WhatFlatConfig;
   /** Everything on as errors, plus prefer-set as a warning. */
   strict: WhatFlatConfig;
-  /** For compiler users: the rules the compiler already handles are off. */
+  /**
+   * For compiler users: the rules the compiler already handles are off, and
+   * the compiler-lowered control-flow tags are declared as globals.
+   */
   compiler: WhatFlatConfig;
 }
 

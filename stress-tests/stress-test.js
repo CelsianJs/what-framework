@@ -196,9 +196,6 @@ describe('cleanup and disposal', () => {
 
     assert.equal(runs, 1);
 
-    // Check subscriber count if exposed in dev mode
-    const subCount = s._subs?.size;
-
     dispose();
 
     // After disposal, subscriber should be removed
@@ -600,7 +597,7 @@ describe('batch edge cases', () => {
         s(1);
         throw new Error('intentional');
       });
-    } catch (e) {
+    } catch {
       // Expected
     }
 
@@ -684,8 +681,6 @@ describe('computed edge cases', () => {
 
 describe('memo edge cases', () => {
   test('memo deduplicates notifications', () => {
-    const a = signal(1);
-    const b = signal(2);
     const sum = signal(3);
 
     // Memo that derives from sum: only notifies downstream when value actually changes
@@ -713,6 +708,8 @@ describe('memo edge cases', () => {
     flushSync();
     assert.equal(m(), false);
     assert.equal(effectRuns, 1, 'No downstream effect when memo value unchanged');
+    assert.equal(memoComputations, 2,
+      'the memo must recompute to discover its value did not change');
   });
 });
 
@@ -752,8 +749,8 @@ describe('untrack edge cases', () => {
       effect(() => {
         outerRuns++;
         untrack(() => {
-          // Reading s inside untrack
-          const val = s();
+          // Reading s inside untrack must NOT create a dependency.
+          s();
         });
       });
     });
@@ -952,7 +949,7 @@ describe('react-compat basic', () => {
 
   test('forwardRef creates component with $$typeof', async () => {
     const { forwardRef } = await import('../packages/react-compat/src/index.js');
-    const Comp = forwardRef((props, ref) => null);
+    const Comp = forwardRef((_props, _ref) => null);
     assert.ok(Comp._forwardRef);
     assert.equal(Comp.$$typeof, Symbol.for('react.forward_ref'));
   });

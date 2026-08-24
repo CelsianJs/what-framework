@@ -1,6 +1,6 @@
 // Tests for What Framework - Router
 // Tests route matching, reactive navigation, Link active classes, asyncGuard
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -30,7 +30,7 @@ if (!global.customElements) {
 }
 
 // Import framework core
-const { signal, computed, effect, batch, flushSync } = await import('../../core/src/reactive.js');
+await import('../../core/src/reactive.js'); // imported for module-init order; no binding is used here
 const { h } = await import('../../core/src/h.js');
 const { mount } = await import('../../core/src/dom.js');
 
@@ -429,7 +429,7 @@ describe('Router middleware', () => {
 
 describe('asyncGuard', () => {
   it('should return a component that wraps in reactive function', () => {
-    function MyPage(props) {
+    function MyPage(_props) {
       return h('div', null, 'Page');
     }
     function LoadingComp() {

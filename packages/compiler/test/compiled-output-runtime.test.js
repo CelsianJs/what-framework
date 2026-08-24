@@ -3,7 +3,7 @@
 // `what-framework`/`what-framework/render` imports to the local what-core
 // sources, loads the module in jsdom, and asserts on live DOM behavior.
 
-import { describe, it, before } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { transformSync } from '@babel/core';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';

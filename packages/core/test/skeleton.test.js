@@ -1,5 +1,5 @@
 // Tests for What Framework - Skeleton Loaders
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 // We can test the component structure without DOM

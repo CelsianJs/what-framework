@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useDebounce, useDebouncedCallback } from 'use-debounce';
 
 export function UseDebounceTest() {

@@ -1,8 +1,8 @@
 // What Framework - Benchmark Suite
 // Measures core operations in Node.js. No browser needed.
 
-import { signal, computed, effect, batch, untrack } from '../packages/core/src/reactive.js';
-import { h, Fragment } from '../packages/core/src/h.js';
+import { signal, computed, effect, batch } from '../packages/core/src/reactive.js';
+import { h } from '../packages/core/src/h.js';
 import { renderToString } from '../packages/server/src/index.js';
 import { writeFileSync } from 'node:fs';
 
@@ -128,6 +128,10 @@ bench('effect() with 10 signal deps', () => {
   const dispose = effect(() => {
     let sum = 0;
     for (const s of signals) sum += s();
+    // Escape the accumulator through a global. Nothing read `sum`, which left
+    // the whole loop eligible for dead-code elimination and the measurement
+    // meaningless. A global sink is opaque to the optimiser.
+    globalThis.__benchSink = sum;
   });
   dispose();
 });

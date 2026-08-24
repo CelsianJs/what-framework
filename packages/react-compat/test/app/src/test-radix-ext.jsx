@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import * as ScrollArea from '@radix-ui/react-scroll-area';
 import * as Slider from '@radix-ui/react-slider';
 import * as Toggle from '@radix-ui/react-toggle';

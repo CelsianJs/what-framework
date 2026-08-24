@@ -6,7 +6,7 @@ function sleep(ms) {
 
 let shouldError = false;
 
-async function fetchUsers(key) {
+async function fetchUsers(_key) {
   await sleep(400);
   if (shouldError) throw new Error('Server error');
   return [
@@ -18,7 +18,7 @@ async function fetchUsers(key) {
   ];
 }
 
-async function fetchStats(key) {
+async function fetchStats(_key) {
   await sleep(200);
   if (shouldError) throw new Error('Stats unavailable');
   return {

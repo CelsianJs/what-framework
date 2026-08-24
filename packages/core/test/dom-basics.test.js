@@ -1,6 +1,6 @@
 // Tests for DOM reconciler: reactive function children, memory leak disposal,
 // keyed component reconciliation — the basic use cases that must never break.
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -21,8 +21,8 @@ if (!global.customElements) {
 }
 
 // Now import framework
-const { signal, computed, effect, batch, flushSync } = await import('../src/reactive.js');
-const { h, Fragment } = await import('../src/h.js');
+const { signal, effect } = await import('../src/reactive.js');
+const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
 const { template, insert } = await import('../src/render.js');
 

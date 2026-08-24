@@ -1,5 +1,5 @@
-import React from 'react';
-import { useBoolean, useCounter, useLocalStorage, useMediaQuery, useInterval, useCopyToClipboard } from 'usehooks-ts';
+
+import { useBoolean, useCounter, useLocalStorage, useMediaQuery, useCopyToClipboard } from 'usehooks-ts';
 
 export function UseHooksTsTest() {
   const { value: flag, setTrue, setFalse, toggle } = useBoolean(false);

@@ -1,7 +1,7 @@
 // Tests for hooks in the run-once component model.
 // Components run ONCE. Hooks return signal accessors (functions).
 // The fine-grained runtime handles reactive updates automatically.
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -14,8 +14,8 @@ global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
 
 // Now import framework
-const { signal, computed, effect, batch, flushSync } = await import('../src/reactive.js');
-const { h, Fragment } = await import('../src/h.js');
+await import('../src/reactive.js'); // imported for module-init order; no binding is used here
+const { h } = await import('../src/h.js');
 const { jsx } = await import('../src/jsx-runtime.js');
 const { mount } = await import('../src/dom.js');
 
@@ -223,7 +223,7 @@ describe('useReducer (run-once model)', () => {
     const container = getContainer();
     let capturedState;
 
-    function reducer(state, action) { return state; }
+    function reducer(state, _action) { return state; }
     function init(initialCount) { return { count: initialCount * 2 }; }
 
     function App() {
@@ -375,15 +375,18 @@ describe('useEffect (run-once model)', () => {
 
     function App() {
       useEffect(() => {
-        return () => { cleanupRan = false; };
+        return () => { cleanupRan = true; };
       }, []);
       return h('div', null, 'hello');
     }
 
-    // We verify cleanup is stored. Full unmount testing requires disposeTree.
     const dispose = mount(h(App), container);
     await flush();
-    // The cleanup function is registered; unmounting would invoke it
+    assert.equal(cleanupRan, false, 'cleanup must not run while mounted');
+
+    dispose();
+    await flush();
+    assert.equal(cleanupRan, true, 'cleanup must run on unmount');
   });
 
   it('should re-fire when signal deps change', async () => {
@@ -446,8 +449,9 @@ describe('useEffect (run-once model)', () => {
       const [count, sc] = useState(0);
       setCount = sc;
       useEffect(() => {
-        // Reading count() inside the effect auto-tracks it
-        const val = count();
+        // Reading count() inside the effect is what auto-tracks it; the value
+        // itself is not needed.
+        count();
         effectCount++;
       });
       return h('div', null, count);
@@ -731,9 +735,8 @@ describe('hooks integration with mount() + h()', () => {
     mount(h(Counter), container);
     await flush();
 
-    // Verify initial state
-    const countSpan = container.querySelector('.count');
-    // The count span contains a reactive wrapper for the signal function
+    // The count span contains a reactive wrapper for the signal function, so
+    // the assertion reads the container's text rather than the span.
     assert.ok(container.textContent.includes('0'), `Initial: expected "0" in "${container.textContent}"`);
 
     // Simulate click by calling increment directly

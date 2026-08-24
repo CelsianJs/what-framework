@@ -1,6 +1,6 @@
 // Tests for What Framework - Testing Utilities
 // Validates renderTest, flushEffects, mockSignal, and trackSignals
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -19,13 +19,12 @@ global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
 
 // Now import framework
-const { signal, computed, effect, flushSync, createRoot, __setDevToolsHooks } = await import('../src/reactive.js');
+const { signal, computed, effect, createRoot, __setDevToolsHooks } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
 const {
   mockSignal,
   flushEffects,
-  renderTest,
   fireEvent,
   render,
   cleanup,

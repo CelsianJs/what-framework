@@ -23,9 +23,9 @@ for (const k of [
   'getComputedStyle', 'DocumentFragment', 'Text', 'Comment', 'MutationObserver', 'history', 'location',
   'NodeFilter', 'TreeWalker', 'Range', 'DOMRect', 'PointerEvent',
 ]) {
-  try { if (!(k in global) || global[k] === undefined) global[k] = dom.window[k]; } catch (e) { /* read-only */ }
+  try { if (!(k in global) || global[k] === undefined) global[k] = dom.window[k]; } catch { /* read-only */ }
 }
-try { global.navigator = dom.window.navigator; } catch (e) { /* Node ≥21 read-only */ }
+try { global.navigator = dom.window.navigator; } catch { /* Node ≥21 read-only */ }
 global.requestAnimationFrame = (fn) => setTimeout(() => fn(Date.now()), 0);
 global.cancelAnimationFrame = (id) => clearTimeout(id);
 window.requestAnimationFrame = global.requestAnimationFrame;

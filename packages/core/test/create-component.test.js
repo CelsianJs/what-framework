@@ -163,7 +163,7 @@ describe('jsx-runtime still works', () => {
   it('jsx handles component types', async () => {
     const { jsx } = await import('../../core/src/jsx-runtime.js');
 
-    function MyComp(props) { return null; }
+    function MyComp(_props) { return null; }
     const vnode = jsx(MyComp, { value: 42 });
     assert.ok(vnode, 'jsx should return a vnode for components');
     assert.equal(vnode.tag, MyComp, 'vnode tag should be the component function');

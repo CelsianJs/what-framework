@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { IntlProvider, FormattedMessage, FormattedNumber, FormattedDate, useIntl } from 'react-intl';
 
 const messages = {

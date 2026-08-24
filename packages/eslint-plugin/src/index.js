@@ -65,6 +65,20 @@ const baseLanguageOptions = {
 
 const FILES = ['**/*.{js,jsx,ts,tsx}'];
 
+// Control-flow tags the What compiler lowers itself rather than resolving as
+// components (LOWERED_TAGS in what-compiler's babel plugin). Under the
+// compiler they need no import, so `no-undef` would otherwise report every
+// <For>, <Show>, <Switch> and <Match> in a compiled file as undefined.
+//
+// Only the `compiler` preset declares them. Without the compiler these really
+// must be imported from what-framework, and reporting that is correct.
+const COMPILER_LOWERED_TAGS = {
+  For: 'readonly',
+  Show: 'readonly',
+  Switch: 'readonly',
+  Match: 'readonly',
+};
+
 plugin.configs.recommended = {
   name: 'what/recommended',
   files: FILES,
@@ -106,7 +120,7 @@ plugin.configs.strict = {
 plugin.configs.compiler = {
   name: 'what/compiler',
   files: FILES,
-  languageOptions: baseLanguageOptions,
+  languageOptions: { ...baseLanguageOptions, globals: COMPILER_LOWERED_TAGS },
   plugins: { what: plugin },
   rules: {
     'what/no-signal-in-effect-deps': 'warn',

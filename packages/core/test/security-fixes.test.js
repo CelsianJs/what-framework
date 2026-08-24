@@ -1,6 +1,6 @@
 // Tests for security fixes — innerHTML XSS prevention, SSR innerHTML safety,
 // template() compiler-internal warning, CSRF enforcement, meta escaping, SSR error messages
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -24,7 +24,7 @@ if (!global.customElements) {
 const { setProp } = await import('../src/render.js');
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
-const { signal, flushSync } = await import('../src/reactive.js');
+const { flushSync } = await import('../src/reactive.js');
 const { renderToString, renderToStream, generateStaticPage } = await import('../../server/src/index.js');
 
 function getContainer() {

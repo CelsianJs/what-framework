@@ -1,4 +1,4 @@
-import { signal, computed, batch } from 'what-framework';
+import { signal, computed } from 'what-framework';
 
 export const todos = signal([], 'todos');
 export const filter = signal('all', 'filter');

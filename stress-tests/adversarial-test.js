@@ -4,10 +4,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  signal, computed, effect, memo, batch, untrack, flushSync,
-  createRoot, h, Fragment,
-} from '../packages/core/src/index.js';
+import { signal, computed, effect, batch, flushSync, createRoot, h, Fragment } from '../packages/core/src/index.js';
 
 import { renderToString, renderToStream } from '../packages/server/src/index.js';
 
@@ -66,7 +63,7 @@ describe('circular dependencies', () => {
         try { return a() + 1; } catch { return 0; }
       });
       result = a();
-    } catch (e) {
+    } catch {
       threw = true;
     }
     // Should either throw or produce a value, not hang forever
@@ -133,14 +130,16 @@ describe('type coercion edge cases', () => {
   test('SSR with symbol should not crash', () => {
     // Symbols can't be concatenated to strings normally
     let threw = false;
+    let html;
     try {
-      const vnode = h('div', null, Symbol('test'));
-      renderToString(vnode);
-    } catch (e) {
+      html = renderToString(h('div', null, Symbol('test')));
+    } catch {
       threw = true;
     }
-    // Either renders something or throws gracefully, should not crash process
-    assert.ok(true, 'Did not crash');
+    // Either outcome is acceptable; crashing the process is not. `threw` was
+    // being set and never read, so `assert.ok(true)` was the whole test.
+    assert.ok(threw || typeof html === 'string',
+      'a symbol child must either render to a string or throw, not corrupt the output');
   });
 });
 
@@ -265,7 +264,6 @@ describe('pathological SSR', () => {
 describe('effect scheduling edge cases', () => {
   test('effect inside effect cleanup', () => {
     const s = signal(0);
-    let innerRuns = 0;
 
     createRoot(() => {
       effect(() => {
@@ -307,6 +305,7 @@ describe('effect scheduling edge cases', () => {
 
     assert.equal(a(), 0);
     assert.ok(b() >= 1, 'b should have been updated');
+    assert.equal(runs, 1, 'writing a signal the effect does not read must not re-run it');
   });
 
   test('batch inside effect', () => {
