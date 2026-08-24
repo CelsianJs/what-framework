@@ -5,23 +5,11 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
-import babelPlugin from '../src/babel-plugin.js';
-
-function compile(source) {
-  return transformSync(source, {
-    filename: 'test.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  })?.code || '';
-}
+import { compileJSX } from '../../../test-utils/compile.js';
 
 describe('C2: specialized attribute setters', () => {
   it('class / className → _$setClass', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const on = signal(false);
         return <div class={on() ? 'a' : 'b'}><span className={on() ? 'x' : 'y'} /></div>;
@@ -33,7 +21,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('style → _$setStyle', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const c = signal('red');
         return <div style={{ color: c() }} />;
@@ -44,7 +32,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('data-* and aria-* → _$setAttr', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const s = signal('on');
         return <div data-state={s()} aria-label={s()} />;
@@ -55,7 +43,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('input/textarea/select value → _$setValue; checked → _$setChecked', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const v = signal('');
         const c = signal(false);
@@ -76,7 +64,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('value on a NON-form element keeps the generic _$setProp path', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const n = signal(1);
         return <div value={n()} />;
@@ -87,7 +75,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('SECURITY: href/src/action/formaction stay on _$setProp (URL sanitization)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const u = signal('/x');
         return (
@@ -107,7 +95,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('SECURITY: innerHTML / dangerouslySetInnerHTML stay on _$setProp', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const h = signal('<b>x</b>');
         return <div innerHTML={h()} dangerouslySetInnerHTML={{ __html: h() }} />;
@@ -118,7 +106,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('spreads keep the generic _$spread path', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App(props) {
         return <div {...props} />;
       }
@@ -128,7 +116,7 @@ describe('C2: specialized attribute setters', () => {
   });
 
   it('imports each specialized helper only when used', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const c = signal('x');
         return <div class={c()} />;

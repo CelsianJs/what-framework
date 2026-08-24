@@ -20,17 +20,10 @@
 // assertions describe a real server and not a jsdom-flavoured one.
 
 import { describe, it } from 'node:test';
+import { installDOM } from '../../../test-utils/dom.js';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
-global.CustomEvent = dom.window.CustomEvent;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+installDOM();
 
 const {
   h,

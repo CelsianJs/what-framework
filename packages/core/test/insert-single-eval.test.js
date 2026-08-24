@@ -6,14 +6,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM('<!DOCTYPE html><html><body></body></html>');
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { insert } = await import('../src/render.js');

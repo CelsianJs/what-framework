@@ -4,16 +4,10 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
 before(() => {
-  const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-  globalThis.window = dom.window;
-  globalThis.document = dom.window.document;
-  globalThis.Node = dom.window.Node;
-  globalThis.HTMLElement = dom.window.HTMLElement;
-  globalThis.DocumentFragment = dom.window.DocumentFragment;
-  globalThis.queueMicrotask = (fn) => Promise.resolve().then(fn);
+  installDOM('<!DOCTYPE html><html><body></body></html>');
 });
 
 describe('lazy component children', () => {

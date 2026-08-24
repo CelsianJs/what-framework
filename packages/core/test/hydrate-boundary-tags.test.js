@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // <ErrorBoundary>, <Suspense> and <Portal> in a SERVER-RENDERED tree.
 //
 // None of the three is an element. Each returns an internal marker vnode
@@ -25,15 +26,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><head></head><body></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+installDOM('<!DOCTYPE html><html><head></head><body></body></html>');
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');

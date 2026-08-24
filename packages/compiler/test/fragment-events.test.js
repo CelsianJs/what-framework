@@ -14,38 +14,20 @@
 // to an IIFE across function boundaries / single-statement positions.
 
 import { describe, it } from 'node:test';
+import { compileJSX } from '../../../test-utils/compile.js';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
-import babelPlugin from '../src/babel-plugin.js';
+import { installDOM } from '../../../test-utils/dom.js';
 
 // --- jsdom globals (before importing any core module) ---
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+const { dom } = installDOM();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');
 const CORE_RENDER = path.resolve(__dirname, '../../core/src/render.js');
-
-function compile(source) {
-  return transformSync(source, {
-    filename: 'fixture.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  }).code;
-}
 
 // Structural invariant: every `_el$N` referenced in the output must be
 // declared somewhere in the output. (The bug emitted refs with no decl.)
@@ -68,7 +50,7 @@ let moduleId = 0;
 
 // Compile JSX source and import the resulting module against local core.
 async function compileAndLoad(source) {
-  const out = compile(source)
+  const out = compileJSX(source)
     .replaceAll('"what-framework/render"', JSON.stringify(CORE_RENDER))
     .replaceAll("'what-framework/render'", JSON.stringify(CORE_RENDER))
     .replaceAll('"what-framework"', JSON.stringify(CORE_INDEX))
@@ -86,7 +68,7 @@ function click(el) {
 
 describe('fragment events: structural (no undeclared _el$ refs)', () => {
   it('single element child with delegated handler (original repro)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return (<>
           <button onclick={() => x()}>hi</button>
@@ -99,7 +81,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
   });
 
   it('multiple element children mixing delegated and non-delegated handlers', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return (<>
           <button onclick={() => a()}>A</button>
@@ -114,7 +96,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
   });
 
   it('nested fragments with handlers in the inner fragment', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return (<>
           <span>t</span>
@@ -129,7 +111,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
   });
 
   it('fragment children mixing text, expressions, and elements with handlers', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { signal } from 'what-framework';
       function App() {
         const count = signal(0);
@@ -146,7 +128,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
   });
 
   it('fragment with dynamic attrs composes with C2 specialized setters', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { signal } from 'what-framework';
       function App() {
         const cls = signal('on');
@@ -161,7 +143,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
   });
 
   it('fragment in an arrow expression body falls back to a self-contained IIFE', () => {
-    const code = compile(`
+    const code = compileJSX(`
       const make = () => (<>
         <button onclick={() => z()}>z</button>
       </>);
@@ -173,7 +155,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
   });
 
   it('fragment in single-statement position (if without block) stays self-contained', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App(cond) {
         if (cond) return (<>
           <button onclick={() => q()}>q</button>
@@ -185,7 +167,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
   });
 
   it('fragment inside .map() callback keeps closure variables in scope', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function List({ items }) {
         return <ul>{items().map(item => (<>
           <li key={item.id}><button onclick={() => pick(item)}>{item.name}</button></li>

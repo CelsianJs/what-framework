@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Hydration must not leave server markup on screen that the client never
 // claimed, and must not destroy markup the client claims later.
 //
@@ -23,14 +24,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
+installDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>');
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');

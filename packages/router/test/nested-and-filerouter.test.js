@@ -6,16 +6,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>', {
-  url: 'http://localhost/dashboard',
-  pretendToBeVisual: true,
-});
-global.window = dom.window;
-global.document = dom.window.document;
-global.location = dom.window.location;
-global.history = dom.window.history;
+installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/dashboard' });
 
 const { h, mount } = await import('what-core');
 const { nestedRoutes, FileRouter } = await import('../src/index.js');

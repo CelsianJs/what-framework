@@ -241,6 +241,9 @@ describe('resolveFontInfo and fontInfoToString', () => {
 
   beforeEach(async () => {
     _resetTextEngineForTests();
+    // Not test-utils/dom.js on purpose: these cases need a FRESH document per
+    // test with specific inline font styles, and they read computed styles off
+    // it, so the environment is rebuilt in beforeEach rather than installed once.
     const { JSDOM } = await import('jsdom');
     dom = new JSDOM('<!DOCTYPE html><html><body><div id="test" style="font-family: Arial; font-size: 14px; font-weight: bold; font-style: italic; line-height: 1.6;"></div></body></html>');
     global.document = dom.window.document;

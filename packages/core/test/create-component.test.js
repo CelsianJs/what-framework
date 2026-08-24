@@ -2,20 +2,12 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
 // Set up jsdom before importing framework modules
 before(() => {
-  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-  globalThis.window = dom.window;
-  globalThis.document = dom.window.document;
-  globalThis.Node = dom.window.Node;
-  globalThis.HTMLElement = dom.window.HTMLElement;
-  globalThis.DocumentFragment = dom.window.DocumentFragment;
-  globalThis.MutationObserver = dom.window.MutationObserver;
-  globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
-  globalThis.cancelAnimationFrame = clearTimeout;
-  globalThis.queueMicrotask = (fn) => Promise.resolve().then(fn);
+  const { window } = installDOM();
+  globalThis.MutationObserver = window.MutationObserver;
 });
 
 describe('_$createComponent runtime', () => {

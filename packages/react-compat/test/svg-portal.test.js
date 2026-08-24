@@ -2,16 +2,13 @@
 // Run: node --test packages/react-compat/test/svg-portal.test.js
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
+const { dom } = installDOM('<!DOCTYPE html><html><body></body></html>');
 for (const k of ['HTMLElement', 'Element', 'Node', 'SVGElement', 'CustomEvent', 'Event', 'MouseEvent', 'KeyboardEvent', 'getComputedStyle', 'DocumentFragment', 'Text', 'Comment']) {
   try { if (!(k in global)) global[k] = dom.window[k]; } catch { /* read-only global */ }
 }
 try { global.navigator = dom.window.navigator; } catch { /* read-only getter */ }
-global.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 
 const React = await import('../src/index.js');
 const ReactDOM = await import('../src/dom.js');

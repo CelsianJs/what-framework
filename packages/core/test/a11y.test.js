@@ -1,14 +1,9 @@
 // Tests for What Framework - Accessibility Utilities
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+const { dom } = installDOM();
 
 // jsdom does not calculate layout, so offsetParent is null by default.
 Object.defineProperty(global.HTMLElement.prototype, 'offsetParent', {
@@ -17,14 +12,6 @@ Object.defineProperty(global.HTMLElement.prototype, 'offsetParent', {
     return this.parentNode;
   },
 });
-
-if (!global.customElements) {
-  const registry = new Map();
-  global.customElements = {
-    get: (name) => registry.get(name),
-    define: (name, cls) => registry.set(name, cls),
-  };
-}
 
 const {
   Keys,

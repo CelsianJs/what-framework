@@ -6,21 +6,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
-import babelPlugin from '../src/babel-plugin.js';
+import { installDOM } from '../../../test-utils/dom.js';
+import { compileJSX } from '../../../test-utils/compile.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');
@@ -31,19 +24,8 @@ process.on('exit', () => { try { rmSync(tmpDir, { recursive: true, force: true }
 
 let moduleId = 0;
 
-function compile(source) {
-  return transformSync(source, {
-    filename: 'fixture.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  }).code;
-}
-
 async function compileAndLoad(source) {
-  const out = compile(source)
+  const out = compileJSX(source)
     .replaceAll('"what-framework/render"', JSON.stringify(CORE_RENDER))
     .replaceAll("'what-framework/render'", JSON.stringify(CORE_RENDER))
     .replaceAll('"what-framework"', JSON.stringify(CORE_INDEX))
@@ -161,19 +143,19 @@ describe('compiled JSX: context reaches component children', () => {
 
 describe('compiled JSX: member-expression tags', () => {
   it('lowers <Ctx.Provider> to _$createComponent, not a template', () => {
-    const code = compile('export const A = () => <Ctx.Provider value="dark"><B /></Ctx.Provider>;');
+    const code = compileJSX('export const A = () => <Ctx.Provider value="dark"><B /></Ctx.Provider>;');
     assert.match(code, /_\$createComponent\(Ctx\.Provider, \{/);
     assert.doesNotMatch(code, /undefined/);
     assert.doesNotMatch(code, /_\$template/);
   });
 
   it('lowers a deeply dotted tag to the full member expression', () => {
-    const code = compile('export const A = () => <Foo.Bar.Baz x={1} />;');
+    const code = compileJSX('export const A = () => <Foo.Bar.Baz x={1} />;');
     assert.match(code, /_\$createComponent\(Foo\.Bar\.Baz, \{/);
   });
 
   it('treats a dotted tag nested in a host element as a dynamic child', () => {
-    const code = compile('export const A = () => <div><Ctx.Provider value="d"><B /></Ctx.Provider></div>;');
+    const code = compileJSX('export const A = () => <div><Ctx.Provider value="d"><B /></Ctx.Provider></div>;');
     assert.match(code, /_\$template\("<div><!--\$--><\/div>"\)/);
     assert.match(code, /_\$insert\(_el\$0, _\$createComponent\(Ctx\.Provider/);
   });
@@ -181,7 +163,7 @@ describe('compiled JSX: member-expression tags', () => {
 
 describe('compiled JSX: host-element codegen is untouched', () => {
   it('emits the same _$template output as before deferred children', () => {
-    const code = compile(`
+    const code = compileJSX(`
 export function App() {
   return (
     <div class="card">
@@ -199,7 +181,7 @@ export function App() {
   });
 
   it('does not wrap text-only children of a component in a factory', () => {
-    const code = compile('export const A = () => <Card>hello</Card>;');
+    const code = compileJSX('export const A = () => <Card>hello</Card>;');
     assert.match(code, /_\$createComponent\(Card, null, \["hello"\]\)/);
   });
 
@@ -207,7 +189,7 @@ export function App() {
   // through, so it has to be deferred too, or the subtree is built before the
   // component it is being handed to has run.
   it('wraps expression children of a component in a factory', () => {
-    const code = compile('export const A = ({ n }) => <Card>hello {n()}</Card>;');
+    const code = compileJSX('export const A = ({ n }) => <Card>hello {n()}</Card>;');
     assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", n\(\)\]\)/);
   });
 });

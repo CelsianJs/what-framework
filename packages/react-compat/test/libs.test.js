@@ -14,6 +14,11 @@ import { JSDOM } from 'jsdom';
 
 register('./_helpers/react-alias-loader.mjs', import.meta.url);
 
+// Not test-utils/dom.js on purpose: real React libraries need a wider set of
+// globals than the shared helper installs (InputEvent, HTMLInputElement,
+// HTMLButtonElement, MutationObserver), and this file runs under an import
+// loader that aliases react -> what-react, so its environment is genuinely
+// its own.
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
 global.window = dom.window;
 global.document = dom.window.document;

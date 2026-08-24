@@ -7,21 +7,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
-import babelPlugin from '../src/babel-plugin.js';
+import { installDOM } from '../../../test-utils/dom.js';
+import { compileJSX } from '../../../test-utils/compile.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM('<!DOCTYPE html><html><body></body></html>');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');
@@ -30,19 +23,8 @@ const CORE_RENDER = path.resolve(__dirname, '../../core/src/render.js');
 const tmpDir = mkdtempSync(path.join(tmpdir(), 'what-bounds-'));
 let moduleId = 0;
 
-function compile(source) {
-  return transformSync(source, {
-    filename: 'fixture.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  }).code;
-}
-
 async function compileAndLoad(source) {
-  const out = compile(source)
+  const out = compileJSX(source)
     .replaceAll('"what-framework/render"', JSON.stringify(CORE_RENDER))
     .replaceAll("'what-framework/render'", JSON.stringify(CORE_RENDER))
     .replaceAll('"what-framework"', JSON.stringify(CORE_INDEX))
@@ -214,22 +196,22 @@ describe('compiled JSX: user components that forward children', () => {
   });
 
   it('rewrites only a children binding that is never inspected', () => {
-    const forwarded = compile('function W({ children }) { return <Panel>{children}</Panel>; }');
+    const forwarded = compileJSX('function W({ children }) { return <Panel>{children}</Panel>; }');
     assert.match(forwarded, /_props\.children/, 'a pure forward moves to a lazy read');
 
-    const inspected = compile('function W({ children }) { return <Panel>{children.length}{children}</Panel>; }');
+    const inspected = compileJSX('function W({ children }) { return <Panel>{children.length}{children}</Panel>; }');
     assert.doesNotMatch(inspected, /_props\.children/, 'an inspected binding keeps its destructuring');
   });
 
   it('does not rewrite a duplicate children key', () => {
-    const out = compile('function W({ children, children: k2, fallback }) { return <Panel a={fallback}>{k2}</Panel>; }');
+    const out = compileJSX('function W({ children, children: k2, fallback }) { return <Panel a={fallback}>{k2}</Panel>; }');
     assert.doesNotMatch(out, /_props\.children/, 'the other key would still read the getter');
   });
 
   // The rewrite moves the props destructuring out of the parameter list, which
   // is where the compiler decides which identifiers are potentially reactive.
   it('keeps sibling props reactive through the rewrite', () => {
-    const out = compile(
+    const out = compileJSX(
       'function Card({ cls, on, title, children }) {\n' +
       '  return <div class={cls()} data-x={on()}><h3>{title}</h3><Panel>{children}</Panel></div>;\n' +
       '}'
@@ -244,8 +226,8 @@ describe('compiled JSX: user components that forward children', () => {
   // rewrite fires on, compared with the same shape in one it does not.
   for (const expr of ['name', 'name()', 'name.label', "name() ? 'Y' : 'N'", '`v=${name()}`']) {
     it(`keeps the thunk on {${expr}} through the rewrite`, () => {
-      const forwarded = compile(`function Card({ name, children }) { return <div>{${expr}}<Panel>{children}</Panel></div>; }`);
-      const control = compile(`function Card({ name }) { return <div>{${expr}}</div>; }`);
+      const forwarded = compileJSX(`function Card({ name, children }) { return <div>{${expr}}<Panel>{children}</Panel></div>; }`);
+      const control = compileJSX(`function Card({ name }) { return <div>{${expr}}</div>; }`);
       assert.match(forwarded, /_props\.children/, 'the rewrite must have fired');
       const inserted = (out) => out.match(/_\$insert\(_el\$0, ([\s\S]*?), _el\$/)[1];
       assert.equal(inserted(forwarded), inserted(control), 'the moved props must classify as they did');

@@ -4,12 +4,9 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+installDOM('<!doctype html><html><body><div id="app"></div></body></html>');
 
 const { h, mount, signal } = await import('../src/index.js');
 const { useId, useIds } = await import('../src/a11y.js');

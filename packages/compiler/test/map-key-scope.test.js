@@ -1,3 +1,5 @@
+import { installDOM } from '../../../test-utils/dom.js';
+import { compileJSX } from '../../../test-utils/compile.js';
 // A `key` expression the extracted key function cannot see must not be lowered
 // to keyed reconciliation.
 //
@@ -25,21 +27,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
-import babelPlugin from '../src/babel-plugin.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM('<!DOCTYPE html><html><body></body></html>');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');
@@ -50,19 +43,8 @@ process.on('exit', () => { try { rmSync(tmpDir, { recursive: true, force: true }
 
 let moduleId = 0;
 
-function compile(source) {
-  return transformSync(source, {
-    filename: 'fixture.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  }).code;
-}
-
 async function load(source) {
-  const out = compile(source)
+  const out = compileJSX(source)
     .replaceAll('"what-framework/render"', JSON.stringify(CORE_RENDER))
     .replaceAll("'what-framework/render'", JSON.stringify(CORE_RENDER))
     .replaceAll('"what-framework"', JSON.stringify(CORE_INDEX))
@@ -86,7 +68,7 @@ function captureConsole(fn) {
 
 function quietCompile(source) {
   let code;
-  captureConsole(() => { code = compile(source); });
+  captureConsole(() => { code = compileJSX(source); });
   return code;
 }
 
@@ -175,7 +157,7 @@ describe('a key the key function cannot reach falls back instead of breaking', (
 
   it('warns at compile time, naming the unreachable binding', async () => {
     const log = captureConsole(() => {
-      compile('const A = () => <ul>{items().map((t, i) => <li key={`${t.type}-${i}`}>{t.name}</li>)}</ul>;');
+      compileJSX('const A = () => <ul>{items().map((t, i) => <li key={`${t.type}-${i}`}>{t.name}</li>)}</ul>;');
     });
     const warning = log.find((l) => l.includes('key='));
     assert.ok(warning, `no warning for an index-derived key: ${JSON.stringify(log)}`);
@@ -194,7 +176,7 @@ describe('a key the key function cannot reach falls back instead of breaking', (
       'const A = () => <ul>{items().map((t, i) => <li key={i}>{t.name}</li>)}</ul>;',
       'const A = () => <ul>{history().map((_, move) => <li key={move}>{move}</li>)}</ul>;',
     ]) {
-      const log = captureConsole(() => compile(src));
+      const log = captureConsole(() => compileJSX(src));
       assert.deepEqual(log, [], `a bare index key should be silent: ${JSON.stringify(log)}`);
     }
   });
@@ -204,7 +186,7 @@ describe('a key the key function cannot reach falls back instead of breaking', (
     // and change the moment a row moves.
     for (const key of ['`${t.type}-${i}`', 'i + 1', 'String(i)']) {
       const src = `const A = () => <ul>{items().map((t, i) => <li key={${key}}>{t.name}</li>)}</ul>;`;
-      const log = captureConsole(() => compile(src));
+      const log = captureConsole(() => compileJSX(src));
       assert.ok(
         log.some((l) => l.includes('key=')),
         `key={${key}} should warn, it reads as stable and is not: ${JSON.stringify(log)}`,

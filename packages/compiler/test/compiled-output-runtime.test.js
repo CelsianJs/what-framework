@@ -10,17 +10,11 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
 import babelPlugin from '../src/babel-plugin.js';
+import { installDOM } from '../../../test-utils/dom.js';
 
 // --- jsdom globals (before importing any core module) ---
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');

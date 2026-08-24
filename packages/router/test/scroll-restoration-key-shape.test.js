@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Tests for What Framework - Router scroll restoration (#12)
 //
 // enableScrollRestoration() has three writers and one reader, and before this
@@ -25,20 +26,8 @@
 // come back, and assert where the page ended up.
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>', {
-  url: 'http://localhost/',
-});
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
-global.history = dom.window.history;
-global.location = dom.window.location;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+const { dom } = installDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/' });
 
 // A controllable viewport: the router reads window.scrollX/scrollY when it saves
 // a position, and calls window.scrollTo when it restores one.

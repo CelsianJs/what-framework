@@ -17,13 +17,11 @@
 // very defect these tests exist to catch.
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
 // Set up DOM globals before importing framework modules (animation.js pulls in
 // dom.js). rAF is modelled as a 16ms timer, the same shim the other core tests use.
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
+installDOM('<!DOCTYPE html><html><body></body></html>');
 
 const pendingFrames = new Set();
 global.requestAnimationFrame = (cb) => {

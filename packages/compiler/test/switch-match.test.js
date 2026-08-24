@@ -4,21 +4,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
-import babelPlugin from '../src/babel-plugin.js';
+import { installDOM } from '../../../test-utils/dom.js';
+import { compileJSX } from '../../../test-utils/compile.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM('<!DOCTYPE html><html><body></body></html>');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');
@@ -27,19 +20,8 @@ const CORE_RENDER = path.resolve(__dirname, '../../core/src/render.js');
 const tmpDir = mkdtempSync(path.join(tmpdir(), 'what-switch-'));
 let moduleId = 0;
 
-function compile(source) {
-  return transformSync(source, {
-    filename: 'fixture.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  }).code;
-}
-
 async function compileAndLoad(source) {
-  const out = compile(source)
+  const out = compileJSX(source)
     .replaceAll('"what-framework/render"', JSON.stringify(CORE_RENDER))
     .replaceAll("'what-framework/render'", JSON.stringify(CORE_RENDER))
     .replaceAll('"what-framework"', JSON.stringify(CORE_INDEX))
@@ -217,7 +199,7 @@ describe('compiled Switch/Match', () => {
   });
 
   it('lowers to a thunk rather than a _$createComponent(Switch) call', () => {
-    const code = compile(`
+    const code = compileJSX(`
       export const A = () => (
         <Switch fallback={<p>none</p>}>
           <Match when={true}><p>a</p></Match>
@@ -256,7 +238,7 @@ describe('compiled Switch/Match', () => {
   // would render the fallback and nothing else, forever. That must not compile.
   it('fails the build when an expression child is mixed with Match arms', () => {
     assert.throws(
-      () => compile(`
+      () => compileJSX(`
         export const A = ({ extra }) => (
           <Switch fallback={<p>none</p>}>
             <Match when={true}><p>a</p></Match>
@@ -270,7 +252,7 @@ describe('compiled Switch/Match', () => {
 
   it('fails the build when another element is mixed with Match arms', () => {
     assert.throws(
-      () => compile(`
+      () => compileJSX(`
         export const A = () => (
           <Switch>
             <Match when={true}><p>a</p></Match>
@@ -284,7 +266,7 @@ describe('compiled Switch/Match', () => {
 
   it('fails the build on a Match with no when', () => {
     assert.throws(
-      () => compile(`export const A = () => <Switch><Match><p>a</p></Match></Switch>;`),
+      () => compileJSX(`export const A = () => <Switch><Match><p>a</p></Match></Switch>;`),
       /<Switch> has a <Match> with no "when" prop/
     );
   });
@@ -293,7 +275,7 @@ describe('compiled Switch/Match', () => {
   // dispatches on the bare tag name, so a <Switch> with no <Match> arms must be
   // left alone rather than lowered or rejected.
   it('leaves a third-party Switch alone', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { Switch } from 'antd';
       export const A = ({ checked, onChange }) => (
         <Switch checked={checked} onChange={onChange} checkedChildren="ON" />
@@ -303,7 +285,7 @@ describe('compiled Switch/Match', () => {
   });
 
   it('leaves a third-party Switch with children alone', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { Switch } from '@headlessui/react';
       export const A = ({ arms }) => <Switch className="toggle">{arms}</Switch>;
     `);
@@ -315,7 +297,7 @@ describe('compiled Switch/Match', () => {
   // is a build error rather than a silent always-fallback render.
   it('fails the build on a What Switch whose arms are computed', () => {
     assert.throws(
-      () => compile(`
+      () => compileJSX(`
         import { Switch, Match } from 'what-framework';
         const cases = [{ w: false, t: 'A' }, { w: true, t: 'B' }];
         export const A = () => (
@@ -330,7 +312,7 @@ describe('compiled Switch/Match', () => {
 
   it('fails the build on a What Switch with no arms at all', () => {
     assert.throws(
-      () => compile(`
+      () => compileJSX(`
         import { Switch } from 'what-framework';
         export const A = () => <Switch fallback={<p>none</p>} />;
       `),
@@ -342,7 +324,7 @@ describe('compiled Switch/Match', () => {
   // and <Show> was the stricter of the two: it rejected any <Show> without a
   // "when", so a third-party one failed the build outright.
   it('leaves a third-party Show alone', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { Show } from 'some-ui-kit';
       export const A = ({ open }) => <Show as="div" open={open}>panel</Show>;
     `);
@@ -350,7 +332,7 @@ describe('compiled Switch/Match', () => {
   });
 
   it('leaves a third-party For alone', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { For } from 'some-ui-kit';
       export const A = ({ items }) => <For data={items}>row</For>;
     `);
@@ -360,7 +342,7 @@ describe('compiled Switch/Match', () => {
   // A relative import can be a re-export of What's own control flow, so it must
   // keep lowering rather than be treated as a third party's component.
   it('still lowers a Show re-exported from a relative module', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { Show } from './ui.js';
       export const A = ({ open }) => <Show when={open}><p>hi</p></Show>;
     `);
@@ -371,7 +353,7 @@ describe('compiled Switch/Match', () => {
   // relative one can. Literal <Match> arms are the proof, and <Switch> has no
   // working runtime path, so getting this wrong renders the fallback forever.
   it('still lowers a Switch re-exported from a bare package', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { Switch, Match } from '@myorg/ui';
       export const A = ({ n }) => (
         <Switch fallback={<p class="fb">FALLBACK</p>}>
@@ -385,7 +367,7 @@ describe('compiled Switch/Match', () => {
   });
 
   it('never emits a runtime Switch or Match call', () => {
-    const code = compile(`
+    const code = compileJSX(`
       export const A = ({ n }) => (
         <Switch fallback={<p>none</p>}>
           <Match when={() => n() === 1}><p>one</p></Match>
@@ -402,7 +384,7 @@ describe('compiled Switch/Match', () => {
 // work was only acceptable because plain DOM trees compile byte-identically.
 describe('host-element codegen', () => {
   it('emits an unchanged template and setup for a plain DOM tree', () => {
-    const code = compile(`
+    const code = compileJSX(`
       export function Card({ title, onPick }) {
         return (
           <div class="card" id="c1">

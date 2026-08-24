@@ -2,19 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { transformSync } from '@babel/core';
 import babelPlugin from '../src/babel-plugin.js';
-
-function compile(source) {
-  const result = transformSync(source, {
-    filename: 'test.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  });
-
-  return result?.code || '';
-}
+import { compileJSX } from '../../../test-utils/compile.js';
 
 function compileAst(source) {
   const result = transformSync(source, {
@@ -63,7 +51,7 @@ function collectInsertArgCounts(ast) {
 
 describe('what babel plugin fine-grained output', () => {
   it('uses firstChild/nextSibling chains for robust child access', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const count = signal(0);
         return <label>Step: <input value={count()} /></label>;
@@ -77,7 +65,7 @@ describe('what babel plugin fine-grained output', () => {
   });
 
   it('uses setProp helper for dynamic prop writes (checked/value/innerHTML)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const checked = signal(false);
         const html = signal('<b>x</b>');
@@ -98,7 +86,7 @@ describe('what babel plugin fine-grained output', () => {
   });
 
   it('wraps dangerouslySetInnerHTML with reactive object values in effect', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const html = signal('<b>x</b>');
         return <div dangerouslySetInnerHTML={{ __html: html() }} />;
@@ -110,7 +98,7 @@ describe('what babel plugin fine-grained output', () => {
   });
 
   it('serializes non-void self-closing JSX tags with explicit closing tags', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <main><section /><input /></main>;
       }
@@ -129,7 +117,7 @@ describe('what babel plugin fine-grained output', () => {
       }
     `;
 
-    const code = compile(source);
+    const code = compileJSX(source, { filename: 'test.jsx' });
     assert.match(code, /<!--\$-->/);
 
     const ast = compileAst(source);
@@ -149,7 +137,7 @@ describe('what babel plugin fine-grained output', () => {
 
 describe('VDOM mode removal', () => {
   it('does not emit h() calls for native HTML elements', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <div class="container"><p>Hello</p></div>;
       }
@@ -164,7 +152,7 @@ describe('VDOM mode removal', () => {
 
   it('does not support vdom mode option (fine-grained is the only mode)', () => {
     // Even if someone passes mode: 'vdom', it should still use fine-grained
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <div>Hello</div>;
       }
@@ -175,7 +163,7 @@ describe('VDOM mode removal', () => {
   });
 
   it('uses _$createComponent for component invocations', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { useState } from 'what-framework';
       function Child({ name }) {
         return <span>{name}</span>;
@@ -199,7 +187,7 @@ describe('VDOM mode removal', () => {
 
 describe('template hoisting to module scope', () => {
   it('hoists template() calls to top of program', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <div class="app"><h1>Title</h1></div>;
       }
@@ -212,7 +200,7 @@ describe('template hoisting to module scope', () => {
   });
 
   it('deduplicates identical templates', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function A() {
         return <div class="item">Hello</div>;
       }
@@ -228,7 +216,7 @@ describe('template hoisting to module scope', () => {
   });
 
   it('creates separate templates for different HTML', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function A() {
         return <div class="a">A</div>;
       }
@@ -248,7 +236,7 @@ describe('template hoisting to module scope', () => {
 
 describe('smart reactivity detection', () => {
   it('wraps signal reads in effects', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const count = signal(0);
         return <div>{count()}</div>;
@@ -261,7 +249,7 @@ describe('smart reactivity detection', () => {
   });
 
   it('does not wrap Math.max with non-signal args in effects', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const a = 5;
         const b = 10;
@@ -274,7 +262,7 @@ describe('smart reactivity detection', () => {
   });
 
   it('wraps Math.max with signal args in effects', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const a = signal(5);
         const b = signal(10);
@@ -287,7 +275,7 @@ describe('smart reactivity detection', () => {
   });
 
   it('detects useState destructured values as reactive', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const [count, setCount] = useState(0);
         return <span>{count}</span>;
@@ -300,7 +288,7 @@ describe('smart reactivity detection', () => {
   });
 
   it('detects useSWR destructured values as reactive', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const { data, isLoading } = useSWR('key', fetcher);
         return <div>{isLoading()}</div>;
@@ -312,7 +300,7 @@ describe('smart reactivity detection', () => {
   });
 
   it('does not treat regular function calls as reactive', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function formatDate(d) { return d.toString(); }
       function App() {
         return <span class={formatDate(new Date())} />;
@@ -330,7 +318,7 @@ describe('smart reactivity detection', () => {
 
 describe('component output', () => {
   it('components use _$createComponent for invocation', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function Header({ title }) {
         return <h1>{title}</h1>;
       }
@@ -343,7 +331,7 @@ describe('component output', () => {
   });
 
   it('handles fragments', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <><div>A</div><div>B</div></>;
       }
@@ -355,7 +343,7 @@ describe('component output', () => {
   });
 
   it('handles islands with client: directives', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { Island } from 'what-framework';
       function Search() { return <input />; }
       function App() {
@@ -373,7 +361,7 @@ describe('component output', () => {
   // and `continue` past every spread, so `<Panel client:visible {...cfg}>text</Panel>`
   // lost both its children and every prop in `cfg`.
   it('keeps island children', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function Panel({ children }) { return <section>{children}</section>; }
       function App() {
         return <div><Panel client:visible>Hello <b>world</b></Panel></div>;
@@ -385,7 +373,7 @@ describe('component output', () => {
   });
 
   it('keeps island spread props, with explicit attributes winning', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function Chart() { return <canvas />; }
       function App({ cfg }) {
         return <div><Chart client:visible {...cfg} title="explicit" /></div>;
@@ -401,7 +389,7 @@ describe('component output', () => {
   });
 
   it('never lets a spread override the directive it was written on', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function Chart() { return <canvas />; }
       function App({ cfg }) {
         return <div><Chart client:load {...cfg} /></div>;
@@ -416,7 +404,7 @@ describe('component output', () => {
   });
 
   it('escapes < and > in attribute values', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <div title="a < b > c" />;
       }
@@ -434,7 +422,7 @@ describe('component output', () => {
 
 describe('lexical scope signal detection', () => {
   it('detects signals in the local function scope', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const count = signal(0);
         return <div>{count()}</div>;
@@ -445,7 +433,7 @@ describe('lexical scope signal detection', () => {
   });
 
   it('does not treat same-name variable in different scope as signal', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function Outer() {
         const count = signal(0);
         return <div>{count()}</div>;
@@ -462,7 +450,7 @@ describe('lexical scope signal detection', () => {
   });
 
   it('handles nested function scopes correctly', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const name = signal('world');
         function getGreeting() {
@@ -482,7 +470,7 @@ describe('lexical scope signal detection', () => {
 
 describe('import filtering for reactivity', () => {
   it('treats imports from relative paths as potentially reactive', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { count } from './store';
       function App() {
         return <div>{count()}</div>;
@@ -493,7 +481,7 @@ describe('import filtering for reactivity', () => {
   });
 
   it('treats imports from what-framework as potentially reactive', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { signal } from 'what-framework';
       function App() {
         const x = signal(0);
@@ -505,7 +493,7 @@ describe('import filtering for reactivity', () => {
   });
 
   it('does NOT treat imports from non-reactive packages as reactive', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { format } from 'date-fns';
       function App() {
         return <div class={format(new Date(), 'yyyy')} />;
@@ -517,7 +505,7 @@ describe('import filtering for reactivity', () => {
   });
 
   it('treats use* named imports from any package as reactive', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { useQuery } from '@tanstack/query';
       function App() {
         const data = useQuery('key');
@@ -535,7 +523,7 @@ describe('import filtering for reactivity', () => {
 
 describe('firstChild/nextSibling child access', () => {
   it('uses firstChild for index 0', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const x = signal('hi');
         return <div><span>{x()}</span></div>;
@@ -547,7 +535,7 @@ describe('firstChild/nextSibling child access', () => {
   });
 
   it('chains nextSibling for subsequent children', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const x = signal('hi');
         return <div><p>a</p><p>b</p><span>{x()}</span></div>;
@@ -564,7 +552,7 @@ describe('firstChild/nextSibling child access', () => {
 
 describe('no IIFE wrapping', () => {
   it('hoists setup statements instead of using IIFE', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const count = signal(0);
         return <div class={count() > 5 ? 'big' : 'small'}>Hello</div>;
@@ -578,7 +566,7 @@ describe('no IIFE wrapping', () => {
   });
 
   it('produces clean function body with hoisted setup', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const name = signal('world');
         return <h1>Hello {name()}</h1>;
@@ -597,7 +585,7 @@ describe('no IIFE wrapping', () => {
 
 describe('event delegation', () => {
   it('uses delegation for click events', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <button onClick={() => alert('hi')}>Click</button>;
       }
@@ -611,7 +599,7 @@ describe('event delegation', () => {
   });
 
   it('uses delegation for input events', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <input onInput={(e) => console.log(e)} />;
       }
@@ -621,7 +609,7 @@ describe('event delegation', () => {
   });
 
   it('does NOT delegate scroll events', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <div onScroll={() => {}} />;
       }
@@ -632,7 +620,7 @@ describe('event delegation', () => {
   });
 
   it('does NOT delegate custom/pointer events', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <div onPointerdown={() => {}} />;
       }
@@ -642,7 +630,7 @@ describe('event delegation', () => {
   });
 
   it('emits delegateEvents with the list of used events', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <div>
           <button onClick={() => {}}>A</button>
@@ -663,7 +651,7 @@ describe('event delegation', () => {
 
 describe('issue #1: marker pre-capture for multiple dynamic children', () => {
   it('pre-captures markers when 2+ dynamic children exist', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { signal } from 'what-framework';
       function App() {
         const items = signal([]);
@@ -694,7 +682,7 @@ describe('issue #1: marker pre-capture for multiple dynamic children', () => {
   });
 
   it('captures stable marker refs for component + static element siblings', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function Nav() { return <nav>nav</nav>; }
       function App() {
         return <div><Nav /><main>content</main></div>;
@@ -716,7 +704,7 @@ describe('issue #1: marker pre-capture for multiple dynamic children', () => {
 
 describe('issue #4: ref prop handling in compiled output', () => {
   it('generates ref assignment code instead of setProp for ref attributes', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { useRef } from 'what-framework';
       function App() {
         const boxRef = useRef(null);
@@ -736,7 +724,7 @@ describe('issue #4: ref prop handling in compiled output', () => {
   });
 
   it('handles callback refs', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const refFn = (el) => console.log(el);
         return <div ref={refFn}>content</div>;
@@ -753,7 +741,7 @@ describe('issue #4: ref prop handling in compiled output', () => {
 
 describe('issue #6: key prop stripping', () => {
   it('strips key prop from component in .map()', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function Item({ item }) { return <div>{item.name}</div>; }
       function App() {
         const items = signal([{id: 1, name: 'a'}]);
@@ -765,7 +753,7 @@ describe('issue #6: key prop stripping', () => {
   });
 
   it('strips key prop from native element', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const items = signal([{id: 1, text: 'a'}]);
         return <ul>{items().map(item => <li key={item.id}>{item.text}</li>)}</ul>;

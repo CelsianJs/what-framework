@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Three ways the compiler built DOM that the source said should not be built
 // yet. All three share one root cause shape: the setup statements for a JSX
 // subtree (`const _el$N = _tmpl$X(); _$insert(_el$N, () => sig().field, ...)`)
@@ -44,16 +45,9 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
 import babelPlugin from '../src/babel-plugin.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM('<!DOCTYPE html><html><body></body></html>');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');

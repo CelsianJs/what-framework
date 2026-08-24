@@ -9,26 +9,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import babelPlugin from '../src/babel-plugin.js';
+import { compileJSX } from '../../../test-utils/compile.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAP_DIR = path.join(__dirname, '__snapshots__');
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
-
-function compile(source) {
-  return transformSync(source, {
-    filename: 'fixture.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  })?.code || '';
-}
 
 const FIXTURES = {
   counter: `
@@ -114,7 +102,7 @@ export function Page() {
 describe('C8: golden compiler output snapshots', () => {
   for (const [name, source] of Object.entries(FIXTURES)) {
     it(`matches snapshot: ${name}`, () => {
-      const output = compile(source);
+      const output = compileJSX(source);
       const snapFile = path.join(SNAP_DIR, `${name}.jsx.snap`);
 
       if (UPDATE) {

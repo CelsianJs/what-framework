@@ -4,16 +4,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
-global.CustomEvent = dom.window.CustomEvent;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+const { dom } = installDOM();
 
 const { h, signal } = await import('what-core');
 const { renderToString, renderDocument } = await import('../src/index.js');
