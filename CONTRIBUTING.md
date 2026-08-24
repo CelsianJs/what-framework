@@ -6,10 +6,19 @@ Thanks for your interest in contributing! Here's how to get started.
 
 ```bash
 git clone https://github.com/CelsianJs/what-framework.git
-cd whatfw
+cd what-framework
 npm install
-npm test  # 1300+ tests should pass
+npm test  # 2,500+ tests should pass
 ```
+
+Two maps, and they answer different questions:
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — where code lives. The package graph,
+  what each directory is for, which gate protects what, which CI is
+  authoritative. Read this before changing something.
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the framework works.
+  The mental model, the rendering pipeline, islands, the MCP bridge. Read this
+  before changing something in core.
 
 The repo is a monorepo with packages in `packages/`:
 
@@ -33,10 +42,31 @@ The repo is a monorepo with packages in `packages/`:
 ## Running Tests
 
 ```bash
-npm test          # Run all tests
+npm test          # 173 test files, Node's built-in runner
+npm run test:stress   # adversarial cases outside the unit suite
 ```
 
 Tests use Node's built-in test runner. No external test framework needed.
+
+`npm run release:verify` runs every gate in order. Individually:
+
+| Command | What it protects |
+|---|---|
+| `npm run lint` | The framework passes its own ESLint rules |
+| `npm run typecheck` | The hand-written `.d.ts` files compile |
+| `npm run typecheck:src` | `allowJs` + `checkJs` over every implementation file |
+| `npm run hygiene:types` | Declarations and runtime exports match, both directions |
+| `npm run hygiene:publish` | Export maps resolve, tarballs are complete, packed types typecheck in a clean consumer |
+| `npm run check:error-codes` | Every thrown `ERR_*` is catalogued |
+| `npm run check:size` | Bundle budgets in `.size-budgets.json` |
+| `npm run test:prod` | The production build is not a blank screen |
+| `npm run bench:gate` | Performance has not regressed |
+| `npm run smoke:scaffold` | `create-what` produces something that runs |
+| `npm run smoke:apps` | Four real apps in a real browser, 84 checks |
+
+**A bug fix needs a test that fails without the fix.** Say so in the PR, with
+the count. A test written from the shape of the patch rather than the shape of
+the bug passes either way, which is the same as having no test.
 
 ## Git & PR Workflow
 
@@ -178,29 +208,48 @@ If the tool needs browser-side execution, add a command handler in `client-comma
 
 ## Adding Error Codes
 
-Error codes follow the pattern `WF-XXXX` where XXXX is a four-digit number.
+Every error the framework raises carries a stable `ERR_*` code, and every code
+is catalogued once in `packages/core/src/errors.js` with a severity, a
+suggestion and a worked bad/good example. The `what_errors` MCP tool reads that
+catalogue, so the audience is usually an agent.
 
-When adding a new error code:
+**1. Add the entry to `ERROR_CODES`:**
 
-1. Choose the next available number in the appropriate category:
-   - `WF-01XX`: Signal errors
-   - `WF-02XX`: Effect errors
-   - `WF-03XX`: Component errors
-   - `WF-04XX`: Rendering errors
-   - `WF-05XX`: Store errors
-   - `WF-06XX`: Router errors
-   - `WF-07XX`: Form errors
-   - `WF-08XX`: SSR/hydration errors
+```js
+ISLAND_STORE_OUTSIDE_RENDER: {
+  code: 'ERR_ISLAND_STORE_OUTSIDE_RENDER',   // ERR_UPPER_SNAKE, unique
+  severity: 'error',                          // 'error' | 'warning'
+  template: '[what-server] Island store "{{name}}" was accessed outside an active server render.',
+  suggestion: 'A module-scoped island store resolves against the current request, so ...',
+  codeExample: `// Bad - runs at import time, with no request in scope:
+const count = cart.items.length;
 
-2. Include in the error object:
-   - `code`: The error code string
-   - `message`: Human-readable description
-   - `fix`: Suggested fix
-   - `signalId` / `effectId` / `componentId`: When applicable
+// Good - read it inside a component the server is rendering:
+function Cart() { return <span>{cart.items.length}</span>; }`,
+},
+```
 
-3. Document the error in the error code reference table (in `Agents.md`)
+**2. Throw it.** Inside what-core, `createWhatError('KEY', context)` builds the
+message from the template. Everywhere else, attach **only the code**:
 
----
+```js
+// ERROR_CODES.ISLAND_STORE_OUTSIDE_RENDER
+throw Object.assign(new Error(`[what-server] Island store "${name}" ...`), {
+  code: 'ERR_ISLAND_STORE_OUTSIDE_RENDER',
+});
+```
+
+That split is deliberate and it is a size decision. Importing
+`createWhatError()` into a client-shipped module retains the whole catalogue
+through the bundler — measured at 6 KB gzipped on what-server's action
+surface. `classifyError(err)` resolves a code back to its suggestion and
+example, so nothing is lost. It is also the only rule that works for the
+packages that cannot import core at all: what-isr, the compiler, the MCP
+server, and the CLI.
+
+**3. `npm run check:error-codes`** asserts every `ERR_*` literal under
+`packages/*/src` is catalogued, that codes are unique, and that every entry has
+a suggestion. It runs in CI.
 
 ## Adding Guardrails
 
@@ -214,13 +263,34 @@ Guardrail categories:
 
 When adding a guardrail:
 
-1. Add the check in the relevant source file (e.g., `reactive.js` for signal checks)
-2. Wrap in `if (process.env.NODE_ENV !== 'production') { ... }`
-3. Include a clear, actionable error message
+1. Add the check in the relevant source file (e.g. `reactive.js` for signal checks)
+2. Wrap it in `if (__DEV__) { ... }` — the shared flag from `reactive.js`, not a
+   raw `process.env` read. `__DEV__` resolves from `globalThis.__WHAT_DEV__`,
+   then `import.meta.env.DEV`, then `process.env`, so it works in a bundler, in
+   a browser and in Node; a raw `process.env` read works in none of them
+   reliably and does not get stripped from the production build.
+3. Give it a code from the catalogue above, so an agent can look up the fix
 4. Add an ESLint rule in `eslint-plugin-what` if it can be caught statically
-5. Document in `/docs/GOTCHAS.md`
+5. Document it in [docs/GOTCHAS.md](docs/GOTCHAS.md)
 
 ---
+
+## Continuous Integration
+
+**`.depot/workflows/` is authoritative.** CI has run on Depot since 2026-07-11.
+
+`.github/workflows/` holds a copy of each workflow with its triggers reduced to
+`workflow_dispatch`, kept as a manual fallback if Depot is unavailable. The two
+sets are not generated from each other and they will drift, so:
+
+> Change the Depot copy first, then mirror the change into the GitHub copy in
+> the same PR.
+
+The four workflows are `ci`, `size`, `benchmarks` and `release-and-deploy`.
+
+## Code of Conduct
+
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Reporting Issues
 

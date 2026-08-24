@@ -1,0 +1,21 @@
+# Every change needs a review from the maintainers.
+# https://docs.github.com/articles/about-code-owners
+*                       @zvndev
+
+# The reactive graph and the DOM runtime are where a subtle change is most
+# expensive: level assignment, subscriber-Set ownership and range disposal all
+# have invariants that the tests only partly encode. Call them out explicitly
+# so they never merge on a skim.
+/packages/core/src/reactive.js   @zvndev
+/packages/core/src/dom.js        @zvndev
+/packages/core/src/render.js     @zvndev
+
+# Compiled output is a contract with every app that ever built against it.
+/packages/compiler/src/          @zvndev
+
+# The gates are the reason a release can be trusted. Weakening one is a
+# decision, not a cleanup.
+/scripts/                        @zvndev
+/.depot/workflows/               @zvndev
+/.github/workflows/              @zvndev
+/.size-budgets.json              @zvndev
