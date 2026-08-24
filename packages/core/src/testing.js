@@ -2,7 +2,7 @@
 // Helpers for testing components, similar to @testing-library/react
 // Works with Node.js test runner or any test framework
 
-import { signal, computed, effect, batch, flushSync, createRoot, untrack } from './reactive.js';
+import { signal, effect, flushSync, createRoot, __DEV__, __devtools, __setDevToolsHooks } from './reactive.js';
 import { mount } from './dom.js';
 import { h } from './h.js';
 
@@ -125,42 +125,101 @@ export function flushEffects() {
 // Track signal reads and writes within a callback.
 // Returns { accessed: string[], written: string[] }
 
+// --- trackSignals ---
+//
+// Reports which named signals a callback reads and writes.
+//
+// Reads are transitive: reading a computed reports the signals that computed
+// depends on, not the computed itself. That is what "which signals does this
+// depend on" means in a reactive graph, and it is the question worth asking of
+// a callback under test.
+//
+// A signal created without a debug name has nothing to report, so it appears
+// as the single entry UNNAMED rather than vanishing. A caller who sees it
+// knows the answer is incomplete and which signal to name; silently returning
+// a short list would let an assertion pass for the wrong reason.
+const UNNAMED = '(unnamed)';
+
 export function trackSignals(fn) {
+  if (!__DEV__) {
+    throw new Error(
+      '[what] trackSignals() requires a development build. Signal debug names ' +
+      'and subscriber back-references are stripped in production, so there is ' +
+      'nothing to report. Run your tests with NODE_ENV !== "production".'
+    );
+  }
+
   const accessed = [];
   const written = [];
+  const addOnce = (list, name) => { if (!list.includes(name)) list.push(name); };
 
-  // Intercept signal reads/writes by wrapping in an effect context
-  // that captures the read calls, and monkey-patching .set temporarily.
-  const _origSignal = signal;
-
-  // We track by running the function and observing side effects.
-  // Since signals are closure-based, we use a different approach:
-  // Run inside a computed (which tracks reads), and proxy signal.set calls.
-  const trackedSignals = new Map();
-
-  // Patch: create a tracking wrapper
-  const trackRead = (name) => {
-    if (!accessed.includes(name)) accessed.push(name);
+  // --- Writes ---
+  //
+  // Every signal write calls __devtools.onSignalUpdate(sig) in dev, and
+  // __devtools is consulted at write time rather than at creation time, so
+  // this catches writes to signals that existed long before this call.
+  // Chain the previous hooks rather than replacing them: otherwise running a
+  // test would silently disable installed devtools for the duration.
+  const previousHooks = __devtools;
+  const trackingHooks = {
+    ...(previousHooks || {}),
+    onSignalUpdate(sig) {
+      addOnce(written, sig?._debugName || UNNAMED);
+      previousHooks?.onSignalUpdate?.(sig);
+    },
   };
-  const trackWrite = (name) => {
-    if (!written.includes(name)) written.push(name);
+  // A chained hook must not claim to be the pre-install buffer, or the real
+  // devtools would later try to drain it a second time.
+  delete trackingHooks.__isPreinstallBuffer;
+
+  // --- Reads ---
+  //
+  // Reading a signal inside an effect adds that effect to the signal's
+  // subscriber Set and pushes the Set onto effect.deps. effect() returns a
+  // dispose function rather than the effect, so the effect is reached through
+  // a probe signal: after the run, the probe's subscriber Set holds exactly
+  // the effect that read it.
+  const probe = signal(0, '__trackSignals_probe__');
+  let dispose = null;
+  let thrown = null;
+
+  const collectReads = (depSets, seen) => {
+    for (const depSet of depSets || []) {
+      if (seen.has(depSet)) continue;
+      seen.add(depSet);
+      const sig = depSet._signalOwner;
+      if (sig) {
+        if (sig !== probe) addOnce(accessed, sig._debugName || UNNAMED);
+        continue;
+      }
+      // Not a signal's Set, so it belongs to a computed. `_owner` is that
+      // computed's inner effect; its own deps are the sources to follow.
+      const owner = depSet._owner;
+      if (owner?.deps) collectReads(owner.deps, seen);
+    }
   };
 
-  // We run the function and rely on the reactive system's currentEffect tracking.
-  // To detect reads, we run in an effect. To detect writes, we'd need instrumentation.
-  // Instead, provide a simpler API: the user passes signals that have _debugName set.
-
-  // Simple approach: run fn() inside an effect to track reads,
-  // and use Proxy-based detection for writes.
-  let dispose;
-  createRoot((d) => {
-    dispose = d;
-    const e = effect(() => {
-      fn();
+  __setDevToolsHooks(trackingHooks);
+  try {
+    createRoot((disposeRoot) => {
+      dispose = disposeRoot;
+      effect(() => {
+        probe();
+        fn();
+      });
     });
-  });
-  if (dispose) dispose();
 
+    const seen = new Set();
+    for (const tracked of probe._subs) collectReads(tracked.deps, seen);
+  } catch (err) {
+    thrown = err;
+  } finally {
+    // Deps are read before this: disposal clears them.
+    if (dispose) dispose();
+    __setDevToolsHooks(previousHooks);
+  }
+
+  if (thrown) throw thrown;
   return { accessed, written };
 }
 

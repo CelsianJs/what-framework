@@ -134,6 +134,16 @@ export function signal(initial, debugName) {
   sig._signal = true;
   if (__DEV__) {
     sig._subs = subs;
+    // Back-reference from the subscriber Set to its signal, for trackSignals()
+    // in testing.js. An effect records dependencies as the `subs` Sets it
+    // joined (see the read path above), which is one-directional: given an
+    // effect you can count its deps but not name them.
+    //
+    // Deliberately NOT `_owner`. That property is load-bearing for topological
+    // level computation, and a signal's Set is documented above as having
+    // `_owner === undefined` precisely because signals are level 0. A separate
+    // dev-only name keeps that invariant intact.
+    subs._signalOwner = sig;
     if (debugName) sig._debugName = debugName;
   }
 

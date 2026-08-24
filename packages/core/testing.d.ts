@@ -120,7 +120,23 @@ export function renderTest<P = {}>(Component: (props: P) => any, props?: P): Ren
 /** Run every pending effect synchronously, so assertions see settled DOM. */
 export function flushEffects(): void;
 
-/** Record which signals a callback reads and writes, by debug name. */
+/**
+ * Record which signals a callback reads and writes, by debug name.
+ *
+ * Reads are transitive: reading a computed reports the signals that computed
+ * depends on, not the computed itself.
+ *
+ * `peek()` is not a read, and writing a value equal to the current one is not
+ * a write, matching the reactive system's own semantics.
+ *
+ * A signal created without a debug name has no name to report and appears as
+ * the single entry `'(unnamed)'`. Name your signals (`signal(0, 'count')`) to
+ * get anything more specific.
+ *
+ * Dev builds only. In production the debug names and subscriber
+ * back-references this reads are stripped, so it throws rather than reporting
+ * an empty result that would look like "nothing happened".
+ */
 export function trackSignals(fn: () => void): { accessed: string[]; written: string[] };
 
 // --- mockSignal ---
