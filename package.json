@@ -43,7 +43,7 @@
     "release:minor": "node scripts/bump-version.mjs minor && npm run -s release:verify && npm run -s release:publish",
     "release:major": "node scripts/bump-version.mjs major && npm run -s release:verify && npm run -s release:publish",
     "test": "node scripts/run-all-tests.mjs && npm run -s test:stress",
-    "test:stress": "node stress-tests/adversarial-test.js",
+    "test:stress": "node --test stress-tests/*.js",
     "test:prod": "node --conditions=production scripts/check-prod-build.mjs",
     "smoke:scaffold": "node scripts/smoke-scaffold.mjs",
     "smoke:apps": "node smoke/run.mjs",

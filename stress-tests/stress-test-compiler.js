@@ -138,11 +138,19 @@ describe('STRESS: Reactivity detection', () => {
       }
     `);
 
-    // Reactive version should have effect/insert; the static one should not.
-    const reactiveHasInsert = codeReactive.includes('_$insert') || codeReactive.includes('insert(');
-    assert.ok(reactiveHasInsert, `Math.max with signals should be reactive. Code:\n${codeReactive}`);
-    const staticHasInsert = codeStatic.includes('_$insert') || codeStatic.includes('insert(');
-    assert.ok(!staticHasInsert, `Math.max without signals should stay static. Code:\n${codeStatic}`);
+    // Both go through _$insert; the difference is WHAT is inserted. Reactive
+    // arguments produce a thunk the runtime re-reads; constant arguments
+    // produce the value, evaluated once.
+    //
+    // (An earlier version of this assertion, mine, claimed the static case
+    // emits no insert at all. It does emit one — a marker still needs filling.
+    // The thunk is the actual contract.)
+    assert.match(codeReactive, /_\$insert\([^,]+,\s*\(\)\s*=>\s*Math\.max/,
+      `Math.max with signals should insert a thunk. Code:\n${codeReactive}`);
+    assert.match(codeStatic, /_\$insert\([^,]+,\s*Math\.max\(a, b\)/,
+      `Math.max without signals should insert the value, not a thunk. Code:\n${codeStatic}`);
+    assert.ok(!/_\$insert\([^,]+,\s*\(\)\s*=>/.test(codeStatic),
+      `Math.max without signals must not produce a thunk. Code:\n${codeStatic}`);
   });
 
   it('useState destructured value is detected as reactive', () => {
@@ -162,16 +170,29 @@ describe('STRESS: Reactivity detection', () => {
 
 describe('STRESS: Component invocation', () => {
 
-  it('component tags use h() calls, not templates', () => {
+  it('component tags compile to _$createComponent, not into the template', () => {
     const code = compile(`
       function Child() { return <div>Child</div>; }
       function Parent() { return <div><Child /></div>; }
     `);
 
-    // Component invocation should use h() or _$h()
+    // This test asserted `h(Child` and had been failing since the compiler
+    // moved to fine-grained component creation. Nothing ran this file, so the
+    // stale expectation was never seen. The contract now is: a component tag
+    // becomes _$createComponent and is inserted at a marker, so the component
+    // owns its own reactive scope instead of being inlined into the parent's
+    // template.
     assert.ok(
-      code.includes('h(Child') || code.includes('_$h(Child'),
-      `Component should be called via h(). Code:\n${code}`
+      code.includes('_$createComponent(Child'),
+      `Component should compile to _$createComponent. Code:\n${code}`
+    );
+    assert.ok(
+      code.includes('_$insert('),
+      `Component child should be inserted at a marker. Code:\n${code}`
+    );
+    assert.ok(
+      !code.includes('<div>Child</div><'),
+      `Child must not be inlined into the parent template. Code:\n${code}`
     );
   });
 

@@ -1,4 +1,10 @@
 // Stress Test: React-compat hooks with run-once component model
+//
+// NOTE ON THE CONTRACT: What's hooks return signal ACCESSORS, not values.
+// useState -> [signal, signal.set], useMemo -> computed, useReducer ->
+// [signal, dispatch]. Read them by calling them. Several assertions here
+// compared the accessor to the value and had been failing unnoticed, because
+// only adversarial-test.js was ever run.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
@@ -43,12 +49,13 @@ describe('STRESS: useState in run-once component', () => {
     function TestComp() {
       const [count] = useState(42);
       capturedState = count;
-      return h('div', null, String(count));
+      return h('div', null, String(count()));
     }
 
     const container = getContainer();
     mount(h(TestComp, null), container);
-    assert.equal(capturedState, 42);
+    assert.equal(typeof capturedState, 'function', 'useState returns a signal accessor');
+    assert.equal(capturedState(), 42);
   });
 
   it('useState with initializer function', () => {
@@ -57,12 +64,12 @@ describe('STRESS: useState in run-once component', () => {
     function TestComp() {
       const [val] = useState(() => { initCalls++; return 'computed'; });
       capturedState = val;
-      return h('div', null, val);
+      return h('div', null, val());
     }
 
     const container = getContainer();
     mount(h(TestComp, null), container);
-    assert.equal(capturedState, 'computed');
+    assert.equal(capturedState(), 'computed');
     assert.equal(initCalls, 1, 'Initializer should be called once');
   });
 
@@ -170,12 +177,13 @@ describe('STRESS: useMemo in run-once component', () => {
     let result;
     function TestComp() {
       result = useMemo(() => 2 + 3, []);
-      return h('div', null, String(result));
+      return h('div', null, String(result()));
     }
 
     const container = getContainer();
     mount(h(TestComp, null), container);
-    assert.equal(result, 5);
+    assert.equal(typeof result, 'function', 'useMemo returns a computed accessor');
+    assert.equal(result(), 5);
   });
 });
 
@@ -193,13 +201,15 @@ describe('STRESS: useReducer in run-once component', () => {
 
     function TestComp() {
       [state, dispatch] = useReducer(reducer, { count: 0 });
-      return h('div', null, String(state.count));
+      return h('div', null, String(state().count));
     }
 
     const container = getContainer();
     mount(h(TestComp, null), container);
-    assert.equal(state.count, 0);
+    assert.equal(state().count, 0);
     assert.equal(typeof dispatch, 'function');
+    dispatch({ type: 'increment' });
+    assert.equal(state().count, 1, 'dispatch must apply the reducer');
   });
 });
 
@@ -232,23 +242,23 @@ describe('STRESS: Multiple hooks in sequence (run-once invariant)', () => {
       const myRef = useRef('hello');
       refObj = myRef;
 
-      const doubled = useMemo(() => count * 2, [count]);
+      const doubled = useMemo(() => count() * 2, [count]);
       memoVal = doubled;
 
       useEffect(() => {
         effectRan = true;
       }, []);
 
-      return h('div', null, String(count));
+      return h('div', null, String(count()));
     }
 
     const container = getContainer();
     mount(h(MultiHookComp, null), container);
     await flush();
 
-    assert.equal(stateVal, 10);
+    assert.equal(stateVal(), 10);
     assert.equal(refObj.current, 'hello');
-    assert.equal(memoVal, 20);
+    assert.equal(memoVal(), 20);
     assert.ok(effectRan, 'Effect should have run');
   });
 

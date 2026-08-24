@@ -5,7 +5,10 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  signal, computed, effect, memo, batch, untrack, flushSync,
+  // `memo` from this barrel is the COMPONENT memo. The signal memo is
+  // `signalMemo`; see index.d.ts, which declares both. Importing the wrong one
+  // gives a no-op wrapper that silently re-evaluates on every read.
+  signal, computed, effect, signalMemo, batch, untrack, flushSync,
   createRoot, h, Fragment,
 } from '../packages/core/src/index.js';
 
@@ -687,7 +690,7 @@ describe('memo edge cases', () => {
     let memoComputations = 0;
     let m;
     createRoot(() => {
-      m = memo(() => {
+      m = signalMemo(() => {
         memoComputations++;
         return sum() > 5;
       });
@@ -915,7 +918,11 @@ describe('react-compat basic', () => {
       return createElement('span', null, props.text);
     }
     const vnode = createElement(MyComp, { text: 'hi' });
-    assert.equal(vnode.tag, MyComp);
+    // react-compat wraps components in a CompatBridge so a React component can
+    // mount inside What. The original stays reachable on both sides.
+    assert.equal(vnode.tag._compatType, MyComp, 'bridge keeps a handle on the original');
+    assert.equal(vnode.type, MyComp, 'vnode.type is still the React component');
+    assert.equal(vnode.tag.displayName, 'MyComp', 'bridge reports the original name');
   });
 
   test('Children.count works', async () => {
