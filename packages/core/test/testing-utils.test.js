@@ -19,7 +19,7 @@ global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
 
 // Now import framework
-const { signal, effect, flushSync, createRoot } = await import('../src/reactive.js');
+const { signal, computed, effect, flushSync, createRoot, __setDevToolsHooks } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
 const {
@@ -31,6 +31,7 @@ const {
   cleanup,
   mockComponent,
   createTestSignal,
+  trackSignals,
 } = await import('../src/testing.js');
 
 // Helper: flush microtask queue
@@ -290,5 +291,115 @@ describe('mockComponent', () => {
     assert.equal(Mock.lastCall().props.a, 1);
     Mock.reset();
     assert.equal(Mock.calls.length, 0);
+  });
+});
+
+
+// This file's header has claimed to validate trackSignals since it was
+// written, and did not. The function returned two empty arrays for every
+// input: it declared a tracking Map and read/write helpers and then called
+// none of them. An assertion of the form `assert(!written.includes('x'))`
+// passed against it while proving nothing, which is the worse of the two
+// failure modes.
+describe('trackSignals', () => {
+  it('reports a signal that was read', () => {
+    const count = signal(0, 'count');
+    const { accessed, written } = trackSignals(() => { count(); });
+    assert.deepEqual(accessed, ['count']);
+    assert.deepEqual(written, []);
+  });
+
+  it('reports a signal that was written, via .set() and via call', () => {
+    const viaSet = signal(0, 'viaSet');
+    const viaCall = signal(0, 'viaCall');
+    assert.deepEqual(trackSignals(() => { viaSet.set(1); }).written, ['viaSet']);
+    assert.deepEqual(trackSignals(() => { viaCall(1); }).written, ['viaCall']);
+  });
+
+  it('separates reads from writes', () => {
+    const a = signal(1, 'a');
+    const b = signal(2, 'b');
+    const { accessed, written } = trackSignals(() => { a(); b.set(9); });
+    assert.deepEqual(accessed, ['a']);
+    assert.deepEqual(written, ['b']);
+  });
+
+  it('reports nothing for a callback that touches nothing', () => {
+    const { accessed, written } = trackSignals(() => {});
+    assert.deepEqual(accessed, []);
+    assert.deepEqual(written, []);
+  });
+
+  it('does not count peek() as a read', () => {
+    const a = signal(1, 'a');
+    assert.deepEqual(trackSignals(() => { a.peek(); }).accessed, []);
+  });
+
+  it('does not count a write of an equal value', () => {
+    const a = signal(1, 'a');
+    assert.deepEqual(trackSignals(() => { a.set(1); }).written, []);
+  });
+
+  it('deduplicates repeated reads and writes', () => {
+    const a = signal(0, 'a');
+    const { accessed, written } = trackSignals(() => { a(); a(); a.set(1); a.set(2); });
+    assert.deepEqual(accessed, ['a']);
+    assert.deepEqual(written, ['a']);
+  });
+
+  it('follows reads through a computed to its source signals', () => {
+    const a = signal(1, 'a');
+    const b = signal(2, 'b');
+    const sum = computed(() => a() + b());
+    const { accessed } = trackSignals(() => { sum(); });
+    assert.deepEqual(accessed.sort(), ['a', 'b']);
+  });
+
+  it('follows reads through nested computeds', () => {
+    const a = signal(1, 'a');
+    const b = signal(2, 'b');
+    const c = signal(3, 'c');
+    const inner = computed(() => a() + b());
+    const outer = computed(() => inner() + c());
+    const { accessed } = trackSignals(() => { outer(); });
+    assert.deepEqual(accessed.sort(), ['a', 'b', 'c']);
+  });
+
+  it('reports an unnamed signal as (unnamed) rather than dropping it', () => {
+    const anon = signal(0);
+    const { accessed, written } = trackSignals(() => { anon(); anon.set(1); });
+    assert.deepEqual(accessed, ['(unnamed)']);
+    assert.deepEqual(written, ['(unnamed)']);
+  });
+
+  it('never reports its own internal probe signal', () => {
+    const a = signal(0, 'a');
+    const { accessed } = trackSignals(() => { a(); });
+    assert.ok(!accessed.some((n) => n.includes('probe')), accessed.join(','));
+  });
+
+  it('propagates a throw from the callback and stays usable afterwards', () => {
+    const a = signal(0, 'a');
+    assert.throws(() => trackSignals(() => { throw new Error('boom'); }), /boom/);
+    assert.deepEqual(trackSignals(() => { a(); }).accessed, ['a']);
+  });
+
+  it('chains installed devtools hooks instead of replacing them, and restores them', () => {
+    const seen = [];
+    const hooks = {
+      onSignalCreate() {}, onSignalUpdate(sig) { seen.push(sig._debugName); },
+      onEffectCreate() {}, onEffectDispose() {}, onEffectRun() {}, onError() {},
+      onComponentMount() {}, onComponentUnmount() {},
+    };
+    __setDevToolsHooks(hooks);
+    try {
+      const a = signal(0, 'chained');
+      assert.deepEqual(trackSignals(() => { a.set(1); }).written, ['chained']);
+      assert.deepEqual(seen, ['chained'], 'devtools must still observe writes during tracking');
+      a.set(2);
+      assert.deepEqual(seen, ['chained', 'chained'], 'devtools must still be installed afterwards');
+    } finally {
+      __setDevToolsHooks(null);
+    }
   });
 });
