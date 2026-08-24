@@ -251,7 +251,7 @@ export function IslandSkeleton({
 // --- useSkeleton Hook ---
 // Show skeleton while loading data
 
-export function useSkeleton(asyncFn, deps = []) {
+export function useSkeleton(asyncFn, _deps = []) {
   const isLoading = signal(true);
   const data = signal(null);
   const error = signal(null);

@@ -17,7 +17,7 @@
  */
 
 import { Fragment as WhatFragment } from 'what-core';
-import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, runInCommit } from './runtime.js';
+import { getBridge, _getCurrentInstance, flushUpdates, _drainAll } from './runtime.js';
 import {
   useState,
   useReducer,
@@ -126,7 +126,7 @@ function getClassWrapper(ClassComp) {
             if (derived != null) instance.state = { ...instance.state, ...derived };
           }
           if (instance.componentDidCatch) {
-            try { instance.componentDidCatch(error, { componentStack: '' }); } catch (e) { /* boundary error */ }
+            try { instance.componentDidCatch(error, { componentStack: '' }); } catch { /* boundary error */ }
           }
           forceRender();
         };
@@ -166,7 +166,7 @@ function getClassWrapper(ClassComp) {
   // Copy static properties (defaultProps, contextType, custom statics)
   for (const key of Object.getOwnPropertyNames(ClassComp)) {
     if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments') {
-      try { wrapper[key] = ClassComp[key]; } catch (e) { /* read-only static */ }
+      try { wrapper[key] = ClassComp[key]; } catch { /* read-only static */ }
     }
   }
 

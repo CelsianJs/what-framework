@@ -208,6 +208,7 @@ describe('ISR engine', () => {
     assert.match(alice.html, /alice/);
     assert.match(bob.html, /bob/);
     assert.equal((await store.keys()).length, 2, 'the key already varies per user');
+    assert.equal(renders, 2, 'each distinct cookie must miss and render its own entry');
 
     for (const r of [alice, bob]) {
       assert.doesNotMatch(r.headers['Cache-Control'], /public/, `per-user HTML advertised as shareable: ${JSON.stringify(r.headers)}`);

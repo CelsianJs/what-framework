@@ -4,7 +4,7 @@
 // Commands: dev, build, preview, generate
 
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSync, copyFileSync, realpathSync } from 'fs';
-import { join, resolve, relative, extname, basename, normalize, sep } from 'path';
+import { join, resolve, relative, extname, normalize, sep } from 'path';
 import { createServer } from 'http';
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
@@ -76,7 +76,7 @@ function isAllowedOrigin(origin, allowedHosts) {
 class SimpleWebSocketServer {
   constructor({ server, allowedHosts = new Set() }) {
     this.clients = new Set();
-    server.on('upgrade', (req, socket, head) => {
+    server.on('upgrade', (req, socket, _head) => {
       if (req.headers.upgrade?.toLowerCase() !== 'websocket') return;
 
       const key = req.headers['sec-websocket-key'];
@@ -153,7 +153,7 @@ class SimpleWebSocket {
       if (opcode === 0x01) { // Text frame
         this.onmessage?.({ data: payload.toString('utf8') });
       }
-    } catch (e) {}
+    } catch {}
   }
 
   send(data) {
@@ -179,7 +179,7 @@ class SimpleWebSocket {
       }
 
       this.socket.write(Buffer.concat([header, payload]));
-    } catch (e) {}
+    } catch {}
   }
 
   close() {
@@ -187,7 +187,7 @@ class SimpleWebSocket {
       const closeFrame = Buffer.from([0x88, 0x00]);
       this.socket.write(closeFrame);
       this.socket.end();
-    } catch (e) {}
+    } catch {}
   }
 }
 
@@ -285,7 +285,9 @@ async function dev() {
       req.on('end', async () => {
         if (tooLarge) return;
         try {
-          const { args } = JSON.parse(body);
+          // Parsed for validation only: a malformed body must reach the catch
+          // below rather than be answered with the dev placeholder.
+          JSON.parse(body);
           // In production, this would call the registered action
           // For dev, we'll return a placeholder response
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -370,8 +372,8 @@ async function dev() {
   const noMcp = args.includes('--no-mcp');
   if (!noMcp) {
     try {
-      const { resolve: importResolve } = await import('node:module');
-      // Check if the package exists by trying to resolve it
+      // Presence is checked by looking for the installed binary, not by
+      // resolving the specifier.
       const mcpBin = join(cwd, 'node_modules', '.bin', 'what-devtools-mcp');
       const { existsSync: mcpExists } = await import('node:fs');
       if (mcpExists(mcpBin)) {
@@ -426,7 +428,7 @@ async function dev() {
       for (const client of wsClients) {
         try {
           client.send(message);
-        } catch (e) {
+        } catch {
           wsClients.delete(client);
         }
       }
@@ -794,38 +796,16 @@ async function loadConfigAsync() {
       const mod = await import(fileUrl.href);
       _configCache = mod.default || mod;
       return _configCache;
-    } catch (e) { /* use defaults */ }
+    } catch { /* use defaults */ }
   }
   _configCache = { mode: 'hybrid', pagesDir: 'src/pages', outDir: 'dist' };
   return _configCache;
 }
 
-// Synchronous wrapper for backward compatibility — returns defaults,
-// then callers that need the real config should use loadConfigAsync()
-function loadConfig() {
-  // If we already loaded async, return cached
-  if (_configCache) return _configCache;
-  // Fallback: try JSON.parse for simple object configs (no code execution)
-  const configPath = join(cwd, 'what.config.js');
-  if (existsSync(configPath)) {
-    try {
-      const src = readFileSync(configPath, 'utf-8');
-      const match = src.match(/export default\s*(\{[\s\S]*?\})/);
-      if (match) {
-        // Only parse if the content is valid JSON (safe subset)
-        // Convert JS object literal to JSON: add quotes to keys
-        const jsonLike = match[1]
-          .replace(/\/\/[^\n]*/g, '')           // strip line comments
-          .replace(/\/\*[\s\S]*?\*\//g, '')     // strip block comments
-          .replace(/,\s*([}\]])/g, '$1')        // strip trailing commas
-          .replace(/(['"])?(\w+)(['"])?\s*:/g, '"$2":')  // quote keys
-          .replace(/:\s*'([^']*)'/g, ': "$1"'); // single quotes to double
-        return JSON.parse(jsonLike);
-      }
-    } catch (e) { /* use defaults */ }
-  }
-  return { mode: 'hybrid', pagesDir: 'src/pages', outDir: 'dist' };
-}
+// A synchronous `loadConfig` lived here, commented as a backward-compatible
+// wrapper. It was never exported and nothing called it; every call site uses
+// loadConfigAsync(). Its JS-object-literal-to-JSON regex chain was also a
+// second, divergent config parser that no test covered.
 
 function collectFiles(dir) {
   const files = [];
@@ -1202,7 +1182,7 @@ function watchFiles(dir, onChange) {
           }
           files.set(f, mtime);
         }
-      } catch (e) {
+      } catch {
         // File was deleted during scan
       }
     }

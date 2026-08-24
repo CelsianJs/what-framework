@@ -2,8 +2,8 @@
  * react-transition-group — re-test after getDerivedStateFromProps fix
  * TransitionGroup uses getDerivedStateFromProps extensively
  */
-import React, { useState, useRef } from 'react';
-import { CSSTransition, TransitionGroup, Transition } from 'react-transition-group';
+import { useState, useRef } from 'react';
+import { CSSTransition, TransitionGroup } from 'react-transition-group';
 
 function SimpleTransitionTest() {
   const [show, setShow] = useState(false);

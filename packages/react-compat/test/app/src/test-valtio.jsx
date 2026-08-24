@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { proxy, useSnapshot } from 'valtio';
 
 const state = proxy({

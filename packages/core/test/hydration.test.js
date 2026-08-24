@@ -1,5 +1,5 @@
 // Tests for DOM hydration — server renders HTML, client reuses DOM nodes.
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -21,13 +21,13 @@ if (!global.customElements) {
 }
 
 const { h } = await import('../src/h.js');
-const { hydrate, isHydrating } = await import('../src/render.js');
+const { hydrate, isHydrating, delegateEvents } = await import('../src/render.js');
 const { mount, disposeTree } = await import('../src/dom.js');
 const { signal } = await import('../src/reactive.js');
 const { __setDevToolsHooks } = await import('../src/reactive.js');
 const { useEffect, onCleanup } = await import('../src/hooks.js');
 const { createContext, useContext } = await import('../src/hooks.js');
-const { renderToString, renderToHydratableString } = await import('../../server/src/index.js');
+const { renderToHydratableString } = await import('../../server/src/index.js');
 
 function getContainer() {
   const el = document.getElementById('app');
@@ -140,11 +140,17 @@ describe('hydrate() with attributes', () => {
     container.innerHTML = '<button>Click</button>';
 
     let clicked = false;
+    // `$$name` is the delegated form: the handler lives on the element and one
+    // document-level listener walks up to it. The compiler emits this call;
+    // a hand-written h() tree has to make it itself.
+    delegateEvents(['click']);
     const vnode = h('button', { '$$click': () => { clicked = true; } }, 'Click');
     hydrate(vnode, container);
 
     const btn = container.firstChild;
     assert.equal(btn.$$click != null, true, 'Delegated handler should be attached');
+    btn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.equal(clicked, true, 'a real click must reach a hydrated delegated handler');
   });
 });
 

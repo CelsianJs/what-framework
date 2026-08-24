@@ -2,7 +2,7 @@
 // Demonstrates: useSignal, useComputed, useEffect, mapArray,
 // fine-grained rendering, signal-based reactivity, hash routing
 
-import { mount, useSignal, mapArray } from 'what-framework';
+import { mount, useSignal } from 'what-framework';
 import { useTodoStore } from './store.js';
 import { TodoItem } from './todo-item.jsx';
 import { Footer } from './footer.jsx';

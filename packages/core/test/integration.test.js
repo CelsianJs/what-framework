@@ -2,7 +2,7 @@
 // Verifies end-to-end flows: hooks, signals, DOM updates, react-compat,
 // hydration, conditional rendering, list rendering, and component lifecycle.
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -27,9 +27,9 @@ if (!global.customElements) {
 }
 
 // Import framework modules
-const { signal, computed, effect, batch, flushSync, createRoot, onCleanup: onRootCleanup } = await import('../src/reactive.js');
+const { signal, computed, batch } = await import('../src/reactive.js');
 const { h, Fragment } = await import('../src/h.js');
-const { mount, createDOM, disposeTree, getCurrentComponent } = await import('../src/dom.js');
+const { mount } = await import('../src/dom.js');
 const { template, insert, mapArray, hydrate, isHydrating, setStyle } = await import('../src/render.js');
 const {
   useState,
@@ -45,7 +45,7 @@ const {
   useSignal,
   useComputed,
 } = await import('../src/hooks.js');
-const { memo, ErrorBoundary, Show, For } = await import('../src/components.js');
+await import('../src/components.js'); // imported for module-init order; no binding is used here
 
 // Helper: flush microtask queue (multiple rounds for nested effects)
 async function flush() {
@@ -196,7 +196,7 @@ describe('Integration: useEffect cleanup', () => {
     const log = [];
 
     function TrackingComponent() {
-      const [val, setVal] = useState('a');
+      const [val] = useState('a');
       useEffect(() => {
         log.push(`run:${val()}`);
         return () => log.push(`cleanup:${val()}`);
@@ -456,7 +456,7 @@ describe('Integration: List rendering', () => {
 
     function App() {
       const el = document.createElement('ul');
-      const mapped = mapArray(items, (item, i) => {
+      const mapped = mapArray(items, (item, _i) => {
         const li = document.createElement('li');
         li.textContent = item;
         return li;
@@ -509,8 +509,10 @@ describe('Integration: Hydration with hooks', () => {
     // After hydration, hooks should be initialized
     assert.ok(setCount, 'useState setter is available');
 
-    // The div should be reused
+    // Both nodes should be reused: hydration must adopt the server markup, not
+    // replace it. Only the outer div was being checked.
     assert.equal(container.firstChild, originalDiv, 'div is reused');
+    assert.equal(container.firstChild.firstChild, originalSpan, 'span is reused');
   });
 
   it('useEffect runs after hydration completes', async () => {
@@ -671,9 +673,13 @@ describe('Integration: useMemo and useCallback', () => {
     mount(h(App), container);
     await flush();
 
-    // In run-once model, the callback is created once
     assert.ok(typeof cbRef1 === 'function');
     assert.equal(cbRef1(), 'hello');
+    // The point of the test. In the run-once model App renders once, so there
+    // is no second reference at all; if it ever re-renders, the reference must
+    // still be the same one. Both are "stable"; neither was being checked.
+    assert.ok(cbRef2 === undefined || cbRef2 === cbRef1,
+      'useCallback must not hand out a new function reference across renders');
   });
 });
 
@@ -735,6 +741,8 @@ describe('Integration: Batch updates', () => {
     await flush();
 
     assert.ok(container.textContent.includes('10 + 20 = 30'));
+    assert.equal(renderCount - initialRenders, 1,
+      'two writes inside batch() must produce exactly one re-render');
   });
 });
 
@@ -1016,8 +1024,9 @@ describe('Integration: Fragment', () => {
     mount(h(App), container);
     await flush();
 
-    const spans = container.querySelectorAll('span');
-    // Fragment's children should be present
+    // Fragment's children should be present, as three real elements and not
+    // just as concatenated text.
+    assert.equal(container.querySelectorAll('span').length, 3, 'all three fragment children render');
     const allText = container.textContent;
     assert.ok(allText.includes('A'));
     assert.ok(allText.includes('B'));

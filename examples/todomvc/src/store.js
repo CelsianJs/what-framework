@@ -1,7 +1,7 @@
 // TodoMVC Store — Signal-based reactive state
 // Demonstrates: useSignal, useComputed, useEffect, batch
 
-import { useSignal, useComputed, useEffect, batch } from 'what-framework';
+import { useSignal, useComputed, useEffect } from 'what-framework';
 
 const STORAGE_KEY = 'what-todomvc';
 

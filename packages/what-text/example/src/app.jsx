@@ -56,7 +56,8 @@ function ReflowDemo() {
   const statsText = signal('');
 
   effect(() => {
-    const w = width(), lineH = lh(), fSize = fs(), c = cols(), txt = content(), font = fontStr();
+    const w = width(), lineH = lh(), c = cols(), txt = content(), font = fontStr();
+    fs(); // read to track the font-size signal; the value reaches layout via fontStr()
     const t0 = performance.now();
     const prepared = prepareWithSegments(txt, font);
     const colW = c > 1 ? (w - (c - 1) * 24) / c : w;
@@ -329,7 +330,7 @@ function StressDemo() {
     startBtn.style.background = '#dc2626';
 
     const font = '11px Inter, system-ui, sans-serif';
-    const prepared = prepareWithSegments(snippets.join(' '), font);
+    prepareWithSegments(snippets.join(' '), font); // warm pretext's caches before timing
     let lastTime = performance.now();
     let frameCount = 0;
     let fpsVal = 0;
@@ -354,7 +355,7 @@ function StressDemo() {
       for (let i = 0; i < 200; i++) {
         const snippet = snippets[i % snippets.length];
         const prep = prepareWithSegments(snippet, font);
-        const result = layoutWithLines(prep, w, 15);
+        layoutWithLines(prep, w, 15); // this call IS the work being timed
         // Apply the width — text reflows via CSS, but we KNOW the height without reflow
         blocks[i].style.width = `${w}px`;
       }

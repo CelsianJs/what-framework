@@ -2,7 +2,7 @@
 // memo, lazy, Suspense, ErrorBoundary
 
 import { h } from './h.js';
-import { signal, effect, untrack, __DEV__ } from './reactive.js';
+import { signal, __DEV__ } from './reactive.js';
 import { isServerRender } from './server-context.js';
 
 // Legacy errorBoundaryStack removed — tree-based resolution via _parentCtx._errorBoundary

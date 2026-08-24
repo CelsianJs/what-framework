@@ -3,7 +3,7 @@
  * Uses InMemoryTransport + MCP Client — no WebSocket needed.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -38,7 +38,7 @@ function createMockBridge(opts = {}) {
     getOrRefreshSnapshot: async () => snapshot,
     getEvents: (since) => since ? events.filter(e => e.timestamp > since) : events,
     getErrors: (since) => since ? errors.filter(e => e.timestamp > since) : errors,
-    sendCommand: async (command, args) => {
+    sendCommand: async (command, _args) => {
       if (command === 'validate-code') {
         return { output: 'compiled output', warnings: [] };
       }
@@ -71,7 +71,7 @@ async function callTool(client, name, args = {}) {
 }
 
 describe('what-devtools-mcp agent tools', () => {
-  let client, server, bridge;
+  let client, server;
 
   afterEach(async () => {
     try { await client?.close(); } catch {}
@@ -84,7 +84,7 @@ describe('what-devtools-mcp agent tools', () => {
 
   describe('what_lint', () => {
     it('detects missing signal read in JSX', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const code = `
 import { signal } from 'what-framework';
 function App() {
@@ -97,7 +97,7 @@ function App() {
     });
 
     it('detects effect read-write cycle', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const code = `
 import { signal, effect } from 'what-framework';
 const count = signal(0);
@@ -107,7 +107,7 @@ effect(() => { count(count() + 1); });`;
     });
 
     it('detects missing cleanup in effect', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const code = `
 import { effect } from 'what-framework';
 effect(() => { window.addEventListener('resize', handler); });`;
@@ -116,14 +116,14 @@ effect(() => { window.addEventListener('resize', handler); });`;
     });
 
     it('detects unsafe innerHTML', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const code = `<div innerHTML={userInput} />`;
       const { parsed } = await callTool(client, 'what_lint', { code });
       assert.ok(parsed.issues.some(i => i.code === 'ERR_UNSAFE_INNERHTML'));
     });
 
     it('returns clean for valid code', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const code = `
 import { signal } from 'what-framework';
 function App() {
@@ -135,7 +135,7 @@ function App() {
     });
 
     it('filters by specific rules', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const code = `
 import { signal, effect } from 'what-framework';
 const count = signal(0);
@@ -156,7 +156,7 @@ effect(() => { count(count() + 1); });
 
   describe('what_scaffold', () => {
     it('generates a component', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_scaffold', {
         type: 'component',
         name: 'UserCard',
@@ -170,7 +170,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('generates a page', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_scaffold', {
         type: 'page',
         name: 'Dashboard',
@@ -181,7 +181,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('generates a form', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_scaffold', {
         type: 'form',
         name: 'LoginForm',
@@ -193,7 +193,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('generates a store', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_scaffold', {
         type: 'store',
         name: 'AppStore',
@@ -204,7 +204,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('generates an island', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_scaffold', {
         type: 'island',
         name: 'LiveChat',
@@ -215,7 +215,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('rejects non-PascalCase names for components', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const result = await callTool(client, 'what_scaffold', {
         type: 'component',
         name: 'myComponent',
@@ -231,7 +231,7 @@ effect(() => { count(count() + 1); });
 
   describe('what_validate', () => {
     it('validates code through browser compiler', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_validate', {
         code: 'function App() { return <div>Hello</div>; }',
       });
@@ -239,7 +239,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('returns errors when not connected (falls back to static analysis)', async () => {
-      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      ({ client, server } = await setupMcp({ connected: false }));
       const result = await callTool(client, 'what_validate', {
         code: 'function App() { return <div>Hello</div>; }',
       });
@@ -253,7 +253,7 @@ effect(() => { count(count() + 1); });
 
   describe('what_perf', () => {
     it('returns performance snapshot', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_perf', { threshold: 10 });
       assert.ok(parsed.counts);
       assert.equal(parsed.counts.signals, 2);
@@ -264,14 +264,14 @@ effect(() => { count(count() + 1); });
     });
 
     it('flags hot effects by threshold', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_perf', { threshold: 100 });
       assert.equal(parsed.hotEffects.length, 1);
       assert.equal(parsed.hotEffects[0].name, 'hotEffect');
     });
 
     it('returns error when not connected', async () => {
-      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      ({ client, server } = await setupMcp({ connected: false }));
       const result = await callTool(client, 'what_perf');
       assert.ok(result.parsed.error);
     });
@@ -283,7 +283,7 @@ effect(() => { count(count() + 1); });
 
   describe('what_fix', () => {
     it('finds fix by exact error code', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_fix', {
         error: 'ERR_INFINITE_EFFECT',
       });
@@ -295,7 +295,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('finds fix by keyword', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_fix', {
         error: 'infinite loop',
       });
@@ -304,7 +304,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('finds fix for hydration', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_fix', {
         error: 'hydration mismatch',
       });
@@ -313,7 +313,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('finds fix for missing signal read', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_fix', {
         error: 'ERR_MISSING_SIGNAL_READ',
       });
@@ -322,7 +322,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('returns available codes for unknown errors', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_fix', {
         error: 'totally_unknown_error_xyz',
       });
@@ -331,7 +331,7 @@ effect(() => { count(count() + 1); });
     });
 
     it('finds all error codes', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const codes = [
         'ERR_INFINITE_EFFECT',
         'ERR_MISSING_SIGNAL_READ',

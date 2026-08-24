@@ -51,7 +51,6 @@ export function createStore(definition) {
   const signals = {};
   const computeds = {};
   const actions = {};
-  const state = {};
 
   // Separate state, computeds, and actions
   // Use explicit _storeComputed marker instead of function.length heuristic

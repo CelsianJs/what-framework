@@ -52,6 +52,20 @@ jobs:
         run: npx playwright install-deps chromium
       - name: Test
         run: npm run -s test
+  lint:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run -s lint
   react-compat-libs:
     runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
     steps:

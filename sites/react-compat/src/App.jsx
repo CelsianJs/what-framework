@@ -1,4 +1,4 @@
-import { signal, effect, mount, useEffect, useRef, useState } from 'what-framework';
+import { useEffect, useRef, useState } from 'what-framework';
 import { pkgs, categories, sortOrder, badgeMap, labelMap, npmPkg, REPOS } from './data.js';
 
 // ── SVG Icons ──

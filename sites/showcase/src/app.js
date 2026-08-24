@@ -1,12 +1,5 @@
 // Flux — What Framework Showcase App
-import {
-  h, mount, signal, computed, effect, batch,
-  useState, useEffect, useRef,
-  createContext, useContext,
-  createStore, derived,
-  announce,
-  useLocalStorage,
-} from 'what-framework';
+import { h, mount, useState, useEffect, useRef, createStore, derived, announce } from 'what-framework';
 import { Router, Link, defineRoutes, route, navigate, useRoute } from 'what-framework/router';
 
 import { Dashboard } from './pages/dashboard.js';

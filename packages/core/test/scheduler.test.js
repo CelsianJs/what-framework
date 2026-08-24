@@ -1,5 +1,5 @@
 // Tests for What Framework - DOM Scheduler
-import { describe, it, beforeEach, mock } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Mock RAF for Node.js environment

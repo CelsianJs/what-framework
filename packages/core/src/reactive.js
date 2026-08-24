@@ -519,7 +519,7 @@ function _processSubscriber(e) {
       try {
         const result = e.fn();
         if (typeof result === 'function') {
-          if (e._cleanup) try { e._cleanup(); } catch (err) { /* ignore */ }
+          if (e._cleanup) try { e._cleanup(); } catch { /* ignore */ }
           e._cleanup = result;
         }
       } catch (err) {

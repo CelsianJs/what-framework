@@ -8,9 +8,9 @@ const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.window = dom.window;
 global.document = dom.window.document;
 for (const k of ['HTMLElement', 'Element', 'Node', 'SVGElement', 'CustomEvent', 'Event', 'MouseEvent', 'KeyboardEvent', 'getComputedStyle', 'DocumentFragment', 'Text', 'Comment']) {
-  try { if (!(k in global)) global[k] = dom.window[k]; } catch (e) { /* read-only global */ }
+  try { if (!(k in global)) global[k] = dom.window[k]; } catch { /* read-only global */ }
 }
-try { global.navigator = dom.window.navigator; } catch (e) { /* read-only getter */ }
+try { global.navigator = dom.window.navigator; } catch { /* read-only getter */ }
 global.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 
 const React = await import('../src/index.js');

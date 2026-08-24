@@ -156,7 +156,7 @@ export function reactCompat(options = {}) {
     name: 'what-react-compat',
     enforce: 'pre',
 
-    config(config, { command }) {
+    config(config, { }) {
       const root = config.root || process.cwd();
 
       // Resolve what-react and what-core paths from installed packages

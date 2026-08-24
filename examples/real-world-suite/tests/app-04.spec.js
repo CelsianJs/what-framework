@@ -41,8 +41,9 @@ test.describe('App 04: Virtualized Table', () => {
     // After filtering, we should see fewer rows (or different rows)
     const rows = page.locator('[data-testid^="table-row-"]');
     const filteredCount = await rows.count();
-    // The filtered set should be smaller or at minimum rows should contain "Engineering"
+    // The filtered set should be smaller, and every row should match.
     expect(filteredCount).toBeGreaterThan(0);
+    expect(filteredCount).toBeLessThan(initialCount);
     const firstRowText = await rows.first().textContent();
     expect(firstRowText).toContain('Engineering');
   });

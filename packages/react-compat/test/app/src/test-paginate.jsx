@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import ReactPaginate from 'react-paginate';
 
 const items = Array.from({ length: 50 }, (_, i) => `Item ${i + 1}`);

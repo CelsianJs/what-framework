@@ -19,8 +19,8 @@ if (!global.customElements) {
 
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
-const { signal } = await import('../src/reactive.js');
-const { useForm, Input, ErrorMessage, rules, simpleResolver } = await import('../src/form.js');
+await import('../src/reactive.js'); // imported for module-init order; no binding is used here
+const { useForm, Input, rules, simpleResolver } = await import('../src/form.js');
 
 async function flush() {
   await new Promise(r => queueMicrotask(r));

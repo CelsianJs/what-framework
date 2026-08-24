@@ -1,6 +1,6 @@
 import './style.css';
 import { createRoot } from 'react-dom/client';
-import React, { useState, useEffect, Component } from 'react';
+import { useState, useEffect, Component } from 'react';
 
 // Test registry — each test module registers itself here
 window.__compatTests = window.__compatTests || [];

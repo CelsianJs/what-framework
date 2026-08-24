@@ -701,11 +701,10 @@ describe('issue #1: marker pre-capture for multiple dynamic children', () => {
       }
     `);
 
-    // Should not have inline firstChild.nextSibling in _$insert args
-    // Instead, markers should be pre-captured as variables
-    const hasInlineMarkerInInsert = /_\$insert\([^)]*\.firstChild\.nextSibling/.test(code);
-    // If there's only one dynamic child (Nav), pre-capture may not be needed
-    // The key is that it compiles without error
+    // A check for inline `firstChild.nextSibling` in _$insert args used to be
+    // computed here and never asserted: with a single dynamic child (Nav),
+    // pre-capturing markers is not required, so the check had no stable
+    // answer. What matters is that it compiles and emits the expected shape.
     assert.ok(code.includes('_$insert'), 'should have insert call for component child');
     assert.ok(code.includes('_tmpl$'), 'should have template');
   });

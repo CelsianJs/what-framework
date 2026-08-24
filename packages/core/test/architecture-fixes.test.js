@@ -3,7 +3,7 @@
 // FIX-2: O(N^2) trampoline worst case
 // FIX-3: Props reactive across re-renders
 // FIX-4: Comment node component boundaries (no span wrapper)
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -24,9 +24,9 @@ if (!global.customElements) {
   };
 }
 
-const { signal, computed, memo, effect, batch, flushSync, createRoot } = await import('../src/reactive.js');
+const { signal, computed, memo, effect, flushSync, createRoot } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
-const { mount, createDOM } = await import('../src/dom.js');
+const { mount } = await import('../src/dom.js');
 
 function getContainer() {
   const c = document.createElement('div');
@@ -355,8 +355,7 @@ describe('FIX-4: comment node component boundaries', () => {
 
     // The first element child should be the <p>, not a span wrapper
     const wrapper = container.querySelector('#css-test');
-    const firstElement = wrapper.querySelector(':first-child');
-    // First child is actually a comment node, but first *element* child should be <p>
+    // The first child is a comment marker; the first *element* child is the <p>.
     const pEl = wrapper.querySelector('p');
     assert.ok(pEl, 'p element should exist');
     assert.equal(pEl.className, 'item');

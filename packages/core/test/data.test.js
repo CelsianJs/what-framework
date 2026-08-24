@@ -1,7 +1,6 @@
 // Tests for What Framework - Data Fetching
-import { describe, it, beforeEach, afterEach, mock } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, effect } from '../src/reactive.js';
 
 // Import cache management functions
 const dataModule = await import('../src/data.js');

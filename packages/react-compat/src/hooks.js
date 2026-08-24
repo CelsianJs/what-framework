@@ -240,7 +240,7 @@ export function useContext(context) {
 // ---- useSyncExternalStore ----
 // Spec-compliant: returns the snapshot VALUE and re-renders on store change.
 
-export function useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot) {
+export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot) {
   const inst = _requireInstance('useSyncExternalStore');
   const slot = _getHookSlot(inst);
   if (!slot.init) {

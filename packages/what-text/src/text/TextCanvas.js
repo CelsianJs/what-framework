@@ -40,7 +40,7 @@ export function TextCanvas(props) {
         }
       }
     });
-  }).catch((err) => {
+  }).catch((_err) => {
     // Show error in canvas
     const ctx = canvas.getContext && canvas.getContext('2d');
     if (ctx) {

@@ -1,5 +1,5 @@
 import * as core from 'what-core';
-import { signal, effect, mount, h } from 'what-core';
+import { signal, mount, h } from 'what-core';
 import { installDevTools } from 'what-devtools';
 import { connectDevToolsMCP } from '../../src/client.js';
 

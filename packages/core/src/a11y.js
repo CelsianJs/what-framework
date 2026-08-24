@@ -683,7 +683,7 @@ export function useDescribedBy(description) {
 
 // --- Labelledby ---
 
-export function useLabelledBy(label) {
+export function useLabelledBy(_label) {
   const id = useId('label');
 
   return {

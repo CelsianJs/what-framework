@@ -17,12 +17,6 @@ function waitForOpen(ws) {
   });
 }
 
-function waitForMessage(ws) {
-  return new Promise((resolve) => {
-    ws.once('message', (data) => resolve(JSON.parse(data)));
-  });
-}
-
 /** Connect with the bridge's auth token */
 function connectWithToken(bridge, port) {
   return new WebSocket(`ws://127.0.0.1:${port}?token=${bridge.authToken}`);
@@ -56,7 +50,7 @@ describe('WebSocket Bridge', () => {
     client = new WebSocket(`ws://127.0.0.1:${TEST_PORT}`);
     await assert.rejects(
       () => waitForOpen(client),
-      (err) => {
+      (_err) => {
         // Connection should be rejected (unexpected server response)
         return true;
       }
@@ -71,7 +65,7 @@ describe('WebSocket Bridge', () => {
     client = new WebSocket(`ws://127.0.0.1:${TEST_PORT}?token=wrong-token`);
     await assert.rejects(
       () => waitForOpen(client),
-      (err) => {
+      (_err) => {
         return true;
       }
     );

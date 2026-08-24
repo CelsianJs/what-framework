@@ -1,7 +1,7 @@
 // Stress Test: Topological ordering with complex diamond graphs
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, batch, flushSync, createRoot } from '../packages/core/src/reactive.js';
+import { signal, computed, effect, batch } from '../packages/core/src/reactive.js';
 
 // Helper: flush microtask queue
 async function flush() {

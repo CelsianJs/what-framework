@@ -37,7 +37,7 @@ function makeBridge(opts = {}) {
     getErrors: () => errorLog,
     saveBaseline: () => true,
     getBaseline: () => snapshot,
-    sendCommand: opts.sendCommand || (async (cmd, args) => ({ error: `unhandled: ${cmd}` })),
+    sendCommand: opts.sendCommand || (async (cmd, _args) => ({ error: `unhandled: ${cmd}` })),
     close: () => {},
   };
 }
@@ -345,7 +345,7 @@ describe('audit fixes', () => {
 
     it('allows window.location.href (safe dotted read)', async () => {
       ({ client, server } = await setup({
-        sendCommand: async (cmd, args) => {
+        sendCommand: async (cmd, _args) => {
           if (cmd === 'eval') return { result: 'http://localhost', type: 'string', executionTime: 0 };
           return { error: 'nope' };
         },

@@ -152,7 +152,7 @@
     try {
       var rx = new RegExp('(' + terms.map(rxEsc).join('|') + ')', 'gi');
       safe = safe.replace(rx, '<mark>$1</mark>');
-    } catch (e) { /* keep unhighlighted */ }
+    } catch { /* keep unhighlighted */ }
     return safe;
   }
 

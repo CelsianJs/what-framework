@@ -1,7 +1,7 @@
 /**
  * Batch test: Hook-based utility libraries
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 
 class TB extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }

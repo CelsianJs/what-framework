@@ -340,7 +340,7 @@ function createFormController(options = {}) {
         if (!el._propEffects) el._propEffects = {};
         const key = 'checked:property';
         if (el._propEffects[key]) {
-          try { el._propEffects[key](); } catch (err) { /* already disposed */ }
+          try { el._propEffects[key](); } catch { /* already disposed */ }
         }
         // radioValueOf(el) is re-read on every run rather than captured, so a
         // registration without a declared value still binds correctly once the

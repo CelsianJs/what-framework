@@ -3,7 +3,7 @@
  * Uses InMemoryTransport + MCP Client — no WebSocket needed.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -143,7 +143,7 @@ async function callTool(client, name, args = {}) {
 }
 
 describe('what-devtools-mcp tools', () => {
-  let client, server, bridge;
+  let client, server;
 
   afterEach(async () => {
     try { await client?.close(); } catch {}
@@ -152,7 +152,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_connection_status', () => {
     it('returns connected status with counts', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_connection_status');
       assert.equal(parsed.connected, true);
       assert.equal(parsed.signalCount, 3);
@@ -161,7 +161,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('returns disconnected when no browser', async () => {
-      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      ({ client, server } = await setupMcp({ connected: false }));
       const { parsed } = await callTool(client, 'what_connection_status');
       assert.equal(parsed.connected, false);
     });
@@ -169,7 +169,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_signals', () => {
     it('returns all signals', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_signals');
       assert.equal(parsed.count, 3);
       assert.equal(parsed.signals[0].name, 'count');
@@ -177,21 +177,21 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('filters by name regex', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_signals', { filter: 'count' });
       assert.equal(parsed.count, 1);
       assert.equal(parsed.signals[0].name, 'count');
     });
 
     it('filters by ID', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_signals', { id: 2 });
       assert.equal(parsed.count, 1);
       assert.equal(parsed.signals[0].name, 'name');
     });
 
     it('returns error when not connected', async () => {
-      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      ({ client, server } = await setupMcp({ connected: false }));
       const result = await callTool(client, 'what_signals');
       assert.equal(result.parsed.error, 'No browser connected');
     });
@@ -199,7 +199,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_effects', () => {
     it('returns all effects with dep info', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_effects');
       assert.equal(parsed.count, 2);
       assert.deepEqual(parsed.effects[0].depSignalIds, [1]);
@@ -207,7 +207,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('filters by minRunCount', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_effects', { minRunCount: 3 });
       assert.equal(parsed.count, 1);
       assert.equal(parsed.effects[0].name, 'renderCounter');
@@ -217,7 +217,7 @@ describe('what-devtools-mcp tools', () => {
   describe('what_errors', () => {
     it('returns captured errors', async () => {
       const now = Date.now();
-      ({ client, server, bridge } = await setupMcp({
+      ({ client, server } = await setupMcp({
         errorLog: [
           { message: 'Test error', type: 'effect', timestamp: now - 1000 },
           { message: 'Another error', type: 'effect', timestamp: now },
@@ -229,7 +229,7 @@ describe('what-devtools-mcp tools', () => {
 
     it('filters by since timestamp', async () => {
       const now = Date.now();
-      ({ client, server, bridge } = await setupMcp({
+      ({ client, server } = await setupMcp({
         errorLog: [
           { message: 'Old error', type: 'effect', timestamp: now - 5000 },
           { message: 'New error', type: 'effect', timestamp: now },
@@ -243,7 +243,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_set_signal', () => {
     it('sets signal value and returns prev/current', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_set_signal', { signalId: 1, value: 100 });
       assert.equal(parsed.success, true);
       assert.equal(parsed.previous, 42);
@@ -251,7 +251,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('returns error for unknown signal', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_set_signal', { signalId: 999, value: 0 });
       assert.ok(parsed.error);
     });
@@ -260,7 +260,7 @@ describe('what-devtools-mcp tools', () => {
   describe('what_watch', () => {
     it('collects events over duration', async () => {
       const now = Date.now();
-      ({ client, server, bridge } = await setupMcp({
+      ({ client, server } = await setupMcp({
         events: [
           { event: 'signal:updated', data: { id: 1 }, timestamp: now + 50 },
           { event: 'signal:updated', data: { id: 1 }, timestamp: now + 100 },
@@ -273,7 +273,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_cache', () => {
     it('returns cache entries', async () => {
-      ({ client, server, bridge } = await setupMcp({
+      ({ client, server } = await setupMcp({
         cache: [
           { key: '/api/users', data: [{ id: 1, name: 'Alice' }], error: null, isValidating: false },
         ],
@@ -286,7 +286,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_components', () => {
     it('returns mounted components', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_components');
       assert.equal(parsed.count, 2);
       assert.equal(parsed.components[0].name, 'App');
@@ -299,7 +299,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_look', () => {
     it('returns component visual info with bounding rect, styles, layout', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_look', { componentId: 2 });
       assert.equal(parsed.component, 'Counter');
       assert.ok(parsed.boundingRect, 'should include boundingRect');
@@ -311,7 +311,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('summary includes component name and dimensions', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_look', { componentId: 1 });
       assert.ok(parsed.summary, 'should include summary');
       assert.ok(parsed.summary.includes('App'), 'summary should mention component name');
@@ -320,20 +320,20 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('layout classification is present', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_look', { componentId: 2 });
       assert.ok(parsed.layout, 'should include layout');
       assert.ok(parsed.layout.includes('flex'), 'layout should describe flex');
     });
 
     it('returns error for invalid componentId', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_look', { componentId: 999 });
       assert.ok(parsed.error, 'should return error for missing component');
     });
 
     it('returns noConnection error when bridge disconnected', async () => {
-      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      ({ client, server } = await setupMcp({ connected: false }));
       const { parsed } = await callTool(client, 'what_look', { componentId: 1 });
       assert.equal(parsed.error, 'No browser connected');
     });
@@ -341,7 +341,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_screenshot', () => {
     it('returns image content type with base64 data', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 2 } });
       // what_screenshot returns two content blocks: image + text
       assert.ok(result.content.length >= 2, 'should have at least 2 content blocks');
@@ -354,7 +354,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('metadata includes width, height, sizeKB', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 2 } });
       const textBlock = result.content.find(c => c.type === 'text');
       const meta = JSON.parse(textBlock.text);
@@ -365,7 +365,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('returns error for invalid componentId', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 999 } });
       const text = result.content[0]?.text;
       const parsed = JSON.parse(text);
@@ -373,7 +373,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('returns noConnection error when bridge disconnected', async () => {
-      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      ({ client, server } = await setupMcp({ connected: false }));
       const result = await client.callTool({ name: 'what_screenshot', arguments: { componentId: 1 } });
       const parsed = JSON.parse(result.content[0].text);
       assert.equal(parsed.error, 'No browser connected');
@@ -382,7 +382,7 @@ describe('what-devtools-mcp tools', () => {
 
   describe('what_page_map', () => {
     it('returns page layout with landmarks, interactives, headings, components', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_page_map');
       assert.ok(parsed.landmarks, 'should include landmarks');
       assert.equal(parsed.landmarks.length, 2);
@@ -396,7 +396,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('summary includes counts', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_page_map');
       assert.ok(parsed.summary, 'should include summary');
       assert.ok(parsed.summary.includes('2 landmarks'), 'summary should count landmarks');
@@ -406,7 +406,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('viewport dimensions are returned', async () => {
-      ({ client, server, bridge } = await setupMcp());
+      ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_page_map');
       assert.ok(parsed.viewport, 'should include viewport');
       assert.equal(parsed.viewport.width, 1280);
@@ -414,7 +414,7 @@ describe('what-devtools-mcp tools', () => {
     });
 
     it('returns noConnection error when bridge disconnected', async () => {
-      ({ client, server, bridge } = await setupMcp({ connected: false }));
+      ({ client, server } = await setupMcp({ connected: false }));
       const { parsed } = await callTool(client, 'what_page_map');
       assert.equal(parsed.error, 'No browser connected');
     });

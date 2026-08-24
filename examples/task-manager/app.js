@@ -2,13 +2,7 @@
 // Demonstrates: createStore, derived, useState, useSignal, useEffect, useRef,
 // useMemo, h(), mount, batch, For, Show, spring animation, localStorage
 
-import {
-  h, mount, batch, signal,
-  createStore, derived,
-  useState, useSignal, useEffect, useRef, useMemo,
-  spring,
-  cls,
-} from '../../packages/core/src/index.js';
+import { h, mount, signal, createStore, derived, useState, useEffect, useRef, useMemo, spring, cls } from '../../packages/core/src/index.js';
 
 // ─── Store ────────────────────────────────────────────────────
 // Global state with derived computeds and actions using `this`

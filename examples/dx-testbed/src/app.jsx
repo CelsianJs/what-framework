@@ -1,10 +1,7 @@
 import { mount, signal, effect, computed, onMount, onCleanup, useRef, batch, ErrorBoundary, createResource, mapArray, untrack } from 'what-framework';
 // devtools bootstrap is now injected by the what-devtools-mcp Vite plugin
 // (see vite.config.js). No manual install needed.
-import {
-  todos, filter, newText, filteredTodos, counts,
-  addTodo, toggleTodo, removeTodo, clearDone,
-} from './store.js';
+import { filter, newText, filteredTodos, counts, addTodo, toggleTodo, removeTodo, clearDone } from './store.js';
 
 // --- Test 1: Basic counter with signal + computed ---
 function Counter() {
@@ -870,7 +867,7 @@ function KeyedReorderTest() {
   const removeItem = (id) => items(prev => prev.filter(item => item.id !== id));
 
   // mapArray with key: proper keyed reconciliation that preserves component instances
-  const keyedList = mapArray(items, (item, idx) => {
+  const keyedList = mapArray(items, (item, _idx) => {
     return <KeyedItem item={item} onRemove={removeItem} />;
   }, { key: item => item.id });
 
@@ -1250,7 +1247,7 @@ function NestedMapTest() {
           <button onClick={() => removeGroup(group().id)} style="font-size:10px;padding:2px 6px;background:var(--danger)">x</button>
         </div>
         <div style="margin-top:4px;padding-left:12px">
-          {() => group().items.map((item, i) => (
+          {() => group().items.map((item, _i) => (
             <span class="tag" style="margin:2px;background:var(--border)">{item}</span>
           ))}
         </div>
@@ -1338,7 +1335,7 @@ function EventModTest() {
   return (
     <div class="section">
       <h2>Test 38: Event Modifiers</h2>
-      <form onSubmit__preventDefault={(e) => append('form submitted (no reload)')}>
+      <form onSubmit__preventDefault={(_e) => append('form submitted (no reload)')}>
         <div class="flex">
           <input type="text" placeholder="Press Enter to submit" style="flex:1" />
           <button type="submit">Submit</button>

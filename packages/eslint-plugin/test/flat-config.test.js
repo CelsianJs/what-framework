@@ -114,3 +114,45 @@ describe('flat configs work out of the box', () => {
     assert.equal(fatal.length, 0, `unexpected parse errors: ${JSON.stringify(fatal)}`);
   });
 });
+
+
+// The compiler lowers <For>, <Show>, <Switch> and <Match> itself rather than
+// resolving them as components, so under the compiler they are never
+// imported. Found by running this plugin against this repository: every such
+// tag in examples/dx-testbed was reported as `no-undef`.
+describe('compiler-lowered control-flow tags', () => {
+  const withNoUndef = (config) => ({
+    ...config,
+    rules: { ...config.rules, 'no-undef': 'error' },
+  });
+
+  const undefNames = (messages) => messages
+    .filter((m) => m.ruleId === 'no-undef')
+    .map((m) => m.message.match(/'([^']+)'/)?.[1])
+    .sort();
+
+  it('compiler preset declares them, so no-undef stays quiet', async () => {
+    const eslint = makeESLint(withNoUndef(plugin.configs.compiler));
+    const [result] = await eslint.lintFiles(['lowered-tags.jsx']);
+
+    assert.equal(result.fatalErrorCount, 0, JSON.stringify(result.messages));
+    assert.deepEqual(undefNames(result.messages), [],
+      'the compiler preset must declare For/Show/Switch/Match as globals');
+  });
+
+  it('recommended preset does not, because without the compiler they must be imported', async () => {
+    const eslint = makeESLint(withNoUndef(plugin.configs.recommended));
+    const [result] = await eslint.lintFiles(['lowered-tags.jsx']);
+
+    assert.deepEqual(undefNames(result.messages), ['For', 'Match', 'Show', 'Switch'],
+      'without the compiler these are genuinely undefined and saying so is correct');
+  });
+
+  it('declares exactly the tags the compiler lowers, no more', async () => {
+    assert.deepEqual(
+      Object.keys(plugin.configs.compiler.languageOptions.globals).sort(),
+      ['For', 'Match', 'Show', 'Switch'],
+      'must match LOWERED_TAGS in what-compiler/src/babel-plugin.js',
+    );
+  });
+});

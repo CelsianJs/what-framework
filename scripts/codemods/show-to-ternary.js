@@ -50,7 +50,7 @@ function collectFiles(inputPath, out) {
   }
 }
 
-function transformSource(code, filename) {
+function transformSource(code, _filename) {
   const ast = parse(code, {
     sourceType: 'module',
     plugins: ['jsx', 'typescript'],

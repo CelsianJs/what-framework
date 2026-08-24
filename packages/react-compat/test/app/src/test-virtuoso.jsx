@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { Virtuoso } from 'react-virtuoso';
 
 export function VirtuosoTest() {

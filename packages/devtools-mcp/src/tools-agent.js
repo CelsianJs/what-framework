@@ -617,7 +617,7 @@ export default ${name};
 `;
   },
 
-  page: ({ name, props = [], signals = [] }) => {
+  page: ({ name, signals = [] }) => {
     const signalDecls = signals.map(s => `  const ${s} = signal(null, '${s}');`).join('\n');
 
     return `import { signal, effect, onMount } from 'what-framework';
@@ -646,7 +646,7 @@ export default ${name};
 `;
   },
 
-  form: ({ name, props = [], signals = [] }) => {
+  form: ({ name, signals = [] }) => {
     const fields = signals.length > 0 ? signals : ['email', 'password'];
     const fieldDecls = fields.map(f => `    ${f}: { initial: '', rules: [rules.required('${f} is required')] },`).join('\n');
 
@@ -818,7 +818,7 @@ export function registerAgentTools(server, bridge) {
         try {
           const ruleIssues = rule.test(code);
           issues.push(...ruleIssues);
-        } catch (e) {
+        } catch {
           // Rule crashed — skip silently
         }
       }
@@ -930,7 +930,7 @@ export function registerAgentTools(server, bridge) {
             componentCount: (result.output || '').match(/function\s+[A-Z]\w*\s*\(/g)?.length || 0,
           },
         });
-      } catch (e) {
+      } catch {
         // Fallback: do basic validation without browser
         const issues = [];
 
@@ -1230,9 +1230,6 @@ export function registerAgentTools(server, bridge) {
           depCount: (e.depSignalIds || e.deps || []).length,
         });
       }
-      const baselineEventCount = bridge.getEvents
-        ? bridge.getEvents(Date.now() - 1).length
-        : 0;
       const startTs = Date.now();
 
       // ---- Wait for the window ----

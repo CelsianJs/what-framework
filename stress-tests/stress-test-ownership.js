@@ -14,53 +14,53 @@ describe('STRESS: Ownership tree - deep nesting', () => {
       const s1 = signal(1);
       effect(() => s1());
 
-      createRoot(dispose2 => {
+      createRoot(_dispose2 => {
         const s2 = signal(2);
         effect(() => s2());
 
-        createRoot(dispose3 => {
+        createRoot(_dispose3 => {
           const s3 = signal(3);
           effect(() => s3());
 
-          createRoot(dispose4 => {
+          createRoot(_dispose4 => {
             const s4 = signal(4);
             effect(() => {
               s4();
               return () => { cleanupCount++; };
             });
 
-            createRoot(dispose5 => {
+            createRoot(_dispose5 => {
               const s5 = signal(5);
               effect(() => {
                 s5();
                 return () => { cleanupCount++; };
               });
 
-              createRoot(dispose6 => {
+              createRoot(_dispose6 => {
                 effect(() => {
                   s5();
                   return () => { cleanupCount++; };
                 });
 
-                createRoot(dispose7 => {
+                createRoot(_dispose7 => {
                   effect(() => {
                     s4();
                     return () => { cleanupCount++; };
                   });
 
-                  createRoot(dispose8 => {
+                  createRoot(_dispose8 => {
                     effect(() => {
                       s3();
                       return () => { cleanupCount++; };
                     });
 
-                    createRoot(dispose9 => {
+                    createRoot(_dispose9 => {
                       effect(() => {
                         s2();
                         return () => { cleanupCount++; };
                       });
 
-                      createRoot(dispose10 => {
+                      createRoot(_dispose10 => {
                         effect(() => {
                           s1();
                           return () => { cleanupCount++; };

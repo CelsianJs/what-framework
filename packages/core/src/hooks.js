@@ -3,7 +3,7 @@
 // Components run ONCE. Hooks return signal accessors (functions) so the
 // fine-grained runtime handles reactive updates automatically via effects.
 
-import { signal, computed, effect, batch, untrack, createRoot, __DEV__ } from './reactive.js';
+import { signal, computed, effect, batch, untrack, __DEV__ } from './reactive.js';
 import { getCurrentComponent } from './dom.js';
 import { getServerContext, isServerRender } from './server-context.js';
 import { getLoaderData as _getLoaderData, getResource as _getResource } from './hydration-data.js';
@@ -138,7 +138,7 @@ export function useEffect(fn, deps) {
       if (ctx.disposed) return;
       hook.dispose = effect(() => {
         if (hook.cleanup) {
-          try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+          try { hook.cleanup(); } catch { /* cleanup error */ }
           hook.cleanup = null;
         }
         const result = fn();
@@ -174,7 +174,7 @@ export function useEffect(fn, deps) {
 
         // Run cleanup from previous execution
         if (hook.cleanup) {
-          try { hook.cleanup(); } catch (e) { /* cleanup error */ }
+          try { hook.cleanup(); } catch { /* cleanup error */ }
           hook.cleanup = null;
         }
 
@@ -195,7 +195,7 @@ export function useEffect(fn, deps) {
 // computed() auto-tracks signal dependencies.
 // Returns a computed signal function (call it to read the value).
 
-export function useMemo(fn, deps) {
+export function useMemo(fn, _deps) {
   const ctx = getCtx('useMemo');
   const { index, exists } = getHook(ctx);
 
@@ -211,7 +211,7 @@ export function useMemo(fn, deps) {
 // executes once, so the callback reference is inherently stable.
 // Simply store and return the function on first call.
 
-export function useCallback(fn, deps) {
+export function useCallback(fn, _deps) {
   const ctx = getCtx('useCallback');
   const { index, exists } = getHook(ctx);
 
@@ -452,14 +452,7 @@ export function createResource(fetcher, options = {}) {
   return [data, { loading, error, refetch, mutate }];
 }
 
-// --- Dep comparison (kept for potential external use) ---
-
-function depsChanged(oldDeps, newDeps) {
-  if (oldDeps === undefined) return true;
-  if (!oldDeps || !newDeps) return true;
-  if (oldDeps.length !== newDeps.length) return true;
-  for (let i = 0; i < oldDeps.length; i++) {
-    if (!Object.is(oldDeps[i], newDeps[i])) return true;
-  }
-  return false;
-}
+// A local `depsChanged` lived here, commented "kept for potential external
+// use". It was never exported, so there was no external use to keep it for,
+// and nothing in this package called it. react-compat has its own copy, which
+// is the one that is actually used.

@@ -5,7 +5,7 @@ const slides = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7'];
 
 export function EmblaTest() {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
-  const [current, setCurrent] = useState(0);
+  const [, setCurrent] = useState(0);
 
   const scrollPrev = useCallback(() => emblaApi && emblaApi.scrollPrev(), [emblaApi]);
   const scrollNext = useCallback(() => {

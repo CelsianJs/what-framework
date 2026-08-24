@@ -21,7 +21,7 @@ if (!global.customElements) {
   };
 }
 
-const { signal, effect } = await import('../src/reactive.js');
+await import('../src/reactive.js'); // imported for module-init order; no binding is used here
 const { setProp } = await import('../src/render.js');
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
@@ -287,7 +287,7 @@ describe('props proxy prototype-chain guard', () => {
       try {
         props.foo = 'bar';
         setResult = 'no-error';
-      } catch (e) {
+      } catch {
         setResult = 'threw';
       }
       return h('div', {}, 'test');

@@ -423,7 +423,7 @@ export async function waitFor(callback, options = {}) {
     try {
       const result = callback();
       if (result) return result;
-    } catch (e) {
+    } catch {
       // Keep waiting
     }
     await new Promise(r => setTimeout(r, interval));

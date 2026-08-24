@@ -11,7 +11,7 @@
 import path from 'path';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
-import { generateRoutesModule, scanPages } from './file-router.js';
+import { generateRoutesModule } from './file-router.js';
 import { setupErrorOverlay } from './error-overlay.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
@@ -92,7 +92,6 @@ export default function whatVitePlugin(options = {}) {
 
   let rootDir = '';
   let pagesDir = '';
-  let server = null;
   let isDevMode = false;
   const actionIdRegistry = new Map();
 
@@ -131,8 +130,6 @@ export default function whatVitePlugin(options = {}) {
     },
 
     configureServer(devServer) {
-      server = devServer;
-
       // Set up What-branded error overlay
       setupErrorOverlay(devServer);
 
@@ -248,7 +245,7 @@ export default function whatVitePlugin(options = {}) {
     },
 
     // HMR: detect component vs utility files and handle accordingly
-    handleHotUpdate({ file, server: devServer, modules }) {
+    handleHotUpdate({ file, server: devServer}) {
       if (!hot) return;
 
       // Only handle files we process
