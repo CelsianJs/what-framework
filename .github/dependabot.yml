@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # One npm entry covers the whole workspace: the root package.json declares
+  # `workspaces: ["packages/*", "benchmark"]`, so Dependabot resolves every
+  # package through the root lockfile rather than needing 15 directory entries.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Dev tooling churns constantly and is not shipped to users. Grouping it
+      # keeps the review queue about the dependencies that reach consumers.
+      dev-tooling:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+
+  # CI runs on Depot, which reads .depot/workflows/. Dependabot only scans
+  # .github/workflows/, and those copies are the workflow_dispatch fallbacks
+  # (see CONTRIBUTING). Keeping this entry still earns its place: the two sets
+  # share action versions, so a bump here is the prompt to mirror it, and the
+  # fallback workflows are exactly the ones that run when Depot is unavailable.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
