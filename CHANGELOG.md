@@ -2,6 +2,30 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.2] - 2026-08-25: a process-wide registry that was not process-wide
+
+### Fixed
+
+- **`revalidateTag()` and `revalidatePath()` silently did nothing when the caller
+  was in a different bundle from the adapter.** The revalidation registry held
+  its handler in a module-level `let`. That binding is process-wide only while
+  there is exactly one instance of the module, and a bundler decides that, not
+  the framework.
+
+  Vura bundles its server entry and each API route separately: the entry inlined
+  what-server and `createRequestHandler` bound *its* copy of the registry, while
+  an API route imported `what-framework/server` as an external and read a
+  *different* copy, permanently null. So `await revalidateTag('posts')` in a
+  route handler returned without error, the dev warning that would have said so
+  was suppressed by `NODE_ENV=production`, and the page stayed stale until its
+  own revalidate window expired. Caching worked; purging did not; nothing said
+  anything.
+
+  The handler now lives at `Symbol.for('what.revalidationHandler')` on
+  `globalThis`, which is the scope the thing being stored actually has. No API
+  change: `setRevalidationHandler`, `getRevalidationHandler`, `revalidatePath`
+  and `revalidateTag` all behave identically within a single instance.
+
 ## [0.13.1] - 2026-08-25: fragments, and the gates that missed them
 
 **One behaviour change, and it is a correction.** A JSX fragment used as a child

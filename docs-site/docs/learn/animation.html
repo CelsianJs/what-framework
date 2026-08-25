@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.13.1</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.13.2</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -432,8 +432,8 @@ el.classList.remove(classes.enterDone);
           <p><code>duration</code> is a timer, not a listener: it is how long the active class stays on before the done class replaces it, so it has to match the <code>transition</code> duration in your CSS or the animation is cut short. The first class lands on the next animation frame rather than synchronously, so read the element's <code>classList</code> after awaiting, not straight after the call. The promise resolves with <code>undefined</code>, and there is no cancel handle.</p>
 
           <div class="callout callout-warning">
-            <p class="callout-title">cssTransition does not settle on 0.13.1</p>
-            <p>This section describes the next release. On 0.13.1, the current version on npm, <code>cssTransition()</code> hangs: the promise never resolves and the element is left on its start class (<code>fade-enter</code>), so an <code>await</code> on it never returns. The cause is the frame scheduler rather than this function. <code>cssTransition</code> asks for a layout read from inside a write, and the read phase of that frame has already been drained, so the request lands in an already-drained queue with no frame armed and waits there until unrelated code happens to poke the scheduler. Nothing else on this page is affected: <code>spring()</code> and <code>tween()</code> drive their own <code>requestAnimationFrame</code> loops and never touch the scheduler.</p>
+            <p class="callout-title">cssTransition does not settle on 0.13.2</p>
+            <p>This section describes the next release. On 0.13.2, the current version on npm, <code>cssTransition()</code> hangs: the promise never resolves and the element is left on its start class (<code>fade-enter</code>), so an <code>await</code> on it never returns. The cause is the frame scheduler rather than this function. <code>cssTransition</code> asks for a layout read from inside a write, and the read phase of that frame has already been drained, so the request lands in an already-drained queue with no frame armed and waits there until unrelated code happens to poke the scheduler. Nothing else on this page is affected: <code>spring()</code> and <code>tween()</code> drive their own <code>requestAnimationFrame</code> loops and never touch the scheduler.</p>
           </div>
 
           <p>Define matching CSS classes in your stylesheet:</p>
