@@ -3,7 +3,9 @@
  *
  * Warn when user code imports `h` from what-framework.
  * Users should use JSX syntax instead of calling h() directly.
- * The compiler handles JSX-to-h() transformation automatically.
+ * The compiler lowers JSX to _$template() + _$insert() + _$createComponent(),
+ * not to h(). h() is the uncompiled fallback and the framework's own internal
+ * element constructor.
  *
  * Bad:  import { h } from 'what-framework';
  *       h('div', { class: 'foo' }, 'Hello');

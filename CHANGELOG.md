@@ -2,6 +2,89 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.0] - 2026-08-25: the implementation gets checked
+
+Minor rather than patch for two reasons: there are new public exports
+(`getErrorDefinition`), and two type declarations were widened. Nothing was
+narrowed and no runtime behaviour was removed, so an upgrade from 0.12.4 should
+be uneventful.
+
+The theme is that the framework's own code was not being checked. `tsconfig.json`
+only ever included `packages/*/*.d.ts` — its own comment said so — so all 106
+implementation files had no static analysis, and until this release the repo
+shipped `eslint-plugin-what` while having no ESLint config of its own. Turning
+both on found real defects. So did running the stress tests, which no script
+and no workflow had been executing.
+
+### Fixed
+
+- **`__setDevToolsHooks()` no longer crashes on a partial hooks object.**
+  Fourteen call sites read `if (__DEV__ && __devtools) __devtools.onSignalCreate(sig)`,
+  guarded on the object but never on the method. Installing a single hook — the
+  obvious way to observe one kind of event, and exactly what `trackSignals()`
+  builds when no devtools are present — made the next `signal()` throw
+  `TypeError: __devtools.onSignalCreate is not a function`.
+- **`trackSignals()` actually tracks signals.** It previously missed transitive
+  reads through computeds and reported writes it should not have.
+- **`VNodeChild` accepts a vnode with typed props.** `VNode<P>` is invariant in
+  `P`, and `VNodeChild` referred to the default `VNode<Record<string, any>>`, so
+  `h('div', {}, h('h1', { style: '…' }, '404'))` did not typecheck and neither
+  did passing that tree to `mount()`. This never affected JSX authoring —
+  `jsx()`/`jsxs()` return the default `VNode` — but it did affect what-router,
+  the other packages that build vnodes with `h()`, and anyone calling `h()`
+  directly in TypeScript.
+- **`mount()` declares the `DocumentFragment` container it always accepted.**
+  what-react mounts into a detached fragment on purpose; the declaration said
+  `string | Element`.
+- **`useDebugValue(value)` matches React's arity.** It was a zero-argument stub
+  that every caller, including this package's own selector store, violated.
+- **`what_search` no longer throws on a non-string query.**
+- **The CLI dev and preview servers handle a request with no URL.**
+- Eight stale assertions inside the stress tests, which had been failing on
+  `main` unnoticed because nothing ran them.
+
+### Added
+
+- **Every error the framework throws now carries an `ERR_*` code.** 17 throw
+  sites across what-server, what-react, what-text, what-isr, the compiler, the
+  CLI and the MCP server. The catalogue in `packages/core/src/errors.js` grew to
+  30 entries, each with a severity, a suggestion and a worked bad/good example.
+  Messages are unchanged.
+- **`getErrorDefinition(code)`** resolves a code to its catalogue entry, and
+  `classifyError(err)` now consults `err.code` before falling back to matching
+  on the message. A throw carries only its code so that the catalogue does not
+  reach the client bundle; this is how the suggestion is recovered.
+- **Type declarations for `eslint-plugin-what` and `what-text`**, which were
+  both programmatically imported and shipped without any.
+- **what-core's cross-package internals are declared** (`_isAriaAttr`,
+  `_beginComponentSSR`, `_endComponentSSR`, `_mapArrayToArray`,
+  `__installServerContextStorage`, `_setTextInsertHook`, `_$createComponent`).
+  They are `@internal` and carry no compatibility promise, but they cross
+  package boundaries, so a rename should be caught.
+
+### Changed
+
+- **`what-mcp` is frozen at 0.12.4 and no longer republished.** It is deprecated
+  in favour of `what-devtools-mcp` and was being version-bumped on every release,
+  which made an abandoned package look maintained.
+
+### Repository
+
+None of this changes the published packages, but it is why the fixes above were
+findable:
+
+- `typecheck:src` — `allowJs` + `checkJs` + `strict` over all 106 implementation
+  files in all 14 packages
+- `lint` — the framework passes its own ESLint rules
+- `check:error-codes` — every `ERR_*` literal thrown anywhere is catalogued
+- `test:stress` — the six stress-test files nothing was running
+- the packed-consumer typecheck now exercises the shapes a user actually writes
+- `ARCHITECTURE.md`, CODEOWNERS, issue and PR templates, `CODE_OF_CONDUCT.md`
+- `CONTRIBUTING.md`'s error-code section described a `WF-XXXX` scheme that does
+  not exist anywhere in the repository; it now describes the real one
+- shared test helpers (`test-utils/`), replacing hand-rolled JSDOM setup in 66
+  files that disagreed about which globals to install
+
 ## [0.12.4] - 2026-08-15: everything the documentation said was broken, and several things it did not
 
 ### Read this before upgrading

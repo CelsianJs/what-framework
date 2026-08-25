@@ -1,6 +1,6 @@
 {
   "name": "create-what",
-  "version": "0.12.4",
+  "version": "0.13.0",
   "description": "Scaffold a new What Framework project",
   "type": "module",
   "bin": {

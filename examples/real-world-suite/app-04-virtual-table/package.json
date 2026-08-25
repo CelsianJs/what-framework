@@ -1,7 +1,7 @@
 {
   "name": "app-04-virtual-table",
   "private": true,
-  "version": "0.12.4",
+  "version": "0.13.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5504 --strictPort",
@@ -9,10 +9,10 @@
     "preview": "vite preview --port 5604 --strictPort"
   },
   "dependencies": {
-    "what-framework": "0.12.4"
+    "what-framework": "0.13.0"
   },
   "devDependencies": {
     "vite": "^6.0.0",
-    "what-compiler": "0.12.4"
+    "what-compiler": "0.13.0"
   }
 }
