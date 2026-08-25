@@ -1,7 +1,7 @@
 {
   "name": "app-04-forms",
   "private": true,
-  "version": "0.13.0",
+  "version": "0.13.1",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5414 --strictPort",
@@ -9,10 +9,10 @@
     "preview": "vite preview --port 5514 --strictPort"
   },
   "dependencies": {
-    "what-framework": "0.13.0"
+    "what-framework": "0.13.1"
   },
   "devDependencies": {
     "vite": "^6.0.0",
-    "what-compiler": "0.13.0"
+    "what-compiler": "0.13.1"
   }
 }

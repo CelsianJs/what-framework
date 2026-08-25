@@ -1,6 +1,17 @@
-# The canonical publisher runs on Depot CI (.depot/workflows/release-and-deploy.yml)
-# as of 2026-07-11 (Kirby: all-Depot).
-# This GitHub copy stays dispatchable as a fallback publisher.
+# THIS is the publisher, and it is the only one. Unlike ci/size/benchmarks,
+# release-and-deploy has no Depot counterpart, on purpose:
+#
+#   1. `secrets.NPM_TOKEN` is a GitHub repository secret. A Depot run resolves
+#      it to the empty string and `publish-packages.mjs` exits 1 with
+#      "Missing npm auth" AFTER burning ~10 minutes of green quality gates.
+#      That is exactly what happened on the first 0.13.0 publish attempt.
+#   2. npm provenance is minted from GitHub's OIDC issuer via the
+#      `id-token: write` permission below. Publishing anywhere else silently
+#      drops provenance from every tarball.
+#
+# Dispatch it with:
+#   gh workflow run release-and-deploy.yml --repo CelsianJs/what-framework \
+#     --ref main -f publish_packages=true -f npm_tag=latest -f dry_run=false
 name: Release And Deploy
 
 on:
@@ -41,6 +52,21 @@ jobs:
         run: |
           if [ -n "$NPM_TAG" ] && ! printf '%s' "$NPM_TAG" | grep -Eq '^[a-z][a-z0-9]*([._-][a-z0-9]+)*$'; then
             echo "Invalid npm_tag: '$NPM_TAG' (expected a dist-tag like latest, next, beta.1)"
+            exit 1
+          fi
+
+      # publish-packages.mjs checks npm auth, but only once the ~10 minutes of
+      # quality gates below have already run. Check it here instead, so a
+      # missing or expired token costs seconds.
+      - name: Preflight npm auth
+        if: ${{ inputs.publish_packages && !inputs.dry_run }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "secrets.NPM_TOKEN is empty. This workflow must run on GitHub"
+            echo "Actions (the secret lives there), and the token must be a"
+            echo "classic Automation token so it does not expire."
             exit 1
           fi
 

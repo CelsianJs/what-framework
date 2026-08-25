@@ -128,6 +128,9 @@ jobs:
       - name: Error-code catalogue gate (every ERR_* literal is catalogued)
         run: npm run -s check:error-codes
 
+      - name: Error-code docs gate (published reference matches the catalogue)
+        run: npm run -s check:error-docs
+
       - name: Typecheck declarations
         run: npm run -s typecheck
 

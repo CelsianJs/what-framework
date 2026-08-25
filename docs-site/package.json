@@ -1,7 +1,7 @@
 {
   "name": "what-docs-site",
   "private": true,
-  "version": "0.13.0",
+  "version": "0.13.1",
   "type": "module",
   "description": "whatfw.com, built with What Framework (SSG via what-server renderToString)",
   "scripts": {
@@ -11,7 +11,7 @@
     "preview": "node build.mjs && npx --yes serve dist -l 4178"
   },
   "dependencies": {
-    "what-framework": "0.13.0"
+    "what-framework": "0.13.1"
   },
   "devDependencies": {
     "esbuild": "^0.27.4"

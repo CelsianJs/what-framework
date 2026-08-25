@@ -1,6 +1,6 @@
 {
   "name": "what-devtools-mcp",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "MCP server bridging AI agents to live What Framework app state via WebSocket",
   "type": "module",
   "bin": {
@@ -8,9 +8,18 @@
   },
   "exports": {
     ".": "./src/index.js",
-    "./client": "./src/client.js",
-    "./vite": "./src/vite-plugin.js",
-    "./vite-plugin": "./src/vite-plugin.js"
+    "./client": {
+      "types": "./src/client.d.ts",
+      "default": "./src/client.js"
+    },
+    "./vite": {
+      "types": "./src/vite-plugin.d.ts",
+      "default": "./src/vite-plugin.js"
+    },
+    "./vite-plugin": {
+      "types": "./src/vite-plugin.d.ts",
+      "default": "./src/vite-plugin.js"
+    }
   },
   "files": [
     "src"

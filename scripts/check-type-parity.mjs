@@ -11,7 +11,7 @@
 //           gate lets a shipped feature be invisible to every TypeScript user,
 //           which is how a capability gets built and then never adopted.
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -144,6 +144,54 @@ function entriesFor(pkgDir, pkg) {
   return pairs;
 }
 
+// `what-devtools/panel` is authored in JSX, and Node cannot import a `.jsx`
+// file. Reporting it unimportable would be right but useless: the entry is
+// published, its declarations are published, and nothing would ever check one
+// against the other. Compile it the way the framework does and import that.
+//
+// The compiled file is written NEXT TO its source rather than in a temp dir, so
+// every specifier inside it — relative (`./index.js`) and bare (`what-core`,
+// resolved through the workspace link) — resolves exactly as it does for the
+// original. A temp dir breaks both.
+const jsxTemps = new Set();
+let jsxModuleId = 0;
+process.on('exit', () => {
+  for (const file of jsxTemps) { try { rmSync(file, { force: true }); } catch {} }
+});
+
+async function importRuntime(runtime) {
+  if (!runtime.endsWith('.jsx')) return import(pathToFileURL(runtime).href);
+
+  const [{ transformSync }, { default: babelPlugin }] = await Promise.all([
+    import('@babel/core'),
+    import('../packages/compiler/src/babel-plugin.js'),
+  ]);
+  const code = transformSync(readFileSync(runtime, 'utf8'), {
+    filename: runtime,
+    plugins: [[babelPlugin, { production: false }]],
+    parserOpts: { plugins: ['jsx'] },
+    configFile: false,
+    babelrc: false,
+  }).code;
+
+  const file = join(dirname(runtime), `.type-parity-${jsxModuleId++}.mjs`);
+  jsxTemps.add(file);
+  writeFileSync(file, code);
+
+  // Compiled output calls `_$template()` at module scope, which needs a
+  // document. Install one only for this import and take it back down after, so
+  // the rest of the run stays in a bare Node process.
+  const { installDOM } = await import('../test-utils/dom.js');
+  const { cleanup } = installDOM();
+  try {
+    return await import(pathToFileURL(file).href);
+  } finally {
+    cleanup();
+    rmSync(file, { force: true });
+    jsxTemps.delete(file);
+  }
+}
+
 export async function checkParity() {
   const failures = [];
   let checked = 0;
@@ -159,7 +207,7 @@ export async function checkParity() {
     for (const { types, runtime } of entriesFor(pkgDir, pkg)) {
       let mod;
       try {
-        mod = await import(pathToFileURL(runtime).href);
+        mod = await importRuntime(runtime);
       } catch (err) {
         // A silent skip is a hole in the gate: an entry nobody can import is an
         // entry nobody is checking. Report it as a failure and let SKIP_PACKAGES

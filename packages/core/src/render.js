@@ -119,6 +119,29 @@ function _$templateImpl(html) {
 
   const t = document.createElement('template');
   t.innerHTML = trimmed;
+
+  // The compiler emits exactly one root element per template. If the parser
+  // handed back more than one top-level node it restructured the markup, which
+  // it does silently for invalid nesting: `<p>a<div>b</div>c</p>` becomes
+  // `<p>a</p><div>b</div>c<p></p>`, four nodes instead of one. Compiled output
+  // then walks firstChild/nextSibling over a tree that no longer matches the
+  // source and dies on `Cannot read properties of null (reading 'firstChild')`,
+  // pointing at generated code with no hint of the cause. Say what happened
+  // instead. Dev-only: in production the markup is already known-good, and this
+  // is on the hot path.
+  if (__DEV__ && t.content.childNodes.length !== 1) {
+    const inner = /** @type {Element | null} */ (
+      [...t.content.childNodes].find((n, i) => i > 0 && n.nodeType === 1)
+    );
+    throw Object.assign(
+      new Error(
+        `[what] <${tag}> cannot contain <${inner ? inner.nodeName.toLowerCase() : 'that element'}>: ` +
+        'the HTML parser closed the outer tag early, so the rendered tree does not match your JSX.',
+      ),
+      { code: 'ERR_INVALID_HTML_NESTING' },
+    );
+  }
+
   return () => /** @type {Node} */ (t.content.firstChild).cloneNode(true);
 }
 

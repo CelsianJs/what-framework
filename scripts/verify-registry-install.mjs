@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -117,6 +117,24 @@ function assertBin(cwd, bin) {
   return realpathSync(file);
 }
 
+// Every `bin` declared by a package in the install list above, in a stable
+// order. Reads the workspace manifests rather than the installed ones so the
+// expectation comes from the release being verified.
+function declaredBins() {
+  const found = [];
+  for (const dir of readdirSync(join(root, 'packages'))) {
+    const manifestPath = join(root, 'packages', dir, 'package.json');
+    let manifest;
+    try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); } catch { continue; }
+    if (!manifest.name || !packages.includes(manifest.name)) continue;
+    const bin = manifest.bin;
+    if (!bin) continue;
+    if (typeof bin === 'string') found.push(manifest.name);
+    else found.push(...Object.keys(bin));
+  }
+  return found.sort();
+}
+
 function assertHelp(cwd, bin) {
   const res = run(process.execPath, [assertBin(cwd, bin), '--help'], { cwd });
   const output = `${res.stdout}\n${res.stderr}`;
@@ -171,11 +189,22 @@ try {
   }
   completedChecks.push('esm imports');
 
-  assertHelp(tmp, 'what');
-  assertHelp(tmp, 'create-what');
-  assertHelp(tmp, 'what-devtools-mcp');
-  assertHelp(tmp, 'what-mcp');
-  completedChecks.push('installed CLI/MCP bins help');
+  // Derived from the manifests of the packages installed above, NOT hand-listed.
+  // A hand-list is a second source of truth and it drifted the first time it
+  // could: freezing `what-mcp` removed it from `packages` but left
+  // `assertHelp(tmp, 'what-mcp')` behind, so the 0.13.0 release published all
+  // thirteen packages correctly and then failed its own verification looking
+  // for a binary belonging to a package it had deliberately not installed.
+  const bins = declaredBins();
+  // Deriving the list is only an improvement if the derivation working is itself
+  // checked. An empty result means the manifests moved, and the loop below would
+  // then verify nothing while reporting success — the failure mode a hand-list
+  // at least could not have.
+  if (bins.length === 0) {
+    throw new Error('No `bin` declared by any installed package — the derivation is broken, not the release.');
+  }
+  for (const bin of bins) assertHelp(tmp, bin);
+  completedChecks.push(`installed CLI/MCP bins help (${bins.join(', ')})`);
 
   const createWhatBin = assertBin(tmp, 'create-what');
   run(process.execPath, [createWhatBin, 'registry-smoke-app', '--yes'], { cwd: tmp });
