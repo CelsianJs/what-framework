@@ -4,13 +4,9 @@
 // head management down with it.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><head></head><body></body></html>');
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.CSS = dom.window.CSS;
+installDOM('<!DOCTYPE html><html><head></head><body></body></html>');
 
 const { Head } = await import('../src/head.js');
 

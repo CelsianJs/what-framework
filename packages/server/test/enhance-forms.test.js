@@ -17,16 +17,10 @@
 // implementation.
 
 import { describe, it } from 'node:test';
+import { installDOM } from '../../../test-utils/dom.js';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/' });
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.CustomEvent = dom.window.CustomEvent;
-global.FormData = dom.window.FormData;
+const { dom } = installDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/' });
 global.URLSearchParams = dom.window.URLSearchParams;
 global.URL = dom.window.URL;
 global.File = dom.window.File;

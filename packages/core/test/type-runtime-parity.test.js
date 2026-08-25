@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Declaration-versus-runtime parity for packages/core/index.d.ts.
 //
 // hygiene:types already checks that every declared NAME exists in the runtime,
@@ -32,24 +33,12 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>', {
-  url: 'https://example.test/',
-});
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Element = dom.window.Element;
-global.Node = dom.window.Node;
-global.Event = dom.window.Event;
-global.KeyboardEvent = dom.window.KeyboardEvent;
+const { dom } = installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'https://example.test/' });
 global.localStorage = dom.window.localStorage;
-global.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
-global.cancelAnimationFrame = (id) => clearTimeout(id);
 // useFetch fires on creation; this keeps the assertion about its INITIAL value
 // from depending on the network.
 global.fetch = async () => ({

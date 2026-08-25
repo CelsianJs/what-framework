@@ -2,21 +2,10 @@
 // Validates renderTest, flushEffects, mockSignal, and trackSignals
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
 // Set up DOM globals before importing framework modules
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.NodeFilter = dom.window.NodeFilter;
-global.MouseEvent = dom.window.MouseEvent;
-global.Event = dom.window.Event;
-global.FocusEvent = dom.window.FocusEvent;
-global.KeyboardEvent = dom.window.KeyboardEvent;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM();
 
 // Now import framework
 const { signal, computed, effect, createRoot, __setDevToolsHooks } = await import('../src/reactive.js');
@@ -292,7 +281,6 @@ describe('mockComponent', () => {
     assert.equal(Mock.calls.length, 0);
   });
 });
-
 
 // This file's header has claimed to validate trackSignals since it was
 // written, and did not. The function returned two empty arrays for every

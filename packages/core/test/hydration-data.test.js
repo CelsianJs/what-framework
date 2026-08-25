@@ -3,20 +3,18 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-let dom;
+let cleanup;
 before(() => {
-  dom = new JSDOM(
+  ({ cleanup } = installDOM(
     '<!DOCTYPE html><html><body>' +
     '<script id="__what_data" type="application/json">' +
     JSON.stringify({ loaderData: { user: 'sam' }, resources: { thing: 'LOADED' }, islandStores: {} }) +
     '</script></body></html>'
-  );
-  global.document = dom.window.document;
-  global.window = dom.window;
+  ));
 });
-after(() => { delete global.document; delete global.window; });
+after(() => cleanup());
 
 describe('hydration-data', () => {
   it('reads the consolidated payload', async () => {

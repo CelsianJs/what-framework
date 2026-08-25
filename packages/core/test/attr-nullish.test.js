@@ -8,22 +8,9 @@
 // 0, "" (empty attr), false (boolean-attr removal), and on* handlers.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
-if (!global.customElements) {
-  const registry = new Map();
-  global.customElements = {
-    get: (name) => registry.get(name),
-    define: (name, cls) => registry.set(name, cls),
-  };
-}
+installDOM();
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');

@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Regression: a reactive `() => cond ? <Comp/> : <div/>` thunk that is the
 // DIRECT child of an intrinsic element must fully remove the previous branch
 // on every switch — including when the previous branch was a bare component.
@@ -22,15 +23,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.window = dom.window;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM();
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { insert, _$createComponent } = await import('../src/render.js');

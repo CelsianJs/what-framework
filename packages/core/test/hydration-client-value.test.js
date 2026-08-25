@@ -21,14 +21,9 @@ globalThis.__WHAT_DEV__ = false;
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><head></head><body></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
+installDOM('<!DOCTYPE html><html><head></head><body></body></html>');
 
 const { signal, computed, flushSync, __DEV__ } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');

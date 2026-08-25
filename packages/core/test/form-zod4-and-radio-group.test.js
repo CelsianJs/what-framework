@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Regression tests for two form.js defects found auditing whatfw.com against 0.12.3:
 //
 //   #21 zodResolver failed OPEN under Zod 4. Zod 4 dropped the legacy
@@ -29,22 +30,8 @@
 // would couple the core suite to a dependency it does not declare.
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
-
-if (!global.customElements) {
-  const registry = new Map();
-  global.customElements = {
-    get: (name) => registry.get(name),
-    define: (name, cls) => registry.set(name, cls),
-  };
-}
+const { dom } = installDOM();
 
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');

@@ -8,14 +8,9 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>', {
-  pretendToBeVisual: true,
-});
-global.window = dom.window;
-global.document = dom.window.document;
-global.CustomEvent = dom.window.CustomEvent;
+const { dom } = installDOM();
 
 const { h, mount, hydrate, signal, Island } = await import('../src/index.js');
 const { renderToString } = await import('../../server/src/index.js');

@@ -64,6 +64,32 @@ Tests use Node's built-in test runner. No external test framework needed.
 | `npm run smoke:scaffold` | `create-what` produces something that runs |
 | `npm run smoke:apps` | Four real apps in a real browser, 84 checks |
 
+### Shared test helpers
+
+`test-utils/` holds the setup that every test used to reinvent. Use them in new
+tests rather than hand-rolling a JSDOM:
+
+```js
+import { installDOM } from '../../../test-utils/dom.js';
+
+// Before importing framework modules: several of them read `typeof document`
+// at module scope to decide whether they are on a server.
+const { document, cleanup } = installDOM();
+const { mount } = await import('../src/dom.js');
+```
+
+```js
+import { compileJSX } from '../../../test-utils/compile.js';
+
+const out = compileJSX('<div>{count()}</div>');
+```
+
+`installDOM()` installs one environment every time. That is the point: 68 test
+files were wiring globals by hand and disagreeing about which ones, so a file
+that omitted `SVGElement` and then rendered an `<svg>` was testing a different
+environment from the one next to it. Two files keep their own setup on purpose
+and say why in a comment.
+
 **A bug fix needs a test that fails without the fix.** Say so in the PR, with
 the count. A test written from the shape of the patch rather than the shape of
 the bug passes either way, which is the same as having no test.

@@ -2,15 +2,10 @@
 // Validates dev-mode warnings fire correctly and only once per unique occurrence.
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { installDOM } from '../../../test-utils/dom.js';
 
 // Set up DOM globals before importing framework modules
-import { JSDOM } from 'jsdom';
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM();
 
 const {
   warn,

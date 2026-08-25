@@ -260,6 +260,7 @@ packaging defect, so run it after every publish.
 ```
 packages/     the 14 published packages
 scripts/      build, gates, release, codemods
+test-utils/   shared test setup (installDOM, compileJSX); never published
 smoke/        real apps exercised in a real browser
 stress-tests/ adversarial cases outside the unit suite
 benchmark/    cross-framework harness + krausest

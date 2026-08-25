@@ -7,15 +7,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
+installDOM();
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { mapArray, _$createComponent } = await import('../src/render.js');

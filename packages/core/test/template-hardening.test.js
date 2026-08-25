@@ -8,25 +8,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
 // Set up DOM globals before importing framework modules
-const dom = new JSDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>');
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.SVGElement = dom.window.SVGElement;
-global.Node = dom.window.Node;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-global.queueMicrotask = global.queueMicrotask || ((fn) => Promise.resolve().then(fn));
-
-// Stub customElements if not available
-if (!global.customElements) {
-  const registry = new Map();
-  global.customElements = {
-    get: (name) => registry.get(name),
-    define: (name, cls) => registry.set(name, cls),
-  };
-}
+installDOM();
 
 // Now import framework
 const { template, svgTemplate } = await import('../src/render.js');

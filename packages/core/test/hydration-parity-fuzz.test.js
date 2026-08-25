@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Differential fuzz: a hydrated tree must end up identical to a client-only
 // render of the same tree.
 //
@@ -25,14 +26,8 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!DOCTYPE html><html><head></head><body></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.HTMLElement = dom.window.HTMLElement;
-global.Node = dom.window.Node;
-global.SVGElement = dom.window.SVGElement;
+installDOM('<!DOCTYPE html><html><head></head><body></body></html>');
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');

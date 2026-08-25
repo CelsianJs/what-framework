@@ -1,3 +1,4 @@
+import { installDOM } from '../../../test-utils/dom.js';
 // Regressions for the two a11y-helper defects found in the whatfw.com audit
 // against the released 0.12.3.
 //
@@ -27,15 +28,8 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.KeyboardEvent = dom.window.KeyboardEvent;
-global.FocusEvent = dom.window.FocusEvent;
-global.Node = dom.window.Node;
-global.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+const { dom } = installDOM('<!doctype html><html><body><div id="app"></div></body></html>');
 
 const { h, mount, signal } = await import('../src/index.js');
 const { spread, hydrate } = await import('../src/render.js');

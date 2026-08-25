@@ -5,23 +5,11 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
-import babelPlugin from '../src/babel-plugin.js';
-
-function compile(source) {
-  return transformSync(source, {
-    filename: 'test.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  })?.code || '';
-}
+import { compileJSX } from '../../../test-utils/compile.js';
 
 describe('compiler: .map() in ternary/logical stays reactive (AUDIT H1)', () => {
   it('wraps a ternary containing a lowered map in () =>', () => {
-    const out = compile(`
+    const out = compileJSX(`
       function L({ show, items }) {
         return <ul>{show() ? items().map(i => <li key={i.id}>{i.t}</li>) : <li>empty</li>}</ul>;
       }
@@ -33,7 +21,7 @@ describe('compiler: .map() in ternary/logical stays reactive (AUDIT H1)', () => 
   });
 
   it('wraps a logical && containing a lowered map in () =>', () => {
-    const out = compile(`
+    const out = compileJSX(`
       function L({ show, items }) {
         return <ul>{show() && items().map(i => <li key={i.id}>{i.t}</li>)}</ul>;
       }
@@ -44,7 +32,7 @@ describe('compiler: .map() in ternary/logical stays reactive (AUDIT H1)', () => 
   });
 
   it('does NOT wrap a bare .map() (self-managing _$mapArray inserter)', () => {
-    const out = compile(`
+    const out = compileJSX(`
       function L({ items }) {
         return <ul>{items().map(i => <li key={i.id}>{i.t}</li>)}</ul>;
       }

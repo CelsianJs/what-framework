@@ -4,24 +4,11 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
-import babelPlugin from '../src/babel-plugin.js';
-
-function compile(source) {
-  const result = transformSync(source, {
-    filename: 'test.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  });
-  return result?.code || '';
-}
+import { compileJSX } from '../../../test-utils/compile.js';
 
 describe('JSX text whitespace', () => {
   it('preserves a leading space between expression and trailing text', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function A() {
         return <p>{count()} items</p>;
       }
@@ -35,7 +22,7 @@ describe('JSX text whitespace', () => {
   });
 
   it('preserves a trailing space between text and expression', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function A() {
         return <p>Count: {n()}</p>;
       }
@@ -47,7 +34,7 @@ describe('JSX text whitespace', () => {
   });
 
   it('collapses pure-whitespace lines but preserves inline single spaces', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function A() {
         return (
           <div>
@@ -66,7 +53,7 @@ describe('JSX text whitespace', () => {
   });
 
   it('keeps the space between two expressions separated by one space', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function A() {
         return <p>{a()} {b()}</p>;
       }

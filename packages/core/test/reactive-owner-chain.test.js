@@ -16,14 +16,10 @@
 // which is why no first-render test caught either one.
 
 import { describe, it, beforeEach } from 'node:test';
+import { installDOM } from '../../../test-utils/dom.js';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>', {
-  pretendToBeVisual: true,
-});
-global.window = dom.window;
-global.document = dom.window.document;
+installDOM();
 
 const { h, mount, signal, lazy, Suspense, ErrorBoundary } = await import('../src/index.js');
 

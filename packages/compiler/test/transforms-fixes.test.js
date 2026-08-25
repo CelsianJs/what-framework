@@ -6,20 +6,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { transformSync } from '@babel/core';
-import babelPlugin from '../src/babel-plugin.js';
-
-function compile(source) {
-  const result = transformSync(source, {
-    filename: 'test.jsx',
-    plugins: [[babelPlugin, { production: false }]],
-    parserOpts: { plugins: ['jsx'] },
-    configFile: false,
-    babelrc: false,
-    compact: false,
-  });
-  return result?.code || '';
-}
+import { compileJSX } from '../../../test-utils/compile.js';
 
 // =====================================================
 // <Show> — no double-evaluation of `when`
@@ -27,7 +14,7 @@ function compile(source) {
 
 describe('<Show> transform', () => {
   it('hoists `when` into a memoized local so it is evaluated once per re-run', () => {
-    const code = compile(`
+    const code = compileJSX(`
       const cond = signal(false);
       function App() {
         return <Show when={cond}>{(v) => <p>{v}</p>}</Show>;
@@ -46,7 +33,7 @@ describe('<Show> transform', () => {
   });
 
   it('supports identifier `when` (signal-like — invokes as accessor)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const isOpen = signal(false);
         return <Show when={isOpen}>hello</Show>;
@@ -58,7 +45,7 @@ describe('<Show> transform', () => {
   });
 
   it('supports identifier `when` from imports (treated as signal accessor)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       import { isOpen } from './store.js';
       function App() {
         return <Show when={isOpen}>hello</Show>;
@@ -69,7 +56,7 @@ describe('<Show> transform', () => {
   });
 
   it('does NOT invoke a member-expression `when` (plain boolean)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <Show when={user.isAdmin}>hi admin</Show>;
       }
@@ -80,7 +67,7 @@ describe('<Show> transform', () => {
   });
 
   it('does NOT invoke a logical/binary `when` (plain boolean)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const x = signal(0);
         return <Show when={x() > 5}>big</Show>;
@@ -94,7 +81,7 @@ describe('<Show> transform', () => {
   });
 
   it('does NOT invoke a literal `when`', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <Show when={true}>always</Show>;
       }
@@ -106,7 +93,7 @@ describe('<Show> transform', () => {
   it('does NOT invoke an identifier that is a plain non-signal const', () => {
     // Conservative default: if the binding is a non-signal-creating const
     // (here a plain boolean), do not invoke — that would throw at runtime.
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const enabled = true;
         return <Show when={enabled}>hi</Show>;
@@ -117,7 +104,7 @@ describe('<Show> transform', () => {
   });
 
   it('supports call-expression `when`', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <Show when={isReady()}>hello</Show>;
       }
@@ -126,7 +113,7 @@ describe('<Show> transform', () => {
   });
 
   it('supports arrow-body `when`', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <Show when={() => count() > 5}>hello</Show>;
       }
@@ -135,7 +122,7 @@ describe('<Show> transform', () => {
   });
 
   it('supports `fallback`', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <Show when={isOpen} fallback={<p>closed</p>}>open</Show>;
       }
@@ -148,7 +135,7 @@ describe('<Show> transform', () => {
 
   it('throws a build error when `when` is missing', () => {
     assert.throws(
-      () => compile(`function App() { return <Show>hello</Show>; }`),
+      () => compileJSX(`function App() { return <Show>hello</Show>; }`, { filename: 'test.jsx' }),
       /Show.*"when"/,
       'compile should fail with a clear message about missing when'
     );
@@ -161,7 +148,7 @@ describe('<Show> transform', () => {
 
 describe('.map() lowering to _$mapArray', () => {
   it('lowers map with a key prop on the JSX child', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <ul>{items().map(item => <li key={item.id}>{item.name}</li>)}</ul>;
       }
@@ -178,7 +165,7 @@ describe('.map() lowering to _$mapArray', () => {
     const warnings = [];
     console.warn = (...args) => warnings.push(args.join(' '));
     try {
-      const code = compile(`
+      const code = compileJSX(`
         function App() {
           return <ul>{items().map(item => <li>{item.name}</li>)}</ul>;
         }
@@ -195,7 +182,7 @@ describe('.map() lowering to _$mapArray', () => {
   });
 
   it('lowers map wrapped in an arrow: () => arr().map(...)', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <ul>{() => items().map(item => <li key={item.id}>{item.name}</li>)}</ul>;
       }
@@ -210,7 +197,7 @@ describe('.map() lowering to _$mapArray', () => {
 
 describe('<For> transform', () => {
   it('passes a key option to _$mapArray when key is provided', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <For each={data} key={item => item.id}>{(item) => <Row item={item} />}</For>;
       }
@@ -220,7 +207,7 @@ describe('<For> transform', () => {
   });
 
   it('omits the options object when no key is provided', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         return <For each={data}>{(item) => <Row item={item} />}</For>;
       }
@@ -243,7 +230,7 @@ describe('event modifiers', () => {
     // Use template-string attribute syntax (JSX namespaces don't support `|`).
     // The pipe form is for template-string compilers only — JSX uses `__`.
     // Here we just verify the modifier parser accepts both delimiters via `__`.
-    const codeUnderscore = compile(`
+    const codeUnderscore = compileJSX(`
       function App() {
         return <button onclick__preventDefault__stopPropagation={fn}>x</button>;
       }
@@ -259,7 +246,7 @@ describe('event modifiers', () => {
     const warnings = [];
     console.warn = (...args) => warnings.push(args.join(' '));
     try {
-      compile(`
+      compileJSX(`
         function App() {
           return <button onclick__preventDefault__notAModifier={fn}>x</button>;
         }
@@ -283,7 +270,7 @@ describe('event modifiers', () => {
     console.warn = (...args) => warnings.push(args.join(' '));
     let code;
     try {
-      code = compile(`
+      code = compileJSX(`
         function App() {
           return <button onclick__totalyWrongUniqA={fn}>x</button>;
         }
@@ -312,7 +299,7 @@ describe('event modifiers', () => {
     console.warn = (...args) => warnings.push(args.join(' '));
     let code;
     try {
-      code = compile(`
+      code = compileJSX(`
         function App() {
           return <button onclick__preventDefault__alsoWrongUniqB={fn}>x</button>;
         }
@@ -338,7 +325,7 @@ describe('event modifiers', () => {
     console.warn = (...args) => warnings.push(args.join(' '));
     let code;
     try {
-      code = compile(`
+      code = compileJSX(`
         function App() {
           return <button onclick__={fn}>x</button>;
         }
@@ -363,7 +350,7 @@ describe('event modifiers', () => {
 
 describe('nested <Show> variable scoping', () => {
   it('two nested Shows each hoist their own condition variable without collision', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const a = signal(true);
         const b = signal(false);
@@ -398,7 +385,7 @@ describe('nested <Show> variable scoping', () => {
 
 describe('.map() inside conditional', () => {
   it('map with key inside ternary IS lowered to _$mapArray', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const show = signal(true);
         const items = signal([]);
@@ -417,7 +404,7 @@ describe('.map() inside conditional', () => {
   });
 
   it('map with key inside logical && IS lowered to _$mapArray', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const show = signal(true);
         const items = signal([]);
@@ -433,7 +420,7 @@ describe('.map() inside conditional', () => {
   });
 
   it('non-map branch of ternary is preserved as-is', () => {
-    const code = compile(`
+    const code = compileJSX(`
       function App() {
         const show = signal(true);
         const items = signal([]);

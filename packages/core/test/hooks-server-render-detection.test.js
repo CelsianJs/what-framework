@@ -24,17 +24,15 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { installDOM } from '../../../test-utils/dom.js';
 
 const STALE_PAYLOAD = { loaderData: { from: 'PREVIOUS_RENDER' }, resources: {}, islandStores: {} };
 
-const dom = new JSDOM(
+installDOM(
   '<!doctype html><html><body>' +
     `<script id="__what_data" type="application/json">${JSON.stringify(STALE_PAYLOAD)}</script>` +
     '</body></html>'
 );
-global.window = dom.window;
-global.document = dom.window.document;
 
 const { useLoaderData, createResource, runWithServerContext } = await import('../src/index.js');
 
