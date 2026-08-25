@@ -1,6 +1,6 @@
 {
   "name": "what-isr",
-  "version": "0.12.4",
+  "version": "0.13.0",
   "description": "What Framework - Origin-first ISR cache engine: stale-while-revalidate, on-demand & poll regeneration, no CDN required",
   "type": "module",
   "main": "src/index.js",
@@ -30,7 +30,7 @@
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
   "peerDependencies": {
-    "what-server": "^0.12.4"
+    "what-server": "^0.13.0"
   },
   "peerDependenciesMeta": {
     "what-server": {
