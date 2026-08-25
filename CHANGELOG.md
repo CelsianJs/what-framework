@@ -26,6 +26,24 @@ All notable changes to What Framework will be documented in this file.
   change: `setRevalidationHandler`, `getRevalidationHandler`, `revalidatePath`
   and `revalidateTag` all behave identically within a single instance.
 
+### Internal
+
+- **The benchmark gate and its baselines used different estimators.** The gate
+  compared the best of N runs against a baseline recorded from a single run. A
+  single draw from a one-sided noisy distribution that lands high permanently
+  consumes the whole tolerance, so `batch() 100 writes, 1 effect` failed or
+  passed on scheduling luck. `npm run bench:record` now produces baselines
+  through the same best-of-N path the gate uses, and prints every guarded
+  threshold's movement before overwriting. The DX suite, previously measured
+  once per attempt, is best-of-6 like core.
+
+  The baselines themselves were deliberately not re-recorded: nine of eleven
+  guarded ops now measure 7-89% *faster* than their 2026-03-26 thresholds and
+  two measure slower, which is what a stale baseline set looks like rather than
+  a regression. Re-recording needs a measurement environment that can resolve
+  10%, which this one cannot. See the 2026-08-25 section of
+  WHAT-FW-GOLD-STANDARD-AUDIT-2026-08-23.md.
+
 ## [0.13.1] - 2026-08-25: fragments, and the gates that missed them
 
 **One behaviour change, and it is a correction.** A JSX fragment used as a child
