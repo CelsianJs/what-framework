@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.13.3</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.13.4</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -232,8 +232,8 @@ focus.blur();</code></pre>
           <p>The values in those objects are accessors rather than snapshots, which is what keeps a spread live. <code>{...hook.buttonProps()}</code> is evaluated once, but every function-valued prop is wrapped in its own effect by the renderer, so the attribute follows the signal for the life of the element. Enumerated ARIA attributes are emitted as the strings <code>"true"</code> / <code>"false"</code> on all three paths (<code>h()</code>, compiled JSX, and server rendering), never as <code>aria-expanded=""</code> or a missing attribute.</p>
 
           <div class="callout callout-warning">
-            <p class="callout-title">On 0.13.3 these props are snapshots, not accessors</p>
-            <p>The accessor behaviour above lands in the next release. On 0.13.3, the current version on npm, each helper reads its own signal (<code>'aria-expanded': expanded()</code>), so the single evaluation a spread performs bakes in the state at mount: an accordion built from <code>buttonProps()</code> announces <code>aria-expanded="false"</code> forever, no matter how many times it opens, and <code>panelProps().hidden</code> is stuck with it. Components run once in What, so nothing ever re-calls the helper to refresh it. Until then, bind the attribute yourself the way <a href="#use-aria-expanded">useAriaExpanded</a> below describes: <code>aria-expanded={() =&gt; disclosure.expanded()}</code> is reactive, and correctly serialized, on both versions.</p>
+            <p class="callout-title">On 0.13.4 these props are snapshots, not accessors</p>
+            <p>The accessor behaviour above lands in the next release. On 0.13.4, the current version on npm, each helper reads its own signal (<code>'aria-expanded': expanded()</code>), so the single evaluation a spread performs bakes in the state at mount: an accordion built from <code>buttonProps()</code> announces <code>aria-expanded="false"</code> forever, no matter how many times it opens, and <code>panelProps().hidden</code> is stuck with it. Components run once in What, so nothing ever re-calls the helper to refresh it. Until then, bind the attribute yourself the way <a href="#use-aria-expanded">useAriaExpanded</a> below describes: <code>aria-expanded={() =&gt; disclosure.expanded()}</code> is reactive, and correctly serialized, on both versions.</p>
           </div>
 
           <h3 id="use-aria-expanded">useAriaExpanded</h3>
@@ -359,8 +359,8 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
 <span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(() =&gt; itemCount());</code></pre>
 
           <div class="callout callout-warning">
-            <p class="callout-title">0.13.3 ships a different hook</p>
-            <p>All of the above is the next release. On 0.13.3, the current version on npm, <code>useRovingTabIndex</code> takes no options object, and <code>getItemProps()</code> returns no <code>ref</code> and a plain number for <code>tabIndex</code>, so nothing holds the item nodes: run the Toolbar example above on it and ArrowRight moves the hook's internal index while the tab stop and real DOM focus both stay on the first button. <code>containerProps()</code> also hard-codes <code>role: "listbox"</code>, which overwrites the <code>role="toolbar"</code> written beside it. <code>focusItem()</code> does not exist. The published TypeScript declarations describe that older hook, so an editor will reject the options object, <code>focusItem</code>, and the <code>overrides</code> arguments until the next release lands.</p>
+            <p class="callout-title">0.13.4 ships a different hook</p>
+            <p>All of the above is the next release. On 0.13.4, the current version on npm, <code>useRovingTabIndex</code> takes no options object, and <code>getItemProps()</code> returns no <code>ref</code> and a plain number for <code>tabIndex</code>, so nothing holds the item nodes: run the Toolbar example above on it and ArrowRight moves the hook's internal index while the tab stop and real DOM focus both stay on the first button. <code>containerProps()</code> also hard-codes <code>role: "listbox"</code>, which overwrites the <code>role="toolbar"</code> written beside it. <code>focusItem()</code> does not exist. The published TypeScript declarations describe that older hook, so an editor will reject the options object, <code>focusItem</code>, and the <code>overrides</code> arguments until the next release lands.</p>
           </div>
 
           <h2 id="skip-links">Skip Links &amp; Visually Hidden</h2>

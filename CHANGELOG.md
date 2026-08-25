@@ -2,6 +2,34 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.4] - 2026-08-25
+
+### Fixed
+
+- **A keyless `createResource()` never resolved on the server.** `renderToStream`,
+  `renderToStringAsync` and `renderDocument` all shipped the `<Suspense>`
+  fallback as final HTML instead of the data, after paying for twelve
+  sequential fetches of it.
+
+  `createResource` names a keyless resource `__r${counter++}` from a counter on
+  the render context. Both server resolve loops re-render the tree after
+  awaiting the pending promises, and neither restored that counter: pass 0
+  stored `__r0` and suspended, pass 1 asked for `__r1`, found nothing cached,
+  started the fetch again and suspended again. Twelve passes later the loop gave
+  up and emitted the fallback.
+
+  Passing an explicit `key` bypassed the counter and worked, which is why the
+  feature looked functional in any example that used one.
+
+  A page with one 120 ms resource now streams its shell immediately and its
+  resolved data at 125 ms. Before, it emitted "loading" at 1,453 ms.
+
+  Nothing caught it because every `<Suspense>` test asserted boundary structure,
+  that a fallback renders and that a marker tag does not leak into the output,
+  and none asserted that data actually arrives.
+  `packages/server/test/async-resource-resolution.test.js` now does, including
+  that each resource is fetched exactly once.
+
 ## [0.13.3] - 2026-08-25: a custom render could set headers on half its routes
 
 ### Fixed
