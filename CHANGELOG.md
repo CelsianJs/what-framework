@@ -2,6 +2,28 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.3] - 2026-08-25: a custom render could set headers on half its routes
+
+### Fixed
+
+- **`render` result headers were dropped on the direct-render path.** A deploy
+  adapter's custom `render` can return `headers` alongside `html` and `status`.
+  The ISR cache path spread them onto the Response; the direct-render path
+  (server mode, or any route with no cache engine) built its Response from
+  `html` and `status` only and threw the rest away.
+
+  So the same `render`, returning the same result, set response headers for a
+  cached route and silently set nothing for an uncached one. The sharp edge is
+  a redirect: a render returning `{ status: 302, headers: { Location } }` on a
+  server-mode route produced a 302 with no `Location`, which a browser shows as
+  a blank page with nothing to explain it. Vura hit exactly this implementing
+  `throw ctx.redirect('/login')` in a page loader.
+
+  The direct path now spreads `out.headers` the way the cache path always has.
+  The spread happens before the CSRF cookie is applied, so a render still
+  cannot drop the cookie half of the double-submit check, and server mode still
+  gets its `Cache-Control: private, no-store`.
+
 ## [0.13.2] - 2026-08-25: a process-wide registry that was not process-wide
 
 ### Fixed

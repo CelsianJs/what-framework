@@ -1,6 +1,6 @@
 {
   "name": "what-starter",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,10 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "what-framework": "0.13.2"
+    "what-framework": "0.13.3"
   },
   "devDependencies": {
-    "what-compiler": "0.13.2",
+    "what-compiler": "0.13.3",
     "@babel/core": "^7.23.0",
     "vite": "^6.0.0"
   }

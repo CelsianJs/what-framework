@@ -180,3 +180,49 @@ describe('vary routes through the real adapter', () => {
     assert.deepEqual(warnings, [], `vary route warned per request: ${warnings.join(' | ')}`);
   });
 });
+
+describe('render result headers', () => {
+  it('honours out.headers on the direct-render path, like the cache path', async () => {
+    // A custom `render` could set response headers for a cached route and not
+    // for an uncached one. The asymmetry meant a render returning a redirect
+    // produced a 302 with no Location: an empty page, and nothing saying why.
+    const render = async (rm) => ({
+      html: '',
+      status: 302,
+      tags: [],
+      path: rm.path,
+      headers: { Location: '/login' },
+    });
+    const handle = createRequestHandler({ routes, render });
+
+    const res = await handle(new Request('http://x/srv'));
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/login');
+  });
+
+  it('still sets Cache-Control on a server-mode route that returns headers', async () => {
+    const render = async (rm) => ({ html: '<main>x</main>', status: 200, tags: [], path: rm.path, headers: { 'x-custom': '1' } });
+    const handle = createRequestHandler({ routes, render });
+
+    const res = await handle(new Request('http://x/srv'));
+    assert.equal(res.headers.get('x-custom'), '1');
+    assert.match(res.headers.get('cache-control') || '', /no-store/);
+  });
+
+  it('does not let a render drop the CSRF cookie', async () => {
+    // The cookie is the other half of the double-submit check. A render that
+    // sets its own set-cookie must not be able to remove it.
+    const render = async (rm) => ({
+      html: '<main>x</main>',
+      status: 200,
+      tags: [],
+      path: rm.path,
+      headers: { 'set-cookie': 'mine=1' },
+    });
+    const handle = createRequestHandler({ routes, render, csrf: true });
+
+    const res = await handle(new Request('http://x/srv'));
+    const cookie = res.headers.get('set-cookie') || '';
+    assert.ok(cookie.includes('csrf'), `expected the CSRF cookie to survive, got: ${cookie}`);
+  });
+});
