@@ -229,7 +229,7 @@ jobs:
         run: npm run -s smoke:apps
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smoke-apps-${{ github.run_id }}
           path: artifacts/smoke-apps.json

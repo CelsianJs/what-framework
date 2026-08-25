@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload registry smoke artifact
         if: ${{ always() && inputs.publish_packages && !inputs.dry_run }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: what-registry-smoke
           path: artifacts/registry-smoke.json
