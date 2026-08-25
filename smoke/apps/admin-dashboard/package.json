@@ -11,12 +11,12 @@
     "start": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "what-framework": "0.13.2",
-    "what-router": "0.13.2"
+    "what-framework": "0.13.3",
+    "what-router": "0.13.3"
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
     "vite": "^7.0.0",
-    "what-compiler": "0.13.2"
+    "what-compiler": "0.13.3"
   }
 }

@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.13.2</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.13.3</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -148,8 +148,8 @@ const handler = createRequestHandler({ routes, cache, document: documentOptions 
        `page` must be a plain object literal of JSON-shaped values (strings, numbers, booleans, null, arrays, nested objects).</code></pre>
           </div>
           <div class="callout callout-warning">
-            <p class="callout-title">Released 0.13.2 reads this config with a regex</p>
-            <p>Everything above describes the tokenizer, which lands in the next release. On 0.13.2, the current version on npm, the build matches the literal with a chain of regexes that cannot see string boundaries, so a value carrying a parser-significant character corrupts the whole export: <code>vary: ['cookie:theme']</code>, <code>canonical: 'https://x.com/a'</code>, <code>title: "What's new"</code> and any nested object each make the entire <code>page</code> declaration unreadable. There is no diagnostic on 0.13.2 either, in any of those cases or for a real parse failure like <code>revalidate: 60 * 60</code>. The page silently becomes <code>mode: 'client'</code> and drops out of static generation.</p>
+            <p class="callout-title">Released 0.13.3 reads this config with a regex</p>
+            <p>Everything above describes the tokenizer, which lands in the next release. On 0.13.3, the current version on npm, the build matches the literal with a chain of regexes that cannot see string boundaries, so a value carrying a parser-significant character corrupts the whole export: <code>vary: ['cookie:theme']</code>, <code>canonical: 'https://x.com/a'</code>, <code>title: "What's new"</code> and any nested object each make the entire <code>page</code> declaration unreadable. There is no diagnostic on 0.13.3 either, in any of those cases or for a real parse failure like <code>revalidate: 60 * 60</code>. The page silently becomes <code>mode: 'client'</code> and drops out of static generation.</p>
           </div>
 
           <h2 id="swr">Stale-while-revalidate</h2>

@@ -229,7 +229,16 @@ export function createRequestHandler(options = {}) {
     // safe to embed the CSRF token as a <meta> tag for forms/fetch clients.
     if (csrfToken) routeMatch.csrfToken = csrfToken;
     const out = await renderRoute(routeMatch);
-    const headers = withCsrfCookie({ 'content-type': 'text/html; charset=utf-8' });
+    // `out.headers` is honoured here exactly as it is on the cache path above.
+    // It used to be dropped on this branch only, so a custom `render` could set
+    // response headers for a cached route and not for an uncached one — which
+    // meant a render returning a 302 produced a redirect with no Location, an
+    // empty page with nothing to say why. Spread before the CSRF cookie so a
+    // render cannot drop it.
+    const headers = withCsrfCookie({
+      'content-type': 'text/html; charset=utf-8',
+      ...(out.headers || {}),
+    });
     if (config.mode === 'server') headers['Cache-Control'] = 'private, no-store';
     return new Response(out.html, { status: out.status || 200, headers });
   };
