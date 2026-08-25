@@ -10,7 +10,7 @@
 // Found by packages/compiler/test/lowering-parity-fuzz.test.js: 62 of its first
 // 300 random trees diverged from the equivalent h() tree, all of them here.
 
-import { describe, it, before } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { transformSync } from '@babel/core';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';

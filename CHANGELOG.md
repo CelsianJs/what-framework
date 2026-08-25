@@ -68,8 +68,10 @@ looks different after upgrading was rendering wrongly before.
   Depot run resolves the token to an empty string and fails at the publish step
   after ten minutes of green gates. A test asserts the copy stays gone, and the
   workflow gained a fail-fast preflight for the token.
-- **`check:error-docs`** joins CI and `release:verify`, so the published
-  reference cannot drift from the catalogue.
+- **`check:error-docs` and `lint` join `release:verify`.** `lint` was in CI but
+  not in the release gate, so a release could be cut with a lint error that only
+  surfaced on the PR. That is exactly what happened to the first push of this
+  one.
 
 ## [0.13.0] - 2026-08-25: the implementation gets checked
 
