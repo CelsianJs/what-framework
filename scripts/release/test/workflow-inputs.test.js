@@ -5,13 +5,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
+// `release-and-deploy` deliberately has no Depot counterpart. Everything else
+// is mirrored, Depot copy first.
+const releaseWorkflows = ['.github/workflows/release-and-deploy.yml'];
 const workflows = [
-  '.github/workflows/release-and-deploy.yml',
-  '.depot/workflows/release-and-deploy.yml',
+  ...releaseWorkflows,
   '.github/workflows/ci.yml',
   '.depot/workflows/ci.yml',
   '.github/workflows/benchmarks.yml',
@@ -46,7 +48,7 @@ for (const file of workflows) {
   });
 }
 
-for (const file of workflows.slice(0, 2)) {
+for (const file of releaseWorkflows) {
   test(`${file} validates npm_tag and passes it through env`, () => {
     const source = readFileSync(resolve(repoRoot, file), 'utf8');
     assert.match(source, /Validate npm dist-tag input/);
@@ -54,3 +56,16 @@ for (const file of workflows.slice(0, 2)) {
     assert.match(source, /--tag "\$NPM_TAG"/);
   });
 }
+
+// A Depot copy of the publisher resolves `secrets.NPM_TOKEN` to an empty string
+// and dies at the publish step with "Missing npm auth" — after running every
+// quality gate green for ten minutes. It also cannot mint npm provenance, which
+// comes from GitHub's OIDC issuer. The first 0.13.0 publish attempt was lost to
+// exactly this. Publishing belongs to GitHub Actions alone.
+test('the publisher has no Depot counterpart', () => {
+  assert.equal(
+    existsSync(resolve(repoRoot, '.depot/workflows/release-and-deploy.yml')),
+    false,
+    'a Depot copy of release-and-deploy.yml cannot publish: no NPM_TOKEN, no provenance',
+  );
+});

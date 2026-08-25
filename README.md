@@ -175,6 +175,7 @@ release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DE
 - [MCP DevTools](docs/MCP-DEVTOOLS.md) -- MCP tools reference
 - [Agent Patterns](docs/AGENT-PATTERNS.md) -- Best practices
 - [Gotchas](docs/GOTCHAS.md) -- Common mistakes
+- [Error codes](docs/ERRORS.md) -- all 30 diagnostics, each with a fix and a worked example
 - [Migration from React](docs/MIGRATION-FROM-REACT.md) · [TypeScript](docs/TYPESCRIPT.md) · [Styling](docs/STYLING.md) · [Development](docs/DEVELOPMENT.md) · [Release](docs/RELEASE.md)
 - [Ecosystem Roadmap](docs/ECOSYSTEM-PLAN.md) -- planned `@what/*` packages
 

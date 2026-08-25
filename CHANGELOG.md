@@ -2,6 +2,75 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.1] - 2026-08-25: fragments, and the gates that missed them
+
+**One behaviour change, and it is a correction.** A JSX fragment used as a child
+of an element now renders its content, in its place. It previously dropped part
+of that content and appended the rest to the end of the parent. Any markup that
+looks different after upgrading was rendering wrongly before.
+
+### Fixed
+
+- **A fragment child of an element keeps its content and its position.** The
+  lowering handled only expression children and inserted them with no anchor, so
+  three things went wrong at once and none of them made a sound:
+
+  | Written | Rendered before | Rendered now |
+  |---|---|---|
+  | `<span><>plain</>{x}</span>` | `<span>x</span>` | `<span>plainx</span>` |
+  | `<span><><b>c</b></>{x}</span>` | `<span>x</span>` | `<span><b>c</b>x</span>` |
+  | `<span><>{"A"}</>{"C"}</span>` | `<span>CA</span>` | `<span>AC</span>` |
+
+  The fragment now reserves one marker in the template and every child inserts
+  before it, which keeps the children in order and the fragment among its
+  siblings. Found by a new differential fuzzer: 62 of its first 300 random trees
+  diverged from the equivalent `h()` tree, and all 62 were this.
+
+- **Invalid HTML nesting says what happened.** `<p>a<div>b</div>c</p>` is markup
+  the HTML parser is required to restructure, which left compiled output walking
+  a tree that no longer matched the source and failing with
+  `Cannot read properties of null (reading 'firstChild')` inside generated code.
+  It now throws `ERR_INVALID_HTML_NESTING`, naming both tags. Dev builds only.
+
+- **The npm registry verification no longer looks for a package it does not
+  install.** Freezing `what-mcp` in 0.13.0 removed it from the install list but
+  left `assertHelp(tmp, 'what-mcp')` behind, so the 0.13.0 release published all
+  thirteen packages correctly and then failed its own verification. The bin list
+  is now derived from the manifests of the packages actually installed.
+
+### Added
+
+- **`what-devtools` and `what-devtools-mcp` ship type declarations.** Both were
+  published with none, so `installDevTools()`, `getSnapshot()`, `DevPanel`,
+  `connectDevToolsMCP()` and the Vite plugin were all implicit `any` — the Vite
+  plugin worst of all, since it goes in `vite.config.ts`.
+- **A published error-code reference**, generated from the catalogue:
+  [docs/ERRORS.md](docs/ERRORS.md) and `/docs/reference/errors` on the site. All
+  31 codes with severity, raising package, suggestion and worked example. Until
+  now the only way to read a code's fix was to call the `what_errors` MCP tool,
+  which means running the framework; pasting `ERR_ISR_VARY_UNRESOLVED` into a
+  search engine found nothing.
+- **`ERR_INVALID_HTML_NESTING`**, bringing the catalogue to 31.
+- **A differential fuzzer for the compiler's JSX lowering**
+  (`packages/compiler/test/lowering-parity-fuzz.test.js`). Compiled JSX must
+  render the same DOM as the `h()` tree it lowers to, before and after a signal
+  write, over 300 seeded random trees. The compiler's other tests are all
+  shape-by-shape and structurally blind to cases nobody thought to write.
+
+### Changed
+
+- **The type-parity gate now covers `.jsx` entry points.** It compiles them the
+  way the framework does rather than reporting them unimportable, so
+  `what-devtools/panel`'s new declarations are actually checked against its
+  runtime. 32 declaration files checked before, 33 now.
+- **`release-and-deploy` has no Depot counterpart, on purpose.** `secrets.NPM_TOKEN`
+  is a GitHub secret and npm provenance is minted from GitHub's OIDC issuer, so a
+  Depot run resolves the token to an empty string and fails at the publish step
+  after ten minutes of green gates. A test asserts the copy stays gone, and the
+  workflow gained a fail-fast preflight for the token.
+- **`check:error-docs`** joins CI and `release:verify`, so the published
+  reference cannot drift from the catalogue.
+
 ## [0.13.0] - 2026-08-25: the implementation gets checked
 
 Minor rather than patch for two reasons: there are new public exports

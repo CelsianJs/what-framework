@@ -218,6 +218,21 @@ export const save = action(async (data) => {
 { path: '/docs/:slug', mode: 'static', paths: () => slugs.map(slug => ({ slug })) }`,
   },
 
+  INVALID_HTML_NESTING: {
+    code: 'ERR_INVALID_HTML_NESTING',
+    severity: 'error',
+    template: '<{{parent}}> cannot contain <{{child}}>: the HTML parser closed the outer tag early, so the rendered tree does not match your JSX.',
+    suggestion: 'The compiler turns each element into an HTML template string, and the browser parses it under real HTML rules. Some nestings are not expressible: <p> may only hold phrasing content, <a> may not hold another <a>, and a table section may not hold arbitrary elements. The parser silently reorders them, which leaves compiled output walking a tree that no longer matches your source. Change the outer tag (usually <p> to <div>) or move the child out.',
+    codeExample: `// Bad — the parser closes <p> before <div>, producing four sibling nodes:
+<p>Intro<div>{body()}</div>Outro</p>
+
+// Good — a block container can hold block content:
+<div class="prose">Intro<div>{body()}</div>Outro</div>
+
+// Good — or keep the paragraph and use phrasing content:
+<p>Intro<span>{body()}</span>Outro</p>`,
+  },
+
   INVALID_SSR_TAG: {
     code: 'ERR_INVALID_SSR_TAG',
     severity: 'error',

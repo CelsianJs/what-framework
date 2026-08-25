@@ -282,3 +282,10 @@ types/        internal-only .d.ts, used by typecheck:src, never published
 `workflow_dispatch`, kept as a manual fallback if Depot is unavailable. They
 are not automatic, and they will drift: **change the Depot copy first, then
 mirror it.**
+
+**One exception: `release-and-deploy` runs on GitHub Actions and nowhere else.**
+It has no Depot counterpart. `secrets.NPM_TOKEN` is a GitHub repository secret,
+so a Depot run resolves it to an empty string and fails at the publish step, and
+npm provenance is minted from GitHub's OIDC issuer, so publishing from anywhere
+else drops it. The header of `.github/workflows/release-and-deploy.yml` carries
+the same warning and the dispatch command.

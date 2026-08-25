@@ -305,7 +305,13 @@ try {
   mkdirSync(consumerDir, { recursive: true });
 
   const tarballs = [];
-  for (const packageDir of ['packages/core', 'packages/router', 'packages/server']) {
+  for (const packageDir of [
+    'packages/core',
+    'packages/router',
+    'packages/server',
+    'packages/devtools',
+    'packages/devtools-mcp',
+  ]) {
     const output = execFileSync(
       'npm',
       ['pack', resolve(repoRoot, packageDir), '--pack-destination', tarballDir, '--silent'],
@@ -369,6 +375,32 @@ try {
       h('section', {}, h('h2', {}, title), children as VNodeChild);
     mount(h('main', {}, h(Card, { title: 'hi' }, 'body text')), 'body');
     mount(h(Fragment, {}, h('span', { id: 'a' }, 'x')), 'body');
+
+    // what-devtools and what-devtools-mcp shipped with no declarations at all
+    // through 0.13.0, so every one of these lines was an implicit \`any\` (or a
+    // hard error under \`noImplicitAny\`) for a TypeScript user. The vite plugin
+    // is the one that hurts most: it goes in vite.config.ts, which is the first
+    // TypeScript file in the project.
+    import { installDevTools, getSnapshot, type DevToolsSnapshot } from 'what-devtools';
+    import { DevPanel } from 'what-devtools/panel';
+    import { connectDevToolsMCP } from 'what-devtools-mcp/client';
+    import whatDevToolsMCP, { DISCOVERY_PATH } from 'what-devtools-mcp/vite';
+
+    installDevTools();
+    const snap: DevToolsSnapshot = getSnapshot({ includeInternal: true });
+    const firstSignalName: string | undefined = snap.signals[0]?.name;
+    void firstSignalName;
+    void DevPanel;
+
+    const conn = connectDevToolsMCP({ port: 9229, token: 't' });
+    const live: boolean = conn.isConnected;
+    conn.disconnect();
+    void live;
+
+    const plugins = [whatDevToolsMCP({ port: 9229 })];
+    const pluginName: string = plugins[0].name;
+    void pluginName;
+    void DISCOVERY_PATH;
   `);
 
   execFileSync(
@@ -384,7 +416,7 @@ try {
     ],
     { cwd: consumerDir, encoding: 'utf8' },
   );
-  console.log('[publish-surface] OK: packed what-router/what-server declarations typecheck in a clean consumer.');
+  console.log('[publish-surface] OK: packed what-router/what-server/what-devtools/what-devtools-mcp declarations typecheck in a clean consumer.');
 } finally {
   rmSync(packedTypesDir, { recursive: true, force: true });
 }

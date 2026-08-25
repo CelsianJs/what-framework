@@ -277,6 +277,12 @@ server, and the CLI.
 `packages/*/src` is catalogued, that codes are unique, and that every entry has
 a suggestion. It runs in CI.
 
+**4. `npm run docs:errors`** regenerates the published reference from the
+catalogue: [docs/ERRORS.md](docs/ERRORS.md) and the site page at
+`/docs/reference/errors`. Both are generated files, so edit the catalogue and
+re-run rather than editing them. `check:error-docs` fails CI when they drift,
+which is the only reason the two stay in step.
+
 ## Adding Guardrails
 
 Guardrails are dev-mode checks that catch common mistakes. They run only when `process.env.NODE_ENV !== 'production'`.
@@ -312,7 +318,17 @@ sets are not generated from each other and they will drift, so:
 > Change the Depot copy first, then mirror the change into the GitHub copy in
 > the same PR.
 
-The four workflows are `ci`, `size`, `benchmarks` and `release-and-deploy`.
+The three mirrored workflows are `ci`, `size` and `benchmarks`.
+
+**`release-and-deploy` is the exception: it lives only in `.github/workflows/`.**
+Publishing needs `secrets.NPM_TOKEN`, which is a GitHub repository secret, and
+npm provenance, which is minted from GitHub's OIDC issuer. A Depot copy fails at
+the publish step with "Missing npm auth" after running every gate. Release with:
+
+```bash
+gh workflow run release-and-deploy.yml --repo CelsianJs/what-framework \
+  --ref main -f publish_packages=true -f npm_tag=latest -f dry_run=false
+```
 
 ## Code of Conduct
 

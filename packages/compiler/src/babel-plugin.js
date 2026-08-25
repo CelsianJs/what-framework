@@ -1054,6 +1054,12 @@ export default function whatBabelPlugin({ types: t }) {
         } else {
           html += extractStaticHTML(child);
         }
+      } else if (t.isJSXFragment(child)) {
+        // One marker for the whole fragment: its children all insert before it,
+        // in order, which puts them exactly where the fragment sits. Without
+        // this a fragment child occupied no position at all, so its content was
+        // appended to the end of the parent instead of staying in place.
+        html += '<!--$-->';
       }
     }
 
@@ -1640,7 +1646,8 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       if (t.isJSXFragment(child)) {
-        entries.push({ type: 'fragment', child });
+        entries.push({ type: 'fragment', child, childIndex });
+        childIndex++;
       }
     }
 
@@ -1648,7 +1655,7 @@ export default function whatBabelPlugin({ types: t }) {
     // When there are multiple entries needing DOM refs and at least one _$insert(),
     // capture all markers upfront to avoid index shifting after DOM mutations.
     const entriesNeedingRef = entries.filter(e =>
-      e.type === 'expression' || e.type === 'component' ||
+      e.type === 'expression' || e.type === 'component' || e.type === 'fragment' ||
       (e.type === 'static' && e.hasAnythingDynamic)
     );
     // Pre-capture whenever 2+ children need a DOM ref. Beyond preventing index
@@ -1669,7 +1676,6 @@ export default function whatBabelPlugin({ types: t }) {
       let prevVar = null;
       let prevIndex = 0;
       for (const entry of entriesNeedingRef) {
-        // Only 'fragment' entries omit childIndex, and the filter above drops them.
         const idx = /** @type {number} */ (entry.childIndex);
         const markerVar = state.nextVarId();
         markerVars.set(idx, markerVar);
@@ -1832,31 +1838,94 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       if (entry.type === 'fragment') {
-        for (const fChild of entry.child.children) {
-          if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
-            state.needsInsert = true;
-            let expr = fChild.expression;
-            if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
-              expr = memoizeBranchCondition(expr, statements, state); // (C1)
-              statements.push(
-                t.expressionStatement(
-                  t.callExpression(t.identifier('_$insert'), [
-                    t.identifier(elId),
-                    t.arrowFunctionExpression([], expr)
-                  ])
-                )
-              );
-            } else {
-              statements.push(
-                t.expressionStatement(
-                  t.callExpression(t.identifier('_$insert'), [
-                    t.identifier(elId),
-                    expr
-                  ])
-                )
-              );
-            }
+        // A fragment child used to handle ONLY expression children, and to
+        // insert them with no anchor. Three things were wrong with that, all
+        // silent: text children were dropped, element children were dropped,
+        // and the expressions that did survive were appended to the end of the
+        // parent rather than placed where the fragment sits. So
+        // `<span><>a<b>c</b></>{x}</span>` rendered `<span>x</span>`.
+        //
+        // Every child now inserts before the fragment's own marker. Repeated
+        // insertBefore against one anchor appends in call order, so the
+        // fragment's children keep their order and the fragment keeps its place
+        // among its siblings.
+        //
+        // The marker is captured into a variable first. Each insert mutates the
+        // parent, so an inline `el.firstChild.nextSibling…` walk would resolve
+        // against a tree that the previous insert already shifted.
+        const idx = /** @type {number} */ (entry.childIndex);
+        let anchor = getMarker(idx);
+        if (!t.isIdentifier(anchor)) {
+          const anchorVar = state.nextVarId();
+          statements.push(
+            t.variableDeclaration('const', [
+              t.variableDeclarator(t.identifier(anchorVar), anchor)
+            ])
+          );
+          anchor = t.identifier(anchorVar);
+        }
+        emitFragmentInserts(statements, elId, entry.child, anchor, state);
+      }
+    }
+
+    // Insert one fragment's children into `elId`, each before `anchor`.
+    // Recursive, because `<><>a</>b</>` is a fragment whose child is a fragment
+    // and both belong at the same position in the parent.
+    function emitFragmentInserts(statements, elId, fragmentNode, anchor, state) {
+      for (const fChild of fragmentNode.children) {
+        if (t.isJSXText(fChild)) {
+          const text = normalizeJsxText(fChild.value);
+          if (!text) continue;
+          state.needsInsert = true;
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                t.stringLiteral(text),
+                anchor,
+              ])
+            )
+          );
+          continue;
+        }
+
+        if (t.isJSXFragment(fChild)) {
+          emitFragmentInserts(statements, elId, fChild, anchor, state);
+          continue;
+        }
+
+        if (t.isJSXElement(fChild)) {
+          state.needsInsert = true;
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                transformElementFineGrained({ node: fChild }, state),
+                anchor,
+              ])
+            )
+          );
+          continue;
+        }
+
+        if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
+          state.needsInsert = true;
+          let expr = fChild.expression;
+          // Unchanged from before this fix: a potentially reactive expression
+          // inside a fragment is wrapped in a thunk so insert() re-runs it.
+          if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
+            expr = memoizeBranchCondition(expr, statements, state); // (C1)
+            expr = t.arrowFunctionExpression([], expr);
           }
+          statements.push(
+            t.expressionStatement(
+              t.callExpression(t.identifier('_$insert'), [
+                t.identifier(elId),
+                expr,
+                anchor,
+              ])
+            )
+          );
         }
       }
     }
