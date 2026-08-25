@@ -10,12 +10,12 @@
     "export": "node export.js"
   },
   "dependencies": {
-    "what-framework": "0.13.3",
-    "what-isr": "0.13.3",
-    "what-server": "0.13.3"
+    "what-framework": "0.13.4",
+    "what-isr": "0.13.4",
+    "what-server": "0.13.4"
   },
   "devDependencies": {
-    "what-devtools": "0.13.3",
-    "what-devtools-mcp": "0.13.3"
+    "what-devtools": "0.13.4",
+    "what-devtools-mcp": "0.13.4"
   }
 }

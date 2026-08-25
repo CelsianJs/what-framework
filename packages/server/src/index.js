@@ -406,7 +406,15 @@ const MAX_RESOLVE_PASSES = 12;
 export async function renderToStringAsync(vnode, ctx) {
   if (!ctx) ctx = createRenderContext(undefined);
   let body = '';
+  // Every pass re-renders the same tree, so every pass must hand out the same
+  // resource keys. createResource names a keyless resource `__r${counter++}`
+  // off the render context; without restoring the counter, pass 1 asks for
+  // `__r1` where pass 0 stored `__r0`, finds nothing cached, and starts the
+  // fetch again. The loop then burns all twelve passes, pays for twelve
+  // sequential fetches, and returns the Suspense fallback as final HTML.
+  const counterAtStart = ctx.resourceCounter;
   for (let pass = 0; pass < MAX_RESOLVE_PASSES; pass++) {
+    ctx.resourceCounter = counterAtStart;
     body = runWithServerContext(ctx, () => renderToString(vnode));
     const pending = [...ctx.resources.values()]
       .filter((r) => r.status === 'pending')
@@ -546,7 +554,13 @@ export async function* renderToStream(vnode, ctx) {
   // enhancement.) The synchronous render runs inside the threaded ctx.
   if (vnode.tag === '__suspense') {
     let html = null;
+    // Restored, not zeroed: the counter is context-wide and earlier siblings
+    // have already taken keys from it. Resetting to zero would re-issue those
+    // keys inside this boundary and render a sibling's data here. See the note
+    // in renderToStringAsync for what the missing restore cost.
+    const counterAtStart = ctx.resourceCounter;
     for (let attempt = 0; attempt < MAX_RESOLVE_PASSES && html === null; attempt++) {
+      ctx.resourceCounter = counterAtStart;
       let suspended = null;
       try {
         html = runWithServerContext(ctx, () => (vnode.children || []).map(renderToString).join(''));

@@ -1,7 +1,7 @@
 {
   "name": "local-loop-validation",
   "private": true,
-  "version": "0.13.3",
+  "version": "0.13.4",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5499 --strictPort",
