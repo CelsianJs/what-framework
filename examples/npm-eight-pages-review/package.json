@@ -1,7 +1,7 @@
 {
   "name": "npm-eight-pages-review",
   "private": true,
-  "version": "0.13.1",
+  "version": "0.13.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,10 +10,10 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
-    "what-framework": "0.13.1"
+    "what-framework": "0.13.2"
   },
   "devDependencies": {
     "vite": "^6.0.0",
-    "what-compiler": "0.13.1"
+    "what-compiler": "0.13.2"
   }
 }

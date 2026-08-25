@@ -1,7 +1,7 @@
 {
   "name": "what-fw",
   "private": true,
-  "version": "0.13.1",
+  "version": "0.13.2",
   "type": "module",
   "description": "The web framework built for AI agents",
   "workspaces": [
@@ -53,7 +53,8 @@
     "smoke:clean": "node smoke/clean.mjs --kill",
     "smoke:ports": "node smoke/clean.mjs",
     "docs:errors": "node scripts/generate-error-docs.mjs",
-    "check:error-docs": "node scripts/generate-error-docs.mjs --check"
+    "check:error-docs": "node scripts/generate-error-docs.mjs --check",
+    "bench:record": "node benchmark/check-regressions.js --record"
   },
   "engines": {
     "node": ">=20"

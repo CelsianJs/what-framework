@@ -38,12 +38,27 @@ const domRounds = envNumber('WHAT_BENCH_DOM_ROUNDS', 21, { integer: true, min: 1
 
 // Core noise is one-sided: a descheduled process can only report fewer ops per
 // second, never more, so the best of N runs is the estimator, not the last one.
-const CORE_RUNS = 3;
+//
+// N=3 was too few to estimate that maximum. Sampling `batch() 100 writes,
+// 1 effect` 16 times on an idle M3 Max (2026-08-25) produced 510k-769k ops/s
+// for byte-identical code — a one-sided band of about ±13% around the median,
+// with its 678k threshold sitting in the upper third of it. Best-of-3 therefore
+// cleared the threshold on some invocations and missed it on others, and a gate
+// decided by scheduling luck is not measuring the code. Raising N tightens the
+// estimator; it does not lower the bar, which is still the recorded baseline.
+const CORE_RUNS = envNumber('WHAT_BENCH_CORE_RUNS', 6, { integer: true, min: 1 });
+
+// The DX suite has the same one-sided noise and was previously measured once
+// per attempt, so a single descheduled run failed the gate on its own.
+const DX_RUNS = envNumber('WHAT_BENCH_DX_RUNS', 6, { integer: true, min: 1 });
 
 // The DOM stage needs a Chromium and the krausest workspace's own install.
 // CI's bench-gate job provisions both; a job that does not can set this.
 // release:verify never sets it.
 const skipDom = process.env.WHAT_BENCH_SKIP_DOM === '1';
+
+// Re-record the core and DX baselines instead of checking against them.
+const RECORD = process.argv.includes('--record');
 
 // Guard only stable, release-critical operations.
 // Extremely fast micro-ops can vary significantly between runs.
@@ -76,8 +91,9 @@ const DOM_GUARD_OPS = new Set([
   'clear1k',
 ]);
 
-if (!existsSync(CORE_BASELINE) || !existsSync(DX_BASELINE) || (!skipDom && !existsSync(DOM_BASELINE))) {
+if (!RECORD && (!existsSync(CORE_BASELINE) || !existsSync(DX_BASELINE) || (!skipDom && !existsSync(DOM_BASELINE)))) {
   console.error('Missing benchmark baseline files in benchmark/baseline.');
+  console.error('  Fix: npm run bench:record (core and dx), or restore them from git.');
   process.exit(1);
 }
 
@@ -102,8 +118,8 @@ function toMap(report) {
 // The double-rAF timing floor makes a small absolute delta indistinguishable
 // from browser noise, so a DOM op is only failed on absolute movement as well
 // as percentage. The baseline records the floor it was measured with.
-const domNoiseFloorMs = skipDom ? 0 : Number(loadJson(DOM_BASELINE).noiseFloorMs);
-if (!Number.isFinite(domNoiseFloorMs)) {
+const domNoiseFloorMs = (skipDom || RECORD) ? 0 : Number(loadJson(DOM_BASELINE).noiseFloorMs);
+if (!RECORD && !Number.isFinite(domNoiseFloorMs)) {
   console.error(`Invalid noiseFloorMs in ${DOM_BASELINE}: ${JSON.stringify(loadJson(DOM_BASELINE).noiseFloorMs)}.`);
   console.error('  Fix: re-record the baseline so it carries the floor it was measured with.');
   console.error('  Example: npm run bench:dom');
@@ -147,17 +163,23 @@ function compareSet(name, baselinePath, currentPath, tolerance, guardOps, metric
   return failures;
 }
 
-// Run the core suite CORE_RUNS times and keep each op's best result.
-function runCoreBestOf(outPath) {
-  const runs = [];
-  for (let i = 0; i < CORE_RUNS; i++) {
+// Run an ops/sec suite `runs` times and keep each op's best result.
+//
+// Both the gate and `--record` go through this, which is the point: a baseline
+// recorded as a single draw from a one-sided noisy distribution and then
+// compared against a best-of-N draw is not comparing like with like. Whichever
+// estimator is used, both sides must use the same one, or the tolerance means
+// something different from what it says.
+function runBestOf(script, outPath, runs) {
+  const reports = [];
+  for (let i = 0; i < runs; i++) {
     const partPath = `${outPath}.${i}`;
-    execFileSync('node', ['benchmark/run.js', '--json', partPath], { stdio: 'inherit' });
-    runs.push(loadJson(partPath));
+    execFileSync('node', [script, '--json', partPath], { stdio: 'inherit' });
+    reports.push(loadJson(partPath));
   }
 
-  const best = runs[0];
-  const rest = runs.slice(1).map(toMap);
+  const best = reports[0];
+  const rest = reports.slice(1).map(toMap);
   for (const row of best.results || []) {
     for (const other of rest) {
       const alt = other.get(row.name);
@@ -168,6 +190,9 @@ function runCoreBestOf(outPath) {
   writeFileSync(outPath, JSON.stringify(best, null, 2) + '\n');
 }
 
+const runCoreBestOf = (outPath) => runBestOf('benchmark/run.js', outPath, CORE_RUNS);
+const runDxBestOf = (outPath) => runBestOf('benchmark/dx-microbench.js', outPath, DX_RUNS);
+
 function compareRun(corePath, dxPath, domPath) {
   return [
     ...compareSet('core', CORE_BASELINE, corePath, coreTolerance, CORE_GUARD_OPS),
@@ -176,12 +201,57 @@ function compareRun(corePath, dxPath, domPath) {
   ];
 }
 
+// `--record` regenerates the core and DX baselines with the gate's own
+// estimator. Recording and gating share runBestOf by construction, so a
+// baseline can no longer be a lucky single draw that silently eats the whole
+// tolerance. Only run it on a quiet machine, and only when you have separately
+// established there is no regression to enshrine.
+//
+// The DOM baseline is not recorded here: it is a `ms` metric produced by
+// dom-gate.mjs with its own round count and noise floor.
+if (RECORD) {
+  try {
+    console.log(`\nRecording core baseline (best of ${CORE_RUNS})...`);
+    runCoreBestOf(coreOut);
+    console.log(`Recording DX baseline (best of ${DX_RUNS})...`);
+    runDxBestOf(dxOut);
+
+    for (const [from, to, label, guard] of [
+      [coreOut, CORE_BASELINE, 'core', CORE_GUARD_OPS],
+      [dxOut, DX_BASELINE, 'dx', DX_GUARD_OPS],
+    ]) {
+      const report = loadJson(from);
+      report.recordedWith = { estimator: 'best-of-N', runs: label === 'core' ? CORE_RUNS : DX_RUNS };
+
+      // Print every guarded threshold's movement before overwriting. A recorder
+      // that silently replaces the numbers a gate depends on is a way to make a
+      // regression disappear without anyone reading a diff.
+      const previous = existsSync(to) ? toMap(loadJson(to)) : new Map();
+      console.log(`\n  ${label} guarded ops:`);
+      for (const row of report.results || []) {
+        if (!guard.has(row.name)) continue;
+        const was = previous.get(row.name);
+        const delta = was ? ((row.opsPerSec - was.opsPerSec) / was.opsPerSec) * 100 : null;
+        const arrow = delta === null ? '(new)' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
+        console.log(`    ${row.name}: ${was ? Math.round(was.opsPerSec) : '—'} -> ${Math.round(row.opsPerSec)} ops/s  ${arrow}`);
+      }
+
+      writeFileSync(to, JSON.stringify(report, null, 2) + '\n');
+      console.log(`  wrote ${to}`);
+    }
+    console.log('\nBaselines recorded. Commit them with the measurement that justified re-recording.');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  process.exit(0);
+}
+
 try {
   console.log(`\nRunning core benchmark (best of ${CORE_RUNS})...`);
   runCoreBestOf(coreOut);
 
-  console.log('Running DX microbenchmark...');
-  execFileSync('node', ['benchmark/dx-microbench.js', '--json', dxOut], { stdio: 'inherit' });
+  console.log(`Running DX microbenchmark (best of ${DX_RUNS})...`);
+  runDxBestOf(dxOut);
 
   if (skipDom) {
     console.log('Skipping DOM benchmark (WHAT_BENCH_SKIP_DOM=1).');
@@ -198,8 +268,8 @@ try {
     console.log(`\nRe-running core benchmark (best of ${CORE_RUNS})...`);
     runCoreBestOf(coreOutRetry);
 
-    console.log('Re-running DX microbenchmark...');
-    execFileSync('node', ['benchmark/dx-microbench.js', '--json', dxOutRetry], { stdio: 'inherit' });
+    console.log(`Re-running DX microbenchmark (best of ${DX_RUNS})...`);
+    runDxBestOf(dxOutRetry);
 
     if (!skipDom) {
       console.log('Re-running DOM benchmark...');
