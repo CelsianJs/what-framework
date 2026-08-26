@@ -15,8 +15,33 @@ Manual trigger inputs:
 3. `dry_run` (boolean)
 
 Web surfaces (docs-site, benchmarks, playground, react-compat) deploy through
-Vercel's Git integration on push — there is no CI deploy step. `scripts/deploy-vercel.mjs`
-remains available for local, token-in-hand deploys.
+Vercel's Git integration on push. There is no CI deploy step, and no
+`VERCEL_TOKEN` in this repo. `scripts/deploy-vercel.mjs` remains available for
+local, token-in-hand deploys.
+
+**The site builds race the publish, by design of that ordering.** `docs-site`,
+`sites/react-compat` and `sites/playground` pin an exact `what-*` version.
+Vercel starts building the moment the version-bump commit lands on `main`,
+which is before anyone dispatches this workflow and before anything is on npm,
+so `npm install` fails with `ETARGET` and those three checks go red on a commit
+that is perfectly fine. Every release did this.
+
+Their `vercel.json` now retries the install, and **only** on `ETARGET`: ten
+attempts, twenty seconds apart, so a build that starts inside that window heals
+itself. Any other install failure exits immediately, so a genuinely broken build
+still fails in seconds.
+
+If you edit that `installCommand`, keep it under **256 characters**. Vercel
+validates the `vercel.json` schema before it builds anything, and a longer value
+fails the deployment instantly with `installCommand should NOT be longer than
+256 characters`, which looks nothing like a build error and produces a zero-second
+build.
+
+That covers a prompt release. If the gap between merging the bump and
+dispatching the workflow is longer than a few minutes, those three builds still
+fail and need a redeploy after publish, from the Vercel dashboard or with
+`npm run deploy:vercel`. The lasting fix is to dispatch the release promptly
+after the bump lands.
 
 The workflow always runs every correctness gate from `release:verify` before
 publish/deploy, except `bench:gate`, which runs as a separate non-blocking step
