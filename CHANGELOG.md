@@ -2,6 +2,87 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+Five fixes to the **compiled** path, plus DOM parity between the three render
+paths. Every one was found by executing the compiler's output and comparing it
+against `h()` and against SSR, not by reading code, and none of them was visible
+to the 2,566 tests that were already green.
+
+### Fixed
+
+- **Compiled fragments rendered their slots in the wrong order** (#65). Fragment
+  lowering emitted one insert per slot against a shared parent, so a fragment
+  with three dynamic slots could realize them out of source order. The lowering
+  now emits one marker per slot and flattens children into the parent's entry
+  list, which is the same shape `h()` produces. Found by differential fuzzing
+  compiled JSX against `h()`: 1,417 of 2,000 randomly generated trees diverged
+  before the fix, 0 of 2,000 after.
+
+- **Compiled reactive regions leaked their effects** (#64). `insert()` anchored
+  its effect disposer on the parent rather than on the region's own marker, so
+  toggling a region on and off accumulated one live effect per cycle. Measured:
+  after 30 toggles a single signal write ran the inner thunk 31 times; it now
+  runs once.
+
+- **`hydrate()` could blank the page** (#64). Given DOM a component had already
+  built, the hydrate walk replaced the server's markup instead of claiming it.
+  It now claims and replaces under the cursor, and warns once per `hydrate()`
+  rather than once per node.
+
+- **Static attributes after a spread were applied in the wrong order** (#65).
+  `<div id="a" {...props} />` and `<div {...props} id="a" />` compiled to the
+  same thing. Static attributes from the first spread onward are now emitted as
+  ordered calls, so the last writer in source order wins.
+
+- **Accessor props were not auto-thunked** (#65). `{props.count()}` rendered once
+  and never updated, contradicting the documented behaviour. The auto-thunk now
+  widens to accessor calls and to a known set of pure built-in methods.
+
+- **Boolean `data-*` disagreed across all three paths** (#66). `data-open={true}`
+  produced `data-open="true"` from the compiler, `data-open=""` from `h()` and a
+  bare `data-open` from SSR. `data-*` is enumerated, not a genuine HTML boolean:
+  unlike `disabled`, `="false"` is a real value that CSS selectors and
+  `element.dataset` both read. All three now emit `="true"`. Genuine HTML
+  booleans, non-boolean `data-*` and nullish `data-*` are unchanged, each with
+  its own control test.
+
+- **`data-hk` outlived hydration** (#66). The server stamps it on component roots
+  so the client can correlate the trees, and the client never reads it: the prop
+  loop only skips the key. It was therefore left in the document forever, so a
+  hydrated page and a client-rendered page disagreed on every component root,
+  permanently. It is now stripped at the claim site, so only elements the walk
+  actually claimed lose it; an element the client declares empty is left alone,
+  because an island fills its host from the server markup still inside it and
+  hydrates that markup later.
+
+- **A reactive region removed the nodes it remembered, not the nodes it held**
+  (#68). A region recorded the nodes its value produced at mount and reused that
+  record as the removal set. That is sound for content the region built outright
+  and wrong for content that manages itself: a list and a nested region each own
+  an effect and go on replacing their own nodes. So hiding a conditional whose
+  list had grown stranded every row added since mount, and showing it again
+  rendered a second list beside the orphans, permanently. Broken on three paths
+  (compiled `insert()`, `h()` via `createDOM`, and `hydrateNode`), all three
+  fixed. **Not a regression** from the fragment work above: byte-identical at the
+  commit before it, and it reproduces with no fragment present at all.
+
+- **Component and island spreads ignored source order** (#69). An earlier spread
+  was dropped *entirely* rather than overridden, so `<Box {...a} mid="m" {...b} />`
+  emitted `Object.assign({}, b, {mid:"m"})` and every key in `a` vanished. That is
+  data loss, not just precedence. Props are now built as an ordered argument list
+  and merged left to right, which is what `h()` and the element path already did.
+  Islands additionally keep `component`, `mode` and `mediaQuery` last, so user
+  data written after a directive cannot reach the hydration machinery.
+
+### Known
+
+- Island attributes with hyphens emit invalid JavaScript: `<Chart client:load
+  data-x="1" />` compiles to `{data-x:"1"}`, a syntax error, because the island
+  branch does not test the attribute name the way the component branch does.
+- A component with a single spread and children mutates the caller's object:
+  `<Box {...cfg}>text</Box>` leaves `cfg` carrying `children`.
+
 ## [0.13.4] - 2026-08-25
 
 ### Fixed
