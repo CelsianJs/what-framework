@@ -2,6 +2,70 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+Three fixes to the **compiled** path, plus DOM parity between the three render
+paths. Every one was found by executing the compiler's output and comparing it
+against `h()` and against SSR, not by reading code, and none of them was visible
+to the 2,566 tests that were already green.
+
+### Fixed
+
+- **Compiled fragments rendered their slots in the wrong order** (#65). Fragment
+  lowering emitted one insert per slot against a shared parent, so a fragment
+  with three dynamic slots could realize them out of source order. The lowering
+  now emits one marker per slot and flattens children into the parent's entry
+  list, which is the same shape `h()` produces. Found by differential fuzzing
+  compiled JSX against `h()`: 1,417 of 2,000 randomly generated trees diverged
+  before the fix, 0 of 2,000 after.
+
+- **Compiled reactive regions leaked their effects** (#64). `insert()` anchored
+  its effect disposer on the parent rather than on the region's own marker, so
+  toggling a region on and off accumulated one live effect per cycle. Measured:
+  after 30 toggles a single signal write ran the inner thunk 31 times; it now
+  runs once.
+
+- **`hydrate()` could blank the page** (#64). Given DOM a component had already
+  built, the hydrate walk replaced the server's markup instead of claiming it.
+  It now claims and replaces under the cursor, and warns once per `hydrate()`
+  rather than once per node.
+
+- **Static attributes after a spread were applied in the wrong order** (#65).
+  `<div id="a" {...props} />` and `<div {...props} id="a" />` compiled to the
+  same thing. Static attributes from the first spread onward are now emitted as
+  ordered calls, so the last writer in source order wins.
+
+- **Accessor props were not auto-thunked** (#65). `{props.count()}` rendered once
+  and never updated, contradicting the documented behaviour. The auto-thunk now
+  widens to accessor calls and to a known set of pure built-in methods.
+
+- **Boolean `data-*` disagreed across all three paths** (#66). `data-open={true}`
+  produced `data-open="true"` from the compiler, `data-open=""` from `h()` and a
+  bare `data-open` from SSR. `data-*` is enumerated, not a genuine HTML boolean:
+  unlike `disabled`, `="false"` is a real value that CSS selectors and
+  `element.dataset` both read. All three now emit `="true"`. Genuine HTML
+  booleans, non-boolean `data-*` and nullish `data-*` are unchanged, each with
+  its own control test.
+
+- **`data-hk` outlived hydration** (#66). The server stamps it on component roots
+  so the client can correlate the trees, and the client never reads it: the prop
+  loop only skips the key. It was therefore left in the document forever, so a
+  hydrated page and a client-rendered page disagreed on every component root,
+  permanently. It is now stripped at the claim site, so only elements the walk
+  actually claimed lose it; an element the client declares empty is left alone,
+  because an island fills its host from the server markup still inside it and
+  hydrates that markup later.
+
+### Known
+
+- A fragment used as the value of a compiled conditional leaks list rows after a
+  keyed insert. Under investigation, including whether it is a regression from
+  the fragment lowering above.
+- Component spreads still ignore source order. `_$createComponent` emits
+  `Object.assign({}, lastSpread, allExplicit)`, so an earlier spread is dropped
+  and explicit props always win. Element spreads were fixed in #65; components
+  were not.
+
 ## [0.13.4] - 2026-08-25
 
 ### Fixed
