@@ -2097,39 +2097,62 @@ export default function whatBabelPlugin({ types: t }) {
       state.needsCreateComponent = true;
       state.needsIsland = true;
 
-      const islandProps = [
+      // The directive's own machinery, kept apart from user data because it is
+      // always applied LAST: `component` comes from the tag and `mode` from the
+      // directive, so nothing a caller spreads in can reach either one.
+      const directiveProps = [
         t.objectProperty(t.identifier('component'), componentRef),
         t.objectProperty(t.identifier('mode'), t.stringLiteral(clientDirective.type)),
       ];
 
       if (clientDirective.value) {
-        islandProps.push(
+        directiveProps.push(
           t.objectProperty(t.identifier('mediaQuery'), t.stringLiteral(clientDirective.value))
         );
       }
 
-      let islandSpread = null;
+      // User props in source order — same rule, and the same reasons, as the
+      // regular component path below. An island IS a component, so
+      // `<Chart client:load {...a} {...b} />` has to mean `{ ...a, ...b }` for
+      // exactly the reason `<Chart {...a} {...b} />` does.
+      const islandParts = [];
+      let islandUserProps = [];
+      const flushIslandUserProps = () => {
+        if (islandUserProps.length > 0) {
+          islandParts.push(t.objectExpression(islandUserProps));
+          islandUserProps = [];
+        }
+      };
+
       for (const attr of filteredAttrs) {
         if (t.isJSXSpreadAttribute(attr)) {
           // A spread used to be dropped on the floor here, so
           // `<Chart client:visible {...config} />` lost every prop in `config`.
-          islandSpread = attr.argument;
+          // Then only the LAST spread was kept, which lost every key an earlier
+          // spread carried and the last one did not.
+          flushIslandUserProps();
+          islandParts.push(attr.argument);
           continue;
         }
         const attrName = getAttrName(attr);
         if (attrName === 'key') continue;
         const value = getAttributeValue(attr.value);
-        islandProps.push(t.objectProperty(t.identifier(attrName), value));
+        islandUserProps.push(t.objectProperty(t.identifier(attrName), value));
       }
 
-      // Spread first, explicit attributes second, so a written-out prop wins over
-      // the same key coming from the spread (JSX evaluation order).
-      const islandPropsExpr = islandSpread
-        ? t.callExpression(
-            t.memberExpression(t.identifier('Object'), t.identifier('assign')),
-            [t.objectExpression([]), islandSpread, t.objectExpression(islandProps)]
-          )
-        : t.objectExpression(islandProps);
+      let islandPropsExpr;
+      if (islandParts.length === 0) {
+        // No spread anywhere: one object literal, directive keys written last so
+        // they still win. This is the shape nearly every island has, and keeping
+        // it a literal keeps the emitted output byte-identical to before.
+        islandPropsExpr = t.objectExpression([...islandUserProps, ...directiveProps]);
+      } else {
+        flushIslandUserProps();
+        islandPropsExpr = t.callExpression(
+          t.memberExpression(t.identifier('Object'), t.identifier('assign')),
+          [t.objectExpression([]), ...islandParts, t.objectExpression(directiveProps)]
+        );
+      }
 
       return t.callExpression(
         t.identifier('_$createComponent'),
@@ -2140,14 +2163,35 @@ export default function whatBabelPlugin({ types: t }) {
     // Regular component — use _$createComponent to instantiate, component runs once
     state.needsCreateComponent = true;
 
-    const props = [];
-    let hasSpread = false;
-    let spreadExpr = null;
+    // Props resolve in SOURCE order. `<Box a {...s} b />` is one spelling of
+    // `{ a, ...s, b }`, which is what h(), the JSX runtime, every other JSX
+    // toolchain, and (since #65) this compiler's own ELEMENT path all produce.
+    // `parts` is that argument list: runs of explicit attributes, separated by
+    // the spreads written between them.
+    //
+    // Keeping a single `spreadExpr` and appending every explicit prop last, the
+    // way this used to, got both halves wrong. `<Box {...a} {...b} />` kept only
+    // `b`, so every key `a` carried and `b` did not vanished completely — data
+    // loss, not merely precedence — and an attribute written BEFORE a spread
+    // beat it, which no other JSX implementation does.
+    //
+    // The merge is a shallow copy, deliberately: a prop is reactive here when
+    // its VALUE is an accessor, and Object.assign copies that function through
+    // untouched. Anything lazier would be wasted anyway, because createComponent
+    // (dom.js) copies props with Object.assign before the component sees them.
+    const parts = [];
+    let props = [];
+    const flushProps = () => {
+      if (props.length > 0) {
+        parts.push(t.objectExpression(props));
+        props = [];
+      }
+    };
 
     for (const attr of filteredAttrs) {
       if (t.isJSXSpreadAttribute(attr)) {
-        hasSpread = true;
-        spreadExpr = attr.argument;
+        flushProps();
+        parts.push(attr.argument);
         continue;
       }
 
@@ -2224,20 +2268,21 @@ export default function whatBabelPlugin({ types: t }) {
       );
     }
 
+    flushProps();
+
     let propsExpr;
-    if (hasSpread) {
-      if (props.length > 0) {
-        propsExpr = t.callExpression(
-          t.memberExpression(t.identifier('Object'), t.identifier('assign')),
-          [t.objectExpression([]), spreadExpr, t.objectExpression(props)]
-        );
-      } else {
-        propsExpr = spreadExpr;
-      }
-    } else if (props.length > 0) {
-      propsExpr = t.objectExpression(props);
-    } else {
+    if (parts.length === 0) {
       propsExpr = t.nullLiteral();
+    } else if (parts.length === 1) {
+      // Nothing to merge. A lone object literal already IS the props object, and
+      // a lone spread is handed straight through. Both emit exactly what they
+      // emitted before, so the no-spread and single-spread shapes cost nothing.
+      propsExpr = parts[0];
+    } else {
+      propsExpr = t.callExpression(
+        t.memberExpression(t.identifier('Object'), t.identifier('assign')),
+        [t.objectExpression([]), ...parts]
+      );
     }
 
     const childrenArg = transformComponentChildren();
