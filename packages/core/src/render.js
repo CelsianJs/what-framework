@@ -4,7 +4,7 @@
 
 import { effect, untrack, _createItemScope, signal, memo, __DEV__ } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { createDOM, disposeTree, getComponentStack, addHydrationDisposer, addHydratedComponent, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { createDOM, disposeTree, getComponentStack, addHydrationDisposer, addHydratedComponent, _liveRegionNodes, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
 import { _injectIslandRuntime, reportError } from './components.js';
 export { effect, untrack };
 // Re-export memo for compiled output (branch memoization: the compiler emits
@@ -474,7 +474,7 @@ function reconcileInsert(parent, value, current, marker) {
   const targetMarker = marker || null;
 
   if (value == null || typeof value === 'boolean') {
-    const oldNodes = asNodeArray(current);
+    const oldNodes = _liveRegionNodes(asNodeArray(current));
     for (let i = 0; i < oldNodes.length; i++) {
       const oldNode = oldNodes[i];
       if (oldNode.parentNode === parent) {
@@ -527,9 +527,14 @@ function reconcileInsert(parent, value, current, marker) {
 
   // Remove old nodes not in the new set. For small arrays (typical case),
   // linear scan is faster than Set allocation + hashing.
+  //
+  // The removal set is the LIVE one: an embedded list has been editing its own
+  // rows since this region recorded them, and the rows it added late are just as
+  // much this region's to remove as the ones it saw at mount.
+  const staleNodes = _liveRegionNodes(oldNodes);
   const newLen = newNodes.length;
-  for (let i = 0; i < oldNodes.length; i++) {
-    const oldNode = oldNodes[i];
+  for (let i = 0; i < staleNodes.length; i++) {
+    const oldNode = staleNodes[i];
     if (oldNode.parentNode !== parent) continue;
     let found = false;
     for (let j = 0; j < newLen; j++) {
@@ -2025,7 +2030,19 @@ function hydrateNode(vnode, parent) {
   if (typeof vnode === 'function' && vnode._mapArray) {
     const cursorInParent = !!(_hydrationCursor && _hydrationCursor.parent === parent);
     const anchor = cursorInParent ? (parent.childNodes[_hydrationCursor.index] || null) : null;
+    // Open the list with the same start marker the client path uses (createDOM
+    // in dom.js), and for the same reason. A region that embeds this list owns
+    // whatever sits between its own markers AT HYDRATION, and the list goes on
+    // adding rows afterwards. Without a bracket to walk, switching the region
+    // off removed the rows hydration had seen and stranded every later one; with
+    // it, _liveRegionNodes sweeps the list as it stands. The list already
+    // inserts an end marker the server never sent, so this is the same trade
+    // already being made, one node further left.
+    const startMarker = document.createComment('list');
+    parent.insertBefore(startMarker, anchor);
+    if (cursorInParent) _hydrationCursor.index++;
     const endMarker = vnode(parent, anchor);
+    /** @type {any} */ (startMarker)._rangeEnd = endMarker;
     if (cursorInParent) {
       const index = Array.prototype.indexOf.call(parent.childNodes, endMarker);
       if (index >= 0) _hydrationCursor.index = index + 1;
@@ -2142,6 +2159,10 @@ function hydrateNode(vnode, parent) {
     startMarker._dispose = disposeOnce;
     endMarker._dispose = disposeOnce;
     addHydrationDisposer(startMarker, disposeOnce);
+    // Pair the markers for an OUTER region's teardown, exactly as the client
+    // path does: this region replaces everything between them on every re-run,
+    // so a list of nodes taken from it goes stale the moment it does.
+    /** @type {any} */ (startMarker)._rangeEnd = endMarker;
     return current;
   }
 

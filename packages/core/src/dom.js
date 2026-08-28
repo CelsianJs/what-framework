@@ -198,6 +198,67 @@ export function disposeTree(node) {
   }
 }
 
+// --- _liveRegionNodes(tracked) ---
+//
+// The nodes a reactive region must remove, as the DOM stands NOW rather than as
+// it stood when the region last rendered.
+//
+// A region records what its value produced and reuses that record as the removal
+// set on its next run. For content the region built outright the record stays
+// true, because nothing else edits those nodes. Content that manages ITSELF is
+// not like that: a mapArray list and a nested reactive region both own an effect
+// and keep replacing their own nodes on their own schedule, so by the time the
+// outer region is torn down its record describes a shape that no longer exists.
+//
+// Removing only the recorded nodes therefore stranded everything the inner
+// effect had produced since:
+//
+//   {() => show() && <>{() => items().map(i => <li key={i}>{i}</li>)}<p>z</p></>}
+//
+// mounted with two items and grown to three, then switched off, removed the two
+// rows it had recorded and left the third in the DOM. Switching back on rendered
+// a full fresh list beside that orphan, and the orphan survived every later
+// cycle because it was never in any record.
+//
+// Self-managing content is bracketed by a start/end marker pair for exactly this
+// reason: `<!--list-->`/`<!--/list-->` around an embedded list, `<!--fn-->`/
+// `<!--/fn-->` around a nested region. Everything the inner effect ever inserts
+// lands between the pair, so walking the live range picks up what was added late
+// and passes over what has already gone. `_rangeEnd` on the start marker is the
+// pairing this reads.
+//
+// Only teardown calls this. A region's record stays exactly what it produced,
+// because that is also what decides whether anything changed and what gets
+// repositioned on a re-render, and an inner effect's nodes are its own business
+// in both of those.
+//
+// The walk appends the live range to the record rather than replacing it, so a
+// node still standing is named twice. That is deliberate: every caller already
+// skips a node whose parent is not the one it is clearing, so the second visit
+// costs a pointer compare, and both disposal routes are idempotent by design.
+// Deduplicating would mean a Set on a path that runs for every teardown, to
+// prevent nothing.
+export function _liveRegionNodes(tracked) {
+  let out = null;
+  for (const node of tracked) {
+    const end = /** @type {any} */ (node)._rangeEnd;
+    // Not a range start, or a range whose two ends have been separated by an
+    // earlier teardown: walking that would run past where the range closed and
+    // sweep up whatever comes after it. Two orphaned markers share a null parent
+    // and pass this test, but an orphan has no nextSibling, so the walk below is
+    // empty and the guard does not need to say so a second time.
+    if (!end || end.parentNode !== node.parentNode) continue;
+    if (!out) out = tracked.slice();
+    for (let n = node.nextSibling; n; n = n.nextSibling) {
+      out.push(n);
+      if (n === end) break;
+    }
+  }
+  // No range in the record — which is the overwhelmingly common case — means no
+  // allocation and the caller iterates exactly what it passed in.
+  return out || tracked;
+}
+
 // Mount a component tree into a DOM container
 export function mount(vnode, container) {
   if (typeof container === 'string') {
@@ -239,11 +300,32 @@ export function createDOM(vnode, parent, isSvg) {
   // function branch below would call vnode() with no parent and throw.
   if (typeof vnode === 'function' && vnode._mapArray) {
     const frag = document.createDocumentFragment();
-    const endMarker = document.createComment('/list-frag');
-    frag.appendChild(endMarker);
-    // The inserter inserts its content before `endMarker` within `frag`; once
-    // `frag` is appended to the real DOM the nodes (and endMarker) carry over.
-    vnode(frag, endMarker);
+    // Open the list with a start marker, the same bracket shape the reactive
+    // region below uses, and for the same reason: whoever embeds this fragment
+    // has to be able to find the list's content LATER, not just now.
+    //
+    // A list reached through here is embedded in some other region's value —
+    // `{cond && <>{items.map(...)}<p/></>}` and every variation of it. That
+    // region records the nodes it inserted and reuses the record as its removal
+    // set on the next run. The record is a snapshot, and the list is not
+    // snapshot-shaped: it owns an effect and goes on inserting and removing rows
+    // for as long as it is mounted. Rows appended after mount were absent from
+    // the record, so switching the region off removed the mount-time rows and
+    // orphaned the rest — and switching it back on rendered a second, complete
+    // list beside the orphans.
+    //
+    // Two markers describe a moving target that a list of nodes cannot:
+    // everything the list ever inserts lands between them, so reconcileInsert
+    // (render.js) can sweep the live range at teardown instead of trusting the
+    // snapshot. `_rangeEnd` is the pairing it reads.
+    const startMarker = document.createComment('list');
+    frag.appendChild(startMarker);
+    // Passing a null marker makes the inserter APPEND its own `/list` end marker
+    // to `frag` (insertBefore(node, null) is an append) and insert every row
+    // before it, so the list closes the range itself and no second bookend is
+    // needed. Once `frag` is appended to the real DOM the markers and the rows
+    // between them carry over together.
+    /** @type {any} */ (startMarker)._rangeEnd = vnode(frag, null);
     return frag;
   }
 
@@ -296,8 +378,11 @@ export function createDOM(vnode, parent, isSvg) {
       const realParent = endMarker.parentNode;
       if (!realParent) return; // not mounted yet — first run handled below
 
-      // Remove old nodes between markers
-      for (const old of currentNodes) {
+      // Remove old nodes between markers. The removal set is the LIVE one: a
+      // list or a nested region inside this one has been replacing its own
+      // nodes since they were recorded, and what it produced late is just as
+      // much this region's to remove as what it produced at mount.
+      for (const old of _liveRegionNodes(currentNodes)) {
         disposeTree(old);
         if (old.parentNode === realParent) realParent.removeChild(old);
       }
@@ -327,6 +412,11 @@ export function createDOM(vnode, parent, isSvg) {
     startMarker._dispose = dispose;
     // Also store dispose on endMarker so disposeTree can find it from either marker
     endMarker._dispose = dispose;
+    // This region manages itself, so an OUTER region that embeds it cannot
+    // describe it with a list of nodes: everything between the markers is
+    // replaced whenever this effect re-runs. Pairing them lets the outer
+    // teardown sweep the live range. See _liveRegionNodes.
+    /** @type {any} */ (startMarker)._rangeEnd = endMarker;
     return frag;
   }
 
