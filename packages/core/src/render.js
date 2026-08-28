@@ -189,6 +189,41 @@ export function svgTemplate(html) {
   return () => /** @type {Node} */ (/** @type {Node} */ (t.content.firstChild).firstChild).cloneNode(true);
 }
 
+// --- anchorDispose(anchor, dispose) ---
+//
+// Hang a reactive region's disposer on a DOM node so disposeTree can find it.
+// Teardown starts from the DOM: disposeTree walks a removed subtree and calls
+// `_dispose` on every node carrying one. A disposer that lives only in a closure
+// is unreachable, and the effect behind it runs for the life of the page.
+//
+// The h() path in dom.js already does this with the comment markers it creates.
+// insert() did not, so every region the COMPILER emits leaked: each toggle of a
+// conditional stranded one more live effect, and mount()'s own disposer could
+// not stop any of them.
+//
+// The anchor is the region's end marker (the compiler's `<!--$-->` hole) when
+// there is one, because it is the only node that lives exactly as long as the
+// region: the content around it is replaced on every update. Registering with
+// the owning component instead would miss the case that actually leaks, a region
+// switched off while its owner stays mounted. With no marker the region owns the
+// tail of `parent`, so `parent` is the nearest stable anchor there is.
+function anchorDispose(anchor, dispose) {
+  if (!anchor) return;
+  // A node can be reached by more than one teardown route, and every extra call
+  // reports another effect disposal to devtools. Same guard as the hydration
+  // region's, for the same reason.
+  let disposed = false;
+  const disposeOnce = () => {
+    if (disposed) return;
+    disposed = true;
+    dispose();
+  };
+  // Only the markerless form can collide: two regions appended to the same
+  // parent have nothing but the parent to share.
+  const previous = anchor._dispose;
+  anchor._dispose = previous ? () => { previous(); disposeOnce(); } : disposeOnce;
+}
+
 // --- insert(parent, child, marker?) ---
 // Reactive child insertion. Handles all child types:
 // - string/number → text node
@@ -232,7 +267,7 @@ export function insert(parent, child, marker) {
     // every `{() => ...}`, was not. So it was broken for exactly the users on
     // the recommended build setup.
     const owner = captureOwner();
-    effect(() => withOwner(owner, () => {
+    const dispose = effect(() => withOwner(owner, () => {
       const val = child();
       const vt = typeof val;
       if (!mounted) {
@@ -260,6 +295,7 @@ export function insert(parent, child, marker) {
       textNode = null;
       current = reconcileInsert(parent, val, current, m);
     }));
+    anchorDispose(m || parent, dispose);
     return current;
   }
 
@@ -544,7 +580,7 @@ export function mapArray(source, mapFn, options) {
     const endMarker = document.createComment('/list');
     parent.insertBefore(endMarker, marker || null);
 
-    effect(() => {
+    const dispose = effect(() => {
       const newItems = source() || [];
       // Resolve the LIVE parent from the end marker each run. When this inserter
       // is mounted at a fragment-as-root (`<>{items().map(...)}</>`), createDOM
@@ -561,6 +597,19 @@ export function mapArray(source, mapFn, options) {
       // Save a snapshot of items for next diff. Use slice() to defend against
       // in-place mutation, but skip for empty arrays (common clear case).
       items = newItems.length > 0 ? newItems.slice() : newItems;
+    });
+
+    // Same anchoring as insert(), and needed for the same reason: the list's own
+    // effect and its per-item scopes were only ever released by a reconcile, so a
+    // list that was removed WHOLESALE (a compiled `<For>` inside a branch that
+    // switched off) kept diffing an invisible list and kept every row's effects
+    // alive. The rows' own markers are disposed by the walk before it reaches
+    // this marker; the item scopes hold their onCleanup callbacks, so they are
+    // released here.
+    anchorDispose(endMarker, () => {
+      dispose();
+      for (let i = 0; i < disposeFns.length; i++) disposeFns[i]?.();
+      disposeFns.length = 0;
     });
 
     return endMarker;
@@ -1700,6 +1749,7 @@ export function isHydrating() {
  */
 export function hydrate(vnode, container) {
   _isHydrating = true;
+  _warnedAlreadyBuilt = false;
   // Restart the useId sequence so the client reproduces the server's ids rather
   // than continuing past them. The server allocates from a render-scoped counter
   // starting at 1; without this reset any client-side useId call made before
@@ -1832,9 +1882,14 @@ function peekNode(parent) {
  * once and then ignored the signal forever.
  */
 function insertAtCursor(parent, node) {
+  // A fragment contributes its CHILDREN, not itself, so the cursor has to step
+  // over however many nodes actually landed. Advancing by one would leave the
+  // rest of them in front of the cursor, where trimUnclaimed reads them as
+  // stranded server markup and deletes what was just inserted.
+  const landed = node.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */ ? node.childNodes.length : 1;
   if (_hydrationCursor && _hydrationCursor.parent === parent) {
     parent.insertBefore(node, parent.childNodes[_hydrationCursor.index] || null);
-    _hydrationCursor.index++;
+    _hydrationCursor.index += landed;
   } else {
     parent.appendChild(node);
   }
@@ -1850,6 +1905,24 @@ function insertAtCursor(parent, node) {
 // opts in with globalThis.__WHAT_DEV__.
 function isDevMode() {
   return __DEV__;
+}
+
+// One warning per hydrate() call, not one per node. A compiled tree reaches the
+// already-built branch for every element in it, and a hundred copies of the same
+// message buries the one thing the developer needs to read.
+let _warnedAlreadyBuilt = false;
+
+function warnAlreadyBuilt() {
+  if (!isDevMode() || _warnedAlreadyBuilt) return;
+  _warnedAlreadyBuilt = true;
+  console.warn(
+    '[what] hydrate() was given DOM that is already built, so the server\'s markup is being ' +
+    'REPLACED by a client render rather than adopted. This is what what-compiler emits: ' +
+    '`hydrate(<App />)` compiles to `hydrate(_$createComponent(App, ...))`, which runs the ' +
+    'component and builds its DOM before hydrate() ever sees it. Hydration needs an unbuilt ' +
+    'vnode tree, which is what h() returns, so the client entry has to reach hydrate() ' +
+    'uncompiled. The page below is correct and interactive; only the reuse is lost.'
+  );
 }
 
 function hydrateNode(vnode, parent) {
@@ -2324,8 +2397,37 @@ function hydrateNode(vnode, parent) {
     return newEl;
   }
 
-  // DOM node — use directly
+  // Already-built DOM node: there is nothing left to hydrate.
+  //
+  // Compiled JSX makes this the NATURAL spelling of a hydrate root. The compiler
+  // lowers `hydrate(<App />)` to `hydrate(_$createComponent(App, ...))`, which
+  // has already run the component and built its DOM by the time hydrate() sees
+  // it. Returning the node without inserting it claimed nothing, so the walk
+  // finished with the cursor still at zero and trimUnclaimed deleted every
+  // server child: a blank page, an inert button, and not one warning.
+  //
+  // The node cannot adopt the server's markup, because its bindings are already
+  // wired to itself, so a client render is the honest outcome. Inserting it at
+  // the cursor puts it ahead of the server's nodes and lets the walk's own trim
+  // clear them. The page is then correct and interactive; what is lost is the
+  // reuse, which is the entire point of hydrating, hence the warning.
+  //
+  // The one server node under the cursor is claimed and replaced rather than
+  // merely displaced, because <body> is the one container trimUnclaimed refuses
+  // to tidy (it also holds the scripts and the hydration payload). Without the
+  // claim, a compiled root hydrated into <body> rendered correctly and left the
+  // server's copy sitting underneath it, doubled.
   if (isDomNode(vnode)) {
+    warnAlreadyBuilt();
+    // Read the child count first: replaceChild empties a fragment.
+    const landed = vnode.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */ ? vnode.childNodes.length : 1;
+    const cursorInParent = !!(_hydrationCursor && _hydrationCursor.parent === parent);
+    const existing = cursorInParent ? claimNode(parent) : null;
+    if (!existing) return insertAtCursor(parent, vnode);
+    parent.replaceChild(vnode, existing);
+    // claimNode counted the one node it took; the rest of what landed in its
+    // place still has to be stepped over, or the trim deletes it.
+    _hydrationCursor.index += landed - 1;
     return vnode;
   }
 

@@ -14,6 +14,7 @@
 import { readFileSync, existsSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packagesDir = join(root, 'packages');
@@ -247,6 +248,57 @@ export async function checkParity() {
   return failures;
 }
 
+
+// --- Strict consumer probes ---
+//
+// Name parity is blind to SHAPE, and shape is where the SSR entry points broke:
+// `renderToString(vnode: VNode)` named a real export, matched the runtime
+// exactly, and was still a TS2345 for the docs' own first example, because
+// `VNode<P>` is effectively invariant in P. Nothing here compiled a line of
+// consumer code, so it could only be found by installing the packages.
+//
+// Each probe is real usage compiled the way a consumer's own tsc would compile
+// it. A diagnostic in one is a declaration the package cannot be used with.
+const CONSUMER_PROBES = ['scripts/types/fixtures/what-server-consumer.ts'];
+
+export async function checkConsumerProbes() {
+  const ts = createRequire(import.meta.url)('typescript');
+  const failures = [];
+
+  for (const relative of CONSUMER_PROBES) {
+    const file = join(root, relative);
+    const program = ts.createProgram([file], {
+      strict: true,
+      noEmit: true,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      // No ambient @types: a consumer's own project decides those, and pulling
+      // them in here would let a probe pass on a global it does not declare.
+      types: [],
+    });
+    const messages = ts.getPreEmitDiagnostics(program).map((d) => {
+      const where = d.file && d.start != null
+        ? `${d.file.fileName.slice(root.length + 1)}(${(() => {
+            const { line, character } = d.file.getLineAndCharacterOfPosition(d.start);
+            return `${line + 1},${character + 1}`;
+          })()})`
+        : relative;
+      return `${where}: error TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`;
+    });
+    if (messages.length) failures.push({ probe: relative, messages });
+  }
+
+  for (const f of failures) {
+    console.log(`FAIL  ${f.probe}`);
+    for (const m of f.messages) console.log(`        ${m}`);
+  }
+  console.log(`${CONSUMER_PROBES.length} consumer probe(s) checked, ${failures.length} problem(s).`);
+  return failures;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if ((await checkParity()).length) process.exit(1);
+  const parity = await checkParity();
+  const probes = await checkConsumerProbes();
+  if (parity.length || probes.length) process.exit(1);
 }
