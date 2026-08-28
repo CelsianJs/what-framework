@@ -41,6 +41,20 @@ const SAFE_GLOBAL_CALLS = new Set([
   'console', 'RegExp',
 ]);
 
+// Built-in prototype methods that convert or copy a value. A zero-argument call
+// is otherwise assumed to be a signal read (see isPotentiallyReactive); these
+// names are the ones JavaScript itself defines, so they never are, and they are
+// common enough in JSX that wrapping them would be pure cost.
+const PURE_BUILTIN_METHODS = new Set([
+  'toString', 'toLocaleString', 'valueOf', 'toJSON',
+  'toUpperCase', 'toLowerCase', 'toLocaleUpperCase', 'toLocaleLowerCase',
+  'trim', 'trimStart', 'trimEnd',
+  'toFixed', 'toPrecision', 'toExponential',
+  'toISOString', 'toUTCString', 'toDateString', 'toTimeString',
+  'toLocaleDateString', 'toLocaleTimeString',
+  'slice', 'reverse', 'sort', 'flat', 'concat', 'join',
+]);
+
 // Known signal-creating functions
 const SIGNAL_CREATORS = new Set([
   'useSignal', 'signal', 'computed', 'useComputed', 'useState', 'useReducer',
@@ -331,6 +345,27 @@ export default function whatBabelPlugin({ types: t }) {
     return attrName;
   }
 
+  // Is this attribute overwritten by a later one naming the same DOM property?
+  //
+  // `<div id={a} id="b"/>` is legal JSX and means id="b": the last writer of a
+  // name wins, exactly as it does in the object literal the h() spelling
+  // builds. The template could not express that, because a repeated attribute
+  // in an HTML string keeps the FIRST value and a dynamic attribute is applied
+  // after the template regardless of where it was written. Dropping the
+  // shadowed one leaves a single writer per name, so written order decides.
+  //
+  // A later SPREAD never shadows: it overrides only the names it actually
+  // carries, which is not knowable here and is handled by ordering instead.
+  function isShadowedAttr(attributes, index) {
+    const name = normalizeAttrName(getAttrName(attributes[index]));
+    for (let i = index + 1; i < attributes.length; i += 1) {
+      const later = attributes[i];
+      if (t.isJSXSpreadAttribute(later)) continue;
+      if (normalizeAttrName(getAttrName(later)) === name) return true;
+    }
+    return false;
+  }
+
   // Safely extract attribute name, handling JSXNamespacedName (e.g., client:idle, bind:value)
   function getAttrName(attr) {
     if (t.isJSXNamespacedName(attr.name)) {
@@ -520,6 +555,16 @@ export default function whatBabelPlugin({ types: t }) {
   // backward compat (used in collectSignalNames calls)". Nothing called it;
   // every call site uses collectSignalNamesFromScope directly.
 
+  // `x.toUpperCase()` and friends, listed in PURE_BUILTIN_METHODS. Only the method
+  // name is checked: whether the RECEIVER is reactive is decided separately, so
+  // `user().name.trim()` stays reactive through its object.
+  function isPureBuiltinMethodCall(expr) {
+    return t.isMemberExpression(expr.callee)
+      && !expr.callee.computed
+      && t.isIdentifier(expr.callee.property)
+      && PURE_BUILTIN_METHODS.has(expr.callee.property.name);
+  }
+
   // Check if a call expression is a safe (non-reactive) global call
   function isSafeGlobalCall(expr) {
     if (!t.isCallExpression(expr)) return false;
@@ -599,6 +644,17 @@ export default function whatBabelPlugin({ types: t }) {
       if (isSafeGlobalCall(expr)) {
         return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
       }
+      // Any other zero-argument call has the shape of an accessor read, so it
+      // is assumed to be one. `props.count()`, a plain parameter `count()` and
+      // `s()` from `const s = useThing()` are all opaque to the compiler: it
+      // knows only the names it watched being created. Assuming the narrow way
+      // round meant those three froze silently while the docs promised
+      // `{count()}` was reactive. Assuming this way round costs, when the call
+      // turns out to be constant, one effect that runs once and never again.
+      if (expr.arguments.length === 0 && !isPureBuiltinMethodCall(expr)) {
+        return true;
+      }
+
       // Unknown call — check if callee or args contain signal reads
       if (t.isIdentifier(expr.callee)) {
         // Could be a function that reads signals internally
@@ -983,6 +1039,37 @@ export default function whatBabelPlugin({ types: t }) {
     return t.isJSXExpressionContainer(attr.value);
   }
 
+  // The child slots a fragment contributes to its parent, flattened.
+  //
+  // A fragment renders no node of its own, so each of its children takes a
+  // sibling position in the parent exactly as if the fragment were not written.
+  // extractStaticHTML() and applyDynamicChildren() both read this list, so the
+  // markers baked into the template and the inserts emitted against them can
+  // never disagree about how many positions the fragment occupies.
+  //
+  // Nested fragments flatten too: `<><>a</>b</>` is two slots in the parent.
+  // Whitespace-only text and `{/* comment */}` contribute nothing, matching how
+  // the same children are treated directly under an element.
+  function fragmentSlots(fragmentNode, out = []) {
+    for (const child of fragmentNode.children) {
+      if (t.isJSXText(child)) {
+        const text = normalizeJsxText(child.value);
+        if (text) out.push({ kind: 'text', text });
+        continue;
+      }
+      if (t.isJSXFragment(child)) {
+        fragmentSlots(child, out);
+        continue;
+      }
+      if (t.isJSXExpressionContainer(child)) {
+        if (!t.isJSXEmptyExpression(child.expression)) out.push({ kind: 'expression', child });
+        continue;
+      }
+      if (t.isJSXElement(child)) out.push({ kind: 'element', child });
+    }
+    return out;
+  }
+
   // Extract static HTML from JSX element for template()
   function extractStaticHTML(node) {
     if (t.isJSXText(node)) {
@@ -1004,8 +1091,19 @@ export default function whatBabelPlugin({ types: t }) {
 
     let html = `<${tagName}`;
 
-    for (const attr of el.attributes) {
+    // A static attribute written AFTER a spread cannot be baked into the
+    // template. The template is applied first and the spread runs against the
+    // finished element, so baking would let the spread overwrite an attribute
+    // the author pinned after it: `<div {...{id:'a'}} id="b"/>` rendered id="a"
+    // while the h() spelling of the same tree renders id="b". Everything from
+    // the first spread onward is emitted as an ordered runtime set instead, in
+    // applyDynamicAttrs.
+    const firstSpread = el.attributes.findIndex(a => t.isJSXSpreadAttribute(a));
+
+    for (const [attrIndex, attr] of el.attributes.entries()) {
       if (t.isJSXSpreadAttribute(attr)) continue;
+      if (firstSpread !== -1 && attrIndex > firstSpread) continue;
+      if (isShadowedAttr(el.attributes, attrIndex)) continue;
       const name = getAttrName(attr);
       if (name === 'key') continue;
       // Case-insensitive: a static template is applied via innerHTML, so an
@@ -1055,11 +1153,14 @@ export default function whatBabelPlugin({ types: t }) {
           html += extractStaticHTML(child);
         }
       } else if (t.isJSXFragment(child)) {
-        // One marker for the whole fragment: its children all insert before it,
-        // in order, which puts them exactly where the fragment sits. Without
-        // this a fragment child occupied no position at all, so its content was
-        // appended to the end of the parent instead of staying in place.
-        html += '<!--$-->';
+        // One marker PER fragment slot, not one for the whole fragment. A
+        // fragment is not a DOM boundary, so its children are siblings of the
+        // fragment's siblings and each needs its own anchor to keep its place.
+        // With a single shared anchor the order held at mount and then broke on
+        // the first re-run: reconcileInsert re-places a reactive region before
+        // that anchor, which puts it after every sibling that had been inserted
+        // before the same anchor earlier.
+        html += '<!--$-->'.repeat(fragmentSlots(child).length);
       }
     }
 
@@ -1274,8 +1375,15 @@ export default function whatBabelPlugin({ types: t }) {
       );
     }
 
-    for (const attr of attributes) {
+    // Static attributes before the first spread are already in the template.
+    // Ones after it are not, because the template is applied before _$spread
+    // runs and would lose to it; they are set here instead, in source order, so
+    // the last write for a key wins exactly as it does in the h() call.
+    let seenSpread = false;
+
+    for (const [attrIndex, attr] of attributes.entries()) {
       if (t.isJSXSpreadAttribute(attr)) {
+        seenSpread = true;
         state.needsSpread = true;
         statements.push(
           t.expressionStatement(
@@ -1284,6 +1392,10 @@ export default function whatBabelPlugin({ types: t }) {
         );
         continue;
       }
+
+      // A later attribute of the same name is the only writer that matters.
+      // Emitting this one too would apply it after the template and let it win.
+      if (isShadowedAttr(attributes, attrIndex)) continue;
 
       const attrName = getAttrName(attr);
 
@@ -1484,6 +1596,19 @@ export default function whatBabelPlugin({ types: t }) {
           // Static expression (no signal calls) — set once
           statements.push(t.expressionStatement(buildSetPropCall(domName, expr)));
         }
+        continue;
+      }
+
+      // A literal attribute that follows a spread. Everything before the first
+      // spread is in the template; this one is not, so re-apply it here to
+      // restore the order the author wrote. A valueless attribute is `true` in
+      // JSX, which is what the h() spelling passes.
+      if (seenSpread) {
+        statements.push(
+          t.expressionStatement(
+            buildSetPropCall(normalizeAttrName(attrName), getAttributeValue(attr.value))
+          )
+        );
       }
     }
   }
@@ -1646,8 +1771,24 @@ export default function whatBabelPlugin({ types: t }) {
       }
 
       if (t.isJSXFragment(child)) {
-        entries.push({ type: 'fragment', child, childIndex });
-        childIndex++;
+        // Flattened: every slot the fragment contributes gets its own marker and
+        // its own entry, so it is handled exactly like a child written directly
+        // under this element. That is what keeps document order stable across
+        // re-runs, and it also means fragment children now get the treatments
+        // the old single-anchor branch reimplemented without: keyed .map()
+        // lowering, branch memoization and per-element dynamic attributes.
+        for (const slot of fragmentSlots(child)) {
+          if (slot.kind === 'text') {
+            entries.push({ type: 'fragmentText', text: slot.text, childIndex });
+          } else if (slot.kind === 'expression') {
+            entries.push({ type: 'expression', child: slot.child, childIndex });
+          } else {
+            // The template holds only a marker here, so the element is built at
+            // runtime and inserted before it, which is the 'component' slot shape.
+            entries.push({ type: 'component', child: slot.child, childIndex });
+          }
+          childIndex++;
+        }
       }
     }
 
@@ -1655,7 +1796,7 @@ export default function whatBabelPlugin({ types: t }) {
     // When there are multiple entries needing DOM refs and at least one _$insert(),
     // capture all markers upfront to avoid index shifting after DOM mutations.
     const entriesNeedingRef = entries.filter(e =>
-      e.type === 'expression' || e.type === 'component' || e.type === 'fragment' ||
+      e.type === 'expression' || e.type === 'component' || e.type === 'fragmentText' ||
       (e.type === 'static' && e.hasAnythingDynamic)
     );
     // Pre-capture whenever 2+ children need a DOM ref. Beyond preventing index
@@ -1837,96 +1978,18 @@ export default function whatBabelPlugin({ types: t }) {
         continue;
       }
 
-      if (entry.type === 'fragment') {
-        // A fragment child used to handle ONLY expression children, and to
-        // insert them with no anchor. Three things were wrong with that, all
-        // silent: text children were dropped, element children were dropped,
-        // and the expressions that did survive were appended to the end of the
-        // parent rather than placed where the fragment sits. So
-        // `<span><>a<b>c</b></>{x}</span>` rendered `<span>x</span>`.
-        //
-        // Every child now inserts before the fragment's own marker. Repeated
-        // insertBefore against one anchor appends in call order, so the
-        // fragment's children keep their order and the fragment keeps its place
-        // among its siblings.
-        //
-        // The marker is captured into a variable first. Each insert mutates the
-        // parent, so an inline `el.firstChild.nextSibling…` walk would resolve
-        // against a tree that the previous insert already shifted.
-        const idx = /** @type {number} */ (entry.childIndex);
-        let anchor = getMarker(idx);
-        if (!t.isIdentifier(anchor)) {
-          const anchorVar = state.nextVarId();
-          statements.push(
-            t.variableDeclaration('const', [
-              t.variableDeclarator(t.identifier(anchorVar), anchor)
+      if (entry.type === 'fragmentText') {
+        state.needsInsert = true;
+        statements.push(
+          t.expressionStatement(
+            t.callExpression(t.identifier('_$insert'), [
+              t.identifier(elId),
+              t.stringLiteral(entry.text),
+              getMarker(entry.childIndex),
             ])
-          );
-          anchor = t.identifier(anchorVar);
-        }
-        emitFragmentInserts(statements, elId, entry.child, anchor, state);
-      }
-    }
-
-    // Insert one fragment's children into `elId`, each before `anchor`.
-    // Recursive, because `<><>a</>b</>` is a fragment whose child is a fragment
-    // and both belong at the same position in the parent.
-    function emitFragmentInserts(statements, elId, fragmentNode, anchor, state) {
-      for (const fChild of fragmentNode.children) {
-        if (t.isJSXText(fChild)) {
-          const text = normalizeJsxText(fChild.value);
-          if (!text) continue;
-          state.needsInsert = true;
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                t.stringLiteral(text),
-                anchor,
-              ])
-            )
-          );
-          continue;
-        }
-
-        if (t.isJSXFragment(fChild)) {
-          emitFragmentInserts(statements, elId, fChild, anchor, state);
-          continue;
-        }
-
-        if (t.isJSXElement(fChild)) {
-          state.needsInsert = true;
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                transformElementFineGrained({ node: fChild }, state),
-                anchor,
-              ])
-            )
-          );
-          continue;
-        }
-
-        if (t.isJSXExpressionContainer(fChild) && !t.isJSXEmptyExpression(fChild.expression)) {
-          state.needsInsert = true;
-          let expr = fChild.expression;
-          // Unchanged from before this fix: a potentially reactive expression
-          // inside a fragment is wrapped in a thunk so insert() re-runs it.
-          if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
-            expr = memoizeBranchCondition(expr, statements, state); // (C1)
-            expr = t.arrowFunctionExpression([], expr);
-          }
-          statements.push(
-            t.expressionStatement(
-              t.callExpression(t.identifier('_$insert'), [
-                t.identifier(elId),
-                expr,
-                anchor,
-              ])
-            )
-          );
-        }
+          )
+        );
+        continue;
       }
     }
   }
