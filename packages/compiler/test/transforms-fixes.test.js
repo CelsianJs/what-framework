@@ -103,13 +103,19 @@ describe('<Show> transform', () => {
     assert.match(code, /const\s+_v\w*\s*=\s*enabled/);
   });
 
+  // A zero-argument call is now treated as a possible signal read, so both of
+  // these conditions route through the branch memo rather than being read raw.
+  // What each test is really pinning is that the condition is used AS WRITTEN,
+  // `isReady()` and not `isReady()()`, and that `_v` comes from it.
   it('supports call-expression `when`', () => {
     const code = compileJSX(`
       function App() {
         return <Show when={isReady()}>hello</Show>;
       }
     `);
-    assert.match(code, /const\s+_v\w*\s*=\s*isReady\(\)/);
+    assert.match(code, /_\$memo\(\(\) => !!isReady\(\)\)/);
+    assert.match(code, /const\s+_v\w*\s*=\s*_c\$\d+\(\)/);
+    assert.doesNotMatch(code, /isReady\(\)\s*\(/);
   });
 
   it('supports arrow-body `when`', () => {
@@ -118,7 +124,8 @@ describe('<Show> transform', () => {
         return <Show when={() => count() > 5}>hello</Show>;
       }
     `);
-    assert.match(code, /const\s+_v\w*\s*=\s*count\(\)\s*>\s*5/);
+    assert.match(code, /_\$memo\(\(\) => !!\(count\(\)\s*>\s*5\)\)/);
+    assert.match(code, /const\s+_v\w*\s*=\s*_c\$\d+\(\)/);
   });
 
   it('supports `fallback`', () => {

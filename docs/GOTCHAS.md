@@ -37,7 +37,18 @@ const count = useSignal(0);
 <p>{count}</p>
 ```
 
-The compiler automatically wraps `{count()}` into `() => count()`, making both forms equivalent. But `{count}` (without calling it) is never correct for displaying a signal's value.
+The compiler automatically wraps `{count()}` into `() => count()`, making both forms equivalent.
+
+The wrap does not depend on the compiler recognising `count` as a signal. Any call with no arguments is treated as a possible accessor read, so all of these stay reactive:
+
+```jsx
+<span>{props.count()}</span>       // read off props
+<span>{count()}</span>             // a plain function parameter
+<span>{s()}</span>                 // const s = useSomething()
+<span title={props.label()} />     // attributes too, not just children
+```
+
+Two things are deliberately left alone, because neither can be an accessor: built-in conversions (`date.toLocaleDateString()`, `name.toUpperCase()`) and calls that take arguments (`format(a, b)`). If one of those does read a signal internally, write the wrapper yourself: `{() => format(a, b)}`.
 
 ## 3. Don't Mutate Signal Values Directly
 
@@ -138,9 +149,9 @@ If you use either prop, do not rely on vnode children in the same element.
 
 Avoid repeated per-element JS hover/focus style mutation handlers. Use CSS pseudo-classes and classes instead.
 
-## 12. Imported Signals May Need Manual Reactive Wrapping
+## 12. A Signal Read Outside JSX Is Not Reactive
 
-When you pass a signal to a child component or import one from a module, reading it in JSX still requires the `() =>` wrapper for reactivity:
+A signal passed into a child component reads reactively in JSX, whether you write the wrapper or not (see section 2). What breaks reactivity is pulling the read out of the JSX into a plain variable, because the read then happens once, at component setup, with nothing watching it:
 
 ```jsx
 // parent.jsx
@@ -149,10 +160,11 @@ const count = useSignal(0);
 
 // child.jsx -- inside the component
 function Child({ count }) {
-  // correct -- reactive
+  // correct -- reactive, both spellings
+  return <p>{count()}</p>;
   return <p>{() => count()}</p>;
 
-  // wrong -- reads once, never updates
+  // wrong -- the read happened out here, once
   const val = count();
   return <p>{val}</p>;
 }

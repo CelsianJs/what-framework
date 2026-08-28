@@ -50,7 +50,10 @@ async function build(jsx, values = []) {
   const signals = values.map((v, i) => signal(v, `s${i}`));
   const el = mod.build(signals);
   flushSync();
-  return { el, signals, html: () => el.innerHTML.replaceAll('<!--$-->', '') };
+  // Every comment is compiler or runtime bookkeeping: the `<!--$-->` slot
+  // markers and the `<!--i-->`/`<!--/list-->` bookends mapArray keeps around
+  // its rows. What is asserted here is the visible markup and its order.
+  return { el, signals, html: () => el.innerHTML.replace(/<!--.*?-->/g, '') };
 }
 
 describe('a fragment as a child of an element', () => {
@@ -90,5 +93,78 @@ describe('a fragment as a child of an element', () => {
     signals[0]('two');
     flushSync();
     assert.equal(html(), '[two]');
+  });
+});
+
+// Mount order is not the whole contract. Every child of the fragment used to
+// insert before ONE shared marker, which holds order at mount and then loses it:
+// the first time a reactive region re-runs, reconcileInsert re-places its nodes
+// before that shared marker, landing them after every sibling already inserted
+// there. So the assertions below all pass at mount and only diverge after the
+// first write, which is why the mount-order tests above could not see this.
+describe('a fragment as a child of an element, after a region re-runs', () => {
+  it('keeps a keyed list ahead of the sibling written after it', async () => {
+    const { html, signals } = await build(
+      '<div><>{() => s[0]().map(i => <li key={i}>{i}</li>)}<p>footer</p></></div>',
+      [['a', 'b']],
+    );
+    assert.equal(html(), '<li>a</li><li>b</li><p>footer</p>');
+    signals[0](['a', 'b', 'c']);
+    flushSync();
+    assert.equal(html(), '<li>a</li><li>b</li><li>c</li><p>footer</p>');
+  });
+
+  it('keeps an unkeyed list ahead of the sibling written after it', async () => {
+    const { html, signals } = await build(
+      '<div><>{() => s[0]().map(i => <li>{i}</li>)}<p>footer</p></></div>',
+      [['a', 'b']],
+    );
+    assert.equal(html(), '<li>a</li><li>b</li><p>footer</p>');
+    signals[0](['a', 'b', 'c']);
+    flushSync();
+    assert.equal(html(), '<li>a</li><li>b</li><li>c</li><p>footer</p>');
+  });
+
+  // Element-to-element is the one arm swap that survived the shared anchor,
+  // because reconcileInsert swaps a single node for a single node in place and
+  // never consults the anchor. The arms below change the node COUNT or the
+  // value's type, which is what sends the region back to the anchor.
+  it('keeps a toggled ternary arm ahead of the sibling written after it', async () => {
+    const { html, signals } = await build(
+      '<div><>{() => s[0]() ? <b>on</b> : "off"}<u>tail</u></></div>',
+      [true],
+    );
+    assert.equal(html(), '<b>on</b><u>tail</u>');
+    signals[0](false);
+    flushSync();
+    assert.equal(html(), 'off<u>tail</u>');
+  });
+
+  it('keeps a toggled && arm ahead of the sibling written after it', async () => {
+    const { html, signals } = await build(
+      '<div><>{() => s[0]() && <b>on</b>}<u>tail</u></></div>',
+      [false],
+    );
+    assert.equal(html(), '<u>tail</u>');
+    signals[0](true);
+    flushSync();
+    assert.equal(html(), '<b>on</b><u>tail</u>');
+  });
+
+  // Both regions start on the text fast path, which updates a text node's data
+  // in place. Writing an array takes them off it and back through
+  // reconcileInsert, where the anchor decides where the nodes land.
+  it('keeps two reactive regions in the order they were written', async () => {
+    const { html, signals } = await build(
+      '<div><>{() => s[0]()}{() => s[1]()}</></div>',
+      ['first', 'second'],
+    );
+    assert.equal(html(), 'firstsecond');
+    signals[0](['a']);
+    flushSync();
+    assert.equal(html(), 'asecond');
+    signals[1](['b']);
+    flushSync();
+    assert.equal(html(), 'ab');
   });
 });
