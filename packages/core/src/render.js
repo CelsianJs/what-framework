@@ -23,17 +23,31 @@ export function _setTextInsertHook(fn) {
   _onTextInsert = typeof fn === 'function' ? fn : null;
 }
 
-// --- _$createComponent(Component, props, children) ---
-// Internal compiler target for component instantiation. The compiler emits calls
-// to this function instead of h() — keeping h() out of compiled output entirely.
-// Merges children into props and delegates to createDOM which calls createComponent.
+// --- _$componentVNode(Component, props, children) ---
+// The VNode half of _$createComponent: same argument protocol, stopping one step
+// short of building anything.
+//
+// It exists because hydrate() needs an UNBUILT tree and compiled JSX had no way
+// to spell one. A built node cannot adopt the server's markup — its bindings are
+// already wired to itself — so hydrateNode can only insert it and let the trim
+// delete what the server sent (see the isDomNode branch, and the warning above
+// it). `hydrate(<App />)`, the documented client entry, lowered to
+// _$createComponent and therefore threw the whole server render away on every
+// load. The compiler now emits this instead for the JSX handed straight to
+// hydrate(), and hydrateNode's component branch walks the result against the
+// server's DOM the same way it walks an h() tree.
+//
+// Only the hydrate root uses this. Everywhere else the built form is what the
+// caller asked for, and returning a VNode there would hand _$insert and the
+// element setup a shape they do not expect.
 
-export function _$createComponent(Component, props, children) {
+export function _$componentVNode(Component, props, children) {
   // Deferred children (compiled JSX): the compiler passes a zero-arg factory
   // when children contain elements, so their DOM is not built before this
   // component runs. Pass it along marked; createComponent decides how the
   // component sees it. h() and the JSX runtime pass arrays and take the path
-  // below unchanged.
+  // below unchanged. hydrateNode reads the same _$lazyChildren marker, so the
+  // protocol survives the unbuilt route intact.
   if (typeof children === 'function') {
     const lazy = () => {
       const kids = children();
@@ -42,7 +56,7 @@ export function _$createComponent(Component, props, children) {
     lazy._lazyChildren = true;
     if (!props) props = {};
     Object.defineProperty(props, '_$lazyChildren', { value: lazy, configurable: true });
-    return createDOM({ tag: Component, props, children: [], key: null, _vnode: true });
+    return { tag: Component, props, children: [], key: null, _vnode: true };
   }
   if (children && children.length > 0) {
     const mergedChildren = children.length === 1 ? children[0] : children;
@@ -54,8 +68,16 @@ export function _$createComponent(Component, props, children) {
       props = { children: mergedChildren };
     }
   }
-  // Build a VNode-like object and pass to createDOM which handles component execution
-  return createDOM({ tag: Component, props: props || {}, children: children || [], key: null, _vnode: true });
+  return { tag: Component, props: props || {}, children: children || [], key: null, _vnode: true };
+}
+
+// --- _$createComponent(Component, props, children) ---
+// Internal compiler target for component instantiation. The compiler emits calls
+// to this function instead of h() — keeping h() out of compiled output entirely.
+// Merges children into props and delegates to createDOM which calls createComponent.
+
+export function _$createComponent(Component, props, children) {
+  return createDOM(_$componentVNode(Component, props, children));
 }
 
 // --- template(html) ---
@@ -1915,6 +1937,13 @@ function isDevMode() {
 // One warning per hydrate() call, not one per node. A compiled tree reaches the
 // already-built branch for every element in it, and a hundred copies of the same
 // message buries the one thing the developer needs to read.
+//
+// The warning stays even though the compiler no longer causes it. It named one
+// cause and prescribed one cure, and both have changed: what-compiler now lowers
+// the JSX inside a hydrate() call to _$componentVNode, which is unbuilt. What is
+// left are the cases nothing can lower for the caller, and they are the ones a
+// developer has no other way to notice, because a client render of the same tree
+// produces identical markup.
 let _warnedAlreadyBuilt = false;
 
 function warnAlreadyBuilt() {
@@ -1922,11 +1951,13 @@ function warnAlreadyBuilt() {
   _warnedAlreadyBuilt = true;
   console.warn(
     '[what] hydrate() was given DOM that is already built, so the server\'s markup is being ' +
-    'REPLACED by a client render rather than adopted. This is what what-compiler emits: ' +
-    '`hydrate(<App />)` compiles to `hydrate(_$createComponent(App, ...))`, which runs the ' +
-    'component and builds its DOM before hydrate() ever sees it. Hydration needs an unbuilt ' +
-    'vnode tree, which is what h() returns, so the client entry has to reach hydrate() ' +
-    'uncompiled. The page below is correct and interactive; only the reuse is lost.'
+    'REPLACED by a client render rather than adopted. Hydration needs an unbuilt vnode tree, ' +
+    'which is what h() returns. what-compiler emits the unbuilt form for JSX written directly ' +
+    'inside a hydrate() call, so the remaining causes are: a tree built before the call ' +
+    '(`const tree = <App />; hydrate(tree, el)`), a component whose own body what-compiler ' +
+    'lowered (it returns a template clone, which is finished DOM, and cannot be rendered by ' +
+    'renderToString either), or a DOM node passed in by hand. The page below is correct and ' +
+    'interactive; only the reuse is lost.'
   );
 }
 
@@ -2433,10 +2464,14 @@ function hydrateNode(vnode, parent) {
 
   // Already-built DOM node: there is nothing left to hydrate.
   //
-  // Compiled JSX makes this the NATURAL spelling of a hydrate root. The compiler
-  // lowers `hydrate(<App />)` to `hydrate(_$createComponent(App, ...))`, which
-  // has already run the component and built its DOM by the time hydrate() sees
-  // it. Returning the node without inserting it claimed nothing, so the walk
+  // Compiled JSX used to make this the NATURAL spelling of a hydrate root, since
+  // `hydrate(<App />)` lowered to `hydrate(_$createComponent(App, ...))`, which
+  // had already run the component and built its DOM by the time hydrate() saw it.
+  // That call site now lowers to _$componentVNode instead, but the branch still
+  // has to hold: a compiled component BODY returns a template clone, and a caller
+  // can always hand over a node built earlier or by hand.
+  //
+  // Returning the node without inserting it claimed nothing, so the walk
   // finished with the cursor still at zero and trimUnclaimed deleted every
   // server child: a blank page, an inert button, and not one warning.
   //

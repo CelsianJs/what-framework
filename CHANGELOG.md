@@ -30,6 +30,31 @@ to the 2,566 tests that were already green.
   It now claims and replaces under the cursor, and warns once per `hydrate()`
   rather than once per node.
 
+- **Compiled JSX could not hydrate at all.** `hydrate(<App />, container)` is the
+  documented client entry and it lowered to
+  `hydrate(_$createComponent(App, ...), container)`, which runs the component and
+  builds its DOM before `hydrate()` is called. A built tree has its bindings
+  wired to its own nodes, so the walk could only insert it and let the trim
+  delete the server's markup: every compiled app that hydrated discarded its
+  whole server render. The warning above made that visible in development, and
+  warnings are stripped from production builds, so in production it was silent
+  and the resulting markup was byte-identical to a correct hydration.
+
+  JSX written directly inside a `hydrate()` call now lowers to `_$componentVNode`,
+  which is `_$createComponent` stopping one step short of building. The walk
+  reaches the server's nodes and claims them: proved by node identity, since
+  markup equality is exactly what a client render also satisfies. The callee is
+  resolved through Babel's scope, so an aliased or namespaced import is rewritten
+  and a local `hydrate` that shadows the import is not.
+
+  The root only. A host element lowers to a template clone, so `<App><p>hi</p></App>`
+  still builds the `<p>`. That bounds less than it appears: a component whose own
+  body the compiler lowered returns a template clone, and `renderToString` cannot
+  render one either, so it has no server markup to adopt. Components in a
+  hydrated tree are written with `h()` or the automatic JSX runtime, as the
+  fullstack scaffold and every smoke app already do; only the client entry needs
+  what-compiler.
+
 - **Static attributes after a spread were applied in the wrong order** (#65).
   `<div id="a" {...props} />` and `<div {...props} id="a" />` compiled to the
   same thing. Static attributes from the first spread onward are now emitted as

@@ -49,3 +49,10 @@ export function svgTemplate(html: string): () => Element;
  * the package a scaffolded app actually depends on.
  */
 export function _$createComponent(component: unknown, props?: unknown, ...args: unknown[]): unknown;
+
+/**
+ * @internal The unbuilt sibling of `_$createComponent`, emitted for the JSX
+ * passed directly to `hydrate()`. Returns the VNode instead of its DOM, because
+ * hydration can only adopt server markup with a tree that has not been built.
+ */
+export function _$componentVNode(component: unknown, props?: unknown, ...args: unknown[]): VNodeChild;
