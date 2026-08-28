@@ -241,7 +241,7 @@ export function disposeTree(node) {
 export function _liveRegionNodes(tracked) {
   let out = null;
   for (const node of tracked) {
-    const end = node._rangeEnd;
+    const end = /** @type {any} */ (node)._rangeEnd;
     // Not a range start, or a range whose two ends have been separated by an
     // earlier teardown: walking that would run past where the range closed and
     // sweep up whatever comes after it. Two orphaned markers share a null parent
@@ -325,7 +325,7 @@ export function createDOM(vnode, parent, isSvg) {
     // before it, so the list closes the range itself and no second bookend is
     // needed. Once `frag` is appended to the real DOM the markers and the rows
     // between them carry over together.
-    startMarker._rangeEnd = vnode(frag, null);
+    /** @type {any} */ (startMarker)._rangeEnd = vnode(frag, null);
     return frag;
   }
 
@@ -416,7 +416,7 @@ export function createDOM(vnode, parent, isSvg) {
     // describe it with a list of nodes: everything between the markers is
     // replaced whenever this effect re-runs. Pairing them lets the outer
     // teardown sweep the live range. See _liveRegionNodes.
-    startMarker._rangeEnd = endMarker;
+    /** @type {any} */ (startMarker)._rangeEnd = endMarker;
     return frag;
   }
 

@@ -2042,7 +2042,7 @@ function hydrateNode(vnode, parent) {
     parent.insertBefore(startMarker, anchor);
     if (cursorInParent) _hydrationCursor.index++;
     const endMarker = vnode(parent, anchor);
-    startMarker._rangeEnd = endMarker;
+    /** @type {any} */ (startMarker)._rangeEnd = endMarker;
     if (cursorInParent) {
       const index = Array.prototype.indexOf.call(parent.childNodes, endMarker);
       if (index >= 0) _hydrationCursor.index = index + 1;
@@ -2162,7 +2162,7 @@ function hydrateNode(vnode, parent) {
     // Pair the markers for an OUTER region's teardown, exactly as the client
     // path does: this region replaces everything between them on every re-run,
     // so a list of nodes taken from it goes stale the moment it does.
-    startMarker._rangeEnd = endMarker;
+    /** @type {any} */ (startMarker)._rangeEnd = endMarker;
     return current;
   }
 
