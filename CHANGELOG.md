@@ -4,7 +4,7 @@ All notable changes to What Framework will be documented in this file.
 
 ## [Unreleased]
 
-Three fixes to the **compiled** path, plus DOM parity between the three render
+Five fixes to the **compiled** path, plus DOM parity between the three render
 paths. Every one was found by executing the compiler's output and comparing it
 against `h()` and against SSR, not by reading code, and none of them was visible
 to the 2,566 tests that were already green.
@@ -56,15 +56,32 @@ to the 2,566 tests that were already green.
   because an island fills its host from the server markup still inside it and
   hydrates that markup later.
 
+- **A reactive region removed the nodes it remembered, not the nodes it held**
+  (#68). A region recorded the nodes its value produced at mount and reused that
+  record as the removal set. That is sound for content the region built outright
+  and wrong for content that manages itself: a list and a nested region each own
+  an effect and go on replacing their own nodes. So hiding a conditional whose
+  list had grown stranded every row added since mount, and showing it again
+  rendered a second list beside the orphans, permanently. Broken on three paths
+  (compiled `insert()`, `h()` via `createDOM`, and `hydrateNode`), all three
+  fixed. **Not a regression** from the fragment work above: byte-identical at the
+  commit before it, and it reproduces with no fragment present at all.
+
+- **Component and island spreads ignored source order** (#69). An earlier spread
+  was dropped *entirely* rather than overridden, so `<Box {...a} mid="m" {...b} />`
+  emitted `Object.assign({}, b, {mid:"m"})` and every key in `a` vanished. That is
+  data loss, not just precedence. Props are now built as an ordered argument list
+  and merged left to right, which is what `h()` and the element path already did.
+  Islands additionally keep `component`, `mode` and `mediaQuery` last, so user
+  data written after a directive cannot reach the hydration machinery.
+
 ### Known
 
-- A fragment used as the value of a compiled conditional leaks list rows after a
-  keyed insert. Under investigation, including whether it is a regression from
-  the fragment lowering above.
-- Component spreads still ignore source order. `_$createComponent` emits
-  `Object.assign({}, lastSpread, allExplicit)`, so an earlier spread is dropped
-  and explicit props always win. Element spreads were fixed in #65; components
-  were not.
+- Island attributes with hyphens emit invalid JavaScript: `<Chart client:load
+  data-x="1" />` compiles to `{data-x:"1"}`, a syntax error, because the island
+  branch does not test the attribute name the way the component branch does.
+- A component with a single spread and children mutates the caller's object:
+  `<Box {...cfg}>text</Box>` leaves `cfg` carrying `children`.
 
 ## [0.13.4] - 2026-08-25
 
