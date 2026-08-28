@@ -812,11 +812,12 @@ function renderAttrs(props) {
       // A resolved value that is itself a function is not an attribute value.
       if (typeof val === 'function') continue;
     }
-    // aria-*/role are enumerated, so `false` is a real value and must survive:
-    // an absent `aria-expanded` means "unsupported", `aria-expanded="false"`
-    // means "collapsed". Every other attribute keeps HTML boolean semantics,
+    // aria-*/role and data-* are enumerated, so `false` is a real value and must
+    // survive: an absent `aria-expanded` means "unsupported",
+    // `aria-expanded="false"` means "collapsed", and `[data-open="false"]` is an
+    // ordinary selector. Every other attribute keeps HTML boolean semantics,
     // where false means omit. Checked before the falsy skip for that reason.
-    if (val === false && _isAriaAttr(key)) {
+    if (val === false && (_isAriaAttr(key) || key.startsWith('data-'))) {
       out += ` ${key}="false"`;
       continue;
     }
@@ -842,8 +843,10 @@ function renderAttrs(props) {
         .join(';');
       out += ` style="${escapeHtml(css)}"`;
     } else if (val === true) {
-      // ARIA attributes require explicit ="true", HTML boolean attrs can be bare
-      if (key.startsWith('aria-') || key === 'role') {
+      // ARIA and data-* are enumerated and need an explicit ="true" so the
+      // markup matches what both client paths produce; genuine HTML boolean
+      // attributes can be bare.
+      if (key.startsWith('aria-') || key === 'role' || key.startsWith('data-')) {
         out += ` ${key}="true"`;
       } else {
         out += ` ${key}`;

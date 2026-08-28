@@ -2346,6 +2346,19 @@ function hydrateNode(vnode, parent) {
       // Match! Reuse this element. Apply props/bindings.
       hydrateElementProps(existing, vnode.props || {});
 
+      // The server's correlation marker has done its job: this element is
+      // claimed. Nothing on the client ever reads data-hk (the prop loop only
+      // skips it, and islands find themselves through data-island), so leaving
+      // it behind means a hydrated page keeps an attribute a client-rendered
+      // page never has, on every component root, forever.
+      //
+      // Stripping here rather than in a sweep over the container keeps the
+      // scope honest: only elements this walk actually claimed lose the
+      // marker. An element the client declares empty is left untouched below,
+      // because an island fills its host from the server markup still inside
+      // it and hydrates that markup later.
+      existing.removeAttribute('data-hk');
+
       // Hydrate children
       const savedCursor = _hydrationCursor;
       _hydrationCursor = { parent: existing, index: 0 };

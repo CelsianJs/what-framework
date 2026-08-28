@@ -1075,21 +1075,23 @@ function setProp(el, key, value, isSvg) {
   // aria-*/role BEFORE the boolean fast-path: these are enumerated string
   // attributes, so a boolean has to serialize as "true"/"false", never as HTML
   // boolean syntax. See _isAriaAttr.
-  if (_isAriaAttr(key)) {
+  // data-* joins aria-* here rather than falling through to the boolean branch
+  // below. Both are enumerated: `data-open="false"` is a distinct state from an
+  // absent `data-open`, and `[data-open="false"]` is an ordinary CSS selector,
+  // so collapsing false to "remove the attribute" throws information away.
+  // The compiled path in render.js has always stringified these, so keeping the
+  // generic boolean branch first is also what made an SSR page disagree with
+  // its own compiled client on hydration.
+  if (_isAriaAttr(key) || key.startsWith('data-')) {
     el.setAttribute(key, typeof value === 'boolean' ? String(value) : value);
     return;
   }
 
-  // Boolean attributes
+  // Boolean attributes. A genuine HTML boolean like `disabled` is present or
+  // absent; there is no `disabled="false"`.
   if (typeof value === 'boolean') {
     if (value) el.setAttribute(key, '');
     else el.removeAttribute(key);
-    return;
-  }
-
-  // data-*
-  if (key.startsWith('data-')) {
-    el.setAttribute(key, value);
     return;
   }
 
