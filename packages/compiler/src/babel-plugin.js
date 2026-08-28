@@ -374,6 +374,20 @@ export default function whatBabelPlugin({ types: t }) {
     return typeof attr.name.name === 'string' ? attr.name.name : String(attr.name.name);
   }
 
+  // The key half of a prop in an emitted object literal. A JSX attribute name is
+  // frequently NOT a valid JavaScript identifier — `data-x`, `aria-label` and
+  // every namespaced name contain characters an identifier cannot — so anything
+  // that does not match has to be quoted.
+  //
+  // Shared rather than inlined because babel's builders do not validate: handing
+  // t.identifier() a name with a dash produces `{data-x: "1"}` in the output and
+  // no error anywhere, so the mistake surfaces as a parse failure in generated
+  // code. Two call sites had their own copy of this test and one of them was
+  // missing it entirely.
+  function propKey(name) {
+    return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) ? t.identifier(name) : t.stringLiteral(name);
+  }
+
   // Handler-shaped attribute name, case-insensitive. Mirrors _isEventProp in
   // what-core's dom.js.
   function isEventAttrName(name) {
@@ -2065,7 +2079,17 @@ export default function whatBabelPlugin({ types: t }) {
         } else if (t.isJSXExpressionContainer(child)) {
           if (!t.isJSXEmptyExpression(child.expression)) {
             deferChildren = true;
-            transformedChildren.push(child.expression);
+            // The same lowering an element child and a fragment child get.
+            // Without it `<Box>{count()}</Box>` was evaluated once and never
+            // again, while `<div>{count()}</div>` right beside it stayed live —
+            // the auto-thunk docs/GOTCHAS.md section 2 promises for "any call
+            // with no arguments" reached every JSX position EXCEPT this one.
+            //
+            // Nothing about it is component-specific: a component's children
+            // are built into an array with no host element to _$insert into,
+            // which is exactly the situation lowerFragmentExprChild exists for,
+            // and it is where `.map()` picks up keyed reconciliation too.
+            transformedChildren.push(lowerFragmentExprChild(child.expression, state));
           }
         } else if (t.isJSXElement(child)) {
           // <For>/<Show>/<Switch> lower to an inserter or a thunk (already lazy).
@@ -2137,7 +2161,16 @@ export default function whatBabelPlugin({ types: t }) {
         const attrName = getAttrName(attr);
         if (attrName === 'key') continue;
         const value = getAttributeValue(attr.value);
-        islandUserProps.push(t.objectProperty(t.identifier(attrName), value));
+        // `data-x` and `aria-label` are not identifiers. Emitting one as a bare
+        // key produced `{data-x: "1"}`, which is a SYNTAX ERROR: babel does not
+        // validate what its builders are handed, so the compiler exited 0 and
+        // wrote a file that no parser would accept. `<Chart client:load
+        // aria-label="..." />` is an ordinary thing to write, and it took the
+        // whole build down with an error pointing at generated output.
+        //
+        // The regular component branch below has always tested the name first;
+        // this branch is the copy that did not.
+        islandUserProps.push(t.objectProperty(propKey(attrName), value));
       }
 
       let islandPropsExpr;
@@ -2258,14 +2291,7 @@ export default function whatBabelPlugin({ types: t }) {
 
       const value = getAttributeValue(attr.value);
 
-      props.push(
-        t.objectProperty(
-          /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(attrName)
-            ? t.identifier(attrName)
-            : t.stringLiteral(attrName),
-          value
-        )
-      );
+      props.push(t.objectProperty(propKey(attrName), value));
     }
 
     flushProps();
