@@ -9,6 +9,32 @@ import { h } from './h.js';
 // Minimal DOM implementation for Node.js
 let container = null;
 
+// Every tree render()/renderTest() mounted, so cleanup() can dispose it.
+//
+// mount() returns the only disposer a tree has, and render() dropped it on the
+// floor. cleanup() then cleared innerHTML and detached the container, which
+// removes NODES and touches not one effect: every page a suite mounted stayed
+// live for the rest of the process, still answering signal writes and still
+// running the intervals its onCleanup was supposed to clear. In a real suite
+// that showed up as a file that never finished and a worker pinned at 140% CPU,
+// which no per-test timeout can interrupt, and as tests that passed alone and
+// timed out together. No app could fix it from outside, because the disposer
+// render() threw away was the only handle that ever existed.
+const mountedTrees = new Set();
+
+// Idempotent and re-entrant: renderTest's own unmount() calls cleanup() at the
+// end, so a disposer that is still in the set when cleanup() runs must not fire
+// twice.
+function trackMount(dispose) {
+  const unmount = () => {
+    if (!mountedTrees.has(unmount)) return;
+    mountedTrees.delete(unmount);
+    dispose();
+  };
+  mountedTrees.add(unmount);
+  return unmount;
+}
+
 // --- Setup and Cleanup ---
 
 export function setupDOM() {
@@ -22,6 +48,9 @@ export function setupDOM() {
 }
 
 export function cleanup() {
+  for (const unmount of [...mountedTrees]) {
+    try { unmount(); } catch { /* already unmounted */ }
+  }
   if (container) {
     container.innerHTML = '';
     if (container.parentNode) {
@@ -41,7 +70,7 @@ export function render(vnode, options = {}) {
     throw new Error('No DOM container available. Are you running in Node.js without jsdom?');
   }
 
-  const unmount = mount(vnode, target);
+  const unmount = trackMount(mount(vnode, target));
 
   return {
     container: target,
@@ -80,7 +109,7 @@ export function renderTest(Component, props) {
   createRoot((dispose) => {
     rootDispose = dispose;
     const vnode = h(Component, props || {});
-    unmountFn = mount(vnode, target);
+    unmountFn = trackMount(mount(vnode, target));
   });
 
   return {

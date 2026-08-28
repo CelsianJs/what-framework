@@ -4,11 +4,19 @@ import { VNode, VNodeChild, Signal } from 'what-core';
 
 // --- SSR ---
 
+// Every entry point below takes `VNode<any>`, not `VNode`. The `any` is
+// load-bearing, and RouteDefinition.component further down carries the full
+// explanation: `VNode<P>` is effectively invariant in P, so `VNode<{ name: string }>`
+// (what `h(Greeting, { name: 'Alice' })` returns) is NOT assignable to bare
+// `VNode` = `VNode<Record<string, any>>`. Writing `VNode` here made the docs'
+// own first SSR example a TS2345 for every strict consumer. `mount`/`hydrate`
+// never had the problem because they take `VNodeChild`.
+
 /** Render VNode tree to HTML string */
-export function renderToString(vnode: VNode): string;
+export function renderToString(vnode: VNode<any>): string;
 
 /** Render VNode tree as async iterator for streaming */
-export function renderToStream(vnode: VNode): AsyncGenerator<string>;
+export function renderToStream(vnode: VNode<any>): AsyncGenerator<string>;
 
 export interface RenderRequestContext {
   params?: Record<string, string>;
@@ -26,7 +34,7 @@ export interface RenderRequestContext {
 
 /** Run a page module's loader, then render it. Returns the body, head and loader data. */
 export function renderPage(
-  pageModule: { default: (props: any) => VNode; loader?: (ctx: RenderRequestContext) => any } | ((props: any) => VNode),
+  pageModule: { default: (props: any) => VNode<any>; loader?: (ctx: RenderRequestContext) => any } | ((props: any) => VNode<any>),
   reqCtx?: RenderRequestContext,
 ): Promise<{ body: string; head: string; loaderData: any }>;
 
@@ -40,7 +48,7 @@ export interface PageConfig {
   /** Meta tags */
   meta?: Record<string, string>;
   /** Page component */
-  component: (data?: any) => VNode;
+  component: (data?: any) => VNode<any>;
   /** Islands to hydrate */
   islands?: string[];
   /** Scripts to load */
@@ -55,7 +63,7 @@ export function definePage(config: Partial<PageConfig>): PageConfig;
 export function generateStaticPage(page: PageConfig, data?: any): string;
 
 /** Mark component as server-only (no client JS) */
-export function server<P>(component: (props: P) => VNode): (props: P) => VNode;
+export function server<P>(component: (props: P) => VNode<any>): (props: P) => VNode<any>;
 
 // --- Islands ---
 //
@@ -193,17 +201,17 @@ export function getRegisteredActions(): string[];
  * Render with hydration markers (data-hk attributes and comment boundaries) so
  * the client can adopt the server DOM instead of recreating it.
  */
-export function renderToHydratableString(vnode: VNode): string;
+export function renderToHydratableString(vnode: VNode<any>): string;
 
 /** Render, and return the <head> tags collected during that render alongside the body. */
-export function renderToStringWithHead(vnode: VNode): { body: string; head: string };
+export function renderToStringWithHead(vnode: VNode<any>): { body: string; head: string };
 
 /**
  * Render, awaiting any suspended resources so their data is resolved in the
  * output. `resources` is the payload the client reuses so it does not refetch.
  */
 export function renderToStringAsync(
-  vnode: VNode,
+  vnode: VNode<any>,
   ctx?: unknown,
 ): Promise<{ body: string; head: string; resources: Record<string, unknown> }>;
 
@@ -229,7 +237,7 @@ export interface DocumentOptions {
  * component, collects head tags, and inlines the hydration payload.
  */
 export function renderDocument(
-  pageModule: { default: (props: any) => VNode; loader?: (ctx: RenderRequestContext) => any } | ((props: any) => VNode),
+  pageModule: { default: (props: any) => VNode<any>; loader?: (ctx: RenderRequestContext) => any } | ((props: any) => VNode<any>),
   reqCtx?: RenderRequestContext,
   options?: DocumentOptions,
 ): Promise<string>;

@@ -119,6 +119,12 @@ console.log(html);
 
           <p>To make that HTML interactive, the client calls <code>hydrate(vnode, container)</code> from <code>what-framework</code> with a tree that matches what the server rendered.</p>
 
+          <div class="callout callout-warning">
+            <p class="callout-title">The client hydration entry cannot go through what-compiler either</p>
+            <p><code>hydrate()</code> needs a tree it can still walk, so that it can match each vnode against the server's node and adopt it. what-compiler does not produce one: it lowers <code>hydrate(&lt;App /&gt;)</code> to <code>hydrate(_$createComponent(App, ...))</code>, which runs the component and builds its DOM before <code>hydrate()</code> is even called. There is nothing left to match, so <code>hydrate()</code> falls back to a client render of the container and warns in development. The page works, but the server's markup is thrown away and rebuilt, which is the one thing hydrating exists to avoid.</p>
+            <p>Write the client entry the same two ways the server views are written: with <code>h()</code>, which is what the <code>fullstack</code> scaffold does, or with the automatic JSX runtime (<code>jsxImportSource: "what-framework"</code>), which compiles JSX down to <code>h()</code> calls and hydrates normally. This applies to the whole hydrated tree, not only the root: a compiled child component hands <code>hydrate()</code> built DOM in exactly the same way.</p>
+          </div>
+
           <h2 id="render-to-stream">renderToStream</h2>
           <p>For large pages, streaming sends HTML to the browser as it is generated instead of waiting for the entire page to finish. <code>renderToStream</code> returns an async generator that yields HTML chunks:</p>
 

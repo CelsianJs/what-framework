@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import { readFileSync } from 'node:fs';
 
-import { checkParity, declaredValues } from '../../check-type-parity.mjs';
+import { checkParity, checkConsumerProbes, declaredValues } from '../../check-type-parity.mjs';
 
 test('no .d.ts declares an export the runtime does not provide, and nothing is silently skipped', async () => {
   const failures = await checkParity();
@@ -28,6 +28,22 @@ test('no .d.ts declares an export the runtime does not provide, and nothing is s
         if (f.undeclared?.length) parts.push(`exported but not declared: ${f.undeclared.join(', ')}`);
         return `${f.types}: ${parts.join(' | ')}`;
       })
+      .join('\n')}`,
+  );
+});
+
+test('a strict TypeScript consumer can actually call the declared APIs', async () => {
+  // Name parity is blind to SHAPE. `renderToString(vnode: VNode)` named a real
+  // export and matched the runtime exactly, and was still a TS2345 for the SSR
+  // guide's own first example, because `VNode<P>` is effectively invariant in P.
+  // Nothing compiled a line of consumer code, so it could only be found by
+  // installing the published packages.
+  const failures = await checkConsumerProbes();
+  assert.deepEqual(
+    failures,
+    [],
+    `strict consumer probes did not compile:\n${failures
+      .map((f) => `${f.probe}:\n  ${f.messages.join('\n  ')}`)
       .join('\n')}`,
   );
 });
