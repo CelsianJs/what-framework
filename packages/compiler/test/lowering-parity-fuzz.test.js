@@ -125,15 +125,12 @@ function makeGenerator(seed) {
 // the reason `entries` is a list rather than one name.
 //
 // Every spread SOURCE is an inline object literal, so each one is a fresh object
-// per evaluation. That is deliberate, and it excludes a divergence that is real:
-// `_$createComponent` sets `props.children` on the object it was handed, and for
-// a lone spread the object it was handed is the CALLER'S, so
-// `<Box {...cfg}>text</Box>` leaves `cfg` as `{ a: 1, children: 'text' }`. Point
-// the same variable at two call sites and the second inherits the first's
-// children. Naming the sources instead of inlining them would generate that,
-// but the fix belongs to packages/core/src/render.js and is out of this file's
-// reach; until it lands, generating aliased sources would report a runtime bug
-// as a lowering divergence on every tree that used one.
+// per evaluation. Aliased sources (`const cfg = { a: 1 }; <Box {...cfg}>`) are
+// a different bug class: `_$createComponent` used to write `children` onto the
+// object it was handed. That is fixed in packages/core/src/render.js (copy
+// before attach) and in this compiler (a lone non-literal spread is
+// Object.assign'd). The fuzzer still inlines so a lowering divergence cannot
+// be a props-identity accident.
 function makePropItems(gen, signalCount) {
   const { pick, int, rnd } = gen;
   const items = [];

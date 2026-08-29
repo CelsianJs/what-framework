@@ -289,3 +289,172 @@ describe('component spread lowering shape', () => {
     assert.ok(iA < iMid && iMid < iB, `arguments must follow source order, got:\n${code}`);
   });
 });
+
+describe('component spread does not mutate the caller object', () => {
+  // `_$createComponent` used to write `children` (and `_$lazyChildren`) onto
+  // the props object it was handed. A lone spread is that object, so two
+  // `<Box {...reused}>` sites shared one identity: the first call's children
+  // leaked into the second, and the caller's own object gained keys it never
+  // wrote. Assertions here are on what Box receives and what the DOM shows.
+
+  it('two sites sharing one spread object do not leak children into each other', async () => {
+    const mod = await compileAndLoad(`
+      export const reused = { class: 'b' };
+      export const seen = [];
+      function Box(props) {
+        seen.push({
+          class: props.class,
+          hasChildren: 'children' in props,
+          children: props.children,
+        });
+        return <span>{props.children}</span>;
+      }
+      export function App() {
+        return <div><Box {...reused}>FIRST</Box><Box {...reused}/></div>;
+      }
+    `);
+    const before = Object.getOwnPropertyNames(mod.reused).slice();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    try {
+      host.appendChild(mod.App());
+      flushSync();
+      assert.equal(mod.seen.length, 2);
+      assert.equal(mod.seen[0].class, 'b');
+      assert.equal(mod.seen[0].children, 'FIRST', 'first Box receives its own children');
+      assert.equal(mod.seen[1].class, 'b');
+      assert.equal(mod.seen[1].hasChildren, false, 'second Box has no children in source');
+      assert.equal(mod.seen[1].children, undefined);
+      const spans = [...host.querySelectorAll('span')];
+      assert.equal(spans.length, 2);
+      assert.equal(spans[0].textContent, 'FIRST');
+      assert.equal(spans[1].textContent, '', 'second Box must not render the first Box\'s children');
+      assert.deepEqual(Object.getOwnPropertyNames(mod.reused), before);
+      assert.ok(!('children' in mod.reused), 'caller object must not gain a children key');
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('a reused spread with element children does not stamp lazy children on the caller', async () => {
+    const mod = await compileAndLoad(`
+      export const reused = { class: 'b' };
+      export const seen = [];
+      function Box(props) {
+        seen.push({
+          hasChildren: 'children' in props,
+          childTag: props.children && props.children.tagName,
+        });
+        return <span>{props.children}</span>;
+      }
+      export function App() {
+        return <div><Box {...reused}><i>FIRST</i></Box><Box {...reused}/></div>;
+      }
+    `);
+    const before = Object.getOwnPropertyNames(mod.reused).slice();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    try {
+      host.appendChild(mod.App());
+      flushSync();
+      assert.equal(mod.seen[0].hasChildren, true);
+      assert.equal(mod.seen[0].childTag, 'I');
+      assert.equal(mod.seen[1].hasChildren, false, 'second Box has no children in source');
+      const spans = [...host.querySelectorAll('span')];
+      assert.equal(spans[0].textContent, 'FIRST');
+      assert.equal(spans[1].textContent, '', 'second Box must not inherit the first Box\'s element children');
+      assert.deepEqual(Object.getOwnPropertyNames(mod.reused), before);
+      assert.ok(!('_$lazyChildren' in mod.reused));
+      assert.ok(!('children' in mod.reused));
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('a single spread with no children still delivers every key and leaves the source untouched', async () => {
+    const mod = await compileAndLoad(`
+      export const src = { a: 1, b: 2 };
+      export const seen = [];
+      function Box(props) {
+        seen.push({ a: props.a, b: props.b, hasChildren: 'children' in props });
+        return <i />;
+      }
+      export function App() { return <Box {...src} />; }
+    `);
+    const before = Object.getOwnPropertyNames(mod.src).slice();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    try {
+      host.appendChild(mod.App());
+      flushSync();
+      assert.equal(mod.seen.length, 1);
+      assert.equal(mod.seen[0].a, 1);
+      assert.equal(mod.seen[0].b, 2);
+      assert.equal(mod.seen[0].hasChildren, false);
+      assert.deepEqual(Object.getOwnPropertyNames(mod.src), before);
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('two spreads still merge in source order without mutating either source', async () => {
+    const mod = await compileAndLoad(`
+      export const a = { label: 'one', extra: 'x' };
+      export const b = { label: 'two' };
+      export const seen = [];
+      function Box(props) {
+        seen.push({ label: props.label, extra: props.extra, hasChildren: 'children' in props });
+        return <b>{props.label}</b>;
+      }
+      export function App() { return <Box {...a} {...b} />; }
+    `);
+    const beforeA = Object.getOwnPropertyNames(mod.a).slice();
+    const beforeB = Object.getOwnPropertyNames(mod.b).slice();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    try {
+      host.appendChild(mod.App());
+      flushSync();
+      assert.equal(mod.seen[0].label, 'two', 'the later spread wins on a shared key');
+      assert.equal(mod.seen[0].extra, 'x', 'a key only the earlier spread carries must survive');
+      assert.equal(mod.seen[0].hasChildren, false);
+      assert.equal(host.textContent, 'two');
+      assert.deepEqual(Object.getOwnPropertyNames(mod.a), beforeA);
+      assert.deepEqual(Object.getOwnPropertyNames(mod.b), beforeB);
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('an accessor on a reused spread with children stays reactive through the copy', async () => {
+    const mod = await compileAndLoad(`
+      import { signal } from 'what-framework';
+      export const s = signal('before');
+      export const spread = { label: () => s() };
+      function Box(props) { return <b>{() => props.label()}</b>; }
+      export function App() {
+        return <div><Box {...spread}>kid</Box><Box {...spread}/></div>;
+      }
+    `);
+    const before = Object.getOwnPropertyNames(mod.spread).slice();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    try {
+      host.appendChild(mod.App());
+      flushSync();
+      const texts = [...host.querySelectorAll('b')].map((el) => el.textContent);
+      assert.deepEqual(texts, ['before', 'before']);
+      mod.s('after');
+      flushSync();
+      assert.deepEqual(
+        [...host.querySelectorAll('b')].map((el) => el.textContent),
+        ['after', 'after'],
+        'the merge must copy the accessor, not call it'
+      );
+      assert.deepEqual(Object.getOwnPropertyNames(mod.spread), before);
+      assert.equal(typeof mod.spread.label, 'function');
+    } finally {
+      host.remove();
+    }
+  });
+});

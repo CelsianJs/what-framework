@@ -2293,8 +2293,10 @@ export default function whatBabelPlugin({ types: t }) {
     //
     // The merge is a shallow copy, deliberately: a prop is reactive here when
     // its VALUE is an accessor, and Object.assign copies that function through
-    // untouched. Anything lazier would be wasted anyway, because createComponent
-    // (dom.js) copies props with Object.assign before the component sees them.
+    // untouched. A lone non-literal spread is copied too, the same
+    // Object.assign path a multi-prop merge already used, so two
+    // `<Box {...reused}>` sites do not share one identity. createComponent
+    // (dom.js) copies again before the component sees the props.
     const parts = [];
     let props = [];
     const flushProps = () => {
@@ -2382,10 +2384,10 @@ export default function whatBabelPlugin({ types: t }) {
     let propsExpr;
     if (parts.length === 0) {
       propsExpr = t.nullLiteral();
-    } else if (parts.length === 1) {
-      // Nothing to merge. A lone object literal already IS the props object, and
-      // a lone spread is handed straight through. Both emit exactly what they
-      // emitted before, so the no-spread and single-spread shapes cost nothing.
+    } else if (parts.length === 1 && t.isObjectExpression(parts[0])) {
+      // A lone object literal (no spread, or an inline `{...}`) is already a
+      // fresh props object. A lone identifier/member/call spread is the
+      // CALLER'S object and must go through the copy below.
       propsExpr = parts[0];
     } else {
       propsExpr = t.callExpression(
