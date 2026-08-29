@@ -27,4 +27,7 @@ export {
   effect,
   untrack,
   _$createComponent,
+  // The unbuilt sibling of _$createComponent. Emitted for the JSX handed
+  // straight to hydrate(), which needs a VNode rather than finished DOM.
+  _$componentVNode,
 } from 'what-core/render';

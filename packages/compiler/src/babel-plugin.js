@@ -71,6 +71,17 @@ const SERVER_ACTION_SOURCES = new Set([
   'what-server/actions',
 ]);
 
+// A bare specifier that resolves to this framework, entry point included:
+// 'what-framework', 'what-framework/render', 'what-core', 'what-core/render'.
+// Used to decide whether an imported binding is provably ours before the plugin
+// changes how a call to it is compiled.
+function isWhatModuleSource(source) {
+  return source === 'what-framework'
+    || source.startsWith('what-framework/')
+    || source === 'what-core'
+    || source.startsWith('what-core/');
+}
+
 function stableActionHash(value) {
   let hash = 0xcbf29ce484222325n;
   for (let i = 0; i < value.length; i++) {
@@ -254,6 +265,67 @@ export default function whatBabelPlugin({ types: t }) {
   function hasLiteralMatchArms(node) {
     return node.children.some((child) =>
       t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }));
+  }
+
+  // --- The JSX handed straight to hydrate() ---
+  //
+  // hydrate() can only adopt the server's markup from an UNBUILT tree: a node
+  // that has already been built has its bindings wired to itself, so hydrateNode
+  // inserts it and lets the trim delete everything the server sent. The
+  // documented client entry, `hydrate(<App />, el)`, lowered to
+  // `_$createComponent(App, ...)`, which runs App and builds its DOM before
+  // hydrate() is even called — so every compiled app that hydrated threw its
+  // server render away and re-rendered from scratch, silently in production
+  // where the warning is stripped.
+  //
+  // Only the first argument is the tree; the second is the container. And only a
+  // binding that provably resolves to OUR hydrate qualifies, because rewriting a
+  // call to somebody else's `hydrate` would change what their code means.
+  function isHydrateRootArgument(path) {
+    // transformElementFineGrained is also called with a bare `{ node }` stand-in
+    // when it recurses into children, and a child is never the hydrate root.
+    const parent = path.parentPath;
+    if (!parent || typeof parent.isCallExpression !== 'function' || !parent.isCallExpression()) {
+      return false;
+    }
+    if (parent.node.arguments[0] !== path.node) return false;
+    return isWhatHydrateCallee(parent.node.callee, parent.scope);
+  }
+
+  // Resolve the callee through Babel's scope rather than by name, so a local
+  // `function hydrate()` or `const hydrate = ...` that shadows the import is left
+  // alone. getBinding returns the NEAREST binding, which is exactly the shadowing
+  // rule the language itself applies. An unresolved (global) `hydrate` is not
+  // ours either, so it stays untouched too.
+  function isWhatHydrateCallee(callee, scope) {
+    // `ns.hydrate(...)` after `import * as ns from 'what-framework'`.
+    if (t.isMemberExpression(callee) && !callee.computed
+        && t.isIdentifier(callee.property, { name: 'hydrate' })
+        && t.isIdentifier(callee.object)) {
+      return importedFrom(scope.getBinding(callee.object.name), t.isImportNamespaceSpecifier, null);
+    }
+    if (!t.isIdentifier(callee)) return false;
+    // `import { hydrate }` and `import { hydrate as boot }` alike: the binding
+    // remembers the name that was IMPORTED, which is the one that matters.
+    return importedFrom(scope.getBinding(callee.name), t.isImportSpecifier, 'hydrate');
+  }
+
+  // A binding is ours when it came from an import declaration of a What module
+  // through the expected specifier kind, optionally carrying a required imported
+  // name (`hydrate` for a named import, none for a namespace).
+  function importedFrom(binding, isSpecifier, importedName) {
+    if (!binding || binding.kind !== 'module' || !binding.path) return false;
+    const spec = binding.path.node;
+    if (!isSpecifier(spec)) return false;
+    if (importedName !== null) {
+      const imported = spec.imported;
+      const name = t.isIdentifier(imported) ? imported.name
+        : t.isStringLiteral(imported) ? imported.value
+        : null;
+      if (name !== importedName) return false;
+    }
+    const decl = binding.path.parent;
+    return t.isImportDeclaration(decl) && isWhatModuleSource(decl.source.value);
   }
 
   // JSXMemberExpression -> MemberExpression callee for _$createComponent.
@@ -2193,8 +2265,19 @@ export default function whatBabelPlugin({ types: t }) {
       );
     }
 
-    // Regular component — use _$createComponent to instantiate, component runs once
-    state.needsCreateComponent = true;
+    // Regular component — use _$createComponent to instantiate, component runs once.
+    // Unless this element IS the tree handed to hydrate(), in which case it has
+    // to arrive unbuilt: see isHydrateRootArgument.
+    //
+    // The root, and only the root. A host element lowers to a template clone, so
+    // "unbuilt" is not something the children of an arbitrary tree can inherit —
+    // <App><p>hi</p></App> would still build the <p>, and pushing the choice down
+    // through component children only would produce a tree that hydrates in
+    // patches. The root is the one position where the answer is unambiguous and
+    // it is where the documented entry point lives.
+    const isHydrateRoot = isHydrateRootArgument(path);
+    if (isHydrateRoot) state.needsComponentVNode = true;
+    else state.needsCreateComponent = true;
 
     // Props resolve in SOURCE order. `<Box a {...s} b />` is one spelling of
     // `{ a, ...s, b }`, which is what h(), the JSX runtime, every other JSX
@@ -2313,7 +2396,10 @@ export default function whatBabelPlugin({ types: t }) {
 
     const childrenArg = transformComponentChildren();
 
-    return t.callExpression(t.identifier('_$createComponent'), [componentRef, propsExpr, childrenArg]);
+    return t.callExpression(
+      t.identifier(isHydrateRoot ? '_$componentVNode' : '_$createComponent'),
+      [componentRef, propsExpr, childrenArg]
+    );
   }
 
   function transformForFineGrained(path, state) {
@@ -3200,6 +3286,7 @@ export default function whatBabelPlugin({ types: t }) {
           state.needsSetChecked = false;
           state.needsH = false;
           state.needsCreateComponent = false;
+          state.needsComponentVNode = false;
           state.needsFragment = false;
           state.needsIsland = false;
           state.needsDelegation = false;
@@ -3246,11 +3333,7 @@ export default function whatBabelPlugin({ types: t }) {
           for (const node of path.node.body) {
             if (t.isImportDeclaration(node)) {
               const source = node.source.value;
-              const isWhatSource =
-                source === 'what-framework' ||
-                source.startsWith('what-framework/') ||
-                source === 'what-core' ||
-                source.startsWith('what-core/');
+              const isWhatSource = isWhatModuleSource(source);
               const isReactiveSource =
                 isWhatSource ||
                 source.startsWith('./') ||
@@ -3417,6 +3500,11 @@ export default function whatBabelPlugin({ types: t }) {
           if (state.needsCreateComponent) {
             fgSpecifiers.push(
               t.importSpecifier(t.identifier('_$createComponent'), t.identifier('_$createComponent'))
+            );
+          }
+          if (state.needsComponentVNode) {
+            fgSpecifiers.push(
+              t.importSpecifier(t.identifier('_$componentVNode'), t.identifier('_$componentVNode'))
             );
           }
           if (state.needsDelegation) {

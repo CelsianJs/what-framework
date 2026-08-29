@@ -5,11 +5,14 @@
 // server child it found: an empty container, a dead button, and no warning at
 // all.
 //
-// That branch is not an exotic path. Compiled JSX makes it the NATURAL spelling
-// of a hydrate root, because the compiler lowers `hydrate(<App />)` to
+// That branch is not an exotic path. Compiled JSX used to make it the NATURAL
+// spelling of a hydrate root, because the compiler lowered `hydrate(<App />)` to
 // `hydrate(_$createComponent(App, ...))`, which has already run the component
 // and built its DOM. An app following the SSR guide with what-compiler on the
-// client got a blank page.
+// client got a blank page. That call site now lowers to the unbuilt
+// _$componentVNode instead (see the compiler's hydrate-root-lowering tests), but
+// everything below still has to hold: a compiled component BODY returns a
+// template clone, and a caller can always build a tree before handing it over.
 //
 // The fix is a client render, not real hydration: a built node's bindings are
 // already wired to itself, so it cannot adopt the server's markup. What these
