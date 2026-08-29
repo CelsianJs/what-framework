@@ -70,7 +70,7 @@
     "typescript": "^5.7.3"
   },
   "dependencies": {
-    "@chenglou/pretext": "^0.0.5"
+    "@chenglou/pretext": "^0.0.8"
   },
   "overrides": {
     "esbuild": "^0.28.1",
