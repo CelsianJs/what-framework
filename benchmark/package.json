@@ -14,7 +14,7 @@
     "formik": "^2.4.9",
     "immer": "^11.1.4",
     "jotai": "^2.18.0",
-    "react-hook-form": "^7.71.1",
+    "react-hook-form": "^7.85.0",
     "react-redux": "^9.2.0",
     "zustand": "^5.0.11"
   }
