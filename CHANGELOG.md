@@ -100,13 +100,20 @@ to the 2,566 tests that were already green.
   Islands additionally keep `component`, `mode` and `mediaQuery` last, so user
   data written after a directive cannot reach the hydration machinery.
 
+- **A lone component spread mutated the caller's object.** `_$createComponent`
+  wrote `children` (and `_$lazyChildren`) onto the props object it was handed,
+  and the compiler passed a single spread through uncopied. So
+  `<Box {...reused}>FIRST</Box><Box {...reused}/>` rendered FIRST twice and left
+  `reused` carrying a `children` key the user never wrote. The compiler now
+  copies a non-literal single spread the same way a multi-prop merge already
+  did (accessor VALUES copied, never invoked). The runtime copies before it
+  attaches children, so hand-written `_$createComponent` calls are safe too.
+
 ### Known
 
 - Island attributes with hyphens emit invalid JavaScript: `<Chart client:load
   data-x="1" />` compiles to `{data-x:"1"}`, a syntax error, because the island
   branch does not test the attribute name the way the component branch does.
-- A component with a single spread and children mutates the caller's object:
-  `<Box {...cfg}>text</Box>` leaves `cfg` carrying `children`.
 
 ## [0.13.4] - 2026-08-25
 

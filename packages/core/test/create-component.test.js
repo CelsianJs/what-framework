@@ -84,6 +84,103 @@ describe('_$createComponent runtime', () => {
     assert.deepEqual(order, ['parent', 'child'], 'children must be built after the parent runs');
     assert.equal(host.querySelector('span').textContent, 'child');
   });
+
+  it('does not write children onto a caller-owned props object', async () => {
+    const { _$createComponent } = await import('../../core/src/render.js');
+
+    const reused = { class: 'b' };
+    const before = Object.getOwnPropertyNames(reused).slice();
+    const seen = [];
+    function Box(props) {
+      seen.push({
+        class: props.class,
+        hasChildren: 'children' in props,
+        children: props.children,
+      });
+      const el = document.createElement('span');
+      el.textContent = props.children ?? '';
+      return el;
+    }
+
+    const first = _$createComponent(Box, reused, ['FIRST']);
+    const second = _$createComponent(Box, reused, []);
+    const host = document.createElement('div');
+    host.appendChild(first);
+    host.appendChild(second);
+
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].class, 'b');
+    assert.equal(seen[0].children, 'FIRST');
+    assert.equal(seen[1].class, 'b');
+    assert.equal(seen[1].hasChildren, false, 'empty children array must not inherit a prior write');
+    assert.equal(seen[1].children, undefined);
+    const spans = [...host.querySelectorAll('span')];
+    assert.equal(spans[0].textContent, 'FIRST');
+    assert.equal(spans[1].textContent, '');
+    assert.deepEqual(Object.getOwnPropertyNames(reused), before);
+    assert.ok(!('children' in reused));
+  });
+
+  it('does not stamp _$lazyChildren onto a caller-owned props object', async () => {
+    const { _$createComponent } = await import('../../core/src/render.js');
+
+    const reused = { class: 'b' };
+    const before = Object.getOwnPropertyNames(reused).slice();
+    const seen = [];
+    function Box(props) {
+      seen.push({
+        hasChildren: 'children' in props,
+        childText: props.children && props.children.textContent,
+      });
+      const el = document.createElement('span');
+      if (props.children) el.appendChild(props.children);
+      return el;
+    }
+
+    function childEl(text) {
+      const el = document.createElement('i');
+      el.textContent = text;
+      return el;
+    }
+
+    const first = _$createComponent(Box, reused, () => [childEl('FIRST')]);
+    const second = _$createComponent(Box, reused, []);
+    const host = document.createElement('div');
+    host.appendChild(first);
+    host.appendChild(second);
+
+    assert.equal(seen[0].hasChildren, true);
+    assert.equal(seen[0].childText, 'FIRST');
+    assert.equal(seen[1].hasChildren, false);
+    assert.equal(host.querySelectorAll('span')[1].textContent, '');
+    assert.deepEqual(Object.getOwnPropertyNames(reused), before);
+    assert.ok(!('_$lazyChildren' in reused));
+    assert.ok(!('children' in reused));
+  });
+
+  it('copies accessor-valued props without invoking them', async () => {
+    const { _$createComponent } = await import('../../core/src/render.js');
+
+    let calls = 0;
+    const label = () => {
+      calls += 1;
+      return 'x';
+    };
+    const reused = { label };
+    const seen = [];
+    function Box(props) {
+      seen.push(props.label);
+      const el = document.createElement('span');
+      el.textContent = props.children ?? '';
+      return el;
+    }
+
+    _$createComponent(Box, reused, ['kid']);
+    assert.equal(calls, 0, 'a function-valued prop is the reactive spelling and must be copied, not called');
+    assert.equal(typeof seen[0], 'function');
+    assert.equal(seen[0], label);
+    assert.deepEqual(Object.getOwnPropertyNames(reused), ['label']);
+  });
 });
 
 describe('h() is internal-only, not a public API', () => {

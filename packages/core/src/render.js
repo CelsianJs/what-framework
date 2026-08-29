@@ -54,19 +54,21 @@ export function _$componentVNode(Component, props, children) {
       return kids.length === 1 ? kids[0] : kids;
     };
     lazy._lazyChildren = true;
-    if (!props) props = {};
+    // Copy first. The lazy marker is an expando, and `props` may be a
+    // user-owned object (a lone JSX spread, or a hand-written call).
+    props = props ? Object.assign({}, props) : {};
     Object.defineProperty(props, '_$lazyChildren', { value: lazy, configurable: true });
     return { tag: Component, props, children: [], key: null, _vnode: true };
   }
   if (children && children.length > 0) {
     const mergedChildren = children.length === 1 ? children[0] : children;
-    // Mutate props in place when possible to avoid object spread allocation.
-    // Compiled output creates a fresh props object per call, so mutation is safe.
-    if (props) {
-      props.children = mergedChildren;
-    } else {
-      props = { children: mergedChildren };
-    }
+    // Never write onto the object we were handed. A lone spread is the
+    // caller's value; writing `children` onto it leaks into the next call
+    // that reuses the same object and permanently corrupts user state.
+    // Object.assign copies accessor VALUES without invoking them.
+    props = props
+      ? Object.assign({}, props, { children: mergedChildren })
+      : { children: mergedChildren };
   }
   return { tag: Component, props: props || {}, children: children || [], key: null, _vnode: true };
 }
