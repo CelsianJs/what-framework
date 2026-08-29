@@ -188,8 +188,15 @@ export function App() {
   // An expression child is the shape a wrapper forwards its own children
   // through, so it has to be deferred too, or the subtree is built before the
   // component it is being handed to has run.
+  //
+  // The read INSIDE the factory is a thunk. This assertion used to spell it
+  // `n()`, which pinned a bug rather than a contract: a component child was the
+  // one JSX position the accessor auto-thunk never reached, so `<Card>{n()}
+  // </Card>` was evaluated once and frozen while `<div>{n()}</div>` beside it
+  // stayed live. See component-child-auto-thunk.test.js. The factory wrapper —
+  // which is what this test is actually about — is unchanged.
   it('wraps expression children of a component in a factory', () => {
     const code = compileJSX('export const A = ({ n }) => <Card>hello {n()}</Card>;');
-    assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", n\(\)\]\)/);
+    assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", \(\) => n\(\)\]\)/);
   });
 });
