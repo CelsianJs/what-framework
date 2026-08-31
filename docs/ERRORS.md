@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every diagnostic What can raise, all 31 of them: 25 errors and 6 warnings.
+Every diagnostic What can raise, all 32 of them: 26 errors and 6 warnings.
 
 Each one carries a suggestion and a worked example, and the same catalogue
 backs the `what_errors` MCP tool, so an agent debugging your app reads exactly
@@ -13,6 +13,7 @@ what you read here.
 |---|---|---|
 | [`ERR_ACTION_FAILED`](#err-action-failed) | error | The server action rejected. |
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
+| [`ERR_COMPILED_JSX_IN_SSR`](#err-compiled-jsx-in-ssr) | error | what-compiler output cannot be server-rendered: `file`. |
 | [`ERR_DESTRUCTURED_PROPS`](#err-destructured-props) | warning | Destructuring '`binding`' in the component body snapshots props and loses reactivity. |
 | [`ERR_DUPLICATE_ACTION_ID`](#err-duplicate-action-id) | error | Duplicate server action ID "`id`". |
 | [`ERR_FORM_ACTION_MISSING`](#err-form-action-missing) | error | [what] <Form> requires an `action` prop: a server action or its id. |
@@ -74,6 +75,30 @@ Children.only asserts exactly one element. Pass one child, or use Children.toArr
 
 // Good:
 <Tooltip><span>a</span></Tooltip>
+```
+
+## ERR_COMPILED_JSX_IN_SSR
+
+**Severity:** error
+  ·  **Raised by:** `what-compiler`, `what-server`
+
+> what-compiler output cannot be server-rendered: {{file}}.
+
+what-compiler lowers JSX to module-scope _$template() calls that run document.createElement() at import time, and to _$createComponent() which builds DOM. Neither has a server-rendered form, so a module it compiled throws "document is not defined" when a server imports it. Server-rendered views have two supported spellings: author them with h(), or compile them with the automatic JSX runtime (jsxImportSource: "what-framework"), which emits h() calls that renderToString understands. what-compiler stays on the client entry, where the fine-grained output is the point.
+
+```jsx
+// Bad — a server module compiled by what-compiler:
+// vite.config.js: plugins: [what()]  +  vite build --ssr
+export function Page() { return <h1>Hi</h1>; }   // throws on import
+
+// Good — h(), which renderToString understands:
+import { h } from 'what-framework';
+export function Page() { return h('h1', null, 'Hi'); }
+
+// Good — the automatic JSX runtime for the server build:
+// vite.config.js (server): esbuild: { jsx: 'automatic',
+//                            jsxImportSource: 'what-framework' }
+export function Page() { return <h1>Hi</h1>; }   // lowers to h()
 ```
 
 ## ERR_DESTRUCTURED_PROPS

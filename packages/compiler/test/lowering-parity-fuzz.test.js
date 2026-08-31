@@ -44,6 +44,9 @@ const CORE_INDEX = path.resolve(__dirname, '../../core/src/index.js');
 const CORE_RENDER = path.resolve(__dirname, '../../core/src/render.js');
 
 const { signal, flushSync } = await import('../../core/src/reactive.js');
+const { renderToString } = await import('../../server/src/index.js');
+// The SSR arm builds one wrapper vnode by hand (see the `nested` route).
+const { h } = await import('../../core/src/index.js');
 
 const tmpDir = mkdtempSync(path.join(tmpdir(), 'what-lowering-fuzz-'));
 process.on('exit', () => { try { rmSync(tmpDir, { recursive: true, force: true }); } catch {} });
@@ -65,6 +68,11 @@ const COMPONENT_SEED = Number(process.env.WHAT_FUZZ_SEED) || 24681357;
 // buy the same coverage.
 const ISLAND_CASES = Number(process.env.WHAT_FUZZ_CASES) || 150;
 const ISLAND_SEED = Number(process.env.WHAT_FUZZ_SEED) || 13572468;
+// The SSR arm loads the same two modules per case but renders to a string
+// instead of mounting, so it is the cheapest of the four; it is smaller only
+// because the property it checks is uniform across the grammar (see the arm).
+const SSR_CASES = Number(process.env.WHAT_FUZZ_CASES) || 250;
+const SSR_SEED = Number(process.env.WHAT_FUZZ_SEED) || 86420975;
 
 // Signals 0..2 hold scalars. Signal 3 always holds an array and exists so a
 // `list` child has something keyed to reconcile: the second value reorders,
@@ -684,5 +692,105 @@ describe('compiler lowering parity (fuzz)', () => {
       'multi-key-spread', 'accessor-prop', 'hyphenated-prop',
     ]);
     reportDivergence(divergent, ISLAND_CASES);
+  });
+
+  // The SSR boundary, asserted over the grammar rather than over the shapes
+  // somebody thought to write down.
+  //
+  // what-compiler's output is client-only: a component body lowers to a
+  // `_$template()` clone, which is finished DOM and has no server-rendered form.
+  // The h() tree the SAME spec lowers to renders on the server perfectly well.
+  // That asymmetry is the framework's biggest SSR limitation, and until a
+  // hydratable codegen target exists the only correct behaviour for the compiled
+  // arm is to REFUSE, loudly and by name.
+  //
+  // The failure this arm is really hunting is the third outcome, and it is the
+  // one no shape-by-shape test can rule out: a tree that server-renders to a
+  // string which merely LOOKS right. Compiled output reaches the server through
+  // several paths (a reactive thunk, a keyed list inserter, an array, a boundary
+  // subtree), and every one of them used to degrade a throw into empty output —
+  // `<main></main>` for a component that should have rendered, with the warning
+  // dev-gated so production logged nothing at all. A silent hole in the page is
+  // strictly worse than a crash, because the server still reports success.
+  //
+  // So: the h() arm must render, the compiled arm must raise
+  // ERR_COMPILED_JSX_IN_SSR, and NEITHER may return a string. Three outcomes are
+  // counted separately because they are different findings — a mislabelled throw
+  // is a diagnosis bug, a returned string is a correctness bug.
+  //
+  // When a hydratable target lands, this arm inverts into the oracle it is
+  // already shaped like: assert the two strings are equal instead of asserting
+  // that one of them refuses. The spec and both emitters are unchanged by that.
+  it(`compiled JSX refuses SSR by name, and h() renders, for ${SSR_CASES} random trees`, async () => {
+    const gen = makeGenerator(SSR_SEED);
+    const wrongCode = [];
+    const silentlyRendered = [];
+    const hRefused = [];
+
+    for (let caseIndex = 0; caseIndex < SSR_CASES; caseIndex += 1) {
+      const spec = makeSpec(gen, 3, SCALAR_SIGNALS, true);
+      const jsxMod = await loadJSX(spec);
+      const hMod = await loadH(spec);
+
+      const jsxSignals = FIRST_VALUES.map((v, i) => signal(v, `ssrjsx${i}`));
+      const hSignals = FIRST_VALUES.map((v, i) => signal(v, `ssrh${i}`));
+
+      // The h() arm is the control: this spec IS server-renderable, so a refusal
+      // here would mean the arm is measuring a broken oracle rather than the
+      // compiler.
+      try {
+        const html = renderToString(hMod.build(hSignals));
+        if (typeof html !== 'string') hRefused.push({ caseIndex, spec, detail: `returned ${typeof html}` });
+      } catch (err) {
+        hRefused.push({ caseIndex, spec, detail: `${err.code || err.constructor.name}: ${err.message}` });
+      }
+
+      // Two routes into the renderer per tree, because they fail differently.
+      //
+      //   direct  — the compiled node IS the root, so it reaches assertSafeTag
+      //             with nothing in between. This is the diagnosis path.
+      //   nested  — the compiled node arrives through a reactive thunk inside an
+      //             h() element, which is how a real page embeds one compiled
+      //             component. That path has a catch around it, and the catch
+      //             used to turn the throw into empty output, so this is the
+      //             SILENT HOLE path and the more dangerous of the two.
+      //
+      // On origin/main the direct route threw (with the wrong code) while the
+      // nested route returned "<main></main>" and logged nothing in production.
+      // A test that only checked the direct route would have called that fixed.
+      const routes = {
+        direct: () => jsxMod.build(jsxSignals),
+        nested: () => h('main', null, () => jsxMod.build(jsxSignals)),
+      };
+      for (const [route, buildTree] of Object.entries(routes)) {
+        try {
+          const html = renderToString(buildTree());
+          silentlyRendered.push({ caseIndex, spec, detail: `${route}: ${JSON.stringify(html)}` });
+        } catch (err) {
+          if (err.code !== 'ERR_COMPILED_JSX_IN_SSR') {
+            wrongCode.push({
+              caseIndex, spec,
+              detail: `${route}: ${err.code || err.constructor.name}: ${err.message}`,
+            });
+          }
+        }
+      }
+    }
+
+    const fail = (label, list) => {
+      if (list.length === 0) return;
+      const first = list[0];
+      assert.fail(
+        `${list.length}/${SSR_CASES * 2} tree-routes ${label}.\n` +
+        `first: case ${first.caseIndex}\n` +
+        `  jsx src: ${emitJSX(first.spec)}\n` +
+        `  h   src: ${emitH(first.spec)}\n` +
+        `  detail : ${first.detail}`,
+      );
+    };
+
+    fail('made the h() control refuse, so the oracle is broken', hRefused);
+    fail('server-rendered compiled output to a STRING instead of refusing', silentlyRendered);
+    fail('refused with the wrong error code', wrongCode);
   });
 });

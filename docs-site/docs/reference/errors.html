@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every diagnostic the What Framework can raise, with the suggestion and worked example for each of the 31 codes.">
+  <meta name="description" content="Every diagnostic the What Framework can raise, with the suggestion and worked example for each of the 32 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every diagnostic What can raise, all 31 of them: 25 errors and 6 warnings.</p>
+          <p class="subtitle">Every diagnostic What can raise, all 32 of them: 26 errors and 6 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -74,6 +74,7 @@
           <ul class="error-index">
             <li><a href="#ERR_ACTION_FAILED">ERR_ACTION_FAILED</a></li>
             <li><a href="#ERR_CHILDREN_ONLY">ERR_CHILDREN_ONLY</a></li>
+            <li><a href="#ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</a></li>
             <li><a href="#ERR_DESTRUCTURED_PROPS">ERR_DESTRUCTURED_PROPS</a></li>
             <li><a href="#ERR_DUPLICATE_ACTION_ID">ERR_DUPLICATE_ACTION_ID</a></li>
             <li><a href="#ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</a></li>
@@ -123,6 +124,23 @@ export const save = action(async (data) =&gt; {
 
 // Good:
 &lt;Tooltip&gt;&lt;span&gt;a&lt;/span&gt;&lt;/Tooltip&gt;</code></pre>
+
+          <h2 id="ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</h2>
+          <p class="subtitle">what-compiler output cannot be server-rendered: file.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>, <code>what-server</code>.</p>
+          <p>what-compiler lowers JSX to module-scope _$template() calls that run document.createElement() at import time, and to _$createComponent() which builds DOM. Neither has a server-rendered form, so a module it compiled throws &quot;document is not defined&quot; when a server imports it. Server-rendered views have two supported spellings: author them with h(), or compile them with the automatic JSX runtime (jsxImportSource: &quot;what-framework&quot;), which emits h() calls that renderToString understands. what-compiler stays on the client entry, where the fine-grained output is the point.</p>
+<pre><code>// Bad — a server module compiled by what-compiler:
+// vite.config.js: plugins: [what()]  +  vite build --ssr
+export function Page() { return &lt;h1&gt;Hi&lt;/h1&gt;; }   // throws on import
+
+// Good — h(), which renderToString understands:
+import { h } from 'what-framework';
+export function Page() { return h('h1', null, 'Hi'); }
+
+// Good — the automatic JSX runtime for the server build:
+// vite.config.js (server): esbuild: { jsx: 'automatic',
+//                            jsxImportSource: 'what-framework' }
+export function Page() { return &lt;h1&gt;Hi&lt;/h1&gt;; }   // lowers to h()</code></pre>
 
           <h2 id="ERR_DESTRUCTURED_PROPS">ERR_DESTRUCTURED_PROPS</h2>
           <p class="subtitle">Destructuring 'binding' in the component body snapshots props and loses reactivity.</p>

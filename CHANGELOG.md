@@ -11,6 +11,35 @@ to the 2,566 tests that were already green.
 
 ### Fixed
 
+- **A compiled component could silently vanish from a server-rendered page.**
+  what-compiler's output is client-only: a component body lowers to a
+  module-scope `_$template()` and a `cloneNode`, so it returns finished DOM and
+  has no server-rendered form. Reaching a renderer with one produced
+  `Invalid tag name in SSR: undefined` (`ERR_INVALID_SSR_TAG`), whose documented
+  cause is a component returning a plain object. Worse, every render path
+  degrades rather than 500s, so when the compiled node arrived through a reactive
+  thunk, a keyed list, a stream or an `<ErrorBoundary>` the throw was absorbed
+  and the component simply disappeared: `renderToString(h('main', null, () =>
+  Compiled()))` returned `"<main></main>"`, with the warning dev-gated so
+  production logged nothing and the server reported success. Measured by the
+  lowering fuzzer: 250 of 500 generated tree-routes rendered a silent hole.
+
+  There is now one named code, `ERR_COMPILED_JSX_IN_SSR`, raised at three seams.
+  what-compiler's Vite plugin refuses the transform at **build time** when it is
+  compiling for the SSR environment and the output builds DOM, naming the file
+  and both supported alternatives; the verdict is read from the emitted code, so
+  a server-action module and a `hydrate()`-only module still compile. what-server
+  distinguishes a DOM node from a bad tag name. And all eleven degrading catches
+  now rethrow this one code, because a build misconfiguration cannot be retried
+  or fallen back from. A genuinely invalid tag still raises
+  `ERR_INVALID_SSR_TAG`.
+
+  This does **not** make compiled JSX server-render. Ordinary JSX already does,
+  via the automatic runtime (`jsxImportSource: "what-framework"`), verified on a
+  DOM-less Node process; what-compiler's fine-grained output is the case with no
+  server form. A hydratable codegen target is scoped in
+  `docs/SSR-COMPILED-JSX-SCOPING.md` and deliberately not attempted here.
+
 - **Compiled fragments rendered their slots in the wrong order** (#65). Fragment
   lowering emitted one insert per slot against a shared parent, so a fragment
   with three dynamic slots could realize them out of source order. The lowering

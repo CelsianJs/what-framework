@@ -245,6 +245,25 @@ function Row() { return { name: 'a' }; }
 function Row({ name }) { return <li>{name}</li>; }`,
   },
 
+  COMPILED_JSX_IN_SSR: {
+    code: 'ERR_COMPILED_JSX_IN_SSR',
+    severity: 'error',
+    template: 'what-compiler output cannot be server-rendered: {{file}}.',
+    suggestion: 'what-compiler lowers JSX to module-scope _$template() calls that run document.createElement() at import time, and to _$createComponent() which builds DOM. Neither has a server-rendered form, so a module it compiled throws "document is not defined" when a server imports it. Server-rendered views have two supported spellings: author them with h(), or compile them with the automatic JSX runtime (jsxImportSource: "what-framework"), which emits h() calls that renderToString understands. what-compiler stays on the client entry, where the fine-grained output is the point.',
+    codeExample: `// Bad — a server module compiled by what-compiler:
+// vite.config.js: plugins: [what()]  +  vite build --ssr
+export function Page() { return <h1>Hi</h1>; }   // throws on import
+
+// Good — h(), which renderToString understands:
+import { h } from 'what-framework';
+export function Page() { return h('h1', null, 'Hi'); }
+
+// Good — the automatic JSX runtime for the server build:
+// vite.config.js (server): esbuild: { jsx: 'automatic',
+//                            jsxImportSource: 'what-framework' }
+export function Page() { return <h1>Hi</h1>; }   // lowers to h()`,
+  },
+
   FORM_ACTION_NOT_REGISTERED: {
     code: 'ERR_FORM_ACTION_NOT_REGISTERED',
     severity: 'error',
