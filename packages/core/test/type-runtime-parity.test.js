@@ -33,9 +33,9 @@ import { installDOM } from '../../../test-utils/dom.js';
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { tscDiagnose } from '../../../scripts/lib/tsc-diagnose.mjs';
 
 const { dom } = installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'https://example.test/' });
 global.localStorage = dom.window.localStorage;
@@ -84,50 +84,26 @@ const keys = (o) => Object.keys(o).sort();
 
 // --- Type harness ----------------------------------------------------------
 
-const require = createRequire(import.meta.url);
-const ts = require('typescript');
 const HERE = dirname(fileURLToPath(import.meta.url));
-
-const TS_OPTIONS = {
-  strict: true,
-  noEmit: true,
-  module: ts.ModuleKind.ESNext,
-  target: ts.ScriptTarget.ES2022,
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-  lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-  types: [],
-  // The declarations' own internal correctness is `npm run typecheck`'s job
-  // (tsconfig.json, skipLibCheck:false). Here they only need to RESOLVE, and
-  // skipping the lib pass keeps this test at ~200ms instead of seconds.
-  skipLibCheck: true,
-};
 
 // Files are placed inside packages/core/test so `what-framework` resolves the
 // way it does for a real consumer: node_modules/what-framework -> packages/what
 // -> `export * from 'what-core'` -> the file under test.
 function typecheck(files) {
-  const virtual = new Map(Object.entries(files).map(([name, src]) => [join(HERE, name), src]));
-  const host = ts.createCompilerHost(TS_OPTIONS, true);
-  const realGetSourceFile = host.getSourceFile.bind(host);
-  const realFileExists = host.fileExists.bind(host);
-  const realReadFile = host.readFile.bind(host);
-  host.getSourceFile = (name, lang, ...rest) => (
-    virtual.has(name)
-      ? ts.createSourceFile(name, virtual.get(name), lang, true)
-      : realGetSourceFile(name, lang, ...rest)
-  );
-  host.fileExists = (name) => (virtual.has(name) ? true : realFileExists(name));
-  host.readFile = (name) => (virtual.has(name) ? virtual.get(name) : realReadFile(name));
-
-  const program = ts.createProgram([...virtual.keys()], TS_OPTIONS, host);
-  const byFile = new Map([...virtual.keys()].map((f) => [f, []]));
-  for (const d of ts.getPreEmitDiagnostics(program)) {
-    const bucket = d.file && byFile.get(d.file.fileName);
-    const text = `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`;
+  const diags = tscDiagnose({
+    files,
+    writeRoot: HERE,
+    compilerOptions: { lib: ['es2022', 'dom'] },
+  });
+  const byFile = new Map(Object.keys(files).map((name) => [name, []]));
+  for (const d of diags) {
+    const name = d.file.split(/[/\\]/).pop();
+    const text = `TS${d.code}: ${d.message}`;
+    const bucket = byFile.get(name);
     if (bucket) bucket.push(text);
     else throw new Error(`diagnostic outside the fixtures: ${text}`);
   }
-  return new Map([...byFile].map(([f, diags]) => [f.split('/').pop(), diags]));
+  return byFile;
 }
 
 // Correct usage of every signature this file pins. One error here means a

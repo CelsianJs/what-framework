@@ -53,12 +53,13 @@ export function useFocusRestore() {
 // Keep focus within a container (for modals, dialogs, etc.)
 
 export function useFocusTrap(containerRef) {
+  /** @type {HTMLElement | null} */
   let previousFocus = null;
 
   function activate() {
     if (typeof document === 'undefined') return;
 
-    previousFocus = document.activeElement;
+    previousFocus = /** @type {HTMLElement | null} */ (document.activeElement);
     const container = containerRef.current || containerRef;
 
     if (!container || typeof container.querySelectorAll !== 'function') return;
@@ -131,6 +132,7 @@ export function FocusTrap({ children, active = true }) {
   const containerRef = { current: null };
   const refVersion = signal(0);
   const trap = useFocusTrap(containerRef);
+  /** @type {(() => void) | null | undefined} */
   let trapCleanup = null;
 
   const setRef = (el) => {
@@ -176,6 +178,7 @@ export function FocusTrap({ children, active = true }) {
 
 // --- Screen Reader Announcements ---
 
+/** @type {HTMLDivElement | null} */
 let announcer = null;
 let announcerId = 0;
 

@@ -76,6 +76,7 @@ export function throttle(fn, ms) {
 }
 
 // Component context ref — injected by dom.js to avoid circular imports
+/** @type {(() => any) | null} */
 let _getCurrentComponentRef = null;
 export function _setComponentRef(fn) { _getCurrentComponentRef = fn; }
 
@@ -121,6 +122,7 @@ export function useLocalStorage(key, initial) {
   });
 
   // Listen for changes from other tabs
+  /** @type {((e: StorageEvent) => void) | null} */
   let storageHandler = null;
   if (typeof window !== 'undefined') {
     storageHandler = (e) => {

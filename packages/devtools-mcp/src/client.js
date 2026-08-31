@@ -31,9 +31,11 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
     }
   } catch {}
 
+  /** @type {WebSocket | null} */
   let ws = null;
   let connected = false;
   let stopped = false;
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let probeTimer = null;
   // Probe back-off: first retry after 10s, then ×3 each time, capped at 5min.
   // With no bridge running this yields probes at ~0s / 10s / 40s / 130s / 430s…
@@ -46,7 +48,9 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
   let eventCount = 0;
   let hasLoggedMissingBridge = false;
   let hasShownBanner = false;
+  /** @type {(() => void) | null} */
   let unsubscribeFn = null;
+  /** @type {(() => void) | null} */
   let flushEventBatch = null; // Hoisted — set during subscription, called by set-signal
   let discoveredToken = token;
   let discoveredPort = port;
@@ -178,10 +182,11 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
       }
       if (devtools) {
         let eventBatch = [];
+        /** @type {ReturnType<typeof setTimeout> | null} */
         let batchTimer = null;
 
         // Hoisted so set-signal can call it to flush after programmatic writes
-        flushEventBatch = function() {
+        const flush = function() {
           if (eventBatch.length === 0) return;
           if (eventBatch.length === 1) {
             const item = eventBatch[0];
@@ -192,12 +197,13 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
           eventBatch = [];
           if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
         };
+        flushEventBatch = flush;
 
         unsubscribeFn = devtools.subscribe((event, data) => {
           eventCount++;
           eventBatch.push({ event, data: devtools.safeSerialize(data) });
           if (!batchTimer) {
-            batchTimer = setTimeout(flushEventBatch, 16);
+            batchTimer = setTimeout(flush, 16);
           }
         });
         log('MCP', BADGE, 'Subscribed to reactive events — streaming to bridge (batched)');
@@ -328,6 +334,7 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
       }
       default: {
         // Try extended command handlers
+        /** @type {Record<string, any> | null} */
         let extResult = null;
         try {
           const { handleExtendedCommand, initEventTracking } = await import('./client-commands.js');

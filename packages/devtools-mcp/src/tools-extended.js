@@ -189,6 +189,7 @@ export function registerExtendedTools(server, bridge) {
       }
 
       // Optional filter — keep subtrees that contain a matching node
+      /** @type {RegExp | null} */
       let filterRe = null;
       if (filter) {
         try {
@@ -308,6 +309,9 @@ export function registerExtendedTools(server, bridge) {
 
       // If a specific signal or effect is requested, filter the graph
       let filteredEdges = allEdges;
+      // `any` rather than `Set | null`: the set is read inside filter
+      // callbacks, and TS 7 does not narrow a closed-over nullable.
+      /** @type {any} */
       let nodeIds = null; // Set of "type:id" strings we want to include
 
       if (signalId != null) {
@@ -933,6 +937,7 @@ export function registerExtendedTools(server, bridge) {
       }));
 
       // DOM output (if requested and bridge connected)
+      /** @type {{ html: any, structure: any } | null} */
       let dom = null;
       if (includeDOM) {
         try {

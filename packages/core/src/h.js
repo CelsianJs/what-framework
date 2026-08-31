@@ -8,6 +8,13 @@
 const EMPTY_OBJ = Object.create(null);
 const EMPTY_ARR = [];
 
+/**
+ * Children are collected from `arguments` rather than a rest param so a
+ * 0-1 child call does not allocate. `@type` (not `@param`) is what TS 7
+ * uses to type that hidden tail; do not turn it into `...children`.
+ *
+ * @type {(tag: any, props?: any, ...children: any[]) => any}
+ */
 export function h(tag, props) {
   props = props || EMPTY_OBJ;
   // Collect children from arguments[2..n] without rest args — avoids array allocation

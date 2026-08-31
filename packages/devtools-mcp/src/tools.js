@@ -63,6 +63,7 @@ export function registerTools(server, bridge) {
       const componentCount = snapshot?.components?.length || 0;
 
       // Try to get app metadata from the browser
+      /** @type {Record<string, any> | null} */
       let appInfo = null;
       if (connected) {
         try {

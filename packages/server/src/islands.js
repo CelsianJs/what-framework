@@ -524,6 +524,7 @@ function formEntries(form, submitter, multipart) {
   if (multipart) return data;
 
   const params = new URLSearchParams();
+  /** @type {string | null} */
   let droppedFile = null;
   for (const [key, value] of data) {
     if (typeof value === 'string') {
@@ -644,6 +645,7 @@ export function enhanceForms(selector = 'form[data-enhance]') {
         // on a server's say-so is not a default worth having. Listen for
         // form:response if you need that.
         if (proceed && response.ok && response.redirected) {
+          /** @type {string | null} */
           let target = null;
           try {
             const url = new URL(response.url, location.href);

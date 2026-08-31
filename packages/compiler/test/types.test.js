@@ -8,30 +8,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const ts = require('typescript');
+import { tscDiagnose } from '../../../scripts/lib/tsc-diagnose.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, 'fixtures', 'types');
 
 function compile(file) {
-  const options = {
-    strict: true,
-    noEmit: true,
-    module: ts.ModuleKind.ESNext,
-    target: ts.ScriptTarget.ES2022,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-    skipLibCheck: true,
-  };
-  const program = ts.createProgram([join(FIXTURES, file)], options);
-  return ts.getPreEmitDiagnostics(program);
+  return tscDiagnose({
+    existingFiles: [join(FIXTURES, file)],
+    compilerOptions: {
+      lib: ['es2022', 'dom'],
+    },
+  });
 }
 
 function messages(diags) {
-  return diags.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+  return diags.map((d) => d.message);
 }
 
 test('valid what-compiler public API usage type-checks clean', () => {

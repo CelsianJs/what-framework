@@ -49,12 +49,14 @@ const EMPTY_OBJ = {};
 // Hook dispatcher state
 // =====================================================================
 
+/** @type {WhatCompatInstance | null} */
 let currentInstance = null;
 
 export function _getCurrentInstance() {
   return currentInstance;
 }
 
+/** @returns {WhatCompatInstance} */
 export function _requireInstance(hookName) {
   if (!currentInstance) {
     // ERROR_CODES.HOOK_OUTSIDE_RENDER
@@ -325,6 +327,7 @@ function canPatch(rn, v, kind) {
  * - Pass 3 walks right-to-left fixing DOM positions with a moving anchor.
  */
 export function patchChildren(parentDom, old, newValues, anchor, svg, owner) {
+  /** @type {Map<any, any> | null} */
   let keyed = null;
   const unkeyed = [];
   for (let i = 0; i < old.length; i++) {
@@ -600,7 +603,9 @@ function mountOpaque(v, container) {
   const end = document.createComment('/w:o');
   container.appendChild(start);
 
+  /** @type {(() => void) | null} */
   let dispose = null;
+  /** @type {DocumentFragment | null} */
   let holder = null;
   if (typeof v === 'object' && typeof v.nodeType === 'number') {
     // Raw DOM node — insert as-is, caller owns its lifecycle.

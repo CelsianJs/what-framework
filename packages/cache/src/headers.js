@@ -18,8 +18,8 @@ function varyHeaderNames(vary) {
 }
 
 /**
- * @param {object} entry   { maxAge, swrWindow, tags?, partial?, private?, status? }
- * @param {object} config  route page config { mode, vary?, ... }
+ * @param {{ maxAge?: number, swrWindow?: number, tags?: string[], partial?: boolean, private?: boolean, status?: number }} [entry]
+ * @param {{ mode?: string, vary?: any }} [config]
  * @param {string} cacheStatus  HIT | STALE | MISS | BYPASS
  * @param {string[]} [vary] The declared vary the cache key used. Callers that
  *   omit it fall back to config.vary, which is only correct when the routeMatch
@@ -49,7 +49,7 @@ export function buildCacheHeaders(entry = {}, config = {}, cacheStatus = 'MISS',
   const cacheable = isOk
     && !varies
     && !entry.private
-    && (entry.maxAge > 0 || config.mode === 'static' || config.mode === 'hybrid')
+    && ((entry.maxAge ?? 0) > 0 || config.mode === 'static' || config.mode === 'hybrid')
     && config.mode !== 'server';
 
   if (!cacheable) {

@@ -47,3 +47,8 @@ benchmark/results/
 # Scratch Vite projects created by the devtools-mcp prod-build regression test
 # (normally removed in its after() hook; ignored here in case a run crashes).
 packages/devtools-mcp/test/.tmp-build-*
+
+# Scratch tsc probe dirs used by declaration-shape tests under TypeScript 7
+# (the JS createProgram API is gone; probes are written next to the test and
+# compiled with tsc, then removed in a finally).
+**/.what-tsc-*

@@ -469,6 +469,7 @@ createWhatError('MISSING_KEY', { component: 'TodoList' });`,
 // into every bundle that imports what-core: it took the counter app from
 // 6.4 KB gzipped to 12.1 KB and tripped check:size. Inside a function, a
 // bundler that drops getErrorDefinition drops the catalogue with it.
+/** @type {Map<string, any> | null} */
 let _codeIndex = null;
 
 /** Look up a catalogue entry by its `ERR_*` code. Returns undefined if unknown. */

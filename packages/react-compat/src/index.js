@@ -340,7 +340,7 @@ export function lazy(loader) {
 export function Suspense(props) {
   const inst = _getCurrentInstance();
   if (inst) inst._isSuspense = true;
-  if (inst && inst._suspendCount > 0) {
+  if (inst && (inst._suspendCount ?? 0) > 0) {
     return props.fallback !== undefined ? props.fallback : null;
   }
   return props.children;
@@ -463,6 +463,10 @@ export function act(callback) {
 // Function constructors (not native classes) so transpiled code using
 // Component.call(this, props) works alongside native class extends.
 
+/**
+ * @this {{ props: any, state: any, _mounted: boolean, _forceUpdate: (() => void) | null, [key: string]: any }}
+ * @param {any} props
+ */
 export function Component(props) {
   this.props = props;
   this.state = {};
@@ -491,6 +495,10 @@ Component.prototype.render = function () {
   return null;
 };
 
+/**
+ * @this {{ props: any, state: any, _mounted: boolean, _forceUpdate: (() => void) | null, [key: string]: any }}
+ * @param {any} props
+ */
 export function PureComponent(props) {
   Component.call(this, props);
 }

@@ -160,7 +160,9 @@ export function createRequestHandler(options = {}) {
 
     // CSRF provisioning for HTML responses (double-submit cookie). If the
     // visitor has no token cookie yet, mint one and Set-Cookie it below.
+    /** @type {string | null} */
     let csrfToken = null;
+    /** @type {string | null} */
     let csrfSetCookie = null;
     if (autoCsrf) {
       csrfToken = readCookie(headersToObject(request.headers).cookie, CSRF_COOKIE);
