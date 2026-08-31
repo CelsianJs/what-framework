@@ -197,7 +197,10 @@ limitation loud, named, and accurate, and it removes the silent one.
    supported alternatives. The verdict is taken from the emitted code
    (`_$template` / `_$createComponent`), not from the file extension, so a
    JSX-free server-action module and a `hydrate()`-only module (which emits the
-   unbuilt `_$componentVNode`) both still compile. `ssrGuard: false` opts out.
+   unbuilt `_$componentVNode`) both still compile. `ssrGuard: false` opts out,
+   and the error names the likeliest reason to want that: Vitest applies an SSR
+   transform under `environment: 'node'`, so a component test that shims a DOM
+   itself lands on the guard.
    Both `options.ssr` and `this.environment.name` are read, because Vite reports
    it differently by major.
 2. **Render time.** `assertSafeTag` distinguishes a DOM node from a bad tag and

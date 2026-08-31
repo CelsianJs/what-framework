@@ -131,9 +131,11 @@ function ssrGuardError(id) {
       '  2. Compile them with the automatic JSX runtime instead of what-compiler ' +
       '(jsxImportSource: "what-framework"), which emits h() calls that ' +
       'renderToString and renderToHydratableString understand.\n\n' +
-      'If you have installed a DOM in the server process on purpose, set ' +
-      'ssrGuard: false on the plugin. Note that the result is a full client ' +
-      'render, not SSR.'
+      'If a DOM already exists in this process on purpose, set ssrGuard: false ' +
+      'on the plugin. The likeliest reason is a test runner: Vitest applies an ' +
+      "SSR transform under `environment: 'node'`, so a component test that " +
+      'shims a DOM itself lands here. Note that with the guard off the result ' +
+      'is a full client render, not SSR.'
     ),
     { code: 'ERR_COMPILED_JSX_IN_SSR', id, plugin: 'vite-plugin-what' },
   );
