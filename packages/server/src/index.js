@@ -142,6 +142,7 @@ function _boundaryFallback(vnode, error) {
   try {
     return fallback({ error, reset });
   } catch (e) {
+    _rethrowIfUnrenderable(e);
     if (_isDevMode) {
       console.warn(`[what-server] <ErrorBoundary> fallback threw during SSR: ${e.message}`);
     }
@@ -169,6 +170,7 @@ function _renderHydratable(vnode) {
     try {
       return `<!--$-->${_renderHydratable(_mapArrayToArray(vnode))}<!--/$-->`;
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
@@ -181,6 +183,7 @@ function _renderHydratable(vnode) {
     try {
       return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
@@ -200,6 +203,7 @@ function _renderHydratable(vnode) {
     try {
       return (vnode.children || []).map(_renderHydratable).join('');
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       const suspended = e && typeof e.then === 'function';
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
@@ -223,7 +227,7 @@ function _renderHydratable(vnode) {
 
   // Element
   const { tag, props, children } = vnode;
-  assertSafeTag(tag);
+  assertSafeTag(tag, vnode);
   const attrs = renderAttrs(props || {});
   const open = `<${tag}${attrs}>`;
 
@@ -288,6 +292,7 @@ export function renderToString(vnode) {
     try {
       return renderToString(_mapArrayToArray(vnode));
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
@@ -300,6 +305,7 @@ export function renderToString(vnode) {
     try {
       return renderToString(vnode());
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
@@ -328,6 +334,7 @@ export function renderToString(vnode) {
     try {
       return (vnode.children || []).map(renderToString).join('');
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       const suspended = e && typeof e.then === 'function';
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
@@ -352,7 +359,7 @@ export function renderToString(vnode) {
 
   // Element
   const { tag, props, children } = vnode;
-  assertSafeTag(tag);
+  assertSafeTag(tag, vnode);
   const attrs = renderAttrs(props || {});
   const open = `<${tag}${attrs}>`;
 
@@ -503,6 +510,7 @@ export async function* renderToStream(vnode, ctx) {
     try {
       rows = runWithServerContext(ctx, () => _mapArrayToArray(vnode));
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in stream SSR:', e.message);
       }
@@ -517,6 +525,7 @@ export async function* renderToStream(vnode, ctx) {
       const value = runWithServerContext(ctx, () => vnode());
       yield* renderToStream(value, ctx);
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in stream SSR:', e.message);
       }
@@ -542,6 +551,7 @@ export async function* renderToStream(vnode, ctx) {
     try {
       html = runWithServerContext(ctx, () => (vnode.children || []).map(renderToString).join(''));
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (e && typeof e.then === 'function') throw e; // suspended; belongs to <Suspense>
       html = runWithServerContext(ctx, () => renderToString(_boundaryFallback(vnode, e)));
     }
@@ -594,6 +604,7 @@ export async function* renderToStream(vnode, ctx) {
       const resolved = result instanceof Promise ? await result : result;
       yield* renderToStream(resolved, ctx);
     } catch (e) {
+      _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering component in stream SSR:', e.message);
       }
@@ -607,7 +618,7 @@ export async function* renderToStream(vnode, ctx) {
   }
 
   const { tag, props, children } = vnode;
-  assertSafeTag(tag);
+  assertSafeTag(tag, vnode);
   const attrs = renderAttrs(props || {});
   yield `<${tag}${attrs}>`;
 
@@ -766,14 +777,74 @@ const SAFE_ATTR_NAME = /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/;
 // '__suspense' marker tag.
 const SAFE_TAG_NAME = /^[a-zA-Z_][a-zA-Z0-9._:-]*$/;
 
-function assertSafeTag(tag) {
-  if (typeof tag !== 'string' || !SAFE_TAG_NAME.test(tag)) {
-    // ERROR_CODES.INVALID_SSR_TAG
+// A real DOM node reaching a renderer is not a bad tag name, it is a compiled
+// component body.
+//
+// what-compiler lowers a component's own JSX to a module-scope `_$template()`
+// and a `cloneNode(true)` at call time, so the component RETURNS finished DOM
+// rather than a vnode. Every renderer here destructures `vnode.tag`, gets
+// `undefined` off an Element, and used to report ERR_INVALID_SSR_TAG: "Invalid
+// tag name in SSR: undefined". That message names the wrong thing entirely.
+// It sent people looking for a typo'd tag or a component returning a plain
+// object, when the actual cause is that what-compiler's fine-grained output is
+// client-only and there is no supported way to server-render it.
+//
+// This only fires when a DOM implementation exists in the process (jsdom in a
+// test, a shim someone installed). On a bare Node server the compiled module
+// cannot even be IMPORTED — `_$template()` runs at module scope and throws
+// `ReferenceError: document is not defined` first — which is why the build-time
+// guard in what-compiler's Vite plugin is the earlier and better seam. This is
+// the backstop for the paths that get past it.
+// ERR_COMPILED_JSX_IN_SSR must never be swallowed.
+//
+// Every render path here degrades rather than 500s: a reactive child that throws
+// becomes an empty region, a keyed list becomes an empty container, a streamed
+// component becomes `<!-- SSR Error -->`, and an <ErrorBoundary> renders its
+// fallback. That is right for a RUNTIME error — bad data in one row should not
+// take down the page.
+//
+// It is wrong for this one, because this is not a runtime error. It says the
+// module was built with a toolchain that has no server-rendered form, so every
+// render of it will fail identically, forever, and no retry or fallback can
+// change that. Degrading turns a build misconfiguration into silent data loss:
+//
+//   renderToString(h('main', null, () => CompiledComponent()))
+//     -> "<main></main>"          measured on origin/main
+//
+// The component simply vanished from the page. In development a console.warn
+// fires; in production `_isDevMode` is false and nothing is logged at all, so
+// the page ships with a hole in it and the server reports success.
+//
+// This mirrors the ownership rethrows already in the boundary branches: some
+// throws are not the catcher's to absorb.
+function _rethrowIfUnrenderable(e) {
+  if (e && e.code === 'ERR_COMPILED_JSX_IN_SSR') throw e;
+}
+
+function _isDomNode(value) {
+  return !!value && typeof value === 'object' && typeof (/** @type {any} */ (value).nodeType) === 'number';
+}
+
+function assertSafeTag(tag, vnode) {
+  if (typeof tag === 'string' && SAFE_TAG_NAME.test(tag)) return;
+  if (_isDomNode(vnode)) {
+    // ERROR_CODES.COMPILED_JSX_IN_SSR
     throw Object.assign(
-      new Error(`[what-server] Invalid tag name in SSR: ${JSON.stringify(tag)}`),
-      { code: 'ERR_INVALID_SSR_TAG' },
+      new Error(
+        '[what-server] Cannot server-render a DOM node. A component compiled by ' +
+        'what-compiler returns a cloned template (finished DOM), not a vnode, so it ' +
+        'has no server-rendered form. Author server-rendered views with h(), or ' +
+        'compile them with the automatic JSX runtime (jsxImportSource: ' +
+        '"what-framework") instead of what-compiler.'
+      ),
+      { code: 'ERR_COMPILED_JSX_IN_SSR' },
     );
   }
+  // ERROR_CODES.INVALID_SSR_TAG
+  throw Object.assign(
+    new Error(`[what-server] Invalid tag name in SSR: ${JSON.stringify(tag)}`),
+    { code: 'ERR_INVALID_SSR_TAG' },
+  );
 }
 
 function renderAttrs(props) {

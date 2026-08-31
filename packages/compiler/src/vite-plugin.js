@@ -73,6 +73,84 @@ const COMPONENT_EXPORT_RE = /export\s+(?:default\s+)?function\s+([A-Z]\w*)/;
 // Pattern: files that are likely signal/store/utility files
 const UTILITY_FILE_RE = /(?:store|signal|state|context|util|helper|lib|config)\b/i;
 
+// --- SSR guard --------------------------------------------------------------
+//
+// A module that what-compiler lowers cannot run on a server, and the failures it
+// produces without this guard both name the wrong thing.
+//
+// The lowering emits a module-scope `const _tmpl$0 = _$template("<div>...")`,
+// and `_$template` calls `document.createElement('template')` EAGERLY. So the
+// module throws `ReferenceError: document is not defined` at IMPORT time, before
+// any render function runs, with a stack that points into what-core rather than
+// at the file the developer wrote. If a DOM shim happens to exist, the component
+// instead returns a cloned Element and what-server's assertSafeTag reports
+// ERR_COMPILED_JSX_IN_SSR.
+//
+// Both are runtime failures for something decidable at build time: if Vite is
+// transforming this module for the SSR environment and the transform emitted
+// DOM-building code, the resulting bundle cannot work. Fail here, name the file,
+// and name the two configurations that DO server-render, rather than emitting a
+// bundle whose only possible behaviour is to crash.
+//
+// This is a guard, not a feature. It does not make compiled JSX server-render;
+// what-compiler has no hydratable/SSR codegen target. See
+// docs/SSR-COMPILED-JSX-SCOPING.md for the seams and the staged plan.
+
+// The two compiler-generated locals that make a module client-only.
+//
+//   _$template        — hoisted to module scope and calls
+//                       document.createElement('template') EAGERLY, so the
+//                       module throws at import time on a server.
+//   _$createComponent — runs the component and builds its DOM at call time.
+//
+// Deliberately NOT in this list: _$componentVNode, which is _$createComponent
+// stopping one step short of createDOM (what-core render.js). A module whose
+// only JSX is the argument of a hydrate() call emits that and nothing else, and
+// it is import-safe, so flagging it would be wrong. The other helpers
+// (_$insert, _$spread, _$setProp, ...) are all reached only THROUGH a template,
+// so they add no cases and would only widen the blast radius.
+//
+// The `_$` prefix is compiler-generated and never written by hand, which is what
+// makes matching on the name safe.
+const DOM_BUILDING_LOCALS = /\b_\$(?:template|createComponent)\b/;
+
+function buildsDom(outputCode) {
+  return DOM_BUILDING_LOCALS.test(outputCode);
+}
+
+function ssrGuardError(id) {
+  // ERROR_CODES.COMPILED_JSX_IN_SSR
+  return Object.assign(
+    new Error(
+      `[what-compiler] ${id} is being compiled for the server, but what-compiler's ` +
+      'JSX output is client-only. It lowers JSX to module-scope _$template() calls ' +
+      'that run document.createElement() at import time, so this module throws ' +
+      '"document is not defined" the moment a server imports it.\n\n' +
+      'Server-rendered views have two supported spellings:\n' +
+      '  1. Author them with h() from what-framework.\n' +
+      '  2. Compile them with the automatic JSX runtime instead of what-compiler ' +
+      '(jsxImportSource: "what-framework"), which emits h() calls that ' +
+      'renderToString and renderToHydratableString understand.\n\n' +
+      'If a DOM already exists in this process on purpose, set ssrGuard: false ' +
+      'on the plugin. The likeliest reason is a test runner: Vitest applies an ' +
+      "SSR transform under `environment: 'node'`, so a component test that " +
+      'shims a DOM itself lands here. Note that with the guard off the result ' +
+      'is a full client render, not SSR.'
+    ),
+    { code: 'ERR_COMPILED_JSX_IN_SSR', id, plugin: 'vite-plugin-what' },
+  );
+}
+
+// Vite reports "this transform is for the server" in two ways depending on its
+// major: the third `transform` argument (`{ ssr: true }`) on every version, and
+// the Environment API (`this.environment.name === 'ssr'`) from Vite 6. Read both
+// — a plugin that checked only one would silently stop guarding on the other.
+function isSsrTransform(transformOptions, ctx) {
+  if (transformOptions && transformOptions.ssr) return true;
+  const env = ctx && ctx.environment;
+  return !!(env && env.name === 'ssr');
+}
+
 export default function whatVitePlugin(options = {}) {
   const {
     // File extensions to process
@@ -92,6 +170,10 @@ export default function whatVitePlugin(options = {}) {
     // against package sources instead — needed e.g. in a monorepo where
     // workspace-linked dist/ output may be stale or absent. See config() below.
     prodBundles = true,
+    // Refuse to lower JSX for a module in the SSR graph. See ssrGuardError().
+    // Set to false only if you have installed a DOM in the server process and
+    // accept that the render is a full client render, not SSR.
+    ssrGuard = true,
   } = options;
 
   let rootDir = '';
@@ -182,7 +264,7 @@ export default function whatVitePlugin(options = {}) {
     },
 
     // Transform JSX files
-    transform(code, id) {
+    transform(code, id, transformOptions) {
       const cleanId = id.replace(/[?#].*$/, '');
       const hasJsx = patternMatches(include, cleanId);
       const isScriptModule = SCRIPT_MODULE_RE.test(cleanId);
@@ -197,6 +279,8 @@ export default function whatVitePlugin(options = {}) {
       // those modules pass through the same hermetic Babel transform even when
       // they contain no JSX.
       if (!hasJsx && !hasServerActions) return null;
+
+      const guardSsr = ssrGuard && isSsrTransform(transformOptions, this);
 
       try {
         const result = transformSync(code, {
@@ -227,6 +311,16 @@ export default function whatVitePlugin(options = {}) {
 
         let outputCode = result.code;
 
+        // Decided from the OUTPUT, not the filename. `.jsx` in the include
+        // pattern says the file MAY contain JSX, not that any was lowered, and a
+        // .js/.ts module compiled here purely for its server-action metadata
+        // emits nothing DOM-building at all. Both would be false positives.
+        // buildsDom() asks the only question that matters: did this transform
+        // emit code that constructs DOM?
+        if (guardSsr && buildsDom(outputCode)) {
+          throw ssrGuardError(cleanId);
+        }
+
         // HMR: append hot boundary code for component files in dev mode
         if (hot && isDevMode && !production) {
           const isComponentFile = isComponentModule(code, id);
@@ -241,6 +335,11 @@ export default function whatVitePlugin(options = {}) {
           map: result.map
         };
       } catch (error) {
+        // The SSR guard is a verdict on a transform that SUCCEEDED, not a Babel
+        // failure. Passing it through the enrichment below would log "[what]
+        // Error transforming <file>" over it, which says the compile broke when
+        // it did not, and buries the part the developer has to read.
+        if (error && error.code === 'ERR_COMPILED_JSX_IN_SSR') throw error;
         // Enrich Babel errors with file context for the error overlay
         error.plugin = 'vite-plugin-what';
         if (!error.id) error.id = id;

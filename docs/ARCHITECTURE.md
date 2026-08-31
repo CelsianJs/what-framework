@@ -244,6 +244,23 @@ const html = renderToHydratableString(<App />);
 // data-hk="h0"                      (component boundaries)
 ```
 
+**Which JSX toolchain the `<App />` above came from is load-bearing.** The server
+renderers walk vnode trees, so server modules must be authored with `h()` or
+compiled with the **automatic JSX runtime** (`jsxImportSource: "what-framework"`),
+which lowers JSX to `h()` calls. They must **not** be compiled by
+**what-compiler**: its fine-grained output lowers JSX to module-scope
+`_$template()` calls that run `document.createElement()` at import time, and to
+`_$createComponent()`, which builds DOM. A server has no `document`, so such a
+module throws `ReferenceError: document is not defined` the moment it is
+imported, before any render begins. what-compiler's Vite plugin refuses this at
+build time with `ERR_COMPILED_JSX_IN_SSR` rather than emitting a bundle that can
+only crash; what-server raises the same code if a compiled component reaches a
+renderer in a process that does have a DOM.
+
+what-compiler belongs on the **client** entry, where the fine-grained output is
+the point. There is no hydratable/SSR codegen target for it today; see
+`docs/SSR-COMPILED-JSX-SCOPING.md` for the seams and the staged plan.
+
 ### Client Hydration
 
 `hydrate()` reuses the server-rendered DOM instead of destroying and recreating it:
