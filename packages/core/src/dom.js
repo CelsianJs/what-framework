@@ -239,6 +239,7 @@ export function disposeTree(node) {
 // Deduplicating would mean a Set on a path that runs for every teardown, to
 // prevent nothing.
 export function _liveRegionNodes(tracked) {
+  /** @type {any[] | null} */
   let out = null;
   for (const node of tracked) {
     const end = /** @type {any} */ (node)._rangeEnd;
@@ -249,8 +250,9 @@ export function _liveRegionNodes(tracked) {
     // empty and the guard does not need to say so a second time.
     if (!end || end.parentNode !== node.parentNode) continue;
     if (!out) out = tracked.slice();
+    const buf = /** @type {any[]} */ (out);
     for (let n = node.nextSibling; n; n = n.nextSibling) {
-      out.push(n);
+      buf.push(n);
       if (n === end) break;
     }
   }

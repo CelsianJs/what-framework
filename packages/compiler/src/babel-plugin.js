@@ -961,6 +961,7 @@ export default function whatBabelPlugin({ types: t }) {
     if (!t.isArrowFunctionExpression(mapFn) && !t.isFunctionExpression(mapFn)) return null;
 
     // Get the map callback's return expression
+    /** @type {any} */
     let returnExpr = null;
     if (t.isArrowFunctionExpression(mapFn)) {
       if (t.isExpression(mapFn.body)) {
@@ -979,6 +980,7 @@ export default function whatBabelPlugin({ types: t }) {
     // Check if the return is JSX with a `key` prop
     if (!t.isJSXElement(returnExpr)) return null;
     const attrs = returnExpr.openingElement.attributes;
+    /** @type {any} */
     let keyAttr = null;
     for (const attr of attrs) {
       if (t.isJSXAttribute(attr) && getAttrName(attr) === 'key') {
@@ -2102,6 +2104,7 @@ export default function whatBabelPlugin({ types: t }) {
     const children = node.children;
 
     // Check for client: directive (islands)
+    /** @type {{ type: string, value?: any } | null} */
     let clientDirective = null;
     const filteredAttrs = [];
 
@@ -3534,6 +3537,7 @@ export default function whatBabelPlugin({ types: t }) {
           }
 
           if (fgSpecifiers.length > 0) {
+            /** @type {any} */
             let existingRenderImport = null;
             for (const node of path.node.body) {
               if (t.isImportDeclaration(node) && (
@@ -3624,6 +3628,7 @@ export default function whatBabelPlugin({ types: t }) {
 }
 
 function addCoreImports(path, t, coreSpecifiers) {
+  /** @type {any} */
   let existingImport = null;
   for (const node of path.node.body) {
     if (t.isImportDeclaration(node) && (

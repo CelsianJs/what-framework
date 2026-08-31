@@ -30,7 +30,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { createRequire } from 'node:module';
+import { tscDiagnose } from '../../../scripts/lib/tsc-diagnose.mjs';
 
 import { h } from 'what-core';
 import { createCacheEngine, createMemoryStore } from 'what-isr';
@@ -39,47 +39,18 @@ import { createRequestHandler } from '../src/adapter/core.js';
 import { action } from '../src/actions.js';
 import { Form, ACTION_ENDPOINT } from '../src/form.js';
 
-const require = createRequire(import.meta.url);
-const ts = require('typescript');
-
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 
 // --- TypeScript probe harness -------------------------------------------
-// The probe module is never written to disk: it is served from memory at a path
-// inside this directory so node_modules resolution finds the workspace packages
-// exactly as a consumer's build would.
+// TypeScript 7 dropped the JS createProgram API, so probes are written next
+// to this test (for node_modules resolution) and compiled with tsc.
 function diagnose(name, source) {
-  const probePath = join(HERE, name);
-  const options = {
-    strict: true,
-    noEmit: true,
-    module: ts.ModuleKind.ESNext,
-    target: ts.ScriptTarget.ES2022,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-    // Check the probe's USE of the declarations, not the internals of every
-    // .d.ts it pulls in (including third-party ones).
-    skipLibCheck: true,
-    types: [],
-  };
-  const host = ts.createCompilerHost(options, true);
-  const getSourceFile = host.getSourceFile.bind(host);
-  host.getSourceFile = (file, langVersion, onError, shouldCreate) => (
-    file.endsWith(name)
-      ? ts.createSourceFile(file, source, langVersion, true, ts.ScriptKind.TS)
-      : getSourceFile(file, langVersion, onError, shouldCreate)
-  );
-  const fileExists = host.fileExists.bind(host);
-  host.fileExists = (file) => (file.endsWith(name) ? true : fileExists(file));
-  const readFile = host.readFile.bind(host);
-  host.readFile = (file) => (file.endsWith(name) ? source : readFile(file));
-
-  const program = ts.createProgram([probePath], options, host);
-  return ts.getPreEmitDiagnostics(program).map((d) => ({
-    code: d.code,
-    message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
-  }));
+  return tscDiagnose({
+    files: { [name]: source },
+    writeRoot: HERE,
+    compilerOptions: { lib: ['es2022', 'dom'] },
+  }).map((d) => ({ code: d.code, message: d.message }));
 }
 
 function summarize(diags) {

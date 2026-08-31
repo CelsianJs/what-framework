@@ -161,6 +161,7 @@ export function validateImports(importNames) {
 // Simple Levenshtein-based closest match
 function findClosest(input) {
   const lower = input.toLowerCase();
+  /** @type {string | null} */
   let best = null;
   let bestDist = Infinity;
 

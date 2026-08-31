@@ -169,6 +169,7 @@ export function raf(key, fn) {
 // Batched resize observations.
 
 const resizeObservers = new WeakMap();
+/** @type {ResizeObserver | null} */
 let sharedResizeObserver = null;
 
 export function onResize(element, callback) {
@@ -191,12 +192,13 @@ export function onResize(element, callback) {
     });
   }
 
+  const observer = sharedResizeObserver;
   resizeObservers.set(element, callback);
-  sharedResizeObserver.observe(element);
+  observer.observe(element);
 
   return () => {
     resizeObservers.delete(element);
-    sharedResizeObserver.unobserve(element);
+    observer.unobserve(element);
   };
 }
 

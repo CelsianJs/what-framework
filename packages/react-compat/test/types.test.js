@@ -10,33 +10,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const ts = require('typescript');
+import { tscDiagnose } from '../../../scripts/lib/tsc-diagnose.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, 'fixtures', 'types');
 
 /** Compile a single fixture and return its pre-emit diagnostics. */
-function compile(file, jsx = ts.JsxEmit.ReactJSX) {
-  const options = {
-    strict: true,
-    noEmit: true,
-    module: ts.ModuleKind.ESNext,
-    target: ts.ScriptTarget.ES2022,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-    jsx,
-    jsxImportSource: 'what-react',
-    skipLibCheck: true,
-  };
-  const program = ts.createProgram([join(FIXTURES, file)], options);
-  return ts.getPreEmitDiagnostics(program);
+function compile(file, jsx = 'react-jsx') {
+  return tscDiagnose({
+    existingFiles: [join(FIXTURES, file)],
+    compilerOptions: {
+      lib: ['es2022', 'dom'],
+      jsx,
+      jsxImportSource: 'what-react',
+    },
+  });
 }
 
 function messages(diags) {
-  return diags.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+  return diags.map((d) => d.message);
 }
 
 test('valid what-react JSX + hooks type-check clean (react-jsx)', () => {
@@ -49,7 +41,7 @@ test('valid what-react JSX + hooks type-check clean (react-jsx)', () => {
 });
 
 test('valid what-react JSX type-checks clean under jsx:"react-jsxdev"', () => {
-  const diags = compile('good.tsx', ts.JsxEmit.ReactJSXDev);
+  const diags = compile('good.tsx', 'react-jsxdev');
   assert.equal(
     diags.length,
     0,

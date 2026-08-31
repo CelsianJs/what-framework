@@ -22,6 +22,7 @@ let componentId = 0;
 // what-core's installSignalReadGuardrail, captured when the core module is
 // wired up in installDevTools(). Dev-only: warns when a signal is coerced
 // to a string/number without being called (e.g. `Total: ${count}`).
+/** @type {((sig: any, name: string) => void) | null} */
 let coreSignalReadGuardrail = null;
 
 // Registries
@@ -465,7 +466,7 @@ export function getErrors(opts = {}) {
  * Install devtools. Call once at app startup.
  * Wires into what-core's __DEV__ hooks and exposes `window.__WHAT_DEVTOOLS__`.
  *
- * @param {object} [core] - Optional what-core module. If not provided, attempts dynamic import.
+ * @param {any} [core] - Optional what-core module. If not provided, attempts dynamic import.
  */
 export function installDevTools(core) {
   if (installed) return;

@@ -7,6 +7,7 @@ import { mount } from './dom.js';
 import { h } from './h.js';
 
 // Minimal DOM implementation for Node.js
+/** @type {HTMLDivElement | null} */
 let container = null;
 
 // Every tree render()/renderTest() mounted, so cleanup() can dispose it.
@@ -102,6 +103,7 @@ export function renderTest(Component, props) {
 
   // Track signals created during component render
   const signalRegistry = {};
+  /** @type {(() => void) | null} */
   let rootDispose = null;
 
   // Create a reactive root so we can flush synchronously

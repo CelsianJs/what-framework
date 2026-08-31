@@ -12,7 +12,9 @@
 // getServerContext() returns null on the client and outside of any render, so
 // `typeof document === 'undefined'` guards keep behaving correctly.
 
+/** @type {any} */
 let _current = null;
+/** @type {{ getStore: () => any, run: (store: any, fn: () => any) => any } | null} */
 let _asyncContextStorage = null;
 
 /**

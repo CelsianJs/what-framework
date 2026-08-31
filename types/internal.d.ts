@@ -57,6 +57,43 @@ declare global {
     [key: string]: any;
   }
 
+  /**
+   * Ownership / root scope created by `createRoot` and `_createItemScope`
+   * in core/src/reactive.js. `owner` is the parent scope (null at the
+   * outermost root and on item scopes, which do not register with a parent).
+   */
+  interface WhatOwner {
+    disposals: Array<() => void>;
+    owner: WhatOwner | null;
+    children: WhatOwner[];
+    _disposed: boolean;
+    [key: string]: any;
+  }
+
+  /**
+   * A what-react component instance. Created in react-compat/src/runtime.js
+   * and hung off `currentInstance` for the duration of a render. The `_ctx*`
+   * and suspense fields are written later by hooks.js / index.js.
+   */
+  interface WhatCompatInstance {
+    parent?: WhatCompatInstance | null;
+    _ctxProvided?: Map<any, any>;
+    _ctxSubs?: Map<any, any>;
+    _ctxDeps?: any[];
+    _errorHandler?: ((error: any) => void) | null;
+    _isSuspense?: boolean;
+    _suspendCount?: number;
+    [key: string]: any;
+  }
+
+  /**
+   * Cursor used by hydrate() in core/src/render.js to walk the existing DOM.
+   */
+  interface WhatHydrationCursor {
+    parent: any;
+    index: number;
+  }
+
   interface Set<T> {
     /**
      * Set by `effect()` in core/src/reactive.js. A dependency Set owned by an

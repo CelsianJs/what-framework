@@ -17,6 +17,7 @@ import {
 // ---- createRoot (React 18) ----
 
 export function createRoot(container) {
+  /** @type {{ container: any, rns: any } | null} */
   let root = null;
 
   return {

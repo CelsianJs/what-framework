@@ -372,6 +372,7 @@ async function dev() {
   const wsClients = new Set();
 
   // Auto-start MCP bridge if what-devtools-mcp is installed
+  /** @type {import('node:child_process').ChildProcess | null} */
   let mcpProcess = null;
   const noMcp = args.includes('--no-mcp');
   if (!noMcp) {
@@ -792,7 +793,11 @@ function getFlag(name, defaultValue) {
 }
 
 // Async config loader — uses dynamic import() instead of unsafe new Function()
+/** @type {{ mode?: string, pagesDir?: string, outDir?: string, hmr?: boolean, hash?: boolean, adapter?: string, [key: string]: any } | null} */
 var _configCache = null;
+/**
+ * @returns {Promise<{ mode?: string, pagesDir?: string, outDir?: string, hmr?: boolean, hash?: boolean, adapter?: string, [key: string]: any }>}
+ */
 async function loadConfigAsync() {
   if (_configCache) return _configCache;
   const configPath = join(cwd, 'what.config.js');
@@ -801,8 +806,9 @@ async function loadConfigAsync() {
       // Use file:// URL for cross-platform ESM import compatibility
       const fileUrl = new URL(`file://${configPath}`);
       const mod = await import(fileUrl.href);
-      _configCache = mod.default || mod;
-      return _configCache;
+      const loaded = mod.default || mod;
+      _configCache = loaded;
+      return loaded;
     } catch { /* use defaults */ }
   }
   _configCache = { mode: 'hybrid', pagesDir: 'src/pages', outDir: 'dist' };
@@ -959,6 +965,7 @@ function injectDevClient(html) {
 // file: from node_modules/what-framework-cli/src, `../../what/src` points at a
 // package name that was never published. Resolve by package name instead, from
 // the CLI, from what-framework itself (pnpm-style trees), then from the project.
+/** @type {{ core?: string, router?: string, server?: string, missing?: string[] } | null} */
 var _runtimeDirs = null;
 function resolveRuntimeDirs() {
   if (_runtimeDirs) return _runtimeDirs;

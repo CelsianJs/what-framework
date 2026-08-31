@@ -489,6 +489,7 @@ export function Router({ routes, fallback, globalLayout }) {
   // component runs after renderMatch has returned. Anything unbranded
   // propagates to the app's ErrorBoundary unchanged.
   const content = () => {
+    /** @type {any} */
     let sig = null;
     try {
       return renderMatch();

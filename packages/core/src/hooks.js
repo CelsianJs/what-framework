@@ -400,6 +400,7 @@ export function createResource(fetcher, options = {}) {
   const loading = signal(seeded == null);
   const error = signal(null);
 
+  /** @type {AbortController | null} */
   let controller = null;
 
   const refetch = async (source) => {

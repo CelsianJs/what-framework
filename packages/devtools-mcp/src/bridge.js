@@ -23,6 +23,7 @@ export function createBridge({ port = 9229, host = '127.0.0.1', onError } = {}) 
   let latestSnapshot = null;
   const eventLog = [];
   const errorLog = [];
+  /** @type {import('ws').WebSocket | null} */
   let browserSocket = null;
   let correlationCounter = 0;
   const pendingCommands = new Map();
@@ -33,6 +34,7 @@ export function createBridge({ port = 9229, host = '127.0.0.1', onError } = {}) 
   const SNAPSHOT_CACHE_MS = 100;
 
   // Baseline snapshot for diff tool
+  /** @type {any} */
   let baselineSnapshot = null;
 
   // Use a fixed token from env if provided, otherwise generate a random one.

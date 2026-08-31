@@ -24,6 +24,7 @@ export function memo(Component, _areEqual) {
 }
 
 // Injected by dom.js
+/** @type {(() => any) | null} */
 let _getCurrentComponent = null;
 export function _injectGetCurrentComponent(fn) { _getCurrentComponent = fn; }
 
@@ -284,6 +285,7 @@ export function Match(props) {
 // Late-bound renderers, injected by render.js. components.js cannot import
 // render.js directly (render -> dom -> components is already a cycle), so the
 // same injection precedent as _injectGetCurrentComponent applies here.
+/** @type {{ hydrate?: Function, insert?: Function } | null} */
 let _islandRuntime = null;
 
 /** @internal */

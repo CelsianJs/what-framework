@@ -58,6 +58,7 @@ export function jsxPreserveConfig({ rolldownVersion, viteVersion } = {}) {
 }
 
 // Resolved once per process — the Vite version can't change mid-run.
+/** @type {Promise<string> | null} */
 let viteVersionPromise = null;
 function detectViteVersion() {
   if (!viteVersionPromise) {

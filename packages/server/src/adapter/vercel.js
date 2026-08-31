@@ -66,6 +66,7 @@ export async function buildVercelOutput({
     await cp(staticDir, join(outDir, 'static'), { recursive: true });
   }
 
+  /** @type {string | null} */
   let functionDir = null;
   if (files && typeof files === 'object') {
     functionDir = join(outDir, 'functions', `${functionName}.func`);

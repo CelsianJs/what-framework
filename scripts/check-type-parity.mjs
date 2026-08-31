@@ -14,7 +14,7 @@
 import { readFileSync, existsSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
+import { tscDiagnose } from './lib/tsc-diagnose.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packagesDir = join(root, 'packages');
@@ -262,29 +262,30 @@ export async function checkParity() {
 const CONSUMER_PROBES = ['scripts/types/fixtures/what-server-consumer.ts'];
 
 export async function checkConsumerProbes() {
-  const ts = createRequire(import.meta.url)('typescript');
   const failures = [];
 
   for (const relative of CONSUMER_PROBES) {
     const file = join(root, relative);
-    const program = ts.createProgram([file], {
-      strict: true,
-      noEmit: true,
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      // No ambient @types: a consumer's own project decides those, and pulling
-      // them in here would let a probe pass on a global it does not declare.
-      types: [],
+    // TypeScript 7 dropped the JS createProgram API; tsc is the typechecker.
+    const diags = tscDiagnose({
+      existingFiles: [file],
+      compilerOptions: {
+        strict: true,
+        noEmit: true,
+        module: 'esnext',
+        target: 'es2022',
+        moduleResolution: 'bundler',
+        // No ambient @types: a consumer's own project decides those, and pulling
+        // them in here would let a probe pass on a global it does not declare.
+        types: [],
+        skipLibCheck: false,
+      },
     });
-    const messages = ts.getPreEmitDiagnostics(program).map((d) => {
-      const where = d.file && d.start != null
-        ? `${d.file.fileName.slice(root.length + 1)}(${(() => {
-            const { line, character } = d.file.getLineAndCharacterOfPosition(d.start);
-            return `${line + 1},${character + 1}`;
-          })()})`
-        : relative;
-      return `${where}: error TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`;
+    const messages = diags.map((d) => {
+      const where = d.file.startsWith(root)
+        ? `${d.file.slice(root.length + 1)}(${d.line},${d.character})`
+        : `${relative}(${d.line},${d.character})`;
+      return `${where}: error TS${d.code}: ${d.message}`;
     });
     if (messages.length) failures.push({ probe: relative, messages });
   }

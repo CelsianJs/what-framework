@@ -15,6 +15,7 @@ export function compilePath(path) {
     .replace(/\[(\w+)\]/g, ':$1'); // File-based [param] to :param
 
   const paramNames = [];
+  /** @type {string | null} */
   let catchAll = null;
 
   const regexStr = normalized

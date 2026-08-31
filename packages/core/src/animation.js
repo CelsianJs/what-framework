@@ -29,7 +29,9 @@ export function spring(initialValue, options = {}) {
   const velocity = signal(0);
   const isAnimating = signal(false);
 
+  /** @type {number | null} */
   let rafId = null;
+  /** @type {number | null} */
   let lastTime = null;
 
   function tick(time) {
@@ -138,13 +140,16 @@ export function tween(from, to, options = {}) {
   const value = signal(from);
   const isAnimating = signal(true);
 
+  /** @type {number | null} */
   let startTime = null;
+  /** @type {number | null} */
   let rafId = null;
 
   function tick(time) {
     if (startTime === null) startTime = time;
+    const t0 = /** @type {number} */ (startTime);
 
-    const elapsed = time - startTime;
+    const elapsed = time - t0;
     const t = Math.min(elapsed / duration, 1);
     const easedT = easing(t);
     const currentValue = from + (to - from) * easedT;
@@ -269,6 +274,7 @@ export function useGesture(element, handlers = {}) {
   let lastTime = 0;
   let lastX = 0;
   let lastY = 0;
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let longPressTimer = null;
 
   function handleStart(e) {
@@ -377,6 +383,7 @@ export function useGesture(element, handlers = {}) {
   }
 
   // Pinch handling (touch only)
+  /** @type {number | null} */
   let initialPinchDistance = null;
 
   function handlePinchMove(e) {

@@ -38,8 +38,11 @@ export function __setDevToolsHooks(hooks) {
   if (__DEV__) __devtools = hooks;
 }
 
+/** @type {WhatEffectNode | null} */
 let currentEffect = null;
+/** @type {WhatOwner | null} */
 let currentRoot = null;
+/** @type {WhatOwner | null} */
 let currentOwner = null;  // Ownership tree: tracks current owner context
 let insideComputed = false; // Track whether we're inside a computed() callback (dev-mode warning)
 let batchDepth = 0;
@@ -55,6 +58,7 @@ let pendingNeedSort = false;  // Track whether pendingEffects actually needs sor
 // to iterative. When a computed fn() reads another dirty computed, instead
 // of recursing, we throw a sentinel that gets caught by the outer loop.
 const NEEDS_UPSTREAM = Symbol('needs_upstream');
+/** @type {any[] | null} */
 let iterativeEvalStack = null;  // array when inside evaluation loop, null otherwise
 
 // --- Signal ---
@@ -75,6 +79,7 @@ export function signal(initial, debugName) {
   // Track the last effect that subscribed — skip redundant tracking when the
   // same effect reads this signal multiple times (common in template bindings).
   // lastTrackedEpoch tracks the effect's cleanup epoch to detect stale caches.
+  /** @type {WhatEffectNode | null} */
   let lastTracked = null;
   let lastTrackedEpoch = 0;
 
@@ -161,6 +166,7 @@ export function signal(initial, debugName) {
 export function computed(fn) {
   let value, dirty = true;
   const subs = new Set();
+  /** @type {WhatEffectNode | null} */
   let lastTracked = null;
   let lastTrackedEpoch = 0;
 
@@ -502,6 +508,7 @@ function cleanup(e) {
 // call notify() recursively. The queue drains iteratively in the outermost call.
 
 let notifyDepth = 0;        // Tracks recursive notify depth
+/** @type {(Set<any> | null)[] | null} */
 let notifyQueue = null;     // Reusable queue, allocated on first recursive call
 let notifyQueueLen = 0;     // Length of the queue
 
@@ -552,13 +559,15 @@ function notify(subs) {
         _processSubscriber(e);
       }
       // Drain any queued subscriber sets from recursive notify calls
-      if (notifyQueueLen > 0) {
+      if (notifyQueueLen > 0 && notifyQueue) {
         let qi = 0;
+        const q = notifyQueue;
         while (qi < notifyQueueLen) {
-          const queuedSubs = notifyQueue[qi];
-          notifyQueue[qi] = null; // Allow GC
+          const queuedSubs = q[qi];
+          q[qi] = null; // Allow GC
           qi++;
-          for (const e of queuedSubs) {
+          // Slots 0..len-1 are Sets; null is only written after a slot is drained.
+          for (const e of /** @type {Set<any>} */ (queuedSubs)) {
             _processSubscriber(e);
           }
         }
@@ -797,6 +806,7 @@ export function runWithOwner(owner, fn) {
 export function createRoot(fn) {
   const prevRoot = currentRoot;
   const prevOwner = currentOwner;
+  /** @type {WhatOwner} */
   const root = {
     /** @type {Array<() => void>} */
     disposals: [],
@@ -868,6 +878,7 @@ function _disposeRoot(root) {
 export function _createItemScope(fn) {
   const prevRoot = currentRoot;
   const prevOwner = currentOwner;
+  /** @type {WhatOwner} */
   const scope = {
     /** @type {Array<() => void>} */
     disposals: [],

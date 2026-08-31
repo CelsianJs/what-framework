@@ -49,6 +49,7 @@ function getComponentElement(entry) {
 
 const MAX_WRITE_LOG = 200;
 let _signalWriteLog = [];       // { signalId, signalName, previousValue, newValue, timestamp, writerEffect }
+/** @type {{ id: any, name: any, timestamp: number } | null} */
 let _lastRunningEffect = null;  // { id, name, timestamp } — most recent effect:run event
 let _trackingInitialized = false;
 let _unsubTracker = null;
@@ -111,11 +112,12 @@ function findLastWrite(signalId) {
  * Handle extended commands sent from the MCP server via the bridge.
  *
  * @param {string} command - The command name
- * @param {object} args - Command arguments
- * @param {object|null} devtools - window.__WHAT_DEVTOOLS__ reference
- * @returns {Promise<object|null>} Result object, or null if command not handled
+ * @param {Record<string, any>} [args] - Command arguments
+ * @param {any} [devtools] - window.__WHAT_DEVTOOLS__ reference (live hook bag)
+ * @returns {Promise<Record<string, any>|null>} Result object, or null if command not handled
  */
 export async function handleExtendedCommand(command, args, devtools) {
+  args = args || /** @type {Record<string, any>} */ ({});
   switch (command) {
 
     // -------------------------------------------------------------------------

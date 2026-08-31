@@ -226,6 +226,7 @@ export function useFetch(url, options = {}) {
   const data = signal(initialData);
   const error = signal(null);
   const isLoading = signal(true);
+  /** @type {AbortController | null} */
   let abortController = null;
 
   async function fetchData() {
@@ -342,6 +343,7 @@ export function useSWR(rawKey, fetcher, options = {}) {
     return empty && fetching;
   });
 
+  /** @type {AbortController | null} */
   let abortController = null;
 
   // `force` is invalidateQueries(): "this data is wrong now". It bypasses the
@@ -603,6 +605,7 @@ export function useQuery(options) {
   // effect's cleanup must leave it alone. One shared controller meant an
   // unrelated re-render cancelled a button click's refetch(), whose promise
   // then resolved with `undefined`.
+  /** @type {{ controller: AbortController, manual: boolean, direction?: string } | null} */
   let inFlight = null;
   let cleanupTimer = null;
 
@@ -895,6 +898,7 @@ export function useInfiniteQuery(options) {
   // The page request in flight and who asked for it. See the matching note in
   // useQuery: an explicit fetchNextPage()/refetch() belongs to the caller, and
   // the effect's cleanup must not cancel one just because it re-ran.
+  /** @type {{ controller: AbortController, manual: boolean, direction?: string } | null} */
   let inFlight = null;
 
   // clearCache() reaches an infinite query through here, because its pages

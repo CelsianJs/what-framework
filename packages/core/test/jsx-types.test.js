@@ -9,32 +9,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const ts = require('typescript');
+import { tscDiagnose } from '../../../scripts/lib/tsc-diagnose.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, 'fixtures', 'jsx');
 
 /** Compile a single fixture and return its pre-emit diagnostics. */
-function compile(file, importSource, jsx = ts.JsxEmit.ReactJSX) {
-  const options = {
-    strict: true,
-    noEmit: true,
-    module: ts.ModuleKind.ESNext,
-    target: ts.ScriptTarget.ES2022,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    jsx,
-    jsxImportSource: importSource,
-    types: [],
-  };
-  const program = ts.createProgram([join(FIXTURES, file)], options);
-  return ts.getPreEmitDiagnostics(program);
+function compile(file, importSource, jsx = 'react-jsx') {
+  return tscDiagnose({
+    existingFiles: [join(FIXTURES, file)],
+    compilerOptions: {
+      jsx,
+      jsxImportSource: importSource,
+      skipLibCheck: false,
+    },
+  });
 }
 
 function messages(diags) {
-  return diags.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+  return diags.map((d) => d.message);
 }
 
 test('valid What JSX type-checks clean via what-framework/jsx-runtime', () => {
@@ -56,7 +49,7 @@ test('valid What JSX type-checks clean via what-core/jsx-runtime', () => {
 });
 
 test('valid What JSX type-checks clean under jsx:"preserve" (the create-what scaffold config)', () => {
-  const diags = compile('good.tsx', 'what-framework', ts.JsxEmit.Preserve);
+  const diags = compile('good.tsx', 'what-framework', 'preserve');
   assert.equal(
     diags.length,
     0,

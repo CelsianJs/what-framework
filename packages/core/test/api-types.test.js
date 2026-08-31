@@ -9,30 +9,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const ts = require('typescript');
+import { tscDiagnose } from '../../../scripts/lib/tsc-diagnose.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, 'fixtures', 'api', 'probe.tsx');
 
 function messages(diags) {
-  return diags.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+  return diags.map((d) => d.message);
 }
 
 test('documented What APIs type-check clean against the shipped declarations', () => {
-  const program = ts.createProgram([FIXTURE], {
-    strict: true,
-    noEmit: true,
-    module: ts.ModuleKind.ESNext,
-    target: ts.ScriptTarget.ES2022,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    jsx: ts.JsxEmit.ReactJSX,
-    jsxImportSource: 'what-framework',
-    types: [],
+  const diags = tscDiagnose({
+    existingFiles: [FIXTURE],
+    compilerOptions: {
+      jsx: 'react-jsx',
+      jsxImportSource: 'what-framework',
+      skipLibCheck: false,
+    },
   });
-  const diags = ts.getPreEmitDiagnostics(program);
   assert.equal(
     diags.length,
     0,

@@ -17,6 +17,7 @@ export { memo };
 // _setTextInsertHook(). When null (default), zero cost — no module loaded,
 // no branch taken. The hook receives (parentElement, textString) on every
 // dynamic text insertion and update.
+/** @type {((parent: any, text: string) => void) | null} */
 let _onTextInsert = null;
 
 export function _setTextInsertHook(fn) {
@@ -275,7 +276,9 @@ export function insert(parent, child, marker) {
     // effect's first run re-evaluated child() — creating components twice
     // on mount for non-text children. (SPRINT v0.11 C3)
     const m = marker || null;
+    /** @type {any} */
     let current = null;
+    /** @type {Text | null} */
     let textNode = null; // non-null while on the text fast path
     let mounted = false;
     // Capture the owning component at CREATION time. See the identical capture
@@ -1765,7 +1768,8 @@ export function classList(el, classes) {
 // After hydration is complete, switches to normal rendering for updates.
 
 let _isHydrating = false;
-let _hydrationCursor = null;
+/** @type {WhatHydrationCursor} */
+let _hydrationCursor = /** @type {any} */ (null);
 
 export function isHydrating() {
   return _isHydrating;
@@ -1801,7 +1805,7 @@ export function hydrate(vnode, container) {
     return result;
   } finally {
     _isHydrating = false;
-    _hydrationCursor = null;
+    _hydrationCursor = /** @type {any} */ (null);
   }
 }
 
@@ -2235,6 +2239,7 @@ function hydrateNode(vnode, parent) {
       componentStack.push(ctx);
 
       let result;
+      /** @type {(() => void) | null} */
       let endChildrenPass = null;
       try {
         // Same children protocol as createComponent: compiled JSX passes a

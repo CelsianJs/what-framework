@@ -32,9 +32,12 @@ export function getTextConfig() {
 
 // --- Lazy Pretext loader ---
 
+/** @type {any} */
 let pretextModule = null;
+/** @type {Promise<any> | null} */
 let pretextLoadPromise = null;
 
+/** @returns {Promise<any>} */
 export async function ensurePretext() {
   if (pretextModule) return pretextModule;
   if (pretextLoadPromise) return pretextLoadPromise;
@@ -142,6 +145,7 @@ function parseFontSize(fontStr) {
 
 // --- Font-ready gate ---
 
+/** @type {Promise<void> | null} */
 let fontsReadyPromise = null;
 
 export function ensureFontsReady() {

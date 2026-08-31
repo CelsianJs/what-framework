@@ -506,6 +506,7 @@ export async function* renderToStream(vnode, ctx) {
 
   // Compiled keyed list: see _renderHydratable above.
   if (typeof vnode === 'function' && vnode._mapArray) {
+    /** @type {any} */
     let rows = null;
     try {
       rows = runWithServerContext(ctx, () => _mapArrayToArray(vnode));
