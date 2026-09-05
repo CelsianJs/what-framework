@@ -21,6 +21,34 @@ function countingRender() {
 }
 
 describe('createRequestHandler', () => {
+  it('passes complete decoded query values through a real request', async () => {
+    const handle = createRequestHandler({
+      routes, csrf: false,
+      render: async ({ query }) => ({ html: JSON.stringify(query), status: 200 }),
+    });
+    const res = await handle(new Request('http://x/srv?q=hello+world&token=a=b&broken=%'));
+    assert.equal(res.status, 200);
+    assert.deepEqual(JSON.parse(await res.text()), { q: 'hello world', token: 'a=b', broken: '%' });
+  });
+
+  it('never serves an ISR entry for a differently ordered duplicate query', async () => {
+    let renders = 0;
+    const handle = createRequestHandler({
+      routes, csrf: false,
+      cache: createCacheEngine({ store: createMemoryStore() }),
+      render: async ({ query }) => { renders++; return { html: JSON.stringify(query.sort), status: 200 }; },
+    });
+    const first = await handle(new Request('http://x/?z=1&sort=a&sort=b'));
+    assert.equal(await first.text(), '["a","b"]');
+    const reversed = await handle(new Request('http://x/?sort=b&z=1&sort=a'));
+    assert.equal(reversed.headers.get('x-what-cache'), 'MISS');
+    assert.equal(await reversed.text(), '["b","a"]');
+    const equivalent = await handle(new Request('http://x/?sort=b&sort=a&z=1'));
+    assert.equal(equivalent.headers.get('x-what-cache'), 'HIT');
+    assert.equal(await equivalent.text(), '["b","a"]');
+    assert.equal(renders, 2);
+  });
+
   it('cold GET is a MISS, repeat is a HIT (no re-render)', async () => {
     const { render, count } = countingRender();
     const cache = createCacheEngine({ store: createMemoryStore() });

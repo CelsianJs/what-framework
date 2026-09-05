@@ -9,6 +9,7 @@
  */
 
 import path from 'path';
+import { createRequire } from 'node:module';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
 import { generateRoutesModule } from './file-router.js';
@@ -57,16 +58,16 @@ export function jsxPreserveConfig({ rolldownVersion, viteVersion } = {}) {
     : { esbuild: { jsx: 'preserve' } };
 }
 
-// Resolved once per process — the Vite version can't change mid-run.
-/** @type {Promise<string> | null} */
-let viteVersionPromise = null;
-function detectViteVersion() {
-  if (!viteVersionPromise) {
-    viteVersionPromise = import('vite')
-      .then((vite) => vite.version || '')
-      .catch(() => ''); // vite not resolvable (tests) — esbuild fallback
+async function detectViteVersion(root) {
+  // A workspace-linked compiler can resolve a different Vite than its consumer.
+  // Multiple apps may also build with different versions in the same process.
+  try {
+    const require = createRequire(path.resolve(root || process.cwd(), 'package.json'));
+    return require('vite/package.json').version || '';
+  } catch {
+    // Keep programmatic/global Vite use working when the app has no local copy.
+    return import('vite').then((vite) => vite.version || '').catch(() => '');
   }
-  return viteVersionPromise;
 }
 
 // Pattern: exported function starting with uppercase = component
@@ -397,7 +398,7 @@ export default function whatVitePlugin(options = {}) {
       // jsxPreserveConfig picks the right option key for the running version.
       const jsxPreserve = jsxPreserveConfig({
         rolldownVersion: this?.meta?.rolldownVersion,
-        viteVersion: await detectViteVersion(),
+        viteVersion: await detectViteVersion(config.root),
       });
       return {
         ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),

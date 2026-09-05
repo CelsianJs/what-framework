@@ -11,6 +11,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import whatVitePlugin, { jsxPreserveConfig } from '../src/vite-plugin.js';
 
 describe('jsxPreserveConfig (pure helper)', () => {
@@ -62,6 +65,26 @@ describe('jsxPreserveConfig (pure helper)', () => {
 
 describe('config() hook output', () => {
   const env = { mode: 'development', command: 'serve' };
+
+  it('uses each consuming project version when Vite 7 and 8 share the same compiler', async () => {
+    const fixture = mkdtempSync(path.join(tmpdir(), 'what-vite-versions-'));
+    try {
+      for (const major of [7, 8]) {
+        const pkgDir = path.join(fixture, String(major), 'node_modules', 'vite');
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'vite', version: `${major}.0.0` }));
+      }
+      const plugin = whatVitePlugin();
+      for (const major of [7, 8, 7]) {
+        const cfg = await plugin.config.call({ meta: {} }, { root: path.join(fixture, String(major)) }, env);
+        const key = major === 7 ? 'esbuild' : 'oxc';
+        assert.deepEqual(cfg[key], { jsx: 'preserve' }, `must configure the Vite ${major} consumer`);
+        assert.equal(cfg[major === 7 ? 'oxc' : 'esbuild'], undefined);
+      }
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
 
   it('emits oxc (and NO esbuild key) when the plugin context reports rolldown', async () => {
     const plugin = whatVitePlugin();

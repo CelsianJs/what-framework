@@ -92,7 +92,7 @@ export const packages = [
     // 'vite' is the host tool — the vite-plugin's dynamic import('vite')
     // (version detection) must stay external or esbuild drags all of
     // vite+esbuild into the bundle and these entries fail to build.
-    external: ['@babel/core', 'what-core', 'vite', 'fs', 'path', 'url'],
+    external: ['@babel/core', 'what-core', 'vite', 'fs', 'path', 'url', 'node:module'],
   },
 ];
 
@@ -101,6 +101,7 @@ console.log('\n  Building What Framework with esbuild...\n');
 
 let totalBundle = 0;
 let totalMinified = 0;
+let failed = false;
 
 for (const pkg of packages) {
   const pkgDir = join(root, 'packages', pkg.name);
@@ -148,6 +149,7 @@ for (const pkg of packages) {
         pkgMinified += existsSync(minPath) ? statSync(minPath).size : 0;
       }
     } catch (err) {
+      failed = true;
       console.error(`  ERROR building ${pkg.name} (split): ${err.message}`);
     }
 
@@ -205,6 +207,7 @@ for (const pkg of packages) {
       pkgBundle += bundleSize;
       pkgMinified += minSize;
     } catch (err) {
+      failed = true;
       console.error(`  ERROR building ${pkg.name}/${entry.input}: ${err.message}`);
     }
   }
@@ -226,7 +229,12 @@ const totalRatio = totalBundle > 0
 console.log(
   `\n  Total:  bundle ${formatSize(totalBundle)}  min ${formatSize(totalMinified)}  (${totalRatio}% minification)`
 );
-console.log('  Done!\n');
+if (failed) {
+  process.exitCode = 1;
+  console.error('  Build failed; see entry diagnostics above.\n');
+} else {
+  console.log('  Done!\n');
+}
 }
 
 function formatSize(bytes) {
