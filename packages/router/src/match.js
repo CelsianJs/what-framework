@@ -113,12 +113,9 @@ export function matchRoute(path, routes) {
 export function parseQuery(search) {
   const params = Object.create(null);
   if (!search) return params;
-  const qs = search.startsWith('?') ? search.slice(1) : search;
-  for (const pair of qs.split('&')) {
-    const [key, val] = pair.split('=');
-    if (!key) continue;
-    const decodedKey = decodeURIComponent(key);
-    const decodedVal = val ? decodeURIComponent(val) : '';
+  // Match the platform's form-query decoding: '+' is a space, values may
+  // contain '=', and malformed escapes remain data rather than aborting SSR.
+  for (const [decodedKey, decodedVal] of new URLSearchParams(search)) {
     if (Object.prototype.hasOwnProperty.call(params, decodedKey)) {
       // Collect repeated keys into arrays
       if (Array.isArray(params[decodedKey])) {
