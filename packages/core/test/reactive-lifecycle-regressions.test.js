@@ -9,6 +9,21 @@ const memo = production ? reactive.signalMemo : reactive.memo;
 const onCleanup = production ? reactive.onRootCleanup : reactive.onCleanup;
 
 describe('late reactive dependencies', () => {
+  it('settles ordinary writes on microtasks even after repeated one-dependency runs', async () => {
+    const value = signal(0);
+    let runs = 0;
+    const dispose = effect(() => { value(); runs++; });
+    try {
+      value(1); await Promise.resolve();
+      value(2); await Promise.resolve();
+      const before = runs;
+      value(3); value(4);
+      assert.equal(runs, before);
+      await Promise.resolve();
+      assert.equal(runs, before + 1);
+    } finally { dispose(); }
+  });
+
   for (const kind of ['effect', 'computed', 'memo']) {
     it(`${kind} tracks a branch revealed after repeated single-dependency runs`, () => {
       const gate = signal(0);

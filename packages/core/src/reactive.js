@@ -424,7 +424,7 @@ function _runEffect(e) {
 
   // Stable effect fast path: deps don't change, skip cleanup/re-subscribe.
   // This is critical for performance: effects like `() => el.className = sig() ? 'a' : ''`
-  // always read the same signal(s). After auto-promotion, re-runs skip the O(deps)
+  // always read the same signal(s). With explicit opt-in, re-runs skip the O(deps)
   // cleanup + re-subscribe cycle entirely.
   if (e._stable) {
     if (e._cleanup) {

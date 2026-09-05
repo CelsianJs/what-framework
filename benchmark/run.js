@@ -12,8 +12,11 @@ const jsonIndex = args.indexOf('--json');
 const jsonPath = jsonIndex >= 0 ? args[jsonIndex + 1] : null;
 
 function bench(name, fn, iterations = 10000) {
-  // Warmup
-  for (let i = 0; i < Math.min(100, iterations / 10); i++) fn();
+  // 100 calls left the batching case in a cold JIT tier: the same unchanged
+  // code measured ~650k ops/s there and ~990k after 1,000 calls. Warm each
+  // operation before measuring steady state; keep thresholds/baselines intact.
+  const warmupIterations = 1000;
+  for (let i = 0; i < warmupIterations; i++) fn();
 
   // Force GC if available
   if (global.gc) global.gc();
@@ -36,7 +39,7 @@ function bench(name, fn, iterations = 10000) {
   const p99 = times[Math.floor(times.length * 0.99)];
   const opsPerSec = Math.round(1000 / avg);
 
-  const result = { name, avg, min, max, p50, p99, opsPerSec, iterations };
+  const result = { name, avg, min, max, p50, p99, opsPerSec, iterations, warmupIterations };
   results.push(result);
 
   const bar = '█'.repeat(Math.min(50, Math.round(opsPerSec / 5000)));
