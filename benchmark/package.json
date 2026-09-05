@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
-    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-table": "^9.2.3",
     "@tanstack/react-virtual": "^3.13.18",
     "formik": "^2.4.9",
     "immer": "^11.1.4",
