@@ -1,7 +1,7 @@
 {
   "name": "real-world-suite",
   "private": true,
-  "version": "0.13.4",
+  "version": "0.13.5",
   "type": "module",
   "scripts": {
     "test": "npx playwright test",

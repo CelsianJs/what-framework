@@ -9,8 +9,8 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "what-framework": "0.13.4",
-    "what-router": "0.13.4",
-    "what-server": "0.13.4"
+    "what-framework": "0.13.5",
+    "what-router": "0.13.5",
+    "what-server": "0.13.5"
   }
 }

@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.13.4</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.13.5</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -244,7 +244,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
 }</code></pre>
 
           <p>The thunks are load-bearing here, so keep them. <code>isPending</code>, <code>error</code> and <code>data</code> arrive by destructuring a call, which the compiler cannot recognize as signals, so every bare read of them is evaluated once at creation and never again. A bare <code>{isPending()}</code> leaves the button on its first label for the life of the page, and a bare <code>{error() &amp;&amp; &lt;p&gt;{error().message}&lt;/p&gt;}</code> is worse in a quieter way: the guard is tested once while <code>error()</code> is still <code>null</code>, so the paragraph is never built and the error never appears at all, with nothing on the console to say so. Wrapping each dynamic part in <code>() =&gt;</code> gives the compiler the reactive region it needs, and works identically on the compiled and the <code>h()</code> paths.</p>
-          <p>The guarded arm itself is safe either way as of 0.13.4: the compiler now builds it inside the <code>&amp;&amp;</code> rather than ahead of it, so <code>error().message</code> is not evaluated while <code>error()</code> is <code>null</code> and the component no longer throws at mount. That is why the failure is now a silent one. Older builds threw a <code>TypeError</code> here instead.</p>
+          <p>The guarded arm itself is safe either way as of 0.13.5: the compiler now builds it inside the <code>&amp;&amp;</code> rather than ahead of it, so <code>error().message</code> is not evaluated while <code>error()</code> is <code>null</code> and the component no longer throws at mount. That is why the failure is now a silent one. Older builds threw a <code>TypeError</code> here instead.</p>
 
           <h3 id="use-mutation">useMutation</h3>
           <p>For simpler cases where you just need pending/error/data tracking around any async function, use <code>useMutation</code>:</p>
