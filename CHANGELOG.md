@@ -2,7 +2,21 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]
+## [0.13.5] - 2026-09-05
+
+### Reactive updates and request reliability
+
+- Conditional reactive views keep updating when a new dependency appears after earlier renders. Ordinary effects no longer silently switch to inline scheduling after repeated single-dependency runs.
+- Disposed roots release owned computed subscriptions; failed setup and throwing cleanup no longer leave orphaned effects or siblings running.
+- Query decoding preserves `+`, `=`, malformed escapes and repeated parameters. ISR cache keys retain the order of repeated values, preventing one request from receiving another request's cached result.
+- Mixed-version Vite workspaces configure JSX for the consuming app's Vite version. Package builds now return failure when an entry fails instead of printing a successful result.
+- Compatible dependency security patches and TypeScript 7 source/declaration tooling improvements are included. Runtime support is unchanged.
+
+### Upgrade note
+
+Clear or rebuild persisted ISR entries produced by the previous duplicate-query normalization, or allow their normal expiry before relying on the new ordering. This release does not add paired fine-grained compiled-JSX SSR/hydration; the supported VNode/automatic JSX SSR path remains available.
+
+### Compiler and rendering corrections
 
 Five fixes to the **compiled** path, plus DOM parity between the three render
 paths. Every one was found by executing the compiler's output and comparing it

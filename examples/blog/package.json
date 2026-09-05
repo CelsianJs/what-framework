@@ -1,6 +1,6 @@
 {
   "name": "@what-examples/blog",
-  "version": "0.13.4",
+  "version": "0.13.5",
   "private": true,
   "type": "module",
   "description": "Full-stack blog: file routes, server loaders, getStaticPaths, ISR, server actions, SSR head — origin-first, no CDN required.",
