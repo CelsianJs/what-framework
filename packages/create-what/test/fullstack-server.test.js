@@ -27,18 +27,21 @@ const createWhat = resolve(repoRoot, 'packages/create-what/index.js');
 const LINKS = {
   'packages/what': 'what-framework',
   'packages/core': 'what-core',
+  'packages/router': 'what-router',
+  'packages/server': 'what-server',
+  'packages/compiler': 'what-compiler',
   'packages/cache': 'what-isr',
 };
 
 const PORT = 4650 + (process.pid % 40); // 4650-4689, collision-resistant
 const BASE = `http://localhost:${PORT}`;
 
-async function scaffoldAndBoot(workDir) {
-  const out = spawnSync(process.execPath, [createWhat, 'fs-app', '--fullstack', '--yes'], {
+async function scaffoldAndBoot(workDir, { name = 'fs-app', port = PORT, env = {} } = {}) {
+  const out = spawnSync(process.execPath, [createWhat, name, '--fullstack', '--yes'], {
     cwd: workDir, encoding: 'utf8',
   });
   assert.equal(out.status, 0, out.stderr);
-  const appDir = join(workDir, 'fs-app');
+  const appDir = join(workDir, name);
 
   await mkdir(join(appDir, 'node_modules'), { recursive: true });
   for (const [dir, name] of Object.entries(LINKS)) {
@@ -47,7 +50,13 @@ async function scaffoldAndBoot(workDir) {
 
   const child = spawn(process.execPath, ['server.js'], {
     cwd: appDir,
-    env: { ...process.env, PORT: String(PORT), NODE_ENV: '' },
+    env: {
+      ...process.env,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, '--preserve-symlinks'].filter(Boolean).join(' '),
+      PORT: String(port),
+      NODE_ENV: '',
+      ...env,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.logs = '';
@@ -60,12 +69,12 @@ async function scaffoldAndBoot(workDir) {
       assert.fail(`server.js exited (${child.exitCode}) before listening:\n${child.logs}`);
     }
     try {
-      const res = await fetch(BASE + '/');
-      if (res.ok) return { appDir, child };
+      const res = await fetch(`http://localhost:${port}/`);
+      if (res.ok) return { appDir, child, base: `http://localhost:${port}` };
     } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 200));
   }
-  assert.fail(`server.js did not answer on :${PORT} within 15s:\n${child.logs}`);
+  assert.fail(`server.js did not answer on :${port} within 15s:\n${child.logs}`);
 }
 
 function readCsrfCookie(res) {
@@ -118,6 +127,15 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
         const src = await (await fetch(BASE + `/src/pages/${page}.js`)).text();
         assert.doesNotMatch(src, /^import .*db\.js/m, `pages/${page}.js must not statically import db.js`);
       }
+    });
+
+    await t.test('malformed request paths return 400 and do not kill the server', async () => {
+      const bad = await fetch(BASE + '/%E0%A4%A');
+      assert.equal(bad.status, 400);
+
+      const after = await fetch(BASE + '/');
+      assert.equal(after.status, 200, `server must survive malformed path:\n${child.logs}`);
+      assert.equal(child.exitCode, null, `server exited after malformed path:\n${child.logs}`);
     });
 
     await t.test('/new SSRs the no-JS progressive-enhancement fields', async () => {
@@ -179,6 +197,27 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
       assert.equal(second.status, 200);
       assert.equal(second.headers.get('x-what-cache'), 'HIT');
     });
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((r) => { child.on('exit', r); setTimeout(r, 2000); });
+    await rm(workDir, { recursive: true, force: true });
+  }
+});
+
+test('fullstack scaffold production server starts from a path containing spaces', async () => {
+  const workDir = await mkdtemp(join(tmpdir(), 'create what space root '));
+  const port = PORT + 1;
+  const { child, base } = await scaffoldAndBoot(workDir, {
+    name: 'fs space app',
+    port,
+    env: { NODE_ENV: 'production', WHAT_REVALIDATE_SECRET: 'test-secret-for-spaces-startup' },
+  });
+
+  try {
+    const res = await fetch(base + '/');
+    assert.equal(res.status, 200, `server in a path with spaces must answer:\n${child.logs}`);
+    assert.match(await res.text(), /fs space app/);
+    assert.equal(child.exitCode, null, `server exited in path with spaces:\n${child.logs}`);
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => { child.on('exit', r); setTimeout(r, 2000); });

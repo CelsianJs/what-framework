@@ -1,6 +1,6 @@
 {
   "name": "what-devtools",
-  "version": "0.13.5",
+  "version": "0.13.6",
   "description": "Dev tools for What Framework — signal inspector, component tree, effect graph",
   "type": "module",
   "main": "src/index.js",
@@ -26,7 +26,7 @@
     "inspector"
   ],
   "peerDependencies": {
-    "what-core": "^0.13.5"
+    "what-core": "^0.13.6"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
