@@ -224,6 +224,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 ];</code></pre>
 
           <h2 id="middleware">Route Guards &amp; Middleware</h2>
+          <p>Route middleware runs synchronously with <code>{ path, params, query, route }</code>. Returning nothing also allows the route. Promises are not awaited: use <code>asyncGuard()</code> for asynchronous checks. The TypeScript middleware declaration now reflects this runtime contract; older declarations incorrectly accepted <code>Promise&lt;boolean&gt;</code>.</p>
           <p>Protect routes with middleware functions that run before the route renders. Middleware can allow, reject, or redirect:</p>
 
 <pre><code><span class="keyword">import</span> { guard } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;

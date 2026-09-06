@@ -15,8 +15,8 @@ import type { VNode, VNodeChild } from './index.js';
 
 export { Fragment } from './index.js';
 
-/** A JSX attribute value in What may be static or a reactive `() => value` thunk. */
-export type Reactive<T> = T | (() => T);
+/** Static or reactive attribute value; nullish values remove the attribute. */
+export type Reactive<T> = T | null | undefined | (() => T | null | undefined);
 
 export function jsx(type: any, props: any, key?: any): VNode;
 export function jsxs(type: any, props: any, key?: any): VNode;
@@ -199,6 +199,9 @@ interface WhatSVGAttributes extends WhatHTMLAttributes {
 
 export namespace JSX {
   type Element = VNode;
+  // TS 5.1+ checks component returns separately from the JSX expression type.
+  // `never` accepts each component's own props without erasing JSX prop checks.
+  type ElementType = string | ((props: never) => VNodeChild);
   interface ElementChildrenAttribute {
     children: {};
   }
