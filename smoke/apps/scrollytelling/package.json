@@ -9,7 +9,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "what-framework": "0.13.6",
-    "what-server": "0.13.6"
+    "what-framework": "0.13.7",
+    "what-server": "0.13.7"
   }
 }
