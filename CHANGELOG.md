@@ -2,6 +2,34 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.8] - 2026-09-06
+
+**Unpublished release candidate.** This combines the middleware runtime fix and
+benchmark diagnostics below with the declaration corrections prepared in
+0.13.7. The 0.13.7 changes are merged but remain unpublished; their historical
+notes are unchanged. Publication is pending restoration of CI npm credentials.
+
+### Protected routes fail closed
+
+- JavaScript callers returning a promise or thenable from route middleware now
+  receive `ERR_ASYNC_MIDDLEWARE` before the protected component mounts. Rejected
+  results are observed without treating an async result as authorization.
+- Synchronous allow, deny and redirect behavior is unchanged. Async checks
+  belong in `asyncGuard(check)(Component)`, not `middleware[]`. Client-side
+  guards control rendering/navigation; enforce authorization on the server.
+
+### More useful benchmark diagnostics
+
+- DOM reports preserve raw samples, per-operation sample counts, and browser,
+  machine and toolchain details so timing changes can be investigated with
+  their context. The `samplesPerRound` field is now an operation-name map.
+- This is diagnostic evidence, not a speed improvement claim. Timed operations,
+  aggregation, baselines and tolerances are unchanged; historical measurements
+  have not been relabeled as new measurements.
+
+See `docs/releases/v0.13.8.md` for migration and candidate verification limits.
+No new dependencies or rendering capabilities are introduced.
+
 ## [0.13.7] - 2026-09-06
 
 ### Strict TypeScript contracts for reactive applications

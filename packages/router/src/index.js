@@ -423,10 +423,37 @@ export function Router({ routes, fallback, globalLayout }) {
       const { route: r, params } = matched;
       const queryObj = parseQuery(search);
 
-      // Run middleware (sync only — async middleware should use asyncGuard)
+      // Middleware is synchronous. Async authorization belongs in a component
+      // wrapper: asyncGuard(check)(Component), not in this matching pass.
       if (r.middleware && r.middleware.length > 0) {
         for (const mw of r.middleware) {
           const result = mw({ path, params, query: queryObj, route: r });
+          if (result != null && (typeof result === 'object' || typeof result === 'function')) {
+            // Read once: a then getter can throw or change on its next access.
+            // Getter failures propagate unchanged and cannot grant access.
+            const then = result.then;
+            if (typeof then === 'function') {
+              // Observe rejection without awaiting or assimilating fulfillment
+              // values (a thenable could resolve itself). Call the captured
+              // method once with its receiver, including cross-realm promises.
+              Promise.resolve().then(() => {
+                const ignore = () => {};
+                const returned = Reflect.apply(then, result, [ignore, ignore]);
+                // An async then method can itself return a rejected promise.
+                // The intrinsic brand-check handles native/cross-realm promises
+                // without reading returned.then or assimilating its fulfillment.
+                try {
+                  Reflect.apply(Promise.prototype.then, returned, [ignore, ignore]);
+                } catch { /* Non-promise return values need no observation. */ }
+              }).catch(() => {});
+              throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), {
+                code: 'ERR_ASYNC_MIDDLEWARE',
+                suggestion: 'Return true, void, false or a redirect path synchronously. For async authorization, wrap the route component with asyncGuard(check)(Component); promises returned by middleware are not awaited.',
+                codeExample: `// Async authorization belongs on the component, not in middleware:
+{ path: '/private', component: asyncGuard(check)(Component) }`,
+              });
+            }
+          }
           if (result === false) {
             // Middleware rejected — show fallback
             if (fallback) return h(fallback, {});

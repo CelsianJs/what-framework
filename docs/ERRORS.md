@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every diagnostic What can raise, all 32 of them: 26 errors and 6 warnings.
+Every diagnostic What can raise, all 33 of them: 27 errors and 6 warnings.
 
 Each one carries a suggestion and a worked example, and the same catalogue
 backs the `what_errors` MCP tool, so an agent debugging your app reads exactly
@@ -12,6 +12,7 @@ what you read here.
 | Code | Severity | What it means |
 |---|---|---|
 | [`ERR_ACTION_FAILED`](#err-action-failed) | error | The server action rejected. |
+| [`ERR_ASYNC_MIDDLEWARE`](#err-async-middleware) | error | Route middleware must be synchronous; received a promise or thenable. |
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
 | [`ERR_COMPILED_JSX_IN_SSR`](#err-compiled-jsx-in-ssr) | error | what-compiler output cannot be server-rendered: `file`. |
 | [`ERR_DESTRUCTURED_PROPS`](#err-destructured-props) | warning | Destructuring '`binding`' in the component body snapshots props and loses reactivity. |
@@ -58,6 +59,26 @@ The server action rejected. The message is the one the action threw, forwarded t
 export const save = action(async (data) => {
   if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });
 });
+```
+
+## ERR_ASYNC_MIDDLEWARE
+
+**Severity:** error
+  ·  **Raised by:** `what-router`
+
+> Route middleware must be synchronous; received a promise or thenable.
+
+Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.
+
+```jsx
+// Bad - an async middleware result cannot authorize a route:
+{ path: '/private', component: Component, middleware: [async () => check()] }
+
+// Good - the component wrapper waits for the authorization check:
+{ path: '/private', component: asyncGuard(check)(Component) }
+
+// Optional denial redirect and loading UI:
+{ path: '/private', component: asyncGuard(check, { fallback: '/login', loading: Spinner })(Component) }
 ```
 
 ## ERR_CHILDREN_ONLY

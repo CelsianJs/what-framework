@@ -134,6 +134,28 @@ const requireRole = asyncGuard(
 }
 ```
 
+Route middleware is **synchronous**: return `true` or nothing to continue,
+`false` to show the Router fallback (403 by default), or a path string to
+redirect. Returning a promise or thenable throws `ERR_ASYNC_MIDDLEWARE` before
+the protected component mounts. The Router observes rejections but does not
+await or use async middleware results.
+
+For async authorization, wrap the route component instead:
+
+```js
+{
+  path: '/admin',
+  component: asyncGuard(check, {
+    fallback: '/unauthorized',
+    loading: Spinner,
+  })(AdminPanel),
+}
+// Without custom options: component: asyncGuard(check)(AdminPanel)
+```
+
+Client-side guards control rendering and navigation; enforce authorization
+separately on the server.
+
 `redirect()` throws a navigation signal. Two places catch it: route middleware,
 and a component body.
 
