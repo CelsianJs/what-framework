@@ -14,14 +14,28 @@ import { createInterface } from 'node:readline';
 // CLI arguments
 // ---------------------------------------------------------------------------
 const args = process.argv.slice(2);
-const positional = args.filter(a => !a.startsWith('-'));
+const positional = [];
+for (let i = 0; i < args.length; i += 1) {
+  const arg = args[i];
+  if (arg === '--template') {
+    i += 1;
+    continue;
+  }
+  if (!arg.startsWith('-')) positional.push(arg);
+}
 const flags = new Set(args.filter(a => a.startsWith('-')));
 const skipPrompts = flags.has('--yes') || flags.has('-y');
 const showHelp = flags.has('--help') || flags.has('-h');
 let templateFlag = flags.has('--fullstack') ? 'fullstack' : null;
 for (const f of flags) { const m = f.match(/^--template=(.+)$/); if (m) templateFlag = m[1]; }
+const templateArgIndex = args.findIndex((a) => a === '--template');
+if (templateArgIndex !== -1) {
+  const value = args[templateArgIndex + 1];
+  templateFlag = value && !value.startsWith('-') ? value : '';
+}
 const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const whatVersionRange = `^${packageVersion}`;
+const validTemplates = new Set(['spa', 'fullstack']);
 
 if (showHelp) {
   console.log(`
@@ -38,6 +52,15 @@ if (showHelp) {
     -h, --help          Show this help message
 `);
   process.exit(0);
+}
+
+if (templateFlag && !validTemplates.has(templateFlag)) {
+  console.error(`\nError: unknown template "${templateFlag}". Expected "spa" or "fullstack".`);
+  process.exit(1);
+}
+if (templateFlag === '') {
+  console.error('\nError: --template requires a value: "spa" or "fullstack".');
+  process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1528,14 +1551,26 @@ function resolveStaticFile(pathname) {
   return file;
 }
 
+function requestPathname(reqUrl) {
+  try {
+    return decodeURIComponent(new URL(reqUrl || '/', 'http://localhost').pathname);
+  } catch {
+    return null;
+  }
+}
+
 // --- Start (node server.js / npm run dev), not when imported by tests ---
 
-if (import.meta.url === \`file://\${process.argv[1]}\`) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const app = toNodeListener(createHandler());
 
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' || req.method === 'HEAD') {
-      const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+      const pathname = requestPathname(req.url);
+      if (!pathname) {
+        res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+        return res.end('Bad Request');
+      }
       const file = resolveStaticFile(pathname);
       if (file) {
         res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });

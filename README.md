@@ -83,7 +83,7 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 
 ## Packages
 
-All 14 packages publish together at the same version — see [CHANGELOG.md](CHANGELOG.md) for the current release.
+All 13 packages publish together at the same version — see [CHANGELOG.md](CHANGELOG.md) for the current release.
 
 | Package | Description |
 |---|---|
@@ -157,7 +157,7 @@ See [`REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix. Th
 | Playground | [playground.whatfw.com](https://playground.whatfw.com) | `sites/playground/` | Native Vercel (Vite build) |
 | React-compat demo | [react.whatfw.com](https://react.whatfw.com) | `sites/react-compat/` | Native Vercel (Vite build) |
 | Benchmarks | [benchmarks.whatfw.com](https://benchmarks.whatfw.com) | `sites/benchmarks/` | Native Vercel (static) |
-| npm packages (×14) | [npmjs.com/~](https://www.npmjs.com/package/what-framework) | `packages/*` | `Release And Deploy` workflow / `npm run release:*` |
+| npm packages (×13) | [npmjs.com/~](https://www.npmjs.com/package/what-framework) | `packages/*` | `Release And Deploy` workflow / `npm run release:*` |
 
 `sites/showcase/` is local-only (not deployed). Full details — build commands, domains, the
 release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DEPLOYMENTS.md)**.

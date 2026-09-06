@@ -22,6 +22,23 @@ test('create-what --help prints usage without scaffolding', async () => {
   }
 });
 
+test('create-what rejects unknown templates instead of falling back to SPA', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'create-what-bad-template-'));
+  try {
+    for (const args of [
+      ['demo-app', '--template=bogus', '--yes'],
+      ['demo-app', '--template', 'bogus', '--yes'],
+    ]) {
+      const result = spawnSync(process.execPath, [createWhat, ...args], { cwd, encoding: 'utf8' });
+      assert.notEqual(result.status, 0, 'invalid template must fail');
+      assert.match(result.stderr, /unknown template "bogus"/);
+      await assert.rejects(readFile(join(cwd, 'demo-app/package.json'), 'utf8'));
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('create-what scaffolds dependencies aligned to package version', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'create-what-default-'));
   try {
@@ -92,4 +109,3 @@ test('create-what --fullstack scaffolds a parseable SSR tree', async () => {
     await rm(cwd, { recursive: true, force: true });
   }
 });
-
