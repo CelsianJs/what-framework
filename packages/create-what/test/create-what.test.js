@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -9,6 +9,12 @@ const repoRoot = resolve(import.meta.dirname, '../../..');
 const createWhat = resolve(repoRoot, 'packages/create-what/index.js');
 const createWhatMeta = JSON.parse(await readFile(resolve(repoRoot, 'packages/create-what/package.json'), 'utf8'));
 const expectedRange = `^${createWhatMeta.version}`;
+
+function nextStepCd(stdout) {
+  const line = stdout.split('\n').find((entry) => entry.trim().startsWith('cd '));
+  assert.ok(line, `expected a printed cd next step:\n${stdout}`);
+  return line.trim();
+}
 
 test('create-what --help prints usage without scaffolding', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'create-what-help-'));
@@ -22,16 +28,46 @@ test('create-what --help prints usage without scaffolding', async () => {
   }
 });
 
+test('create-what prints shell-safe cd next steps for spaces and leading dashes', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'create what shell cd '));
+  try {
+    const spaced = spawnSync(process.execPath, [createWhat, 'space app', '--yes'], { cwd, encoding: 'utf8' });
+    assert.equal(spaced.status, 0, spaced.stderr);
+    const spacedCd = nextStepCd(spaced.stdout);
+    assert.equal(
+      await realpath(spawnSync('sh', ['-c', `${spacedCd} && pwd`], { cwd, encoding: 'utf8' }).stdout.trim()),
+      await realpath(join(cwd, 'space app')),
+    );
+
+    const leadingDash = spawnSync(process.execPath, [createWhat], {
+      cwd,
+      input: '-dash-app\n\n\n',
+      encoding: 'utf8',
+    });
+    assert.equal(leadingDash.status, 0, leadingDash.stderr);
+    const dashCd = nextStepCd(leadingDash.stdout);
+    assert.match(dashCd, /^cd \.\/-dash-app$/);
+    assert.equal(
+      await realpath(spawnSync('sh', ['-c', `${dashCd} && pwd`], { cwd, encoding: 'utf8' }).stdout.trim()),
+      await realpath(join(cwd, '-dash-app')),
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('create-what rejects unknown templates instead of falling back to SPA', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'create-what-bad-template-'));
   try {
-    for (const args of [
-      ['demo-app', '--template=bogus', '--yes'],
-      ['demo-app', '--template', 'bogus', '--yes'],
+    for (const { args, message } of [
+      { args: ['demo-app', '--template=bogus', '--yes'], message: /unknown template "bogus"/ },
+      { args: ['demo-app', '--template', 'bogus', '--yes'], message: /unknown template "bogus"/ },
+      { args: ['demo-app', '--template=', '--yes'], message: /--template requires a value/ },
+      { args: ['demo-app', '--template', '   ', '--yes'], message: /--template requires a value/ },
     ]) {
       const result = spawnSync(process.execPath, [createWhat, ...args], { cwd, encoding: 'utf8' });
       assert.notEqual(result.status, 0, 'invalid template must fail');
-      assert.match(result.stderr, /unknown template "bogus"/);
+      assert.match(result.stderr, message);
       await assert.rejects(readFile(join(cwd, 'demo-app/package.json'), 'utf8'));
     }
   } finally {

@@ -7,7 +7,7 @@
 //   npx create-what my-app --yes   (skip prompts, use defaults)
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 // ---------------------------------------------------------------------------
@@ -27,15 +27,26 @@ const flags = new Set(args.filter(a => a.startsWith('-')));
 const skipPrompts = flags.has('--yes') || flags.has('-y');
 const showHelp = flags.has('--help') || flags.has('-h');
 let templateFlag = flags.has('--fullstack') ? 'fullstack' : null;
-for (const f of flags) { const m = f.match(/^--template=(.+)$/); if (m) templateFlag = m[1]; }
+for (const f of flags) { const m = f.match(/^--template=(.*)$/); if (m) templateFlag = m[1].trim(); }
 const templateArgIndex = args.findIndex((a) => a === '--template');
 if (templateArgIndex !== -1) {
   const value = args[templateArgIndex + 1];
-  templateFlag = value && !value.startsWith('-') ? value : '';
+  templateFlag = value && !value.startsWith('-') ? value.trim() : '';
 }
 const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const whatVersionRange = `^${packageVersion}`;
 const validTemplates = new Set(['spa', 'fullstack']);
+
+function shellQuotePath(value) {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function formatCdTarget(inputPath, absoluteRoot) {
+  let target = inputPath && !isAbsolute(inputPath) ? inputPath : absoluteRoot;
+  if (!isAbsolute(target) && target.startsWith('-')) target = `./${target}`;
+  return shellQuotePath(target);
+}
 
 if (showHelp) {
   console.log(`
@@ -1987,7 +1998,7 @@ export default [
   }
 
   console.log('\nNext steps:');
-  console.log(`  cd ${root}`);
+  console.log(`  cd ${formatCdTarget(projectName, root)}`);
   console.log('  npm install');
   if (options.template === 'fullstack') {
     console.log('  npm run dev   # SSR + ISR server → http://localhost:3000\n');
