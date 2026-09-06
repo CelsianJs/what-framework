@@ -129,6 +129,21 @@ html\`<div>\${sanitizedContent}</div>\``,
 <For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
   },
 
+  ASYNC_MIDDLEWARE: {
+    code: 'ERR_ASYNC_MIDDLEWARE',
+    severity: 'error',
+    template: 'Route middleware must be synchronous; received a promise or thenable.',
+    suggestion: 'Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.',
+    codeExample: `// Bad - an async middleware result cannot authorize a route:
+{ path: '/private', component: Component, middleware: [async () => check()] }
+
+// Good - the component wrapper waits for the authorization check:
+{ path: '/private', component: asyncGuard(check)(Component) }
+
+// Optional denial redirect and loading UI:
+{ path: '/private', component: asyncGuard(check, { fallback: '/login', loading: Spinner })(Component) }`,
+  },
+
   UNSAFE_REDIRECT: {
     code: 'ERR_UNSAFE_REDIRECT',
     severity: 'error',
