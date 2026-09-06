@@ -437,7 +437,14 @@ export function Router({ routes, fallback, globalLayout }) {
               // values (a thenable could resolve itself). Call the captured
               // method once with its receiver, including cross-realm promises.
               Promise.resolve().then(() => {
-                Reflect.apply(then, result, [() => {}, () => {}]);
+                const ignore = () => {};
+                const returned = Reflect.apply(then, result, [ignore, ignore]);
+                // An async then method can itself return a rejected promise.
+                // The intrinsic brand-check handles native/cross-realm promises
+                // without reading returned.then or assimilating its fulfillment.
+                try {
+                  Reflect.apply(Promise.prototype.then, returned, [ignore, ignore]);
+                } catch { /* Non-promise return values need no observation. */ }
               }).catch(() => {});
               throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), {
                 code: 'ERR_ASYNC_MIDDLEWARE',

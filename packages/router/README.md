@@ -153,6 +153,9 @@ For async authorization, wrap the route component instead:
 // Without custom options: component: asyncGuard(check)(AdminPanel)
 ```
 
+Client-side guards control rendering and navigation; enforce authorization
+separately on the server.
+
 `redirect()` throws a navigation signal. Two places catch it: route middleware,
 and a component body.
 

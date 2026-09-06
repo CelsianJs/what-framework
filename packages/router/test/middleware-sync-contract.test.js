@@ -133,6 +133,37 @@ describe('route middleware is synchronous and fails closed', () => {
   it('observes a then method that throws', () =>
     assertBlocked(() => ({ then() { throw new Error('broken thenable'); } })));
 
+  it('observes a rejected native promise returned by an async then method', () =>
+    assertBlocked(() => ({ async then() { throw new Error('async then failure'); } })));
+
+  it('observes a cross-realm rejected promise returned by a then method', () =>
+    assertBlocked(() => ({
+      then() { return runInNewContext('Promise.reject(new Error("foreign then failure"))'); },
+    })));
+
+  it('does not inspect a then method return value that is not a native promise', async () => {
+    let reads = 0;
+    const returned = {
+      get then() { reads++; throw new Error('return value must not be assimilated'); },
+    };
+    await assertBlocked(() => ({ then() { return returned; } }));
+    assert.equal(reads, 0);
+  });
+
+  it('observes a returned native promise without reading its overridden then getter', async () => {
+    let reads = 0;
+    await assertBlocked(() => ({
+      then() {
+        const returned = Promise.reject(new Error('returned auth failure'));
+        Object.defineProperty(returned, 'then', {
+          get() { reads++; throw new Error('use the native promise intrinsic'); },
+        });
+        return returned;
+      },
+    }));
+    assert.equal(reads, 0);
+  });
+
   it('preserves an error thrown by a then getter without granting access', async () => {
     const failure = new Error('cannot inspect authorization result');
     let reads = 0;
