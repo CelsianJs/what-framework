@@ -2,6 +2,25 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.7] - 2026-09-06
+
+### Strict TypeScript contracts for reactive applications
+
+- Components and JSX now accept the reactive child values the runtime already
+  supports, including function returns, arrays, text and empty values. Invalid
+  object/promise returns and incorrect component props remain type errors.
+- Reactive DOM attributes can return null or undefined to remove an attribute.
+- Router middleware types now match the synchronous runtime: return true/void
+  to continue, false to block, or a string to redirect. The context includes path.
+
+### Middleware migration
+
+Async middleware was incorrectly accepted by the old declarations; the router
+does not await it. Wrap the route component with `asyncGuard(check)(Component)`
+instead of putting an async function in `middleware[]`. This is a declaration
+correction, not newly enforced runtime authorization. See
+`docs/releases/v0.13.7.md`. No new runtime dependencies are introduced.
+
 ## [0.13.6] - 2026-09-06
 
 ### Safer full-stack scaffolds
