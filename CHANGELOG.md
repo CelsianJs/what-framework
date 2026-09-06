@@ -2,6 +2,27 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.6] - 2026-09-06
+
+### Safer full-stack scaffolds
+
+- Generated full-stack servers return HTTP 400 for malformed URL paths instead
+  of crashing the process. Subsequent valid requests continue to work.
+- Generated servers start correctly from directories containing spaces, and
+  printed POSIX `cd` commands safely handle spaces and option-like paths.
+- Unknown, empty, or whitespace-only template selections fail explicitly
+  instead of silently generating the SPA template.
+- The maintained release group contains 13 packages. Deprecated `what-mcp`
+  remains frozen at 0.12.4.
+
+### Existing generated applications
+
+Updating `create-what` does not rewrite an existing application's `server.js`.
+Apply the generated-server request parsing and startup-guard changes described
+in `docs/releases/v0.13.6.md`, or generate a new comparison project and port those
+changes without overwriting application code. No new runtime dependencies or
+rendering/SSR capabilities are introduced by this patch.
+
 ## [0.13.5] - 2026-09-05
 
 ### Reactive updates and request reliability
