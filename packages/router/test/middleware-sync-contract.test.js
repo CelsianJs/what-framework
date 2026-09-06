@@ -107,6 +107,29 @@ describe('route middleware is synchronous and fails closed', () => {
     await assertBlocked(() => result);
   });
 
+  it('does not inspect a thenable fulfillment value', async () => {
+    let reads = 0;
+    const fulfillment = {
+      get then() { reads++; throw new Error('fulfillment must be ignored'); },
+    };
+    await assertBlocked(() => ({ then(resolve) { resolve(fulfillment); } }));
+    assert.equal(reads, 0, 'observing rejection must not assimilate fulfillment values');
+  });
+
+  it('does not read a self-resolving thenable twice', async () => {
+    let reads = 0;
+    let calls = 0;
+    const result = {
+      get then() {
+        if (++reads > 1) throw new Error('then must be read only once');
+        return resolve => { calls++; resolve(result); };
+      },
+    };
+    await assertBlocked(() => result);
+    assert.equal(reads, 1);
+    assert.equal(calls, 1);
+  });
+
   it('observes a then method that throws', () =>
     assertBlocked(() => ({ then() { throw new Error('broken thenable'); } })));
 

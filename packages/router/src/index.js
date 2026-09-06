@@ -433,11 +433,12 @@ export function Router({ routes, fallback, globalLayout }) {
             // Getter failures propagate unchanged and cannot grant access.
             const then = result.then;
             if (typeof then === 'function') {
-              // Observe rejection without awaiting authorization. Wrapping the
-              // captured method avoids reading result.then a second time and
-              // preserves its receiver, including for cross-realm promises.
-              Promise.resolve({ then: (resolve, reject) => Reflect.apply(then, result, [resolve, reject]) })
-                .catch(() => {});
+              // Observe rejection without awaiting or assimilating fulfillment
+              // values (a thenable could resolve itself). Call the captured
+              // method once with its receiver, including cross-realm promises.
+              Promise.resolve().then(() => {
+                Reflect.apply(then, result, [() => {}, () => {}]);
+              }).catch(() => {});
               throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), {
                 code: 'ERR_ASYNC_MIDDLEWARE',
                 suggestion: 'Return true, void, false or a redirect path synchronously. For async authorization, wrap the route component with asyncGuard(check)(Component); promises returned by middleware are not awaited.',
