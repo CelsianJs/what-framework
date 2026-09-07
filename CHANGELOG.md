@@ -2,12 +2,12 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [0.13.8] - 2026-09-06
+## [0.13.8] - 2026-09-07
 
-**Unpublished release candidate.** This combines the middleware runtime fix and
-benchmark diagnostics below with the declaration corrections prepared in
-0.13.7. The 0.13.7 changes are merged but remain unpublished; their historical
-notes are unchanged. Publication is pending restoration of CI npm credentials.
+Published September 7, 2026 (UTC), including the declaration corrections
+prepared in the unpublished 0.13.7 candidate. All 13 maintained packages were
+published with provenance and passed registry and published-app verification.
+The historical 0.13.7 preparation notes remain unchanged.
 
 ### Protected routes fail closed
 
