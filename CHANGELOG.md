@@ -13,6 +13,11 @@ All notable changes to What Framework will be documented in this file.
   their ability to prepare loader context before its first read. Snapshots
   are isolated per URL and export run; the caller's route loader is not mutated.
 
+### Release tooling
+
+- Refresh the existing MCP tooling's locked Hono dependency to 4.13.9 to clear
+  the repository audit gate. No dependency is added to the browser runtime.
+
 ## [0.13.8] - 2026-09-07
 
 Published September 7, 2026 (UTC), including the declaration corrections
