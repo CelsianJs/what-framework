@@ -2,6 +2,17 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.9] - 2026-09-26
+
+### Consistent static-page data
+
+- Static and hybrid exports now run each concrete page's loader once and share
+  its result between the rendered HTML and navigation data. Changing data can
+  no longer produce one revision on first load and another on client navigation.
+- Custom static renderers share a lazily resolved loader snapshot, preserving
+  their ability to prepare loader context before its first read. Snapshots
+  are isolated per URL and export run; the caller's route loader is not mutated.
+
 ## [0.13.8] - 2026-09-07
 
 Published September 7, 2026 (UTC), including the declaration corrections
