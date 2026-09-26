@@ -50,8 +50,6 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
     const mode = (route.page && route.page.mode) || route.mode;
     if (mode !== 'static' && mode !== 'hybrid') continue;
 
-    const pageModule = { default: route.component, loader: route.loader };
-
     let concrete = [route.path];
     if (isDynamic(route.path)) {
       if (typeof route.getStaticPaths !== 'function') continue; // can't enumerate
@@ -64,18 +62,29 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
       const matched = matchRoute(urlPath, [route]);
       const params = matched ? matched.params : {};
       const reqCtx = { params, query: {} };
+      const pageModule = { default: route.component, loader: route.loader };
+      const hasLoader = typeof pageModule.loader === 'function';
+      // One snapshot per concrete page, shared with default/custom renderers
+      // and client navigation. Custom renderers may prepare the context first.
+      if (hasLoader) {
+        const loader = pageModule.loader;
+        let snapshot;
+        pageModule.loader = (context) => snapshot ??= new Promise((resolve) => {
+          resolve(loader.call(pageModule, context));
+        });
+      }
 
       const html = render
         ? await render(pageModule, reqCtx)
         : await renderDocument(pageModule, reqCtx, documentOptions);
+      const loaderData = hasLoader ? await pageModule.loader(reqCtx) : undefined;
 
       await mkdir(dirPath, { recursive: true });
       await writeFile(join(dirPath, 'index.html'), html);
 
       // data.json for client-side navigation (loader data without a round-trip)
-      if (typeof route.loader === 'function') {
-        const data = await route.loader(reqCtx);
-        await writeFile(join(dirPath, '__what_data.json'), serializeState({ loaderData: data }));
+      if (hasLoader) {
+        await writeFile(join(dirPath, '__what_data.json'), serializeState({ loaderData }));
       }
 
       written.push(urlPath);

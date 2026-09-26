@@ -1,6 +1,6 @@
 {
   "name": "what-db-comparison",
-  "version": "0.13.8",
+  "version": "0.13.9",
   "type": "module",
   "private": true,
   "scripts": {
