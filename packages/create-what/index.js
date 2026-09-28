@@ -35,7 +35,8 @@ if (templateArgIndex !== -1) {
 }
 const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const whatVersionRange = `^${packageVersion}`;
-const validTemplates = new Set(['spa', 'fullstack']);
+const validTemplates = new Set(['spa', 'fullstack', 'islands']);
+const templateList = '"spa", "fullstack" or "islands"';
 
 function shellQuotePath(value) {
   if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
@@ -58,7 +59,8 @@ if (showHelp) {
   Options:
     --fullstack         Scaffold a full-stack SSR app (file routes, loaders,
                         actions, origin-first ISR) instead of an SPA
-    --template=<name>   'spa' (default) or 'fullstack'
+    --template=<name>   'spa' (default), 'fullstack', or 'islands' (JSX pages
+                        prerendered to static HTML, with interactive islands)
     -y, --yes           Skip prompts and use defaults
     -h, --help          Show this help message
 `);
@@ -66,11 +68,11 @@ if (showHelp) {
 }
 
 if (templateFlag && !validTemplates.has(templateFlag)) {
-  console.error(`\nError: unknown template "${templateFlag}". Expected "spa" or "fullstack".`);
+  console.error(`\nError: unknown template "${templateFlag}". Expected ${templateList}.`);
   process.exit(1);
 }
 if (templateFlag === '') {
-  console.error('\nError: --template requires a value: "spa" or "fullstack".');
+  console.error(`\nError: --template requires a value: ${templateList}.`);
   process.exit(1);
 }
 
@@ -163,11 +165,13 @@ async function gatherOptions() {
   const template = templateFlag || await prompter.select('Template:', [
     { label: 'SPA (client-side single-page app)', value: 'spa' },
     { label: 'Full-stack (SSR + file routes + loaders + actions + ISR)', value: 'fullstack' },
+    { label: 'Static site + islands (JSX pages prerendered to HTML, interactive islands)', value: 'islands' },
   ]);
 
-  // The full-stack template is buildless (native ESM served by server.js), so
-  // the Vite-based React-compat / CSS tooling options don't apply to it.
-  if (template !== 'fullstack') {
+  // The React-compat and CSS options configure the SPA's compiler pipeline.
+  // The full-stack template is buildless and the islands template renders
+  // every page on the server, so neither applies to them.
+  if (template === 'spa') {
     reactCompat = await prompter.confirm('Add React library support? (what-react)');
 
     cssApproach = await prompter.select('CSS approach:', [
@@ -203,6 +207,9 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   // with .mcp.json, .cursor/mcp.json and an MCP-promising CLAUDE.md while
   // omitting the one package that makes any of it work is the worst combination,
   // because the agent is primed to call tools that cannot answer.
+  // The islands template renders every page on the server, so its JSX goes
+  // through What's automatic runtime (plain h() calls, which Vite's own JSX
+  // transform emits) rather than what-compiler, whose output is client-only.
   const devDeps = template === 'fullstack'
     ? {
         'what-devtools': whatVersionRange,
@@ -211,20 +218,31 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
         'eslint-plugin-what': whatVersionRange,
         typescript: '^5.6.0',
       }
-    : {
-        vite: '^6.0.0',
-        'what-compiler': whatVersionRange,
-        'what-devtools': whatVersionRange,
-        'what-devtools-mcp': whatVersionRange,
-        '@babel/core': '^7.23.0',
-        eslint: '^9.0.0',
-        'eslint-plugin-what': whatVersionRange,
-        typescript: '^5.6.0',
-      };
+    : template === 'islands'
+      ? {
+          vite: '^6.0.0',
+          'what-devtools': whatVersionRange,
+          'what-devtools-mcp': whatVersionRange,
+          eslint: '^9.0.0',
+          'eslint-plugin-what': whatVersionRange,
+          typescript: '^5.6.0',
+        }
+      : {
+          vite: '^6.0.0',
+          'what-compiler': whatVersionRange,
+          'what-devtools': whatVersionRange,
+          'what-devtools-mcp': whatVersionRange,
+          '@babel/core': '^7.23.0',
+          eslint: '^9.0.0',
+          'eslint-plugin-what': whatVersionRange,
+          typescript: '^5.6.0',
+        };
 
   const scripts = template === 'fullstack'
     ? { dev: 'node --watch server.js', start: 'node server.js', lint: 'eslint .', typecheck: 'tsc --noEmit' }
-    : { dev: 'vite', build: 'vite build', preview: 'vite preview', lint: 'eslint .', typecheck: 'tsc --noEmit' };
+    : template === 'islands'
+      ? { dev: 'vite', build: 'node build.js', preview: 'vite preview', lint: 'eslint .', typecheck: 'tsc --noEmit' }
+      : { dev: 'vite', build: 'vite build', preview: 'vite preview', lint: 'eslint .', typecheck: 'tsc --noEmit' };
   if (template === 'fullstack') {
     deps['what-isr'] = whatVersionRange;
   }
@@ -911,6 +929,60 @@ function generateReadme(packageName, { reactCompat, cssApproach, template }) {
   if (cssApproach === 'stylex') {
     notes += `
 - StyleX is configured via \`vite-plugin-stylex\`. Define styles with \`stylex.create()\` and apply with \`{...stylex.props()}\`.`;
+  }
+
+  if (template === 'islands') {
+    return `# ${packageName}
+
+A static What Framework site. Pages are JSX, rendered to plain HTML at build
+time, and only the interactive parts (islands) ship JavaScript.
+
+## Run
+
+\`\`\`bash
+npm install
+npm run dev       # renders each page on request -> http://localhost:5173
+npm run build     # writes dist/<page>/index.html plus the island bundle
+npm run preview   # serves dist/ the way a static host would
+\`\`\`
+
+\`dist/\` is plain files, so any static host can serve it.
+
+## Structure
+
+- \`src/pages/\`: one component per page. \`Home.jsx\` holds the island;
+  \`About.jsx\` has none, so it runs no framework code in the browser.
+- \`src/components/Layout.jsx\`: the shared header, footer and page title.
+- \`src/islands/Counter.jsx\`: the interactive island. Its HTML is in the page
+  before any script runs; the browser then hydrates it in place.
+- \`src/entry-server.js\`: the route table and the document shell. The dev
+  server renders from it on every request, and \`build.js\` renders every route
+  from it once.
+- \`src/entry-client.js\`: the one script every page loads. When the page has
+  an island it registers each one and calls \`hydrateIslands()\`; each island
+  is fetched when its trigger fires. A page without islands runs nothing.
+- \`vite.config.js\`: the JSX setup and the dev-server page renderer.
+- \`build.js\`: builds the client bundle, builds the server half, then writes
+  every route with \`exportStatic()\`.
+
+## Adding things
+
+- **A page:** create \`src/pages/Pricing.jsx\` and add a row for it to \`routes\`
+  in \`src/entry-server.js\`.
+- **An island:** create it in \`src/islands/\`, register it by name in
+  \`src/entry-client.js\`, and place it in a page inside
+  \`<Island name="..." mode="...">\` with the component as its child, so its
+  HTML is server-rendered.
+
+## Notes
+
+- JSX here uses What's automatic runtime (\`jsxImportSource: "what-framework"\`),
+  the setup that renders on the server. There is no compiler auto-wrapping, so
+  reactive text is written as a function: \`{() => count()}\`.
+- An island's \`mode\` decides when it hydrates: \`load\`, \`idle\`, \`visible\`,
+  \`action\` (first interaction), \`media\`, or \`static\` (never).
+- Lint with \`npm run lint\` (eslint-plugin-what).
+`;
   }
 
   if (template === 'fullstack') {
@@ -1616,6 +1688,356 @@ export default {
 }
 
 // ---------------------------------------------------------------------------
+// Islands template: JSX pages prerendered to static HTML, with interactive
+// islands hydrated by what-server's island registry. Every page is rendered on
+// the server, so JSX goes through What's automatic runtime (h() calls), which
+// renders with renderDocument() and hydrates in place in the browser.
+// ---------------------------------------------------------------------------
+function generateIslandsFiles(root, packageName) {
+  for (const dir of ['pages', 'components', 'islands']) {
+    mkdirSync(resolve(root, 'src', dir), { recursive: true });
+  }
+
+  writeFileSync(resolve(root, 'vite.config.js'), `import { existsSync } from 'node:fs';
+import { extname, join, posix, resolve } from 'node:path';
+import { defineConfig } from 'vite';
+import whatDevTools from 'what-devtools-mcp/vite-plugin';
+
+// Every page is rendered to HTML by the server half (src/entry-server.js), so
+// JSX uses What's automatic runtime. It lowers to h() calls, which render on the
+// server and hydrate in place in the browser. (what-compiler's output is
+// client-only, which is why this template does not use it.)
+export default defineConfig({
+  appType: 'custom',
+  esbuild: { jsx: 'automatic', jsxImportSource: 'what-framework' },
+  plugins: [staticPages(), whatDevTools()],
+  // One copy of the framework: served as ES modules rather than pre-bundled.
+  optimizeDeps: {
+    entries: ['src/entry-client.js'],
+    exclude: ['what-framework', 'what-core', 'what-router', 'what-server'],
+  },
+  build: {
+    manifest: true,
+    rollupOptions: {
+      input: { client: 'src/entry-client.js', styles: 'src/styles.css' },
+    },
+  },
+});
+
+function staticPages() {
+  return {
+    name: 'static-pages',
+    apply: 'serve',
+
+    // \`npm run dev\`: render each page on request through the same code build.js
+    // uses, so the dev server shows exactly the HTML the build writes.
+    configureServer(server) {
+      // Pages only exist on the server, so an edit reloads the page.
+      server.watcher.on('change', (file) => {
+        if (/[\\\\/]src[\\\\/]/.test(file)) server.ws.send({ type: 'full-reload' });
+      });
+      server.middlewares.use(async (req, res, next) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+        const { pathname } = new URL(req.url, 'http://localhost');
+        // Files and Vite's own endpoints are never pages.
+        if (extname(pathname) || pathname.startsWith('/@') || pathname.startsWith('/__')) return next();
+        try {
+          const { renderRoute } = await server.ssrLoadModule('/src/entry-server.js');
+          const html = await renderRoute(pathname, {
+            script: '/src/entry-client.js',
+            stylesheet: '/src/styles.css',
+          });
+          if (html == null) return next();
+          res.setHeader('content-type', 'text/html; charset=utf-8');
+          res.end(await server.transformIndexHtml(req.url, html));
+        } catch (error) {
+          server.ssrFixStacktrace(error);
+          next(error);
+        }
+      });
+    },
+
+    // \`npm run preview\`: serve dist/ the way a static host does, so /about
+    // answers with dist/about/index.html.
+    configurePreviewServer(server) {
+      const outDir = resolve(server.config.root, server.config.build.outDir);
+      server.middlewares.use((req, res, next) => {
+        const { pathname } = new URL(req.url, 'http://localhost');
+        if (!extname(pathname) && existsSync(join(outDir, pathname, 'index.html'))) {
+          req.url = posix.join(pathname, 'index.html');
+        }
+        next();
+      });
+    },
+  };
+}
+`);
+
+  writeFileSync(resolve(root, 'build.js'), `// Static build: \`npm run build\`.
+//
+//   1. Client bundle: the island entry, each island as its own chunk, and the
+//      stylesheet, with a manifest naming the hashed files.
+//   2. Server bundle of src/entry-server.js (pages and layout).
+//   3. exportStatic() renders every route to dist/<path>/index.html, linking
+//      the hashed files from step 1.
+//
+// The output is plain files, so any static host can serve dist/.
+
+import { readFileSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { build } from 'vite';
+import { exportStatic } from 'what-framework/server';
+
+const root = fileURLToPath(new URL('.', import.meta.url));
+const outDir = resolve(root, 'dist');
+const ssrDir = resolve(root, '.ssr');
+
+await build({ root, logLevel: 'warn' });
+await build({
+  root,
+  logLevel: 'warn',
+  build: {
+    ssr: 'src/entry-server.js',
+    outDir: ssrDir,
+    emptyOutDir: true,
+    manifest: false,
+    copyPublicDir: false,
+    rollupOptions: { input: 'src/entry-server.js' },
+  },
+});
+
+const manifest = JSON.parse(readFileSync(join(outDir, '.vite', 'manifest.json'), 'utf8'));
+const assets = {
+  script: '/' + manifest['src/entry-client.js'].file,
+  stylesheet: '/' + manifest['src/styles.css'].file,
+};
+
+const { routes, documentOptions } = await import(pathToFileURL(join(ssrDir, 'entry-server.js')).href);
+const { pages } = await exportStatic({ routes, outDir, documentOptions: documentOptions(assets) });
+
+rmSync(ssrDir, { recursive: true, force: true });
+rmSync(join(outDir, '.vite'), { recursive: true, force: true });
+
+for (const page of pages) console.log(\`  \${page === '/' ? '/index.html' : page + '/index.html'}\`);
+console.log(\`Built \${pages.length} pages into dist/\`);
+`);
+
+  writeFileSync(resolve(root, 'src', 'entry-server.js'), `// The server half of the site: the route table and the document every page is
+// rendered into. The dev server (vite.config.js) renders from it on each
+// request, and build.js renders every route from it once.
+
+import { renderDocument } from 'what-framework/server';
+import Home from './pages/Home.jsx';
+import About from './pages/About.jsx';
+
+// \`mode: 'static'\` is what exportStatic() writes to dist/.
+export const routes = [
+  { path: '/', component: Home, mode: 'static' },
+  { path: '/about', component: About, mode: 'static' },
+];
+
+// \`assets\` names the client files: source paths in dev, hashed files in a build.
+export function documentOptions({ script, stylesheet }) {
+  return {
+    clientEntry: script,
+    head:
+      \`<link rel="stylesheet" href="\${stylesheet}">\` +
+      '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
+  };
+}
+
+export function renderRoute(pathname, assets) {
+  const path = pathname.length > 1 ? pathname.replace(/\\/+$/, '') : pathname;
+  const route = routes.find((r) => r.path === path);
+  if (!route) return null;
+  return renderDocument({ default: route.component }, { params: {}, query: {} }, documentOptions(assets));
+}
+`);
+
+  writeFileSync(resolve(root, 'src', 'entry-client.js'), `// The one script every page loads. Pages are static HTML, so a page without an
+// island stops at the check below and runs no framework code at all. A page
+// with islands loads the island runtime, which hydrates each island over its
+// server-rendered markup. Each island is its own chunk, fetched when its
+// \`mode\` says so.
+//
+// The island helpers live in what-framework/server next to the server-side
+// <Island> marker, but they are browser code.
+
+if (document.querySelector('[data-island]')) {
+  import('what-framework/server').then(({ island, hydrateIslands }) => {
+    island('counter', () => import('./islands/Counter.jsx'));
+    hydrateIslands();
+  });
+}
+`);
+
+  writeFileSync(resolve(root, 'src', 'components', 'Layout.jsx'), `import { Head } from 'what-framework';
+
+const SITE_NAME = ${JSON.stringify(packageName)};
+
+// Shared by every page. <Head> sets the page's <title> in the rendered HTML.
+export default function Layout({ title, children }) {
+  return (
+    <div class="site">
+      <Head title={\`\${title} | \${SITE_NAME}\`} />
+      <header class="site-header">
+        <a class="brand" href="/">{SITE_NAME}</a>
+        <nav>
+          <a href="/">Home</a>
+          <a href="/about">About</a>
+        </nav>
+      </header>
+      <main>{children}</main>
+      <footer class="site-footer">Static HTML, built with What Framework.</footer>
+    </div>
+  );
+}
+`);
+
+  writeFileSync(resolve(root, 'src', 'pages', 'Home.jsx'), `import { Island } from 'what-framework/server';
+import Layout from '../components/Layout.jsx';
+import Counter from '../islands/Counter.jsx';
+
+const counter = { start: 3 };
+
+export default function Home() {
+  return (
+    <Layout title="Home">
+      <h1>A static site with islands</h1>
+      <p>
+        This page is plain HTML, written at build time. The counter below is an
+        island: its markup is in the HTML too, and it is the only part of the
+        page that loads JavaScript.
+      </p>
+      {/* The child is the island's server render. The browser hydrates it in
+          place, so the component and its props must match on both sides. */}
+      <Island name="counter" mode="visible" props={counter}>
+        <Counter {...counter} />
+      </Island>
+    </Layout>
+  );
+}
+`);
+
+  writeFileSync(resolve(root, 'src', 'pages', 'About.jsx'), `import Layout from '../components/Layout.jsx';
+
+export default function About() {
+  return (
+    <Layout title="About">
+      <h1>About</h1>
+      <p>
+        This page has no islands, so it runs no framework code in the browser.
+      </p>
+      <p>
+        To add a page, create a component in <code>src/pages/</code> and add a
+        row for it to <code>routes</code> in <code>src/entry-server.js</code>.
+      </p>
+      <p><a href="/">Back to the counter</a></p>
+    </Layout>
+  );
+}
+`);
+
+  writeFileSync(resolve(root, 'src', 'islands', 'Counter.jsx'), `import { signal } from 'what-framework';
+
+// An island. It renders on the server as part of the page, then hydrates in the
+// browser (see src/entry-client.js). Reactive text is a function, \`{() => ...}\`:
+// this template uses the automatic JSX runtime, which does not wrap reads for you.
+export default function Counter({ start = 0 }) {
+  const count = signal(start, 'count');
+
+  return (
+    <div class="counter">
+      <button type="button" aria-label="Decrease" onclick={() => count((c) => c - 1)}>-</button>
+      <output aria-live="polite">{() => count()}</output>
+      <button type="button" aria-label="Increase" onclick={() => count((c) => c + 1)}>+</button>
+    </div>
+  );
+}
+`);
+
+  writeFileSync(resolve(root, 'src', 'styles.css'), `:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f6fb;
+  color: #0f172a;
+}
+
+.site {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #dbe2ee;
+}
+
+.site-header nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.brand {
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+}
+
+a {
+  color: #2563eb;
+}
+
+.site-footer {
+  margin-top: 3rem;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.counter button {
+  border: 1px solid #9aa7bb;
+  background: #ffffff;
+  color: #0f172a;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.counter button:hover {
+  border-color: #2563eb;
+}
+
+.counter output {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 700;
+}
+`);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 async function main() {
@@ -1643,11 +2065,12 @@ async function main() {
   }, null, 2) + '\n');
 
   const isFullstack = options.template === 'fullstack';
+  const isIslands = options.template === 'islands';
 
-  // The two templates have different authoring models: the SPA compiles JSX
+  // The templates have different authoring models: the SPA compiles JSX
   // through Vite + what-compiler, the full-stack template is buildless and has
-  // neither. An agent told to write JSX in the full-stack app writes code that
-  // cannot run.
+  // neither, and the islands template writes JSX for the automatic runtime.
+  // An agent told the wrong one writes code that cannot run, or never updates.
   const authoringNotes = isFullstack
     ? `Components run ONCE. This is the buildless full-stack template: \`server.js\` renders
 file routes and serves \`src/\` as native ES modules. There is **no compiler and no JSX**:
@@ -1660,7 +2083,22 @@ h('p', {}, () => \`Count: \${count()}\`)
 Pages live in \`src/pages/\` and export \`page\` (route config), \`loader\` (server data), and a
 default component. \`src/db.js\`, \`src/routes.js\` and \`src/actions/\` are server-only: they are
 importable by Node but never served to the browser.`
-    : `Components run ONCE. This is the SPA template: Vite + \`what-compiler\` compile JSX into
+    : isIslands
+      ? `Components run ONCE. This is the islands template: every page in \`src/pages/\` is
+rendered to static HTML (\`npm run build\` writes \`dist/<page>/index.html\`), and only the
+islands in \`src/islands/\` run in the browser. JSX uses What's automatic runtime, NOT
+\`what-compiler\`, so nothing is wrapped for you: reactive text must be a function.
+
+\`\`\`jsx
+<output>{() => count()}</output>
+\`\`\`
+
+To add an island: create it in \`src/islands/\`, register it by name in
+\`src/entry-client.js\`, and place it in a page as
+\`<Island name="..." mode="..." props={p}><Component {...p} /></Island>\` (the \`Island\` from
+\`what-framework/server\`). The child is its server render and must match what the component
+renders in the browser. Pages are listed in \`routes\` in \`src/entry-server.js\`.`
+      : `Components run ONCE. This is the SPA template: Vite + \`what-compiler\` compile JSX into
 fine-grained DOM operations, so write JSX and use \`() => ...\` for reactive text.
 
 \`\`\`jsx
@@ -1881,14 +2319,14 @@ count(c => c + 1) // update
     },
   }, null, 2) + '\n');
 
-  // .gitignore
-  writeFileSync(resolve(root, '.gitignore'), `node_modules\ndist\n.DS_Store\n`);
+  // .gitignore (.ssr is the islands build's temporary server bundle)
+  writeFileSync(resolve(root, '.gitignore'), `node_modules\ndist\n${isIslands ? '.ssr\n' : ''}.DS_Store\n`);
 
   // package.json
   writeFileSync(resolve(root, 'package.json'), generatePackageJson(packageName, options));
 
-  // index.html (SPA only — the full-stack server renders its own document)
-  if (options.template !== 'fullstack') {
+  // index.html (SPA only — the other templates render their own documents)
+  if (options.template === 'spa') {
     writeFileSync(resolve(root, 'index.html'), generateIndexHtml(packageName));
   }
 
@@ -1905,8 +2343,9 @@ count(c => c + 1) // update
 </svg>
 `);
 
-  // vite.config.js (SPA only — the full-stack template is buildless)
-  if (options.template !== 'fullstack') {
+  // vite.config.js (SPA only here — the full-stack template is buildless and
+  // the islands template writes its own)
+  if (options.template === 'spa') {
     writeFileSync(resolve(root, 'vite.config.js'), generateViteConfig(options));
   }
 
@@ -1915,6 +2354,8 @@ count(c => c + 1) // update
   //        the `compiler` preset (the compiler-covered rules are off).
   //   Fullstack: buildless h() authoring is the template's design, so use
   //        `recommended` with the JSX-only h() rule disabled.
+  //   Islands: JSX without the compiler, which is exactly what `recommended`
+  //        checks (reactive children, signal calls in JSX, event casing).
   writeFileSync(resolve(root, 'eslint.config.js'), options.template === 'fullstack'
     ? `import what from 'eslint-plugin-what';
 
@@ -1925,7 +2366,17 @@ export default [
   { rules: { 'what/no-h-in-user-code': 'off' } },
 ];
 `
-    : `import what from 'eslint-plugin-what';
+    : isIslands
+      ? `import what from 'eslint-plugin-what';
+
+export default [
+  { ignores: ['dist', '.ssr', 'node_modules'] },
+  // 'recommended' preset: this project's JSX uses the automatic runtime, not
+  // the What compiler, so reactive text has to be written as a function.
+  what.configs.recommended,
+];
+`
+      : `import what from 'eslint-plugin-what';
 
 export default [
   { ignores: ['dist', 'node_modules'] },
@@ -1941,7 +2392,9 @@ export default [
       target: 'ES2022',
       module: 'ESNext',
       moduleResolution: 'bundler',
-      jsx: 'preserve',
+      // The islands template compiles JSX with the automatic runtime, so the
+      // typechecker is told the same thing the bundler does.
+      jsx: isIslands ? 'react-jsx' : 'preserve',
       jsxImportSource: 'what-framework',
       allowJs: true,
       strict: true,
@@ -1968,9 +2421,13 @@ export default [
   }, null, 2) + '\n');
 
   // Full-stack scaffold: file-routed SSR pages + server + client entry + ISR
-  // config (writes its own src/styles.css). SPA scaffold: Vite entry + styles.
+  // config (writes its own src/styles.css). Islands scaffold: pages, layout,
+  // island, both entries, vite.config.js and build.js (also its own styles).
+  // SPA scaffold: Vite entry + styles.
   if (options.template === 'fullstack') {
     generateFullstackFiles(root, packageName);
+  } else if (isIslands) {
+    generateIslandsFiles(root, packageName);
   } else {
     // src/main.jsx
     writeFileSync(resolve(root, 'src', 'main.jsx'), generateMainJsx(options));
@@ -2002,6 +2459,9 @@ export default [
   console.log('  npm install');
   if (options.template === 'fullstack') {
     console.log('  npm run dev   # SSR + ISR server → http://localhost:3000\n');
+  } else if (isIslands) {
+    console.log('  npm run dev     # pages rendered on request');
+    console.log('  npm run build   # static HTML in dist/\n');
   } else {
     console.log('  npm run dev\n');
   }

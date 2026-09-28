@@ -145,3 +145,63 @@ test('create-what --fullstack scaffolds a parseable SSR tree', async () => {
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('create-what --template=islands scaffolds static pages with one island', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'create-what-islands-'));
+  try {
+    const result = spawnSync(process.execPath, [createWhat, 'isl-app', '--template=islands', '--yes'], { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /npm run build\s+# static HTML in dist\//);
+    const root = join(cwd, 'isl-app');
+
+    // JSX goes through the automatic runtime, so there is no compiler to install,
+    // and the build is the scaffold's own prerender script.
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    assert.equal(pkg.dependencies['what-framework'], expectedRange);
+    assert.equal(pkg.devDependencies['what-compiler'], undefined);
+    assert.equal(pkg.devDependencies['@babel/core'], undefined);
+    assert.equal(pkg.devDependencies['what-devtools'], expectedRange);
+    assert.equal(pkg.devDependencies['what-devtools-mcp'], expectedRange);
+    assert.equal(pkg.scripts.build, 'node build.js');
+    assert.equal(pkg.scripts.dev, 'vite');
+
+    for (const f of [
+      'vite.config.js', 'build.js', 'src/entry-server.js', 'src/entry-client.js',
+      'src/components/Layout.jsx', 'src/pages/Home.jsx', 'src/pages/About.jsx',
+      'src/islands/Counter.jsx', 'src/styles.css', 'public/favicon.svg',
+    ]) {
+      await readFile(join(root, f), 'utf8'); // throws if missing
+    }
+    // Pages are rendered by the server entry, so there is no index.html shell.
+    await assert.rejects(readFile(join(root, 'index.html'), 'utf8'));
+
+    const viteConfig = await readFile(join(root, 'vite.config.js'), 'utf8');
+    assert.match(viteConfig, /jsx: 'automatic', jsxImportSource: 'what-framework'/);
+    assert.doesNotMatch(viteConfig, /from 'what-compiler/);
+    const tsconfig = JSON.parse(await readFile(join(root, 'tsconfig.json'), 'utf8'));
+    assert.equal(tsconfig.compilerOptions.jsx, 'react-jsx');
+    assert.equal(tsconfig.compilerOptions.jsxImportSource, 'what-framework');
+    assert.match(await readFile(join(root, '.gitignore'), 'utf8'), /^\.ssr$/m);
+
+    for (const f of ['vite.config.js', 'build.js', 'src/entry-server.js', 'src/entry-client.js']) {
+      const check = spawnSync(process.execPath, ['--check', join(root, f)], { encoding: 'utf8' });
+      assert.equal(check.status, 0, `${f} failed --check: ${check.stderr}`);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('choosing the islands template at the prompt scaffolds it and skips the SPA-only questions', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'create-what-islands-prompt-'));
+  try {
+    const result = spawnSync(process.execPath, [createWhat], { cwd, input: 'prompt-islands\n3\n', encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /3\) Static site \+ islands/);
+    assert.doesNotMatch(result.stdout, /React library support|CSS approach/);
+    const pkg = JSON.parse(await readFile(join(cwd, 'prompt-islands/package.json'), 'utf8'));
+    assert.equal(pkg.scripts.build, 'node build.js');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

@@ -154,7 +154,7 @@ jobs:
       - name: Install Playwright system deps (browser cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
-      - name: Scaffold smoke (create-what -> install -> run -> hydrate, both templates)
+      - name: Scaffold smoke (create-what -> install -> run -> hydrate, every template)
         env:
           WHAT_SMOKE_REQUIRE_BROWSER: 1
         run: npm run -s smoke:scaffold
