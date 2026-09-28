@@ -848,10 +848,28 @@ function assertSafeTag(tag, vnode) {
   );
 }
 
+// Prop names whose HTML attribute is not just the prop name in another case.
+// The client reaches the right attribute through the element's reflected DOM
+// property (`label.htmlFor = x` writes `for`), and the compiler and head.js
+// rename the same props. Markup has no properties, so the server must rename
+// them itself: an unrenamed `htmlFor="x"` parses as a meaningless `htmlfor`
+// attribute, and hydration never corrects a static attribute.
+//
+// Names that differ from their attribute only by case (tabIndex, readOnly,
+// maxLength, contentEditable) need no entry. HTML attribute names are
+// case-insensitive and the parser lowercases them.
+const ATTRIBUTE_ALIASES = new Map([
+  ['className', 'class'],
+  ['htmlFor', 'for'],
+  ['httpEquiv', 'http-equiv'],
+  ['acceptCharset', 'accept-charset'],
+]);
+
 function renderAttrs(props) {
   let out = '';
-  for (const [key, rawVal] of Object.entries(props)) {
-    if (key === 'key' || key === 'ref' || key === 'children' || key === 'dangerouslySetInnerHTML' || key === 'innerHTML') continue;
+  for (const [propKey, rawVal] of Object.entries(props)) {
+    if (propKey === 'key' || propKey === 'ref' || propKey === 'children' || propKey === 'dangerouslySetInnerHTML' || propKey === 'innerHTML') continue;
+    const key = ATTRIBUTE_ALIASES.get(propKey) || propKey;
     const lowerKey = key.toLowerCase();
     if (lowerKey.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
 
@@ -907,7 +925,7 @@ function renderAttrs(props) {
       continue;
     }
 
-    if (key === 'className' || key === 'class') {
+    if (key === 'class') {
       out += ` class="${escapeHtml(String(val))}"`;
     } else if (key === 'style' && typeof val === 'object') {
       const css = Object.entries(val)
