@@ -411,10 +411,20 @@ export default function whatBabelPlugin({ types: t }) {
     return t.stringLiteral(value.value || '');
   }
 
+  // Prop names whose HTML attribute is not just the prop name in another case.
+  // A static attribute is baked into a template string that the HTML parser
+  // reads, and the parser only lowercases names, so an unrenamed
+  // `httpEquiv="refresh"` became a meaningless `httpequiv` attribute. The h()
+  // path and what-server rename the same set.
+  const ATTRIBUTE_ALIASES = new Map([
+    ['className', 'class'],
+    ['htmlFor', 'for'],
+    ['httpEquiv', 'http-equiv'],
+    ['acceptCharset', 'accept-charset'],
+  ]);
+
   function normalizeAttrName(attrName) {
-    if (attrName === 'className') return 'class';
-    if (attrName === 'htmlFor') return 'for';
-    return attrName;
+    return ATTRIBUTE_ALIASES.get(attrName) || attrName;
   }
 
   // Is this attribute overwritten by a later one naming the same DOM property?
@@ -1200,9 +1210,7 @@ export default function whatBabelPlugin({ types: t }) {
       // matching how the runtime and SSR paths treat them.
       if (isEventAttrName(name) || name.startsWith('bind:') || name.includes('|')) continue;
 
-      let domName = name;
-      if (name === 'className') domName = 'class';
-      if (name === 'htmlFor') domName = 'for';
+      const domName = normalizeAttrName(name);
 
       if (!attr.value) {
         html += ` ${domName}`;
@@ -1655,17 +1663,21 @@ export default function whatBabelPlugin({ types: t }) {
 
         if (isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers)) {
           state.needsEffect = true;
-          // Auto-invoke bare signal/imported identifiers: value={name} -> name()
+          // Auto-invoke a bare identifier only when it is a PROVEN signal:
+          // value={count} -> count() for a local `const count = signal(...)`.
           //
-          // Never a destructured prop: it holds whatever the parent passed,
-          // which for `_$createComponent` is a plain value, and calling it
-          // threw. The runtime setters resolve a function value themselves, so
-          // an uncalled identifier is correct for a prop either way.
+          // Never a destructured prop or an import. Either one can hold any
+          // value: a prop is whatever the parent passed, and an import is
+          // whatever the other module exported (`href={DOCS_URL}` with a string
+          // constant is the common case). Calling one of those threw
+          // "X is not a function". The runtime setters resolve a function value
+          // as a reactive accessor themselves, exactly as h() does, so the
+          // uncalled identifier is correct for a plain value AND keeps an
+          // imported signal live.
           const fromProps = state.signalNames && state.signalNames.fromDestructuredProps;
           const valueExpr = t.isIdentifier(expr) &&
             !(fromProps && fromProps.has(expr.name)) &&
-            (isSignalIdentifier(expr.name, state.signalNames) ||
-             (state.importedIdentifiers && state.importedIdentifiers.has(expr.name)))
+            isSignalIdentifier(expr.name, state.signalNames)
             ? t.callExpression(expr, [])
             : expr;
           const effectCall = t.callExpression(t.identifier('_$effect'), [
@@ -2789,24 +2801,56 @@ export default function whatBabelPlugin({ types: t }) {
   // A `when` prop's shape determines how the condition is formed:
   //   - call expression          → use as-is              when={cond()}
   //   - arrow w/ expression body → use the body           when={() => x > 5}
-  //   - identifier that looks like a signal/import        when={isOpen}
-  //                              → invoke it as accessor: isOpen()
+  //   - a proven local signal    → invoke it: isOpen()    when={isOpen}
+  //   - an import or a destructured prop, bare or as the root of a plain
+  //     member chain                                      when={FLAG}, when={ns.open}
+  //                              → resolve it at runtime, exactly as the Show
+  //                                and Match components do for h():
+  //                                typeof X === 'function' ? X() : X
+  //                                Either one can hold a boolean or an accessor
+  //                                and only the runtime knows which. Calling it
+  //                                unconditionally threw on a boolean.
   //   - anything else (member, literal, logical, etc.)    when={user.isAdmin}
   //                              → use the raw expression. Do NOT invoke it:
   //                                non-functions would throw at runtime.
   function buildWhenCondition(whenExpr, state) {
     if (t.isCallExpression(whenExpr)) return whenExpr;
     if (t.isArrowFunctionExpression(whenExpr) && t.isExpression(whenExpr.body)) return whenExpr.body;
-    if (
-      t.isIdentifier(whenExpr) &&
-      (
-        (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames)) ||
-        (state.importedIdentifiers && state.importedIdentifiers.has(whenExpr.name))
-      )
-    ) {
-      return t.callExpression(whenExpr, []);
+    const fromProps = state.signalNames && state.signalNames.fromDestructuredProps;
+    const isUnprovenBinding = name =>
+      (fromProps && fromProps.has(name)) ||
+      (state.importedIdentifiers && state.importedIdentifiers.has(name));
+    if (t.isIdentifier(whenExpr)) {
+      if (isUnprovenBinding(whenExpr.name)) return resolveAccessorAtRuntime(whenExpr);
+      if (state.signalNames && isSignalIdentifier(whenExpr.name, state.signalNames)) {
+        return t.callExpression(whenExpr, []);
+      }
+      return whenExpr;
     }
+    const root = plainMemberChainRoot(whenExpr);
+    if (root && isUnprovenBinding(root.name)) return resolveAccessorAtRuntime(whenExpr);
     return whenExpr;
+  }
+
+  // The root identifier of `a.b.c` with no computed keys, else null. Reading
+  // such a chain twice is a pure lookup, so the runtime check below may
+  // evaluate it more than once.
+  function plainMemberChainRoot(expr) {
+    if (!t.isMemberExpression(expr)) return null;
+    let node = expr;
+    while (t.isMemberExpression(node)) {
+      if (node.computed || !t.isIdentifier(node.property)) return null;
+      node = node.object;
+    }
+    return t.isIdentifier(node) ? node : null;
+  }
+
+  function resolveAccessorAtRuntime(ref) {
+    return t.conditionalExpression(
+      t.binaryExpression('===', t.unaryExpression('typeof', ref), t.stringLiteral('function')),
+      t.callExpression(t.cloneNode(ref), []),
+      t.cloneNode(ref)
+    );
   }
 
   function collectControlFlowContent(children, state) {

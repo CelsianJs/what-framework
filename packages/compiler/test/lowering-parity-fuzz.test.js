@@ -73,6 +73,8 @@ const ISLAND_SEED = Number(process.env.WHAT_FUZZ_SEED) || 13572468;
 // because the property it checks is uniform across the grammar (see the arm).
 const SSR_CASES = Number(process.env.WHAT_FUZZ_CASES) || 250;
 const SSR_SEED = Number(process.env.WHAT_FUZZ_SEED) || 86420975;
+const IMPORT_CASES = Number(process.env.WHAT_FUZZ_CASES) || 300;
+const IMPORT_SEED = Number(process.env.WHAT_FUZZ_SEED) || 55511133;
 
 // Signals 0..2 hold scalars. Signal 3 always holds an array and exists so a
 // `list` child has something keyed to reconcile: the second value reorders,
@@ -102,6 +104,20 @@ const FIXTURE = path.resolve(__dirname, 'fixtures/fuzz-components.js');
 // is one `t.identifier()` away from being lost — which is exactly the state the
 // island branch was in.
 const PROP_NAMES = ['label', 'extra', 'value', 'data-x', 'aria-label'];
+
+// Imported bindings. The compiler sees an import only by name, so a string
+// constant, a signal, a computed and a plain function all look the same to it,
+// and each has to lower to what the same value means in the h() tree. The
+// compiled module imports them through a RELATIVE specifier, because that is
+// what makes the compiler track an import as possibly reactive; the path is
+// rewritten to the real fixture only after compiling.
+const IMPORTS_FIXTURE = path.resolve(__dirname, 'fixtures/fuzz-imports.js');
+const IMPORT_SPECIFIER = './fuzz-imports.js';
+const IMPORT_REFS = ['STR', 'NUM', 'NIL', 'sig', 'comp', 'fn', 'DFLT', 'NS.STR', 'NS.sig'];
+const importHeader = specifier =>
+  `import { STR, NUM, NIL, sig, comp, fn } from ${q(specifier)};\n` +
+  `import DFLT from ${q(specifier)};\n` +
+  `import * as NS from ${q(specifier)};\n`;
 
 // --- generator --------------------------------------------------------------
 
@@ -298,6 +314,30 @@ function makeIslandSpec(gen, signalCount) {
   };
 }
 
+// Turns some of a generated tree's signal reads into imported bindings: an
+// element attribute, a child, or a component prop. Only positions that already
+// held a signal are replaced, so an attribute name a spread was kept away from
+// (see reactiveNames in makeSpec) stays reserved for a reactive writer.
+function withImports(spec, gen) {
+  const { rnd, pick } = gen;
+  if (spec.kind === 'read' && rnd() < 0.5) return { kind: 'imported', ref: pick(IMPORT_REFS) };
+  if (spec.kind === 'element') {
+    spec.attrs = spec.attrs.map(a => (a.signal !== undefined && rnd() < 0.7)
+      ? { name: a.name, imported: pick(IMPORT_REFS) }
+      : a);
+  }
+  if (spec.kind === 'component') {
+    spec.items = spec.items.map(i => ((i.read !== undefined || i.accessor !== undefined) && rnd() < 0.7)
+      ? { name: i.name, imported: pick(IMPORT_REFS) }
+      : i);
+  }
+  for (const key of ['then', 'else']) {
+    if (spec[key]) spec[key] = withImports(spec[key], gen);
+  }
+  if (Array.isArray(spec.children)) spec.children = spec.children.map(child => withImports(child, gen));
+  return spec;
+}
+
 const q = s => JSON.stringify(s);
 
 const spreadEntries = entries => entries.map(e => `${q(e.name)}: ${q(e.value)}`).join(', ');
@@ -309,6 +349,7 @@ function emitPropsJSX(items) {
     if (item.spread) return ` {...{ ${spreadEntries(item.spread)} }}`;
     if (item.read !== undefined) return ` ${item.name}={s[${item.read}]()}`;
     if (item.accessor !== undefined) return ` ${item.name}={s[${item.accessor}]}`;
+    if (item.imported !== undefined) return ` ${item.name}={${item.imported}}`;
     return ` ${item.name}=${q(item.static)}`;
   }).join('');
 }
@@ -318,6 +359,7 @@ function emitPropsH(items) {
     if (item.spread) return `...{ ${spreadEntries(item.spread)} }`;
     if (item.read !== undefined) return `${q(item.name)}: s[${item.read}]()`;
     if (item.accessor !== undefined) return `${q(item.name)}: s[${item.accessor}]`;
+    if (item.imported !== undefined) return `${q(item.name)}: ${item.imported}`;
     return `${q(item.name)}: ${q(item.static)}`;
   }).join(', ');
 }
@@ -327,6 +369,7 @@ function emitJSX(spec) {
     case 'text': return spec.text === '' ? '{""}' : `{${q(spec.text)}}`;
     case 'read': return `{s[${spec.signal}]()}`;
     case 'thunk': return `{() => s[${spec.signal}]()}`;
+    case 'imported': return `{${spec.ref}}`;
     case 'cond':
       return `{() => s[${spec.signal}]() ? <b>${emitJSX(spec.then)}</b> : <i>${emitJSX(spec.else)}</i>}`;
     case 'fragment':
@@ -352,6 +395,7 @@ function emitJSX(spec) {
     default: {
       const attrs = spec.attrs.map(a => {
         if (a.spread) return ` {...{ ${q(a.spread.name)}: ${q(a.spread.value)} }}`;
+        if (a.imported !== undefined) return ` ${a.name}={${a.imported}}`;
         return a.static !== undefined
           ? ` ${a.name}=${q(a.static)}`
           : ` ${a.name}={s[${a.signal}]()}`;
@@ -368,6 +412,8 @@ function emitH(spec) {
     // tree, and this is the tree. See the note at the top of the file.
     case 'read': return `(() => s[${spec.signal}]())`;
     case 'thunk': return `(() => s[${spec.signal}]())`;
+    // `{STR}` is one spelling of the child STR, whatever STR turns out to be.
+    case 'imported': return spec.ref;
     case 'cond':
       return `(() => s[${spec.signal}]() ? h("b", {}, ${emitH(spec.then)}) : h("i", {}, ${emitH(spec.else)}))`;
     case 'fragment':
@@ -402,6 +448,7 @@ function emitH(spec) {
     default: {
       const props = spec.attrs.map(a => {
         if (a.spread) return `...{ ${q(a.spread.name)}: ${q(a.spread.value)} }`;
+        if (a.imported !== undefined) return `${q(a.name)}: ${a.imported}`;
         return a.static !== undefined
           ? `${q(a.name)}: ${q(a.static)}`
           : `${q(a.name)}: (() => s[${a.signal}]())`;
@@ -418,6 +465,8 @@ let moduleId = 0;
 
 function localize(code) {
   return code
+    .replaceAll(q(IMPORT_SPECIFIER), q(IMPORTS_FIXTURE))
+    .replaceAll(`'${IMPORT_SPECIFIER}'`, q(IMPORTS_FIXTURE))
     .replaceAll('"what-framework/render"', q(CORE_RENDER))
     .replaceAll("'what-framework/render'", q(CORE_RENDER))
     .replaceAll('"what-framework"', q(CORE_INDEX))
@@ -446,15 +495,16 @@ function compileJSX(source) {
   }).code;
 }
 
-function loadJSX(spec, imports = '') {
-  const source = `${fixtureImport(imports)}export function build(s) { return ${emitJSX(spec)}; }`;
+function loadJSX(spec, imports = '', header = '') {
+  const source = `${fixtureImport(imports)}${header}export function build(s) { return ${emitJSX(spec)}; }`;
   return loadModule(localize(compileJSX(source)));
 }
 
-function loadH(spec, imports = '', coreNames = 'h, Fragment') {
+function loadH(spec, imports = '', coreNames = 'h, Fragment', header = '') {
   return loadModule(
     `import { ${coreNames} } from ${q(CORE_INDEX)};\n` +
     fixtureImport(imports) +
+    header +
     `export function build(s) { return ${emitH(spec)}; }`,
   );
 }
@@ -511,7 +561,10 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 // again. Returns the trees that disagreed rather than throwing on the first, so
 // a divergence count is a measure of how wide the bug is and not just that one
 // exists — 1 tree in 500 and 400 in 500 are very different findings.
-async function runParity({ cases, seed, makeCase, imports, coreNames, needsSettle = false }) {
+async function runParity({
+  cases, seed, makeCase, imports, coreNames, needsSettle = false,
+  jsxHeader = '', hHeader = '', reset = () => {}, write = () => {},
+}) {
   const gen = makeGenerator(seed);
   const divergent = [];
   const specs = [];
@@ -523,8 +576,8 @@ async function runParity({ cases, seed, makeCase, imports, coreNames, needsSettl
     let jsxMod;
     let hMod;
     try {
-      jsxMod = await loadJSX(spec, imports);
-      hMod = await loadH(spec, imports, coreNames);
+      jsxMod = await loadJSX(spec, imports, jsxHeader);
+      hMod = await loadH(spec, imports, coreNames, hHeader);
     } catch (err) {
       // A module that will not even parse is the most severe divergence there
       // is, and it is how an attribute name emitted as a bare identifier shows
@@ -540,6 +593,7 @@ async function runParity({ cases, seed, makeCase, imports, coreNames, needsSettl
 
     const jsxSignals = FIRST_VALUES.map((v, i) => signal(v, `jsx${i}`));
     const hSignals = FIRST_VALUES.map((v, i) => signal(v, `h${i}`));
+    reset();
 
     const jsxHost = document.createElement('div');
     const hHost = document.createElement('div');
@@ -570,6 +624,7 @@ async function runParity({ cases, seed, makeCase, imports, coreNames, needsSettl
       // same way. A lowering that renders correctly once and then updates the
       // wrong node is the bug class this half exists for.
       SECOND_VALUES.forEach((v, i) => { jsxSignals[i](v); hSignals[i](v); });
+      write();
       flushSync();
       if (needsSettle) { await settle(); flushSync(); }
 
@@ -692,6 +747,44 @@ describe('compiler lowering parity (fuzz)', () => {
       'multi-key-spread', 'accessor-prop', 'hyphenated-prop',
     ]);
     reportDivergence(divergent, ISLAND_CASES);
+  });
+
+  // Every imported binding kind in every position a bare identifier can sit in.
+  // An import is the one binding the compiler can neither prove is a signal nor
+  // rule out, and a lowering that guessed "signal" called string constants and
+  // threw at runtime. The fixture's signal is shared by both arms, so `write`
+  // moves the two trees together.
+  it(`imported bindings match the h() tree for ${IMPORT_CASES} random trees`, async () => {
+    const { resetImports, writeImports } = await import(pathToFileURL(IMPORTS_FIXTURE).href);
+    const { divergent, specs } = await runParity({
+      cases: IMPORT_CASES,
+      seed: IMPORT_SEED,
+      makeCase: gen => withImports(makeSpec(gen, 3, SCALAR_SIGNALS, true, true), gen),
+      imports: COMPONENTS.join(', '),
+      jsxHeader: importHeader(IMPORT_SPECIFIER),
+      hHeader: importHeader(IMPORTS_FIXTURE),
+      reset: resetImports,
+      write: writeImports,
+    });
+
+    const found = new Set();
+    const walk = spec => {
+      if (!spec || typeof spec !== 'object') return;
+      if (spec.kind === 'imported') found.add(`child:${spec.ref}`);
+      for (const a of spec.attrs || []) if (a.imported) found.add(`attr:${a.imported}`);
+      for (const i of spec.items || []) if (i.imported) found.add(`prop:${i.imported}`);
+      for (const key of ['then', 'else']) walk(spec[key]);
+      (spec.children || []).forEach(walk);
+    };
+    specs.forEach(walk);
+    const required = [
+      ...IMPORT_REFS.map(ref => `attr:${ref}`),
+      ...IMPORT_REFS.map(ref => `child:${ref}`),
+      'prop:STR', 'prop:sig', 'prop:fn',
+    ];
+    const missing = required.filter(shape => !found.has(shape));
+    assert.deepEqual(missing, [], `the generated corpus never produced: ${missing.join(', ')}`);
+    reportDivergence(divergent, IMPORT_CASES);
   });
 
   // The SSR boundary, asserted over the grammar rather than over the shapes
