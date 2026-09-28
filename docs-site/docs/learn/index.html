@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.13.9</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.13.10</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -104,11 +104,11 @@ cd my-app
 npm install
 npm run dev</code></pre>
 
-          <p>The CLI asks three questions: which template (SPA or Full-stack), whether to add React library support, and a CSS approach. This page follows the default answers: the SPA template, no React support, vanilla CSS. Open <code>http://localhost:5173</code> and you'll see your app running.</p>
+          <p>The CLI asks which template you want (SPA, Full-stack, or Static site + islands), and for the SPA whether to add React library support and a CSS approach. This page follows the default answers: the SPA template, no React support, vanilla CSS. Open <code>http://localhost:5173</code> and you'll see your app running.</p>
 
           <div class="callout callout-note">
             <p class="callout-title">If you answer differently</p>
-            <p>The <strong>Full-stack</strong> template is buildless: it has no Vite config, no <code>index.html</code> and no compiler, its pages are written with <code>h()</code> instead of JSX, and <code>npm run dev</code> serves on <code>http://localhost:3000</code>. Answering yes to <strong>React library support</strong> replaces the What compiler with the <code>what-react</code> Vite plugin. Everything below assumes the SPA template with the What compiler.</p>
+            <p>The <strong>Full-stack</strong> template is buildless: it has no Vite config, no <code>index.html</code> and no compiler, its pages are written with <code>h()</code> instead of JSX, and <code>npm run dev</code> serves on <code>http://localhost:3000</code>. The <strong>Static site + islands</strong> template prerenders JSX pages to static HTML with <code>npm run build</code> and hydrates only its islands (see <a href="./islands.html#start-from-the-template">Islands</a>). Answering yes to <strong>React library support</strong> replaces the What compiler with the <code>what-react</code> Vite plugin. Everything below assumes the SPA template with the What compiler.</p>
           </div>
 
           <h2 id="project-structure">Project Structure</h2>

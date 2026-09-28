@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.13.9</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.13.10</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -93,6 +93,9 @@
           <h2 id="the-concept">The Concept</h2>
           <p>Most of any web page is static content: headers, text, images, footers. Only small pieces actually need JavaScript for interactivity -- a counter, a search bar, an interactive chart. Islands architecture treats each interactive piece as an independent "island" that hydrates on its own, while the rest of the page stays as pure static HTML.</p>
           <p>The result: your pages load faster because the browser downloads and executes far less JavaScript. A blog post with a single comment widget only ships JS for that widget, not for the entire page.</p>
+
+          <h3 id="start-from-the-template">Start from the template</h3>
+          <p><code>npm create what@latest my-site -- --template=islands</code> scaffolds a working site: two JSX pages, a shared layout, and one island. <code>npm run build</code> writes each page to <code>dist/</code> as static HTML with the island's markup already in it, and the browser hydrates that markup in place. A page without islands loads no framework code. The pages use the automatic JSX runtime (<code>jsxImportSource: "what-framework"</code>) rather than what-compiler, because every page is rendered on the server.</p>
 
           <h2 id="hydration-modes">Hydration Modes</h2>
           <p>What gives you fine-grained control over <em>when</em> each island hydrates. Choose the mode that matches the island's purpose:</p>

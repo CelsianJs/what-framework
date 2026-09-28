@@ -3,17 +3,22 @@
 // with the LOCAL packages (not whatever is on npm):
 //
 //   1. `npm pack` every workspace package into a temp dir.
-//   2. Scaffold BOTH templates (default SPA + --fullstack) with the local
-//      create-what, pointing all what-* deps at the local tarballs.
+//   2. Scaffold EVERY template (default SPA, --fullstack, --template=islands)
+//      with the local create-what, pointing all what-* deps at the local
+//      tarballs.
 //   3. `npm install` each app, then run it like a user would:
 //        SPA       -> `npm run build` + `vite preview`  (production bundle)
 //        fullstack -> `node server.js`                  (real SSR + ISR server)
+//        islands   -> `vite` dev server, then `npm run build` + `vite preview`
 //   4. Assert over HTTP (and with a headless browser when available):
 //        SPA       -> prod page renders the counter and it increments on click
 //        fullstack -> / returns SSR HTML, /src/entry-client.js is served,
 //                     second request is an ISR HIT, and the page HYDRATES
 //                     (Like button increments; zero page errors)
-//   5. `npm run lint` passes in both apps (scaffolded eslint config works).
+//        islands   -> dev and built pages are server-rendered HTML, the island
+//                     hydrates IN PLACE and increments, and a page with no
+//                     islands loads only the entry script
+//   5. `npm run lint` passes in every app (scaffolded eslint config works).
 //
 // Usage:  node scripts/smoke-scaffold.mjs          (or `npm run smoke:scaffold`)
 // Ports:  4500-4599 (override base with WHAT_SMOKE_PORT_BASE)
@@ -334,6 +339,139 @@ async function smokeFullstack(workDir, tarballs, browser) {
   child.kill('SIGTERM');
 }
 
+// --- 3c. Islands template -------------------------------------------------
+//
+// JSX pages prerendered to static HTML, with one island hydrated in place. The
+// claims that matter are only observable together: the page is complete HTML
+// before any script runs, the island adopts that HTML rather than replacing it,
+// and a page without islands never loads the island runtime.
+
+async function waitForIslandHydration(page) {
+  // hydrateIslands() strips data-island from the host once it has hydrated.
+  await page.waitForSelector('[data-island]', { state: 'detached', timeout: 15000 });
+}
+
+async function smokeIslands(workDir, tarballs, browser) {
+  log('--- islands template (static pages + island hydration) ---');
+  const appDir = scaffoldApp(workDir, 'smoke-islands', tarballs, ['--template=islands']);
+  const viteBin = join(appDir, 'node_modules', 'vite', 'bin', 'vite.js');
+  const serverRenderedCounter = '<output aria-live="polite">3</output>';
+
+  // Dev server: pages are rendered on request by the scaffold's own plugin.
+  const devPort = PORT_BASE + 30;
+  await assertPortFree(devPort);
+  const dev = startProcess(process.execPath, [viteBin, '--port', String(devPort), '--strictPort'], {
+    cwd: appDir,
+    env: { ...process.env, BROWSER: 'none' },
+  });
+  const devBase = `http://localhost:${devPort}`;
+  await waitForHttp(devBase + '/', { child: dev });
+
+  const devHome = await (await fetch(devBase + '/')).text();
+  assert(devHome.includes('<title>Home | smoke-islands</title>'), 'dev: GET / renders the Home page with its <Head> title');
+  assert(devHome.includes('data-island="counter"'), 'dev: the page carries the island marker');
+  assert(devHome.includes(serverRenderedCounter), 'dev: the island is server-rendered inside its marker');
+  assert(devHome.includes('src="/src/entry-client.js"'), 'dev: the page loads the client entry');
+  const devAbout = await fetch(devBase + '/about');
+  assert(devAbout.status === 200 && (await devAbout.text()).includes('<title>About | smoke-islands</title>'), 'dev: GET /about renders the About page');
+
+  if (browser) {
+    await withPage(browser, devBase + '/', async (page, errors) => {
+      await waitForIslandHydration(page);
+      await page.click('.counter button[aria-label="Increase"]');
+      const after = await page.textContent('.counter output');
+      assert(after === '4', `dev: the island hydrates and responds to a click (3 -> ${after})`);
+      const devtoolsLive = await page.evaluate(
+        () => new Promise((res) => {
+          let n = 0;
+          const t = setInterval(() => {
+            if (globalThis.__WHAT_DEVTOOLS__ || ++n > 60) { clearInterval(t); res(!!globalThis.__WHAT_DEVTOOLS__); }
+          }, 50);
+        }),
+      );
+      assert(devtoolsLive, 'dev: devtools bridge is installed (window.__WHAT_DEVTOOLS__)');
+      assert(errors.length === 0, `dev: no browser errors (got: ${errors.join('; ') || 'none'})`);
+    });
+  }
+  dev.kill('SIGTERM');
+
+  // Static build: every route written as a complete HTML file.
+  run('npm', ['run', 'build'], { cwd: appDir });
+  const homeFile = join(appDir, 'dist', 'index.html');
+  const aboutFile = join(appDir, 'dist', 'about', 'index.html');
+  assert(existsSync(homeFile) && existsSync(aboutFile), 'build wrote dist/index.html and dist/about/index.html');
+  assert(!existsSync(join(appDir, '.ssr')) && !existsSync(join(appDir, 'dist', '.vite')), 'build removed its temporary server bundle and manifest');
+  const homeHtml = readFileSync(homeFile, 'utf8');
+  const aboutHtml = readFileSync(aboutFile, 'utf8');
+  assert(homeHtml.includes('<h1>A static site with islands</h1>'), 'built Home page contains its server-rendered content');
+  assert(homeHtml.includes(serverRenderedCounter), 'built Home page contains the island\'s server render');
+  assert(/<script type="module" src="\/assets\/[^"]+\.js"><\/script>/.test(homeHtml), 'built Home page loads the hashed client entry');
+  assert(aboutHtml.includes('<h1>About</h1>') && !aboutHtml.includes('data-island'), 'built About page is static HTML with no island');
+
+  const distText = readdirSync(join(appDir, 'dist'), { recursive: true })
+    .map((f) => join(appDir, 'dist', f))
+    .filter((p) => { try { return statSync(p).isFile(); } catch { return false; } })
+    .map((p) => readFileSync(p, 'utf8'))
+    .join('\n');
+  for (const needle of ['what-devtools', 'virtual:what-devtools', '__x00__', 'connectDevToolsMCP', '__what_mcp', '/@vite/client']) {
+    assert(!distText.includes(needle), `static build contains NO dev-only code ("${needle}")`);
+  }
+
+  // Served the way a static host serves it.
+  const previewPort = PORT_BASE + 31;
+  await assertPortFree(previewPort);
+  const preview = startProcess(process.execPath, [viteBin, 'preview', '--port', String(previewPort), '--strictPort'], { cwd: appDir });
+  const previewBase = `http://localhost:${previewPort}`;
+  await waitForHttp(previewBase + '/', { child: preview });
+  assert((await fetch(previewBase + '/about')).status === 200, 'preview serves /about from dist/about/index.html');
+
+  if (browser) {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
+    // Keep a reference to the button the HTML parser created, taken before any
+    // page script can run, so "hydrated in place" is checked against the
+    // server's node rather than against whatever is in the DOM afterwards.
+    await page.addInitScript(() => {
+      new MutationObserver((_, observer) => {
+        const b = document.querySelector('.counter button[aria-label="Increase"]');
+        if (b) { globalThis.__serverButton = b; observer.disconnect(); }
+      }).observe(document, { childList: true, subtree: true });
+    });
+    try {
+      await page.goto(previewBase + '/', { waitUntil: 'networkidle', timeout: 15000 });
+      await waitForIslandHydration(page);
+      const adopted = await page.evaluate(() => {
+        const live = document.querySelector('.counter button[aria-label="Increase"]');
+        return !!globalThis.__serverButton && globalThis.__serverButton === live && live.isConnected;
+      });
+      assert(adopted, 'the island hydrated in place: the server-rendered button is the live one');
+      await page.click('.counter button[aria-label="Increase"]');
+      await page.click('.counter button[aria-label="Increase"]');
+      const after = await page.textContent('.counter output');
+      assert(after === '5', `built page: the island is interactive (3 -> ${after})`);
+      assert(errors.length === 0, `built page: no browser errors (got: ${errors.join('; ') || 'none'})`);
+    } finally {
+      await page.close();
+    }
+
+    const scripts = [];
+    const aboutPage = await browser.newPage();
+    aboutPage.on('request', (r) => { if (r.resourceType() === 'script') scripts.push(new URL(r.url()).pathname); });
+    try {
+      await aboutPage.goto(previewBase + '/about', { waitUntil: 'networkidle', timeout: 15000 });
+    } finally {
+      await aboutPage.close();
+    }
+    assert(scripts.length === 1, `a page with no islands loads only the entry script (got: ${scripts.join(', ')})`);
+  }
+  preview.kill('SIGTERM');
+
+  run('npm', ['run', 'lint'], { cwd: appDir });
+  log('  ok - npm run lint passes');
+}
+
 // --- Main -------------------------------------------------------------------
 
 const workDir = mkdtempSync(join(tmpdir(), 'what-smoke-'));
@@ -352,6 +490,7 @@ try {
 
   await smokeSpa(workDir, tarballs, browser);
   await smokeFullstack(workDir, tarballs, browser);
+  await smokeIslands(workDir, tarballs, browser);
 
   log('ALL SCAFFOLD SMOKE CHECKS PASSED');
 } catch (err) {
