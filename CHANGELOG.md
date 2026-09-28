@@ -2,7 +2,7 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]
+## [0.13.10] - 2026-09-28
 
 ### Imported values in compiled JSX
 
