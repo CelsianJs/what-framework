@@ -19,7 +19,7 @@
       ],
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
-        "src": "/templates/previews/tempo.png",
+        "src": "/templates/previews/tempo.webp",
         "alt": "Tempo: actual desktop view of the working starter application.",
         "width": 1440,
         "height": 1007
@@ -49,7 +49,7 @@
       ],
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
-        "src": "/templates/previews/launchpad.png",
+        "src": "/templates/previews/launchpad.webp",
         "alt": "Launchpad: actual desktop view of the working starter application.",
         "width": 1360,
         "height": 1645
@@ -79,7 +79,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/fieldwork.png",
+        "src": "/templates/previews/fieldwork.webp",
         "alt": "Fieldwork: actual desktop view of the working starter application.",
         "width": 1366,
         "height": 1708
@@ -109,7 +109,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/oscillator.png",
+        "src": "/templates/previews/oscillator.webp",
         "alt": "Oscillator: actual desktop view of the working starter application.",
         "width": 1366,
         "height": 900
@@ -140,7 +140,7 @@
       ],
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
-        "src": "/templates/previews/lens.png",
+        "src": "/templates/previews/lens.webp",
         "alt": "Lens: actual desktop view of the working starter application.",
         "width": 1440,
         "height": 994
@@ -170,7 +170,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/harbor.png",
+        "src": "/templates/previews/harbor.webp",
         "alt": "Harbor: actual desktop view of the working starter application.",
         "width": 1280,
         "height": 720
@@ -200,7 +200,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/gather.png",
+        "src": "/templates/previews/gather.webp",
         "alt": "Gather: actual desktop view of the working starter application.",
         "width": 1280,
         "height": 720
@@ -231,7 +231,7 @@
       ],
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
-        "src": "/templates/previews/marginalia.png",
+        "src": "/templates/previews/marginalia.webp",
         "alt": "Marginalia: actual desktop view of the working starter application.",
         "width": 1360,
         "height": 1634
@@ -262,7 +262,7 @@
       ],
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
-        "src": "/templates/previews/meridian.png",
+        "src": "/templates/previews/meridian.webp",
         "alt": "Meridian: actual desktop view of the working starter application.",
         "width": 1360,
         "height": 1009
@@ -293,7 +293,7 @@
       ],
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
-        "src": "/templates/previews/cartograph.png",
+        "src": "/templates/previews/cartograph.webp",
         "alt": "Cartograph: actual desktop view of the working starter application.",
         "width": 1360,
         "height": 1845
@@ -324,7 +324,7 @@
       ],
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
-        "src": "/templates/previews/form.png",
+        "src": "/templates/previews/form.webp",
         "alt": "Form: actual desktop view of the working starter application.",
         "width": 1360,
         "height": 1578
@@ -355,7 +355,7 @@
       ],
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
-        "src": "/templates/previews/beacon.png",
+        "src": "/templates/previews/beacon.webp",
         "alt": "Beacon: actual desktop view of the working starter application.",
         "width": 1360,
         "height": 1473
@@ -385,7 +385,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/finch.png",
+        "src": "/templates/previews/finch.webp",
         "alt": "Finch: actual desktop view of the working starter application.",
         "width": 1280,
         "height": 843
@@ -415,7 +415,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/tally.png",
+        "src": "/templates/previews/tally.webp",
         "alt": "Tally: actual desktop view of the working starter application.",
         "width": 1280,
         "height": 720
@@ -445,7 +445,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/drift.png",
+        "src": "/templates/previews/drift.webp",
         "alt": "Drift: actual desktop view of the working starter application.",
         "width": 1280,
         "height": 720
@@ -475,7 +475,7 @@
       ],
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
-        "src": "/templates/previews/bloom.png",
+        "src": "/templates/previews/bloom.webp",
         "alt": "Bloom: actual desktop view of the working starter application.",
         "width": 1280,
         "height": 720
@@ -506,7 +506,7 @@
       ],
       "architecture": "Request-time SSR, a cached overview, static reference pages and a real serverless health API; simulated service data.",
       "preview": {
-        "src": "/templates/previews/signal.png",
+        "src": "/templates/previews/signal.webp",
         "alt": "Signal: actual desktop view of the working starter application.",
         "width": 1280,
         "height": 1188
@@ -537,7 +537,7 @@
       ],
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
-        "src": "/templates/previews/orbit.png",
+        "src": "/templates/previews/orbit.webp",
         "alt": "Orbit: actual desktop view of the working starter application.",
         "width": 1360,
         "height": 1644
