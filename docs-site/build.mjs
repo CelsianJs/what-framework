@@ -2,15 +2,24 @@
 // renderToString). Chrome (head/nav/sidebar) is authored as What; page content
 // is preserved verbatim via dangerouslySetInnerHTML so visuals never drift.
 // Output: dist/<clean-route>/index.html  (no .html in URLs).
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, copyFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToString } from 'what-framework/server';
 import { h } from 'what-framework';
 import * as esbuild from 'esbuild';
+import { catalogLlms, publicCatalog, publishedTemplates, validateCatalog } from './templates/catalog.mjs';
+import { learningFor, validateLearning } from './templates/learning.mjs';
+import { renderAgentGuide, renderGallery, renderStatusOverview, renderStatusReference } from './templates/render.mjs';
+import { publicStatus, statusLlms, statusPath, validateStatus } from './templates/status.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const DIST = join(ROOT, 'dist');
+const STARTERS = validateCatalog(JSON.parse(readFileSync(join(ROOT, 'templates/catalog.json'), 'utf8')), {
+  assetExists: source => existsSync(join(ROOT, source.slice(1))),
+});
+const STARTER_STATUS = validateStatus(JSON.parse(readFileSync(join(ROOT, 'templates/status.json'), 'utf8')), STARTERS);
+validateLearning(STARTERS);
 
 // ---------------------------------------------------------------------------
 // Version, read from the framework source of truth at BUILD time so the nav
@@ -59,6 +68,7 @@ const NAV_ITEMS = [
   ['learn', '/docs/learn', 'Learn'],
   ['reference', '/docs/reference', 'Reference'],
   ['tutorial', '/docs/tutorial', 'Tutorial'],
+  ['templates', '/templates', 'Templates'],
 ];
 
 function navInner(activeSection) {
@@ -280,6 +290,8 @@ function buildSection({ dirRel, base, navSection }) {
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 for (const a of ['design-system.css', 'theme.js', 'favicon.svg', 'docs/styles.css', 'docs/copy-code.js', 'docs/search.js', 'llms.txt', 'llms-full.txt']) copyAsset(a);
+for (const a of ['templates/gallery.css', 'templates/gallery.js']) copyAsset(a);
+for (const template of publishedTemplates(STARTERS)) copyAsset(template.preview.src.slice(1));
 
 // Bundle the REAL What framework as a browser global for the live demos.
 await esbuild.build({
@@ -301,9 +313,6 @@ for (const s of SECTIONS) {
   total += n;
   console.log(`✓ ${s.navSection}: ${n} pages`);
 }
-
-writeFileSync(join(DIST, 'search-index.json'), JSON.stringify(SEARCH_INDEX));
-console.log(`✓ search-index.json (${SEARCH_INDEX.length} pages indexed)`);
 
 // Standalone pages (home, docs landing), no shared layout/sidebar. Preserve the
 // full <head> (meta/OG/title) and <body> verbatim; rewrite asset + .html links to
@@ -355,6 +364,36 @@ buildStandalone({
 });
 total++;
 console.log('✓ docs landing: 1 page');
+
+write('/templates', renderGallery(STARTERS, VERSION));
+write('/templates/agents', renderAgentGuide(STARTERS, VERSION));
+writeFileSync(join(DIST, 'templates/catalog.json'), JSON.stringify(publicCatalog(STARTERS), null, 2));
+writeFileSync(join(DIST, 'templates/llms.txt'), catalogLlms(STARTERS));
+total += 2;
+console.log(`✓ templates: 2 pages, ${publishedTemplates(STARTERS).length} verified starters`);
+
+write('/templates/status', renderStatusOverview(STARTER_STATUS, STARTERS, VERSION));
+writeFileSync(join(DIST, 'templates/status.json'), JSON.stringify(publicStatus(STARTER_STATUS, STARTERS), null, 2));
+writeFileSync(join(DIST, 'templates/status/llms.txt'), statusLlms(STARTER_STATUS, STARTERS));
+SEARCH_INDEX.push({ route: '/templates/status', title: 'Starter build status', section: 'Starter status', headings: ['Build phases', 'Build journals'], text: 'Current planned, building, local verification, review and live phases for What Framework starters.' });
+for (const entry of STARTER_STATUS.entries) {
+  write(statusPath(entry), renderStatusReference(entry, STARTERS, STARTER_STATUS, VERSION));
+  const template = STARTERS.templates.find(template => template.slug === entry.slug);
+  const learning = learningFor(entry.slug);
+  const learningText = learning ? [
+    learning.overview,
+    ...learning.sourceFiles.flatMap(source => [source.label, source.path, source.note]),
+    ...learning.examples.flatMap(example => [example.title, example.path, example.notes, example.code]),
+    ...learning.issues.flatMap(issue => [issue.title, issue.problem, issue.fix, issue.proof, issue.takeaway, issue.before || '', issue.after || '']),
+    ...learning.smooth,
+    ...learning.boundaries,
+  ] : [];
+  SEARCH_INDEX.push({ route: statusPath(entry), title: `${template.name}: build status`, section: 'Starter status', headings: ['Product scope', 'Learning journal', 'Verification record', 'Build journal', 'Implementation lessons', 'Known limitations'], text: [template.description, entry.summary, ...learningText, ...entry.lessons, ...entry.limitations, ...entry.journal.map(event => event.summary)].join(' ').slice(0, 6000) });
+}
+total += 1 + STARTER_STATUS.entries.length;
+console.log(`✓ starter status: ${1 + STARTER_STATUS.entries.length} pages`);
+writeFileSync(join(DIST, 'search-index.json'), JSON.stringify(SEARCH_INDEX));
+console.log(`✓ search-index.json (${SEARCH_INDEX.length} pages indexed)`);
 
 // ---------------------------------------------------------------------------
 // 404

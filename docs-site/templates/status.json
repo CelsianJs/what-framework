@@ -1,0 +1,1126 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-01T18:47:18.585Z",
+  "entries": [
+    {
+      "slug": "what-starter-tempo",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Tempo is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "0e288956d0764f176ff3bd6b81938eb84240d667"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "label": "Delivery-owner progress report",
+          "result": "reported",
+          "details": "Local implementation reported complete. Independent check results and public release evidence have not been recorded here yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Browser-local demo state is not durable multi-user storage or authentication.",
+        "Function startup has been verified on the release; cold starts remain provider-dependent."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-launchpad",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Launchpad is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "1156ea7f13e9ab3ddb270cf19389055063561a32"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "label": "Delivery-owner progress report",
+          "result": "reported",
+          "details": "Local implementation reported complete. Independent check results and public release evidence have not been recorded here yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "The public repository, production pages and form behavior still require release checks."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-fieldwork",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Fieldwork is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "f007d03dbc1263e85ea9fb89efba4cec1deccf97"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "label": "Clean install and local workflows",
+          "result": "passed",
+          "details": "Node22 clean npm ci, 3 unit tests, production build and browser smoke passed. The canvas test checks changed pixels, and every research record is opened directly. Full dependency audit reports zero vulnerabilities."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "label": "Vura release and public source",
+          "result": "passed",
+          "details": "Public repository commit verified. HTTPS home, build guide and direct research route return200; unknown path returns404. Native browser renders the guide and source-linked lessons."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Visual quality review",
+          "result": "failed",
+          "details": "The initial layout did not meet the presentation bar: oversized type and a cramped canvas need a dedicated design revision. Functional checks do not establish visual quality."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Revised design and harness verification",
+          "result": "passed",
+          "details": "Independent visual review cleared real desktop and390px mobile captures. Fresh install,3 unit tests, build-first browser smoke, isolated repository-local harness and owned-process exit passed. The revised HTTPS home, guide, direct record and404 were checked on the new deployment."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [
+        "Effect dependencies must use signal accessors; sampled values left the canvas unchanged.",
+        "Generate concrete deployment aliases from the project dataset, and test every detail route.",
+        "Use an explicit static404 artifact for production; Vite preview uses a different SPA fallback."
+      ],
+      "limitations": [
+        "Client rendering requires JavaScript; the research content is not request-time SSR or pre-rendered article HTML.",
+        "Canvas artwork is seeded browser code, not live artificial-intelligence inference."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "live",
+          "title": "First public starter released",
+          "summary": "Clean-install and browser checks passed, source was published, and the Vura-hosted application and build guide were checked on their real HTTPS host."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "live",
+          "title": "Design review raised the bar",
+          "summary": "The hosted baseline remains available for inspection. A visual specialist is revising the layout, while code and learning-reference specialists review the collection."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "live",
+          "title": "Visual revision released",
+          "summary": "A light archive frame and canvas-first layout replace the first direction. The142-line source guide explains the redraw failure, deployment alias mismatch and CI wrapper cleanup."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-oscillator",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Oscillator is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "5d3b5de8db62a3fbd81d200a6f8563f514b780f5"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "label": "Delivery-owner progress report",
+          "result": "reported",
+          "details": "Local implementation reported complete. Independent check results and public release evidence have not been recorded here yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Audio interaction, cleanup and browser support still need release validation; no hosted audio service is claimed."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-lens",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Lens is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "bc1700010a3654c0abe181c7404c0057a74b8278"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "label": "Delivery-owner progress report",
+          "result": "reported",
+          "details": "Local implementation reported complete. Independent check results and public release evidence have not been recorded here yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Browser-local demo state is not durable multi-user storage or authentication.",
+        "Function startup has been verified on the release; cold starts remain provider-dependent."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-harbor",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Harbor is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "d4315cf3b374aa343c2e6da33e3eee5b68be7519"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "label": "Delivery-owner progress report",
+          "result": "reported",
+          "details": "Local implementation reported complete. Independent check results and public release evidence have not been recorded here yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Local browser state is not shared team storage; public workflow checks are pending."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-gather",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Gather is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "2a42476e8135062922d1b45586969e42697d9a89"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "label": "Delivery-owner progress report",
+          "result": "reported",
+          "details": "Local implementation reported complete. Independent check results and public release evidence have not been recorded here yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Recipe readability, saved planning state and production routing still require release checks."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-marginalia",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Marginalia is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "358c7e88be328af4d42c6541904a05291f621da6"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "label": "Delivery-owner progress report",
+          "result": "reported",
+          "details": "Local implementation reported complete. Independent check results and public release evidence have not been recorded here yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Production article routes, reading controls and content accessibility still require release checks."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "review",
+          "title": "Local implementation ready for review",
+          "summary": "The first implementation is available locally. It is not yet a published source reference or a verified Vura deployment."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-meridian",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Meridian is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "c038b26b92fc5c919aca74150e257cc365848eb8"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Implementation-owner local checks",
+          "result": "reported",
+          "details": "Build, targeted tests and browser journeys are reported passing. Independent code, design and clean-consumer verification are still required."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Live booking, route estimates and a shared travel account are outside the currently verified scope."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "review",
+          "title": "Local build ready for specialist review",
+          "summary": "The implementation owner completed the local build and workflow checks. No public source release or hosted verification is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-cartograph",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Cartograph is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "fb4b52fdd431bf776e5bd958767788bab134a398"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Implementation-owner local checks",
+          "result": "reported",
+          "details": "Build, targeted tests and browser journeys are reported passing. Independent code, design and clean-consumer verification are still required."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Browser-local demo state is not durable multi-user storage or authentication.",
+        "Function startup has been verified on the release; cold starts remain provider-dependent."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "review",
+          "title": "Local build ready for specialist review",
+          "summary": "The implementation owner completed the local build and workflow checks. No public source release or hosted verification is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-form",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Form is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "1966049f72b2f61711ec6948501c28ec8f6298d6"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Implementation-owner local checks",
+          "result": "reported",
+          "details": "Build, targeted tests and browser journeys are reported passing. Independent code, design and clean-consumer verification are still required."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Project content, imagery rights and motion accessibility must be checked before publication."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "review",
+          "title": "Local build ready for specialist review",
+          "summary": "The implementation owner completed the local build and workflow checks. No public source release or hosted verification is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-beacon",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Beacon is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "de5211373f6b24290bad84de411375f6c8629bca"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Implementation-owner local checks",
+          "result": "reported",
+          "details": "Build, targeted tests and browser journeys are reported passing. Independent code, design and clean-consumer verification are still required."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "A saved personal agenda is not ticketing, registration or shared attendee data."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "review",
+          "title": "Local build ready for specialist review",
+          "summary": "The implementation owner completed the local build and workflow checks. No public source release or hosted verification is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-finch",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Finch is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "a3047515df4425ff65fc82fa8b8c903187d74ef8"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Implementation-owner local checks",
+          "result": "reported",
+          "details": "Build, targeted tests and browser journeys are reported passing. Independent code, design and clean-consumer verification are still required."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Local lesson progress is not a hosted student account or verified assessment service."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "review",
+          "title": "Local build ready for specialist review",
+          "summary": "The implementation owner completed the local build and workflow checks. No public source release or hosted verification is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-tally",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Tally is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "1e8fb04fe98f9d575e99c102737d2c945c463a51"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Draft totals require tests; no tax, accounting, payment or legal compliance claims are made."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-drift",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Drift is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "679f6fd1cad0c7b262476eec80f7fa510109b294"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Local task state is not a shared collaboration backend."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-bloom",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Bloom is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "65f939e141a8087441fd1fe1f3342e0da2b31668"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Care content and local persistence behavior must be checked; no expert growing advice is verified."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-signal",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Signal is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "faf01f15673755009c24ce9888f29e792a3caee8"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Implementation-owner local checks",
+          "result": "reported",
+          "details": "Build, targeted tests and browser journeys are reported passing. Independent code, design and clean-consumer verification are still required."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Service health and incidents are fictional data, not live infrastructure monitoring.",
+        "Cached rendering uses this runtime's configured cache; it is not a distributed invalidation claim."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:11:10.087Z",
+          "phase": "building",
+          "title": "Implementation started",
+          "summary": "The standalone project files exist and the product build is active. No local verification or live release is claimed yet."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "review",
+          "title": "Local build ready for specialist review",
+          "summary": "The implementation owner completed the local build and workflow checks. No public source release or hosted verification is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    },
+    {
+      "slug": "what-starter-orbit",
+      "phase": "live",
+      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "summary": "Orbit is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
+      "source": {
+        "state": "published",
+        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "commitSha": "a1dde11b8a6901212780e5fe4ccfe28a65f9f6a2"
+      },
+      "verification": [
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "label": "Implementation-owner local checks",
+          "result": "reported",
+          "details": "Build, targeted tests and browser journeys are reported passing. Independent code, design and clean-consumer verification are still required."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "label": "Independent visual quality review",
+          "result": "passed",
+          "details": "Actual desktop and mobile screenshots were reviewed after domain-specific layout refinements. Final review cleared the presentation; functional hosting checks remain separate."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "label": "Public source and hosted release",
+          "result": "passed",
+          "details": "Source, README and BUILD guide are published. The Vura deployment is ready; HTTPS home, build guide and genuine unknown404 were checked. Local clean-install and browser workflows are distinct from this hosted route proof."
+        }
+      ],
+      "lessons": [],
+      "limitations": [
+        "Browser-local demo state is not durable multi-user storage or authentication.",
+        "Function startup has been verified on the release; cold starts remain provider-dependent."
+      ],
+      "blockers": [],
+      "journal": [
+        {
+          "at": "2026-10-01T16:54:50.000Z",
+          "phase": "planned",
+          "title": "Product scope recorded",
+          "summary": "This is a planned starter, not a working release. Implementation, tests, public source and deployment evidence will be added as they are completed."
+        },
+        {
+          "at": "2026-10-01T17:24:10.379Z",
+          "phase": "review",
+          "title": "Local build ready for specialist review",
+          "summary": "The implementation owner completed the local build and workflow checks. No public source release or hosted verification is claimed yet."
+        },
+        {
+          "at": "2026-10-01T18:00:34.473Z",
+          "phase": "review",
+          "title": "Design review cleared; release verification underway",
+          "summary": "The local implementation is complete and revised visual evidence has passed review. Source and demo links will appear only after publication and hosted verification."
+        },
+        {
+          "at": "2026-10-01T18:47:18.585Z",
+          "phase": "live",
+          "title": "Public template and Vura release",
+          "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        }
+      ]
+    }
+  ]
+}
