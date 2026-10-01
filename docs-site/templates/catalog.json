@@ -27,9 +27,9 @@
       "release": {
         "demoUrl": "https://what-starter-tempo-fae244da.vura.app/",
         "buildUrl": "https://what-starter-tempo-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "46b54e0c-b32d-4908-96b9-a24a674a09df",
-        "commitSha": "0e288956d0764f176ff3bd6b81938eb84240d667"
+        "commitSha": "f4cc791c154a7c6f86979236069e1973f60e8c69"
       }
     },
     {
@@ -57,9 +57,9 @@
       "release": {
         "demoUrl": "https://what-starter-launchpad-fae244da.vura.app/",
         "buildUrl": "https://what-starter-launchpad-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "3aebd087-70c0-4758-9839-53176d48848b",
-        "commitSha": "1156ea7f13e9ab3ddb270cf19389055063561a32"
+        "commitSha": "955a4dbb88cb5353827887cc8984030a18a66a79"
       }
     },
     {
@@ -87,9 +87,9 @@
       "release": {
         "demoUrl": "https://what-starter-fieldwork-fae244da.vura.app/",
         "buildUrl": "https://what-starter-fieldwork-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "35ead696-9ac3-45ce-ac0d-00cdd5e2a164",
-        "commitSha": "f007d03dbc1263e85ea9fb89efba4cec1deccf97"
+        "commitSha": "6abf862d9ee0c5613ca107048e4147cb253f847d"
       }
     },
     {
@@ -117,9 +117,9 @@
       "release": {
         "demoUrl": "https://what-starter-oscillator-fae244da.vura.app/",
         "buildUrl": "https://what-starter-oscillator-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "d087c725-e790-44fe-b92a-0f4d957709d4",
-        "commitSha": "5d3b5de8db62a3fbd81d200a6f8563f514b780f5"
+        "commitSha": "dbf47ac10f07c13d94fe5bc0a4def7ce9caf3206"
       }
     },
     {
@@ -148,9 +148,9 @@
       "release": {
         "demoUrl": "https://what-starter-lens-fae244da.vura.app/",
         "buildUrl": "https://what-starter-lens-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "e27d4d94-31ee-4e95-a39b-62fa59e3d081",
-        "commitSha": "bc1700010a3654c0abe181c7404c0057a74b8278"
+        "commitSha": "58a57d9684cf09aa6cfe6462c722426defc0e11e"
       }
     },
     {
@@ -178,9 +178,9 @@
       "release": {
         "demoUrl": "https://what-starter-harbor-fae244da.vura.app/",
         "buildUrl": "https://what-starter-harbor-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T19:19:05.073Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "ccbcc5cb-1be7-497f-80f2-cb989e1a0d40",
-        "commitSha": "e577da7a8a632ba521e6efe5815a4313269ac8ba"
+        "commitSha": "b86e090c2faed322a52ff3825fb57f59ba289f40"
       }
     },
     {
@@ -208,9 +208,9 @@
       "release": {
         "demoUrl": "https://what-starter-gather-fae244da.vura.app/",
         "buildUrl": "https://what-starter-gather-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "6515249d-844b-4d52-b435-78251a62c0fb",
-        "commitSha": "2a42476e8135062922d1b45586969e42697d9a89"
+        "commitSha": "35620fad17cdb071f5117776abd8a4f57d4b9562"
       }
     },
     {
@@ -239,9 +239,9 @@
       "release": {
         "demoUrl": "https://what-starter-marginalia-fae244da.vura.app/",
         "buildUrl": "https://what-starter-marginalia-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "ffefbc69-9d17-4092-a990-96e75020ac85",
-        "commitSha": "358c7e88be328af4d42c6541904a05291f621da6"
+        "commitSha": "50c3819e8e1710e02b6ffe3510f306485819e0f4"
       }
     },
     {
@@ -270,9 +270,9 @@
       "release": {
         "demoUrl": "https://what-starter-meridian-fae244da.vura.app/",
         "buildUrl": "https://what-starter-meridian-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "c863b1e1-33f5-4060-b4f9-53ce37c46113",
-        "commitSha": "c038b26b92fc5c919aca74150e257cc365848eb8"
+        "commitSha": "ee91bfa343b6ec47a5c7c5bfd33cf7e804c1cb27"
       }
     },
     {
@@ -301,9 +301,9 @@
       "release": {
         "demoUrl": "https://what-starter-cartograph-fae244da.vura.app/",
         "buildUrl": "https://what-starter-cartograph-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "8340e9d2-d0b4-42ba-9946-775de94cef77",
-        "commitSha": "fb4b52fdd431bf776e5bd958767788bab134a398"
+        "commitSha": "a6fa71c519b7daa057fee221c8ec86365ca9cf60"
       }
     },
     {
@@ -332,9 +332,9 @@
       "release": {
         "demoUrl": "https://what-starter-form-fae244da.vura.app/",
         "buildUrl": "https://what-starter-form-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "6c039cba-c60c-4051-9dfd-0e0e1bb9f42d",
-        "commitSha": "1966049f72b2f61711ec6948501c28ec8f6298d6"
+        "commitSha": "96b4b3737cdab61ae831af54c4272bd744365461"
       }
     },
     {
@@ -363,9 +363,9 @@
       "release": {
         "demoUrl": "https://what-starter-beacon-fae244da.vura.app/",
         "buildUrl": "https://what-starter-beacon-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T19:19:05.073Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "1c1415d3-6fab-4023-97c2-6c93492b1a4a",
-        "commitSha": "b72a7becf8f65420b3161a42f50b8a985daa3949"
+        "commitSha": "9af19ffdd677ab9283fd988b9efae655fceeacdf"
       }
     },
     {
@@ -393,9 +393,9 @@
       "release": {
         "demoUrl": "https://what-starter-finch-fae244da.vura.app/",
         "buildUrl": "https://what-starter-finch-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "823afc00-e2bb-4686-939a-d9e2fce50648",
-        "commitSha": "a3047515df4425ff65fc82fa8b8c903187d74ef8"
+        "commitSha": "efd82567201e64a52d86fc68a73cfe6a904e980d"
       }
     },
     {
@@ -423,9 +423,9 @@
       "release": {
         "demoUrl": "https://what-starter-tally-fae244da.vura.app/",
         "buildUrl": "https://what-starter-tally-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "a4c4f508-15cb-4b7a-8644-a08d5d1c4f8a",
-        "commitSha": "1e8fb04fe98f9d575e99c102737d2c945c463a51"
+        "commitSha": "85ba8ab69e54433ba7437f6bdaa4f6924e20afce"
       }
     },
     {
@@ -453,9 +453,9 @@
       "release": {
         "demoUrl": "https://what-starter-drift-fae244da.vura.app/",
         "buildUrl": "https://what-starter-drift-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "2fc9dfd8-c3ff-4874-832a-50926b031f17",
-        "commitSha": "679f6fd1cad0c7b262476eec80f7fa510109b294"
+        "commitSha": "5cf866f8d198039d4659e29e86753df2762c010a"
       }
     },
     {
@@ -483,9 +483,9 @@
       "release": {
         "demoUrl": "https://what-starter-bloom-fae244da.vura.app/",
         "buildUrl": "https://what-starter-bloom-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "73be8c88-217c-4ffe-8410-9998e5e53aab",
-        "commitSha": "65f939e141a8087441fd1fe1f3342e0da2b31668"
+        "commitSha": "029d5d1babf6a469776a1662401b66ea642db28c"
       }
     },
     {
@@ -514,9 +514,9 @@
       "release": {
         "demoUrl": "https://what-starter-signal-fae244da.vura.app/",
         "buildUrl": "https://what-starter-signal-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "5494155b-aab6-41cb-b991-846c4b5750fd",
-        "commitSha": "faf01f15673755009c24ce9888f29e792a3caee8"
+        "commitSha": "33c57d46099d5b5a4d46fe259aa6f24685dfeeab"
       }
     },
     {
@@ -545,9 +545,9 @@
       "release": {
         "demoUrl": "https://what-starter-orbit-fae244da.vura.app/",
         "buildUrl": "https://what-starter-orbit-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T20:08:40.000Z",
         "deploymentId": "855c225d-59df-48ca-99a4-11dd3e1789e9",
-        "commitSha": "a1dde11b8a6901212780e5fe4ccfe28a65f9f6a2"
+        "commitSha": "6a1849db07765d60be3c251c2ebc8b1e20990cc2"
       }
     }
   ]
