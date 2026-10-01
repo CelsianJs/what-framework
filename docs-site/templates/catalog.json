@@ -178,9 +178,9 @@
       "release": {
         "demoUrl": "https://what-starter-harbor-fae244da.vura.app/",
         "buildUrl": "https://what-starter-harbor-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
+        "verifiedAt": "2026-10-01T19:19:05.073Z",
         "deploymentId": "ccbcc5cb-1be7-497f-80f2-cb989e1a0d40",
-        "commitSha": "d4315cf3b374aa343c2e6da33e3eee5b68be7519"
+        "commitSha": "e577da7a8a632ba521e6efe5815a4313269ac8ba"
       }
     },
     {
@@ -363,9 +363,9 @@
       "release": {
         "demoUrl": "https://what-starter-beacon-fae244da.vura.app/",
         "buildUrl": "https://what-starter-beacon-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
-        "deploymentId": "4fe97a0d-c8f1-41d4-ba05-401ee2de3d42",
-        "commitSha": "de5211373f6b24290bad84de411375f6c8629bca"
+        "verifiedAt": "2026-10-01T19:19:05.073Z",
+        "deploymentId": "1c1415d3-6fab-4023-97c2-6c93492b1a4a",
+        "commitSha": "b72a7becf8f65420b3161a42f50b8a985daa3949"
       }
     },
     {

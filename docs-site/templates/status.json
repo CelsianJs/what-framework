@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-01T18:47:18.585Z",
+  "updatedAt": "2026-10-01T19:19:05.073Z",
   "entries": [
     {
       "slug": "what-starter-tempo",
@@ -316,12 +316,12 @@
     {
       "slug": "what-starter-harbor",
       "phase": "live",
-      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "updatedAt": "2026-10-01T19:19:05.073Z",
       "summary": "Harbor is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
       "source": {
         "state": "published",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
-        "commitSha": "d4315cf3b374aa343c2e6da33e3eee5b68be7519"
+        "verifiedAt": "2026-10-01T19:19:05.073Z",
+        "commitSha": "e577da7a8a632ba521e6efe5815a4313269ac8ba"
       },
       "verification": [
         {
@@ -366,6 +366,12 @@
           "phase": "live",
           "title": "Public template and Vura release",
           "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        },
+        {
+          "at": "2026-10-01T19:19:05.073Z",
+          "phase": "live",
+          "title": "Cross-platform verification refinement",
+          "summary": "The mobile CI job now installs its configured WebKit engine and allows the cold browser setup to complete; application behavior and the hosted artifact are unchanged."
         }
       ]
     },
@@ -689,12 +695,12 @@
     {
       "slug": "what-starter-beacon",
       "phase": "live",
-      "updatedAt": "2026-10-01T18:47:18.585Z",
+      "updatedAt": "2026-10-01T19:19:05.073Z",
       "summary": "Beacon is published as an independent template and hosted on Vura. Clean-consumer workflows, visual review and public route checks passed.",
       "source": {
         "state": "published",
-        "verifiedAt": "2026-10-01T18:47:18.585Z",
-        "commitSha": "de5211373f6b24290bad84de411375f6c8629bca"
+        "verifiedAt": "2026-10-01T19:19:05.073Z",
+        "commitSha": "b72a7becf8f65420b3161a42f50b8a985daa3949"
       },
       "verification": [
         {
@@ -751,6 +757,12 @@
           "phase": "live",
           "title": "Public template and Vura release",
           "summary": "The reviewed implementation is available from its independent repository and real hosted URL. Detailed code examples and actual repair notes are linked below."
+        },
+        {
+          "at": "2026-10-01T19:19:05.073Z",
+          "phase": "live",
+          "title": "Cross-platform verification refinement",
+          "summary": "The390px guide now wraps correctly with wider Linux fallback fonts. The updated stylesheet is deployed and the Linux check passed."
         }
       ]
     },
