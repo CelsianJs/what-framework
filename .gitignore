@@ -27,6 +27,9 @@ dist/
 *.jpg
 artifacts/
 
+# Approved product previews are publication assets, not debug screenshots.
+!/docs-site/templates/previews/*.png
+
 # Benchmark artifacts (generated apps, DB, results)
 benchmark/apps/
 benchmark/results/
