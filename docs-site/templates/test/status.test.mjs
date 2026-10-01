@@ -23,6 +23,16 @@ test('each catalog product has exactly one current public-safe status record', (
   assert.throws(() => validateStatus(missing, catalog), /every catalog starter/);
 });
 
+test('released status lessons and limitations reflect the source-grounded learning journal', () => {
+  for (const entry of status.entries.filter(value => value.phase === 'live')) {
+    const learning = STARTER_LEARNING[entry.slug];
+    for (const boundary of learning.boundaries) assert.ok(entry.limitations.includes(boundary), `${entry.slug}: missing current boundary`);
+    for (const issue of learning.issues) assert.ok(entry.lessons.includes(issue.takeaway), `${entry.slug}: missing verified lesson`);
+    assert.ok(entry.lessons.length > 0, `${entry.slug}: a released learning reference needs actual lessons`);
+    assert.ok(entry.verification.some(check => check.label === 'Published source CI' && check.result === 'passed'), `${entry.slug}: final CI checkpoint missing`);
+  }
+});
+
 test('reserved names have no source, BUILD.md or demo URL in public metadata or reference links', () => {
   const value = fixture();
   const data = publicStatus(value.status, value.catalog).entries[0];
