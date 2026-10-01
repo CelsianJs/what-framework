@@ -16,6 +16,6 @@
     "jotai": "^2.18.0",
     "react-hook-form": "^7.85.0",
     "react-redux": "^9.2.0",
-    "zustand": "^5.0.11"
+    "zustand": "^5.0.15"
   }
 }
