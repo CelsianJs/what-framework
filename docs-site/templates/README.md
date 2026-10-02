@@ -14,7 +14,8 @@ Add an actual locally hosted screenshot under `templates/previews/`, then fill t
     "src": "/templates/previews/your-starter.webp",
     "alt": "A factual description of the app screen",
     "width": 1440,
-    "height": 900
+    "height": 900,
+    "capturedAt": "2026-10-01T15:59:00.000Z"
   },
   "release": {
     "demoUrl": "https://your-verified-host.vura.app/",
@@ -28,6 +29,8 @@ Add an actual locally hosted screenshot under `templates/previews/`, then fill t
 ```
 
 These are illustrative placeholders, not release evidence. Replace all of them with the real values. Public source and `BUILD.md` links are derived from the slug as `https://github.com/CelsianJs/<slug>`. Do not change architecture labels until the implemented behavior has been checked. In particular, local persistence is not a server database, and a static build is not request-time SSR.
+
+Capture the actual deployed product at desktop and mobile widths after its release. Choose a useful product-object view (for example, the sequencer or invoice editor), not a fabricated composition. `preview.capturedAt` is optional for older records; add it only from the real capture time, no later than the release verification. The gallery and learning journal show that timestamp when present. Preserve the image's dimensions and descriptive alt text.
 
 Validation fails before rebuilding output when published metadata is malformed or its preview is missing. Metadata is an evidence record, not a network health check: recording a URL does not verify that URL. The release owner still exercises the deployment before publication.
 

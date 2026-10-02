@@ -106,6 +106,26 @@ test('status overview and journals render plans as plans, not dummy live cards',
   assert.match(statusLlms(value.status, value.catalog), /No check results recorded/);
 });
 
+test('release progress is a read-only stepper and verified journals show the product preview', () => {
+  const value = fixture();
+  const planned = renderStatusReference(value.entry, value.catalog, value.status, '0.13.10');
+  assert.match(planned, /data-phase-state="current" aria-current="step"/);
+  assert.equal((planned.match(/data-phase-state="complete"/g) || []).length, 0);
+  assert.equal((planned.match(/data-phase-state="upcoming"/g) || []).length, 4);
+  assert.doesNotMatch(planned, /class="template-reference-preview"/);
+
+  const entry = status.entries.find(record => record.slug === 'what-starter-fieldwork');
+  const template = catalog.templates.find(record => record.slug === entry.slug);
+  const released = renderStatusReference(entry, catalog, status, '0.13.10');
+  assert.equal((released.match(/data-phase-state="complete"/g) || []).length, 4);
+  assert.match(released, /class="template-reference-preview"/);
+  assert.ok(released.includes(`src="${template.preview.src}"`));
+  assert.ok(released.includes(`width="${template.preview.width}" height="${template.preview.height}"`));
+  const css = readFileSync(new URL('../gallery.css', import.meta.url), 'utf8');
+  assert.match(css, /\.template-reference-preview > a \{/);
+  assert.doesNotMatch(css, /\.template-reference-preview a:first-child/);
+});
+
 test('learning journals render code examples, issue proof and boundaries without unsafe prose', () => {
   const fieldwork = status.entries.find((entry) => entry.slug === 'what-starter-fieldwork');
   const html = renderStatusReference(fieldwork, catalog, status, '0.13.10');

@@ -46,13 +46,14 @@
 - Layout: centered 1200px content, generous introduction, two-column preview grid and clear section dividers.
 - Shape: existing restrained rounded corners and borders; no extra elevation system.
 - Motion: subtle existing transitions, no entrance animation that hides content before JavaScript.
-- Imagery: actual, locally hosted demo screenshots with dimensions; no fabricated preview art.
+- Imagery: actual, locally hosted demo screenshots with dimensions; no fabricated preview art. Capture dates are recorded only when known, and product-object crops should show the usable workflow rather than only a headline.
 
 ## Components
 
 - Reuse: logo/version badge, theme toggle, buttons and code surfaces.
 - New: starter card, labeled search, rendering filter, result count, agent reference list.
 - Progress: compact phase counts, product/phase filters, recorded-check and journal lists, no-store refresh with last-successful-check and offline/retry states.
+- Journal references pair the product identity with its verified screenshot. Build phases are a read-only connected stepper, with complete/current/upcoming labels rather than button-like boxes; a phase is not a claim that every later audit passed.
 - Ownership: gallery CSS and assets under `templates/`; shared tokens remain unchanged.
 
 ## Accessibility

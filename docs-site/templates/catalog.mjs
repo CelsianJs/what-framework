@@ -59,7 +59,7 @@ export function validateCatalog(catalog, { assetExists, now = Date.now() } = {})
       requireValue(template.release === null, `${path}: a draft must not carry release URLs`);
       continue;
     }
-    fields(template.preview, ['src', 'alt', 'width', 'height'], `${path}.preview`);
+    fields(template.preview, ['src', 'alt', 'width', 'height', 'capturedAt'], `${path}.preview`);
     requireValue(ASSET.test(template.preview.src), `${path}.preview must use a local /templates/previews image`);
     text(template.preview.alt, `${path}.preview.alt`, 180);
     for (const key of ['width', 'height']) requireValue(Number.isInteger(template.preview[key]) && template.preview[key] > 0, `${path}.preview.${key} must be a positive integer`);
@@ -71,6 +71,10 @@ export function validateCatalog(catalog, { assetExists, now = Date.now() } = {})
     requireValue(template.release.buildUrl === `${demo.origin}/build`, `${path}.release.buildUrl must be the verified demo /build page`);
     const verifiedAt = Date.parse(template.release.verifiedAt);
     requireValue(typeof template.release.verifiedAt === 'string' && Number.isFinite(verifiedAt) && verifiedAt <= now, `${path}.release.verifiedAt must be a past verification time`);
+    if (Object.hasOwn(template.preview, 'capturedAt')) {
+      const capturedAt = Date.parse(template.preview.capturedAt);
+      requireValue(typeof template.preview.capturedAt === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(template.preview.capturedAt) && Number.isFinite(capturedAt) && capturedAt <= verifiedAt && capturedAt <= now, `${path}.preview.capturedAt must be a past capture time no newer than release verification`);
+    }
     requireValue(UUID.test(template.release.deploymentId), `${path}.release.deploymentId must be a deployment UUID`);
     requireValue(/^[a-f0-9]{40}$/i.test(template.release.commitSha), `${path}.release.commitSha must be a full commit SHA`);
   }
