@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { publishedTemplates } from '../catalog.mjs';
@@ -33,4 +34,18 @@ test('marketing build emits gallery, agent guide, assets and verified-only metad
     for (const output of [gallery, agents, JSON.stringify(metadata), read('templates/llms.txt')]) assert.ok(!output.includes(draft.slug), draft.slug);
   }
   for (const path of ['index.html', 'docs/index.html', 'docs/learn/signals/index.html']) assert.match(read(path), /href="\/templates/);
+});
+
+test('every built page loads Little Friend once, in the head, on the production host only', () => {
+  execFileSync(process.execPath, ['build.mjs'], { cwd: root, stdio: 'pipe' });
+  const dist = fileURLToPath(new URL('../../dist/', import.meta.url));
+  const pages = readdirSync(dist, { recursive: true }).filter(path => path.endsWith('.html'));
+  assert.ok(pages.length > 40, `expected every page, found ${pages.length}`);
+  for (const path of pages) {
+    const html = readFileSync(join(dist, path), 'utf8');
+    const head = html.slice(0, html.indexOf('</head>'));
+    assert.equal(html.split('lf_AriHtjTSXeTvT2xAcnCYwWL1').length - 1, 1, path);
+    assert.match(head, /if \(host !== 'whatfw\.com' && host !== 'www\.whatfw\.com'\) return;/, path);
+    assert.match(head, /https:\/\/cdn\.littlefriend\.io\//, path);
+  }
 });

@@ -242,10 +242,40 @@ ${body}
 `;
 }
 
+// Little Friend analytics (littlefriend.io): journey mode with masked session
+// replay and scroll depth. The site key is public. The tag loads only on the
+// production host, so previews and local builds send nothing. Page scripts call
+// `window.lf && lf('track', ...)`, which is a no-op wherever the tag is absent.
+const LITTLE_FRIEND_SITE_KEY = 'lf_AriHtjTSXeTvT2xAcnCYwWL1';
+const LITTLE_FRIEND = `<script>
+  (function (d, host) {
+    if (host !== 'whatfw.com' && host !== 'www.whatfw.com') return;
+    window.lf = window.lf || function () { (lf.q = lf.q || []).push(arguments); };
+    ['lf.js', 'lf-replay.js'].forEach(function (file) {
+      var s = d.createElement('script');
+      s.src = 'https://cdn.littlefriend.io/' + file;
+      s.async = false;
+      s.setAttribute('data-site', '${LITTLE_FRIEND_SITE_KEY}');
+      if (file === 'lf.js') {
+        s.setAttribute('data-mode', 'journey');
+        s.setAttribute('data-scroll', '');
+      }
+      d.head.appendChild(s);
+    });
+  })(document, location.hostname);
+</script>`;
+
+// Every emitted page gets the tag exactly once, whichever template built its head.
+function withLittleFriend(html) {
+  if (html.includes(LITTLE_FRIEND_SITE_KEY)) throw new Error('docs-site build: Little Friend tag already present');
+  if (!html.includes('</head>')) throw new Error('docs-site build: page has no </head> for the Little Friend tag');
+  return html.replace('</head>', `${LITTLE_FRIEND}\n</head>`);
+}
+
 function write(routePath, html) {
   const dir = join(DIST, routePath.replace(/^\//, ''));
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'index.html'), stampVersion(html));
+  writeFileSync(join(dir, 'index.html'), withLittleFriend(stampVersion(html)));
 }
 
 function copyAsset(rel) {
@@ -424,7 +454,7 @@ const NOT_FOUND_BODY = `
 
 writeFileSync(
   join(DIST, '404.html'),
-  stampVersion(renderPage({ title: 'Page not found', navSection: null, layoutInner: NOT_FOUND_BODY })),
+  withLittleFriend(stampVersion(renderPage({ title: 'Page not found', navSection: null, layoutInner: NOT_FOUND_BODY }))),
 );
 console.log('✓ 404 page');
 

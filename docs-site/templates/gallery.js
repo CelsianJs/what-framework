@@ -48,6 +48,7 @@ for (const button of document.querySelectorAll('[data-copy]')) {
   button.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(button.dataset.copy);
+      if (window.lf) window.lf('track', 'install.copy', { source: 'starter' });
       button.textContent = 'Copied';
     } catch {
       button.textContent = 'Select to copy';
