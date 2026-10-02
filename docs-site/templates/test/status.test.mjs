@@ -33,6 +33,12 @@ test('released status lessons and limitations reflect the source-grounded learni
   }
 });
 
+test('Tempo editable-row references retain the tracked lowercase source path', () => {
+  const learning = STARTER_LEARNING['what-starter-tempo'];
+  assert.equal(learning.sourceFiles.find(source => source.label === 'Editable row UI').path, 'src/app.jsx');
+  assert.equal(learning.examples.find(example => example.title === 'Keep focused rows stable during immutable edits').path, 'src/app.jsx');
+});
+
 test('reserved names have no source, BUILD.md or demo URL in public metadata or reference links', () => {
   const value = fixture();
   const data = publicStatus(value.status, value.catalog).entries[0];
@@ -104,6 +110,26 @@ test('status overview and journals render plans as plans, not dummy live cards',
   assert.doesNotMatch(html, /class="template-preview"|Open verified demo|coming soon/i);
   assert.match(statusLlms(value.status, value.catalog), /Plans and build updates are not live releases/);
   assert.match(statusLlms(value.status, value.catalog), /No check results recorded/);
+});
+
+test('release progress is a read-only stepper and verified journals show the product preview', () => {
+  const value = fixture();
+  const planned = renderStatusReference(value.entry, value.catalog, value.status, '0.13.10');
+  assert.match(planned, /data-phase-state="current" aria-current="step"/);
+  assert.equal((planned.match(/data-phase-state="complete"/g) || []).length, 0);
+  assert.equal((planned.match(/data-phase-state="upcoming"/g) || []).length, 4);
+  assert.doesNotMatch(planned, /class="template-reference-preview"/);
+
+  const entry = status.entries.find(record => record.slug === 'what-starter-fieldwork');
+  const template = catalog.templates.find(record => record.slug === entry.slug);
+  const released = renderStatusReference(entry, catalog, status, '0.13.10');
+  assert.equal((released.match(/data-phase-state="complete"/g) || []).length, 4);
+  assert.match(released, /class="template-reference-preview"/);
+  assert.ok(released.includes(`src="${template.preview.src}"`));
+  assert.ok(released.includes(`width="${template.preview.width}" height="${template.preview.height}"`));
+  const css = readFileSync(new URL('../gallery.css', import.meta.url), 'utf8');
+  assert.match(css, /\.template-reference-preview > a \{/);
+  assert.doesNotMatch(css, /\.template-reference-preview a:first-child/);
 });
 
 test('learning journals render code examples, issue proof and boundaries without unsafe prose', () => {

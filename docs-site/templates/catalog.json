@@ -20,16 +20,17 @@
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
         "src": "/templates/previews/tempo.webp",
-        "alt": "Tempo: actual desktop view of the working starter application.",
+        "alt": "Tempo: actual live product view after the design refinement.",
         "width": 1440,
-        "height": 1007
+        "height": 900,
+        "capturedAt": "2026-10-02T02:39:44.716Z"
       },
       "release": {
         "demoUrl": "https://what-starter-tempo-fae244da.vura.app/",
         "buildUrl": "https://what-starter-tempo-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "46b54e0c-b32d-4908-96b9-a24a674a09df",
-        "commitSha": "f4cc791c154a7c6f86979236069e1973f60e8c69"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "5ed0113f-1d4f-480f-9667-2d502f0bef96",
+        "commitSha": "bb8edc729bc875cbd3a114840d5b27871e4f529c"
       }
     },
     {
@@ -50,16 +51,17 @@
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
         "src": "/templates/previews/launchpad.webp",
-        "alt": "Launchpad: actual desktop view of the working starter application.",
-        "width": 1360,
-        "height": 1645
+        "alt": "Launchpad: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:42:55.602Z"
       },
       "release": {
         "demoUrl": "https://what-starter-launchpad-fae244da.vura.app/",
         "buildUrl": "https://what-starter-launchpad-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "3aebd087-70c0-4758-9839-53176d48848b",
-        "commitSha": "955a4dbb88cb5353827887cc8984030a18a66a79"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "a8cb4c78-3672-4f4f-a69a-e934be8e1ff6",
+        "commitSha": "98fa34bf19a56b022403f8e75102e0d7a9c7ef0b"
       }
     },
     {
@@ -80,16 +82,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/fieldwork.webp",
-        "alt": "Fieldwork: actual desktop view of the working starter application.",
-        "width": 1366,
-        "height": 1708
+        "alt": "Fieldwork: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T01:21:03.046Z"
       },
       "release": {
         "demoUrl": "https://what-starter-fieldwork-fae244da.vura.app/",
         "buildUrl": "https://what-starter-fieldwork-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "35ead696-9ac3-45ce-ac0d-00cdd5e2a164",
-        "commitSha": "6abf862d9ee0c5613ca107048e4147cb253f847d"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "37ce7830-71ee-4d67-abef-1844fb7c861d",
+        "commitSha": "a4bd66527a71a0c495adbcb335ae5bc494041eff"
       }
     },
     {
@@ -110,16 +113,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/oscillator.webp",
-        "alt": "Oscillator: actual desktop view of the working starter application.",
-        "width": 1366,
-        "height": 900
+        "alt": "Oscillator: actual live sequencer studio view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T01:25:13.109Z"
       },
       "release": {
         "demoUrl": "https://what-starter-oscillator-fae244da.vura.app/",
         "buildUrl": "https://what-starter-oscillator-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "d087c725-e790-44fe-b92a-0f4d957709d4",
-        "commitSha": "dbf47ac10f07c13d94fe5bc0a4def7ce9caf3206"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "02592d7a-ada0-4ed0-80a1-90d987a3c8d0",
+        "commitSha": "a441f9fe97604ed90b2b04bf495bf19bc9cd2516"
       }
     },
     {
@@ -141,16 +145,17 @@
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
         "src": "/templates/previews/lens.webp",
-        "alt": "Lens: actual desktop view of the working starter application.",
+        "alt": "Lens: actual live product view after the design refinement.",
         "width": 1440,
-        "height": 994
+        "height": 900,
+        "capturedAt": "2026-10-02T02:43:47.633Z"
       },
       "release": {
         "demoUrl": "https://what-starter-lens-fae244da.vura.app/",
         "buildUrl": "https://what-starter-lens-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "e27d4d94-31ee-4e95-a39b-62fa59e3d081",
-        "commitSha": "58a57d9684cf09aa6cfe6462c722426defc0e11e"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "bb63fef5-9959-4637-aed5-90c65aaebf28",
+        "commitSha": "ca842dfb5f359246f709f3f7ac6c93804e64f86a"
       }
     },
     {
@@ -171,16 +176,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/harbor.webp",
-        "alt": "Harbor: actual desktop view of the working starter application.",
-        "width": 1280,
-        "height": 720
+        "alt": "Harbor: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T01:25:57.637Z"
       },
       "release": {
         "demoUrl": "https://what-starter-harbor-fae244da.vura.app/",
         "buildUrl": "https://what-starter-harbor-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "ccbcc5cb-1be7-497f-80f2-cb989e1a0d40",
-        "commitSha": "b86e090c2faed322a52ff3825fb57f59ba289f40"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "7442e378-8fc9-46a9-a1be-f0dfeadfc985",
+        "commitSha": "3d66fdf519082e91ca9722b3dcbe08c1293c2720"
       }
     },
     {
@@ -201,16 +207,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/gather.webp",
-        "alt": "Gather: actual desktop view of the working starter application.",
-        "width": 1280,
-        "height": 720
+        "alt": "Gather: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:38:46.772Z"
       },
       "release": {
         "demoUrl": "https://what-starter-gather-fae244da.vura.app/",
         "buildUrl": "https://what-starter-gather-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "6515249d-844b-4d52-b435-78251a62c0fb",
-        "commitSha": "35620fad17cdb071f5117776abd8a4f57d4b9562"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "6ba798a4-6a20-44c9-8d72-c58f5028a17e",
+        "commitSha": "68972b5eb8e3ab375c99dd80ad25891b4ebe29f4"
       }
     },
     {
@@ -232,16 +239,17 @@
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
         "src": "/templates/previews/marginalia.webp",
-        "alt": "Marginalia: actual desktop view of the working starter application.",
-        "width": 1360,
-        "height": 1634
+        "alt": "Marginalia: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:38:56.851Z"
       },
       "release": {
         "demoUrl": "https://what-starter-marginalia-fae244da.vura.app/",
         "buildUrl": "https://what-starter-marginalia-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "ffefbc69-9d17-4092-a990-96e75020ac85",
-        "commitSha": "50c3819e8e1710e02b6ffe3510f306485819e0f4"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "d783a3bd-272e-4dc1-8036-2c089a91e3a3",
+        "commitSha": "1e66315f13ac82b1b1c66ad4a9c35c3b1b451182"
       }
     },
     {
@@ -263,16 +271,17 @@
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
         "src": "/templates/previews/meridian.webp",
-        "alt": "Meridian: actual desktop view of the working starter application.",
-        "width": 1360,
-        "height": 1009
+        "alt": "Meridian: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:39:07.283Z"
       },
       "release": {
         "demoUrl": "https://what-starter-meridian-fae244da.vura.app/",
         "buildUrl": "https://what-starter-meridian-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "c863b1e1-33f5-4060-b4f9-53ce37c46113",
-        "commitSha": "ee91bfa343b6ec47a5c7c5bfd33cf7e804c1cb27"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "4b054bd5-22ca-4e5e-8082-5009a9034c88",
+        "commitSha": "cb13cf0400765cda9583a415a07c729ed12e0c5a"
       }
     },
     {
@@ -294,16 +303,17 @@
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
         "src": "/templates/previews/cartograph.webp",
-        "alt": "Cartograph: actual desktop view of the working starter application.",
-        "width": 1360,
-        "height": 1845
+        "alt": "Cartograph: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:39:17.972Z"
       },
       "release": {
         "demoUrl": "https://what-starter-cartograph-fae244da.vura.app/",
         "buildUrl": "https://what-starter-cartograph-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "8340e9d2-d0b4-42ba-9946-775de94cef77",
-        "commitSha": "a6fa71c519b7daa057fee221c8ec86365ca9cf60"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "ce7adaf9-1a7d-4245-9dd8-ecba6d3ed9c7",
+        "commitSha": "255865a0f563baa7dab8659c12ea63a773895d15"
       }
     },
     {
@@ -325,16 +335,17 @@
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
         "src": "/templates/previews/form.webp",
-        "alt": "Form: actual desktop view of the working starter application.",
-        "width": 1360,
-        "height": 1578
+        "alt": "Form: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:39:27.912Z"
       },
       "release": {
         "demoUrl": "https://what-starter-form-fae244da.vura.app/",
         "buildUrl": "https://what-starter-form-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "6c039cba-c60c-4051-9dfd-0e0e1bb9f42d",
-        "commitSha": "96b4b3737cdab61ae831af54c4272bd744365461"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "510aff0b-f5f6-4040-a68e-c90131049e70",
+        "commitSha": "6a2bf99a4058c1ba138926226eb7ee12fffdb41d"
       }
     },
     {
@@ -356,16 +367,17 @@
       "architecture": "Build-time rendered public content with client-mounted interactive islands.",
       "preview": {
         "src": "/templates/previews/beacon.webp",
-        "alt": "Beacon: actual desktop view of the working starter application.",
-        "width": 1360,
-        "height": 1473
+        "alt": "Beacon: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:39:37.784Z"
       },
       "release": {
         "demoUrl": "https://what-starter-beacon-fae244da.vura.app/",
         "buildUrl": "https://what-starter-beacon-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "1c1415d3-6fab-4023-97c2-6c93492b1a4a",
-        "commitSha": "9af19ffdd677ab9283fd988b9efae655fceeacdf"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "d6e99da4-97ba-402b-b4e5-0d78b35d2886",
+        "commitSha": "3099cbbd6a69e4aaa60379e352197f8b14ff1dcf"
       }
     },
     {
@@ -386,16 +398,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/finch.webp",
-        "alt": "Finch: actual desktop view of the working starter application.",
-        "width": 1280,
-        "height": 843
+        "alt": "Finch: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:42:30.409Z"
       },
       "release": {
         "demoUrl": "https://what-starter-finch-fae244da.vura.app/",
         "buildUrl": "https://what-starter-finch-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "823afc00-e2bb-4686-939a-d9e2fce50648",
-        "commitSha": "efd82567201e64a52d86fc68a73cfe6a904e980d"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "10746e58-466d-4d31-bf01-7b03b88b2323",
+        "commitSha": "4db4cf55704c251d628cec58afd7f76866d3784d"
       }
     },
     {
@@ -416,16 +429,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/tally.webp",
-        "alt": "Tally: actual desktop view of the working starter application.",
-        "width": 1280,
-        "height": 720
+        "alt": "Tally: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:40:41.004Z"
       },
       "release": {
         "demoUrl": "https://what-starter-tally-fae244da.vura.app/",
         "buildUrl": "https://what-starter-tally-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "a4c4f508-15cb-4b7a-8644-a08d5d1c4f8a",
-        "commitSha": "85ba8ab69e54433ba7437f6bdaa4f6924e20afce"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "ac299007-a9b8-47d3-8f65-ceee63b05538",
+        "commitSha": "3dc5ea4fdad1afb13bb17a69ac958675ab95c586"
       }
     },
     {
@@ -446,16 +460,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/drift.webp",
-        "alt": "Drift: actual desktop view of the working starter application.",
-        "width": 1280,
-        "height": 720
+        "alt": "Drift: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:43:05.883Z"
       },
       "release": {
         "demoUrl": "https://what-starter-drift-fae244da.vura.app/",
         "buildUrl": "https://what-starter-drift-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "2fc9dfd8-c3ff-4874-832a-50926b031f17",
-        "commitSha": "5cf866f8d198039d4659e29e86753df2762c010a"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "d31dc356-8283-4eba-b87f-273e82dd7f39",
+        "commitSha": "f4c68cb50c7e5d67597b73a7cd6f98bfc23551dc"
       }
     },
     {
@@ -476,16 +491,17 @@
       "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
       "preview": {
         "src": "/templates/previews/bloom.webp",
-        "alt": "Bloom: actual desktop view of the working starter application.",
-        "width": 1280,
-        "height": 720
+        "alt": "Bloom: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:43:41.284Z"
       },
       "release": {
         "demoUrl": "https://what-starter-bloom-fae244da.vura.app/",
         "buildUrl": "https://what-starter-bloom-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "73be8c88-217c-4ffe-8410-9998e5e53aab",
-        "commitSha": "029d5d1babf6a469776a1662401b66ea642db28c"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "b54f3743-780a-42f0-a372-0a75fd5b128c",
+        "commitSha": "57cd10e9e295b9dda7b84217678d370ccf1e9960"
       }
     },
     {
@@ -507,16 +523,17 @@
       "architecture": "Request-time SSR, a cached overview, static reference pages and a real serverless health API; simulated service data.",
       "preview": {
         "src": "/templates/previews/signal.webp",
-        "alt": "Signal: actual desktop view of the working starter application.",
-        "width": 1280,
-        "height": 1188
+        "alt": "Signal: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T01:21:57.238Z"
       },
       "release": {
         "demoUrl": "https://what-starter-signal-fae244da.vura.app/",
         "buildUrl": "https://what-starter-signal-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "5494155b-aab6-41cb-b991-846c4b5750fd",
-        "commitSha": "33c57d46099d5b5a4d46fe259aa6f24685dfeeab"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "a45d1b59-518a-44fd-b104-57c62ae33d18",
+        "commitSha": "4b8d855c3479476ac2cfe4e7b392e5d2e8a0f761"
       }
     },
     {
@@ -538,16 +555,17 @@
       "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
       "preview": {
         "src": "/templates/previews/orbit.webp",
-        "alt": "Orbit: actual desktop view of the working starter application.",
-        "width": 1360,
-        "height": 1644
+        "alt": "Orbit: actual live product view after the design refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-02T02:41:40.518Z"
       },
       "release": {
         "demoUrl": "https://what-starter-orbit-fae244da.vura.app/",
         "buildUrl": "https://what-starter-orbit-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-01T20:08:40.000Z",
-        "deploymentId": "855c225d-59df-48ca-99a4-11dd3e1789e9",
-        "commitSha": "6a1849db07765d60be3c251c2ebc8b1e20990cc2"
+        "verifiedAt": "2026-10-02T02:57:12.000Z",
+        "deploymentId": "fc80f359-a9d7-4666-8a25-092ad235015b",
+        "commitSha": "a2a5fbafb9cd1d563b6e5c6715abb01e1a1c78dc"
       }
     }
   ]

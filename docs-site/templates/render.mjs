@@ -57,6 +57,7 @@ function card(template) {
     <div class="template-card-body">
       <div class="template-kicker"><span>${escape(template.category)}</span><span>Hosted on Vura</span></div>
       <h2>${escape(template.name)}</h2>
+      ${template.preview.capturedAt ? `<p class="template-capture-date">Preview captured ${time(template.preview.capturedAt)}</p>` : ''}
       <p class="template-description">${escape(template.description)}</p>
       <p class="template-architecture">${escape(template.architecture)}</p>
       <ul class="template-tags" aria-label="Rendering model">${template.runtimes.map(runtime => `<li>${escape(RUNTIME_LABELS[runtime])}</li>`).join('')}</ul>
@@ -108,6 +109,16 @@ function time(value) {
 
 function phaseBadge(phase) {
   return `<span class="template-phase template-phase-${phase}">${escape(PHASE_LABELS[phase])}</span>`;
+}
+
+function phaseTrack(currentPhase) {
+  const phases = Object.entries(PHASE_LABELS);
+  const current = phases.findIndex(([phase]) => phase === currentPhase);
+  return `<ol class="templates-phase-track" aria-label="Build phases">${phases.map(([phase, label], index) => {
+    const state = index < current ? 'complete' : index === current ? 'current' : 'upcoming';
+    const stateLabel = state === 'complete' ? 'Complete' : state === 'current' ? 'Current phase' : 'Not reached';
+    return `<li data-phase-state="${state}"${phase === currentPhase ? ' aria-current="step"' : ''}><span class="templates-step-marker" aria-hidden="true">${state === 'complete' ? '✓' : index + 1}</span><span><span class="templates-step-label">${escape(label)}</span><span class="templates-step-state">${stateLabel}</span></span></li>`;
+  }).join('')}</ol>`;
 }
 
 function referenceLinks(entry) {
@@ -162,10 +173,12 @@ export function renderStatusOverview(status, catalog, version) {
 
 export function renderStatusReference(entry, catalog, status, version) {
   const reference = publicStatus(status, catalog).entries.find(value => value.slug === entry.slug);
+  const template = catalog.templates.find(value => value.slug === entry.slug);
+  const preview = reference.phase === 'live' && template.status === 'published' ? `<figure class="template-reference-preview"><a href="${escape(reference.demoUrl)}" aria-label="Open ${escape(reference.name)} live product"><img src="${escape(template.preview.src)}" alt="${escape(template.preview.alt)}" width="${template.preview.width}" height="${template.preview.height}" loading="lazy" decoding="async"></a><figcaption>${template.preview.capturedAt ? `Preview captured ${time(template.preview.capturedAt)}` : 'Recorded release preview'} · <a href="${escape(reference.demoUrl)}">Explore the product ↗</a></figcaption></figure>` : '';
   const bulletList = (values, empty) => values.length ? `<ul class="templates-status-list">${values.map(value => `<li>${escape(value)}</li>`).join('')}</ul>` : `<p class="templates-description">${escape(empty)}</p>`;
   return shell({ title: `${reference.name}: build status and reference`, description: `${reference.name} starter: actual build phase, verification summaries, implementation lessons and release boundaries.`, version, canonical: statusPath(entry), body: `
-    <section class="templates-intro"><a class="template-guide-link" href="/templates/status">← All starter build updates</a><p class="templates-eyebrow template-status-eyebrow">${escape(reference.category)} starter</p><h1>${escape(reference.name)}</h1><p class="templates-lede">${escape(reference.description)}</p><div class="template-status-heading">${phaseBadge(reference.phase)}<span class="templates-updated">Updated ${time(reference.updatedAt)}</span></div><p class="template-status-summary">${escape(reference.summary)}</p>${referenceLinks(reference)}</section>
-    <section class="templates-status-body"><h2>Build phase</h2><ol class="templates-phase-track" aria-label="Build phases">${Object.entries(PHASE_LABELS).map(([phase, label]) => `<li${phase === reference.phase ? ' aria-current="step"' : ''}>${escape(label)}</li>`).join('')}</ol>
+    <section class="templates-intro template-reference-hero"><div><a class="template-guide-link" href="/templates/status">← All starter build updates</a><p class="templates-eyebrow template-status-eyebrow">${escape(reference.category)} starter</p><h1>${escape(reference.name)}</h1><p class="templates-lede">${escape(reference.description)}</p><div class="template-status-heading">${phaseBadge(reference.phase)}<span class="templates-updated">Updated ${time(reference.updatedAt)}</span></div><p class="template-status-summary">${escape(reference.summary)}</p>${referenceLinks(reference)}</div>${preview}</section>
+    <section class="templates-status-body"><h2>Build phase</h2>${phaseTrack(reference.phase)}<p class="templates-updated">This tracks the recorded release phase. The checks below include later findings and ongoing refinements.</p>
     <h2>Product scope and intended patterns</h2><p class="templates-description">The following describes the intended reference. Features are not a verification claim; recorded check results below define what has actually been tested.</p><p>${escape(reference.intendedArchitecture)}</p><ul class="template-tags" aria-label="Intended rendering model">${reference.intendedRuntimes.map(runtime => `<li>${escape(RUNTIME_LABELS[runtime])}</li>`).join('')}</ul><ul class="template-features" aria-label="Intended framework features">${reference.intendedFeatures.map(feature => `<li>${escape(feature)}</li>`).join('')}</ul>
     ${renderLearningJournal(reference)}
     <h2>Verification record</h2>${reference.verification.length ? `<ul class="templates-checks">${reference.verification.map(check => `<li><div><h3>${escape(check.label)}</h3><span class="template-check-result template-check-${check.result}">${escape(RESULT_LABELS[check.result])}</span></div><p>${escape(check.details)}</p><p class="templates-updated">${time(check.at)}</p></li>`).join('')}</ul>` : '<p class="templates-description">No implementation, test or deployment results have been recorded yet.</p>'}

@@ -36,6 +36,21 @@ test('published entries require a real release record and local screenshot', () 
   assert.throws(() => validateCatalog(value), /release must be an object/);
 });
 
+test('preview capture times are optional, real past timestamps no newer than release verification', () => {
+  const value = one();
+  value.templates[0].preview.capturedAt = '2026-09-30T15:55:00.000Z';
+  assert.doesNotThrow(() => validateCatalog(value));
+  assert.match(renderGallery(value, '0.13.10'), /Preview captured/);
+  assert.match(renderGallery(value, '0.13.10'), /datetime="2026-09-30T15:55:00.000Z"/);
+  for (const timestamp of ['not-a-date', '2999-01-01T00:00:00.000Z', '2026-09-30T16:01:00.000Z']) {
+    value.templates[0].preview.capturedAt = timestamp;
+    assert.throws(() => validateCatalog(value), /capturedAt/);
+  }
+  delete value.templates[0].preview.capturedAt;
+  assert.doesNotThrow(() => validateCatalog(value));
+  assert.doesNotMatch(renderGallery(value, '0.13.10'), /Preview captured/);
+});
+
 test('rejects unknown metadata, malformed identity and unsupported rendering labels', () => {
   const unknown = one(); unknown.templates[0].prompt = 'not public content';
   assert.throws(() => validateCatalog(unknown), /prompt is not supported/);
