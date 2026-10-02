@@ -28,7 +28,7 @@ export const STARTER_LEARNING = Object.freeze({
     sourceFiles: [
       { label: 'Reactive workspace store', path: 'src/state.js', note: 'Signals hold editable state, computed values derive summaries, and navigation is a tiny path signal.' },
       { label: 'Relative seed data', path: 'src/domain.js', note: 'cloneSeed(now) derives demo entry days from the visitor clock so today never renders empty by accident.' },
-      { label: 'Editable row UI', path: 'src/App.jsx', note: 'Keyed For rows preserve focused inputs while immutable entry updates replace objects.' },
+      { label: 'Editable row UI', path: 'src/app.jsx', note: 'Keyed For rows preserve focused inputs while immutable entry updates replace objects.' },
       { label: 'Bounded request parser', path: 'src/api/bounded-json.js', note: 'The function endpoint enforces byte limits while streaming the body as Uint8Array chunks.' },
     ],
     smooth: [
@@ -45,7 +45,7 @@ export const STARTER_LEARNING = Object.freeze({
       },
       {
         title: 'Keep focused rows stable during immutable edits',
-        path: 'src/App.jsx',
+        path: 'src/app.jsx',
         language: 'jsx',
         code: "<For each={() => todaysEntries()} key={(entry) => entry.id} fallback={<EmptyEntries />}>",
         notes: 'Each EntryRow receives a signal-wrapped accessor. The row can read entry().note and update by id without replacing the focused DOM node.',

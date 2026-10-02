@@ -33,6 +33,12 @@ test('released status lessons and limitations reflect the source-grounded learni
   }
 });
 
+test('Tempo editable-row references retain the tracked lowercase source path', () => {
+  const learning = STARTER_LEARNING['what-starter-tempo'];
+  assert.equal(learning.sourceFiles.find(source => source.label === 'Editable row UI').path, 'src/app.jsx');
+  assert.equal(learning.examples.find(example => example.title === 'Keep focused rows stable during immutable edits').path, 'src/app.jsx');
+});
+
 test('reserved names have no source, BUILD.md or demo URL in public metadata or reference links', () => {
   const value = fixture();
   const data = publicStatus(value.status, value.catalog).entries[0];
