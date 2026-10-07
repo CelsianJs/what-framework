@@ -1,16 +1,16 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-02T02:57:12.000Z",
+  "updatedAt": "2026-10-07T14:35:07Z",
   "entries": [
     {
       "slug": "what-starter-tempo",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The current-date tracker shows clear budget health and keeps the same note/minute input nodes during continuous typing. Full text and37minutes persisted after the live reload check.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "The tracker shows its running block and elapsed time, guards pending creation and invalidates late responses on reset. Keyboard editing remains stable; denied storage is explicitly session-only.",
       "source": {
         "state": "published",
-        "commitSha": "bb8edc729bc875cbd3a114840d5b27871e4f529c",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "83ec13a0ddff56dda794d223799b3960c45a5323",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -72,11 +72,36 @@
           "label": "Continuous keyboard editing",
           "result": "passed",
           "details": "Live continuous replacement typing retains the same connected, focused input DOM nodes; complete values and updated totals persist. The earlier remount/focus-loss failure is closed by keyed accessor rows."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Repairing duplicate pending timer starts, honest storage-failure feedback and running-block context. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "Early Function response diagnostic",
+          "result": "reported",
+          "details": "One early validation request returned503. Fresh UI retries, the real reset-during-pending flow and three consecutive direct probes returned200. The isolated transient cause is not confirmed; this is not a perfect cold-start reliability claim."
         }
       ],
       "lessons": [
         "Serverless demos should show request boundaries even when the data is synthetic.",
-        "Use keyed accessors for editable repeated state when objects are replaced immutably."
+        "Use keyed accessors for editable repeated state when objects are replaced immutably.",
+        "Reset is an asynchronous ownership boundary, not just a group of signal writes."
       ],
       "limitations": [
         "Workspace data is browser-local seed data, not a multi-user database.",
@@ -149,18 +174,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The current-date tracker shows clear budget health and keeps the same note/minute input nodes during continuous typing. Full text and37minutes persisted after the live reload check."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Repairing duplicate pending timer starts, honest storage-failure feedback and running-block context. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "The tracker shows its running block and elapsed time, guards pending creation and invalidates late responses on reset. Keyboard editing remains stable; denied storage is explicitly session-only."
         }
       ]
     },
     {
       "slug": "what-starter-launchpad",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The release timeline leads the product story; pricing uses the actual scoped hero class. Live headline-to-calculator clearance is40px desktop and32px mobile.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Product-facing releases, transparent rate assumptions and distinct tour evidence make the startup reference substantive. Its static pages, islands and no-JS content passed new release checks.",
       "source": {
         "state": "published",
-        "commitSha": "98fa34bf19a56b022403f8e75102e0d7a9c7ef0b",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "318edac832a3fc6ee61122240bbeb4bef47085d0",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -210,11 +253,30 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 98fa34bf19a56b022403f8e75102e0d7a9c7ef0b is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Deepening product-facing pricing, changelog and documentation with distinct worked tour scenarios. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "Static route classes are part of the component contract when a client island mounts inside them.",
-        "Static-first does not mean state-free; persisted island state still needs input hygiene."
+        "Static-first does not mean state-free; persisted island state still needs input hygiene.",
+        "Product claims should come from visible authored evidence, not decorative metrics."
       ],
       "limitations": [
         "The pricing calculator is an anonymous local estimate, not billing or entitlement logic.",
@@ -275,18 +337,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The release timeline leads the product story; pricing uses the actual scoped hero class. Live headline-to-calculator clearance is40px desktop and32px mobile."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Deepening product-facing pricing, changelog and documentation with distinct worked tour scenarios. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Product-facing releases, transparent rate assumptions and distinct tour evidence make the startup reference substantive. Its static pages, islands and no-JS content passed new release checks."
         }
       ]
     },
     {
       "slug": "what-starter-fieldwork",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The seeded canvas, aligned archive cards and full-width record hierarchy are live. Keyboard canvas controls and direct research routes passed the fresh hosted workflow check.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Four distinct authored research dossiers present questions, methods, specimens and limits. The shared seeded instrument is described honestly, with a clearer mobile accession heading and adjacent navigation.",
       "source": {
         "state": "published",
-        "commitSha": "a4bd66527a71a0c495adbcb335ae5bc494041eff",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "19bb2fb746b6271942aa4a753e99ce17c6cffcb6",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -348,12 +428,31 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source a4bd66527a71a0c495adbcb335ae5bc494041eff is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Deepening per-record research dossiers and clarifying the shared seeded instrument and mobile accession heading. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "When an effect must follow a signal over time, pass the accessor, not a sampled value.",
         "Deployment success and design quality are different claims. The public journal should name both.",
-        "For public starter evidence, process exit is part of the proof, not bookkeeping after the proof."
+        "For public starter evidence, process exit is part of the proof, not bookkeeping after the proof.",
+        "Research-style presentation must distinguish authored specimens from empirical evidence."
       ],
       "limitations": [
         "Canvas art is deterministic browser drawing, not live AI inference.",
@@ -426,18 +525,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The seeded canvas, aligned archive cards and full-width record hierarchy are live. Keyboard canvas controls and direct research routes passed the fresh hosted workflow check."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Deepening per-record research dossiers and clarifying the shared seeded instrument and mobile accession heading. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Four distinct authored research dossiers present questions, methods, specimens and limits. The shared seeded instrument is described honestly, with a clearer mobile accession heading and adjacent navigation."
         }
       ]
     },
     {
       "slug": "what-starter-oscillator",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The studio has a genuine16-step ruler, compact track controls and an honest stopped playhead. Live step toggling passed a clean browser retry.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Saved/custom pattern identity, guarded storage failure and numerical controls match the instrument state. The playable sequencer appears much earlier on mobile; audio ownership and guide containment pass.",
       "source": {
         "state": "published",
-        "commitSha": "a441f9fe97604ed90b2b04bf495bf19bc9cd2516",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "c34ed8bae4beb0e625b81c88da3357f0336c7e5f",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -487,11 +604,30 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source a441f9fe97604ed90b2b04bf495bf19bc9cd2516 is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Repairing denied-storage feedback and saved-pattern identity, with the sequencer earlier on mobile. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "A visual alignment bug can be a data-structure bug in the markup, not only a CSS spacing bug.",
-        "Long-running browser resources need idempotent start and explicit cancellation, even in a demo."
+        "Long-running browser resources need idempotent start and explicit cancellation, even in a demo.",
+        "Preset identity, current edits and persistence success are separate facts."
       ],
       "limitations": [
         "The studio runs entirely in the browser; it does not stream audio or save patterns to a server.",
@@ -552,18 +688,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The studio has a genuine16-step ruler, compact track controls and an honest stopped playhead. Live step toggling passed a clean browser retry."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Repairing denied-storage feedback and saved-pattern identity, with the sequencer earlier on mobile. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Saved/custom pattern identity, guarded storage failure and numerical controls match the instrument state. The playable sequencer appears much earlier on mobile; audio ownership and guide containment pass."
         }
       ]
     },
     {
       "slug": "what-starter-lens",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The7/14/30-day revenue chart has a fixed plot/axis layout, aligned baselines and unclipped columns; every date and amount stays accessible. Filters and report workflows remain live.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Mobile metrics and charts arrive earlier, server reports show their filter snapshot, and cohorts retain a labeled scrollable table. The real bounded report API and all chart ranges passed hosted checks.",
       "source": {
         "state": "published",
-        "commitSha": "ca842dfb5f359246f709f3f7ac6c93804e64f86a",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "dfb763e4e9b57303785b2b636551dd32e2766a88",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -613,11 +767,30 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source ca842dfb5f359246f709f3f7ac6c93804e64f86a is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Compacting mobile analytics hierarchy and clarifying report snapshots and cohort scrolling. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "A small metadata flag can keep chart components from flattening every metric into the same visual grammar.",
-        "Serverless examples should teach safe request handling next to happy-path charts."
+        "Serverless examples should teach safe request handling next to happy-path charts.",
+        "Label response snapshots explicitly when controls can change independently."
       ],
       "limitations": [
         "Events are synthetic fixtures, not customer telemetry.",
@@ -690,18 +863,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The7/14/30-day revenue chart has a fixed plot/axis layout, aligned baselines and unclipped columns; every date and amount stays accessible. Filters and report workflows remain live."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Compacting mobile analytics hierarchy and clarifying report snapshots and cohort scrolling. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Mobile metrics and charts arrive earlier, server reports show their filter snapshot, and cohorts retain a labeled scrollable table. The real bounded report API and all chart ranges passed hosted checks."
         }
       ]
     },
     {
       "slug": "what-starter-harbor",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The operations console now foregrounds its queue, status colors and data-backed risk/load meters; incident titles and severity rails have readable spacing.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Incident quick actions update visible controls and activity; restored saved views are validated and deduplicated. The industrial console is compact on mobile and remains a browser-local simulation.",
       "source": {
         "state": "published",
-        "commitSha": "3d66fdf519082e91ca9722b3dcbe08c1293c2720",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "84274efafb411418640aa7ca479dd402deedd405",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -751,11 +942,30 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 3d66fdf519082e91ca9722b3dcbe08c1293c2720 is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Repairing stale incident controls after saved quick actions and making saved filters distinguishable. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "Dashboards feel sharper when each region owns a distinct decision, not the same number in a different box.",
-        "Local persistence should be a capability, not a prerequisite for routeable app behavior."
+        "Local persistence should be a capability, not a prerequisite for routeable app behavior.",
+        "A signal update cannot refresh a record sampled once during component setup."
       ],
       "limitations": [
         "Harbor edits are local simulation state, not shared incident-management storage.",
@@ -822,18 +1032,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The operations console now foregrounds its queue, status colors and data-backed risk/load meters; incident titles and severity rails have readable spacing."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Repairing stale incident controls after saved quick actions and making saved filters distinguishable. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Incident quick actions update visible controls and activity; restored saved views are validated and deduplicated. The industrial console is compact on mobile and remains a browser-local simulation."
         }
       ]
     },
     {
       "slug": "what-starter-gather",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "Recipe planning now selects a day and rejects a full or duplicate slot. Serving controls, planning persistence and recipe routes passed the live workflow check.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Ingredient checks persist across routes and reload, with remaining counts and clear controls independent of meal planning. The terracotta recipe and market notebook remains browser-local.",
       "source": {
         "state": "published",
-        "commitSha": "68972b5eb8e3ab375c99dd80ad25891b4ebe29f4",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "fffea14b479eb4e15fa41b00ca1d32bac727d61e",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -883,10 +1111,29 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 68972b5eb8e3ab375c99dd80ad25891b4ebe29f4 is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Persisting ingredient checklist state across navigation, with remaining counts and clear controls. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
-        "Small native controls can teach state transitions more clearly than a hard-coded demo shortcut."
+        "Small native controls can teach state transitions more clearly than a hard-coded demo shortcut.",
+        "Persist user intent by stable item identity while deriving completion from the current list."
       ],
       "limitations": [
         "Recipes and nutrition-like details are fixtures for interaction design, not a live recipe API.",
@@ -947,18 +1194,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "Recipe planning now selects a day and rejects a full or duplicate slot. Serving controls, planning persistence and recipe routes passed the live workflow check."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Persisting ingredient checklist state across navigation, with remaining counts and clear controls. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Ingredient checks persist across routes and reload, with remaining counts and clear controls independent of meal planning. The terracotta recipe and market notebook remains browser-local."
         }
       ]
     },
     {
       "slug": "what-starter-marginalia",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The masthead has breathing room, essays have server-rendered sidenotes and a stronger lede, and the reading list remains browser-local. Bookmark persistence passed live checks.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Complete authored essays, useful sidenotes and related reading replace shallow article previews. Reading durations derive from actual text; local bookmarks and static no-JS reading work.",
       "source": {
         "state": "published",
-        "commitSha": "1e66315f13ac82b1b1c66ad4a9c35c3b1b451182",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "31e4f57120b260ee7574dcba4349fe2f6f91c0ab",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1008,10 +1273,29 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 1e66315f13ac82b1b1c66ad4a9c35c3b1b451182 is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Expanding substantive essays, related reading and useful sidenotes, with reading time derived from actual text. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
-        "In static sites, client islands still need reactive branches for empty, saved and cleared states."
+        "In static sites, client islands still need reactive branches for empty, saved and cleared states.",
+        "Editorial metadata should describe actual content rather than set a target the content must pretend to meet."
       ],
       "limitations": [
         "Bookmarks are local reading-list state, not an account feature.",
@@ -1072,18 +1356,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The masthead has breathing room, essays have server-rendered sidenotes and a stronger lede, and the reading list remains browser-local. Bookmark persistence passed live checks."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Expanding substantive essays, related reading and useful sidenotes, with reading time derived from actual text. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Complete authored essays, useful sidenotes and related reading replace shallow article previews. Reading durations derive from actual text; local bookmarks and static no-JS reading work."
         }
       ]
     },
     {
       "slug": "what-starter-meridian",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "Planner controls stay compact, day headings and time columns are legible, and the route SVG uses actual sample stops. Reordering and reload persistence passed.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Guide context carries into the planner without silently replacing saved plans. Rich logistics, coherent fixed-slot movement and the current-state route map are verified on desktop and mobile.",
       "source": {
         "state": "published",
-        "commitSha": "cb13cf0400765cda9583a415a07c729ed12e0c5a",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "6d87822e5e876a8376b76c4c170228dfdb607aea",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1133,11 +1435,30 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source cb13cf0400765cda9583a415a07c729ed12e0c5a is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Carrying selected guide context into the planner and reconciling itinerary order, days and times. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "A small CSS alignment rule can make an island feel intentional instead of stretched by its sibling content.",
-        "Static script JSON needs the same rendering-boundary care as visible HTML."
+        "Static script JSON needs the same rendering-boundary care as visible HTML.",
+        "Distinguish activity identity, schedule slots and real timestamps before implementing itinerary movement."
       ],
       "limitations": [
         "Trip data is fictional and local-only.",
@@ -1210,18 +1531,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "Planner controls stay compact, day headings and time columns are legible, and the route SVG uses actual sample stops. Reordering and reload persistence passed."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Carrying selected guide context into the planner and reconciling itinerary order, days and times. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Guide context carries into the planner without silently replacing saved plans. Rich logistics, coherent fixed-slot movement and the current-state route map are verified on desktop and mobile."
         }
       ]
     },
     {
       "slug": "what-starter-cartograph",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The cart holds intermediate blank quantity text without removing a SKU; valid replacement12 preserves focus, totals and local persistence. Product routes use field-stock customer copy.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Basket snapshots reject stale quote replies, quantity replacement preserves focus and receipt reset clears the visible record immediately. Product and quote controls appear earlier without changing its outdoor identity.",
       "source": {
         "state": "published",
-        "commitSha": "255865a0f563baa7dab8659c12ea63a773895d15",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "f0414651c81e6d98d38a1def279c6c89795ea934",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1283,11 +1622,30 @@
           "label": "Continuous keyboard editing",
           "result": "passed",
           "details": "Live blank-to12 quantity replacement keeps the same focused DOM input and cart row, updates the subtotal to$2,976 and persists on reload. Remove remains a separate explicit action."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Guarding server quotes against changed baskets and stale replies, with earlier product and quote controls. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "For replacement editing, canonical app state and transient DOM text can intentionally be different for a few keystrokes.",
-        "Use the same content source for UI, API validation and static hosting shape."
+        "Use the same content source for UI, API validation and static hosting shape.",
+        "Async results need snapshot ownership, and resettable views must read current state reactively."
       ],
       "limitations": [
         "Stock and receipts are fixtures; no order, payment, fulfillment or durable inventory is created.",
@@ -1360,18 +1718,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The cart holds intermediate blank quantity text without removing a SKU; valid replacement12 preserves focus, totals and local persistence. Product routes use field-stock customer copy."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Guarding server quotes against changed baskets and stale replies, with earlier product and quote controls. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Basket snapshots reject stale quote replies, quantity replacement preserves focus and receipt reset clears the visible record immediately. Product and quote controls appear earlier without changing its outdoor identity."
         }
       ]
     },
     {
       "slug": "what-starter-form",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "Case studies align with the page shell, project cards have balanced composition and filter results retain their SVG study variants. Live project filtering passed.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Case studies now explain program, material and design rationale, and a selected study can seed an empty brief without overwriting edits. Drawings and the vermillion drafting identity remain intact.",
       "source": {
         "state": "published",
-        "commitSha": "6a2bf99a4058c1ba138926226eb7ee12fffdb41d",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "9ee643af2d613b31f0140e94de4ecb0f35cf68b2",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1421,11 +1797,30 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 6a2bf99a4058c1ba138926226eb7ee12fffdb41d is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Deepening project materials, program and rationale and carrying a selected study into the brief. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "When the state model is already clean, a design repair can stay in layout and proof rather than code architecture.",
-        "Do not describe these islands as hydrated server markup; they are client-mounted interactive regions."
+        "Do not describe these islands as hydrated server markup; they are client-mounted interactive regions.",
+        "Contextual entry should seed empty work, not silently replace an existing draft."
       ],
       "limitations": [
         "Proposal data is local-only and never submitted to a CRM or server.",
@@ -1498,18 +1893,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "Case studies align with the page shell, project cards have balanced composition and filter results retain their SVG study variants. Live project filtering passed."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Deepening project materials, program and rationale and carrying a selected study into the brief. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Case studies now explain program, material and design rationale, and a selected study can seed an empty brief without overwriting edits. Drawings and the vermillion drafting identity remain intact."
         }
       ]
     },
     {
       "slug": "what-starter-beacon",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The agenda groups sessions by day and makes selected filters visible. Its mounted session links and separate Save buttons now preserve both navigation and local persistence.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Speaker/session relationships, fuller abstracts, contextual agenda saves and a real folded calendar download are operational. Static details and saved-only agenda behavior passed.",
       "source": {
         "state": "published",
-        "commitSha": "3099cbbd6a69e4aaa60379e352197f8b14ff1dcf",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "e6e062ebbd909e772bda892851b7d89014514512",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1559,11 +1972,30 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 3099cbbd6a69e4aaa60379e352197f8b14ff1dcf is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Adding fuller session details, speaker relationships and actual calendar download alongside the preview. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "Interactive islands may need a different accessible link structure than their no-JS fallback.",
-        "Starter pages should foreground the workflow object, not only the aesthetic."
+        "Starter pages should foreground the workflow object, not only the aesthetic.",
+        "Export proof should inspect the actual file and format, not just visible preview text."
       ],
       "limitations": [
         "Sessions and speakers are fictional event fixtures.",
@@ -1642,18 +2074,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The agenda groups sessions by day and makes selected filters visible. Its mounted session links and separate Save buttons now preserve both navigation and local persistence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Adding fuller session details, speaker relationships and actual calendar download alongside the preview. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Speaker/session relationships, fuller abstracts, contextual agenda saves and a real folded calendar download are operational. Static details and saved-only agenda behavior passed."
         }
       ]
     },
     {
       "slug": "what-starter-finch",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "Lessons use unmistakable code typography, visible focus and a meaningful next-lesson card. The native quiz passed a live correct-answer and persistence check.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Practice cards advance reactively with reset reveal state, progress and concrete continuation links. Touch controls, completed lesson navigation and local persistence passed.",
       "source": {
         "state": "published",
-        "commitSha": "4db4cf55704c251d628cec58afd7f76866d3784d",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "8492d53a01d53b6c9a87410a7522d85f3f6719d9",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1703,10 +2153,29 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 4db4cf55704c251d628cec58afd7f76866d3784d is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Repairing card advancement through reactive reads and clarifying progress and lesson continuation. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
-        "Debounce background persistence, but synchronously save user actions that feel final."
+        "Debounce background persistence, but synchronously save user actions that feel final.",
+        "Run-once setup owns stable resources; changing reads and concrete navigation targets belong at reactive boundaries."
       ],
       "limitations": [
         "Progress is local to the browser and is not a hosted student account.",
@@ -1779,18 +2248,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "Lessons use unmistakable code typography, visible focus and a meaningful next-lesson card. The native quiz passed a live correct-answer and persistence check."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Repairing card advancement through reactive reads and clarifying progress and lesson continuation. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Practice cards advance reactively with reset reveal state, progress and concrete continuation links. Touch controls, completed lesson navigation and local persistence passed."
         }
       ]
     },
     {
       "slug": "what-starter-tally",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The invoice editor now keeps typing focus, aligns every desktop column and labels each mobile field. Live quantity, description and price updates preserve DOM identity and correct totals.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Invoice lines can be removed and recovered, dates and draft status are clear, and line/export calculations use the same safe operands. Focus, totals, receipt and responsive labels passed.",
       "source": {
         "state": "published",
-        "commitSha": "3dc5ea4fdad1afb13bb17a69ac958675ab95c586",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "c1e8678b28c082303b583fe5da30e15c323462cf",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1846,12 +2333,31 @@
           "label": "Continuous keyboard editing",
           "result": "passed",
           "details": "Live continuous replacement typing retains the same connected, focused input DOM nodes; complete values and updated totals persist. The earlier remount/focus-loss failure is closed by keyed accessor rows."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Adding reversible line removal and clearer invoice dates, draft state and mobile ledger context. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "Editable tables should use identity-preserving loops before reaching for imperative refocus code.",
         "Dense editor grids need both column math and responsive labeling, not one or the other.",
-        "Derived financial UI should guard calculations even when persistence is local-only."
+        "Derived financial UI should guard calculations even when persistence is local-only.",
+        "Editor recovery and displayed math should follow the same canonical operands as exported totals."
       ],
       "limitations": [
         "Exports are local JSON only; no invoice is sent, paid or filed.",
@@ -1918,18 +2424,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The invoice editor now keeps typing focus, aligns every desktop column and labels each mobile field. Live quantity, description and price updates preserve DOM identity and correct totals."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Adding reversible line removal and clearer invoice dates, draft state and mobile ledger context. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Invoice lines can be removed and recovered, dates and draft status are clear, and line/export calculations use the same safe operands. Focus, totals, receipt and responsive labels passed."
         }
       ]
     },
     {
       "slug": "what-starter-drift",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The board has compact headings, short dates and named movement controls with disabled edges. Live move actions update both the lane and activity record.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "The List filter reacts immediately, edge moves are disabled and named, and lane orientation is clearer. The spatial planner preserves local state and its distinct lilac and peach identity.",
       "source": {
         "state": "published",
-        "commitSha": "f4c68cb50c7e5d67597b73a7cd6f98bfc23551dc",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "6d4ecff5511e99c8590351e836a721351c00ef55",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -1973,10 +2497,29 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source f4c68cb50c7e5d67597b73a7cd6f98bfc23551dc is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Repairing stale assignee filtering in List view and disabled edge moves, with clearer lane orientation. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
-        "Shared route state is only useful if restoration cannot poison every route at startup."
+        "Shared route state is only useful if restoration cannot poison every route at startup.",
+        "Derived collections that change after mount belong in accessors, not setup snapshots."
       ],
       "limitations": [
         "Planner edits and export data are browser-local.",
@@ -2043,18 +2586,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The board has compact headings, short dates and named movement controls with disabled edges. Live move actions update both the lane and activity record."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Repairing stale assignee filtering in List view and disabled edge moves, with clearer lane orientation. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "The List filter reacts immediately, edge moves are disabled and named, and lane orientation is clearer. The spatial planner preserves local state and its distinct lilac and peach identity."
         }
       ]
     },
     {
       "slug": "what-starter-bloom",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The garden uses packet illustrations, meaningful bed shapes/plant dots and an aligned care queue. Plot assignments and plant routes passed live checks.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Dated manual watering updates reminders, undated legacy records stay honest, plot assignment displays correctly and observations have history. Botanical silhouettes and responsive code guides are verified.",
       "source": {
         "state": "published",
-        "commitSha": "57cd10e9e295b9dda7b84217678d370ccf1e9960",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "5196fb104dabc546ada38cd24c03cf1a7645c44e",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -2098,11 +2659,31 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 57cd10e9e295b9dda7b84217678d370ccf1e9960 is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Repairing dated watering urgency and plot assignment display, and adding observations and botanical detail. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "When the UI offers one select per item, the state mutation should enforce that same uniqueness invariant.",
-        "Small starters should show recovery paths because agents will copy them into larger apps."
+        "Small starters should show recovery paths because agents will copy them into larger apps.",
+        "Preserve unknown dates as unknown; manual care reminders are not sensor measurements.",
+        "Contain literal code within its own scroller instead of changing source text to fit the page."
       ],
       "limitations": [
         "Plant and care data are fictional fixtures.",
@@ -2169,18 +2750,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The garden uses packet illustrations, meaningful bed shapes/plant dots and an aligned care queue. Plot assignments and plant routes passed live checks."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Repairing dated watering urgency and plot assignment display, and adding observations and botanical detail. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Dated manual watering updates reminders, undated legacy records stay honest, plot assignment displays correctly and observations have history. Botanical silhouettes and responsive code guides are verified."
         }
       ]
     },
     {
       "slug": "what-starter-signal",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The hosted stylesheet is restored and the page uses the documented loader-data hook. CSS, real ISO stamps, cached overview reuse and private uncached snapshots passed independent live checks.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Both incident detail routes render, request loaders use real timestamps and the stylesheet is served correctly. Cached overview and private uncached snapshot behavior passed live proof.",
       "source": {
         "state": "published",
-        "commitSha": "4b8d855c3479476ac2cfe4e7b392e5d2e8a0f761",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "fbc3b870a69e2d0c863a0ddaaf66daacabfef8cb",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -2242,12 +2841,31 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source 4b8d855c3479476ac2cfe4e7b392e5d2e8a0f761 is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Adding the missing detail route for the second active incident while preserving verified loader and cache behavior. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "For deployable metaframework features, explicit route metadata beats clever abstraction.",
         "Server-rendered Vura pages should read request data through the framework loader hook, not guessed component props.",
-        "When static scanners require literal strings, boring one-line metadata can be the safest output contract."
+        "When static scanners require literal strings, boring one-line metadata can be the safest output contract.",
+        "Direct-route completeness is part of the content contract, even when a dashboard already lists the record."
       ],
       "limitations": [
         "Status data is fictional seed data.",
@@ -2326,18 +2944,36 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The hosted stylesheet is restored and the page uses the documented loader-data hook. CSS, real ISO stamps, cached overview reuse and private uncached snapshots passed independent live checks."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Adding the missing detail route for the second active incident while preserving verified loader and cache behavior. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Both incident detail routes render, request loaders use real timestamps and the stylesheet is served correctly. Cached overview and private uncached snapshot behavior passed live proof."
         }
       ]
     },
     {
       "slug": "what-starter-orbit",
       "phase": "live",
-      "updatedAt": "2026-10-02T02:57:12.000Z",
-      "summary": "The booking page uses a compact route heading and visible Service/Date/Time groups inside the first viewport. Slots, local reservations and ICS remain explicitly local-demo workflows.",
+      "updatedAt": "2026-10-07T14:35:07Z",
+      "summary": "Changed booking drafts invalidate old holds and ignore late replies; service selection proceeds into booking and cancellation history survives reload. Keyboard/date controls and local calendar downloads work.",
       "source": {
         "state": "published",
-        "commitSha": "a2a5fbafb9cd1d563b6e5c6715abb01e1a1c78dc",
-        "verifiedAt": "2026-10-02T02:57:12.000Z"
+        "commitSha": "d60ab879abea665676fedbc483651cdbb84df3c1",
+        "verifiedAt": "2026-10-07T14:35:07Z"
       },
       "verification": [
         {
@@ -2387,12 +3023,31 @@
           "label": "Final reviewed source and live refinement",
           "result": "passed",
           "details": "Source a2a5fbafb9cd1d563b6e5c6715abb01e1a1c78dc is published and its workflow passed. The existing Vura project reports ready production at the recorded deployment. Fresh desktop/mobile/detail screenshots and native workflow proof confirm the accepted refinements; local and hosted checks remain separate evidence."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "label": "October workflow and brand audit",
+          "result": "reported",
+          "details": "Invalidating obsolete booking holds after draft changes and making service selection and cancellation history consistent. Implementation and fresh release verification are pending; this is not a new deployment claim."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "label": "October final local product and code gates",
+          "result": "passed",
+          "details": "Production builds, app regressions and desktop/mobile workflows pass. Independent reviewers cleared the frozen source after async ownership, stale views, storage recovery and guide-width repairs. Current demo/source links still identify the previous verified deployment."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "label": "October published source and hosted workflow release",
+          "result": "passed",
+          "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
         }
       ],
       "lessons": [
         "A dramatic display face still needs route-level clamps when the workflow starts below the headline.",
         "A UI fallback can become a security or correctness bug when copied into a server boundary.",
-        "Generate download URLs at the interaction boundary rather than storing unsafe URLs in render state."
+        "Generate download URLs at the interaction boundary rather than storing unsafe URLs in render state.",
+        "A validated response authorizes its submitted draft, not whichever controls happen to be visible later."
       ],
       "limitations": [
         "Reservations are private to the current browser unless a durable calendar backend is added.",
@@ -2459,6 +3114,24 @@
           "phase": "live",
           "title": "Live corrections verified after independent follow-up",
           "summary": "The booking page uses a compact route heading and visible Service/Date/Time groups inside the first viewport. Slots, local reservations and ICS remain explicitly local-demo workflows."
+        },
+        {
+          "at": "2026-10-07T12:12:21Z",
+          "phase": "live",
+          "title": "Product-depth iteration in progress",
+          "summary": "Invalidating obsolete booking holds after draft changes and making service selection and cancellation history consistent. The current source and deployment links still identify the previous verified release."
+        },
+        {
+          "at": "2026-10-07T13:28:52Z",
+          "phase": "live",
+          "title": "Reviewed source ready for release verification",
+          "summary": "Unique product identities and deeper workflows are implemented and independently reviewed. Existing releases remain accessible while new source is published and fresh deployments are exercised."
+        },
+        {
+          "at": "2026-10-07T14:35:07Z",
+          "phase": "live",
+          "title": "Product-depth iteration released and exercised",
+          "summary": "Changed booking drafts invalidate old holds and ignore late replies; service selection proceeds into booking and cancellation history survives reload. Keyboard/date controls and local calendar downloads work."
         }
       ]
     }

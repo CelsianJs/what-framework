@@ -23,14 +23,14 @@
         "alt": "Tempo: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:39:44.716Z"
+        "capturedAt": "2026-10-07T14:15:14.447Z"
       },
       "release": {
         "demoUrl": "https://what-starter-tempo-fae244da.vura.app/",
         "buildUrl": "https://what-starter-tempo-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "5ed0113f-1d4f-480f-9667-2d502f0bef96",
-        "commitSha": "bb8edc729bc875cbd3a114840d5b27871e4f529c"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "40c6233c-e9c5-4b3f-85a5-e6275771c73e",
+        "commitSha": "83ec13a0ddff56dda794d223799b3960c45a5323"
       }
     },
     {
@@ -54,14 +54,14 @@
         "alt": "Launchpad: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:42:55.602Z"
+        "capturedAt": "2026-10-07T14:15:26.228Z"
       },
       "release": {
         "demoUrl": "https://what-starter-launchpad-fae244da.vura.app/",
         "buildUrl": "https://what-starter-launchpad-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "a8cb4c78-3672-4f4f-a69a-e934be8e1ff6",
-        "commitSha": "98fa34bf19a56b022403f8e75102e0d7a9c7ef0b"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "8327953b-c765-4f26-a382-eb2dc5864839",
+        "commitSha": "318edac832a3fc6ee61122240bbeb4bef47085d0"
       }
     },
     {
@@ -85,14 +85,14 @@
         "alt": "Fieldwork: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T01:21:03.046Z"
+        "capturedAt": "2026-10-07T14:15:19.364Z"
       },
       "release": {
         "demoUrl": "https://what-starter-fieldwork-fae244da.vura.app/",
         "buildUrl": "https://what-starter-fieldwork-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "37ce7830-71ee-4d67-abef-1844fb7c861d",
-        "commitSha": "a4bd66527a71a0c495adbcb335ae5bc494041eff"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "8b1b141d-603d-40b2-90cf-e0e7798aaebe",
+        "commitSha": "19bb2fb746b6271942aa4a753e99ce17c6cffcb6"
       }
     },
     {
@@ -116,14 +116,14 @@
         "alt": "Oscillator: actual live sequencer studio view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T01:25:13.109Z"
+        "capturedAt": "2026-10-07T14:15:21.733Z"
       },
       "release": {
         "demoUrl": "https://what-starter-oscillator-fae244da.vura.app/",
         "buildUrl": "https://what-starter-oscillator-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "02592d7a-ada0-4ed0-80a1-90d987a3c8d0",
-        "commitSha": "a441f9fe97604ed90b2b04bf495bf19bc9cd2516"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "5704591e-f25c-462a-ae87-c0f76eedec7b",
+        "commitSha": "c34ed8bae4beb0e625b81c88da3357f0336c7e5f"
       }
     },
     {
@@ -148,14 +148,14 @@
         "alt": "Lens: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:43:47.633Z"
+        "capturedAt": "2026-10-07T14:15:16.988Z"
       },
       "release": {
         "demoUrl": "https://what-starter-lens-fae244da.vura.app/",
         "buildUrl": "https://what-starter-lens-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "bb63fef5-9959-4637-aed5-90c65aaebf28",
-        "commitSha": "ca842dfb5f359246f709f3f7ac6c93804e64f86a"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "48f0973c-4cba-42e2-9a8d-d0427d8f30c2",
+        "commitSha": "dfb763e4e9b57303785b2b636551dd32e2766a88"
       }
     },
     {
@@ -179,14 +179,14 @@
         "alt": "Harbor: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T01:25:57.637Z"
+        "capturedAt": "2026-10-07T14:15:06.889Z"
       },
       "release": {
         "demoUrl": "https://what-starter-harbor-fae244da.vura.app/",
         "buildUrl": "https://what-starter-harbor-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "7442e378-8fc9-46a9-a1be-f0dfeadfc985",
-        "commitSha": "3d66fdf519082e91ca9722b3dcbe08c1293c2720"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "dead2ed7-69de-488c-a24f-4e0e6e1afeb9",
+        "commitSha": "84274efafb411418640aa7ca479dd402deedd405"
       }
     },
     {
@@ -210,14 +210,14 @@
         "alt": "Gather: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:38:46.772Z"
+        "capturedAt": "2026-10-07T14:15:38.292Z"
       },
       "release": {
         "demoUrl": "https://what-starter-gather-fae244da.vura.app/",
         "buildUrl": "https://what-starter-gather-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "6ba798a4-6a20-44c9-8d72-c58f5028a17e",
-        "commitSha": "68972b5eb8e3ab375c99dd80ad25891b4ebe29f4"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "1bdb1bf4-f230-4ad9-9a6a-ecb639668bf8",
+        "commitSha": "fffea14b479eb4e15fa41b00ca1d32bac727d61e"
       }
     },
     {
@@ -242,14 +242,14 @@
         "alt": "Marginalia: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:38:56.851Z"
+        "capturedAt": "2026-10-07T14:15:28.833Z"
       },
       "release": {
         "demoUrl": "https://what-starter-marginalia-fae244da.vura.app/",
         "buildUrl": "https://what-starter-marginalia-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "d783a3bd-272e-4dc1-8036-2c089a91e3a3",
-        "commitSha": "1e66315f13ac82b1b1c66ad4a9c35c3b1b451182"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "a9fb0ffc-a2ed-491f-a3b7-36158c8bb600",
+        "commitSha": "31e4f57120b260ee7574dcba4349fe2f6f91c0ab"
       }
     },
     {
@@ -274,14 +274,14 @@
         "alt": "Meridian: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:39:07.283Z"
+        "capturedAt": "2026-10-07T14:15:30.969Z"
       },
       "release": {
         "demoUrl": "https://what-starter-meridian-fae244da.vura.app/",
         "buildUrl": "https://what-starter-meridian-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "4b054bd5-22ca-4e5e-8082-5009a9034c88",
-        "commitSha": "cb13cf0400765cda9583a415a07c729ed12e0c5a"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "5e1fa43d-c2fa-4a9d-9b90-e76b3958d23c",
+        "commitSha": "6d87822e5e876a8376b76c4c170228dfdb607aea"
       }
     },
     {
@@ -306,14 +306,14 @@
         "alt": "Cartograph: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:39:17.972Z"
+        "capturedAt": "2026-10-07T14:15:42.689Z"
       },
       "release": {
         "demoUrl": "https://what-starter-cartograph-fae244da.vura.app/",
         "buildUrl": "https://what-starter-cartograph-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "ce7adaf9-1a7d-4245-9dd8-ecba6d3ed9c7",
-        "commitSha": "255865a0f563baa7dab8659c12ea63a773895d15"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "1c4a28e6-47d2-4891-97fd-c5775dfa40f1",
+        "commitSha": "f0414651c81e6d98d38a1def279c6c89795ea934"
       }
     },
     {
@@ -338,14 +338,14 @@
         "alt": "Form: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:39:27.912Z"
+        "capturedAt": "2026-10-07T14:15:33.404Z"
       },
       "release": {
         "demoUrl": "https://what-starter-form-fae244da.vura.app/",
         "buildUrl": "https://what-starter-form-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "510aff0b-f5f6-4040-a68e-c90131049e70",
-        "commitSha": "6a2bf99a4058c1ba138926226eb7ee12fffdb41d"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "7859f376-f66d-4cc4-91f2-0a9999621e2d",
+        "commitSha": "9ee643af2d613b31f0140e94de4ecb0f35cf68b2"
       }
     },
     {
@@ -370,14 +370,14 @@
         "alt": "Beacon: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:39:37.784Z"
+        "capturedAt": "2026-10-07T14:15:35.755Z"
       },
       "release": {
         "demoUrl": "https://what-starter-beacon-fae244da.vura.app/",
         "buildUrl": "https://what-starter-beacon-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "d6e99da4-97ba-402b-b4e5-0d78b35d2886",
-        "commitSha": "3099cbbd6a69e4aaa60379e352197f8b14ff1dcf"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "7f13aada-27ff-45b1-99e9-4b9f20f9e9b9",
+        "commitSha": "e6e062ebbd909e772bda892851b7d89014514512"
       }
     },
     {
@@ -401,14 +401,14 @@
         "alt": "Finch: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:42:30.409Z"
+        "capturedAt": "2026-10-07T14:15:40.498Z"
       },
       "release": {
         "demoUrl": "https://what-starter-finch-fae244da.vura.app/",
         "buildUrl": "https://what-starter-finch-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "10746e58-466d-4d31-bf01-7b03b88b2323",
-        "commitSha": "4db4cf55704c251d628cec58afd7f76866d3784d"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "8e925163-e08e-4383-9270-e306b919d410",
+        "commitSha": "8492d53a01d53b6c9a87410a7522d85f3f6719d9"
       }
     },
     {
@@ -432,14 +432,14 @@
         "alt": "Tally: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:40:41.004Z"
+        "capturedAt": "2026-10-07T14:15:12.089Z"
       },
       "release": {
         "demoUrl": "https://what-starter-tally-fae244da.vura.app/",
         "buildUrl": "https://what-starter-tally-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "ac299007-a9b8-47d3-8f65-ceee63b05538",
-        "commitSha": "3dc5ea4fdad1afb13bb17a69ac958675ab95c586"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "8f752d49-a8fa-4e43-b849-c8388dfd1407",
+        "commitSha": "c1e8678b28c082303b583fe5da30e15c323462cf"
       }
     },
     {
@@ -463,14 +463,14 @@
         "alt": "Drift: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:43:05.883Z"
+        "capturedAt": "2026-10-07T14:15:09.447Z"
       },
       "release": {
         "demoUrl": "https://what-starter-drift-fae244da.vura.app/",
         "buildUrl": "https://what-starter-drift-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "d31dc356-8283-4eba-b87f-273e82dd7f39",
-        "commitSha": "f4c68cb50c7e5d67597b73a7cd6f98bfc23551dc"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "c1729943-69ac-4973-89dd-ce310e40f94b",
+        "commitSha": "6d4ecff5511e99c8590351e836a721351c00ef55"
       }
     },
     {
@@ -494,14 +494,14 @@
         "alt": "Bloom: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:43:41.284Z"
+        "capturedAt": "2026-10-07T14:15:23.880Z"
       },
       "release": {
         "demoUrl": "https://what-starter-bloom-fae244da.vura.app/",
         "buildUrl": "https://what-starter-bloom-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "b54f3743-780a-42f0-a372-0a75fd5b128c",
-        "commitSha": "57cd10e9e295b9dda7b84217678d370ccf1e9960"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "3c90cf32-2866-4c02-a114-144241c85d30",
+        "commitSha": "5196fb104dabc546ada38cd24c03cf1a7645c44e"
       }
     },
     {
@@ -526,14 +526,14 @@
         "alt": "Signal: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T01:21:57.238Z"
+        "capturedAt": "2026-10-07T14:15:47.234Z"
       },
       "release": {
         "demoUrl": "https://what-starter-signal-fae244da.vura.app/",
         "buildUrl": "https://what-starter-signal-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "a45d1b59-518a-44fd-b104-57c62ae33d18",
-        "commitSha": "4b8d855c3479476ac2cfe4e7b392e5d2e8a0f761"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "cc25ffa8-8557-4ae7-af7e-2f763208e0f9",
+        "commitSha": "fbc3b870a69e2d0c863a0ddaaf66daacabfef8cb"
       }
     },
     {
@@ -558,14 +558,14 @@
         "alt": "Orbit: actual live product view after the design refinement.",
         "width": 1440,
         "height": 900,
-        "capturedAt": "2026-10-02T02:41:40.518Z"
+        "capturedAt": "2026-10-07T14:15:44.920Z"
       },
       "release": {
         "demoUrl": "https://what-starter-orbit-fae244da.vura.app/",
         "buildUrl": "https://what-starter-orbit-fae244da.vura.app/build",
-        "verifiedAt": "2026-10-02T02:57:12.000Z",
-        "deploymentId": "fc80f359-a9d7-4666-8a25-092ad235015b",
-        "commitSha": "a2a5fbafb9cd1d563b6e5c6715abb01e1a1c78dc"
+        "verifiedAt": "2026-10-07T14:35:07Z",
+        "deploymentId": "3efc4986-f04c-42e3-b2c3-d0343730e30a",
+        "commitSha": "d60ab879abea665676fedbc483651cdbb84df3c1"
       }
     }
   ]
