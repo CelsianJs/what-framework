@@ -27,13 +27,14 @@ export const STARTER_LEARNING = Object.freeze({
     overview: 'Tempo is a hybrid time-tracking SaaS reference: the browser owns workspace state and two serverless endpoints validate entries and summarize reports.',
     sourceFiles: [
       { label: 'Reactive workspace store', path: 'src/state.js', note: 'Signals hold editable state, computed values derive summaries, and navigation is a tiny path signal.' },
-      { label: 'Relative seed data', path: 'src/domain.js', note: 'cloneSeed(now) derives demo entry days from the visitor clock so today never renders empty by accident.' },
+      { label: 'Relative seed data', path: 'src/domain.js', note: 'seedWorkspace(now) derives demo entry days from the visitor clock so today never renders empty by accident.' },
       { label: 'Editable row UI', path: 'src/app.jsx', note: 'Keyed For rows preserve focused inputs while immutable entry updates replace objects.' },
       { label: 'Bounded request parser', path: 'src/api/bounded-json.js', note: 'The function endpoint enforces byte limits while streaming the body as Uint8Array chunks.' },
     ],
     smooth: [
       'The local app and serverless validation share the same domain helpers, so UI and API constraints stayed aligned.',
       'The HMR disposal path made timer, effect and popstate cleanup explicit during development.',
+      "The entry/report ownership checks fit the existing shared store and retained the continuous keyboard-edit regression without introducing a second workspace.",
     ],
     examples: [
       {
@@ -57,6 +58,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);",
         notes: 'This avoids UTF-16 string-length mistakes and cancels the request stream as soon as the payload exceeds the endpoint budget.',
       },
+      {
+        title: "Let only the current workspace accept an async report",
+        path: "src/state.js",
+        language: "js",
+        code: "const ownsResponse = () => generation === workspaceGeneration && request === reportRequest;",
+        notes: "Reset advances the workspace generation; request counters also make the newer report win. Success, validation failures and network failures all check ownership."
+      },
     ],
     issues: [
       {
@@ -68,10 +76,17 @@ export const STARTER_LEARNING = Object.freeze({
       },
       {
         title: 'Mapped editable rows can drop input focus',
-        problem: 'The entries list updates immutably. A plain mapped row can be replaced while the user is typing, leaving only the first typed character and moving focus to the body.',
+        problem: 'The entries list updates immutably. A row that captures an immutable item can go stale, and some mapped render shapes can replace the input while the user is typing, leaving only the first typed character and moving focus to the body.',
         fix: 'Render today’s entries with keyed For and pass the row accessor into EntryRow.',
         proof: 'The browser regression marks the note and minutes inputs, performs select-all/backspace/type, and confirms the same DOM node stays focused.',
         takeaway: 'Use keyed accessors for editable repeated state when objects are replaced immutably.',
+      },
+      {
+        title: "Reset must invalidate pending work",
+        problem: "A delayed entry or report response could arrive after Reset and repopulate cleared state; a stale failure could clear the next pending guard.",
+        fix: "Capture workspaceGeneration plus request counters before awaiting. Guard every result and cleanup, and reject duplicate timer/manual starts while validation is pending.",
+        proof: "Controlled browser fetches delay entries and reports, reset, then release success and failure responses; the reset state or newer report remains authoritative.",
+        takeaway: "Reset is an asynchronous ownership boundary, not just a group of signal writes."
       },
     ],
     boundaries: [
@@ -89,6 +104,7 @@ export const STARTER_LEARNING = Object.freeze({
     smooth: [
       'Keeping route metadata in one content module made sitemap, llms text and page generation come from the same data.',
       'Server-safe h() rendering and browser-only JSX islands kept the static build understandable for agents.',
+      "The existing tour island could display richer evidence from the same records without adding requests or another state layer.",
     ],
     examples: [
       {
@@ -104,6 +120,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'js',
         code: "for (const route of routes) {\n  const file = route.path === '/' ? 'dist/static/index.html' : `dist/static${route.path}/index.html`;\n  if (!existsSync(file)) {\n    fail(`missing ${file}`);\n    continue;\n  }\n  const html = readFileSync(file, 'utf8');",
         notes: 'A marketing starter can still have build-time quality gates. Here route output, semantics and manifest shape are checked before packaging.',
+      },
+      {
+        title: "Read tour evidence at the selected stage",
+        path: "src/client/main.jsx",
+        language: "jsx",
+        code: "<ul class=\"build-list\">{() => current().evidence.map(item => <li>{item}</li>)}</ul>",
+        notes: "Stage-specific evidence is authored in content records and is rendered reactively; the static first-stage fallback remains useful without JavaScript."
       },
     ],
     issues: [
@@ -121,6 +144,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The build and smoke check complete with static pages plus browser islands, and no route renders nullish text.',
         takeaway: 'Static-first does not mean state-free; persisted island state still needs input hygiene.',
       },
+      {
+        title: "A tour needs evidence for each stage",
+        problem: "The tour repeated shallow copy and displayed an unsupported time-saved claim.",
+        fix: "Put distinct evidence on every tour record and replace the unsupported metric with the count of named owners. Read current evidence inside a reactive function child.",
+        proof: "Product-depth checks require distinct records; browser checks switch stages, measure desktop/mobile layout and open static routes with JavaScript disabled.",
+        takeaway: "Product claims should come from visible authored evidence, not decorative metrics."
+      },
     ],
     boundaries: [
       'The pricing calculator is an anonymous local estimate, not billing or entitlement logic.',
@@ -134,10 +164,18 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Canvas lifecycle', path: 'src/components/GenerativeCanvas.jsx', note: 'The component draws from signal accessors and cleans up resize/keyboard listeners.' },
       { label: 'Alias generation', path: 'scripts/generate-static-aliases.mjs', note: 'Deployment aliases derive from the projects dataset so every detail route is directly openable.' },
       { label: 'Browser smoke', path: 'tests/smoke.mjs', note: 'The smoke test compares canvas pixels, opens every detail route and screenshots desktop/mobile pages.' },
+      {
+        label: "Authored research dossiers",
+        path: "src/data/dossiers.js",
+        note: "Each accession has a question, method, local specimens, reading notes and explicit limits; these are authored studies, not measured research."
+      },
+      { label: "Stable research card frame", path: "src/components/ProjectCard.jsx", note: "Card summaries stay top-aligned while only the footer stretches." },
+      { label: "Dossier detail renderer", path: "src/pages/ProjectDetailPage.jsx", note: "Known route content selects its authored dossier and adjacent record without duplicating mutable canvas state." },
     ],
     smooth: [
       'Deriving detail aliases from the dataset removed the chance of forgetting a single research record.',
       'The canvas smoke test checks pixel changes, not just button text, so it catches a silent rendering no-op.',
+      "The existing canvas accessor dependencies, listener cleanup and dataset-derived aliases supported the dossiers unchanged; pixel checks still verify redraw behavior.",
     ],
     examples: [
       {
@@ -160,6 +198,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'jsx',
         code: "<article class=\"project-card\" style={{ '--project-accent': project.accent }}>",
         notes: 'Variable summaries stay top-aligned; the CSS pushes only the tag and link footer to the bottom.',
+      },
+      {
+        title: "Keep immutable route content out of mutable state",
+        path: "src/pages/ProjectDetailPage.jsx",
+        language: "jsx",
+        code: "const dossier = dossiers[project.slug];",
+        notes: "The route selects authored content once. Signals remain reserved for the shared canvas controls rather than duplicating dossier state."
       },
     ],
     issues: [
@@ -186,6 +231,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'Isolated repository copies exited after their smoke assertions, and the repaired Linux workflow passed. A colorized readiness regression covers the runner-specific failure.',
         takeaway: 'For public starter evidence, process exit is part of the proof, not bookkeeping after the proof.',
       },
+      {
+        title: "The dossier must contain what its metadata promises",
+        problem: "Early metadata counted fragments and measurements that the detail pages did not actually show.",
+        fix: "Author a complete dossier per record, render three local specimens and reading notes, and state which observations are design reflections rather than measured results.",
+        proof: "Dossier tests require every known project to have a distinct question and complete content; browser smoke opens each record and follows next-record navigation.",
+        takeaway: "Research-style presentation must distinguish authored specimens from empirical evidence."
+      },
     ],
     boundaries: [
       'Canvas art is deterministic browser drawing, not live AI inference.',
@@ -198,10 +250,17 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Audio engine', path: 'src/audio/engine.js', note: 'A single startGeneration and startingPromise coordinate async AudioContext startup.' },
       { label: 'Lifecycle tests', path: 'src/audio/engine.lifecycle.test.js', note: 'Tests cover duplicate starts, stop-before-resume and dispose-before-resume races.' },
       { label: 'Studio state', path: 'src/state/studio.js', note: 'Signals store pattern, playback state, current step and user-facing audio status.' },
+      {
+        label: "Pattern identity regression",
+        path: "src/state/studio.test.js",
+        note: "Tests restore saved presets, identify custom edits and exercise denied save/reset operations."
+      },
+      { label: "Sequencer grid", path: "src/components/Sequencer.jsx", note: "The step ruler owns its grid and the playhead is visible only during playback." },
     ],
     smooth: [
       'The fake AudioContext test harness made browser-only race conditions testable without playing sound.',
       'Keeping pattern state separate from the engine let the UI mutate tracks while the scheduler reads the latest pattern.',
+      "The existing audio scheduler reads current pattern state, so saved/custom identity needed no scheduler redesign or new audio resource.",
     ],
     examples: [
       {
@@ -225,6 +284,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "isPlaying() && currentStep() === step && 'playing',",
         notes: 'The stopped studio keeps selected steps visible without leaving a fake current-step highlight on the grid.',
       },
+      {
+        title: "Derive preset identity from the current patch",
+        path: "src/state/studio.js",
+        language: "js",
+        code: "export const currentPresetId = computed(() => presets.find((preset) => JSON.stringify(preset) === JSON.stringify(pattern()))?.id || '');",
+        notes: "The restored pattern, not a hard-coded first-preset id, determines the selected preset. An edited patch has custom identity."
+      },
     ],
     issues: [
       {
@@ -241,6 +307,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'Lifecycle tests assert one interval for simultaneous starts and zero intervals when stop/dispose wins the race.',
         takeaway: 'Long-running browser resources need idempotent start and explicit cancellation, even in a demo.',
       },
+      {
+        title: "A restored patch should not claim the wrong preset",
+        problem: "Reloading a saved patch could highlight Brass Grid regardless of its contents; custom edits and saved status were conflated.",
+        fix: "Compute preset identity from exact pattern contents and track the saved serialized snapshot separately. Catch storage writes/removal so audio editing can continue in-session.",
+        proof: "Studio regressions restore Slow Bloom, preserve custom identity after edits/reload, and verify save/reset do not throw under denied storage.",
+        takeaway: "Preset identity, current edits and persistence success are separate facts."
+      },
     ],
     boundaries: [
       'The studio runs entirely in the browser; it does not stream audio or save patterns to a server.',
@@ -253,10 +326,12 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Analytics store', path: 'src/state.js', note: 'Filter signals derive active filters, filtered events and aggregate dashboard metrics.' },
       { label: 'Report API', path: 'src/api/report.js', note: 'The function endpoint parses filter input and returns aggregate rows for the current selection.' },
       { label: 'Bounded JSON reader', path: 'src/api/bounded-json.js', note: 'The parser enforces function payload limits before JSON decoding.' },
+      { label: "Shared analytics domain", path: "src/data.js", note: "Filter normalization, aggregation, chart semantics and CSV serialization use deterministic fixture data." },
     ],
     smooth: [
       'The same parseFilters path feeds client charts and server reports, reducing drift between local and function-rendered numbers.',
       'CSV export reads the currently filtered event set, so the download matches the visible table.',
+      "Shared filter parsing still aligns client and function calculations; freshness copy exposes the remaining snapshot boundary instead of inventing live ingestion.",
     ],
     examples: [
       {
@@ -280,6 +355,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "export function chartSeries(rows, metric, kind = 'category') {\n  const ordered = kind === 'time'\n    ? [...rows].sort((a, b) => String(a.label).localeCompare(String(b.label)))\n    : [...rows];",
         notes: 'Revenue by day becomes a time series, while channel comparisons stay categorical.',
       },
+      {
+        title: "Block duplicate report refreshes",
+        path: "src/state.js",
+        language: "js",
+        code: "if (report().status === 'loading') return;",
+        notes: "The result remains a snapshot of its returned filters; the UI labels that snapshot and warns when current controls differ."
+      },
     ],
     issues: [
       {
@@ -296,6 +378,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The parser path distinguishes 413 payload failures from 400 malformed JSON before report aggregation runs.',
         takeaway: 'Serverless examples should teach safe request handling next to happy-path charts.',
       },
+      {
+        title: "A report snapshot should not impersonate current filters",
+        problem: "Changing controls after a report returned made the server summary look current even though it represented an earlier filter selection.",
+        fix: "Show the filters supplied by the response, compare them with current controls, and disable refresh while a request is pending. Keep cohorts as a semantic horizontally scrollable table.",
+        proof: "Smoke checks report freshness, chart geometry and compact mobile hierarchy without dropping cohort columns.",
+        takeaway: "Label response snapshots explicitly when controls can change independently."
+      },
     ],
     boundaries: [
       'Events are synthetic fixtures, not customer telemetry.',
@@ -308,10 +397,16 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Operations store', path: 'src/state/ops.js', note: 'Module signals hold overrides, filters, saved views, log entries and save status.' },
       { label: 'Routes', path: 'src/routes.js', note: 'The app includes overview, incidents, services, deploys, activity, build and incident-detail routes.' },
       { label: 'Build page', path: 'src/pages/Build.jsx', note: 'The in-app guide names local-only persistence and generated static aliases.' },
+      {
+        label: "Reactive incident detail",
+        path: "src/pages/IncidentDetail.jsx",
+        note: "The route id is stable setup; the current merged incident is read through an accessor for selects, severity and quick actions."
+      },
     ],
     smooth: [
       'Incident overrides are layered over immutable fixtures, so reset and filtering are simple to reason about.',
       'Computed rollups keep summary cards, service health and deploy risk synchronized with the same incident state.',
+      "The override read model already joined fixtures and edits; the repair moved reads to the right boundary without changing incident storage.",
     ],
     examples: [
       {
@@ -327,6 +422,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'js',
         code: "export const deployRollups = computed(() => deploys.map((deploy) => ({\n  ...deploy,\n  serviceName: serviceName(deploy.serviceId),\n  linkedIncidents: mergedIncidents().filter((incident) => incident.serviceId === deploy.serviceId && incident.status !== 'resolved').length,\n  tone: deployRiskTone(deploy.risk),\n  meterStyle: riskMeterStyle(deploy.risk)\n})));",
         notes: 'The UI receives risk tone and bounded meter style from one computed read model instead of rebuilding thresholds in cards.',
+      },
+      {
+        title: "Capture identity, not the changing incident",
+        path: "src/pages/IncidentDetail.jsx",
+        language: "jsx",
+        code: "const incidentId = route.params.id;\n  const incident = () => mergedIncidents().find((entry) => entry.id === incidentId);",
+        notes: "A run-once component can capture a stable route id; editable record reads belong in an accessor used by reactive bindings."
       },
     ],
     issues: [
@@ -344,6 +446,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The store keeps operating from seed state even when persistence cannot be used.',
         takeaway: 'Local persistence should be a capability, not a prerequisite for routeable app behavior.',
       },
+      {
+        title: "Run-once detail setup captured yesterday’s record",
+        problem: "Quick actions updated incident overrides and storage while detail controls and severity still displayed the original object.",
+        fix: "Capture only incidentId in setup, read the current merged incident through an accessor, and disable already-applied quick actions. Name saved views by severity/status/owner and deduplicate matching combinations.",
+        proof: "Browser regressions apply quick actions and verify visible controls/rail, recognizable legacy views and a single saved view per filter combination.",
+        takeaway: "A signal update cannot refresh a record sampled once during component setup."
+      },
     ],
     boundaries: [
       'Harbor edits are local simulation state, not shared incident-management storage.',
@@ -356,10 +465,12 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Planner store', path: 'src/state/planner.js', note: 'Signals hold filters, weekly plan and serving overrides; computed values derive meals, stats and grocery totals.' },
       { label: 'Static aliases', path: 'scripts/static-aliases.mjs', note: 'Recipe detail routes and private planner routes are emitted as concrete Vura pages.' },
       { label: 'Build page', path: 'src/pages/Build.jsx', note: 'The guide explains local state, routing and generated aliases for agents.' },
+      { label: "Recipe day selection", path: "src/pages/RecipeDetail.jsx", note: "A mount-local selected day feeds explicit planner actions rather than hard-coded destinations." },
     ],
     smooth: [
       'The shopping list came naturally from computed aggregation over planned meals.',
       'Route aliases derive from the recipe dataset, so new recipes produce direct detail URLs during build.',
+      "The computed grocery quantities remained unchanged; stable item/unit keys layered checklist completion over the existing plan.",
     ],
     examples: [
       {
@@ -383,6 +494,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "...recipes.map((recipe) => [",
         notes: 'Dataset-driven aliases prevent the static host from treating a known recipe URL like an unknown SPA fallback.',
       },
+      {
+        title: "Store market checks by ingredient identity",
+        path: "src/state/planner.js",
+        language: "js",
+        code: "export const ingredientKey = (ingredient) => `${ingredient.item}|${ingredient.unit}`;",
+        notes: "Checked keys survive navigation and reload; progress counts only keys in the current computed market list."
+      },
     ],
     issues: [
       {
@@ -391,6 +509,13 @@ export const STARTER_LEARNING = Object.freeze({
         fix: 'Expose native day selects backed by firstOpenDay(), dayHasOpenSlot(), and daySlotLabel(), then keep button text reactive with a function child.',
         proof: 'Browser smoke selects Thursday, verifies the Thursday planner card, and checks that full-day or duplicate choices explain the no-op.',
         takeaway: 'Small native controls can teach state transitions more clearly than a hard-coded demo shortcut.',
+      },
+      {
+        title: "DOM-only purchased marks disappeared on navigation",
+        problem: "Native checkboxes appeared checked but their completion was not part of the planner snapshot.",
+        fix: "Persist checkedIngredients alongside plan and servings. Ignore unknown keys, default old snapshots to no checks, and make Clear checks leave meals/servings intact.",
+        proof: "Checklist unit and browser flows verify navigation, reload, clearing, planner reset and denied-storage session editing.",
+        takeaway: "Persist user intent by stable item identity while deriving completion from the current list."
       },
     ],
     boundaries: [
@@ -408,6 +533,7 @@ export const STARTER_LEARNING = Object.freeze({
     smooth: [
       'Embedding a small JSON article index lets the static search island work without a remote search service.',
       'Separating article rendering from browser utilities keeps static content readable with JavaScript disabled.',
+      "The bookmark utility already finds its button anywhere on the page; moving it before the essay needed no new island or persistence model.",
     ],
     examples: [
       {
@@ -424,6 +550,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "function safeStorageSet(key, value, storageStatus) {\n  try {\n    window.localStorage.setItem(key, value);\n  } catch {\n    storageStatus('memory');\n    storageFallback.set(key, value);\n    const store = readFallbackStore();\n    store[key] = value;\n    writeFallbackStore(store);\n  }\n}",
         notes: 'Bookmarks keep working in the current browsing context instead of crashing when storage is blocked.',
       },
+      {
+        title: "Derive reading duration from the actual essay",
+        path: "src/content/articles.mjs",
+        language: "js",
+        code: "article.minutes = Math.max(1, Math.ceil(article.body.join(' ').trim().split(/\\s+/).length / 220));",
+        notes: "A simple content-based estimate replaces guessed 4–7 minute labels. It is an estimate, not a measured reading time."
+      },
     ],
     issues: [
       {
@@ -432,6 +565,13 @@ export const STARTER_LEARNING = Object.freeze({
         fix: 'Render the saved list through computed state and a reactive branch that checks saved().length.',
         proof: 'The Bookmarks island now switches between the list and empty panel from the same saved computed value.',
         takeaway: 'In static sites, client islands still need reactive branches for empty, saved and cleared states.',
+      },
+      {
+        title: "Reading-time labels outgrew the essays",
+        problem: "Short three-paragraph stubs advertised several minutes of reading, and the article utility hierarchy made the bookmark action hard to find.",
+        fix: "Expand authored essays, derive duration at 220 words per minute, and render compact byline, bookmark action, related reading and sidenotes on the server. Scope byline styling so body-copy scale does not enlarge metadata.",
+        proof: "Product-depth tests validate every duration; browser checks preserve article reading without JavaScript, search, saved-list clearing and denied-storage behavior.",
+        takeaway: "Editorial metadata should describe actual content rather than set a target the content must pretend to meet."
       },
     ],
     boundaries: [
@@ -446,10 +586,16 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Planner island', path: 'src/client/main.jsx', note: 'Signals store stops, timezone, export text and storage mode; computed values group stops by day.' },
       { label: 'Static build script', path: 'scripts/build.mjs', note: 'The build rewrites the Vite asset name, writes static pages, sitemap, robots and manifest.' },
       { label: 'Browser smoke', path: 'scripts/smoke.mjs', note: 'The smoke checks direct routes, reorder, timezone switch, JSON export, corrupt storage, denied storage and 404.' },
+      {
+        label: "Guide plans and slot movement",
+        path: "src/content.mjs",
+        note: "Known guide records seed local plans; pure movement swaps activities while retaining destination day/time slots."
+      },
     ],
     smooth: [
       'Guide aliases and sitemap rows come from the same route list, which keeps direct static paths and metadata aligned.',
       'Move buttons made itinerary reordering keyboard and touch friendly without needing drag/drop code.',
+      "Native move buttons reused pure plan operations; guide context and the reactive route projection did not require drag/drop or a map service.",
     ],
     examples: [
       {
@@ -465,6 +611,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'jsx',
         code: "const exportText = useSignal('');",
         notes: 'The exported JSON, day cards and timezone preview follow the same source signals.',
+      },
+      {
+        title: "Move activities without moving the schedule clock",
+        path: "src/content.mjs",
+        language: "js",
+        code: "next[index] = { ...items[target], day: items[index].day, time: items[index].time };\n  next[target] = { ...items[index], day: items[target].day, time: items[target].time };",
+        notes: "Slots own their clock labels. The guide query selects known records; saved plans win until the visitor explicitly applies a guide."
       },
     ],
     issues: [
@@ -484,6 +637,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The smoke test exports a route plan after a production build, proving the planner received sample stops.',
         takeaway: 'Static script JSON needs the same rendering-boundary care as visible HTML.',
       },
+      {
+        title: "Reordering activities could reverse the clock",
+        problem: "Moving an activity retained its old timestamp while hard-coding day reassignment, allowing a later time to appear before an earlier one.",
+        fix: "Swap activities into destination day/time slots. Resolve known guide context, preserve existing saved plans, and project current stops in the mounted SVG. Label timezone output as a fixed reference instant, not conversion of undated stops.",
+        proof: "Pure tests cover guide plans and slot stability; browser tests cover contextual plans, exported guide ids, reorder and storage failure.",
+        takeaway: "Distinguish activity identity, schedule slots and real timestamps before implementing itinerary movement."
+      },
     ],
     boundaries: [
       'Trip data is fictional and local-only.',
@@ -497,10 +657,17 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Quote API', path: 'src/api/quote.js', note: 'The function validates known products, stock limits and totals, then returns no-store JSON.' },
       { label: 'Vura build package', path: 'scripts/build-vura.mjs', note: 'The build emits static aliases, bundles /api/quote and writes the Vura manifest.' },
       { label: 'API tests', path: 'test/cartograph.test.js', note: 'Tests cover quote totals, over-stock rejection, malformed JSON, oversized streams and unknown products.' },
+      {
+        label: "Receipt render boundary",
+        path: "src/pages/Receipt.jsx",
+        note: "The component returns a reactive function that reads receipt() and selects the empty/full view after Reset."
+      },
+      { label: "Native quantity editing", path: "src/pages/Cart.jsx", note: "Canonical quantities and temporary DOM text coexist during keyboard replacement; valid commits keep totals live." },
     ],
     smooth: [
       'Product slugs drive cards, details, quote validation and static aliases from one dataset.',
       'The quote function imports shared product data but not browser cart state, which keeps the serverless boundary clean.',
+      "Shared product data and bounded quote parsing stayed intact; basket ownership and reactive receipt reset fit the existing native quantity draft behavior.",
     ],
     examples: [
       {
@@ -524,6 +691,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "const acceptedQuantity = Math.min(quantity, product.stock);",
         notes: 'The client cart is useful context, but stock and quantity checks run again in the serverless function.',
       },
+      {
+        title: "Read the receipt inside the reactive branch",
+        path: "src/pages/Receipt.jsx",
+        language: "jsx",
+        code: "return () => {\n    const current = receipt();\n    if (!current) {",
+        notes: "Reset clears both state and visible receipt immediately; a setup-time snapshot would keep the old receipt until navigation."
+      },
     ],
     issues: [
       {
@@ -539,6 +713,13 @@ export const STARTER_LEARNING = Object.freeze({
         fix: 'The Vura build imports products and emits one static alias per product slug, plus cart, receipt, build and 404 pages.',
         proof: 'The build script reports the generated page count and API bundle for /api/quote.',
         takeaway: 'Use the same content source for UI, API validation and static hosting shape.',
+      },
+      {
+        title: "A quote belongs to its submitted basket",
+        problem: "A late successful quote could be accepted after quantities changed; Reset receipt also cleared storage while leaving the sampled receipt on screen.",
+        fix: "Capture sorted basketKey and submitted lines, block duplicate pending quotes, discard mismatched responses and require a current successful quote before writing. Render receipt() inside the returned reactive branch.",
+        proof: "Delayed-response regressions reject stale baskets; receipt browser checks require immediate empty UI, null storage, and empty state after back/reload. Keyboard quantity replacement remains covered.",
+        takeaway: "Async results need snapshot ownership, and resettable views must read current state reactively."
       },
     ],
     boundaries: [
@@ -558,6 +739,7 @@ export const STARTER_LEARNING = Object.freeze({
     smooth: [
       'Services and slot fixtures are deterministic October 2026 data, which keeps screenshots and API tests stable.',
       'Overlap math is pure shared code, so the API and unit tests can exercise booking logic without a browser.',
+      "Pure overlap helpers and strict service lookup remained the API boundary; the browser added draft ownership without pretending to create cross-user locks.",
     ],
     examples: [
       {
@@ -573,6 +755,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'jsx',
         code: "function downloadIcs(reservation) {\n  const url = URL.createObjectURL(new Blob([createIcs(reservation)], { type: 'text/calendar;charset=utf-8' }));\n  const anchor = document.createElement('a');\n  anchor.href = url;\n  anchor.download = `${reservation.id}.ics`;\n  anchor.click();\n  setTimeout(() => URL.revokeObjectURL(url), 1000);\n}",
         notes: 'The button creates the URL at click time instead of rendering an unsafe data: href into the document.',
+      },
+      {
+        title: "Permit booking only from the verified draft",
+        path: "src/state/booking.js",
+        language: "js",
+        code: "export const canBook = computed(() => !pending() && availability()?.ok === true && verifiedDraft() === draftKey());",
+        notes: "The key includes service, date, start and local reservations. A successful response for a prior selection is not permission to book the current one."
       },
     ],
     issues: [
@@ -599,6 +788,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The browser smoke exercises the ICS button from the reservations ledger, and unit tests verify VCALENDAR text generation.',
         takeaway: 'Generate download URLs at the interaction boundary rather than storing unsafe URLs in render state.',
       },
+      {
+        title: "Availability is not permission for a different draft",
+        problem: "Changing service, slot or local reservations after a check could reuse a success for the wrong selection.",
+        fix: "Fingerprint the draft, invalidate verified state on changes, block concurrent checks, discard responses for changed drafts and verify the returned service/start before enabling booking.",
+        proof: "Delayed fetch regressions change the selection during a check and require a fresh check; normal booking, local conflict and ICS export tests remain.",
+        takeaway: "A validated response authorizes its submitted draft, not whichever controls happen to be visible later."
+      },
     ],
     boundaries: [
       'Reservations are private to the current browser unless a durable calendar backend is added.',
@@ -612,17 +808,23 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Client islands', path: 'src/client/main.jsx', note: 'Filter and proposal islands mount over static fallback sections.' },
       { label: 'Static build', path: 'scripts/build.mjs', note: 'The build writes route aliases, assets, sitemap, robots and manifest.' },
       { label: 'Browser smoke', path: 'scripts/smoke.mjs', note: 'The smoke verifies filters, proposal persistence, denied storage, keyboard download activation and real 404.' },
+      {
+        label: "Contextual case-study records",
+        path: "src/content.mjs",
+        note: "Project records include program, materials, rationale and tradeoffs; known study slugs can seed a local proposal."
+      },
     ],
     smooth: [
       'Original SVG studies avoid external media while still giving each case study a visual identity.',
       'The proposal output is a computed string, so preview and downloaded text stay in sync with field edits.',
+      "The proposal remained a computed projection of four signals; richer case-study context changed inputs without adding submission or lead-capture behavior.",
     ],
     examples: [
       {
         title: 'Keep a local proposal preview computed',
         path: 'src/client/main.jsx',
         language: 'jsx',
-        code: "const output = useComputed(() => `FORM PROPOSAL BRIEF\\n\\nClient: ${client()}\\nSite: ${site()}\\nScope: ${scope()}\\nBudget: ${budget()}\\n\\nPrepared locally in the Form starter.`);",
+        code: "const output = useComputed(() => `FORM PROPOSAL BRIEF\\n\\nClient: ${client()}\\nSite: ${site()}\\nScope: ${scope()}\\nBudget: ${budget()}\\n\\nPrepared locally. Not submitted to a studio.`);",
         notes: 'No separate preview state is needed; edits write source fields and the proposal text derives from them.',
       },
       {
@@ -631,6 +833,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'js',
         code: "const blob = new Blob([output()], { type: 'text/plain' });",
         notes: 'The regression uses keyboard activation so the primary action remains testable even when mobile composition is tight.',
+      },
+      {
+        title: "Resolve study context without overwriting saved edits",
+        path: "src/client/main.jsx",
+        language: "js",
+        code: "const study = data.projects.find(project => project.slug === new URLSearchParams(location.search).get('study'));",
+        notes: "Known study context seeds an empty editor. A saved brief remains until an explicit Use study brief action replaces it."
       },
     ],
     issues: [
@@ -648,6 +857,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The smoke test exercises the mounted proposal editor and reload persistence from the generated static artifact.',
         takeaway: 'Do not describe these islands as hydrated server markup; they are client-mounted interactive regions.',
       },
+      {
+        title: "A case-study action lost its context",
+        problem: "Draft a proposal opened a generic brief instead of carrying the selected project; longer previews also exposed grid overflow.",
+        fix: "Resolve the study query against embedded records, preserve saved fields, and offer explicit context application. Add program/material/rationale content; reset figure margins and let preview children shrink and wrap.",
+        proof: "Product-depth tests require complete study records; browser checks verify contextual seed, preserved edits, text download, useful no-JS fallback and 390px layout.",
+        takeaway: "Contextual entry should seed empty work, not silently replace an existing draft."
+      },
     ],
     boundaries: [
       'Proposal data is local-only and never submitted to a CRM or server.',
@@ -661,25 +877,38 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Server renderer', path: 'src/server/render.mjs', note: 'Session and speaker routes render as direct static pages.' },
       { label: 'Static build', path: 'scripts/build.mjs', note: 'The build emits route HTML, assets, sitemap, robots and manifest.' },
       { label: 'Browser smoke', path: 'scripts/smoke.mjs', note: 'The smoke covers route loads, filtering, saving, timezone switching, ICS export, denied storage and 404.' },
+      {
+        label: "Pure calendar serialization",
+        path: "src/calendar.mjs",
+        note: "UTC event stamps, escaped text, CRLF separators and UTF-8-aware 75-octet folding are independent of UI timezone labels."
+      },
     ],
     smooth: [
       'The local agenda can export calendar text without any ticketing or account service.',
       'Direct session and speaker pages make the starter useful even without the agenda island.',
+      "The same saved-session ids feed the preview and file; static schedule/session/speaker relationships stay readable without JavaScript.",
     ],
     examples: [
       {
         title: 'Escape VCALENDAR fields before export',
-        path: 'src/client/main.jsx',
+        path: 'src/calendar.mjs',
         language: 'js',
-        code: "function escapeIcs(value){return String(value).replace(/\\\\/g,'\\\\\\\\').replace(/,/g,'\\\\,').replace(/;/g,'\\\\;').replace(/\\n/g,'\\\\n');}",
+        code: "function escapeIcs(value) { return String(value).replace(/\\\\/g, '\\\\\\\\').replace(/,/g, '\\\\,').replace(/;/g, '\\\\;').replace(/\\n/g, '\\\\n'); }",
         notes: 'Calendar files have their own escaping rules; saved session data should not be inserted raw.',
       },
       {
         title: 'Compute the calendar from saved sessions',
         path: 'src/client/main.jsx',
         language: 'js',
-        code: "const calendar=useComputed(()=>makeIcs(data.sessions.filter((session)=>saved().includes(session.slug)),zone()));",
-        notes: 'Filtering changes the visible agenda; saved ids drive export, so a filtered-out saved session is still included in the user calendar.',
+        code: "const calendar=useComputed(()=>makeIcs(data.sessions.filter((session)=>saved().includes(session.slug))));",
+        notes: 'Filtering and timezone controls change the visible agenda, not the UTC event instants. Saved ids drive export, including saved sessions hidden by a topic filter.',
+      },
+      {
+        title: "Fold calendar lines by UTF-8 bytes",
+        path: "src/calendar.mjs",
+        language: "js",
+        code: "const bytes = encoder.encode(char).length;\n    if (width + bytes > 75) { result += '\\r\\n '; width = 1; }",
+        notes: "Continuation whitespace counts toward the next line. Date stamps come from UTC event instants and the actual generation clock."
       },
     ],
     issues: [
@@ -697,6 +926,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The smoke loads the generated home page and records a desktop screenshot from the static artifact.',
         takeaway: 'Starter pages should foreground the workflow object, not only the aesthetic.',
       },
+      {
+        title: "Calendar preview is not a downloaded calendar file",
+        problem: "The agenda only showed textarea text while its export copy promised a file; long Unicode fields also needed byte-aware calendar serialization.",
+        fix: "Move serialization into pure makeIcs, use UTC starts/ends and generation DTSTAMP, escape fields and fold by UTF-8 octets. Download a text/calendar Blob and revoke its temporary URL; save changes clear stale preview.",
+        proof: "Product-depth checks cover Unicode folding and timestamps; browser tests await a real .ics download and assert saved-only sessions at desktop/mobile widths.",
+        takeaway: "Export proof should inspect the actual file and format, not just visible preview text."
+      },
     ],
     boundaries: [
       'Sessions and speakers are fictional event fixtures.',
@@ -710,10 +946,12 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Invoice math', path: 'src/data/invoices.js', note: 'Pure helpers calculate finite money totals before UI and exports use them.' },
       { label: 'Alias generation', path: 'scripts/static-aliases.mjs', note: 'The build writes direct client, invoice and receipt paths plus 404.html.' },
       { label: 'Unit tests', path: 'test/invoices.test.js', note: 'Tests cover subtotal/tax/total math and invalid money coercion.' },
+      { label: "Recoverable line editor", path: "src/pages/InvoiceDetail.jsx", note: "Keyed For accessors preserve input identity, per-operand clamping matches calculations, and empty drafts can start again." },
     ],
     smooth: [
       'Computed invoice summaries allow draft list, client detail and receipt preview to agree on totals.',
       'The same seed invoices generate static aliases for both invoice editor and receipt paths.',
+      "Line removal reused immutable invoice state and keyed For accessors; draft dates/status added context without changing local export or receipt boundaries.",
     ],
     examples: [
       {
@@ -727,7 +965,7 @@ export const STARTER_LEARNING = Object.freeze({
         title: 'Preserve line identity while editing',
         path: 'src/pages/InvoiceDetail.jsx',
         language: 'jsx',
-        code: "<For each={() => invoice().lines} key={(line) => line.id}>",
+        code: "<For each={() => invoice().lines} key={(line) => line.id} fallback={<p class=\"empty-state\">No invoice lines yet. Add a line to start this local draft.</p>}>",
         notes: 'The accessor row lets Tally replace line objects immutably while the current input keeps focus.',
       },
       {
@@ -741,7 +979,7 @@ export const STARTER_LEARNING = Object.freeze({
     issues: [
       {
         title: 'Immutable line edits need keyed row accessors',
-        problem: 'Quantity, unit-price and description edits replace line objects. Without keyed accessors, a focused input can remount while the user types.',
+        problem: 'Quantity, unit-price and description edits replace line objects. Raw keyed mapping may retain DOM while holding an older object; some render shapes can also replace focused inputs.',
         fix: 'InvoiceDetail renders invoice lines with keyed For and reads line().quantity, line().unitPrice and line().description inside the row.',
         proof: 'Playwright marks the focused node, clears and types in existing plus newly added line fields, and verifies focus and totals stay correct.',
         takeaway: 'Editable tables should use identity-preserving loops before reaching for imperative refocus code.',
@@ -760,6 +998,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The unit test asserts finiteMoney returns zero for bad and negative inputs while accepting numeric strings.',
         takeaway: 'Derived financial UI should guard calculations even when persistence is local-only.',
       },
+      {
+        title: "Removing lines must preserve finite and recoverable drafts",
+        problem: "An accidental row had no recovery path, and clamping a multiplied line amount let two negative operands become a positive displayed total.",
+        fix: "Remove by line id, show a zero-total empty state and allow Add line to restart. Clamp quantity and price individually with finiteMoney before multiplying, matching the shared calculation.",
+        proof: "Browser tests add/remove rows, remove every row, require zero totals, add again and enter two negatives. Existing focus and column-alignment regressions remain.",
+        takeaway: "Editor recovery and displayed math should follow the same canonical operands as exported totals."
+      },
     ],
     boundaries: [
       'Exports are local JSON only; no invoice is sent, paid or filed.',
@@ -772,10 +1017,16 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Board store', path: 'src/state/board.js', note: 'Signals own cards, view mode, filters, activity and persistence status.' },
       { label: 'Routes', path: 'src/routes.js', note: 'The app includes board, detail, activity, build and fallback routes.' },
       { label: 'Browser tests', path: 'test/browser/drift.spec.js', note: 'The browser suite exercises board/list switching, details, export, storage denial and mobile rendering.' },
+      {
+        label: "Live board/list reads",
+        path: "src/pages/Board.jsx",
+        note: "List cards derive through an accessor; bounded move buttons expose named destinations and mobile lanes retain scroll cues."
+      },
     ],
     smooth: [
       'Route detail pages read from the same card signal as the board, so edits stay visible across views.',
       'Keyboard step movement reuses the same moveCard path as select/drop interactions.',
+      "Board, list and detail still share one card store; bounded move controls reuse the existing movement and activity functions.",
     ],
     examples: [
       {
@@ -785,6 +1036,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "export const visibleCards = computed(() => cards()\n  .filter((card) => assigneeFilter() === 'all' || card.assignee === assigneeFilter())\n  .sort(byDueDate));\n\nexport const boardGroups = computed(() => columns.map((column) => ({\n  ...column,\n  cards: visibleCards().filter((card) => card.status === column.id),\n})));",
         notes: 'The list and board do not duplicate filters. They read the same derived set in different layouts.',
       },
+      {
+        title: "Read the filtered list after setup",
+        path: "src/pages/Board.jsx",
+        language: "jsx",
+        code: "const cards = () => boardGroups().flatMap((group) => group.cards.map((card) => ({ ...card, column: group.label })));",
+        notes: "The component runs once, but cards() is evaluated in reactive bindings when assignee changes. Capturing the resulting array once would freeze the open list."
+      },
     ],
     issues: [
       {
@@ -793,6 +1051,13 @@ export const STARTER_LEARNING = Object.freeze({
         fix: 'safeLoad requires every stored card to pass validCard before restoring state.',
         proof: 'Invalid stored data falls back to seed cards and reports that seed data loaded.',
         takeaway: 'Shared route state is only useful if restoration cannot poison every route at startup.',
+      },
+      {
+        title: "An open list kept the old filter result",
+        problem: "The list sampled boardGroups in run-once setup, so changing assignee updated the store without updating visible rows.",
+        fix: "Keep the cards projection as an accessor; name move destinations and disable impossible edge moves. Give the mobile lane preview a focusable scroll region and visible cue.",
+        proof: "Browser regressions change assignee while list view remains open, verify boundary move controls and inspect mobile lane scrolling.",
+        takeaway: "Derived collections that change after mount belong in accessors, not setup snapshots."
       },
     ],
     boundaries: [
@@ -806,10 +1071,16 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Progress store', path: 'src/state/progress.js', note: 'A single progress signal backs completed lessons, answers, flashcard index and streak.' },
       { label: 'Lesson data', path: 'src/data/lessons.js', note: 'Content includes explanation, quiz and flashcard data for the in-app curriculum.' },
       { label: 'Lesson routes', path: 'src/routes.js', note: 'Routes cover home, lesson list, detail, practice, build and fallback views.' },
+      {
+        label: "Reactive practice deck",
+        path: "src/pages/Practice.jsx",
+        note: "Current card/index are accessors; reveal state is mount-local and resets before advancing."
+      },
     ],
     smooth: [
       'The lesson content doubles as app data and as the learning path the starter demonstrates.',
       'Debounced persistence keeps rapid answer/card changes from writing localStorage on every micro-update.',
+      "Existing progress persistence and timer cleanup supported the repaired deck; no account sync or spaced-repetition scheduler was introduced.",
     ],
     examples: [
       {
@@ -819,6 +1090,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "export const progress = signal(initial, 'finch.progress');",
         notes: 'Only source progress is stored. Counts and percentages are recomputed from that source.',
       },
+      {
+        title: "Read the current practice card through accessors",
+        path: "src/pages/Practice.jsx",
+        language: "jsx",
+        code: "const index = () => progress().cardIndex % dueCards().length;\n  const lesson = () => dueCards()[index()];",
+        notes: "Keep reveal state local to this mount. Advance resets reveal and reads the next card rather than a setup-time card snapshot."
+      },
     ],
     issues: [
       {
@@ -827,6 +1105,13 @@ export const STARTER_LEARNING = Object.freeze({
         fix: 'answerQuiz updates the progress signal and then calls persistProgress directly in browser contexts.',
         proof: 'The answer path now performs an immediate save while the debounced effect still covers other progress changes.',
         takeaway: 'Debounce background persistence, but synchronously save user actions that feel final.',
+      },
+      {
+        title: "Next card changed storage but not the displayed card",
+        problem: "Practice captured the card array, index and lesson in run-once setup; advance changed progress while the screen stayed on the first card.",
+        fix: "Use current-card/index accessors, mount-local reveal and quiz state, and explicit continuation/course-complete branches. Construct Link inside a reactive child with a concrete href string rather than passing an accessor to href.",
+        proof: "Browser tests advance, reveal and wrap the deck, complete a quiz and inspect the real continuation href before/after reset; timer cleanup and immediate answer persistence remain covered.",
+        takeaway: "Run-once setup owns stable resources; changing reads and concrete navigation targets belong at reactive boundaries."
       },
     ],
     boundaries: [
@@ -839,13 +1124,19 @@ export const STARTER_LEARNING = Object.freeze({
     sourceFiles: [
       { label: 'Cached server page', path: 'src/pages/index.tsx', note: 'The page exports server mode, revalidation, tags, loader data and SSR markup.' },
       { label: 'Function route', path: 'src/api/health.ts', note: 'The health API declares serverless compute and returns JSON through the Vura reply object.' },
-      { label: 'Static snapshot page', path: 'src/pages/snapshot.tsx', note: 'The starter contrasts cached server output with a static status snapshot.' },
+      { label: 'Private request-time snapshot', path: 'src/pages/snapshot.tsx', note: 'The snapshot reads fresh loader data without public revalidation, contrasting the cached overview.' },
       { label: 'Build guide', path: 'src/pages/build.tsx', note: 'The public guide documents useLoaderData, literal head strings and local CSS delivery checks.' },
+      {
+        label: "Second incident server route",
+        path: "src/pages/incidents/webhook-retry-spike.tsx",
+        note: "Literal server configuration and a typed loader make the second advertised incident directly addressable."
+      },
     ],
     smooth: [
       'Literal page exports make rendering mode and cache tags visible to both Vura and readers.',
       'The render proof timestamp gives a simple way to observe cached versus uncached behavior.',
       'Local smoke now checks /styles.css returns 200 text/css so public pages do not silently ship as unstyled defaults.',
+      "The new incident reused shared timeline rendering and literal page configuration; source changes do not themselves prove a new hosted release.",
     ],
     examples: [
       {
@@ -861,6 +1152,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'ts',
         code: "compute: { class: 'function', memory: '1gb' },",
         notes: 'Vura can see the route shape statically while the handler stays a small typed function.',
+      },
+      {
+        title: "Read the incident from its loader contract",
+        path: "src/pages/incidents/webhook-retry-spike.tsx",
+        language: "tsx",
+        code: "const { incident, renderedAt } = useLoaderData<typeof loader>();",
+        notes: "The component renders shared incident detail from real loader data rather than guessing page props."
       },
     ],
     issues: [
@@ -885,6 +1183,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: 'The current index, snapshot, build and 404 pages use single-line head strings; the public guide shows the before/after.',
         takeaway: 'When static scanners require literal strings, boring one-line metadata can be the safest output contract.',
       },
+      {
+        title: "Every advertised incident needs a real route",
+        problem: "The second bundled active incident linked to 404 because no detail page existed.",
+        fix: "Add a literal server-page definition for webhook-retry-spike, read its loader through useLoaderData and share facts/timeline rendering with the ingestion incident.",
+        proof: "Browser tests visit both incident details while retaining CSS delivery, actual loader stamps and cached-versus-private snapshot assertions.",
+        takeaway: "Direct-route completeness is part of the content contract, even when a dashboard already lists the record."
+      },
     ],
     boundaries: [
       'Status data is fictional seed data.',
@@ -897,10 +1202,16 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Garden store', path: 'src/state/garden.js', note: 'Signals store plot assignments, watering journal, filter and persistence status.' },
       { label: 'Routes', path: 'src/routes.js', note: 'The app includes catalog, plant detail, plots, journal, build and fallback routes.' },
       { label: 'Build page', path: 'src/pages/Build.jsx', note: 'The in-app guide explains local state, aliases and browser-only durability.' },
+      {
+        label: "Dated care and legacy migration",
+        path: "src/utils/care.js",
+        note: "Pure explicit-clock care math ignores invalid/future watering and observations; legacy notes keep unknown dates as null."
+      },
     ],
     smooth: [
       'The care queue is derived from plant fixtures plus the watering journal, so logging water changes the queue without manual sync code.',
       'Named plot keys make the state easy to inspect in exported JSON and localStorage.',
+      "Unique plot assignment, denied-storage fallback and static aliases supported the dated notebook; the clock refresh timer/focus listener are cleaned up on unmount.",
     ],
     examples: [
       {
@@ -914,8 +1225,15 @@ export const STARTER_LEARNING = Object.freeze({
         title: 'Derive a care queue from source state',
         path: 'src/state/garden.js',
         language: 'js',
-        code: "export const careQueue = computed(() => filteredPlants()\n  .map((plant) => ({\n    ...plant,\n    urgency: plant.waterEvery <= 1 ? 'today' : plant.waterEvery <= 2 ? 'soon' : 'watch',\n    lastWatered: wateringJournal().find((entry) => entry.plant === plant.slug)?.day || 'not logged',\n  }))\n  .sort((a, b) => a.waterEvery - b.waterEvery));",
+        code: "export const careQueue = computed(() => filteredPlants()\n  .map((plant) => ({\n    ...plant,\n    ...careForPlant(plant, wateringJournal(), new Date(clock())),\n  }))\n  .sort((a, b) => ({ overdue: 0, today: 1, check: 2, soon: 3, rest: 4 }[a.urgency] - { overdue: 0, today: 1, check: 2, soon: 3, rest: 4 }[b.urgency])));",
         notes: 'The queue reacts to both the season filter and journal entries without becoming a separate mutable list.',
+      },
+      {
+        title: "Use local calendar days for the next soil check",
+        path: "src/utils/care.js",
+        language: "js",
+        code: "const nextCare = midnight(latest.observedAt);\n  nextCare.setDate(nextCare.getDate() + plant.waterEvery);",
+        notes: "No valid dated watering means Check soil, not a fabricated overdue date. Observations remain notes, not watering events."
       },
     ],
     issues: [
@@ -932,6 +1250,20 @@ export const STARTER_LEARNING = Object.freeze({
         fix: 'safeLoad checks validPlan before restoring, otherwise it falls back to seedPlan and initialJournal.',
         proof: 'Startup either restores a valid plan or reports that seed data loaded.',
         takeaway: 'Small starters should show recovery paths because agents will copy them into larger apps.',
+      },
+      {
+        title: "Cadence alone could not react to watering",
+        problem: "Logging water never changed the Today badge because care used only fixture cadence; older Today labels had no trustworthy timestamp.",
+        fix: "Compute care from valid non-future dated watering with an explicit clock and local calendar days. Migrate undated legacy notes to observedAt:null, preserve text, label uncertainty and bind selects to current unique plot assignments.",
+        proof: "Unit tests cover today/next day/overdue, future/invalid timestamps and unknown legacy dates; browser checks watering, observations, assignment continuity and session-only storage.",
+        takeaway: "Preserve unknown dates as unknown; manual care reminders are not sensor measurements."
+      },
+      {
+        title: "Expanded source guides exposed mobile overflow",
+        problem: "Long source snippets widened the document after the notebook guide grew, especially with wider fallback monospace fonts.",
+        fix: "Let guide grid children shrink with min-width:0, wrap inline tokens and constrain preformatted code to its own scrolling box without altering copied source text.",
+        proof: "The 390px browser regression checks normal and Courier fallback fonts and asserts intact literal source while the document remains within the viewport.",
+        takeaway: "Contain literal code within its own scroller instead of changing source text to fit the page."
       },
     ],
     boundaries: [

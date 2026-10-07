@@ -99,6 +99,16 @@ test('display text is escaped instead of interpreted as HTML', () => {
   assert.doesNotMatch(html, /<script>alert/);
 });
 
+test('backend sources are discoverable without being presented as hosted demos', () => {
+  const html = renderAgentGuide(one(), '0.13.10');
+  assert.match(html, /Real backend source references/);
+  assert.match(html, /https:\/\/github.com\/CelsianJs\/vura-example-harbor/);
+  assert.match(html, /https:\/\/github.com\/CelsianJs\/vura-example-drift/);
+  assert.match(html, /not additional verified live demos/);
+  assert.match(html, /provider durability verification are pending/);
+  assert.doesNotMatch(html, /https:\/\/vura-example-(?:harbor|drift).*\.vura\.app/);
+});
+
 test('an empty published catalog gives useful paths instead of dummy cards', () => {
   const html = renderGallery({ version: 1, templates: [] }, '0.13.10');
   assert.match(html, /Start with a working pattern/);
