@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 // `release-and-deploy` deliberately has no Depot counterpart. Everything else
@@ -68,4 +69,17 @@ test('the publisher has no Depot counterpart', () => {
     false,
     'a Depot copy of release-and-deploy.yml cannot publish: no NPM_TOKEN, no provenance',
   );
+});
+
+test('the release ref is checked before any credential-bearing step', () => {
+  const source = readFileSync(resolve(repoRoot, releaseWorkflows[0]), 'utf8');
+  assert.match(source, /Require main release ref[\s\S]*GITHUB_REF.*refs\/heads\/main/);
+  assert.ok(source.indexOf('Require main release ref') < source.indexOf('secrets.NPM_TOKEN', source.indexOf('steps:')));
+  assert.match(source, /WHAT_REGISTRY_TAG: \$\{\{ inputs\.npm_tag \}\}/);
+  const guard = source.match(/- name: Require main release ref\n\s+run: \|\n([\s\S]*?)(?=\n\s+- name:|\n\s+#)/)?.[1];
+  assert.ok(guard, 'the main-ref guard must be an executable first step');
+  for (const ref of ['refs/heads/main', 'refs/heads/feature/release', 'refs/tags/v0.13.10', '']) {
+    const result = spawnSync('bash', ['-e', '-c', guard], { encoding: 'utf8', env: { GITHUB_REF: ref } });
+    assert.equal(result.status, ref === 'refs/heads/main' ? 0 : 1, ref);
+  }
 });
