@@ -2,10 +2,10 @@ import { installDOM } from '../../../test-utils/dom.js';
 // Differential fuzz: a hydrated tree must end up identical to a client-only
 // render of the same tree.
 //
-// That is the whole contract of hydration, and it is the only assertion here.
-// It needs no knowledge of markers, cursors or claim rules, so it stays true if
-// the implementation of any of them changes, and it does not have to be updated
-// when someone finds the next shape.
+// Compare semantic DOM structure before/after writes, then prove disposal stops
+// subscriptions. Ignore internal comment boundaries, not elements/attributes.
+// The same corpus runs in isolated dev and production processes so corrections
+// cannot accidentally become dev-only behavior.
 //
 // This exists because every hydration bug fixed in this release was found by a
 // human building an app or by a reviewer hand-writing one adversarial tree at a
@@ -24,15 +24,23 @@ import { installDOM } from '../../../test-utils/dom.js';
 // number, rebuild that one tree, and look at `hyd html`: the marker layout is
 // where the answer is.
 
-import { describe, it, before } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const MODE = process.env.WHAT_HYDRATION_FUZZ_MODE;
+// Dev mode is resolved at module evaluation, so each corpus needs an isolated
+// process. Testing the same shapes in both configurations catches dev-gated
+// DOM corrections, not just the warning behavior of one handwritten case.
+globalThis.__WHAT_DEV__ = MODE !== 'production';
 
 installDOM('<!DOCTYPE html><html><head></head><body></body></html>');
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { hydrate } = await import('../src/render.js');
-const { mount } = await import('../src/dom.js');
+const { mount, disposeTree } = await import('../src/dom.js');
 const { renderToString } = await import('what-server');
 
 const CASES = 400;
@@ -82,7 +90,7 @@ function makeGenerator(seed) {
     const kids = Array.from({ length: n }, () => makeFactory(depth - 1));
     if (kind === 'el') {
       const tag = pick(['div', 'span', 'section']);
-      return (vals) => h(tag, {}, ...kids.map((k) => k(vals)));
+      return (vals) => h(tag, { 'data-kind': tag, 'data-value': () => String(vals[0]()) }, ...kids.map((k) => k(vals)));
     }
     // A component, which realizes to a fragment and so takes a different
     // reconciliation path than a plain element.
@@ -101,93 +109,106 @@ function quiet(fn) {
   try { return fn(); } finally { console.warn = original; }
 }
 
-describe('a hydrated tree matches a client-only render of the same tree', () => {
-  const divergent = [];
-  const threw = [];
-  let checked = 0;
+// Component/region comments deliberately differ between mount and hydration.
+// Compare semantic element structure and attributes, merging adjacent text
+// nodes across those comments rather than pinning their implementation shape.
+function normalize(parent) {
+  const children = [];
+  for (const node of parent.childNodes) {
+    if (node.nodeType === 8) continue;
+    if (node.nodeType === 3) {
+      if (!node.textContent) continue;
+      if (typeof children.at(-1) === 'string') children[children.length - 1] += node.textContent;
+      else children.push(node.textContent);
+    } else if (node.nodeType === 1) {
+      children.push([
+        node.localName, node.namespaceURI,
+        [...node.attributes].map((a) => [a.name, a.value]).sort((a, b) => a[0].localeCompare(b[0])),
+        normalize(node),
+      ]);
+    }
+  }
+  return children;
+}
 
-  before(() => {
+if (!MODE) {
+  describe('hydration differential corpus configurations', () => {
+    for (const mode of ['development', 'production']) {
+      it(`matches DOM structure, writes and disposal in ${mode}`, () => {
+        const env = { ...process.env, WHAT_HYDRATION_FUZZ_MODE: mode };
+        // node --test marks its workers through this private environment key.
+        // Forwarding it makes a nested runner emit worker protocol bytes instead
+        // of executing/reporting a normal test run.
+        delete env.NODE_TEST_CONTEXT;
+        const result = spawnSync(process.execPath, ['--test', fileURLToPath(import.meta.url)], {
+          encoding: 'utf8', timeout: 30000,
+          env,
+        });
+        assert.equal(result.status, 0, result.stderr + result.stdout);
+        assert.match(result.stdout, /tests\s+1\b/, 'the child must report an executed corpus test');
+        assert.match(result.stdout, /pass\s+1\b/, 'the corpus must report success, not just exit zero');
+      });
+    }
+  });
+} else describe(`hydration differential corpus (${MODE}, seed ${SEED})`, () => {
+  it(`matches ${CASES} generated trees before/after writes and stops after disposal`, () => {
     const makeFactory = makeGenerator(SEED);
     const sig = (values) => values.map((v) => signal(v));
+    let checked = 0;
 
     for (let n = 0; n < CASES; n++) {
       const factory = makeFactory(3);
-
-      // 1. What the client alone produces. This is the reference answer.
-      document.body.innerHTML = '<div id="client"></div>';
-      let clientOnly;
-      try {
-        quiet(() => mount(factory(sig(CLIENT_VALUES)), '#client'));
-        flushSync();
-        clientOnly = document.getElementById('client').textContent;
-      } catch {
-        continue; // a tree the client cannot render is not a hydration case
-      }
-
-      // 2. Server-render it with the server's values, then hydrate with the
-      //    client's. The result must be indistinguishable from step 1.
+      const client = document.createElement('div');
+      const host = document.createElement('div');
+      document.body.append(client, host);
+      const clientSignals = sig(CLIENT_VALUES);
+      const hydrationSignals = sig(CLIENT_VALUES);
       let ssr;
       try {
+        // Only shapes valid for both rendering APIs belong to the oracle.
+        // The minimum count below prevents generation failures from vacuously
+        // passing, and cleanup still runs for every excluded shape.
+        quiet(() => mount(factory(clientSignals), client));
+        flushSync();
         ssr = renderToString(factory(sig(SERVER_VALUES)));
       } catch {
-        continue;
+        disposeTree(client);
+        client.remove();
+        host.remove();
+        continue; // a tree the client cannot render is not a hydration case
       }
-
-      document.body.innerHTML = `<div id="host">${ssr}</div>`;
-      const host = document.getElementById('host');
+      host.innerHTML = ssr;
       try {
-        quiet(() => hydrate(factory(sig(CLIENT_VALUES)), host));
+        quiet(() => hydrate(factory(hydrationSignals), host));
         flushSync();
-      } catch (e) {
-        threw.push({ n, ssr, message: e.message });
-        continue;
-      }
-
-      checked++;
-      if (host.textContent !== clientOnly) {
-        divergent.push({
-          n,
-          ssr,
-          expected: clientOnly,
-          actual: host.textContent,
-          html: host.innerHTML,
-        });
+        const context = `seed ${SEED} case ${n} mode ${MODE}; SSR ${JSON.stringify(ssr)}`;
+        assert.deepEqual(normalize(host), normalize(client), `initial DOM: ${context}`);
+        for (const values of [[0, '', 'next', 'tail'], [9, 'again', '', '']]) {
+          clientSignals.forEach((s, i) => s(values[i]));
+          hydrationSignals.forEach((s, i) => s(values[i]));
+          flushSync();
+          assert.deepEqual(normalize(host), normalize(client), `after write ${JSON.stringify(values)}: ${context}`);
+        }
+        disposeTree(client);
+        disposeTree(host);
+        const disposedClient = normalize(client);
+        const disposedHydrated = normalize(host);
+        clientSignals.forEach((s, i) => s(CLIENT_VALUES[i]));
+        hydrationSignals.forEach((s, i) => s(CLIENT_VALUES[i]));
+        flushSync();
+        assert.deepEqual(normalize(client), disposedClient, `client mutated after disposal: ${context}`);
+        assert.deepEqual(normalize(host), disposedHydrated, `hydrated DOM mutated after disposal: ${context}`);
+        checked++;
+      } finally {
+        disposeTree(client);
+        disposeTree(host);
+        client.remove();
+        host.remove();
       }
     }
-  });
-
-  it('actually exercised the generated trees', () => {
-    // Both loops above `continue` past trees the client or the server cannot
-    // render at all. Without this, a generator change that made every tree fail
-    // early would leave a fuzz suite that checks nothing and passes: the exact
-    // shape of green-but-inert test this file exists to catch.
     assert.ok(
       checked >= CASES * 0.75,
       `only ${checked}/${CASES} trees reached the comparison; the generator is producing trees that cannot render`,
-    );
-  });
-
-  it(`renders ${CASES} generated trees without throwing`, () => {
-    assert.deepEqual(
-      threw.map((t) => `#${t.n}: ${t.message}`),
-      [],
-      'hydration must never throw: it aborts the whole page, leaving it inert',
-    );
-  });
-
-  it('produces byte-identical text for every generated tree', () => {
-    const report = divergent.slice(0, 5).map((d) => [
-      `case #${d.n}`,
-      `  ssr        : ${JSON.stringify(d.ssr)}`,
-      `  client-only: ${JSON.stringify(d.expected)}`,
-      `  hydrated   : ${JSON.stringify(d.actual)}`,
-      `  hyd html   : ${JSON.stringify(d.html)}`,
-    ].join('\n')).join('\n\n');
-
-    assert.equal(
-      divergent.length,
-      0,
-      `${divergent.length}/${checked} hydrated trees diverged from a client render:\n\n${report}`,
     );
   });
 });
