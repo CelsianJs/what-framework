@@ -1,16 +1,16 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-07T14:35:07Z",
+  "updatedAt": "2026-10-08T17:02:10.656Z",
   "entries": [
     {
       "slug": "what-starter-tempo",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "The tracker shows its running block and elapsed time, guards pending creation and invalidates late responses on reset. Keyboard editing remains stable; denied storage is explicitly session-only.",
       "source": {
         "state": "published",
-        "commitSha": "83ec13a0ddff56dda794d223799b3960c45a5323",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "5e6b72f96bd89ff97453ab124fd3844d87e9a0d7",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -96,12 +96,19 @@
           "label": "Early Function response diagnostic",
           "result": "reported",
           "details": "One early validation request returned503. Fresh UI retries, the real reset-during-pending flow and three consecutive direct probes returned200. The isolated transient cause is not confirmed; this is not a perfect cold-start reliability claim."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
         "Serverless demos should show request boundaries even when the data is synthetic.",
         "Use keyed accessors for editable repeated state when objects are replaced immutably.",
-        "Reset is an asynchronous ownership boundary, not just a group of signal writes."
+        "Reset is an asynchronous ownership boundary, not just a group of signal writes.",
+        "Keep style regressions in the delivery path alongside behavior checks."
       ],
       "limitations": [
         "Workspace data is browser-local seed data, not a multi-user database.",
@@ -192,18 +199,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "The tracker shows its running block and elapsed time, guards pending creation and invalidates late responses on reset. Keyboard editing remains stable; denied storage is explicitly session-only."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-launchpad",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Product-facing releases, transparent rate assumptions and distinct tour evidence make the startup reference substantive. Its static pages, islands and no-JS content passed new release checks.",
       "source": {
         "state": "published",
-        "commitSha": "318edac832a3fc6ee61122240bbeb4bef47085d0",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "7fbbf2cad1f742723aec90e5f4a87c4433cc003c",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -271,12 +284,19 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
         "Static route classes are part of the component contract when a client island mounts inside them.",
         "Static-first does not mean state-free; persisted island state still needs input hygiene.",
-        "Product claims should come from visible authored evidence, not decorative metrics."
+        "Product claims should come from visible authored evidence, not decorative metrics.",
+        "Distinguish decoration from a data encoding before removing a visual treatment."
       ],
       "limitations": [
         "The pricing calculator is an anonymous local estimate, not billing or entitlement logic.",
@@ -355,18 +375,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Product-facing releases, transparent rate assumptions and distinct tour evidence make the startup reference substantive. Its static pages, islands and no-JS content passed new release checks."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-fieldwork",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Four distinct authored research dossiers present questions, methods, specimens and limits. The shared seeded instrument is described honestly, with a clearer mobile accession heading and adjacent navigation.",
       "source": {
         "state": "published",
-        "commitSha": "19bb2fb746b6271942aa4a753e99ce17c6cffcb6",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "a380b3036006306043a8ef44e92b11b579c333ab",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -446,6 +472,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -543,18 +575,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Four distinct authored research dossiers present questions, methods, specimens and limits. The shared seeded instrument is described honestly, with a clearer mobile accession heading and adjacent navigation."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-oscillator",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T17:02:10.656Z",
       "summary": "Saved/custom pattern identity, guarded storage failure and numerical controls match the instrument state. The playable sequencer appears much earlier on mobile; audio ownership and guide containment pass.",
       "source": {
         "state": "published",
-        "commitSha": "c34ed8bae4beb0e625b81c88da3357f0336c7e5f",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "cbfb640ec87a8bad0c45e02a5b0ce5a0c00fdb6d",
+        "verifiedAt": "2026-10-08T17:02:10.656Z"
       },
       "verification": [
         {
@@ -622,12 +660,26 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "reported",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded. The desktop home hero measures 56px, exceeding the 48px heading target; this styling exception remains open."
+        },
+        {
+          "at": "2026-10-08T17:02:10.656Z",
+          "label": "Oscillator heading bound repaired and rechecked on production",
+          "result": "passed",
+          "details": "The previously reported 56px desktop hero is closed by the released stylesheet repair. Fresh home, studio and build routes returned 200 at 1440 by 900 and 390 by 844 with the exact new deployment identifier. Home heading measures 48px on desktop and 32px on mobile; body text remains 16px and brand targets meet 44px. No horizontal page overflow, framework overlay, pageerror or console error occurred. Home-to-studio navigation responds with a visible 2px keyboard focus outline. The actual released desktop PNG is the replacement gallery preview."
         }
       ],
       "lessons": [
         "A visual alignment bug can be a data-structure bug in the markup, not only a CSS spacing bug.",
         "Long-running browser resources need idempotent start and explicit cancellation, even in a demo.",
-        "Preset identity, current edits and persistence success are separate facts."
+        "Preset identity, current edits and persistence success are separate facts.",
+        "Reflow related controls and labels together instead of shrinking targets.",
+        "A local typography cap is not release evidence: remeasure the actual production hero after the source revision and deployment identifiers change."
       ],
       "limitations": [
         "The studio runs entirely in the browser; it does not stream audio or save patterns to a server.",
@@ -706,18 +758,30 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Saved/custom pattern identity, guarded storage failure and numerical controls match the instrument state. The playable sequencer appears much earlier on mobile; audio ownership and guide containment pass."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained. The desktop home hero measures 56px, exceeding the 48px heading target; this styling exception remains open."
+        },
+        {
+          "at": "2026-10-08T17:02:10.656Z",
+          "phase": "live",
+          "title": "Desktop hero heading exception closed after targeted release",
+          "summary": "The historical 56px finding is retained. A narrow stylesheet repair now caps the released home heading at 48px while preserving the 32px mobile heading, studio controls and audio state. Fresh production route captures and navigation checks identify the new source and deployment checkpoint."
         }
       ]
     },
     {
       "slug": "what-starter-lens",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Mobile metrics and charts arrive earlier, server reports show their filter snapshot, and cohorts retain a labeled scrollable table. The real bounded report API and all chart ranges passed hosted checks.",
       "source": {
         "state": "published",
-        "commitSha": "dfb763e4e9b57303785b2b636551dd32e2766a88",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "a8eda2c3d5d4ee6c3d3e10ae678e8fac617726ba",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -785,6 +849,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -881,18 +951,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Mobile metrics and charts arrive earlier, server reports show their filter snapshot, and cohorts retain a labeled scrollable table. The real bounded report API and all chart ranges passed hosted checks."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-harbor",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Incident quick actions update visible controls and activity; restored saved views are validated and deduplicated. The industrial console is compact on mobile and remains a browser-local simulation.",
       "source": {
         "state": "published",
-        "commitSha": "84274efafb411418640aa7ca479dd402deedd405",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "4e5df0fdd00ac6766347d5a00a78130aaba6ceb8",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -960,12 +1036,19 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
         "Dashboards feel sharper when each region owns a distinct decision, not the same number in a different box.",
         "Local persistence should be a capability, not a prerequisite for routeable app behavior.",
-        "A signal update cannot refresh a record sampled once during component setup."
+        "A signal update cannot refresh a record sampled once during component setup.",
+        "Use content-fit alignment where adjacent panels have different amounts of information."
       ],
       "limitations": [
         "Harbor edits are local simulation state, not shared incident-management storage.",
@@ -1050,18 +1133,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Incident quick actions update visible controls and activity; restored saved views are validated and deduplicated. The industrial console is compact on mobile and remains a browser-local simulation."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-gather",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Ingredient checks persist across routes and reload, with remaining counts and clear controls independent of meal planning. The terracotta recipe and market notebook remains browser-local.",
       "source": {
         "state": "published",
-        "commitSha": "fffea14b479eb4e15fa41b00ca1d32bac727d61e",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "6f86fe8a23cfcba35c48cf0835b59870b86d5f7e",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -1129,11 +1218,18 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
         "Small native controls can teach state transitions more clearly than a hard-coded demo shortcut.",
-        "Persist user intent by stable item identity while deriving completion from the current list."
+        "Persist user intent by stable item identity while deriving completion from the current list.",
+        "Enlarge the associated label hit area while preserving native control geometry."
       ],
       "limitations": [
         "Recipes and nutrition-like details are fixtures for interaction design, not a live recipe API.",
@@ -1212,18 +1308,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Ingredient checks persist across routes and reload, with remaining counts and clear controls independent of meal planning. The terracotta recipe and market notebook remains browser-local."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-marginalia",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Complete authored essays, useful sidenotes and related reading replace shallow article previews. Reading durations derive from actual text; local bookmarks and static no-JS reading work.",
       "source": {
         "state": "published",
-        "commitSha": "31e4f57120b260ee7574dcba4349fe2f6f91c0ab",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "7d6e09555da394f1e983d3272e85fb6d156ffe5c",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -1291,6 +1393,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -1374,18 +1482,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Complete authored essays, useful sidenotes and related reading replace shallow article previews. Reading durations derive from actual text; local bookmarks and static no-JS reading work."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-meridian",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Guide context carries into the planner without silently replacing saved plans. Rich logistics, coherent fixed-slot movement and the current-state route map are verified on desktop and mobile.",
       "source": {
         "state": "published",
-        "commitSha": "6d87822e5e876a8376b76c4c170228dfdb607aea",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "df6767014bf327b69a2defb97042c7c9431c7b11",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -1453,12 +1567,19 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
         "A small CSS alignment rule can make an island feel intentional instead of stretched by its sibling content.",
         "Static script JSON needs the same rendering-boundary care as visible HTML.",
-        "Distinguish activity identity, schedule slots and real timestamps before implementing itinerary movement."
+        "Distinguish activity identity, schedule slots and real timestamps before implementing itinerary movement.",
+        "Verify rendered text dimensions as well as logical SVG geometry."
       ],
       "limitations": [
         "Trip data is fictional and local-only.",
@@ -1549,18 +1670,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Guide context carries into the planner without silently replacing saved plans. Rich logistics, coherent fixed-slot movement and the current-state route map are verified on desktop and mobile."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-cartograph",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Basket snapshots reject stale quote replies, quantity replacement preserves focus and receipt reset clears the visible record immediately. Product and quote controls appear earlier without changing its outdoor identity.",
       "source": {
         "state": "published",
-        "commitSha": "f0414651c81e6d98d38a1def279c6c89795ea934",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "42d3b9d56b0ec9db7baaad356235a2933f98d528",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -1640,6 +1767,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -1736,18 +1869,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Basket snapshots reject stale quote replies, quantity replacement preserves focus and receipt reset clears the visible record immediately. Product and quote controls appear earlier without changing its outdoor identity."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-form",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Case studies now explain program, material and design rationale, and a selected study can seed an empty brief without overwriting edits. Drawings and the vermillion drafting identity remain intact.",
       "source": {
         "state": "published",
-        "commitSha": "9ee643af2d613b31f0140e94de4ecb0f35cf68b2",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "4a3c1bc5501cf1739b621d40af7d09ba1e9c983c",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -1815,6 +1954,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -1911,18 +2056,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Case studies now explain program, material and design rationale, and a selected study can seed an empty brief without overwriting edits. Drawings and the vermillion drafting identity remain intact."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-beacon",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Speaker/session relationships, fuller abstracts, contextual agenda saves and a real folded calendar download are operational. Static details and saved-only agenda behavior passed.",
       "source": {
         "state": "published",
-        "commitSha": "e6e062ebbd909e772bda892851b7d89014514512",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "0829d929657524cf9c5eac2e9b4daa16d71e49be",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -1990,6 +2141,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -2092,18 +2249,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Speaker/session relationships, fuller abstracts, contextual agenda saves and a real folded calendar download are operational. Static details and saved-only agenda behavior passed."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-finch",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Practice cards advance reactively with reset reveal state, progress and concrete continuation links. Touch controls, completed lesson navigation and local persistence passed.",
       "source": {
         "state": "published",
-        "commitSha": "8492d53a01d53b6c9a87410a7522d85f3f6719d9",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "4eb5d37322ee8780758b8fd195fbcbc02d9057b2",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -2171,6 +2334,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -2266,18 +2435,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Practice cards advance reactively with reset reveal state, progress and concrete continuation links. Touch controls, completed lesson navigation and local persistence passed."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-tally",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Invoice lines can be removed and recovered, dates and draft status are clear, and line/export calculations use the same safe operands. Focus, totals, receipt and responsive labels passed.",
       "source": {
         "state": "published",
-        "commitSha": "c1e8678b28c082303b583fe5da30e15c323462cf",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "d87c3c92dcf2bea9246f31d41b28cb1ed32a1806",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -2351,6 +2526,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -2442,18 +2623,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Invoice lines can be removed and recovered, dates and draft status are clear, and line/export calculations use the same safe operands. Focus, totals, receipt and responsive labels passed."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-drift",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "The List filter reacts immediately, edge moves are disabled and named, and lane orientation is clearer. The spatial planner preserves local state and its distinct lilac and peach identity.",
       "source": {
         "state": "published",
-        "commitSha": "6d4ecff5511e99c8590351e836a721351c00ef55",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "1c134eb4c8b0dfae8464d329b8cf4e2a95f40dad",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -2515,11 +2702,18 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
         "Shared route state is only useful if restoration cannot poison every route at startup.",
-        "Derived collections that change after mount belong in accessors, not setup snapshots."
+        "Derived collections that change after mount belong in accessors, not setup snapshots.",
+        "Normalize measurement tolerances without reducing the authored target size."
       ],
       "limitations": [
         "Planner edits and export data are browser-local.",
@@ -2604,18 +2798,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "The List filter reacts immediately, edge moves are disabled and named, and lane orientation is clearer. The spatial planner preserves local state and its distinct lilac and peach identity."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-bloom",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Dated manual watering updates reminders, undated legacy records stay honest, plot assignment displays correctly and observations have history. Botanical silhouettes and responsive code guides are verified.",
       "source": {
         "state": "published",
-        "commitSha": "5196fb104dabc546ada38cd24c03cf1a7645c44e",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "82f223307709ee6b3559c99d9bea1ef984ba4591",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -2677,6 +2877,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -2768,18 +2974,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Dated manual watering updates reminders, undated legacy records stay honest, plot assignment displays correctly and observations have history. Botanical silhouettes and responsive code guides are verified."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-signal",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Both incident detail routes render, request loaders use real timestamps and the stylesheet is served correctly. Cached overview and private uncached snapshot behavior passed live proof.",
       "source": {
         "state": "published",
-        "commitSha": "fbc3b870a69e2d0c863a0ddaaf66daacabfef8cb",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "672bf3010d8c6f63ee870ac352fe5fe892c88093",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -2859,6 +3071,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -2962,18 +3180,24 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Both incident detail routes render, request loaders use real timestamps and the stylesheet is served correctly. Cached overview and private uncached snapshot behavior passed live proof."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     },
     {
       "slug": "what-starter-orbit",
       "phase": "live",
-      "updatedAt": "2026-10-07T14:35:07Z",
+      "updatedAt": "2026-10-08T16:14:27.884Z",
       "summary": "Changed booking drafts invalidate old holds and ignore late replies; service selection proceeds into booking and cancellation history survives reload. Keyboard/date controls and local calendar downloads work.",
       "source": {
         "state": "published",
-        "commitSha": "d60ab879abea665676fedbc483651cdbb84df3c1",
-        "verifiedAt": "2026-10-07T14:35:07Z"
+        "commitSha": "e55fd4465739a3fdf715d936233d6555a4fee029",
+        "verifiedAt": "2026-10-08T16:14:27.884Z"
       },
       "verification": [
         {
@@ -3041,6 +3265,12 @@
           "label": "October published source and hosted workflow release",
           "result": "passed",
           "details": "Reviewed source merged after configured CI passed, then built and deployed through the public CLI. Fresh released desktop/mobile captures, actual assets and critical workflows passed; deployment and source identifiers match this record."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "label": "October shared typography release and fresh rendered route evidence",
+          "result": "passed",
+          "details": "Ready production deployment and live response identifiers match the published source checkpoint. Fresh home, product and build routes returned 200 at 1440 by 900 and 390 by 844, with six actual viewport captures, 16px body text, no horizontal page overflow or runtime error overlay. Mobile primary navigation responds and keyboard focus is recorded."
         }
       ],
       "lessons": [
@@ -3132,6 +3362,12 @@
           "phase": "live",
           "title": "Product-depth iteration released and exercised",
           "summary": "Changed booking drafts invalidate old holds and ignore late replies; service selection proceeds into booking and cancellation history survives reload. Keyboard/date controls and local calendar downloads work."
+        },
+        {
+          "at": "2026-10-08T16:14:27.884Z",
+          "phase": "live",
+          "title": "Shared typography release captured from production",
+          "summary": "Published shared typography and responsive control refinements are tied to the exact live deployment and source revision. Actual released captures replace the previous gallery preview; existing product behavior and source-grounded lessons are retained."
         }
       ]
     }
