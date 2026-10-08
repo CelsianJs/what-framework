@@ -2,6 +2,60 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.11] - 2026-10-08
+
+### Safer server rendering and private pages
+
+- Server rendering rejects invalid attribute names before writing any value,
+  including `false` values on data and accessibility attributes. Valid
+  attributes keep their existing behavior.
+- Concurrent page requests no longer share a render marked private or using
+  request headers. Each waiting request renders with its own context; public
+  page results still share work and private results remain uncached.
+- Installing `what-server` on its own now installs its required `what-router`
+  peer, so the Node server entry works without monorepo dependency hoisting.
+
+### Reliable updates and recovery
+
+- Reactive attributes on hydrated elements stop updating when those elements
+  are disposed. Detached elements no longer retain these subscriptions.
+- A throwing error-boundary fallback no longer leaves later components in the
+  failed boundary's context.
+- Stable effect failures are reported in production without stopping sibling
+  effects or subsequent updates.
+- DevTools report an effect's initial execution and dependencies before the
+  first signal write, without executing the callback a second time. Lazy
+  computed values remain lazy.
+
+### Clearer development feedback
+
+- Edits to imported components appear without a manual browser refresh. When
+  no component-replacement runtime is installed, the compiler reloads the
+  page; this fallback does not preserve local component state.
+- The recommended ESLint configuration warns when native component props are
+  destructured during setup, which can capture their initial values. React
+  compatibility components are excluded.
+- TypeScript and generated-project guidance now explain reactive prop access
+  and the dependency graph accurately.
+
+### Release verification
+
+- Local verification and the publisher share one correctness-gate list,
+  including declaration parity, error catalogue/docs checks, typechecks and
+  lint. Local performance gates remain blocking; CI retains its separate
+  non-blocking performance signal.
+- Publishing requires the `main` branch. Already-published versions reconcile
+  the requested npm tag only after missing cohort members publish; registry
+  verification checks both exact versions and that tag before installing
+  pinned packages.
+- CI adds a bounded native WebKit qualification for hydration, inputs, radio
+  controls, events, SVG and visible islands, plus packed standalone-server
+  verification. These checks are not a claim of exhaustive browser coverage.
+
+See `docs/releases/v0.13.11.md` for migration guidance and scope. No new runtime
+dependencies or performance improvements are claimed. All 13 maintained
+packages advance together; deprecated `what-mcp` stays frozen at 0.12.4.
+
 ## [0.13.10] - 2026-09-28
 
 ### Imported values in compiled JSX
