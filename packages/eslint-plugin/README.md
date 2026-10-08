@@ -31,6 +31,25 @@ export default [
 
 ## Rules
 
+### `what/no-destructured-props`
+
+Warns when native What components destructure their props during run-once
+setup. Keep the props object and read properties inside reactive bindings:
+
+```jsx
+// Bad: the label is sampled once during component setup.
+function Button({ label }) { return <button>{label}</button>; }
+
+// Good: the binding reads the current property when it updates.
+function Button(props) { return <button>{() => props.label}</button>; }
+```
+
+The rule is enabled in recommended/compiler presets and is an error in strict.
+It does not apply this native contract to React compatibility components or
+unrelated domain/event destructuring. It does not promise the compiler will
+automatically wrap arbitrary property reads; explicit accessors work in both
+compiled and automatic-runtime authoring.
+
 ### `what/no-uncalled-signals`
 
 Catches the #1 mistake for new developers: using a signal reference instead of calling it. Signals are functions -- you must call them to read the value.
@@ -129,6 +148,10 @@ count.set(5);
   'what/no-camelcase-events': 'warn',
   'what/no-uncalled-signals': 'warn',
   'what/prefer-set': 'off',
+  'what/no-h-in-user-code': 'warn',
+  'what/signal-call-in-jsx': 'warn',
+  'what/no-set-in-computed': 'error',
+  'what/no-destructured-props': 'warn',
 }
 ```
 
@@ -142,6 +165,10 @@ count.set(5);
   'what/no-camelcase-events': 'error',
   'what/no-uncalled-signals': 'error',
   'what/prefer-set': 'warn',
+  'what/no-h-in-user-code': 'error',
+  'what/signal-call-in-jsx': 'error',
+  'what/no-set-in-computed': 'error',
+  'what/no-destructured-props': 'error',
 }
 ```
 
@@ -155,6 +182,10 @@ count.set(5);
   'what/no-camelcase-events': 'off',          // compiler normalizes events
   'what/no-uncalled-signals': 'warn',
   'what/prefer-set': 'off',
+  'what/no-h-in-user-code': 'warn',
+  'what/signal-call-in-jsx': 'off',
+  'what/no-set-in-computed': 'error',
+  'what/no-destructured-props': ['warn', { assumeNative: true }],
 }
 ```
 

@@ -110,14 +110,19 @@ interface ButtonProps {
   onclick?: () => void;
 }
 
-function Button({ label, variant = 'primary', onclick }: ButtonProps) {
+function Button(props: ButtonProps) {
   return (
-    <button class={`btn btn-${variant}`} onclick={onclick}>
-      {label}
+    <button class={() => `btn btn-${props.variant ?? 'primary'}`} onclick={props.onclick}>
+      {() => props.label}
     </button>
   );
 }
 ```
+
+Native What components run once. Keep changing props as `props.label` / `props.variant`
+reads inside reactive callbacks; destructuring them in the parameter or component
+body captures their initial values. The compiler preset's `what/no-destructured-props` rule warns
+about this setup-time snapshot (React compatibility components use React semantics).
 
 ### Typed Context
 
