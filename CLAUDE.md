@@ -48,9 +48,9 @@ Use `.map()` with a `key` prop for list rendering. The compiler auto-lowers it t
 
 ```js
 // Preferred: .map() with key prop
-function TodoList({ todos }) {
+function TodoList(props) {
   return h('ul', {},
-    () => todos().map(todo => <li key={todo.id}>{todo.title}</li>)
+    () => props.todos().map(todo => <li key={todo.id}>{todo.title}</li>)
   );
 }
 ```
@@ -199,15 +199,15 @@ If `what_dependency_graph` shows an edge from signal to effect, but `what_diff_s
 
 ### Understanding Diagnostic Output
 
-**"N signals with no subscribers"** — Normal in What Framework. Signals read inside `() => ...` reactive text bindings (marked as `<!--fn-->` in DOM) update the DOM directly without going through tracked effects. These signals ARE reactive, just not through the effect system the devtools tracks. Only investigate if a signal should be triggering an effect but isn't.
+**"N signals with no subscribers"** — A signal may genuinely be unused, read only during setup, or inspected outside a tracked binding. Reactive text and attribute bindings do use tracked effects; do not dismiss their missing dependencies as a different renderer mechanism. Confirm the binding is mounted and inspect the dependency graph.
 
-**"N effects with no signal dependencies"** — Normal. These are one-shot setup effects that run once during component creation (DOM manipulation, event listeners, initialization). They have runCount=0 or 1 and never re-fire. Expected in What Framework's "components run once" model.
+**"N effects with no signal dependencies"** — Successful one-shot setup effects can have no dependencies and run once. Initial execution is reported without requiring a later signal write. Lazy computeds are a different case: they do not execute until read. A mounted binding that reads a signal should have the corresponding edge.
 
 **Components showing signalCount=0, effectCount=0** — Signals and effects are attributed to the scope where they were *created*, not where they're *consumed*. Module-scope signals (shared stores) won't appear on any component. Use `what_signals` and `what_effects` directly instead of relying on per-component counts.
 
 **`parentId: null` on all components (flat tree)** — The component tree reports creation-time parent relationships. If the framework doesn't track parentage (or uses a flat mounting model), all components appear at root level. Use `what_page_map` for the actual visual hierarchy. Prefer `what_components` over `what_component_tree` — the hierarchy feature is not yet functional.
 
-**`<!--fn-->` in DOM output** — These comment markers indicate reactive text bindings: inline functions that re-evaluate when their signal dependencies change. They're the primary reactivity mechanism in templates — more common than tracked effects.
+**`<!--fn-->` in DOM output** — These comment markers delimit reactive function children. Their tracked effects re-evaluate when their signal dependencies change; they do not bypass the effect graph.
 
 **`what_signal_trace` shows empty `recentWrites`** — The write trace requires `what_watch` to have been running first to capture events. Without a prior watch session, `recentWrites` will always be empty. Run `what_watch` for a few seconds, trigger the write, then call `what_signal_trace`.
 
