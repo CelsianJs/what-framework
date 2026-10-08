@@ -7,13 +7,14 @@
 // - Ownership tree: createRoot children auto-dispose when parent disposes
 // - Performance: cached levels, lazy sort, fast-path notify, minimal allocation
 
-// Dev-mode flag — `if (__DEV__)` branches dead-code-eliminate when this is false.
+// Dev-mode flag — production defaults disable hooks; the runtime override can
+// retain development branches in consumer bundles.
 //
 // Resolution order (first definitive signal wins; PRODUCTION-SAFE default):
 //   1. globalThis.__WHAT_DEV__ — explicit boolean override for browser tooling
 //      (e.g. the playground can force dev mode without a bundler env).
-//   2. import.meta.env.DEV     — Vite & modern bundlers statically replace this,
-//      so production builds fully strip every dev branch.
+//   2. import.meta.env.DEV     — Vite & modern bundlers statically replace this
+//      fallback; the explicit runtime override above still takes precedence.
 //   3. process.env.NODE_ENV    — Node / webpack / esbuild `define`.
 //   4. false                   — a raw browser bundle with NO build signal must
 //      default to PRODUCTION. (Previously defaulted to `true`, so EVERY browser
@@ -29,7 +30,7 @@ export const __DEV__ =
         : false;
 
 // DevTools hooks — set by what-devtools when installed.
-// These are no-ops in production (dead-code eliminated with __DEV__).
+// These are no-ops when development mode is disabled.
 /** @type {WhatDevToolsHooks | null} */
 export let __devtools = null;
 
@@ -348,6 +349,8 @@ export function effect(fn, opts) {
   }
   // Compute level after first run based on actual dependencies (cached).
   _updateLevel(e);
+  // Registration precedes execution; publish the now-populated initial graph.
+  if (__DEV__) __devtools?.onEffectRun?.(e);
   // Mark as stable after first run — subsequent re-runs skip cleanup/re-subscribe
   if (opts?.stable) e._stable = true;
 
@@ -440,7 +443,7 @@ function _runEffect(e) {
       if (typeof result === 'function') e._cleanup = result;
     } catch (err) {
       if (__devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
-      if (__DEV__) console.warn('[what] Error in stable effect:', err);
+      _reportUpdateError(err);
     } finally {
       currentEffect = prev;
     }
@@ -534,10 +537,11 @@ function _processSubscriber(e) {
         }
       } catch (err) {
         if (__DEV__ && __devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
-        if (__DEV__) console.warn('[what] Error in stable effect:', err);
+        _reportUpdateError(err);
       } finally {
         currentEffect = prev;
       }
+      if (__DEV__) __devtools?.onEffectRun?.(e);
     } else {
       e._pending = true;
       const level = e._level;
@@ -603,6 +607,11 @@ function scheduleMicrotask() {
 
 let isFlushing = false;
 
+function _reportUpdateError(err) {
+  // Reporting must not interrupt sibling updates, even with a throwing console.
+  try { console.error('[what] Uncaught error in effect during update:', err); } catch { /* no console */ }
+}
+
 function flush() {
   // Re-entrancy guard: if flush() is called during an active flush (e.g., via
   // flushSync() inside a component render or effect), skip to prevent infinite
@@ -643,7 +652,7 @@ function flush() {
             // Surface in production too — an uncaught reactive-update error is a
             // real bug; staying silent (as the old throw-out-of-flush did once it
             // escaped) hides it. console.error never aborts the batch.
-            try { console.error('[what] Uncaught error in effect during update:', err); } catch { /* no console */ }
+            _reportUpdateError(err);
             continue;
           }
           // Update level only if deps changed (graph structure change)

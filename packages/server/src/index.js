@@ -902,6 +902,13 @@ function renderAttrs(props) {
       // A resolved value that is itself a function is not an attribute value.
       if (typeof val === 'function') continue;
     }
+    // Validate names before every emission path, including enumerated false.
+    if (!SAFE_ATTR_NAME.test(key)) {
+      if (_isDevMode) {
+        console.warn(`[what-server] Skipping invalid attribute name in SSR: ${JSON.stringify(key)}`);
+      }
+      continue;
+    }
     // aria-*/role and data-* are enumerated, so `false` is a real value and must
     // survive: an absent `aria-expanded` means "unsupported",
     // `aria-expanded="false"` means "collapsed", and `[data-open="false"]` is an
@@ -912,12 +919,6 @@ function renderAttrs(props) {
       continue;
     }
     if (val === false || val == null) continue;
-    if (!SAFE_ATTR_NAME.test(key)) {
-      if (_isDevMode) {
-        console.warn(`[what-server] Skipping invalid attribute name in SSR: ${JSON.stringify(key)}`);
-      }
-      continue;
-    }
     if (REFUSED_ATTRS.has(lowerKey)) {
       if (_isDevMode) {
         console.warn(`[what-server] Skipping unsafe attribute in SSR: ${JSON.stringify(key)}`);

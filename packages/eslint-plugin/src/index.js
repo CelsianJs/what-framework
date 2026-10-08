@@ -20,6 +20,7 @@ import noUncalledSignals from './rules/no-uncalled-signals.js';
 import noHInUserCode from './rules/no-h-in-user-code.js';
 import signalCallInJsx from './rules/signal-call-in-jsx.js';
 import noSetInComputed from './rules/no-set-in-computed.js';
+import noDestructuredProps from './rules/no-destructured-props.js';
 
 // Read the real version from package.json so plugin meta never goes stale.
 const require = createRequire(import.meta.url);
@@ -41,6 +42,7 @@ const plugin = {
     'no-h-in-user-code': noHInUserCode,
     'signal-call-in-jsx': signalCallInJsx,
     'no-set-in-computed': noSetInComputed,
+    'no-destructured-props': noDestructuredProps,
   },
 
   configs: {},
@@ -94,6 +96,7 @@ plugin.configs.recommended = {
     'what/no-h-in-user-code': 'warn',
     'what/signal-call-in-jsx': 'warn',
     'what/no-set-in-computed': 'error',
+    'what/no-destructured-props': 'warn',
   },
 };
 
@@ -113,6 +116,7 @@ plugin.configs.strict = {
     'what/no-h-in-user-code': 'error',
     'what/signal-call-in-jsx': 'error',
     'what/no-set-in-computed': 'error',
+    'what/no-destructured-props': 'error',
   },
 };
 
@@ -132,6 +136,7 @@ plugin.configs.compiler = {
     'what/no-h-in-user-code': 'warn',
     'what/signal-call-in-jsx': 'off',          // compiler handles signal wrapping in JSX
     'what/no-set-in-computed': 'error',
+    'what/no-destructured-props': ['warn', { assumeNative: true }],
   },
 };
 

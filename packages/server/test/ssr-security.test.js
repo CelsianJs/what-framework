@@ -5,6 +5,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
 import { h } from 'what-core';
 import { renderToString, renderToHydratableString, renderToStream } from '../src/index.js';
 import { _isUnsafeAttr } from '../../core/src/dom.js';
@@ -134,6 +135,67 @@ describe('SSR attribute name validation', () => {
     assert.ok(html.includes('e.g="ok"'), html);
     assert.ok(html.includes('_private="1"'), html);
   });
+});
+
+describe('SSR false-valued attribute name validation', () => {
+  const renderers = [
+    ['ordinary', renderToString],
+    ['hydratable', renderToHydratableString],
+    ['streaming', async (vnode) => {
+      let html = '';
+      for await (const chunk of renderToStream(vnode)) html += chunk;
+      return html;
+    }],
+  ];
+
+  for (const [name, render] of renderers) {
+    for (const prefix of ['data-', 'aria-']) {
+      it(`${name}: rejects malformed false-valued ${prefix} names, including accessors`, async () => {
+        const badNames = [
+          `${prefix}x" onclick="globalThis.__audit_marker=1" data-y`,
+          `${prefix}x onmouseover=globalThis.__audit_marker=1`,
+          `${prefix}x\ny`, `${prefix}x=y`, `${prefix}x>y`, `${prefix}x<y`,
+        ];
+        for (const key of badNames) {
+          for (const value of [false, () => false]) {
+            const html = await render(h('div', { [key]: value }));
+            assert.equal(html, '<div></div>', `invalid name ${JSON.stringify(key)} must not reach ${name} HTML`);
+          }
+        }
+      });
+    }
+
+    it(`${name}: preserves legitimate false accessibility and data values`, async () => {
+      const html = await render(h('div', {
+        'aria-expanded': false,
+        'aria-hidden': () => false,
+        'data-open': false,
+        'data-active': () => false,
+        role: false,
+        hidden: false,
+        title: null,
+      }));
+      assert.equal(html, '<div aria-expanded="false" aria-hidden="false" data-open="false" data-active="false" role="false"></div>');
+    });
+
+    it(`${name}: blocks executable attribute-name injection in a local DOM`, async () => {
+      const html = await render(h('div', {
+        'data-x" onclick="globalThis.__audit_marker=1" data-y': false,
+        'aria-x" onmouseover="globalThis.__audit_marker=2" data-y': () => false,
+      }));
+      const dom = new JSDOM(html, { runScripts: 'dangerously' });
+      try {
+        const el = dom.window.document.querySelector('div');
+        el.click();
+        el.dispatchEvent(new dom.window.MouseEvent('mouseover'));
+        assert.equal(dom.window.__audit_marker, undefined, 'untrusted attribute names must never execute');
+        assert.equal(el.hasAttribute('onclick'), false);
+        assert.equal(el.hasAttribute('onmouseover'), false);
+      } finally {
+        dom.window.close();
+      }
+    });
+  }
 });
 
 // =========================================================================
