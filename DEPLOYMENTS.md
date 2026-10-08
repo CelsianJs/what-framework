@@ -73,8 +73,9 @@ Each adapter is verified by `packages/server/test/deploy-readiness.test.js`.
 
 ## npm packages
 
-All 14 packages are published together at the same version (currently **0.11.0**). See
-[`README.md`](README.md#packages) for the full package table.
+The 13 maintained packages publish together at the version recorded in
+[`CHANGELOG.md`](CHANGELOG.md). Deprecated `what-mcp` is frozen at 0.12.4 and
+excluded from new cohorts. See [`README.md`](README.md#packages).
 
 ### Release commands (local)
 ```bash
@@ -83,45 +84,56 @@ npm run release:minor
 npm run release:major
 # or, granularly:
 npm run version:bump <patch|minor|major>
-npm run release:verify   # hygiene + test + build + test:prod + bench:gate
-npm run release:publish  # publish all packages in dependency order
+npm run release:verify   # shared correctness gates + blocking local benchmarks
+npm run release:publish  # publish maintained cohort and reconcile requested tags
 ```
 
 ### Release via CI (preferred)
 GitHub Actions → **Release And Deploy** workflow (`.github/workflows/release-and-deploy.yml`),
 triggered manually (`workflow_dispatch`) with inputs:
 - `publish_packages` (default true) — publish to npm
-- `deploy_web` (default true) — run the legacy Vercel deploy script (see below)
-- `npm_tag` (default `latest`), `deploy_targets`, `dry_run`
+- `npm_tag` (default `latest`) — requested tag verified across the maintained cohort
+- `dry_run` (default false) — do not publish or retag
 
-npm auth uses the `NPM_TOKEN` repo secret. **The account has 2FA-required-for-publish, so the
-token MUST bypass 2FA** — use a classic **Automation** token (bypasses 2FA by design, no expiry)
-or a **Granular Access token with "Bypass 2FA" enabled** + publish rights on the `what-*` packages.
-A plain publish/granular token without 2FA-bypass fails every package with
-`npm error 403 … Two-factor authentication … is required to publish` (observed on the v0.11.0 CI
-run — 0/14 published). The publish script is idempotent + dependency-ordered, so once the token is
-fixed a re-run publishes everything cleanly. (Historically an *expiring* token also caused weekly
-`404`s — a no-expiry Automation token avoids both failure modes.)
+Dispatch from `main` only. The workflow rejects other refs before accessing
+publication credentials. It runs `release:verify:correctness`, followed by a
+separate nonblocking CI benchmark signal. Local `release:verify` retains the
+blocking benchmark. Web deployment is not a release-workflow input.
+
+npm auth uses the existing `NPM_TOKEN` repository secret. Its permissions must
+cover the maintained packages and satisfy npm's publishing/2FA policy. The
+workflow preflights authentication and requests OIDC provenance. Do not print
+tokens or assume provenance means token-free trusted publishing. Publication
+and tag reconciliation are separate non-atomic operations; a failed cohort
+stops, and a verified rerun reconciles remaining members.
 
 ### Legacy token-based site deploy (`scripts/deploy-vercel.mjs`)
-The workflow's `deploy_web` step runs `scripts/deploy-vercel.mjs`, which does `vercel deploy
+For an explicit local fallback, `scripts/deploy-vercel.mjs` runs `vercel deploy
 --prod` against these targets: `sites/benchmarks`, `docs-site`, `docs-site/docs`,
 `sites/react-compat`, `sites/playground`. This path **requires a `VERCEL_TOKEN`** and is the
 *fallback* — the native GitHub integration above is the primary, token-free mechanism.
-Prefer letting `git push` deploy the sites.
+The release workflow does not run this script. Prefer the reviewed PR/main path
+and native Git integration described above.
 
 ---
 
 ## Quality gates (run before any release)
 
-`npm run release:verify` chains:
+`npm run release:verify` uses the shared correctness runner with a blocking
+local benchmark. The correctness list includes:
 - `hygiene:publish` — publish-surface check
 - `test` — full unit/integration suite + stress tests
 - `build` — rebuild `dist/*.min.js` (`node scripts/build.js`)
+- type/export parity, both typechecks, lint, error catalog/documentation consistency and bundle budgets
 - `test:prod` — production-conditions build check (`--conditions=production`)
 - `bench:gate` — benchmark regression gate
+- packed scaffolder and real application browser smokes
 
-CI also runs `ci.yml` (tests) and `benchmarks.yml` on push.
+Automatic CI lives under `.depot/workflows/`; GitHub CI/size/benchmark copies
+are manual fallbacks. Benchmark refreshes use a branch/PR, not a direct main
+push. If repository policy denies the bot's PR creation, its branch and
+artifact remain available for a maintainer to open the PR without bypassing
+checks.
 
 ---
 

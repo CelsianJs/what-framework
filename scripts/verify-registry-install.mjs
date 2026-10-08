@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { retryWithBackoff } from './lib/retry.mjs';
+import { verifyRegistryCohort } from './release/registry-cohort.mjs';
 
 const packages = [
   'what-core',
@@ -27,25 +28,16 @@ const packages = [
 
 const root = process.cwd();
 const version = process.env.WHAT_REGISTRY_VERSION || readVersion();
-// Default to pinning the exact expected version rather than resolving
-// `@latest`. Right after a publish, npm's dist-tag update and the CDN
-// serving the tarball can both lag by a few minutes; resolving `@latest`
-// during that window can either 404 OR silently resolve to the *previous*
-// version, which would let this check pass without ever having verified the
-// release that was just published. Pinning to the version we just bumped to
-// (and combining it with the retry below) verifies the actual release.
-// `WHAT_REGISTRY_TAG` remains available for an explicit opt-in to dist-tag
-// verification (e.g. confirming `latest` was moved correctly).
-const tag = process.env.WHAT_REGISTRY_TAG || '';
-const selector = tag || version;
+// Always install the exact version. Independently verify the requested tag so
+// a stale tag cannot hide behind a successful install of that version.
+const tag = process.env.WHAT_REGISTRY_TAG || 'latest';
 const artifactPath = process.env.WHAT_REGISTRY_SMOKE_ARTIFACT || 'artifacts/registry-smoke.json';
 const completedChecks = [];
 const retryLog = [];
 
 // npm install right after publish reliably 404s for a short window while the
-// registry/CDN propagates — see scripts/lib/retry.mjs. Retry only the two
-// install calls that actually hit the registry; everything else here is
-// local/deterministic and a failure there is a real bug, not lag.
+// registry/CDN propagates — see scripts/lib/retry.mjs. Retry metadata lookups
+// and the two registry installs; local imports/builds fail without retries.
 const RETRY_ATTEMPTS = envInt('WHAT_REGISTRY_RETRY_ATTEMPTS', 5);
 const RETRY_DELAYS_MS = envDelays('WHAT_REGISTRY_RETRY_DELAYS_MS', [30_000, 60_000, 90_000, 120_000]);
 
@@ -72,7 +64,7 @@ function readVersion() {
 }
 
 function packageSpec(name) {
-  return `${name}@${selector}`;
+  return `${name}@${version}`;
 }
 
 function run(cmd, args, opts = {}) {
@@ -149,6 +141,8 @@ async function writeArtifact(status, specs, extra = {}) {
     generatedAt: new Date().toISOString(),
     packageCount: specs.length,
     packages: specs,
+    version,
+    tag,
     checks: completedChecks,
     retries: retryLog,
     ...extra,
@@ -161,6 +155,18 @@ const tmp = await mkdtemp(join(tmpdir(), 'what-registry-smoke-'));
 let specs = [];
 try {
   specs = packages.map(packageSpec);
+  await retryWithBackoff(
+    () => verifyRegistryCohort({ packages, version, tag, run: args => run('npm', args) }),
+    {
+      attempts: RETRY_ATTEMPTS,
+      delaysMs: RETRY_DELAYS_MS,
+      onRetry: ({ attempt, attempts, delayMs, error }) => {
+        console.warn(`[verify-registry] cohort metadata attempt ${attempt}/${attempts} failed, retrying in ${Math.round(delayMs / 1000)}s: ${error.message}`);
+        retryLog.push({ label: 'registry version/tag metadata', attempt, attempts, delayMs, error: error.message });
+      },
+    },
+  );
+  completedChecks.push(`exact registry versions and dist-tag ${tag}`);
   run('npm', ['init', '-y'], { cwd: tmp });
   await runInstallWithRetry(
     'npm',

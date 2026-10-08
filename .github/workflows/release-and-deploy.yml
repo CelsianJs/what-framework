@@ -44,6 +44,13 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Require main release ref
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Release And Deploy must run from refs/heads/main."
+            exit 1
+          fi
+
       # npm_tag is free-form dispatch input. Reject anything that is not a
       # plain dist-tag before it reaches a step that holds NPM_TOKEN.
       - name: Validate npm dist-tag input
@@ -66,17 +73,17 @@ jobs:
           if [ -z "$NPM_TOKEN" ]; then
             echo "secrets.NPM_TOKEN is empty. This workflow must run on GitHub"
             echo "Actions (the secret lives there), and the token must be a"
-            echo "classic Automation token so it does not expire."
+            echo "publish-scoped token permitted to bypass publish 2FA."
             exit 1
           fi
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
 
@@ -108,15 +115,7 @@ jobs:
           # downgrade, so this gate can never again pass without having run.
           WHAT_SMOKE_REQUIRE_BROWSER: 1
           WHAT_REQUIRE_BROWSER_TESTS: 1
-        run: |
-          npm run -s hygiene:publish
-          npm run -s test
-          npm run -s build
-          npm run -s hygiene:publish
-          npm run -s check:size
-          npm run -s test:prod
-          npm run -s smoke:scaffold
-          npm run -s smoke:apps
+        run: npm run -s release:verify:correctness
 
       - name: Benchmark gate (perf — non-blocking signal)
         continue-on-error: true
@@ -148,6 +147,8 @@ jobs:
 
       - name: Verify npm registry packages
         if: ${{ inputs.publish_packages && !inputs.dry_run }}
+        env:
+          WHAT_REGISTRY_TAG: ${{ inputs.npm_tag }}
         run: npm run -s verify:registry
 
       # The gate the 0.12.0 and 0.12.1 packaging defects needed and did not have.
@@ -163,7 +164,7 @@ jobs:
 
       - name: Upload registry smoke artifact
         if: ${{ always() && inputs.publish_packages && !inputs.dry_run }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: what-registry-smoke
           path: artifacts/registry-smoke.json
