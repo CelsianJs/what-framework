@@ -62,7 +62,7 @@
   ],
   "devDependencies": {
     "@babel/core": "^7.23.0",
-    "@babel/preset-env": "^7.23.0"
+    "@babel/preset-env": "^8.0.2"
   },
   "repository": {
     "type": "git",
