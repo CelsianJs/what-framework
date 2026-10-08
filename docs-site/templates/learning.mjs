@@ -30,11 +30,13 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Relative seed data', path: 'src/domain.js', note: 'seedWorkspace(now) derives demo entry days from the visitor clock so today never renders empty by accident.' },
       { label: 'Editable row UI', path: 'src/app.jsx', note: 'Keyed For rows preserve focused inputs while immutable entry updates replace objects.' },
       { label: 'Bounded request parser', path: 'src/api/bounded-json.js', note: 'The function endpoint enforces byte limits while streaming the body as Uint8Array chunks.' },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"32px headings and 44px controls cover timer, projects, reports and build routes."},
     ],
     smooth: [
       'The local app and serverless validation share the same domain helpers, so UI and API constraints stayed aligned.',
       'The HMR disposal path made timer, effect and popstate cleanup explicit during development.',
       "The entry/report ownership checks fit the existing shared store and retained the continuous keyboard-edit regression without introducing a second workspace.",
+      "Compact timer typography and 44px native controls preserve continuous entry editing; portable keyboard shortcuts keep the same checks useful across operating systems.",
     ],
     examples: [
       {
@@ -88,6 +90,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: "Controlled browser fetches delay entries and reports, reset, then release success and failure responses; the reset state or newer report remains authoritative.",
         takeaway: "Reset is an asynchronous ownership boundary, not just a group of signal writes."
       },
+      {
+        "title": "Style checks need a required delivery gate",
+        "problem": "Unit tests and builds do not establish narrow-layout geometry, navigation target sizes or visible keyboard focus.",
+        "fix": "Run test:style in CI alongside behavior checks using the existing production-preview harness.",
+        "proof": "The CI workflow runs npm run test:style; modern-ui checks primary/build routes at desktop and mobile widths, controls, overflow and focus.",
+        "takeaway": "Keep style regressions in the delivery path alongside behavior checks."
+      },
     ],
     boundaries: [
       'Workspace data is browser-local seed data, not a multi-user database.',
@@ -100,11 +109,13 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Server renderer', path: 'src/server/render.mjs', note: 'Static pages render through h() and renderToString() so the Node build never imports compiled browser JSX.' },
       { label: 'Client islands', path: 'src/client/main.jsx', note: 'The pricing calculator and tour island mount into server-rendered placeholders.' },
       { label: 'Output checker', path: 'scripts/check.mjs', note: 'The build fails if a route is missing, has multiple h1 elements or renders undefined/null text.' },
+      {"label":"Responsive application stylesheet","path":"src/shared/site.css","note":"The timeline pseudo-element consumes --bar rather than inventing fixed decorative widths."},
     ],
     smooth: [
       'Keeping route metadata in one content module made sitemap, llms text and page generation come from the same data.',
       'Server-safe h() rendering and browser-only JSX islands kept the static build understandable for agents.',
       "The existing tour island could display richer evidence from the same records without adding requests or another state layer.",
+      "Quiet dark surfaces keep release evidence readable while the timeline still reads its bar widths from authored duration records.",
     ],
     examples: [
       {
@@ -127,6 +138,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "jsx",
         code: "<ul class=\"build-list\">{() => current().evidence.map(item => <li>{item}</li>)}</ul>",
         notes: "Stage-specific evidence is authored in content records and is rendered reactively; the static first-stage fallback remains useful without JavaScript."
+      },
+      {
+        "title": "Keep timeline fill driven by authored data",
+        "path": "src/shared/site.css",
+        "language": "css",
+        "code": ".build-timeline li::before { content: \"\"; position: absolute; inset: 0 auto 0 0; width: var(--bar); background: #1a2b47; }",
+        "notes": "The timeline pseudo-element consumes --bar rather than inventing fixed decorative widths."
       },
     ],
     issues: [
@@ -151,6 +169,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: "Product-depth checks require distinct records; browser checks switch stages, measure desktop/mobile layout and open static routes with JavaScript disabled.",
         takeaway: "Product claims should come from visible authored evidence, not decorative metrics."
       },
+      {
+        "title": "Retain data-driven duration bars during style changes",
+        "problem": "Flattening decorative backgrounds can also erase a timeline fill that encodes an authored duration record.",
+        "fix": "Keep the build-timeline pseudo-element width driven by --bar while simplifying surrounding surfaces and headings.",
+        "proof": "The server renderer writes item.percent into --bar and displays item.duration; the stylesheet retains width: var(--bar).",
+        "takeaway": "Distinguish decoration from a data encoding before removing a visual treatment."
+      },
     ],
     boundaries: [
       'The pricing calculator is an anonymous local estimate, not billing or entitlement logic.',
@@ -171,11 +196,13 @@ export const STARTER_LEARNING = Object.freeze({
       },
       { label: "Stable research card frame", path: "src/components/ProjectCard.jsx", note: "Card summaries stay top-aligned while only the footer stretches." },
       { label: "Dossier detail renderer", path: "src/pages/ProjectDetailPage.jsx", note: "Known route content selects its authored dossier and adjacent record without duplicating mutable canvas state." },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Bounded type and contained code preserve the archive specimen and dossier hierarchy."},
     ],
     smooth: [
       'Deriving detail aliases from the dataset removed the chance of forgetting a single research record.',
       'The canvas smoke test checks pixel changes, not just button text, so it catches a silent rendering no-op.',
       "The existing canvas accessor dependencies, listener cleanup and dataset-derived aliases supported the dossiers unchanged; pixel checks still verify redraw behavior.",
+      "The paper, ink and citron archive retains its deterministic canvas and stable card footer while local sans-serif copy and 44px controls unify dossier routes.",
     ],
     examples: [
       {
@@ -256,11 +283,13 @@ export const STARTER_LEARNING = Object.freeze({
         note: "Tests restore saved presets, identify custom edits and exercise denied save/reset operations."
       },
       { label: "Sequencer grid", path: "src/components/Sequencer.jsx", note: "The step ruler owns its grid and the playhead is visible only during playback." },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Mobile steps and ruler share four columns; transport controls retain their numeric readouts."},
     ],
     smooth: [
       'The fake AudioContext test harness made browser-only race conditions testable without playing sound.',
       'Keeping pattern state separate from the engine let the UI mutate tracks while the scheduler reads the latest pattern.',
       "The existing audio scheduler reads current pattern state, so saved/custom identity needed no scheduler redesign or new audio resource.",
+      "At 360px, the sixteen steps and their ruler reflow together into four-column groups, preserving 44px targets without altering audio state.",
     ],
     examples: [
       {
@@ -314,6 +343,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: "Studio regressions restore Slow Bloom, preserve custom identity after edits/reload, and verify save/reset do not throw under denied storage.",
         takeaway: "Preset identity, current edits and persistence success are separate facts."
       },
+      {
+        "title": "Reflow step controls and their ruler together",
+        "problem": "Sixteen 44px sequencer targets cannot fit one 360px row; changing only the buttons leaves the ruler misaligned.",
+        "fix": "Give both .steps and .step-numbers four equal columns at the narrow breakpoint and retain 44px step minimums.",
+        "proof": "The stylesheet pairs the grid selectors and preserves the step minimums; browser regressions cover the narrow sequencer and ruler.",
+        "takeaway": "Reflow related controls and labels together instead of shrinking targets."
+      },
     ],
     boundaries: [
       'The studio runs entirely in the browser; it does not stream audio or save patterns to a server.',
@@ -327,11 +363,13 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Report API', path: 'src/api/report.js', note: 'The function endpoint parses filter input and returns aggregate rows for the current selection.' },
       { label: 'Bounded JSON reader', path: 'src/api/bounded-json.js', note: 'The parser enforces function payload limits before JSON decoding.' },
       { label: "Shared analytics domain", path: "src/data.js", note: "Filter normalization, aggregation, chart semantics and CSV serialization use deterministic fixture data." },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Dashboard panels align to their content rather than stretching beside longer charts."},
     ],
     smooth: [
       'The same parseFilters path feeds client charts and server reports, reducing drift between local and function-rendered numbers.',
       'CSV export reads the currently filtered event set, so the download matches the visible table.',
       "Shared filter parsing still aligns client and function calculations; freshness copy exposes the remaining snapshot boundary instead of inventing live ingestion.",
+      "Content-fit dashboard panels and quiet surfaces retain the real dataset chart geometry while bounded headings and 44px native selects unify report routes.",
     ],
     examples: [
       {
@@ -402,11 +440,13 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/pages/IncidentDetail.jsx",
         note: "The route id is stable setup; the current merged incident is read through an accessor for selects, severity and quick actions."
       },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"The incident detail grid uses start alignment with shared heading and control scales."},
     ],
     smooth: [
       'Incident overrides are layered over immutable fixtures, so reset and filtering are simple to reason about.',
       'Computed rollups keep summary cards, service health and deploy risk synchronized with the same incident state.',
       "The override read model already joined fixtures and edits; the repair moved reads to the right boundary without changing incident storage.",
+      "Incident detail panels align to their own content so a short status form does not stretch beside a long timeline; cyan status and risk readouts retain their roles.",
     ],
     examples: [
       {
@@ -429,6 +469,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "jsx",
         code: "const incidentId = route.params.id;\n  const incident = () => mergedIncidents().find((entry) => entry.id === incidentId);",
         notes: "A run-once component can capture a stable route id; editable record reads belong in an accessor used by reactive bindings."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": ".detail-grid {\n  display: grid;\n  grid-template-columns: minmax(260px, 0.8fr) minmax(300px, 1.2fr);\n  gap: 1rem;\n  align-items: start;\n}",
+        "notes": "The incident detail grid uses start alignment with shared heading and control scales."
       },
     ],
     issues: [
@@ -453,6 +500,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: "Browser regressions apply quick actions and verify visible controls/rail, recognizable legacy views and a single saved view per filter combination.",
         takeaway: "A signal update cannot refresh a record sampled once during component setup."
       },
+      {
+        "title": "Short detail panels should not stretch to long content",
+        "problem": "Default grid stretching can turn a compact status panel into a tall empty surface beside a long incident timeline.",
+        "fix": "Align incident detail grid items to start so each panel follows its own content height.",
+        "proof": "The .detail-grid source rule includes align-items: start; local style checks include incident detail routes.",
+        "takeaway": "Use content-fit alignment where adjacent panels have different amounts of information."
+      },
     ],
     boundaries: [
       'Harbor edits are local simulation state, not shared incident-management storage.',
@@ -466,11 +520,13 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Static aliases', path: 'scripts/static-aliases.mjs', note: 'Recipe detail routes and private planner routes are emitted as concrete Vura pages.' },
       { label: 'Build page', path: 'src/pages/Build.jsx', note: 'The guide explains local state, routing and generated aliases for agents.' },
       { label: "Recipe day selection", path: "src/pages/RecipeDetail.jsx", note: "A mount-local selected day feeds explicit planner actions rather than hard-coded destinations." },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Size the wrapping checkbox label; six equal mobile tracks balance three links above two."},
     ],
     smooth: [
       'The shopping list came naturally from computed aggregation over planned meals.',
       'Route aliases derive from the recipe dataset, so new recipes produce direct detail URLs during build.',
       "The computed grocery quantities remained unchanged; stable item/unit keys layered checklist completion over the existing plan.",
+      "Shopping labels provide a 44px tap area without enlarging native checkbox glyphs; five mobile navigation links form deliberate rows of three and two.",
     ],
     examples: [
       {
@@ -517,6 +573,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: "Checklist unit and browser flows verify navigation, reload, clearing, planner reset and denied-storage session editing.",
         takeaway: "Persist user intent by stable item identity while deriving completion from the current list."
       },
+      {
+        "title": "Put the checkbox tap target on its label",
+        "problem": "A small native checkbox is hard to tap, but enlarging the glyph itself distorts the control.",
+        "fix": "Give the shopping-row label a 44px minimum height and leave the native checkbox width and height automatic.",
+        "proof": "The browser regression measures all 21 seeded checklist labels at desktop/mobile widths, requiring 44px labels and checkbox widths no greater than 24px.",
+        "takeaway": "Enlarge the associated label hit area while preserving native control geometry."
+      },
     ],
     boundaries: [
       'Recipes and nutrition-like details are fixtures for interaction design, not a live recipe API.',
@@ -529,11 +592,13 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Server renderer', path: 'src/server/render.mjs', note: 'Article pages are generated with h() and renderToString().' },
       { label: 'Client utilities', path: 'src/client/main.jsx', note: 'The browser bundle mounts search, bookmark and progress-bar islands.' },
       { label: 'Article content', path: 'src/content/articles.mjs', note: 'The same article index feeds static routes and client-side search.' },
+      {"label":"Responsive application stylesheet","path":"src/shared/site.css","note":"The article grid uses start alignment while the mobile masthead removes absolute brand positioning."},
     ],
     smooth: [
       'Embedding a small JSON article index lets the static search island work without a remote search service.',
       'Separating article rendering from browser utilities keeps static content readable with JavaScript disabled.',
       "The bookmark utility already finds its button anywhere on the page; moving it before the essay needed no new island or persistence model.",
+      "The editorial masthead keeps a keyboard-reachable 44px wordmark; article and sidenote columns align to their content and the mobile brand returns to document flow.",
     ],
     examples: [
       {
@@ -556,6 +621,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "js",
         code: "article.minutes = Math.max(1, Math.ceil(article.body.join(' ').trim().split(/\\s+/).length / 220));",
         notes: "A simple content-based estimate replaces guessed 4–7 minute labels. It is an estimate, not a measured reading time."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/shared/site.css",
+        "language": "css",
+        "code": ".article { display: grid; grid-template-columns: minmax(0, 1fr) 240px; align-items: start; gap: 48px; padding-block: 40px; }",
+        "notes": "The article grid uses start alignment while the mobile masthead removes absolute brand positioning."
       },
     ],
     issues: [
@@ -591,11 +663,13 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/content.mjs",
         note: "Known guide records seed local plans; pure movement swaps activities while retaining destination day/time slots."
       },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Start-aligned planner controls and larger mobile SVG text preserve the actual itinerary geometry."},
     ],
     smooth: [
       'Guide aliases and sitemap rows come from the same route list, which keeps direct static paths and metadata aligned.',
       'Move buttons made itinerary reordering keyboard and touch friendly without needing drag/drop code.',
       "Native move buttons reused pure plan operations; guide context and the reactive route projection did not require drag/drop or a map service.",
+      "Route maps retain their 400-by-120 SVG coordinates; larger mobile labels compensate for scaling while content-fit planner controls keep itinerary actions together.",
     ],
     examples: [
       {
@@ -618,6 +692,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "js",
         code: "next[index] = { ...items[target], day: items[index].day, time: items[index].time };\n  next[target] = { ...items[index], day: items[target].day, time: items[target].time };",
         notes: "Slots own their clock labels. The guide query selects known records; saved plans win until the visitor explicitly applies a guide."
+      },
+      {
+        "title": "Fit planner controls to their content",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": ".controls { display: grid; gap: 16px; align-self: start; align-content: start; }",
+        "notes": "Start-aligned planner controls and larger mobile SVG text preserve the actual itinerary geometry."
       },
     ],
     issues: [
@@ -644,6 +725,13 @@ export const STARTER_LEARNING = Object.freeze({
         proof: "Pure tests cover guide plans and slot stability; browser tests cover contextual plans, exported guide ids, reorder and storage failure.",
         takeaway: "Distinguish activity identity, schedule slots and real timestamps before implementing itinerary movement."
       },
+      {
+        "title": "Measure SVG labels after responsive scaling",
+        "problem": "An SVG can fit the viewport while its text becomes too small as the viewBox scales.",
+        "fix": "Retain the 400-by-120 route coordinates and increase mobile route-map text to 18px.",
+        "proof": "The local style-browser suite visits home, guide, planner and build at multiple widths and measures rendered map-label height.",
+        "takeaway": "Verify rendered text dimensions as well as logical SVG geometry."
+      },
     ],
     boundaries: [
       'Trip data is fictional and local-only.',
@@ -663,11 +751,13 @@ export const STARTER_LEARNING = Object.freeze({
         note: "The component returns a reactive function that reads receipt() and selects the empty/full view after Reset."
       },
       { label: "Native quantity editing", path: "src/pages/Cart.jsx", note: "Canonical quantities and temporary DOM text coexist during keyboard replacement; valid commits keep totals live." },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Product and cart grids align at the start; gear illustrations keep their source geometry."},
     ],
     smooth: [
       'Product slugs drive cards, details, quote validation and static aliases from one dataset.',
       'The quote function imports shared product data but not browser cart state, which keeps the serverless boundary clean.',
       "Shared product data and bounded quote parsing stayed intact; basket ownership and reactive receipt reset fit the existing native quantity draft behavior.",
+      "Content-fit equipment and cart panels avoid stretching short content while shared local typography and 44px targets retain native quantity editing.",
     ],
     examples: [
       {
@@ -735,11 +825,13 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Shared calendar logic', path: 'src/data/studio.js', note: 'Services, deterministic slots, overlap math, display helpers and ICS text live in pure shared code.' },
       { label: 'Reservations page', path: 'src/pages/Reservations.jsx', note: 'The ICS control creates a temporary Blob URL, clicks it and revokes it after download.' },
       { label: 'API tests', path: 'test/orbit.test.js', note: 'Tests cover open slots, demo holds, local conflicts, strict service validation, ICS text, overlap boundaries and bounded JSON.' },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Bounded headings and full-height brand and form controls retain the booking workflow."},
     ],
     smooth: [
       'Services and slot fixtures are deterministic October 2026 data, which keeps screenshots and API tests stable.',
       'Overlap math is pure shared code, so the API and unit tests can exercise booking logic without a browser.',
       "Pure overlap helpers and strict service lookup remained the API boundary; the browser added draft ownership without pretending to create cross-user locks.",
+      "Shared local typography, subtle panels and 44px native controls unify service, booking, receipt and build routes without changing draft verification.",
     ],
     examples: [
       {
@@ -762,6 +854,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "js",
         code: "export const canBook = computed(() => !pending() && availability()?.ok === true && verifiedDraft() === draftKey());",
         notes: "The key includes service, date, start and local reservations. A successful response for a prior selection is not permission to book the current one."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": ".brand {\n  display: inline-flex;\n  align-items: center;\n  min-height: 44px;\n  color: var(--coral);\n  text-decoration: none;\n  text-transform: none;\n  font-size: 24px;\n  line-height: 1.4;\n  font-weight: 700;\n  letter-spacing: -.02em;\n}",
+        "notes": "Bounded headings and full-height brand and form controls retain the booking workflow."
       },
     ],
     issues: [
@@ -813,11 +912,13 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/content.mjs",
         note: "Project records include program, materials, rationale and tradeoffs; known study slugs can seed a local proposal."
       },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Case and brief grids align to the start; navigation and form controls retain 44px targets."},
     ],
     smooth: [
       'Original SVG studies avoid external media while still giving each case study a visual identity.',
       'The proposal output is a computed string, so preview and downloaded text stay in sync with field edits.',
       "The proposal remained a computed projection of four signals; richer case-study context changed inputs without adding submission or lead-capture behavior.",
+      "Architectural SVG studies remain the main visual object while case-study and brief grids fit their own content and use the same local type scale as static pages.",
     ],
     examples: [
       {
@@ -840,6 +941,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "js",
         code: "const study = data.projects.find(project => project.slug === new URLSearchParams(location.search).get('study'));",
         notes: "Known study context seeds an empty editor. A saved brief remains until an explicit Use study brief action replaces it."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": ".case { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 48px; margin-block: 48px; }",
+        "notes": "Case and brief grids align to the start; navigation and form controls retain 44px targets."
       },
     ],
     issues: [
@@ -882,11 +990,13 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/calendar.mjs",
         note: "UTC event stamps, escaped text, CRLF separators and UTF-8-aware 75-octet folding are independent of UI timezone labels."
       },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Session panels align to their own content and retain the shared control and focus scale."},
     ],
     smooth: [
       'The local agenda can export calendar text without any ticketing or account service.',
       'Direct session and speaker pages make the starter useful even without the agenda island.',
       "The same saved-session ids feed the preview and file; static schedule/session/speaker relationships stay readable without JavaScript.",
+      "Content-fit session details and compact schedule labels keep agenda actions close to event facts; the wordmark remains a 44px home target.",
     ],
     examples: [
       {
@@ -909,6 +1019,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "js",
         code: "const bytes = encoder.encode(char).length;\n    if (width + bytes > 75) { result += '\\r\\n '; width = 1; }",
         notes: "Continuation whitespace counts toward the next line. Date stamps come from UTC event instants and the actual generation clock."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": ".session-detail { align-items: start; }",
+        "notes": "Session panels align to their own content and retain the shared control and focus scale."
       },
     ],
     issues: [
@@ -947,11 +1064,13 @@ export const STARTER_LEARNING = Object.freeze({
       { label: 'Alias generation', path: 'scripts/static-aliases.mjs', note: 'The build writes direct client, invoice and receipt paths plus 404.html.' },
       { label: 'Unit tests', path: 'test/invoices.test.js', note: 'Tests cover subtotal/tax/total math and invalid money coercion.' },
       { label: "Recoverable line editor", path: "src/pages/InvoiceDetail.jsx", note: "Keyed For accessors preserve input identity, per-operand clamping matches calculations, and empty drafts can start again." },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Fixed line-total tracks and visible mobile field labels remain intact alongside bounded headings."},
     ],
     smooth: [
       'Computed invoice summaries allow draft list, client detail and receipt preview to agree on totals.',
       'The same seed invoices generate static aliases for both invoice editor and receipt paths.',
       "Line removal reused immutable invoice state and keyed For accessors; draft dates/status added context without changing local export or receipt boundaries.",
+      "Ledger, line editor and receipt share bounded typography and 44px targets; Meta-or-Ctrl keyboard replacement still verifies keyed row identity.",
     ],
     examples: [
       {
@@ -974,6 +1093,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: 'js',
         code: "const routes = [\n  ['/', 'Tally — Freelance invoice workspace', 'Edit invoice drafts, calculate finite totals, preview receipts, and export JSON locally.'],\n  ['/clients', 'Clients — Tally', 'Synthetic freelance client ledger with direct detail routes.'],\n  ...clients.map((client) => [`/clients/${client.id}`, `${client.name} — Tally`, client.notes]),",
         notes: 'Static hosting receives concrete pages for both editable drafts and read-only receipt previews.',
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": "h1 { margin: 0 0 16px; font-size: 32px; line-height: 1.2; letter-spacing: -.02em; font-weight: 600; }",
+        "notes": "Fixed line-total tracks and visible mobile field labels remain intact alongside bounded headings."
       },
     ],
     issues: [
@@ -1022,11 +1148,13 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/pages/Board.jsx",
         note: "List cards derive through an accessor; bounded move buttons expose named destinations and mobile lanes retain scroll cues."
       },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Balanced narrow navigation and readable detail/build typography retain board movement controls."},
     ],
     smooth: [
       'Route detail pages read from the same card signal as the board, so edits stay visible across views.',
       'Keyboard step movement reuses the same moveCard path as select/drop interactions.',
       "Board, list and detail still share one card store; bounded move controls reuse the existing movement and activity functions.",
+      "Mobile planner navigation forms two deliberate rows of two links; a 44px home wordmark and visible focus stay part of the board workflow.",
     ],
     examples: [
       {
@@ -1043,6 +1171,13 @@ export const STARTER_LEARNING = Object.freeze({
         code: "const cards = () => boardGroups().flatMap((group) => group.cards.map((card) => ({ ...card, column: group.label })));",
         notes: "The component runs once, but cards() is evaluated in reactive bindings when assignee changes. Capturing the resulting array once would freeze the open list."
       },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": ".brand { display: inline-flex; align-items: center; min-height: 44px; font-size: 24px; font-weight: 600; line-height: 1.2; text-decoration: none; }",
+        "notes": "Balanced narrow navigation and readable detail/build typography retain board movement controls."
+      },
     ],
     issues: [
       {
@@ -1058,6 +1193,13 @@ export const STARTER_LEARNING = Object.freeze({
         fix: "Keep the cards projection as an accessor; name move destinations and disable impossible edge moves. Give the mobile lane preview a focusable scroll region and visible cue.",
         proof: "Browser regressions change assignee while list view remains open, verify boundary move controls and inspect mobile lane scrolling.",
         takeaway: "Derived collections that change after mount belong in accessors, not setup snapshots."
+      },
+      {
+        "title": "Allow subpixel tolerance in browser target measurements",
+        "problem": "A 44px CSS target can report a fractional bounding rectangle just below 44px, making strict raw-float checks brittle across platforms.",
+        "fix": "Retain the 44px CSS minimum and allow a half-pixel tolerance in the style regression.",
+        "proof": "The modern-ui check requires control.height >= 43.5; CSS controls retain min-height: 44px, and the test verifies mobile navigation rows and home navigation.",
+        "takeaway": "Normalize measurement tolerances without reducing the authored target size."
       },
     ],
     boundaries: [
@@ -1076,11 +1218,13 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/pages/Practice.jsx",
         note: "Current card/index are accessors; reveal state is mount-local and resets before advancing."
       },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Lesson, quiz and build routes share local 16px body copy and 14px native controls."},
     ],
     smooth: [
       'The lesson content doubles as app data and as the learning path the starter demonstrates.',
       'Debounced persistence keeps rapid answer/card changes from writing localStorage on every micro-update.',
       "Existing progress persistence and timer cleanup supported the repaired deck; no account sync or spaced-repetition scheduler was introduced.",
+      "Quiet lesson cards and 44px quiz actions keep the lesson object before secondary explanation without changing answers or progress state.",
     ],
     examples: [
       {
@@ -1096,6 +1240,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "jsx",
         code: "const index = () => progress().cardIndex % dueCards().length;\n  const lesson = () => dueCards()[index()];",
         notes: "Keep reveal state local to this mount. Advance resets reveal and reads the next card rather than a setup-time card snapshot."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": "nav a {\n  text-decoration: none;\n  display: inline-flex;\n  align-items: center;\n  min-height: 44px;\n  font-size: 14px;\n  line-height: 1.5;\n  padding: 8px 12px;\n  border: 1px solid transparent;\n  border-radius: 8px;\n  background: transparent;\n}",
+        "notes": "Lesson, quiz and build routes share local 16px body copy and 14px native controls."
       },
     ],
     issues: [
@@ -1131,12 +1282,14 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/pages/incidents/webhook-retry-spike.tsx",
         note: "Literal server configuration and a typed loader make the second advertised incident directly addressable."
       },
+      {"label":"Responsive application stylesheet","path":"src/site/styles.css","note":"The source stylesheet supplies readable status copy, 44px navigation and contained monospace readouts."},
     ],
     smooth: [
       'Literal page exports make rendering mode and cache tags visible to both Vura and readers.',
       'The render proof timestamp gives a simple way to observe cached versus uncached behavior.',
       'Local smoke now checks /styles.css returns 200 text/css so public pages do not silently ship as unstyled defaults.',
       "The new incident reused shared timeline rendering and literal page configuration; source changes do not themselves prove a new hosted release.",
+      "Server-rendered overview and incident routes share the source stylesheet and synchronized public copy while loader and cache behavior remain unchanged.",
     ],
     examples: [
       {
@@ -1159,6 +1312,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "tsx",
         code: "const { incident, renderedAt } = useLoaderData<typeof loader>();",
         notes: "The component renders shared incident detail from real loader data rather than guessing page props."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/site/styles.css",
+        "language": "css",
+        "code": ".brand { display: inline-flex; align-items: center; min-height: 44px; gap: 8px; text-decoration: none; font-weight: 700; font-size: 1.25rem; letter-spacing: -.02em; }",
+        "notes": "The source stylesheet supplies readable status copy, 44px navigation and contained monospace readouts."
       },
     ],
     issues: [
@@ -1207,11 +1367,13 @@ export const STARTER_LEARNING = Object.freeze({
         path: "src/utils/care.js",
         note: "Pure explicit-clock care math ignores invalid/future watering and observations; legacy notes keep unknown dates as null."
       },
+      {"label":"Responsive application stylesheet","path":"src/styles.css","note":"Content-fit plant panels and local typography preserve dated watering and assignment state."},
     ],
     smooth: [
       'The care queue is derived from plant fixtures plus the watering journal, so logging water changes the queue without manual sync code.',
       'Named plot keys make the state easy to inspect in exported JSON and localStorage.',
       "Unique plot assignment, denied-storage fallback and static aliases supported the dated notebook; the clock refresh timer/focus listener are cleaned up on unmount.",
+      "The dated notebook retains botanical SVG silhouettes and real plot assignments while quiet surfaces and 44px controls unify catalog and plant detail routes.",
     ],
     examples: [
       {
@@ -1234,6 +1396,13 @@ export const STARTER_LEARNING = Object.freeze({
         language: "js",
         code: "const nextCare = midnight(latest.observedAt);\n  nextCare.setDate(nextCare.getDate() + plant.waterEvery);",
         notes: "No valid dated watering means Check soil, not a fabricated overdue date. Observations remain notes, not watering events."
+      },
+      {
+        "title": "Use the shared stylesheet on application routes",
+        "path": "src/styles.css",
+        "language": "css",
+        "code": ".seed-packets {\n  grid-area: packets;\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: .65rem;\n  align-items: start;\n}",
+        "notes": "Content-fit plant panels and local typography preserve dated watering and assignment state."
       },
     ],
     issues: [
