@@ -180,8 +180,13 @@ async function loadEsbuild(projectRoot) {
  * The manifest declares one catch-all serverless route ('/*', all seven HTTP
  * methods, compute class 'function'), so its requiredFeatures are exactly
  * ['api', 'function-compute']: a free-tier deploy with no dedicated compute.
- * The CDN answers requests for files in dist/static; everything else (pages,
+ * It also sets `filesystemFirst: true`, so the edge answers requests for files
+ * in dist/static before the catch-all route; everything else (pages,
  * POST /__what_action, POST /__what_revalidate) reaches the Function.
+ *
+ * A Function only runs while it serves a request, so the what-isr poll
+ * scheduler (createScheduler) never runs inside it. Revalidate on a schedule
+ * with an external cron that calls POST /__what_revalidate instead.
  *
  * The Function runs on Node 22 with no node_modules, so the bundle inlines
  * every dependency. Only Node builtins stay external. esbuild is resolved from
@@ -299,6 +304,11 @@ export async function buildVuraOutput({
     api: [route],
     pages: [],
     layouts: [],
+    // The platform edge serves a file from dist/static before it routes to the
+    // catch-all Function only when the manifest opts in. Without it, the gated
+    // edge sends /src/entry-client.js and the CSS to the Function, which 404s
+    // them, and the app loses its client JS and styles.
+    filesystemFirst: true,
     timestamp: new Date().toISOString(),
   };
   assertManifestShape(manifest);

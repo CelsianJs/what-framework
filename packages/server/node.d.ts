@@ -88,6 +88,8 @@ export interface VuraManifest {
   api: VuraApiRoute[];
   pages: unknown[];
   layouts: unknown[];
+  /** Always true: the edge serves files in dist/static before the catch-all Function. */
+  filesystemFirst: true;
   timestamp: string;
 }
 

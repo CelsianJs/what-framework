@@ -220,6 +220,7 @@ describe('buildVuraOutput', () => {
     assert.equal(manifest.schemaVersion, SCHEMA_VERSION);
     assert.deepEqual(manifest.requiredFeatures, deriveRequiredFeatures(manifest));
     assert.deepEqual(manifest.requiredFeatures, ['api', 'function-compute']);
+    assert.strictEqual(manifest.filesystemFirst, true, 'the edge must serve dist/static before the catch-all Function');
     assert.deepEqual(manifest.pages, []);
     assert.deepEqual(manifest.layouts, []);
     assert.ok(Number.isFinite(Date.parse(manifest.timestamp)));

@@ -1033,6 +1033,10 @@ empty cache, and \`revalidatePath\` purges only the instance that ran the action
 Swap \`createMemoryStore()\` in \`server.js\` for a shared store if you need one
 cache across instances.
 
+The poll scheduler in \`server.js\` does not run in the Function, which only runs
+while it serves a request. For scheduled revalidation, have an external cron
+call \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` set.
+
 ## Structure
 
 - \`src/pages/*\` — pages. Each may export \`page\` (route config), \`loader\` (server

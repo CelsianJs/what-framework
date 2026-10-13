@@ -273,7 +273,10 @@ It deletes and rewrites `dist/` with:
 - `dist/manifest.json`: a Vura manifest v1 with one catch-all serverless route
   (`/*`, all HTTP methods, compute class `function`, 1 GB by default, set with
   `memory`). Its `requiredFeatures` are `["api", "function-compute"]`, so the
-  deploy needs no dedicated compute.
+  deploy needs no dedicated compute. It also sets `"filesystemFirst": true`,
+  which tells the edge to serve a file from `dist/static` before routing to the
+  catch-all Function. Without it the client JS and CSS would reach the
+  Function and 404.
 
 The CDN answers requests for files in `dist/static`; every other request
 (pages, `POST /__what_action`, `POST /__what_revalidate`) reaches the Function.
@@ -283,7 +286,10 @@ must be inside the project), `entry`, `staticFiles` and `memory`. Paths with
 refused before anything is written. Missing sources are skipped and returned in
 `skipped`. ISR uses the origin cache engine inside the Function, so an
 in-memory store is per instance; pass a shared what-isr store for one cache
-across instances.
+across instances. The poll scheduler (`createScheduler`) does not run inside a
+Function, which only runs while it serves a request. To revalidate on a
+schedule, have an external cron call `POST /__what_revalidate` (set
+`WHAT_REVALIDATE_SECRET` so the webhook is mounted).
 
 ### Cloudflare Workers
 

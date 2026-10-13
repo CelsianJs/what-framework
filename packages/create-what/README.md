@@ -117,7 +117,9 @@ my-app/
 
 `npm run dev` and `npm start` run `server.js` with no build step. `npm run build`
 writes Vura deploy output to `dist/`: the client files for the CDN plus one
-scale-to-zero Function bundled with esbuild.
+scale-to-zero Function bundled with esbuild. The poll scheduler in `server.js`
+does not run in the Vura Function; use an external cron that calls
+`POST /__what_revalidate` if a page needs scheduled revalidation.
 
 ### Static site + islands (`--template=islands`)
 

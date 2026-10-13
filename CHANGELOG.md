@@ -16,8 +16,12 @@ All notable changes to What Framework will be documented in this file.
   `dist/static/**` for the CDN, the entry bundled by esbuild into one
   self-contained `dist/functions/_/index.js`, and a v1 `dist/manifest.json`
   with one catch-all serverless route. The deploy needs only the `api` and
-  `function-compute` features, with no dedicated compute. esbuild is resolved
-  from the project and is never a runtime dependency.
+  `function-compute` features, with no dedicated compute. The manifest sets
+  `"filesystemFirst": true` so the edge serves the client JS and CSS from
+  `dist/static` before the catch-all Function. esbuild is resolved from the
+  project and is never a runtime dependency.
+- The what-isr poll scheduler does not run inside a Vura Function. Schedule
+  revalidation with an external cron that calls `POST /__what_revalidate`.
 - The create-what full-stack template now has `npm run build`, which writes
   Vura output. `function.js` reuses `createHandler()` from `server.js`, and the
   browser allowlist moved to `client-files.js`, one list that both the server
