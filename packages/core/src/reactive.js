@@ -7,13 +7,14 @@
 // - Ownership tree: createRoot children auto-dispose when parent disposes
 // - Performance: cached levels, lazy sort, fast-path notify, minimal allocation
 
-// Dev-mode flag — `if (__DEV__)` branches dead-code-eliminate when this is false.
+// Dev-mode flag — production defaults disable hooks; the runtime override can
+// retain development branches in consumer bundles.
 //
 // Resolution order (first definitive signal wins; PRODUCTION-SAFE default):
 //   1. globalThis.__WHAT_DEV__ — explicit boolean override for browser tooling
 //      (e.g. the playground can force dev mode without a bundler env).
-//   2. import.meta.env.DEV     — Vite & modern bundlers statically replace this,
-//      so production builds fully strip every dev branch.
+//   2. import.meta.env.DEV     — Vite & modern bundlers statically replace this
+//      fallback; the explicit runtime override above still takes precedence.
 //   3. process.env.NODE_ENV    — Node / webpack / esbuild `define`.
 //   4. false                   — a raw browser bundle with NO build signal must
 //      default to PRODUCTION. (Previously defaulted to `true`, so EVERY browser
@@ -29,7 +30,7 @@ export const __DEV__ =
         : false;
 
 // DevTools hooks — set by what-devtools when installed.
-// These are no-ops in production (dead-code eliminated with __DEV__).
+// These are no-ops when development mode is disabled.
 /** @type {WhatDevToolsHooks | null} */
 export let __devtools = null;
 
@@ -193,7 +194,14 @@ export function computed(fn) {
   inner._markDirty = () => { dirty = true; };
   inner._isDirty = () => dirty;
 
+  if (currentRoot) {
+    currentRoot.disposals.push(() => _disposeEffect(inner));
+  }
+
   function read() {
+    // Like an owned memo, a disposed computed retains its last value but must
+    // never recreate subscriptions (or enter the dirty-evaluation trampoline).
+    if (inner.disposed) return value;
     const ce = currentEffect;
     if (ce !== null) {
       if (ce !== lastTracked || ce._epoch !== lastTrackedEpoch) {
@@ -216,7 +224,7 @@ export function computed(fn) {
 
   read._signal = true;
   read.peek = () => {
-    if (dirty) _evaluateComputed(inner);
+    if (dirty && !inner.disposed) _evaluateComputed(inner);
     return value;
   };
 
@@ -253,7 +261,7 @@ function _evaluateComputed(computedEffect) {
     while (stack.length > 0) {
       const current = stack[stack.length - 1];
 
-      if (!current._isDirty || !current._isDirty()) {
+      if (current.disposed || !current._isDirty || !current._isDirty()) {
         // Already clean — pop and continue
         stack.pop();
         continue;
@@ -266,7 +274,7 @@ function _evaluateComputed(computedEffect) {
       const deps = current.deps;
       for (let i = 0; i < deps.length; i++) {
         const depOwner = deps[i]._owner;
-        if (depOwner && depOwner._computed && depOwner._isDirty && depOwner._isDirty()) {
+        if (depOwner && !depOwner.disposed && depOwner._computed && depOwner._isDirty && depOwner._isDirty()) {
           stack.push(depOwner);
           pushedUpstream = true;
         }
@@ -331,11 +339,18 @@ export function effect(fn, opts) {
   try {
     const result = e.fn();
     if (typeof result === 'function') e._cleanup = result;
+  } catch (err) {
+    // No disposer is returned when setup throws: undo the partial subscription
+    // graph now, including an update queued during the failed first run.
+    _disposeEffect(e);
+    throw err;
   } finally {
     currentEffect = prev;
   }
   // Compute level after first run based on actual dependencies (cached).
   _updateLevel(e);
+  // Registration precedes execution; publish the now-populated initial graph.
+  if (__DEV__) __devtools?.onEffectRun?.(e);
   // Mark as stable after first run — subsequent re-runs skip cleanup/re-subscribe
   if (opts?.stable) e._stable = true;
 
@@ -412,7 +427,7 @@ function _runEffect(e) {
 
   // Stable effect fast path: deps don't change, skip cleanup/re-subscribe.
   // This is critical for performance: effects like `() => el.className = sig() ? 'a' : ''`
-  // always read the same signal(s). After auto-promotion, re-runs skip the O(deps)
+  // always read the same signal(s). With explicit opt-in, re-runs skip the O(deps)
   // cleanup + re-subscribe cycle entirely.
   if (e._stable) {
     if (e._cleanup) {
@@ -428,17 +443,13 @@ function _runEffect(e) {
       if (typeof result === 'function') e._cleanup = result;
     } catch (err) {
       if (__devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
-      if (__DEV__) console.warn('[what] Error in stable effect:', err);
+      _reportUpdateError(err);
     } finally {
       currentEffect = prev;
     }
     if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun?.(e);
     return;
   }
-
-  // Save the single dep for auto-stable detection (safe: 1-dep effects
-  // have deterministic dep sets — no conditional reads possible).
-  const singleDep = e.deps.length === 1 ? e.deps[0] : null;
 
   cleanup(e);
   // Run effect cleanup from previous run
@@ -465,16 +476,9 @@ function _runEffect(e) {
     currentEffect = prev;
   }
 
-  // Auto-promote to stable: effects with exactly 1 dep that remains the same
-  // after re-run have a fixed dependency graph. Skip cleanup/re-subscribe
-  // on future re-runs. This is safe because a single-dep effect can't have
-  // conditional signal reads that change which signal is tracked.
-  // Guard: don't promote self-triggering effects (those that write to the signal
-  // they read, causing re-queuing). Check e._pending to detect this.
-  if (singleDep !== null && e.deps.length === 1 && e.deps[0] === singleDep
-      && !e._cleanup && !e._pending) {
-    e._stable = true;
-  }
+  // Repeatedly observing one dependency does not prove a stable graph: that
+  // signal may open a branch on a later run. Only explicit { stable: true }
+  // effects may skip dependency tracking.
 
   if (__DEV__ && __devtools?.onEffectRun) __devtools.onEffectRun?.(e);
 }
@@ -533,10 +537,11 @@ function _processSubscriber(e) {
         }
       } catch (err) {
         if (__DEV__ && __devtools?.onError) __devtools.onError?.(err, { type: 'effect', effect: e });
-        if (__DEV__) console.warn('[what] Error in stable effect:', err);
+        _reportUpdateError(err);
       } finally {
         currentEffect = prev;
       }
+      if (__DEV__) __devtools?.onEffectRun?.(e);
     } else {
       e._pending = true;
       const level = e._level;
@@ -602,6 +607,11 @@ function scheduleMicrotask() {
 
 let isFlushing = false;
 
+function _reportUpdateError(err) {
+  // Reporting must not interrupt sibling updates, even with a throwing console.
+  try { console.error('[what] Uncaught error in effect during update:', err); } catch { /* no console */ }
+}
+
 function flush() {
   // Re-entrancy guard: if flush() is called during an active flush (e.g., via
   // flushSync() inside a component render or effect), skip to prevent infinite
@@ -642,7 +652,7 @@ function flush() {
             // Surface in production too — an uncaught reactive-update error is a
             // real bug; staying silent (as the old throw-out-of-flush did once it
             // escaped) hides it. console.error never aborts the batch.
-            try { console.error('[what] Uncaught error in effect during update:', err); } catch { /* no console */ }
+            _reportUpdateError(err);
             continue;
           }
           // Update level only if deps changed (graph structure change)
@@ -710,7 +720,12 @@ export function memo(fn) {
 
   e._level = 1;
 
-  _runEffect(e);
+  try {
+    _runEffect(e);
+  } catch (err) {
+    _disposeEffect(e);
+    throw err;
+  }
   _updateLevel(e);
 
   // Register subscriber set owner for level tracking
@@ -824,28 +839,7 @@ export function createRoot(fn) {
   currentOwner = root;
 
   try {
-    const dispose = () => {
-      if (root._disposed) return;
-      root._disposed = true;
-
-      // Dispose children first (depth-first, reverse order)
-      for (let i = root.children.length - 1; i >= 0; i--) {
-        _disposeRoot(root.children[i]);
-      }
-      root.children.length = 0;
-
-      // Dispose own effects (reverse order for LIFO cleanup)
-      for (let i = root.disposals.length - 1; i >= 0; i--) {
-        root.disposals[i]();
-      }
-      root.disposals.length = 0;
-
-      // Remove from parent's children list
-      if (root.owner) {
-        const idx = root.owner.children.indexOf(root);
-        if (idx >= 0) root.owner.children.splice(idx, 1);
-      }
-    };
+    const dispose = () => _disposeRoot(root);
     return fn(dispose);
   } finally {
     currentRoot = prevRoot;
@@ -857,18 +851,35 @@ export function createRoot(fn) {
 function _disposeRoot(root) {
   if (root._disposed) return;
   root._disposed = true;
+  let failed = false;
+  let firstError;
 
-  // Dispose children first
-  for (let i = root.children.length - 1; i >= 0; i--) {
-    _disposeRoot(root.children[i]);
+  // A user cleanup failure must not strand siblings or earlier effects after
+  // the scope has already become disposed. Finish LIFO cleanup, then rethrow
+  // the first error so callers keep the original useful failure.
+  while (root.children.length > 0) {
+    // Remove before calling user code: a child may dispose another sibling,
+    // mutating this same array. Numeric indexes would then skip or overrun it.
+    const child = root.children.pop();
+    try { _disposeRoot(child); } catch (err) {
+      if (!failed) { failed = true; firstError = err; }
+    }
   }
   root.children.length = 0;
 
   // Dispose own effects
   for (let i = root.disposals.length - 1; i >= 0; i--) {
-    root.disposals[i]();
+    try { root.disposals[i](); } catch (err) {
+      if (!failed) { failed = true; firstError = err; }
+    }
   }
   root.disposals.length = 0;
+
+  if (root.owner) {
+    const idx = root.owner.children.indexOf(root);
+    if (idx >= 0) root.owner.children.splice(idx, 1);
+  }
+  if (failed) throw firstError;
 }
 
 // --- _createItemScope ---
@@ -891,20 +902,7 @@ export function _createItemScope(fn) {
   currentOwner = scope;
 
   try {
-    const dispose = () => {
-      if (scope._disposed) return;
-      scope._disposed = true;
-      // Dispose children
-      for (let i = scope.children.length - 1; i >= 0; i--) {
-        _disposeRoot(scope.children[i]);
-      }
-      scope.children.length = 0;
-      // Dispose own effects
-      for (let i = scope.disposals.length - 1; i >= 0; i--) {
-        scope.disposals[i]();
-      }
-      scope.disposals.length = 0;
-    };
+    const dispose = () => _disposeRoot(scope);
     return fn(dispose);
   } finally {
     currentRoot = prevRoot;

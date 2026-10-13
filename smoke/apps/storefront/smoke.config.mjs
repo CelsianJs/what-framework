@@ -259,7 +259,11 @@ export default {
 
         const beforeUnbatched = runs;
         store.setQty('aeron-mug', 6);
+        // Normal effects settle on a microtask. Compare two settled updates,
+        // not accidental inline execution from inferred stable dependencies.
+        await Promise.resolve();
         store.setQty('desk-mat', 7);
+        await Promise.resolve();
         const unbatched = runs - beforeUnbatched;
 
         dispose?.();
@@ -269,7 +273,7 @@ export default {
 
       check('state:batch',
         batching.batched === 1 && batching.unbatched === 2,
-        'batched writes settle once; the same writes unbatched settle twice',
+        'batched writes settle once; separately settled writes run twice',
         `batched=${batching.batched} unbatched=${batching.unbatched}`);
     });
 

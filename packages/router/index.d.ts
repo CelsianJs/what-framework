@@ -66,7 +66,8 @@ export interface LayoutProps {
   children?: VNodeChild;
 }
 
-export type RouteMiddleware = (props: RouteComponentProps) => boolean | Promise<boolean>;
+/** Middleware is synchronous: allow with true/void, block with false, or redirect with a path. Use asyncGuard for async checks. */
+export type RouteMiddleware = (props: RouteComponentProps & { path: string }) => boolean | string | void;
 
 // --- Router Component ---
 

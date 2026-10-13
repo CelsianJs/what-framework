@@ -62,12 +62,11 @@ export function clear() {
 /**
  * Apply several quantity changes as ONE settle.
  *
- * Each setQty is its own write. Without batch an observer runs once per write
- * and briefly sees a half-applied cart: the count already updated for the first
- * line while the second still holds its old quantity. batch collapses them, so
- * every reader sees exactly one consistent state. The suite measures the
- * observer's run count, which is the only way to tell the two apart from
- * outside: the final DOM is identical either way.
+ * Ordinary writes in one synchronous turn already coalesce at the microtask
+ * checkpoint. batch makes the boundary explicit and settles observers before
+ * returning, so callers can observe the fully applied cart immediately. The
+ * smoke suite compares this with two separately settled unbatched updates;
+ * it does not rely on an effect happening to execute inline.
  */
 export function applyBulk(updates) {
   batch(() => {

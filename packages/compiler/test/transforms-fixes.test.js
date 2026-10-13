@@ -44,14 +44,20 @@ describe('<Show> transform', () => {
     assert.match(code, /const\s+_v\w*\s*=\s*_c\$\d+\(\)/);
   });
 
-  it('supports identifier `when` from imports (treated as signal accessor)', () => {
+  // An import can be an accessor or a plain boolean, and the compiler cannot
+  // tell which, so it is resolved at runtime the way the Show component itself
+  // resolves `when`: still memoized, never called unless it is a function.
+  it('resolves identifier `when` from imports at runtime (accessor or plain value)', () => {
     const code = compileJSX(`
       import { isOpen } from './store.js';
       function App() {
         return <Show when={isOpen}>hello</Show>;
       }
     `);
-    assert.match(code, /_\$memo\(\(\)\s*=>\s*!!isOpen\(\)\)/);
+    assert.match(
+      code,
+      /_\$memo\(\(\)\s*=>\s*!!\(typeof isOpen === "function" \? isOpen\(\) : isOpen\)\)/,
+    );
     assert.match(code, /const\s+_v\w*\s*=\s*_c\$\d+\(\)/);
   });
 

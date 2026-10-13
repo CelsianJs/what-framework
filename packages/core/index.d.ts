@@ -61,8 +61,8 @@ export type PrimitiveChild = string | number | boolean | null | undefined;
 // passing that tree to mount().
 export type VNodeChild = PrimitiveChild | VNode<any> | (() => VNodeChild) | VNodeChild[];
 
-/** A component may legitimately render nothing, so `null` is part of the contract. */
-export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNode<any> | null) & {
+/** Components may return renderable children, including reactive thunks and arrays. */
+export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNodeChild) & {
   /**
    * Opt out of realizing compiled children before the component runs.
    *

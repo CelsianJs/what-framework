@@ -97,3 +97,23 @@ describe('parseQuery prototype safety', () => {
     assert.deepEqual({ ...parseQuery('?toString=a&toString=b') }, { toString: ['a', 'b'] });
   });
 });
+
+describe('parseQuery URL semantics', () => {
+  it('decodes form spaces and preserves literal and encoded equals signs', () => {
+    assert.deepEqual({ ...parseQuery('?q=hello+world&token=a=b&encoded=a%3Db%2Bc') }, {
+      q: 'hello world', token: 'a=b', encoded: 'a=b+c',
+    });
+  });
+
+  it('tolerates malformed percent escapes with URLSearchParams semantics', () => {
+    assert.deepEqual({ ...parseQuery('?q=%&bad=%ZZ&utf8=%E0%A4') }, {
+      q: '%', bad: '%ZZ', utf8: '\uFFFD',
+    });
+  });
+
+  it('preserves ordered duplicates, empty names, and empty values', () => {
+    assert.deepEqual({ ...parseQuery('?sort=b&sort=a&=first&=second&flag&blank=') }, {
+      sort: ['b', 'a'], '': ['first', 'second'], flag: '', blank: '',
+    });
+  });
+});
