@@ -2901,15 +2901,15 @@ function hydrateElementProps(el, props) {
       continue;
     }
 
-    // Reactive props — set up effects
+    // Reactive props must stop with the adopted element, like mounted props.
     if (typeof value === 'function' && !_isEventProp(key)) {
       if (key === 'class' || key === 'className') {
-        effect(() => { el.className = value() || ''; });
+        addHydrationDisposer(el, effect(() => { el.className = value() || ''; }));
       } else if (key === 'style' && typeof value() === 'object') {
         // Route through setStyle so stale object keys are cleared (el._lastStyleObj).
-        effect(() => { setStyle(el, value()); });
+        addHydrationDisposer(el, effect(() => { setStyle(el, value()); }));
       } else {
-        effect(() => { setProp(el, key, value()); });
+        addHydrationDisposer(el, effect(() => { setProp(el, key, value()); }));
       }
       continue;
     }

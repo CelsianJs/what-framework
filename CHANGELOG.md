@@ -2,6 +2,138 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.13.11] - 2026-10-08
+
+### Safer server rendering and private pages
+
+- Server rendering rejects invalid attribute names before writing any value,
+  including `false` values on data and accessibility attributes. Valid
+  attributes keep their existing behavior.
+- Concurrent page requests no longer share a render marked private or using
+  request headers. Each waiting request renders with its own context; public
+  page results still share work and private results remain uncached.
+- Installing `what-server` on its own now installs its required `what-router`
+  peer, so the Node server entry works without monorepo dependency hoisting.
+
+### Reliable updates and recovery
+
+- Reactive attributes on hydrated elements stop updating when those elements
+  are disposed. Detached elements no longer retain these subscriptions.
+- A throwing error-boundary fallback no longer leaves later components in the
+  failed boundary's context.
+- Stable effect failures are reported in production without stopping sibling
+  effects or subsequent updates.
+- DevTools report an effect's initial execution and dependencies before the
+  first signal write, without executing the callback a second time. Lazy
+  computed values remain lazy.
+
+### Clearer development feedback
+
+- Edits to imported components appear without a manual browser refresh. When
+  no component-replacement runtime is installed, the compiler reloads the
+  page; this fallback does not preserve local component state.
+- The recommended ESLint configuration warns when native component props are
+  destructured during setup, which can capture their initial values. React
+  compatibility components are excluded.
+- TypeScript and generated-project guidance now explain reactive prop access
+  and the dependency graph accurately.
+
+### Release verification
+
+- Local verification and the publisher share one correctness-gate list,
+  including declaration parity, error catalogue/docs checks, typechecks and
+  lint. Local performance gates remain blocking; CI retains its separate
+  non-blocking performance signal.
+- Publishing requires the `main` branch. Already-published versions reconcile
+  the requested npm tag only after missing cohort members publish; registry
+  verification checks both exact versions and that tag before installing
+  pinned packages.
+- CI adds a bounded native WebKit qualification for hydration, inputs, radio
+  controls, events, SVG and visible islands, plus packed standalone-server
+  verification. These checks are not a claim of exhaustive browser coverage.
+
+See `docs/releases/v0.13.11.md` for migration guidance and scope. No new runtime
+dependencies or performance improvements are claimed. All 13 maintained
+packages advance together; deprecated `what-mcp` stays frozen at 0.12.4.
+
+## [0.13.10] - 2026-09-28
+
+### Imported values in compiled JSX
+
+- **what-compiler no longer calls an imported binding used as an attribute
+  value.** `<a href={DOCS_URL}>` with `export const DOCS_URL = '/docs'` compiled
+  to `DOCS_URL()` and threw `DOCS_URL is not a function` at render. The compiler
+  treated every relative import as a signal, but an import can hold any value.
+  The identifier is now passed through uncalled, and the runtime setters
+  resolve a function value as a reactive accessor exactly as `h()` does. So an
+  imported string, number, class name or style object renders, and an imported
+  signal, computed or accessor function still updates the attribute. Named,
+  default and namespace imports behave the same way. A local
+  `const x = signal()` is still called, since the compiler can prove what it is.
+- `<Show when={X}>` and `<Match when={X}>`, where `X` is an import or a
+  destructured prop (bare, or the root of a plain member chain like `ns.open`),
+  now compile to `typeof X === 'function' ? X() : X`. This matches the
+  components' own runtime check. An imported boolean flag previously threw
+  `FLAG is not a function`.
+- The differential fuzzer gained an imported-bindings arm: 300 random trees that
+  place constants, `null`, a signal, a computed, a function, a default import
+  and namespace members in attribute, child and component-prop positions,
+  compared against the `h()` tree before and after a write. On the previous
+  compiler the first tree throws `DFLT is not a function`. All 300 now match.
+
+### Attribute aliases on the server and in compiled templates
+
+- **SSR now renames `htmlFor` to `for`.** `<label htmlFor="email">` was written
+  to HTML as `htmlFor="email"`, which the browser parses as a meaningless
+  `htmlfor` attribute. Hydration never corrects a static attribute, so the label
+  stayed disconnected from its input after hydration too. `renderToString`,
+  `renderToStream` and `renderDocument` now rename every prop whose attribute
+  name differs by more than case: `htmlFor` to `for`, `httpEquiv` to
+  `http-equiv`, `acceptCharset` to `accept-charset`, and `className` to `class`
+  as before. Case-only names such as `tabIndex` and `readOnly` need no rename,
+  because HTML attribute names are case-insensitive.
+- what-compiler's static templates had the same gap for `httpEquiv` and
+  `acceptCharset`: `<meta httpEquiv="refresh">` with a literal value became an
+  `httpequiv` attribute, while the same prop with a dynamic value worked. Both
+  are now renamed, so compiled, `h()` and server output agree.
+
+### New `create-what` template: static site with islands
+
+- `npm create what@latest my-site -- --template=islands` (or choice 3 at the
+  template prompt) scaffolds JSX pages prerendered to static HTML with
+  interactive islands: two pages, one shared layout, one island.
+  - `npm run dev` renders each page on request through Vite.
+  - `npm run build` writes `dist/index.html` and `dist/about/index.html`, with
+    the island's markup already in the HTML.
+  - `npm run preview` serves `dist/` the way a static host does.
+- The island hydrates in place over the server markup when its `mode` fires.
+  A page without islands loads one small entry script and no framework code.
+- Pages use the automatic JSX runtime (`jsxImportSource: 'what-framework'`)
+  rather than what-compiler, because every page is rendered on the server.
+  Built on `renderDocument`, `exportStatic`, `Island` and `hydrateIslands`.
+- `npm run smoke:scaffold` now covers the template end to end. It scaffolds and
+  installs from local tarballs, checks dev-server pages and island hydration in
+  a real browser, and builds. It then checks the static files, confirms the
+  built island hydrates in place (the server-rendered button is the live one)
+  and increments, and checks that a page without islands requests only the
+  entry script.
+
+## [0.13.9] - 2026-09-26
+
+### Consistent static-page data
+
+- Static and hybrid exports now run each concrete page's loader once and share
+  its result between the rendered HTML and navigation data. Changing data can
+  no longer produce one revision on first load and another on client navigation.
+- Custom static renderers share a lazily resolved loader snapshot, preserving
+  their ability to prepare loader context before its first read. Snapshots
+  are isolated per URL and export run; the caller's route loader is not mutated.
+
+### Release tooling
+
+- Refresh the existing MCP tooling's locked Hono dependency to 4.13.9 to clear
+  the repository audit gate. No dependency is added to the browser runtime.
+
 ## [0.13.8] - 2026-09-07
 
 Published September 7, 2026 (UTC), including the declaration corrections

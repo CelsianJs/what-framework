@@ -83,7 +83,7 @@ The compiler handles reactive expressions automatically — signal reads in JSX 
 
 ## Packages
 
-All 13 packages publish together at the same version — see [CHANGELOG.md](CHANGELOG.md) for the current release.
+The 13 maintained packages publish together at the same version. The table also lists deprecated `what-mcp`, frozen at 0.12.4 and excluded from new releases. See [CHANGELOG.md](CHANGELOG.md) for the current release.
 
 | Package | Description |
 |---|---|
@@ -157,7 +157,7 @@ See [`REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix. Th
 | Playground | [playground.whatfw.com](https://playground.whatfw.com) | `sites/playground/` | Native Vercel (Vite build) |
 | React-compat demo | [react.whatfw.com](https://react.whatfw.com) | `sites/react-compat/` | Native Vercel (Vite build) |
 | Benchmarks | [benchmarks.whatfw.com](https://benchmarks.whatfw.com) | `sites/benchmarks/` | Native Vercel (static) |
-| npm packages (×13) | [npmjs.com/~](https://www.npmjs.com/package/what-framework) | `packages/*` | `Release And Deploy` workflow / `npm run release:*` |
+| Maintained npm packages (×13) | [npmjs.com/~](https://www.npmjs.com/package/what-framework) | `packages/*` | `Release And Deploy` workflow / `npm run release:*` |
 
 `sites/showcase/` is local-only (not deployed). Full details — build commands, domains, the
 release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DEPLOYMENTS.md)**.
@@ -175,7 +175,7 @@ release workflow, tokens vs. native integration — are in **[DEPLOYMENTS.md](DE
 - [MCP DevTools](docs/MCP-DEVTOOLS.md) -- MCP tools reference
 - [Agent Patterns](docs/AGENT-PATTERNS.md) -- Best practices
 - [Gotchas](docs/GOTCHAS.md) -- Common mistakes
-- [Error codes](docs/ERRORS.md) -- all 30 diagnostics, each with a fix and a worked example
+- [Error codes](docs/ERRORS.md) -- diagnostics, each with a fix and a worked example
 - [Migration from React](docs/MIGRATION-FROM-REACT.md) · [TypeScript](docs/TYPESCRIPT.md) · [Styling](docs/STYLING.md) · [Development](docs/DEVELOPMENT.md) · [Release](docs/RELEASE.md)
 - [Ecosystem Roadmap](docs/ECOSYSTEM-PLAN.md) -- planned `@what/*` packages
 

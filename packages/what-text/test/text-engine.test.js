@@ -5,6 +5,8 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const {
   configureText,
@@ -100,21 +102,24 @@ describe('ensurePretext', () => {
   });
 
   it('resolves successfully when @chenglou/pretext is installed', async () => {
-    // If pretext is installed (as a dev dep), ensurePretext should resolve.
-    // If not installed, it should reject with a clear error mentioning the package.
-    try {
-      const mod = await ensurePretext();
-      // Pretext is installed — verify it has the expected API
-      assert.equal(typeof mod.prepareWithSegments, 'function', 'pretext should export prepareWithSegments()');
-      assert.equal(typeof mod.layoutWithLines, 'function', 'pretext should export layoutWithLines()');
-    } catch (err) {
-      // Pretext not installed — verify clear error message
-      assert.ok(
-        err.message.includes('@chenglou/pretext'),
-        `Error should mention '@chenglou/pretext', got: ${err.message}`
-      );
-    }
+    // The root installs Pretext. An initialization error in an installed module
+    // is not evidence that the absent-peer fallback works.
+    const mod = await ensurePretext();
+    assert.equal(typeof mod.prepareWithSegments, 'function', 'pretext should export prepareWithSegments()');
+    assert.equal(typeof mod.layoutWithLines, 'function', 'pretext should export layoutWithLines()');
   });
+
+  for (const mode of ['missing', 'retry', 'broken']) {
+    it(`isolates the ${mode} optional-peer configuration`, () => {
+      const result = spawnSync(process.execPath, [
+        '--experimental-loader', fileURLToPath(new URL('./fixtures/pretext-loader.mjs', import.meta.url)),
+        fileURLToPath(new URL('./fixtures/pretext-probe.mjs', import.meta.url)),
+        mode,
+      ], { encoding: 'utf8', timeout: 15000, env: { ...process.env, WHAT_PRETEXT_FIXTURE: mode } });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.match(result.stdout, new RegExp(`pretext ${mode}: verified`));
+    });
+  }
 
   it('returns the cached module on success when using _setPretextForTests', async () => {
     const fake = { prepareWithSegments: () => {}, layoutWithLines: () => ({}) };

@@ -83,15 +83,12 @@ To reduce flaky failures from machine jitter, the gate re-runs benchmarks once w
 
 ## Release automation
 
-Canonical CI/release workflows:
+Authoritative CI and release workflows:
 
-- `/.github/workflows/ci.yml`
+- `/.depot/workflows/ci.yml` (automatic CI); the GitHub copy is a manual fallback
 - `/.github/workflows/release-and-deploy.yml`
 
-The release workflow runs tests/build/bench gates, then can:
-
-1. Publish packages to npm in dependency order.
-2. Deploy configured docs/web surfaces to linked Vercel projects.
+The GitHub release workflow runs the shared correctness gates, retains a separate nonblocking CI benchmark signal, publishes the maintained npm cohort, and verifies exact versions and the requested tag. Run the full local `release:verify` for blocking performance qualification. Web surfaces deploy separately through native GitHub-to-Vercel integration; the release workflow does not deploy them.
 
 See `/docs/RELEASE.md` for required secrets and one-button run steps.
 
