@@ -160,7 +160,26 @@ export const OPS = [
 // ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
-export async function runFrameworks(frameworks, { samples = 10, samplesHeavy = 5, warmup = null, log = false } = {}) {
+export async function captureBrowserProvenance(browser) {
+  const session = await browser.newBrowserCDPSession();
+  try {
+    const version = await session.send('Browser.getVersion');
+    let commandLine = null;
+    let commandLineError = null;
+    try {
+      commandLine = (await session.send('Browser.getBrowserCommandLine')).arguments;
+    } catch (err) {
+      // Recent Playwright launches omit --enable-automation, so Chromium may
+      // refuse this diagnostic. Do not add a flag just to obtain metadata.
+      commandLineError = err.message;
+    }
+    return { version: browser.version(), ...version, commandLine, commandLineError };
+  } finally {
+    await session.detach();
+  }
+}
+
+export async function runFrameworks(frameworks, { samples = 10, samplesHeavy = 5, warmup = null, log = false, provenance = false } = {}) {
   for (const fw of frameworks) {
     if (!existsSync(path.join(distDir, fw, 'index.html'))) {
       throw new Error(`dist/${fw}/index.html missing: run \`npm run build\` in benchmark/krausest first.`);
@@ -170,9 +189,11 @@ export async function runFrameworks(frameworks, { samples = 10, samplesHeavy = 5
   const { chromium } = await import('playwright'); // repo root devDependency
   const server = createServer();
   await new Promise((r) => server.listen(PORT, r));
-  const browser = await chromium.launch({ headless: true });
+  const launchOptions = { headless: true };
+  const browser = await chromium.launch(launchOptions);
   const chromiumVersion = browser.version();
   const results = {};
+  let browserProvenance;
 
   try {
     for (const fw of frameworks) {
@@ -204,12 +225,15 @@ export async function runFrameworks(frameworks, { samples = 10, samplesHeavy = 5
       if (log) process.stdout.write('\n');
       await context.close();
     }
+    // Collect after all measured operations, so diagnostic CDP traffic cannot
+    // enter the timed click/double-rAF path or disturb its warmup sequence.
+    if (provenance) browserProvenance = { ...await captureBrowserProvenance(browser), launchOptions };
   } finally {
     await browser.close();
     server.close();
   }
 
-  return { results, chromiumVersion };
+  return { results, chromiumVersion, ...(provenance ? { browser: browserProvenance } : {}) };
 }
 
 export async function runWhat({ samples = 10, samplesHeavy = 5 } = {}) {

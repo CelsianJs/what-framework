@@ -263,14 +263,10 @@ if (existsSync(securityPath)) {
   }
 }
 
-// 3) Sweep known hardcoded-version spots: replace the current group version
-//    (with or without a leading "v") with the new one. CHANGELOG and
-//    docs/releases are intentionally NOT swept (historical records).
+// 3) Update explicit current-release badges and footers only. A version inside
+//    a measurement, "as of" explanation or roadmap sentence is historical
+//    evidence, not release chrome. Markdown and release notes are not swept.
 const SWEEP_FILES = [
-  'README.md',
-  'GETTING-STARTED.md',
-  'docs/QUICKSTART.md',
-  'docs/API.md',
   'docs-site/index.html',
   'sites/benchmarks/index.html',
   'sites/react-compat/index.html',
@@ -296,26 +292,32 @@ for (const dir of SWEEP_DIRS) {
 let sweptFiles = 0;
 let sweptHits = 0;
 const staleAfterSweep = [];
+const BADGE_VERSION = /(<(?:span|div)\b[^>]*\bclass=["'](?:logo-badge|footer-meta)["'][^>]*>v?)(\d+\.\d+\.\d+)/g;
+const FOOTER_VERSION = /(<a\b[^>]*\bhref=["']https:\/\/whatfw\.com["'][^>]*>What Framework<\/a>\s+v?)(\d+\.\d+\.\d+)/g;
 for (const file of sweepTargets) {
   const src = readFileSync(file, 'utf8');
-  const hits = src.split(currentStr).length - 1;
-  let updated = src;
-  if (hits > 0 && currentStr !== next) {
-    updated = src.replaceAll(currentStr, next);
+  let hits = 0;
+  const leftover = new Set();
+  const updateVersion = (match, prefix, version) => {
+    if (version === currentStr && currentStr !== next) {
+      hits++;
+      return prefix + next;
+    }
+    if (version !== next && version !== currentStr) leftover.add(version);
+    return match;
+  };
+  const updated = src.replace(BADGE_VERSION, updateVersion)
+    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/g,
+      footer => footer.replace(FOOTER_VERSION, updateVersion));
+  if (hits > 0) {
     if (!dry) writeFileSync(file, updated);
     sweptFiles++;
     sweptHits += hits;
   }
-  // Drift warning: a "vX.Y.Z" left behind that is neither the new version nor
-  // the one we just replaced means the file was already stale before this bump.
-  // Majors far above ours are other tools' versions (e.g. Node "v22.x" on the
-  // benchmarks page), not framework drift — skip those.
-  const nextMajor = Number(next.split('.')[0]);
-  const leftover = [...updated.matchAll(/v(\d+\.\d+\.\d+)/g)]
-    .map((m) => m[1])
-    .filter((v) => v !== next && v !== currentStr && Number(v.split('.')[0]) <= nextMajor + 1);
-  if (leftover.length > 0) {
-    staleAfterSweep.push(`${file.slice(repoRoot.length + 1)} (${[...new Set(leftover)].join(', ')})`);
+  // Only current-release surfaces can drift; historical prose may legitimately
+  // retain any older version across several subsequent release preparations.
+  if (leftover.size > 0) {
+    staleAfterSweep.push(`${file.slice(repoRoot.length + 1)} (${[...leftover].join(', ')})`);
   }
 }
 console.log(`  ${'version sweep'.padEnd(24)} -> ${sweptHits} occurrence(s) of ${currentStr} across ${sweptFiles} file(s) -> ${next}`);

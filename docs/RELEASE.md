@@ -43,8 +43,9 @@ fail and need a redeploy after publish, from the Vercel dashboard or with
 `npm run deploy:vercel`. The lasting fix is to dispatch the release promptly
 after the bump lands.
 
-The workflow always runs every correctness gate from `release:verify` before
-publish/deploy, except `bench:gate`, which runs as a separate non-blocking step
+The workflow rejects non-main refs before credential-bearing steps and runs
+the shared `release:verify:correctness` runner before publishing. The local
+`release:verify` uses the same list plus `bench:gate`, which runs as a separate non-blocking CI step
 because the perf baselines are recorded on local hardware. Run
 `npm run -s release:verify` locally to get the blocking perf gate.
 When packages are published, it also runs `npm run -s verify:registry` and uploads
@@ -72,11 +73,21 @@ After packages are published, verify npm has the expected public package set:
 npm run verify:registry
 ```
 
+For a non-latest release, pass the same tag explicitly:
+
+```bash
+WHAT_REGISTRY_TAG=next npm run verify:registry
+```
+
 ## Publish
 
 Preferred path: trigger the GitHub `Release And Deploy` workflow from `main`.
 It uses the repository `NPM_TOKEN`, publishes in dependency order, then runs the
-registry smoke.
+registry smoke. That smoke verifies both each exact version and the requested
+tag; a matching existing version does not prove its tag is correct. Reruns
+reconcile tags only after missing cohort versions have published successfully.
+Tag writes are not atomic: a failure stops further writes, and rerunning
+reconciles the remaining members. A dry run never changes tags.
 
 Local publish is emergency-only. If needed, publish all non-private packages in
 dependency order:

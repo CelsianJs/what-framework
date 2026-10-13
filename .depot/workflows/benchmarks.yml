@@ -1,9 +1,4 @@
-# Depot CI Migration
-# Source: .github/workflows/benchmarks.yml
-#
-# Changes made:
-# - Changed GitHub runs-on labels to their Depot equivalents
-
+# Authoritative benchmark refresh on Depot; GitHub copy is manual fallback.
 name: Update Benchmarks
 on:
   schedule:
@@ -11,17 +6,25 @@ on:
     - cron: '0 6 */3 * *'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: benchmark-refresh-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   update-benchmarks:
-    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    runs-on: depot-ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: 22
+          ref: main
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
           cache: npm
       - name: Install dependencies
         run: npm ci
@@ -32,23 +35,45 @@ jobs:
       - name: Check for changes
         id: diff
         run: |
-          git diff --quiet sites/benchmarks/ && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
-      - name: Commit updated benchmarks
+          if git diff --quiet -- sites/benchmarks/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Propose benchmark refresh through a pull request
         if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          BENCHMARK_BRANCH="chore/benchmark-refresh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git checkout -b "$BENCHMARK_BRANCH"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sites/benchmarks/
-          git commit -m "chore: refresh benchmark data ($(date -u +%Y-%m-%d))"
-          git push
-      - name: Deploy to Vercel
-        if: steps.diff.outputs.changed == 'true'
-        # Non-blocking: VERCEL_TOKEN is not configured on this repo, so the
-        # deploy step is expected to fail. Marking it continue-on-error keeps the
-        # benchmark-refresh commit (the real product of this cron) from being
-        # reported as a red run over an expected, non-correctness deploy failure.
-        # When VERCEL_TOKEN is added, remove this and let real failures surface.
-        continue-on-error: true
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: node scripts/deploy-vercel.mjs --targets "sites/benchmarks"
+          git add -- sites/benchmarks/
+          git commit -m "chore(benchmark): Keep benchmark data current without bypassing pull-request checks" \
+            -m "Constraint: Main changes require a pull request." \
+            -m "Rejected: Direct main push | bypasses required correctness checks." \
+            -m "Confidence: high" -m "Scope-risk: narrow" \
+            -m "Tested: npm ci; npm run build; npm run bench:update" \
+            -m "Not-tested: Pull-request CI and production deployment; this step only proposes a branch."
+          git push origin "HEAD:refs/heads/$BENCHMARK_BRANCH"
+          MANUAL_PR_URL="https://github.com/$GITHUB_REPOSITORY/compare/main...$BENCHMARK_BRANCH?expand=1"
+          echo "Benchmark branch pushed; nothing has been published." >> "$GITHUB_STEP_SUMMARY"
+          echo "Maintainer PR fallback: $MANUAL_PR_URL" >> "$GITHUB_STEP_SUMMARY"
+          # Repository policy may disallow PR creation with the workflow token.
+          # Keep the branch and artifact; never weaken that policy or push main.
+          if ! gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BENCHMARK_BRANCH" \
+            --title "chore(benchmark): refresh measured benchmark data" \
+            --body "Generated benchmark refresh. Required correctness checks must pass before merging. Native Vercel Git integration deploys after merge."; then
+            echo "::error::Automatic PR creation was denied or failed. Branch retained; open $MANUAL_PR_URL"
+            echo "Automatic PR creation failed. Maintainer action is required; no publication occurred." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Preserve generated benchmark artifact
+        if: always() && steps.diff.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: benchmark-refresh-${{ github.run_id }}-${{ github.run_attempt }}
+          path: sites/benchmarks/
+          if-no-files-found: error

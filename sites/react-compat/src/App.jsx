@@ -82,7 +82,7 @@ function Counter({ target, suffix, colorClass, children }) {
 
   return (
     <div class="stat" ref={ref}>
-      <div class={`stat-number ${colorClass}`}>{value}{suffix || ''}</div>
+      <div class={`stat-number ${colorClass}`}>{value()}{suffix || ''}</div>
       <div class="stat-label">{children}</div>
     </div>
   );
@@ -122,7 +122,7 @@ function FilterBar({ active, onSelect }) {
         const count = cat === 'All' ? pkgs.length : pkgs.filter(p => p.c === cat).length;
         return (
           <button
-            class={`filter-btn ${cat === active ? 'active' : ''}`}
+            class={() => `filter-btn ${cat === active() ? 'active' : ''}`}
             onclick={() => onSelect(cat)}
           >
             {cat} ({count})
@@ -145,13 +145,13 @@ function PackageGrid({ filter }) {
     requestAnimationFrame(() => el.classList.add('visible'));
   }, [filter]);
 
-  const list = (filter === 'All' ? pkgs : pkgs.filter(p => p.c === filter))
+  const list = () => (filter() === 'All' ? pkgs : pkgs.filter(p => p.c === filter()))
     .slice()
     .sort((a, b) => (sortOrder[a.s] ?? 9) - (sortOrder[b.s] ?? 9));
 
   return (
     <div class="pkg-grid stagger" ref={gridRef}>
-      {list.map(p => <PackageCard pkg={p} />)}
+      {() => list().map(p => <PackageCard key={p.n} pkg={p} />)}
     </div>
   );
 }

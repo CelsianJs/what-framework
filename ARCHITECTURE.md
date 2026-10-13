@@ -25,7 +25,8 @@ exists to produce HTML those operations can adopt instead of recreate.
 
 ## The 14 packages
 
-Every package publishes independently at the same version. `what-framework` is
+The 13 maintained packages publish at the same version. Deprecated `what-mcp`
+is frozen at 0.12.4 and is not part of new release cohorts. `what-framework` is
 the umbrella most apps install.
 
 | Package | Directory | Depends on | What it is |
@@ -42,13 +43,12 @@ the umbrella most apps install.
 | `what-text` | `packages/what-text` | `what-core`, `@chenglou/pretext` (peers) | Optional text engine |
 | `what-devtools` | `packages/devtools` | `what-core` (peer) | Signal inspector, component tree, effect graph |
 | `what-devtools-mcp` | `packages/devtools-mcp` | `what-devtools` (peer) | MCP server bridging agents to a live app |
-| `eslint-plugin-what` | `packages/eslint-plugin` | `eslint` (peer) | 9 rules for the mistakes this model invites |
+| `eslint-plugin-what` | `packages/eslint-plugin` | `eslint` (peer) | 10 rules for the mistakes this model invites |
 | `what-mcp` | `packages/mcp-server` | nothing | **Deprecated.** Docs MCP server |
 
-Nothing in `packages/` depends on anything outside it except `@babel/core`,
-`@modelcontextprotocol/sdk`, `ws`, `zod` and `eslint` — and every one of those
-sits in a build-time or tooling package. **The runtime packages have zero
-runtime dependencies.**
+Core has no external runtime dependencies. Compiler/MCP/lint packages have
+tooling dependencies; optional `what-text` loads `@chenglou/pretext` at runtime.
+Internal framework peers are separate from third-party runtime dependencies.
 
 ---
 
@@ -77,6 +77,16 @@ bearing — see the comment at `reactive.js:50` before touching it.
 buffering placeholder in dev before install, and the real hooks after
 `__setDevToolsHooks()`. Every hook call is optional (`?.()`) because the
 function is public and a partial object is a legitimate thing to install.
+
+Successful initial effect execution reports its dependencies and run count;
+later writes report subsequent runs. Lazy computeds remain unevaluated until
+read. Reactive text and attribute bindings use these tracked effects too.
+
+Production defaults disable development hooks. The explicit runtime
+`globalThis.__WHAT_DEV__` override is retained for browser tooling, so a
+production bundle can retain development branches even when they do not run.
+Consumer gzip budgets include that tradeoff; complete compile-time stripping
+is not promised while the runtime override remains supported.
 
 ### The DOM runtime — `dom.js`, `render.js`
 
@@ -190,7 +200,7 @@ fan-out (Cloudflare, Fastly, Vercel).
 
 ## Errors
 
-`packages/core/src/errors.js` is the single catalogue: 30 codes, each with a
+`packages/core/src/errors.js` is the single catalogue, each entry with a
 severity, a suggestion and a worked bad/good example. The `what_errors` MCP
 tool reads it, so the audience is usually an agent.
 
@@ -216,7 +226,7 @@ positioning, and it is real code rather than a claim:
 - **`what-devtools-mcp`** bridges that over a WebSocket to an MCP server, so
   an agent can read live app state, not just source. `bridge.js` is the
   socket, `client*.js` is the in-page half, `tools*.js` are the MCP tools.
-- **`eslint-plugin-what`** encodes nine rules for the mistakes this model
+- **`eslint-plugin-what`** encodes ten rules for the mistakes this model
   invites — uncalled signals, writes inside computeds, camelCase events,
   destructured props.
 - **`errors.js`** makes every failure machine-readable.
@@ -240,7 +250,7 @@ The gates, all runnable locally and all run in CI:
 | `npm run hygiene:publish` | Export maps resolve, tarballs are complete, packed types typecheck in a clean consumer |
 | `npm run check:error-codes` | Every thrown `ERR_*` is catalogued |
 | `npm run check:size` | Bundle budgets in `.size-budgets.json` |
-| `npm test` | 173 test files, Node's built-in runner |
+| `npm test` | Discovered package/example/script suites, Node's built-in runner |
 | `npm run test:stress` | `stress-tests/`, adversarial cases |
 | `npm run test:prod` | The production build is not a blank screen |
 | `npm run bench:gate` | Performance has not regressed |
