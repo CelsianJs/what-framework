@@ -2,7 +2,12 @@
 
 All notable changes to What Framework will be documented in this file.
 
-## [Unreleased]
+## [0.14.0] - 2026-10-13
+
+Minor release: all 13 maintained packages move to 0.14.0 together. It adds
+public API to `what-server` (`createVuraHandler`, `buildVuraOutput`) and a
+build step to the create-what full-stack template. Deprecated `what-mcp` stays
+frozen at 0.12.4.
 
 ### Deploy to Vura
 
