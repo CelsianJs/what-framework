@@ -57,7 +57,7 @@ export const packages = [
     ],
     // what-router/what-isr are optional peers (kept external, not inlined); the
     // deploy adapters lazy-import Node builtins which must not be bundled.
-    external: ['what-core', 'what-router', 'what-router/match', 'what-isr', 'node:async_hooks', 'node:fs/promises', 'node:http', 'node:path'],
+    external: ['what-core', 'what-router', 'what-router/match', 'what-isr', 'node:async_hooks', 'node:fs/promises', 'node:http', 'node:module', 'node:path', 'node:url'],
   },
   {
     // Origin-first ISR engine. Zero runtime deps; Node-only builtins stay external.

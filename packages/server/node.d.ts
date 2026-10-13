@@ -44,6 +44,66 @@ export interface VercelOutputOptions {
 /** Write a Vercel Build Output API v3 directory. */
 export function buildVercelOutput(options?: VercelOutputOptions): Promise<{ outDir: string; written: string[] }>;
 
+/** A Vura Function module: what `export default` of the Function entry must be. */
+export interface VuraFunction {
+  fetch(request: Request, env?: Readonly<Record<string, string | undefined>>): Promise<Response>;
+}
+
+/**
+ * Vura Function entry. Takes createRequestHandler options or an existing
+ * Web-Fetch handler, and rebuilds request.url from x-forwarded-host/proto so
+ * the app sees the public origin.
+ */
+export function createVuraHandler(
+  optionsOrHandler?: RequestHandlerOptions | ((request: Request) => Response | Promise<Response>),
+): VuraFunction;
+
+/** A file or directory to publish under dist/static: 'src/pages' or { from: 'public', to: '/' }. */
+export type VuraStaticFile = string | { from: string; to: string };
+
+export interface VuraOutputOptions {
+  /** Default process.cwd(). Every other path is relative to it. */
+  projectRoot?: string;
+  /** Default 'dist'. Deleted and rewritten on every build; must be inside projectRoot. */
+  outDir?: string;
+  /** The Function module, bundled into functions/_/index.js. */
+  entry: string;
+  staticFiles?: VuraStaticFile[];
+  /** Function memory. Default '1gb'. */
+  memory?: '1gb' | '4gb' | '6gb' | '8gb' | '12gb';
+}
+
+export interface VuraApiRoute {
+  filePath: string;
+  urlPattern: string;
+  methods: string[];
+  kind: 'serverless';
+  hasWebsocket: false;
+  config: { kind: 'serverless'; compute: { class: 'function'; memory: string } };
+}
+
+export interface VuraManifest {
+  schemaVersion: 1;
+  requiredFeatures: string[];
+  api: VuraApiRoute[];
+  pages: unknown[];
+  layouts: unknown[];
+  timestamp: string;
+}
+
+export interface VuraOutputResult {
+  outDir: string;
+  staticDir: string;
+  functionFile: string;
+  manifest: VuraManifest;
+  copied: Array<{ from: string; to: string }>;
+  /** staticFiles sources that did not exist. */
+  skipped: string[];
+}
+
+/** Write a Vura deploy directory: manifest.json, static/**, functions/_/index.js. Needs esbuild in the project. */
+export function buildVuraOutput(options: VuraOutputOptions): Promise<VuraOutputResult>;
+
 export interface ExportStaticOptions {
   routes?: any[];
   outDir: string;

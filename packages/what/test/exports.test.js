@@ -48,6 +48,7 @@ const EXPECTED_EXPORTS = {
     'action', 'formAction', 'island', 'Island', 'hydrateIslands',
     'generateCsrfToken', 'validateCsrfToken', 'csrfMetaTag',
     'exportStatic', 'createVercelHandler', 'createCloudflareHandler',
+    'createVuraHandler', 'buildVuraOutput',
   ],
   './jsx-runtime': ['jsx', 'jsxs', 'Fragment'],
   './jsx-dev-runtime': [],
