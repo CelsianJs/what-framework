@@ -224,3 +224,50 @@ test('fullstack scaffold production server starts from a path containing spaces'
     await rm(workDir, { recursive: true, force: true });
   }
 });
+
+// A Vura Function boots server.js's createHandler() under NODE_ENV=production
+// with no WHAT_REVALIDATE_SECRET unless the user sets one. Exiting at import
+// would crash every cold start, so production without the secret runs and
+// simply does not mount the webhook; with the secret it is mounted as before.
+test('fullstack scaffold production server: the revalidate webhook is mounted only with a secret', async () => {
+  const workDir = await mkdtemp(join(tmpdir(), 'create-what-prod-secret-'));
+  const revalidate = (base, secret) => fetch(base + '/__what_revalidate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(secret ? { 'x-what-revalidate-secret': secret } : {}) },
+    body: JSON.stringify({ paths: ['/'] }),
+  });
+
+  const without = await scaffoldAndBoot(workDir, {
+    name: 'no-secret-app',
+    port: PORT + 2,
+    env: { NODE_ENV: 'production', WHAT_REVALIDATE_SECRET: '' },
+  });
+  try {
+    assert.equal((await fetch(without.base + '/')).status, 200, `production without the secret must serve pages:\n${without.child.logs}`);
+    assert.equal((await revalidate(without.base)).status, 404, 'no secret -> the webhook is not mounted');
+    assert.equal((await revalidate(without.base, 'guess')).status, 404, 'and cannot be unlocked by guessing');
+    assert.match(without.child.logs, /WHAT_REVALIDATE_SECRET/, 'logs a warning naming the variable');
+    assert.equal(without.child.logs.match(/WHAT_REVALIDATE_SECRET/g).length, 1, 'warns once');
+    assert.equal(without.child.exitCode, null);
+  } finally {
+    without.child.kill('SIGTERM');
+    await new Promise((r) => { without.child.on('exit', r); setTimeout(r, 2000); });
+  }
+
+  const withSecret = await scaffoldAndBoot(workDir, {
+    name: 'secret-app',
+    port: PORT + 3,
+    env: { NODE_ENV: 'production', WHAT_REVALIDATE_SECRET: 'prod-secret-for-webhook-test' },
+  });
+  try {
+    assert.equal((await revalidate(withSecret.base, 'wrong')).status, 401, 'mounted: a wrong secret is refused');
+    const ok = await revalidate(withSecret.base, 'prod-secret-for-webhook-test');
+    assert.equal(ok.status, 200);
+    assert.deepEqual((await ok.json()).paths, ['/']);
+    assert.doesNotMatch(withSecret.child.logs, /WHAT_REVALIDATE_SECRET/, 'no warning when the secret is set');
+  } finally {
+    withSecret.child.kill('SIGTERM');
+    await new Promise((r) => { withSecret.child.on('exit', r); setTimeout(r, 2000); });
+    await rm(workDir, { recursive: true, force: true });
+  }
+});

@@ -162,9 +162,10 @@ The JSON path is unchanged: fetch clients send `X-What-Action` + JSON
 
 ## Deploying
 
-All four deploy adapters wrap the same Web-Fetch core (`createRequestHandler`),
-so routes, actions, CSRF, and ISR behave identically everywhere. Each adapter
-below is covered by `test/deploy-readiness.test.js`.
+All five deploy adapters wrap the same Web-Fetch core (`createRequestHandler`),
+so routes, actions, CSRF, and ISR behave identically everywhere. Node, static,
+Vercel and Cloudflare are covered by `test/deploy-readiness.test.js`, Vura by
+`test/adapter-vura.test.js`.
 
 ### Node (self-hosted: VPS, Docker, Fly, Railway)
 
@@ -223,6 +224,72 @@ layout is `config.json` (version 3, filesystem-first routing) +
 Vercel's native `s-maxage`/`stale-while-revalidate` headers emitted by the
 cache engine. Calling `buildVercelOutput()` without `files` writes
 `config.json` only (your build step owns `functions/` — backward compatible).
+
+### Vura
+
+A Vura deploy is static files plus ONE scale-to-zero Function. The Function
+entry exports the handler:
+
+```js
+// function.js
+import { createVuraHandler } from 'what-server';
+import { routes } from './routes.js';
+export default createVuraHandler({ routes });
+```
+
+`createVuraHandler` also accepts an existing Web-Fetch handler, so an app that
+already builds one (the create-what full-stack `server.js` exports
+`createHandler()`) reuses it: `export default createVuraHandler(createHandler())`.
+It returns the Function module shape Vura loads, `{ fetch(request, env) }`, and
+rebuilds `request.url` from the edge's `x-forwarded-host` and
+`x-forwarded-proto` headers, so absolute URLs, Secure cookies and origin checks
+see the public origin rather than the platform's internal one. `env` is exposed
+to loaders as `request.__env`, as on Cloudflare.
+
+The build script writes Vura's output directory:
+
+```js
+// build.js
+import { buildVuraOutput } from 'what-server';
+
+await buildVuraOutput({
+  entry: 'function.js',
+  staticFiles: [
+    { from: 'public', to: '/' },  // public/favicon.svg -> /favicon.svg
+    'src/entry-client.js',        // served at /src/entry-client.js
+    'src/pages',                  // whole directories work too
+  ],
+});
+```
+
+It deletes and rewrites `dist/` with:
+
+- `dist/static/**`: the listed files at their URL paths, served by the CDN.
+- `dist/functions/_/index.js`: `entry` bundled by esbuild into one ESM file
+  with every dependency inlined (only Node builtins stay external), because the
+  Function runs with no `node_modules`. esbuild is resolved from the project, so
+  add it as a devDependency (`npm i -D esbuild`); `buildVuraOutput` throws a
+  clear error without it.
+- `dist/manifest.json`: a Vura manifest v1 with one catch-all serverless route
+  (`/*`, all HTTP methods, compute class `function`, 1 GB by default, set with
+  `memory`). Its `requiredFeatures` are `["api", "function-compute"]`, so the
+  deploy needs no dedicated compute. It also sets `"filesystemFirst": true`,
+  which tells the edge to serve a file from `dist/static` before routing to the
+  catch-all Function. Without it the client JS and CSS would reach the
+  Function and 404.
+
+The CDN answers requests for files in `dist/static`; every other request
+(pages, `POST /__what_action`, `POST /__what_revalidate`) reaches the Function.
+Options are `projectRoot` (default `process.cwd()`), `outDir` (default `dist`,
+must be inside the project), `entry`, `staticFiles` and `memory`. Paths with
+`..` segments, absolute sources, and targets that would leave `dist/static` are
+refused before anything is written. Missing sources are skipped and returned in
+`skipped`. ISR uses the origin cache engine inside the Function, so an
+in-memory store is per instance; pass a shared what-isr store for one cache
+across instances. The poll scheduler (`createScheduler`) does not run inside a
+Function, which only runs while it serves a request. To revalidate on a
+schedule, have an external cron call `POST /__what_revalidate` (set
+`WHAT_REVALIDATE_SECRET` so the webhook is mounted).
 
 ### Cloudflare Workers
 

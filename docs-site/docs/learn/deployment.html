@@ -88,11 +88,11 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Deployment</h1>
-          <p class="subtitle">One Web-Fetch handler powers Node, static export, Vercel, and Cloudflare. Each target is its own entry file that imports the matching adapter; the ISR engine and actions come along for free.</p>
+          <p class="subtitle">One Web-Fetch handler powers Node, static export, Vercel, Cloudflare, and Vura. Each target is its own entry file that imports the matching adapter; the ISR engine and actions come along for free.</p>
 
           <p>The three request-serving adapters (<code>node</code>, <code>vercel</code>, <code>cloudflare</code>) are thin shells over one framework-agnostic core, <code>createRequestHandler(options)</code>, which returns <code>(request) =&gt; Response</code>. Match a route, intercept <code>/__what_action</code> and (when you pass a <code>revalidateWebhook</code>) <code>/__what_revalidate</code>, consult the ISR engine, render, and emit cache headers. The fourth adapter, <code>static</code>, is the exception to all of that: <code>exportStatic</code> is a build-time renderer rather than a request handler, and never touches that core. Switching hosts means swapping the adapter import in one entry file, not rewriting the app. The <code>adapter</code> key that <code>what.config.js</code> scaffolds is informational only today: <code>what start</code> prints it and nothing else reads it.</p>
 
-          <p>Two practical notes before the snippets. First, <code>createServer</code>, <code>toNodeListener</code>, <code>whatMiddleware</code>, <code>exportStatic</code>, <code>createVercelHandler</code> and <code>buildVercelOutput</code> resolve through what-server's <code>node</code> export condition, so they belong in build scripts and long-running servers; <code>createRequestHandler</code> and <code>createCloudflareHandler</code> live in the default entry and resolve in edge bundles too. Second, every adapter here imports and server-renders your route components, so those components have to be importable outside a browser: write them with <code>h()</code> or the automatic JSX runtime. Components put through what-compiler build their templates with <code>document.createElement</code> at module load time, which throws the moment a server imports them.</p>
+          <p>Two practical notes before the snippets. First, <code>createServer</code>, <code>toNodeListener</code>, <code>whatMiddleware</code>, <code>exportStatic</code>, <code>createVercelHandler</code>, <code>buildVercelOutput</code>, <code>createVuraHandler</code> and <code>buildVuraOutput</code> resolve through what-server's <code>node</code> export condition, so they belong in build scripts and long-running servers; <code>createRequestHandler</code> and <code>createCloudflareHandler</code> live in the default entry and resolve in edge bundles too. Second, every adapter here imports and server-renders your route components, so those components have to be importable outside a browser: write them with <code>h()</code> or the automatic JSX runtime. Components put through what-compiler build their templates with <code>document.createElement</code> at module load time, which throws the moment a server imports them.</p>
 
           <h2 id="adapters">Adapter matrix</h2>
           <table>
@@ -102,6 +102,7 @@
               <tr><td><code>static</code></td><td>Pure SSG to any static host</td><td>build-time pre-render</td><td>none (re-run the export)</td></tr>
               <tr><td><code>vercel</code></td><td>Serverless + edge ISR</td><td><code>s-maxage</code> / <code>stale-while-revalidate</code> headers</td><td>none (Vercel Cron → webhook)</td></tr>
               <tr><td><code>cloudflare</code></td><td>Workers at the edge</td><td>origin store + <code>Cache-Control</code> / <code>Cache-Tag</code> headers</td><td>none (Cron Trigger → webhook)</td></tr>
+              <tr><td><code>vura</code></td><td>Static files plus one scale-to-zero Function</td><td>origin store inside the Function</td><td>none (cron → webhook)</td></tr>
             </tbody>
           </table>
           <div class="callout callout-note">
@@ -195,6 +196,22 @@ export default createCloudflareHandler({ routes, cache });</code></pre>
           <p><code>createCloudflareHandler</code> returns the worker object itself, <code>{ fetch(request, env, ctx) }</code>, so export it directly. Wrapping it in another <code>{ fetch: … }</code> hands Workers an object where it expects a function, and the worker will not boot.</p>
           <p>ISR here is the same origin engine every other adapter uses. The handler attaches <code>env</code> to <code>request.__env</code> and <code>ctx</code> to <code>request.__ctx</code>, then delegates to the core handler. Give the engine <code>createRedisStore({ client })</code> from what-isr if you want cache entries shared across isolates, and pass <code>createCloudflareCDN({ zoneId, apiToken })</code> as the engine's <code>cdn</code> to purge the edge on <code>revalidatePath</code> / <code>revalidateTag</code>. The <code>Cache-Control</code> and <code>Cache-Tag</code> headers the engine emits are what let Cloudflare's own cache serve the edge tier.</p>
 
+          <h2 id="vura">Vura</h2>
+<pre><code>// function.js: the one Function. Bundled into dist/functions/_/index.js.
+import { createVuraHandler } from 'what-framework/server';
+import { routes } from './src/routes.js';
+export default createVuraHandler({ routes });
+
+// build.js: writes dist/ (static/, functions/_/index.js, manifest.json)
+import { buildVuraOutput } from 'what-framework/server';
+await buildVuraOutput({
+  entry: 'function.js',
+  staticFiles: [{ from: 'public', to: '/' }, 'src/entry-client.js', 'src/pages'],
+});</code></pre>
+          <p><code>buildVuraOutput</code> deletes and rewrites <code>dist/</code>. Each <code>staticFiles</code> entry is copied to <code>dist/static</code> at its URL path, which the CDN serves first. The entry is bundled by esbuild into one self-contained ESM file, because the Function runs with no <code>node_modules</code>; esbuild is resolved from your project, so install it with <code>npm i -D esbuild</code>. The manifest declares one catch-all serverless route (<code>/*</code>, every HTTP method, compute class <code>function</code>), so its required features are only <code>api</code> and <code>function-compute</code>. It also sets <code>"filesystemFirst": true</code>, which tells the edge to serve a file from <code>dist/static</code> before the catch-all Function; without it your client JS and CSS would reach the Function and 404.</p>
+          <p>The in-process poll scheduler does not run inside a Vura Function, which only runs while it serves a request. Revalidate on a schedule with an external cron that calls <code>POST /__what_revalidate</code>, the same as on Vercel and Cloudflare.</p>
+          <p><code>createVuraHandler</code> takes the same options as <code>createRequestHandler</code>, or an existing handler, and returns the module shape Vura loads: <code>{ fetch(request, env) }</code>. It rebuilds <code>request.url</code> from the edge's <code>x-forwarded-host</code> and <code>x-forwarded-proto</code>, so your app sees <code>https://your-app.vura.app/...</code> rather than the platform's internal address, and puts <code>env</code> on <code>request.__env</code>. The create-what full-stack template wires all of this: <code>npm run build</code> writes Vura output from the same <code>createHandler()</code> that <code>npm start</code> runs.</p>
+
           <h2 id="env">Environment</h2>
           <ul>
             <li><code>WHAT_REVALIDATE_SECRET</code>: the name the scaffold and the examples use for the secret you hand to <code>createRevalidateWebhook</code>. No framework package reads it for you.</li>
@@ -222,6 +239,7 @@ export default createCloudflareHandler({ routes, cache });</code></pre>
             <li><a href="#static">Static export</a></li>
             <li><a href="#vercel">Vercel</a></li>
             <li><a href="#cloudflare">Cloudflare</a></li>
+            <li><a href="#vura">Vura</a></li>
             <li><a href="#env">Environment</a></li>
           </ul>
         </aside>

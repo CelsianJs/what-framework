@@ -29,16 +29,20 @@ npm create what@latest my-app -- --yes
 npm create what@latest my-app -- --fullstack
 cd my-app
 npm install
-npm run dev   # real SSR + ISR server -> http://localhost:3000
+npm run dev     # real SSR + ISR server -> http://localhost:3000
+npm run build   # Vura deploy output in dist/
 ```
 
 File-routed SSR with server loaders, server actions, client hydration, and
 origin-first ISR (stale-while-revalidate + on-demand revalidation + poll
-regeneration). Buildless: the server serves the client entry and the framework
-as native ES modules — no bundler, works on any Node host, no CDN required.
+regeneration). Development is buildless: the server serves the client entry and
+the framework as native ES modules, so it runs on any Node host with no bundler
+and no CDN. `npm run build` is only for deploying to Vura: it writes the client
+files to `dist/static` and bundles one scale-to-zero Function with esbuild.
 
-In production, set `WHAT_REVALIDATE_SECRET` (the server refuses to start
-without it when `NODE_ENV=production`).
+In production, set `WHAT_REVALIDATE_SECRET` to enable the on-demand
+revalidation webhook. Without it the app still serves, logs one warning, and
+`POST /__what_revalidate` returns 404.
 
 ### Static site + islands template
 
@@ -103,10 +107,19 @@ my-app/
     db.js             # In-memory demo data (swap for SQLite/Postgres)
     styles.css
   server.js           # Node adapter + ISR engine + revalidate webhook
-  what.config.js      # Deploy adapter + ISR defaults
+  client-files.js     # The files the browser may load (served and published)
+  function.js         # Vura Function entry, reuses server.js's handler
+  build.js            # `npm run build`: Vura output in dist/
+  what.config.js      # App config (nothing in the template reads it)
   eslint.config.js    # eslint-plugin-what (recommended preset)
   package.json
 ```
+
+`npm run dev` and `npm start` run `server.js` with no build step. `npm run build`
+writes Vura deploy output to `dist/`: the client files for the CDN plus one
+scale-to-zero Function bundled with esbuild. The poll scheduler in `server.js`
+does not run in the Vura Function; use an external cron that calls
+`POST /__what_revalidate` if a page needs scheduled revalidation.
 
 ### Static site + islands (`--template=islands`)
 

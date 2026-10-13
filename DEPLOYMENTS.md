@@ -63,11 +63,15 @@ Each site dir has a committed `.vercel/project.json` with its `projectId` + `org
 This file covers the framework's own sites/packages. To deploy an **app built
 with What**, use the `what-server` deploy adapters — Node (`createServer`),
 static export (`exportStatic`), Vercel (`createVercelHandler` +
-`buildVercelOutput`, Build Output API v3), and Cloudflare Workers
-(`createCloudflareHandler`, ES module worker). All four wrap the same
-Web-Fetch core, with CSRF protection on by default. Step-by-step instructions:
+`buildVercelOutput`, Build Output API v3), Cloudflare Workers
+(`createCloudflareHandler`, ES module worker), and Vura (`createVuraHandler` +
+`buildVuraOutput`: static files plus one serverless Function). All five wrap the
+same Web-Fetch core, with CSRF protection on by default. Step-by-step instructions:
 [`packages/server/README.md` → "Deploying"](packages/server/README.md#deploying).
-Each adapter is verified by `packages/server/test/deploy-readiness.test.js`.
+Node, static, Vercel and Cloudflare are verified by
+`packages/server/test/deploy-readiness.test.js`, Vura by
+`packages/server/test/adapter-vura.test.js`. The create-what full-stack template
+runs `buildVuraOutput` from `npm run build`.
 
 ---
 
