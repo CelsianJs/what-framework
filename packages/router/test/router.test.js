@@ -378,6 +378,39 @@ describe('defineRoutes', () => {
 // =========================================================================
 
 describe('Router middleware', () => {
+  it('allows void middleware and redirects with a synchronous path string', async () => {
+    const container = getContainer();
+    await navigate('/middleware-contract/42?from=test', { replace: true, transition: false });
+    await flush();
+    const contexts = [];
+    const routes = [
+      {
+        path: '/middleware-contract/:id',
+        component: () => h('div', null, 'should redirect'),
+        middleware: [
+          context => { contexts.push(context); },
+          () => '/middleware-destination',
+        ],
+      },
+      {
+        path: '/middleware-destination',
+        component: () => h('div', { id: 'middleware-destination' }, 'destination'),
+        middleware: [() => true, () => {}],
+      },
+    ];
+    const unmount = mount(h(Router, { routes }), container);
+    try {
+      await flush();
+      assert.ok(container.querySelector('#middleware-destination'));
+      assert.equal(contexts[0].path, '/middleware-contract/42');
+      assert.deepEqual(contexts[0].params, { id: '42' });
+      assert.deepEqual({ ...contexts[0].query }, { from: 'test' });
+      assert.equal(contexts[0].route, routes[0]);
+    } finally {
+      unmount();
+    }
+  });
+
   it('should render 403 when middleware returns false', async () => {
     const container = getContainer();
     history.pushState(null, '', '/protected');

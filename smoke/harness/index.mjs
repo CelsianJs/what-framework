@@ -165,16 +165,20 @@ export function verifyInstalledSource(appDir, { kind, version }) {
   if (problems.length) throw new Error(`installed tree does not match the requested source:\n  ${problems.join('\n  ')}`);
 }
 
-export async function launchBrowser({ required = true } = {}) {
+export async function launchBrowser({ required = true, browserName = process.env.WHAT_SMOKE_BROWSER || 'chromium' } = {}) {
+  if (!['chromium', 'firefox', 'webkit'].includes(browserName)) {
+    throw new Error(`Unsupported smoke browser "${browserName}"; use chromium, firefox or webkit.`);
+  }
   try {
-    const { chromium } = await import('playwright');
-    return await chromium.launch();
+    const playwright = await import('playwright');
+    return await playwright[browserName].launch();
   } catch (err) {
     if (required) {
       throw new Error(
-        `Chromium failed to launch: ${err.message.split('\n')[0]}\n` +
+        `${browserName} failed to launch: ${err.message.split('\n')[0]}\n` +
         'Every check in this suite is browser-driven, so there is no meaningful ' +
-        'degraded mode: run `npx playwright install chromium`.',
+        `degraded mode: run \`npx playwright install ${browserName}\`.`,
+        { cause: err },
       );
     }
     return null;

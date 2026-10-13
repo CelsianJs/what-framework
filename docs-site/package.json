@@ -1,17 +1,20 @@
 {
   "name": "what-docs-site",
   "private": true,
-  "version": "0.13.4",
+  "version": "0.13.11",
   "type": "module",
   "description": "whatfw.com, built with What Framework (SSG via what-server renderToString)",
   "scripts": {
     "check": "node scripts/check-api-refs.mjs",
+    "test:templates": "node --test templates/test/*.test.mjs",
+    "test:templates:ui": "node templates/test/ui.mjs",
+    "smoke:templates": "node templates/test/smoke.mjs",
     "prebuild": "npm run -s check",
     "build": "node build.mjs",
     "preview": "node build.mjs && npx --yes serve dist -l 4178"
   },
   "dependencies": {
-    "what-framework": "0.13.4"
+    "what-framework": "0.13.11"
   },
   "devDependencies": {
     "esbuild": "^0.27.4"

@@ -4,11 +4,12 @@
  * 1. Transforms JSX via the What babel plugin
  * 2. Provides file-based routing via virtual:what-routes
  * 3. Watches pages directory for route changes
- * 4. HMR support: component files get granular hot-module replacement,
- *    signal/utility files trigger full reload
+ * 4. Component hot updates use an installed replacement hook or reload the
+ *    page; signal/utility files trigger full reload
  */
 
 import path from 'path';
+import { createRequire } from 'node:module';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
 import { generateRoutesModule } from './file-router.js';
@@ -57,16 +58,16 @@ export function jsxPreserveConfig({ rolldownVersion, viteVersion } = {}) {
     : { esbuild: { jsx: 'preserve' } };
 }
 
-// Resolved once per process — the Vite version can't change mid-run.
-/** @type {Promise<string> | null} */
-let viteVersionPromise = null;
-function detectViteVersion() {
-  if (!viteVersionPromise) {
-    viteVersionPromise = import('vite')
-      .then((vite) => vite.version || '')
-      .catch(() => ''); // vite not resolvable (tests) — esbuild fallback
+async function detectViteVersion(root) {
+  // A workspace-linked compiler can resolve a different Vite than its consumer.
+  // Multiple apps may also build with different versions in the same process.
+  try {
+    const require = createRequire(path.resolve(root || process.cwd(), 'package.json'));
+    return require('vite/package.json').version || '';
+  } catch {
+    // Keep programmatic/global Vite use working when the app has no local copy.
+    return import('vite').then((vite) => vite.version || '').catch(() => '');
   }
-  return viteVersionPromise;
 }
 
 // Pattern: exported function starting with uppercase = component
@@ -397,7 +398,7 @@ export default function whatVitePlugin(options = {}) {
       // jsxPreserveConfig picks the right option key for the running version.
       const jsxPreserve = jsxPreserveConfig({
         rolldownVersion: this?.meta?.rolldownVersion,
-        viteVersion: await detectViteVersion(),
+        viteVersion: await detectViteVersion(config.root),
       });
       return {
         ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),
@@ -458,8 +459,9 @@ function isUtilityFile(filePath) {
 
 /**
  * Generate HMR boundary code for a component file.
- * When the module is updated, Vite's HMR runtime calls import.meta.hot.accept(),
- * which re-runs the module. The component re-renders in place.
+ * Vite calls the accept callback after reevaluating the updated module.
+ * An installed replacement runtime owns the update. Otherwise reload the page:
+ * accepting the module alone leaves its already-mounted component unchanged.
  */
 function generateHMRBoundary(filePath) {
   return `
@@ -469,8 +471,10 @@ if (import.meta.hot) {
   import.meta.hot.accept((newModule) => {
     if (newModule) {
       // Signal to the What runtime that this module was hot-updated
-      if (window.__WHAT_HMR_ACCEPT__) {
+      if (typeof window.__WHAT_HMR_ACCEPT__ === 'function') {
         window.__WHAT_HMR_ACCEPT__(${JSON.stringify(filePath)}, newModule);
+      } else {
+        window.location.reload();
       }
     }
   });

@@ -60,11 +60,13 @@ function queryToEntries(query) {
 // and must be different keys.
 const enc = (s) => encodeURIComponent(String(s));
 
-/** Normalize a query (object or string) → sorted "k=v&k=v", tracking params dropped. */
+/** Normalize a query → key-sorted "k=v&k=v", preserving repeated value order. */
 export function normalizeQuery(query) {
   const entries = queryToEntries(query)
     .filter(([k]) => !shouldStrip(k))
-    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1));
+    // Stable sort groups names without changing the order a loader observes
+    // for repeated values; sorting values would cache a different request.
+    .sort((a, b) => (a[0] === b[0] ? 0 : a[0] < b[0] ? -1 : 1));
   return entries.map(([k, v]) => `${enc(k)}=${enc(v)}`).join('&');
 }
 

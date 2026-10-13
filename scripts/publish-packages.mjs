@@ -29,6 +29,19 @@ const PACKAGE_ORDER = [
 
 const options = parseArgs(process.argv.slice(2));
 
+// Refuse an incomplete/mixed local cohort before any registry mutation. The
+// frozen documentation MCP is deliberately outside PACKAGE_ORDER.
+const cohort = PACKAGE_ORDER.map(relDir => {
+  const pkgFile = join(repoRoot, relDir, 'package.json');
+  if (!existsSync(pkgFile)) throw new Error(`[release] Missing cohort manifest: ${relDir}`);
+  const pkg = JSON.parse(readFileSync(pkgFile, 'utf8'));
+  if (!pkg.name || !pkg.version || pkg.private) throw new Error(`[release] Invalid public cohort manifest: ${relDir}`);
+  return { relDir, pkg };
+});
+if (new Set(cohort.map(({ pkg }) => pkg.version)).size !== 1) {
+  throw new Error('[release] Maintained package versions must match before publishing.');
+}
+
 if (!options.dryRun && !process.env.NODE_AUTH_TOKEN && !process.env.NPM_TOKEN) {
   const authProbe = spawnSync('npm', ['whoami'], { encoding: 'utf8' });
   if (authProbe.status !== 0) {
@@ -47,43 +60,34 @@ const summary = {
   skipped: [],
   failed: [],
   aborted: [],
+  tagged: [],
 };
+const tagCandidates = [];
 
 // npm provenance requires an OIDC-capable CI runner (id-token: write). Local
 // and dry-run publishes have no token endpoint, so the flag must stay off.
 const useProvenance = !options.dryRun && Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
 
-for (const [index, relDir] of PACKAGE_ORDER.entries()) {
+for (const [index, { relDir, pkg }] of cohort.entries()) {
   const pkgDir = join(repoRoot, relDir);
-  const pkgFile = join(pkgDir, 'package.json');
-
-  if (!existsSync(pkgFile)) {
-    console.warn(`[release] Skipping ${relDir}: missing package.json`);
-    continue;
-  }
-
-  const pkg = JSON.parse(readFileSync(pkgFile, 'utf8'));
   const name = pkg.name;
   const version = pkg.version;
 
-  if (!name || !version) {
-    console.error(`[release] Invalid package metadata in ${pkgFile}`);
-    summary.failed.push(`${relDir} (invalid package metadata)`);
+  const spec = `${name}@${version}`;
+
+  let published;
+  try {
+    published = isVersionPublished(spec);
+  } catch (error) {
+    console.error(error.message);
+    summary.failed.push(spec);
     abortRemaining(index);
     break;
   }
-
-  if (pkg.private) {
-    console.log(`[release] Skip ${name}@${version}: private package`);
-    summary.skipped.push(`${name}@${version} (private)`);
-    continue;
-  }
-
-  const spec = `${name}@${version}`;
-
-  if (isVersionPublished(spec)) {
+  if (published) {
     console.log(`[release] Skip ${spec}: already published`);
     summary.skipped.push(`${spec} (already published)`);
+    tagCandidates.push({ name, spec });
     continue;
   }
 
@@ -113,11 +117,55 @@ for (const [index, relDir] of PACKAGE_ORDER.entries()) {
   summary.published.push(spec);
 }
 
+// npm cannot roll a cohort back. Complete every missing version first, then
+// promote existing versions explicitly instead of silently skipping their tag.
+const tagPlans = [];
+if (summary.failed.length === 0) {
+  for (const [index, { name, spec }] of tagCandidates.entries()) {
+    const viewed = spawnSync('npm', ['view', name, 'dist-tags', '--json'], { encoding: 'utf8' });
+    let tags;
+    try {
+      if (viewed.status !== 0) throw new Error('registry lookup failed');
+      tags = JSON.parse(viewed.stdout);
+      if (!tags || typeof tags !== 'object' || Array.isArray(tags)) throw new Error('invalid dist-tags response');
+    } catch {
+      console.error(`[release] Could not read dist-tags for ${name}; refusing promotion.`);
+      summary.failed.push(`${spec} (tag lookup)`);
+      summary.aborted.push(...tagCandidates.slice(index + 1).map(candidate => `${candidate.spec} (tag)`));
+      break;
+    }
+    const version = spec.slice(name.length + 1);
+    if (tags[options.tag] !== version) tagPlans.push({ name, spec });
+  }
+}
+// Resolve the entire promotion plan before the first write. An unavailable
+// registry lookup must not leave half of the existing cohort promoted.
+if (summary.failed.length === 0) {
+  for (const [index, { name, spec }] of tagPlans.entries()) {
+    if (options.dryRun) {
+      console.log(`[release] Would tag ${spec} ${options.tag}`);
+      continue;
+    }
+    const args = ['dist-tag', 'add', spec, options.tag];
+    if (options.otp) args.push('--otp', options.otp);
+    const tagged = run('npm', args);
+    if (tagged.status !== 0) {
+      console.error(`[release] Failed setting ${name} dist-tag ${options.tag}`);
+      summary.failed.push(`${spec} (tag ${options.tag})`);
+      summary.aborted.push(...tagPlans.slice(index + 1).map(candidate => `${candidate.spec} (tag)`));
+      break;
+    }
+    summary.tagged.push(`${spec} -> ${options.tag}`);
+  }
+}
+
 console.log('\n[release] Publish summary');
 console.log(`  published: ${summary.published.length}`);
 for (const item of summary.published) console.log(`    - ${item}`);
 console.log(`  skipped: ${summary.skipped.length}`);
 for (const item of summary.skipped) console.log(`    - ${item}`);
+console.log(`  tagged: ${summary.tagged.length}`);
+for (const item of summary.tagged) console.log(`    - ${item}`);
 console.log(`  failed: ${summary.failed.length}`);
 for (const item of summary.failed) console.log(`    - ${item}`);
 console.log(`  aborted: ${summary.aborted.length}`);
@@ -165,6 +213,9 @@ function parseArgs(args) {
     }
     usage(`Unknown argument: ${arg}`);
   }
+  if (!/^[a-z][a-z0-9]*([._-][a-z0-9]+)*$/.test(options.tag)) {
+    usage(`Invalid npm dist-tag: ${options.tag}`);
+  }
   return options;
 }
 
@@ -178,7 +229,22 @@ function isVersionPublished(spec) {
   const res = spawnSync('npm', ['view', spec, 'version', '--json'], {
     encoding: 'utf8',
   });
-  return res.status === 0;
+  if (res.status === 0) {
+    const expected = spec.slice(spec.lastIndexOf('@') + 1);
+    try {
+      if (JSON.parse(res.stdout) === expected) return true;
+    } catch {
+      // A malformed successful response must not be treated as a release.
+    }
+    throw new Error(`[release] Registry returned an unexpected version for ${spec}; refusing to publish.`);
+  }
+  try {
+    const error = JSON.parse(res.stdout || res.stderr);
+    if (error.error?.code === 'E404') return false;
+  } catch {
+    // A failed/ambiguous registry probe is not proof that a version is absent.
+  }
+  throw new Error(`[release] Could not determine whether ${spec} is published; refusing to publish.`);
 }
 
 function run(cmd, args, opts = {}) {

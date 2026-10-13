@@ -738,7 +738,7 @@ async function start() {
 
 // Delegates to create-what (the canonical scaffolder) so `what init my-app`
 // produces exactly the same app as `npm create what@latest` — real app files,
-// working package.json scripts, both templates. Every flag is forwarded
+// working package.json scripts, every template. Every flag is forwarded
 // (--fullstack, --template=<name>, --yes), and create-what prints next steps
 // that work end-to-end (cd / npm install / npm run dev).
 function init() {
