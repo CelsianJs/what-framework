@@ -1,6 +1,6 @@
 {
   "name": "eslint-plugin-what",
-  "version": "0.13.11",
+  "version": "0.14.0",
   "description": "ESLint rules for What Framework — catch signal bugs, enforce patterns",
   "type": "module",
   "main": "src/index.js",
