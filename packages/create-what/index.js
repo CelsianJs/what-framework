@@ -197,7 +197,9 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
 
   // Full-stack apps are buildless: server.js does SSR + ISR and serves the
   // client entry as native ES modules, so there is no Vite/compiler toolchain.
-  // `npm run dev` runs the real app with auto-restart on change.
+  // `npm run dev` runs the real app with auto-restart on change. `npm run build`
+  // is for deploying only: it writes Vura output (static files plus one
+  // Function that esbuild bundles from function.js), hence esbuild.
   // `what-devtools` is the browser bridge: without it the MCP server has nothing
   // to talk to and every live tool reports no browser. In the SPA template the
   // what-devtools-mcp Vite plugin injects it. The full-stack template is
@@ -212,6 +214,7 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   // transform emits) rather than what-compiler, whose output is client-only.
   const devDeps = template === 'fullstack'
     ? {
+        esbuild: '^0.28.2',
         'what-devtools': whatVersionRange,
         'what-devtools-mcp': whatVersionRange,
         eslint: '^9.0.0',
@@ -239,7 +242,7 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
         };
 
   const scripts = template === 'fullstack'
-    ? { dev: 'node --watch server.js', start: 'node server.js', lint: 'eslint .', typecheck: 'tsc --noEmit' }
+    ? { dev: 'node --watch server.js', build: 'node build.js', start: 'node server.js', lint: 'eslint .', typecheck: 'tsc --noEmit' }
     : template === 'islands'
       ? { dev: 'vite', build: 'node build.js', preview: 'vite preview', lint: 'eslint .', typecheck: 'tsc --noEmit' }
       : { dev: 'vite', build: 'vite build', preview: 'vite preview', lint: 'eslint .', typecheck: 'tsc --noEmit' };
@@ -989,10 +992,10 @@ npm run preview   # serves dist/ the way a static host would
     return `# ${packageName}
 
 A full-stack What Framework app: file-routed SSR, server loaders, server
-actions, client hydration, and origin-first ISR (stale-while-revalidate +
-on-demand revalidation + poll regeneration) — works on any host, no CDN
-required. Buildless: the server serves the client entry and the framework as
-native ES modules, so there is no bundle step.
+actions, client hydration, and origin-first ISR (stale-while-revalidate,
+on-demand revalidation and poll regeneration). It runs on any Node host and
+needs no CDN. Development is buildless: the server serves the client entry and
+the framework as native ES modules.
 
 ## Run
 
@@ -1000,15 +1003,35 @@ native ES modules, so there is no bundle step.
 npm install
 npm run dev      # SSR server with auto-restart on change → http://localhost:3000
 npm start        # same server, no watcher (production entry point)
+npm run build    # Vura deploy output in dist/ (only needed to deploy to Vura)
 \`\`\`
 
-In production, set \`WHAT_REVALIDATE_SECRET\` (the server refuses to start
-without it when \`NODE_ENV=production\`):
+Set \`WHAT_REVALIDATE_SECRET\` in production to enable the on-demand
+revalidation webhook (\`POST /__what_revalidate\`). Without it the app still
+serves, logs one warning, and that path returns 404:
 
 \`\`\`bash
 WHAT_REVALIDATE_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))") \\
 NODE_ENV=production npm start
 \`\`\`
+
+## Deploy to Vura
+
+\`npm run build\` writes Vura's build output to \`dist/\`:
+
+- \`dist/static/\`: \`public/\` plus the client files listed in \`client-files.js\`,
+  served by the CDN at the same URL paths.
+- \`dist/functions/_/index.js\`: \`function.js\` bundled by esbuild into one file. It
+  is a single scale-to-zero Function that renders pages, runs server actions
+  and answers the revalidate webhook, using the same \`createHandler()\` as
+  \`server.js\`.
+- \`dist/manifest.json\`: one catch-all serverless route, so the deploy fits the
+  free tier (static files plus one Function, no dedicated server).
+
+The ISR cache is in memory, per Function instance: a cold start begins with an
+empty cache, and \`revalidatePath\` purges only the instance that ran the action.
+Swap \`createMemoryStore()\` in \`server.js\` for a shared store if you need one
+cache across instances.
 
 ## Structure
 
@@ -1019,12 +1042,18 @@ NODE_ENV=production npm start
 - \`src/routes.js\` — the route table (loaders/getStaticPaths/page bound per route).
 - \`src/entry-client.js\` — client hydration entry: re-renders the matched page
   with the server's loader data (\`#__what_data\`) and attaches interactivity.
-- \`server.js\` — Node adapter + ISR engine + revalidate webhook + poll scheduler
-  + static serving. Static serving is deny-by-default: only allowlisted client
-  files (\`src/entry-client.js\`, \`src/styles.css\`, \`src/pages/\`,
-  \`src/components/\`, framework modules, \`public/\`) are served over HTTP —
-  server-only code (\`src/db.js\`, \`src/actions/\`, \`src/routes.js\`) returns 404.
-- \`what.config.js\` — deploy adapter + ISR defaults.
+- \`server.js\`: Node adapter + ISR engine + revalidate webhook + poll scheduler
+  + static serving. Static serving is deny-by-default: only the client files
+  listed in \`client-files.js\` (\`src/entry-client.js\`, \`src/styles.css\`,
+  \`src/pages/\`, \`src/components/\`, the framework sources) and \`public/\` are
+  served over HTTP. Server-only code (\`src/db.js\`, \`src/actions/\`,
+  \`src/routes.js\`) returns 404.
+- \`client-files.js\`: the one list of files the browser may load. \`server.js\`
+  serves it and \`npm run build\` publishes it; add new client-side files here.
+- \`function.js\` / \`build.js\`: the Vura Function entry and the build that
+  bundles it (see Deploy to Vura).
+- \`what.config.js\`: app config. Nothing in this template reads it; the
+  comment in the file says what does.
 
 The \`/new\` form works without JavaScript: it SSRs hidden \`_action\`,
 \`what-csrf-token\` and \`_redirect\` fields, so a plain form-encoded POST to
@@ -1455,24 +1484,25 @@ import {
   createScheduler,
 } from 'what-isr';
 import { routes } from './src/routes.js';
+import { CLIENT_DIRS, CLIENT_FILES, DEV_CLIENT_DIRS } from './client-files.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const isProd = process.env.NODE_ENV === 'production';
 
 // Secret for the on-demand revalidation webhook (POST /__what_revalidate).
-// Required in production; auto-generated per run in dev so there is never a
-// shared default secret.
-let REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET;
+// Dev: auto-generated per run, so there is never a shared default secret.
+// Production without one: the webhook is not mounted (that path 404s) and the
+// app serves normally. Exiting instead would crash a serverless Function on
+// every cold start. Generate one to let a CMS purge the cache:
+//   node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"
+let REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET || '';
 if (!REVALIDATE_SECRET) {
   if (isProd) {
-    console.error(
-      '[${packageName}] WHAT_REVALIDATE_SECRET must be set in production.\\n' +
-      \"  Generate one:  node -e \\\"console.log(require('node:crypto').randomBytes(24).toString('hex'))\\\"\"
-    );
-    process.exit(1);
+    console.warn('[${packageName}] WHAT_REVALIDATE_SECRET is not set, so POST /__what_revalidate is disabled. Set it to enable on-demand revalidation.');
+  } else {
+    REVALIDATE_SECRET = randomBytes(24).toString('hex');
+    console.log(\`[dev] WHAT_REVALIDATE_SECRET not set — generated for this run: \${REVALIDATE_SECRET}\`);
   }
-  REVALIDATE_SECRET = randomBytes(24).toString('hex');
-  console.log(\`[dev] WHAT_REVALIDATE_SECRET not set — generated for this run: \${REVALIDATE_SECRET}\`);
 }
 
 // Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})
@@ -1587,7 +1617,8 @@ export function createHandler() {
     routes,
     cache: appCache,
     render: renderRoute,
-    revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
+    // Only with a secret (see above). Without one, POST /__what_revalidate 404s.
+    ...(REVALIDATE_SECRET ? { revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }) } : {}),
     document: documentOptions,
   });
 }
@@ -1607,21 +1638,15 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-// Deny-by-default static serving: ONLY the allowlisted client files below are
-// served from the project root. Server-only modules — src/db.js, src/actions/**
-// and src/routes.js — are importable by Node but 404 over HTTP, so DB code and
-// mutation logic never leak to the browser. When you add new client-side files
-// outside these locations, add them here explicitly.
-const SERVED_FILES = new Set(['/src/entry-client.js', '/src/styles.css']);
-const SERVED_PREFIXES = [
-  '/src/pages/',                  // page modules (hydrated by entry-client)
-  '/src/components/',             // client-shared UI (create as needed)
-  '/node_modules/what-framework/',
-  '/node_modules/what-core/',
-  // Dev only: the devtools bridge entry-client imports when __WHAT_DEV__ is set.
-  // Gated on isProd so a production deploy never serves dev tooling.
-  ...(isProd ? [] : ['/node_modules/what-devtools/', '/node_modules/what-devtools-mcp/']),
-];
+// Deny-by-default static serving: ONLY the client files listed in
+// client-files.js are served from the project root (plus public/ at the root).
+// Server-only modules — src/db.js, src/actions/** and src/routes.js — are
+// importable by Node but 404 over HTTP, so DB code and mutation logic never
+// leak to the browser. \`npm run build\` publishes the same list, so a new
+// client-side file goes in client-files.js and nowhere else.
+const SERVED_FILES = new Set(CLIENT_FILES);
+// Dev-only devtools modules are gated on isProd so production never serves them.
+const SERVED_PREFIXES = [...CLIENT_DIRS, ...(isProd ? [] : DEV_CLIENT_DIRS)];
 
 function resolveStaticFile(pathname) {
   if (pathname.includes('..') || pathname.includes('\0')) return null;
@@ -1674,13 +1699,85 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
 }
 `);
 
-  // App config — the CLI reads this to pick a deploy adapter + ISR defaults.
-  writeFileSync(resolve(root, 'what.config.js'), `// What Framework app config. \`what build\` / \`what start\` read this to pick a
-// deploy adapter and ISR defaults.
+  // The client allowlist: one list that server.js serves and build.js publishes.
+  writeFileSync(resolve(root, 'client-files.js'), `// The files the browser may load, as URL paths. One list, two readers:
+//   server.js  serves exactly these from the project root (everything else
+//              under src/ 404s), plus public/ at the root
+//   build.js   publishes exactly these, plus public/, to dist/static
+// Server-only code (src/db.js, src/actions/, src/routes.js) is deliberately
+// absent. A new client-side file or folder goes here, or neither the dev
+// server nor a deploy will serve it.
+
+export const CLIENT_FILES = ['/src/entry-client.js', '/src/styles.css'];
+
+export const CLIENT_DIRS = [
+  '/src/pages/',                       // page modules (hydrated by entry-client)
+  '/src/components/',                  // client-shared UI (create as needed)
+  '/node_modules/what-framework/src/', // the import map's targets (server.js)
+  '/node_modules/what-core/src/',
+];
+
+// Dev only: the devtools bridge entry-client imports when __WHAT_DEV__ is set.
+// server.js stops serving these in production and the build never publishes them.
+export const DEV_CLIENT_DIRS = ['/node_modules/what-devtools/', '/node_modules/what-devtools-mcp/'];
+`);
+
+  // The Vura Function: the same handler server.js runs, nothing re-wired.
+  writeFileSync(resolve(root, 'function.js'), `// The Vura Function. \`npm run build\` bundles this file into
+// dist/functions/_/index.js: one scale-to-zero Function that renders every
+// page (SSR + ISR), runs server actions and answers the revalidate webhook.
+// Static files never reach it; the CDN serves dist/static first.
+//
+// It reuses server.js's createHandler(), so it behaves exactly like
+// \`npm start\`. createVuraHandler adds the Function module shape and makes the
+// app see the public URL (https://your-app.vura.app/...) rather than the
+// platform's internal one.
+
+import { createVuraHandler } from 'what-framework/server';
+import { createHandler } from './server.js';
+
+export default createVuraHandler(createHandler());
+`);
+
+  // \`npm run build\`: Vura deploy output.
+  writeFileSync(resolve(root, 'build.js'), `// \`npm run build\`: Vura deploy output in dist/.
+//   dist/static/**             public/ plus the files in client-files.js,
+//                              served by the CDN at the same URL paths
+//   dist/functions/_/index.js  function.js bundled into one file (esbuild)
+//   dist/manifest.json         one catch-all serverless route, nothing else
+// \`npm start\` does not need this step; it is only for deploying.
+
+import { fileURLToPath } from 'node:url';
+import { buildVuraOutput } from 'what-framework/server';
+import { CLIENT_DIRS, CLIENT_FILES } from './client-files.js';
+
+const { copied } = await buildVuraOutput({
+  projectRoot: fileURLToPath(new URL('.', import.meta.url)),
+  entry: 'function.js',
+  staticFiles: [
+    { from: 'public', to: '/' },
+    // A URL path in client-files.js is the project-relative path plus a leading '/'.
+    ...[...CLIENT_FILES, ...CLIENT_DIRS].map((path) => path.slice(1)),
+  ],
+});
+
+console.log(\`Built dist/ for Vura: \${copied.length} static entries + functions/_/index.js\`);
+`);
+
+  // App config. Kept honest: nothing in this template reads it.
+  writeFileSync(resolve(root, 'what.config.js'), `// What Framework app config.
+//
+// Nothing in this project reads this file. If you install what-framework-cli,
+// \`what start\` reads \`adapter\`, only to label its startup line. \`isr\` is not
+// read by anything: server.js configures the ISR cache itself, so change the
+// store there.
+//
+// Deploying: \`npm run build\` writes Vura output to dist/ (see build.js),
+// whatever this file says. \`npm start\` runs server.js on any Node host.
 export default {
-  adapter: 'node', // 'node' | 'vercel' | 'cloudflare' | 'static'
+  adapter: 'node',
   isr: {
-    store: 'memory', // 'memory' | 'filesystem' | 'redis'
+    store: 'memory',
     defaultRevalidate: 60,
   },
 };
@@ -2082,7 +2179,12 @@ h('p', {}, () => \`Count: \${count()}\`)
 
 Pages live in \`src/pages/\` and export \`page\` (route config), \`loader\` (server data), and a
 default component. \`src/db.js\`, \`src/routes.js\` and \`src/actions/\` are server-only: they are
-importable by Node but never served to the browser.`
+importable by Node but never served to the browser. The files the browser may load are listed
+once in \`client-files.js\`: \`server.js\` serves that list and \`npm run build\` publishes it, so a
+new client-side file or folder goes there.
+
+\`npm run build\` writes Vura deploy output to \`dist/\`: \`dist/static/\` for the CDN and one
+Function bundled from \`function.js\`, which reuses \`createHandler()\` from \`server.js\`.`
     : isIslands
       ? `Components run ONCE. This is the islands template: every page in \`src/pages/\` is
 rendered to static HTML (\`npm run build\` writes \`dist/<page>/index.html\`), and only the
@@ -2360,7 +2462,7 @@ count(c => c + 1) // update
     ? `import what from 'eslint-plugin-what';
 
 export default [
-  { ignores: ['node_modules'] },
+  { ignores: ['dist', 'node_modules'] },
   what.configs.recommended,
   // This template authors pages with h() on purpose (buildless, no compiler).
   { rules: { 'what/no-h-in-user-code': 'off' } },
@@ -2458,7 +2560,8 @@ export default [
   console.log(`  cd ${formatCdTarget(projectName, root)}`);
   console.log('  npm install');
   if (options.template === 'fullstack') {
-    console.log('  npm run dev   # SSR + ISR server → http://localhost:3000\n');
+    console.log('  npm run dev     # SSR + ISR server → http://localhost:3000');
+    console.log('  npm run build   # Vura deploy output in dist/\n');
   } else if (isIslands) {
     console.log('  npm run dev     # pages rendered on request');
     console.log('  npm run build   # static HTML in dist/\n');

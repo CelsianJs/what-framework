@@ -9,6 +9,7 @@
 //   3. `npm install` each app, then run it like a user would:
 //        SPA       -> `npm run build` + `vite preview`  (production bundle)
 //        fullstack -> `node server.js`                  (real SSR + ISR server)
+//                     then `npm run build` (Vura output) and its Function
 //        islands   -> `vite` dev server, then `npm run build` + `vite preview`
 //   4. Assert over HTTP (and with a headless browser when available):
 //        SPA       -> prod page renders the counter and it increments on click
@@ -325,13 +326,44 @@ async function smokeFullstack(workDir, tarballs, browser) {
     assert(home.includes('Smoke Post'), 'action revalidated the cached home page (new post listed)');
   }
 
-  // Production guard: server must refuse to start without the revalidate secret.
+  // Production without the revalidate secret: the app serves (a serverless
+  // Function boots this same module on every cold start) and the webhook is
+  // simply not mounted.
+  const prodPort = PORT_BASE + 20;
+  await assertPortFree(prodPort);
   const prod = startProcess(process.execPath, ['server.js'], {
     cwd: appDir,
-    env: { ...process.env, NODE_ENV: 'production', WHAT_REVALIDATE_SECRET: '', PORT: String(PORT_BASE + 20) },
+    env: { ...process.env, NODE_ENV: 'production', WHAT_REVALIDATE_SECRET: '', PORT: String(prodPort) },
   });
-  const prodExit = await new Promise((r) => { prod.on('exit', r); setTimeout(() => r(null), 8000); });
-  assert(prodExit === 1 && prod.logs.includes('WHAT_REVALIDATE_SECRET'), 'production start without WHAT_REVALIDATE_SECRET exits 1 with a clear error');
+  await waitForHttp(`http://localhost:${prodPort}/`, { child: prod });
+  const webhook = await fetch(`http://localhost:${prodPort}/__what_revalidate`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"paths":["/"]}',
+  });
+  assert(webhook.status === 404 && prod.logs.includes('WHAT_REVALIDATE_SECRET'), 'production without WHAT_REVALIDATE_SECRET serves, warns, and does not mount the webhook (404)');
+  prod.kill('SIGTERM');
+
+  // `npm run build` writes Vura output, and the Function runs from dist/ alone
+  // (no node_modules anywhere above it), the way the Vura runtime runs it.
+  run('npm', ['run', 'build'], { cwd: appDir });
+  const manifest = JSON.parse(readFileSync(join(appDir, 'dist', 'manifest.json'), 'utf8'));
+  assert(
+    manifest.schemaVersion === 1 && JSON.stringify(manifest.requiredFeatures) === '["api","function-compute"]',
+    `Vura manifest is v1 with free-tier features only (got ${JSON.stringify(manifest.requiredFeatures)})`,
+  );
+  assert(existsSync(join(appDir, 'dist', 'static', 'src', 'entry-client.js')) && !existsSync(join(appDir, 'dist', 'static', 'src', 'db.js')), 'dist/static has the client entry and no server-only code');
+  const isolated = mkdtempSync(join(tmpdir(), 'what-smoke-vura-fn-'));
+  try {
+    execFileSync('cp', ['-R', join(appDir, 'dist'), join(isolated, 'dist')]);
+    writeFileSync(join(isolated, 'probe.mjs'), [
+      "const { default: fn } = await import('./dist/functions/_/index.js');",
+      "const res = await fn.fetch(new Request('http://internal/', { headers: { 'x-forwarded-host': 'smoke.vura.app' } }), {});",
+      "console.log(res.status, (await res.text()).includes('__what_data'));",
+    ].join('\n'));
+    const out = run(process.execPath, [join(isolated, 'probe.mjs')], { cwd: isolated, env: { PATH: process.env.PATH, NODE_ENV: 'production' } });
+    assert(out.trim().split('\n').pop() === '200 true', `the bundled Function renders / from dist/ alone (got ${out.trim()})`);
+  } finally {
+    rmSync(isolated, { recursive: true, force: true });
+  }
 
   run('npm', ['run', 'lint'], { cwd: appDir });
   log('  ok - npm run lint passes');

@@ -2,6 +2,42 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [Unreleased]
+
+### Deploy to Vura
+
+- New Vura adapter in `what-server` (also reachable as `what-framework/server`
+  under Node). `createVuraHandler(optionsOrHandler)` returns the Function
+  module Vura loads, `{ fetch(request, env) }`. It accepts the same options as
+  `createRequestHandler` or an existing handler, and rebuilds `request.url`
+  from the edge's `x-forwarded-host` and `x-forwarded-proto` so the app sees its
+  public origin.
+- `buildVuraOutput({ entry, staticFiles })` writes Vura's build output:
+  `dist/static/**` for the CDN, the entry bundled by esbuild into one
+  self-contained `dist/functions/_/index.js`, and a v1 `dist/manifest.json`
+  with one catch-all serverless route. The deploy needs only the `api` and
+  `function-compute` features, with no dedicated compute. esbuild is resolved
+  from the project and is never a runtime dependency.
+- The create-what full-stack template now has `npm run build`, which writes
+  Vura output. `function.js` reuses `createHandler()` from `server.js`, and the
+  browser allowlist moved to `client-files.js`, one list that both the server
+  and the build read. `npm run dev` and `npm start` are unchanged, except that
+  framework sources are now served from `/node_modules/what-framework/src/` and
+  `/node_modules/what-core/src/` only (what the import map points at), not from
+  the whole package directory.
+
+### Behaviour change: production without `WHAT_REVALIDATE_SECRET`
+
+- The full-stack template's `server.js` used to exit at startup when
+  `NODE_ENV=production` and `WHAT_REVALIDATE_SECRET` was unset, which would
+  crash a serverless Function on every cold start. It now logs one warning and
+  does not mount the revalidate webhook, so `POST /__what_revalidate` returns
+  404. With the secret set, the webhook works as before. Development still
+  generates a secret per run.
+- The template's `what.config.js` no longer claims that `what build` and
+  `what start` read it to pick a deploy adapter. Its comment now says what
+  actually reads it.
+
 ## [0.13.11] - 2026-10-08
 
 ### Safer server rendering and private pages
