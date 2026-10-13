@@ -4,6 +4,8 @@ Thanks for your interest in contributing! Here's how to get started.
 
 ## Development Setup
 
+Use Node 24 LTS for repository development and release verification. The public runtime packages retain their Node 20+ contract; Node 20 is a legacy compatibility lane, not the recommended development environment. Older Node 20 and 22 point releases may not satisfy the locked ESLint/JSDOM tooling engines.
+
 ```bash
 git clone https://github.com/CelsianJs/what-framework.git
 cd what-framework
@@ -42,7 +44,7 @@ The repo is a monorepo with packages in `packages/`:
 ## Running Tests
 
 ```bash
-npm test          # 173 test files, Node's built-in runner
+npm test          # discovers package/example/script tests; Node's built-in runner
 npm run test:stress   # adversarial cases outside the unit suite
 ```
 
@@ -98,7 +100,7 @@ the bug passes either way, which is the same as having no test.
 
 ### Branches
 
-- `main` is the production branch. **Never push directly to main.**
+- `main` is the production branch. **Never push directly to main.** Use a PR and wait for the required Depot correctness checks. Independent review must precede merge; this policy does not introduce a separate required human-approval count.
 - Create branches from `main` with descriptive names:
   - `fix/issue-N-short-description` — bug fixes (reference the issue number)
   - `feat/short-description` — new features
@@ -154,7 +156,7 @@ Local publish is emergency-only and still requires a fresh `npm run release:veri
 
 ## Code Style
 
-- No build step for source -- packages ship raw ES modules from `src/`
+- Source is authored as ES modules. Some exports ship source; production-conditioned exports require generated `dist/` artifacts. Build before packing and run publish-surface hygiene rather than assuming a source checkout proves the npm artifact.
 - Event handlers are lowercase: `onclick`, `oninput` (not camelCase)
 - Signals use unified getter/setter: `sig()` reads, `sig.set(value)` writes
 - Reactive children in JSX: `{() => count()}` for text, `{() => items().map(...)}` for lists

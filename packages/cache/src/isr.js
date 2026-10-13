@@ -3,7 +3,8 @@
 // Stale-while-revalidate at the ORIGIN: a fresh entry is served from cache; a
 // stale entry (past `revalidate`, within `swr`) is served IMMEDIATELY while a
 // single background regeneration refreshes it; a cold/expired entry blocks and
-// renders. Concurrent regenerations of the same key are deduped to ONE render.
+// renders. Concurrent regenerations share public results; private results are
+// rendered again for each waiting request.
 //
 // `render(routeMatch, ctx)` is INJECTED by the adapter (wraps renderPage +
 // serializeState) — the engine never imports what-server, keeping it standalone.
@@ -43,26 +44,37 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     return cacheKey({ path: routeMatch.path, query: routeMatch.query, vary });
   }
 
-  // Render + store, deduping concurrent calls for the same key. `renderOverride`
-  // lets a caller (e.g. the deploy adapter) supply the render for this route
+  // Render + store. `renderOverride` lets a caller (e.g. the deploy adapter)
+  // supply the render for this route
   // without baking it into the engine — keeps the engine decoupled.
+  async function renderEntry(key, routeMatch, renderOverride) {
+    const doRender = renderOverride || render;
+    const out = await doRender(routeMatch, {});
+    const entry = makeEntry({ ...out, path: routeMatch.path }, routeMatch.config || {}, now());
+    // Only public 200 renders are cached. Storing a non-200 (soft-404, error
+    // page) would serve it as a HIT until expiry (bad for correctness and
+    // SEO), and storing a per-user render would serve one visitor's HTML to
+    // everyone. The response is still returned to the caller with its real
+    // status; any previously cached good entry is left in place.
+    if (entry.status === 200 && !entry.private) {
+      await store.set(key, entry);
+    }
+    return entry;
+  }
+
   function regenerate(key, routeMatch, renderOverride) {
     const existing = inFlight.get(key);
-    if (existing) return existing;
-    const doRender = renderOverride || render;
-    const p = (async () => {
-      const out = await doRender(routeMatch, {});
-      const entry = makeEntry({ ...out, path: routeMatch.path }, routeMatch.config || {}, now());
-      // Only public 200 renders are cached. Storing a non-200 (soft-404, error
-      // page) would serve it as a HIT until expiry (bad for correctness and
-      // SEO), and storing a per-user render would serve one visitor's HTML to
-      // everyone. The response is still returned to the caller with its real
-      // status; any previously cached good entry is left in place.
-      if (entry.status === 200 && !entry.private) {
-        await store.set(key, entry);
-      }
-      return entry;
-    })().finally(() => inFlight.delete(key));
+    if (existing) {
+      // Privacy is known only after rendering. A follower may reuse a public
+      // result, but must render private HTML with its own request and override.
+      // These rerenders do not own or clean up the shared in-flight slot.
+      return existing.then((entry) => entry.private
+        ? renderEntry(key, routeMatch, renderOverride)
+        : entry);
+    }
+    const p = renderEntry(key, routeMatch, renderOverride).finally(() => {
+      if (inFlight.get(key) === p) inFlight.delete(key);
+    });
     inFlight.set(key, p);
     return p;
   }

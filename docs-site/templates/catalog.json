@@ -1,0 +1,572 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "slug": "what-starter-tempo",
+      "status": "published",
+      "name": "Tempo",
+      "description": "A focused time-tracking workspace for independent studios and small teams.",
+      "category": "SaaS",
+      "runtimes": [
+        "client",
+        "serverless"
+      ],
+      "features": [
+        "Signals",
+        "Global state",
+        "Routing",
+        "Server API"
+      ],
+      "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
+      "preview": {
+        "src": "/templates/previews/tempo.webp",
+        "alt": "Tempo: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:18.929Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-tempo-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-tempo-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "2bb8d2cd-3443-4cc8-9007-435a9baa3c97",
+        "commitSha": "5e6b72f96bd89ff97453ab124fd3844d87e9a0d7"
+      }
+    },
+    {
+      "slug": "what-starter-launchpad",
+      "status": "published",
+      "name": "Launchpad",
+      "description": "A crisp product launch site for a new developer-tools startup.",
+      "category": "Marketing",
+      "runtimes": [
+        "static",
+        "client"
+      ],
+      "features": [
+        "Static content",
+        "Responsive design",
+        "Transitions"
+      ],
+      "architecture": "Build-time rendered public content with client-mounted interactive islands.",
+      "preview": {
+        "src": "/templates/previews/launchpad.webp",
+        "alt": "Launchpad: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:23.587Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-launchpad-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-launchpad-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "87cbfa36-0ef3-4ab0-9dc7-c3674906a852",
+        "commitSha": "7fbbf2cad1f742723aec90e5f4a87c4433cc003c"
+      }
+    },
+    {
+      "slug": "what-starter-fieldwork",
+      "status": "published",
+      "name": "Fieldwork",
+      "description": "An editorial research lab site exploring artificial intelligence and visual culture.",
+      "category": "Creative",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Canvas",
+        "Signals",
+        "Effects",
+        "Routing"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/fieldwork.webp",
+        "alt": "Fieldwork: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:28.864Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-fieldwork-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-fieldwork-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "3e04d79f-33d6-4bc3-a93a-1eddcb3ecd0b",
+        "commitSha": "a380b3036006306043a8ef44e92b11b579c333ab"
+      }
+    },
+    {
+      "slug": "what-starter-oscillator",
+      "status": "published",
+      "name": "Oscillator",
+      "description": "A browser music sketchbook for building patterns and exploring sound.",
+      "category": "Creative",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Web Audio",
+        "Signals",
+        "Effects",
+        "Global state"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/oscillator.webp",
+        "alt": "Oscillator: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T17:01:15.891Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-oscillator-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-oscillator-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T17:02:10.656Z",
+        "deploymentId": "3f9dba05-7306-4742-acc0-041f705ada6d",
+        "commitSha": "cbfb640ec87a8bad0c45e02a5b0ce5a0c00fdb6d"
+      }
+    },
+    {
+      "slug": "what-starter-lens",
+      "status": "published",
+      "name": "Lens",
+      "description": "A product analytics workspace for examining traffic, funnels and meaningful trends.",
+      "category": "Data",
+      "runtimes": [
+        "client",
+        "serverless"
+      ],
+      "features": [
+        "Server API",
+        "Filtering",
+        "Charts",
+        "Derived state"
+      ],
+      "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
+      "preview": {
+        "src": "/templates/previews/lens.webp",
+        "alt": "Lens: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:38.941Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-lens-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-lens-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "5e80b58d-3fb9-40d6-96e1-7d0b114d9b4b",
+        "commitSha": "a8eda2c3d5d4ee6c3d3e10ae678e8fac617726ba"
+      }
+    },
+    {
+      "slug": "what-starter-harbor",
+      "status": "published",
+      "name": "Harbor",
+      "description": "A calm operations console for coordinating projects, tasks and team work.",
+      "category": "Operations",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Global state",
+        "Routing",
+        "Forms",
+        "Local persistence"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/harbor.webp",
+        "alt": "Harbor: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:43.894Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-harbor-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-harbor-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "13adb72b-913c-4085-b803-47f8f0324138",
+        "commitSha": "4e5df0fdd00ac6766347d5a00a78130aaba6ceb8"
+      }
+    },
+    {
+      "slug": "what-starter-gather",
+      "status": "published",
+      "name": "Gather",
+      "description": "A seasonal recipe collection with practical meal planning and a shopping list.",
+      "category": "Lifestyle",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Static content",
+        "Global state",
+        "Filtering",
+        "Local persistence"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/gather.webp",
+        "alt": "Gather: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:49.166Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-gather-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-gather-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "4d6a9cd0-c32b-42ca-8d2d-54a6f4beb6dc",
+        "commitSha": "6f86fe8a23cfcba35c48cf0835b59870b86d5f7e"
+      }
+    },
+    {
+      "slug": "what-starter-marginalia",
+      "status": "published",
+      "name": "Marginalia",
+      "description": "An independent publication for long-form ideas, reading lists and thoughtful typography.",
+      "category": "Publishing",
+      "runtimes": [
+        "static",
+        "client"
+      ],
+      "features": [
+        "Static content",
+        "Routing",
+        "Reading state",
+        "Transitions"
+      ],
+      "architecture": "Build-time rendered public content with client-mounted interactive islands.",
+      "preview": {
+        "src": "/templates/previews/marginalia.webp",
+        "alt": "Marginalia: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:54.484Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-marginalia-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-marginalia-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "681a1c06-c903-478b-9c66-e39b167d022d",
+        "commitSha": "7d6e09555da394f1e983d3272e85fb6d156ffe5c"
+      }
+    },
+    {
+      "slug": "what-starter-meridian",
+      "status": "published",
+      "name": "Meridian",
+      "description": "A thoughtful travel planner for collecting places and organizing an itinerary.",
+      "category": "Travel",
+      "runtimes": [
+        "static",
+        "client"
+      ],
+      "features": [
+        "Signals",
+        "Global state",
+        "Routing",
+        "Local persistence"
+      ],
+      "architecture": "Build-time rendered public content with client-mounted interactive islands.",
+      "preview": {
+        "src": "/templates/previews/meridian.webp",
+        "alt": "Meridian: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:11:59.767Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-meridian-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-meridian-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "e23e1f36-78a0-4cce-bcf3-50344ed679c8",
+        "commitSha": "df6767014bf327b69a2defb97042c7c9431c7b11"
+      }
+    },
+    {
+      "slug": "what-starter-cartograph",
+      "status": "published",
+      "name": "Cartograph",
+      "description": "An outdoor gear shop for exploring products and assembling a useful kit.",
+      "category": "Commerce",
+      "runtimes": [
+        "client",
+        "serverless"
+      ],
+      "features": [
+        "Static content",
+        "Filtering",
+        "Global state",
+        "Routing"
+      ],
+      "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
+      "preview": {
+        "src": "/templates/previews/cartograph.webp",
+        "alt": "Cartograph: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:04.939Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-cartograph-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-cartograph-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "d7f51364-1e3d-4dc0-b757-d3110b2ad61d",
+        "commitSha": "42d3b9d56b0ec9db7baaad356235a2933f98d528"
+      }
+    },
+    {
+      "slug": "what-starter-form",
+      "status": "published",
+      "name": "Form",
+      "description": "An architecture studio portfolio centered on spaces, projects and material details.",
+      "category": "Portfolio",
+      "runtimes": [
+        "static",
+        "client"
+      ],
+      "features": [
+        "Static content",
+        "Routing",
+        "Transitions",
+        "Reduced motion"
+      ],
+      "architecture": "Build-time rendered public content with client-mounted interactive islands.",
+      "preview": {
+        "src": "/templates/previews/form.webp",
+        "alt": "Form: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:09.901Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-form-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-form-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "e8282a92-b64e-480c-a2bb-f1ffc64d9d5e",
+        "commitSha": "4a3c1bc5501cf1739b621d40af7d09ba1e9c983c"
+      }
+    },
+    {
+      "slug": "what-starter-beacon",
+      "status": "published",
+      "name": "Beacon",
+      "description": "A conference site with a clear program, speaker stories and a personal agenda.",
+      "category": "Events",
+      "runtimes": [
+        "static",
+        "client"
+      ],
+      "features": [
+        "Static content",
+        "Filtering",
+        "Global state",
+        "Local persistence"
+      ],
+      "architecture": "Build-time rendered public content with client-mounted interactive islands.",
+      "preview": {
+        "src": "/templates/previews/beacon.webp",
+        "alt": "Beacon: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:14.986Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-beacon-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-beacon-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "7f592cd3-88cc-45dc-b360-5313162c346c",
+        "commitSha": "0829d929657524cf9c5eac2e9b4daa16d71e49be"
+      }
+    },
+    {
+      "slug": "what-starter-finch",
+      "status": "published",
+      "name": "Finch",
+      "description": "A learning workspace for short lessons, practice and a visible path forward.",
+      "category": "Education",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Signals",
+        "Derived state",
+        "Routing",
+        "Local persistence"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/finch.webp",
+        "alt": "Finch: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:20.099Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-finch-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-finch-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "5baa6462-61a5-499f-818d-d5a2774ec742",
+        "commitSha": "4eb5d37322ee8780758b8fd195fbcbc02d9057b2"
+      }
+    },
+    {
+      "slug": "what-starter-tally",
+      "status": "published",
+      "name": "Tally",
+      "description": "A freelancer invoice workspace for organizing line items and understanding totals.",
+      "category": "Finance",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Forms",
+        "Derived state",
+        "Global state",
+        "Local persistence"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/tally.webp",
+        "alt": "Tally: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:25.169Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-tally-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-tally-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "6473fa4b-a007-425e-9f6c-7efcef84f3c2",
+        "commitSha": "d87c3c92dcf2bea9246f31d41b28cb1ed32a1806"
+      }
+    },
+    {
+      "slug": "what-starter-drift",
+      "status": "published",
+      "name": "Drift",
+      "description": "A lightweight project board for organizing ideas and keeping work moving.",
+      "category": "Productivity",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Global state",
+        "Forms",
+        "Filtering",
+        "Local persistence"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/drift.webp",
+        "alt": "Drift: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:29.875Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-drift-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-drift-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "ef7338d3-e2bb-40c4-b533-cbddecb8eb9f",
+        "commitSha": "1c134eb4c8b0dfae8464d329b8cf4e2a95f40dad"
+      }
+    },
+    {
+      "slug": "what-starter-bloom",
+      "status": "published",
+      "name": "Bloom",
+      "description": "A garden journal for tracking plants, observations and seasonal care.",
+      "category": "Lifestyle",
+      "runtimes": [
+        "client"
+      ],
+      "features": [
+        "Signals",
+        "Global state",
+        "Forms",
+        "Local persistence"
+      ],
+      "architecture": "Client-rendered application served from explicit static route entries; browser-local state, not a shared server database.",
+      "preview": {
+        "src": "/templates/previews/bloom.webp",
+        "alt": "Bloom: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:34.571Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-bloom-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-bloom-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "28fa16f2-3b1f-4e11-a615-abdd6911523f",
+        "commitSha": "82f223307709ee6b3559c99d9bea1ef984ba4591"
+      }
+    },
+    {
+      "slug": "what-starter-signal",
+      "status": "published",
+      "name": "Signal",
+      "description": "A service status site for communicating incidents and explaining operational health.",
+      "category": "Operations",
+      "runtimes": [
+        "hybrid",
+        "serverless"
+      ],
+      "features": [
+        "Server rendering",
+        "Server API",
+        "Caching",
+        "Routing"
+      ],
+      "architecture": "Request-time SSR, a cached overview, static reference pages and a real serverless health API; simulated service data.",
+      "preview": {
+        "src": "/templates/previews/signal.webp",
+        "alt": "Signal: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:39.279Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-signal-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-signal-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "1c860319-0802-43e0-9c2b-d81e81f994fb",
+        "commitSha": "672bf3010d8c6f63ee870ac352fe5fe892c88093"
+      }
+    },
+    {
+      "slug": "what-starter-orbit",
+      "status": "published",
+      "name": "Orbit",
+      "description": "An appointment planner for choosing a service and organizing a personal schedule.",
+      "category": "Scheduling",
+      "runtimes": [
+        "client",
+        "serverless"
+      ],
+      "features": [
+        "Forms",
+        "Signals",
+        "Global state",
+        "Local persistence"
+      ],
+      "architecture": "Client-rendered workspace with explicit static route entries and a real bounded serverless API; demo data boundaries documented.",
+      "preview": {
+        "src": "/templates/previews/orbit.webp",
+        "alt": "Orbit: actual released desktop product view after the shared typography refinement.",
+        "width": 1440,
+        "height": 900,
+        "capturedAt": "2026-10-08T16:12:44.110Z"
+      },
+      "release": {
+        "demoUrl": "https://what-starter-orbit-fae244da.vura.app/",
+        "buildUrl": "https://what-starter-orbit-fae244da.vura.app/build",
+        "verifiedAt": "2026-10-08T16:14:27.884Z",
+        "deploymentId": "6cf30ba0-3d7a-4bbd-a9be-33be65b377d5",
+        "commitSha": "e55fd4465739a3fdf715d936233d6555a4fee029"
+      }
+    }
+  ]
+}

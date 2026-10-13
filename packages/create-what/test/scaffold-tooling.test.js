@@ -78,3 +78,15 @@ test('the full-stack tsconfig does not require vite types it never installs', as
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('the islands CLAUDE.md describes the automatic runtime, not the compiler', async () => {
+  const { cwd, root } = await scaffold('isl-claude', ['--template=islands']);
+  try {
+    const doc = await readFile(join(root, 'CLAUDE.md'), 'utf8');
+    assert.match(doc, /automatic runtime, NOT\s+`what-compiler`/);
+    assert.match(doc, /<output>\{\(\) => count\(\)\}<\/output>/);
+    assert.doesNotMatch(doc, /no compiler and no JSX/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
