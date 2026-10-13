@@ -2206,10 +2206,10 @@ If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscri
 
 ### Understanding Diagnostics
 
-- **"N signals with no subscribers"** — Normal. Signals in \`() => ...\` reactive text bindings (\`<!--fn-->\` in DOM) update the DOM directly, bypassing tracked effects. Only investigate if a signal should trigger an effect but isn't.
-- **"N effects with no signal dependencies"** — Normal. One-shot setup effects that run once during component creation (DOM init, event listeners). Expected in "components run once" model.
+- **"N signals with no subscribers"** — A signal may be unused or sampled during setup. Reactive text/attribute bindings do use tracked effects; check mounted bindings and dependency edges rather than assuming a separate renderer mechanism.
+- **"N effects with no signal dependencies"** — A successful one-shot setup effect can run once without dependencies. Initial runs are reported before a later signal write; lazy computeds remain unevaluated until read.
 - **Components with signalCount=0** — Module-scope signals (shared stores) don't appear on any component. Use \`what_signals\` directly.
-- **\`<!--fn-->\` in DOM** — Reactive text binding markers. The primary reactivity mechanism in templates.
+- **\`<!--fn-->\` in DOM** — Reactive function-child markers. Their tracked effects participate in the dependency graph.
 
 ### Key Parameters
 

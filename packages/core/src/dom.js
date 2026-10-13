@@ -813,40 +813,42 @@ function createErrorBoundary(vnode, parent) {
     const error = errorState();
 
     componentStack.push(boundaryCtx);
-
-    // Remove old content between comment boundaries
-    const openParent = startComment.parentNode;
-    if (openParent) {
-      while (startComment.nextSibling && startComment.nextSibling !== endComment) {
-        const old = startComment.nextSibling;
-        disposeTree(old);
-        openParent.removeChild(old);
-      }
-    }
-
-    let vnodes;
-    if (error) {
-      vnodes = typeof fallback === 'function' ? [fallback({ error, reset })] : [fallback];
-    } else {
-      vnodes = children;
-    }
-
-    vnodes = Array.isArray(vnodes) ? vnodes : [vnodes];
-
-    for (const v of vnodes) {
-      const node = createDOM(v, parent);
-      if (node) {
-        // Insert before endComment
-        if (endComment.parentNode) {
-          endComment.parentNode.insertBefore(node, endComment);
-        } else {
-          // Still in fragment before first mount
-          container.insertBefore(node, endComment);
+    try {
+      // Remove old content between comment boundaries
+      const openParent = startComment.parentNode;
+      if (openParent) {
+        while (startComment.nextSibling && startComment.nextSibling !== endComment) {
+          const old = startComment.nextSibling;
+          disposeTree(old);
+          openParent.removeChild(old);
         }
       }
-    }
 
-    componentStack.pop();
+      let vnodes;
+      if (error) {
+        vnodes = typeof fallback === 'function' ? [fallback({ error, reset })] : [fallback];
+      } else {
+        vnodes = children;
+      }
+
+      vnodes = Array.isArray(vnodes) ? vnodes : [vnodes];
+
+      for (const v of vnodes) {
+        const node = createDOM(v, parent);
+        if (node) {
+          // Insert before endComment
+          if (endComment.parentNode) {
+            endComment.parentNode.insertBefore(node, endComment);
+          } else {
+            // Still in fragment before first mount
+            container.insertBefore(node, endComment);
+          }
+        }
+      }
+    } finally {
+      // A fallback may throw; later mounts must not inherit this boundary.
+      componentStack.pop();
+    }
   });
 
   boundaryCtx.effects.push(dispose);

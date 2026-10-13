@@ -4,8 +4,8 @@
  * 1. Transforms JSX via the What babel plugin
  * 2. Provides file-based routing via virtual:what-routes
  * 3. Watches pages directory for route changes
- * 4. HMR support: component files get granular hot-module replacement,
- *    signal/utility files trigger full reload
+ * 4. Component hot updates use an installed replacement hook or reload the
+ *    page; signal/utility files trigger full reload
  */
 
 import path from 'path';
@@ -459,8 +459,9 @@ function isUtilityFile(filePath) {
 
 /**
  * Generate HMR boundary code for a component file.
- * When the module is updated, Vite's HMR runtime calls import.meta.hot.accept(),
- * which re-runs the module. The component re-renders in place.
+ * Vite calls the accept callback after reevaluating the updated module.
+ * An installed replacement runtime owns the update. Otherwise reload the page:
+ * accepting the module alone leaves its already-mounted component unchanged.
  */
 function generateHMRBoundary(filePath) {
   return `
@@ -470,8 +471,10 @@ if (import.meta.hot) {
   import.meta.hot.accept((newModule) => {
     if (newModule) {
       // Signal to the What runtime that this module was hot-updated
-      if (window.__WHAT_HMR_ACCEPT__) {
+      if (typeof window.__WHAT_HMR_ACCEPT__ === 'function') {
         window.__WHAT_HMR_ACCEPT__(${JSON.stringify(filePath)}, newModule);
+      } else {
+        window.location.reload();
       }
     }
   });

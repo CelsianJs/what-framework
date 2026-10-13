@@ -27,6 +27,11 @@ Key facts an agent should know before writing code:
 
 ## For AI agents
 
+- [Starter library](https://whatfw.com/templates): Working apps with live demos, public source and per-app build guides, hosted on Vura.
+- [Build from a starter](https://whatfw.com/templates/agents): A reproducible agent workflow; read each repository's README.md and BUILD.md before adapting it.
+- [Starter index](https://whatfw.com/templates/llms.txt): Machine-readable links for verified starter releases.
+- [Starter build status](https://whatfw.com/templates/status): Planned and in-progress products are labeled separately from verified releases; each has a status/reference journal.
+- [Starter status index](https://whatfw.com/templates/status/llms.txt): Current phases, recorded checks, lessons and limitations for every starter.
 - [Agent patterns](https://github.com/CelsianJs/what-framework/blob/main/docs/AGENT-PATTERNS.md): Ten copy-paste patterns for writing, debugging, and maintaining What code.
 - [MCP DevTools](https://github.com/CelsianJs/what-framework/blob/main/docs/MCP-DEVTOOLS.md): The 29-tool MCP server for inspecting a running app in real time.
 - [Gotchas](https://github.com/CelsianJs/what-framework/blob/main/docs/GOTCHAS.md): Common mistakes and how to avoid them.
