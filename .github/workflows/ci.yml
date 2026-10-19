@@ -1,8 +1,16 @@
 name: CI
 
-# Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
-# This copy keeps workflow_dispatch as a manual fallback.
+# Runs on GitHub-hosted runners. This is a public repository, so GitHub-hosted
+# minutes are free, and public repositories never use ZVN's self-hosted runners
+# (a fork pull request could run code on them). Depot CI was retired here on
+# 2026-10-19.
 on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 # CI only reads the repo. Anything that needs more asks for it per job.

@@ -285,17 +285,12 @@ types/        internal-only .d.ts, used by typecheck:src, never published
 
 ## CI
 
-**`.depot/workflows/` is authoritative.** CI has run on Depot since
-2026-07-11.
+**`.github/workflows/` is the only CI**, on GitHub-hosted runners (free for
+this public repository; self-hosted runners are never used here). Depot CI
+(`.depot/workflows/`) ran CI from 2026-07-11 to 2026-10-19 and is retired.
 
-`.github/workflows/` holds a copy of each workflow with the triggers reduced to
-`workflow_dispatch`, kept as a manual fallback if Depot is unavailable. They
-are not automatic, and they will drift: **change the Depot copy first, then
-mirror it.**
-
-**One exception: `release-and-deploy` runs on GitHub Actions and nowhere else.**
-It has no Depot counterpart. `secrets.NPM_TOKEN` is a GitHub repository secret,
-so a Depot run resolves it to an empty string and fails at the publish step, and
+**`release-and-deploy` must run on GitHub Actions and nowhere else.**
+`secrets.NPM_TOKEN` is a GitHub repository secret, so a run on another CI resolves it to an empty string and fails at the publish step, and
 npm provenance is minted from GitHub's OIDC issuer, so publishing from anywhere
 else drops it. The header of `.github/workflows/release-and-deploy.yml` carries
 the same warning and the dispatch command.

@@ -1,6 +1,12 @@
 name: Update Benchmarks
-# Manual fallback for .depot/workflows/benchmarks.yml.
+# Refreshes the published benchmark page every 3 days on a GitHub-hosted runner
+# (Depot CI was retired here on 2026-10-19). The numbers come from whatever
+# machine runs this job, so the first refresh after the move reflects GitHub's
+# runner hardware rather than Depot's.
 on:
+  schedule:
+    # Every 3 days at 06:00 UTC
+    - cron: '0 6 */3 * *'
   workflow_dispatch:
 permissions:
   contents: read

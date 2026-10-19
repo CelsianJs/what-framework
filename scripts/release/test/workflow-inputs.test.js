@@ -10,17 +10,13 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
-// `release-and-deploy` deliberately has no Depot counterpart. Everything else
-// is mirrored, Depot copy first.
+// Every workflow runs on GitHub Actions; Depot CI was retired on 2026-10-19.
 const releaseWorkflows = ['.github/workflows/release-and-deploy.yml'];
 const workflows = [
   ...releaseWorkflows,
   '.github/workflows/ci.yml',
-  '.depot/workflows/ci.yml',
   '.github/workflows/benchmarks.yml',
-  '.depot/workflows/benchmarks.yml',
   '.github/workflows/size.yml',
-  '.depot/workflows/size.yml',
 ];
 
 function runScriptLines(source) {
