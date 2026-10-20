@@ -16,6 +16,5 @@
 # The gates are the reason a release can be trusted. Weakening one is a
 # decision, not a cleanup.
 /scripts/                        @zvndev
-/.depot/workflows/               @zvndev
 /.github/workflows/              @zvndev
 /.size-budgets.json              @zvndev

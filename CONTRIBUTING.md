@@ -100,7 +100,7 @@ the bug passes either way, which is the same as having no test.
 
 ### Branches
 
-- `main` is the production branch. **Never push directly to main.** Use a PR and wait for the required Depot correctness checks. Independent review must precede merge; this policy does not introduce a separate required human-approval count.
+- `main` is the production branch. **Never push directly to main.** Use a PR and wait for the required CI correctness checks. Independent review must precede merge; this policy does not introduce a separate required human-approval count.
 - Create branches from `main` with descriptive names:
   - `fix/issue-N-short-description` — bug fixes (reference the issue number)
   - `feat/short-description` — new features
@@ -311,21 +311,17 @@ When adding a guardrail:
 
 ## Continuous Integration
 
-**`.depot/workflows/` is authoritative.** CI has run on Depot since 2026-07-11.
+**`.github/workflows/` is the only CI.** Every workflow (`ci`, `size`,
+`benchmarks`, `release-and-deploy`) runs on GitHub-hosted runners. This is a
+public repository, so those minutes are free, and it never uses self-hosted
+runners, because a fork pull request could run code on them. CI ran on Depot CI
+(`.depot/workflows/`) from 2026-07-11 to 2026-10-19; that copy is gone and a
+contract test keeps it from coming back.
 
-`.github/workflows/` holds a copy of each workflow with its triggers reduced to
-`workflow_dispatch`, kept as a manual fallback if Depot is unavailable. The two
-sets are not generated from each other and they will drift, so:
-
-> Change the Depot copy first, then mirror the change into the GitHub copy in
-> the same PR.
-
-The three mirrored workflows are `ci`, `size` and `benchmarks`.
-
-**`release-and-deploy` is the exception: it lives only in `.github/workflows/`.**
+**`release-and-deploy` must stay on GitHub Actions.**
 Publishing needs `secrets.NPM_TOKEN`, which is a GitHub repository secret, and
-npm provenance, which is minted from GitHub's OIDC issuer. A Depot copy fails at
-the publish step with "Missing npm auth" after running every gate. Release with:
+npm provenance, which is minted from GitHub's OIDC issuer. A copy on another CI
+fails at the publish step with "Missing npm auth" after running every gate. Release with:
 
 ```bash
 gh workflow run release-and-deploy.yml --repo CelsianJs/what-framework \

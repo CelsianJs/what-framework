@@ -133,8 +133,7 @@ local benchmark. The correctness list includes:
 - `bench:gate` — benchmark regression gate
 - packed scaffolder and real application browser smokes
 
-Automatic CI lives under `.depot/workflows/`; GitHub CI/size/benchmark copies
-are manual fallbacks. Benchmark refreshes use a branch/PR, not a direct main
+Automatic CI lives under `.github/workflows/` on GitHub-hosted runners. Benchmark refreshes use a branch/PR, not a direct main
 push. If repository policy denies the bot's PR creation, its branch and
 artifact remain available for a maintainer to open the PR without bypassing
 checks.

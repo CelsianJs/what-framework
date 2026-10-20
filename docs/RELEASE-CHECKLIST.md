@@ -20,7 +20,7 @@ website deployment are distinct proofs; do not mark one complete from another.
 - [ ] Run `npm run release:verify`: shared correctness checks plus blocking
       local benchmarks. A successful workspace import is not a substitute.
 - [ ] Run `npm run release:publish -- --dry-run`; it must not publish or retag.
-- [ ] Open a normal PR, wait for exact-head required Depot checks, and merge
+- [ ] Open a normal PR, wait for exact-head required CI checks, and merge
       through the documented review path. Never push directly to main.
 
 The shared runner checks publish surface before and after building, tests,

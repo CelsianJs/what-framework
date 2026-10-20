@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -14,14 +14,6 @@ const pins = new Map([
   ['actions/upload-artifact', 'cf430e030ddbb5b0abf93d22962f4752f3646cd9'],
 ]);
 
-// Compare the executable YAML body, allowing only provider runner differences
-// and comments/spacing. Syntax is additionally checked with a YAML parser in QA.
-function executableBody(source) {
-  return source.slice(source.indexOf('\npermissions:')).split('\n')
-    .map(line => line.replace('depot-ubuntu-latest', 'ubuntu-latest').replace(/\s+#.*$/, '').trim())
-    .filter(line => line && !line.startsWith('#')).join('\n');
-}
-
 function job(source, name) {
   const start = source.indexOf(`\n  ${name}:\n`);
   assert.ok(start >= 0, `missing job ${name}`);
@@ -30,19 +22,21 @@ function job(source, name) {
   return next < 0 ? tail : tail.slice(0, next + 1);
 }
 
-test('Depot is authoritative and every fallback preserves the executable policy', () => {
+test('GitHub-hosted workflows are authoritative and Depot CI is retired', () => {
+  // This repository is public: CI runs on GitHub-hosted runners (free for
+  // public repositories) and never on self-hosted runners. A .depot copy would
+  // run a second, billed CI on every push.
+  assert.equal(existsSync(new URL('.depot/workflows/', root)), false, '.depot/workflows must not come back');
   for (const name of ['ci', 'size', 'benchmarks']) {
-    const depot = read('.depot', name);
     const github = read('.github', name);
-    assert.equal(executableBody(github), executableBody(depot), name);
-    assert.match(github, /on:\n\s+workflow_dispatch:/);
-    assert.doesNotMatch(github, /^ {2}(push|pull_request|schedule):/m);
-    assert.match(depot, name === 'benchmarks' ? /^ {2}schedule:/m : /^ {2}pull_request:/m);
+    assert.match(github, name === 'benchmarks' ? /^ {2}schedule:/m : /^ {2}pull_request:/m, name);
+    assert.doesNotMatch(github, /runs-on: .*(depot|self-hosted|grandprix)/, name);
+    assert.doesNotMatch(github, /pull_request_target/, name);
   }
 });
 
 test('all mirrored actions use the verified immutable official commits', () => {
-  for (const provider of ['.depot', '.github']) {
+  for (const provider of ['.github']) {
     for (const name of ['ci', 'size', 'benchmarks']) {
       for (const [, action, sha] of read(provider, name).matchAll(/uses: ([\w/-]+)@([^\s]+)/g)) {
         assert.equal(sha, pins.get(action), `${provider}/${name}: ${action}`);
@@ -53,7 +47,7 @@ test('all mirrored actions use the verified immutable official commits', () => {
 });
 
 test('current runtime coverage keeps Node 20 explicitly legacy without changing engines', () => {
-  for (const provider of ['.depot', '.github']) {
+  for (const provider of ['.github']) {
     const ci = read(provider, 'ci');
     assert.match(ci, /Node 20 is an explicit legacy compatibility lane/);
     assert.match(ci, /node-version: \[20, 22, 24, 26\]/);
@@ -69,7 +63,7 @@ test('current runtime coverage keeps Node 20 explicitly legacy without changing 
 });
 
 test('documentation metadata, build and Chromium contracts are mandatory; WebKit is native acceptance', () => {
-  for (const provider of ['.depot', '.github']) {
+  for (const provider of ['.github']) {
     const ci = read(provider, 'ci');
     const docs = job(ci, 'docs-site');
     for (const command of ['check', 'test:templates', 'build', 'test:templates:ui']) {
@@ -86,7 +80,7 @@ test('documentation metadata, build and Chromium contracts are mandatory; WebKit
 });
 
 test('read-only workflows cancel stale refs and benchmark writes are job-scoped', () => {
-  for (const provider of ['.depot', '.github']) {
+  for (const provider of ['.github']) {
     for (const name of ['ci', 'size']) {
       const source = read(provider, name);
       assert.match(source, /permissions:\n {2}contents: read/);
@@ -105,7 +99,7 @@ test('read-only workflows cancel stale refs and benchmark writes are job-scoped'
 });
 
 test('benchmark refresh only pushes a review branch and preserves an actionable denied-PR fallback', () => {
-  const source = read('.depot', 'benchmarks');
+  const source = read('.github', 'benchmarks');
   const section = source.slice(source.indexOf('      - name: Propose benchmark refresh'));
   const block = section.match(/ {8}run: \|\n([\s\S]*?)(?= {6}- name:)/)?.[1];
   assert.ok(block, 'missing benchmark proposal shell');
