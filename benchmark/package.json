@@ -10,7 +10,7 @@
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.14.10",
+    "@tanstack/react-virtual": "^3.14.21",
     "formik": "^2.4.9",
     "immer": "^11.1.18",
     "jotai": "^2.20.3",
