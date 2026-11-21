@@ -78,7 +78,7 @@ async function stop(child) {
 
 async function pageImportMap(base) {
   const html = await (await fetch(base + '/')).text();
-  return JSON.parse(html.match(/<script type="importmap">(.*?)<\/script>/)[1]).imports;
+  return JSON.parse(html.match(/<script type="importmap">(.*?)<\/script>/)[1]);
 }
 
 // Every subpath a package exports for the browser, read from its package.json.
@@ -87,10 +87,21 @@ function exportedSpecifiers(name) {
   return Object.keys(exports).map((subpath) => name + subpath.slice(1));
 }
 
+// The URL a map gives \`specifier\` imported from \`importer\`: the longest
+// scope whose prefix the importer's path starts with, then the top level.
+function mapped({ imports, scopes = {} }, specifier, importer) {
+  const path = importer ? new URL(importer).pathname : '';
+  const scope = Object.keys(scopes).filter((prefix) => path.startsWith(prefix)).sort((a, b) => b.length - a.length)
+    .find((prefix) => Object.hasOwn(scopes[prefix], specifier));
+  if (scope) return scopes[scope][specifier];
+  return Object.hasOwn(imports, specifier) ? imports[specifier] : undefined;
+}
+
 // Load every mapped module the way a browser does, through the map and over
 // HTTP, following static and dynamic imports. A bare specifier missing from
 // the map, or a module the server does not serve, fails the build.
-async function loadThroughMap(base, imports) {
+async function loadThroughMap(base, map) {
+  const { imports } = map;
   const entry = Object.keys(imports).map((specifier, i) => `export * as m${i} from ${JSON.stringify(specifier)};`).join('\n');
   const result = await build({
     stdin: { contents: entry, loader: 'js' },
@@ -104,7 +115,8 @@ async function loadThroughMap(base, imports) {
       name: 'browser-import-map',
       setup(b) {
         b.onResolve({ filter: /.*/ }, (args) => {
-          if (Object.hasOwn(imports, args.path)) return { path: new URL(imports[args.path], base).href, namespace: 'http' };
+          const url = mapped(map, args.path, args.namespace === 'http' ? args.importer : '');
+          if (url !== undefined) return { path: new URL(url, base).href, namespace: 'http' };
           if (args.namespace === 'http' && /^\.\.?\//.test(args.path)) return { path: new URL(args.path, args.importer).href, namespace: 'http' };
           return { errors: [{ text: `"${args.path}" (imported by ${args.importer || 'the page'}) is not in the import map` }] };
         });
@@ -127,13 +139,16 @@ test('fullstack import map: every exported subpath is mapped, served, and loads 
   }
   const { child, base } = await boot(appDir);
   try {
-    const imports = await pageImportMap(base);
+    const map = await pageImportMap(base);
+    const { imports } = map;
+    assert.deepEqual(map.scopes, { '/node_modules/what-core/': { '#env': '/node_modules/what-core/src/env.js' } }, 'what-core\'s own #env import is mapped in its scope');
     for (const name of Object.keys(FRAMEWORK)) {
       for (const specifier of exportedSpecifiers(name)) assert.ok(imports[specifier], `the map names ${specifier}`);
     }
     for (const specifier of ['what-devtools', 'what-devtools-mcp/client']) assert.ok(imports[specifier], `development maps ${specifier}`);
 
-    const loaded = await loadThroughMap(base, imports);
+    const loaded = await loadThroughMap(base, map);
+    assert.ok(loaded.includes(new URL('/node_modules/what-core/src/env.js', base).href), 'what-core loaded its #env through the scope');
     assert.ok(loaded.includes(new URL(imports['what-framework/router'], base).href), 'what-framework/router loaded');
     assert.ok(loaded.some((url) => url.endsWith('/node_modules/what-router/src/index.js')), 'and the router it re-exports');
   } finally {
@@ -159,11 +174,11 @@ test('fullstack import map: packages a package manager did not hoist are found, 
 
   const { child, base } = await boot(appDir, { env: { NODE_ENV: 'production', WHAT_REVALIDATE_SECRET: 'import-map-test' } });
   try {
-    const imports = await pageImportMap(base);
-    assert.equal(imports['what-core'], '/node_modules/what-core/src/index.js');
-    const served = await (await fetch(base + imports['what-core'])).text();
+    const map = await pageImportMap(base);
+    assert.equal(map.imports['what-core'], '/node_modules/what-core/src/index.js');
+    const served = await (await fetch(base + map.imports['what-core'])).text();
     assert.equal(served, readFileSync(join(store, 'what-core', 'src', 'index.js'), 'utf8'), 'served from next to what-framework');
-    await loadThroughMap(base, imports);
+    await loadThroughMap(base, map);
   } finally {
     await stop(child);
   }
@@ -171,8 +186,8 @@ test('fullstack import map: packages a package manager did not hoist are found, 
   try {
     const out = spawnSync(process.execPath, ['build.js'], { cwd: appDir, encoding: 'utf8' });
     assert.equal(out.status, 0, `build failed:\n${out.stdout}\n${out.stderr}`);
-    const { imports } = JSON.parse(readFileSync(join(appDir, 'import-map.json'), 'utf8'));
-    for (const [specifier, url] of Object.entries(imports)) {
+    const { imports, scopes } = JSON.parse(readFileSync(join(appDir, 'import-map.json'), 'utf8'));
+    for (const [specifier, url] of [...Object.entries(imports), ...Object.values(scopes).flatMap((scope) => Object.entries(scope))]) {
       assert.ok(existsSync(join(appDir, 'dist', 'static', url)), `${specifier} -> dist/static${url} is published`);
     }
   } finally {

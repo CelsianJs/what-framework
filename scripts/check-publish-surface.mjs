@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 
-import { packages as buildPackages } from './build.js';
+import { packages as buildPackages, tierEntries } from './build.js';
 
 const repoRoot = resolve(import.meta.dirname, '..');
 
@@ -165,9 +165,9 @@ console.log(
 //
 // scripts/build.js cleans dist/ on every run, so after a build the ONLY files
 // allowed in packages/<name>/dist are:
-//   - <entry>.js / <entry>.min.js (+ .map) for each build entry
-//   - the modules (a per-module build) and chunks (a split build) that THIS
-//     build's entry files import, followed transitively
+//   - the tier output (+ .map) of each source module an export names
+//     (tierEntries: <path>.min.js for `production`, <path>.js for `module`)
+//   - the sibling modules those files import, followed transitively
 //   - *.d.ts type declarations
 // Anything else is a stale artifact from a previous build (an "orphan") and
 // would ship to npm via the `files: ["dist…"]` globs — fail loudly.
@@ -184,28 +184,29 @@ const distOrphans = [];
 const distMissing = [];
 let distCheckedPackages = 0;
 
-for (const pkg of buildPackages) {
-  const pkgDir = resolve(repoRoot, 'packages', pkg.name);
+for (const name of buildPackages) {
+  const pkgDir = resolve(repoRoot, 'packages', name);
   const distDir = join(pkgDir, 'dist');
   if (!existsSync(distDir)) {
     // Not built yet (fresh clone) — nothing stale can ship. The release path
     // re-runs this script after `npm run build`, which validates for real.
-    console.log(`[publish-surface] note: packages/${pkg.name}/dist not built; skipping dist check.`);
+    console.log(`[publish-surface] note: packages/${name}/dist not built; skipping dist check.`);
     continue;
   }
   distCheckedPackages += 1;
 
   const allowed = new Set();
   const entryFiles = [];
-  for (const entry of pkg.entries) {
-    if (!existsSync(join(pkgDir, entry.input))) continue;
-    for (const name of [`${entry.outputBase}.js`, `${entry.outputBase}.min.js`]) {
-      allowed.add(name);
-      allowed.add(`${name}.map`);
-      if (existsSync(join(distDir, name))) {
-        entryFiles.push(name);
+  const tiers = tierEntries(pkgDir);
+  for (const [tier, extension] of [['production', '.min.js'], ['bundler', '.js']]) {
+    for (const input of tiers[tier]) {
+      const output = input.replace(/^src\//, '').replace(/\.js$/, extension);
+      allowed.add(output);
+      allowed.add(`${output}.map`);
+      if (existsSync(join(distDir, output))) {
+        entryFiles.push(output);
       } else {
-        distMissing.push(`packages/${pkg.name}/dist/${name} (expected build output is missing)`);
+        distMissing.push(`packages/${name}/dist/${output} (expected build output is missing)`);
       }
     }
   }
@@ -232,7 +233,7 @@ for (const pkg of buildPackages) {
   for (const file of filesUnder(distDir).sort()) {
     if (file.endsWith('.d.ts')) continue;
     if (!allowed.has(file)) {
-      distOrphans.push(`packages/${pkg.name}/dist/${file}`);
+      distOrphans.push(`packages/${name}/dist/${file}`);
     }
   }
 }

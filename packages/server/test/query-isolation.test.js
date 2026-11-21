@@ -9,6 +9,7 @@
 // No DOM in this file: it is the server process the rule is for.
 
 import { describe, it } from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
 import { query, prefetchQuery, setQueryData, getQueryData } from 'what-core/data';
@@ -51,5 +52,38 @@ describe('the server query cache', () => {
     } finally {
       console.warn = warn;
     }
+  });
+});
+
+// A server with a DOM global (jsdom or happy-dom installed for an SSR
+// library, a Workers polyfill) and no AsyncLocalStorage: a render's code after
+// an `await` runs outside its context, and must get a cache of its own there,
+// not the one a browser page keeps. Deciding "server" by `typeof document`
+// handed 39 of 40 renders another user's data.
+describe('a server with a DOM global and no AsyncLocalStorage', () => {
+  it('never hands a render another request\'s query data', () => {
+    const url = (path) => JSON.stringify(new URL(path, import.meta.url).href);
+    const script = `
+      delete process.getBuiltinModule;
+      delete globalThis.AsyncLocalStorage;
+      const { installDOM } = await import(${url('../../../test-utils/dom.js')});
+      installDOM();
+      const { h, Suspense } = await import(${url('../../core/src/index.js')});
+      const { query } = await import(${url('../../core/src/entries/data.js')});
+      const { renderToStringAsync } = await import(${url('../src/index.js')});
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      async function Viewer({ uid }) {
+        await delay(Math.random() * 5);
+        const viewer = query(['viewer'], async () => { await delay(Math.random() * 5); return 'viewer-' + uid; });
+        return h('p', null, () => viewer());
+      }
+      console.warn = () => {};
+      const pages = await Promise.all(Array.from({ length: 40 }, (_, i) => renderToStringAsync(h(Suspense, { fallback: 'loading' }, h(Viewer, { uid: 'u' + i })))));
+      console.log(JSON.stringify(pages.map((page) => /viewer-(u\\d+)/.exec(page.body)?.[1] ?? 'none')));
+    `;
+    const out = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+    assert.equal(out.status, 0, out.stderr);
+    const seen = JSON.parse(out.stdout.trim().split('\n').pop());
+    assert.deepEqual(seen, seen.map((_, i) => `u${i}`));
   });
 });

@@ -54,6 +54,16 @@ engine applies one rule to it:
 Declare `vary` on a route (`page: { vary: ['cookie:session', 'accept-language'] }`)
 to keep one entry per value instead of refusing to cache it.
 
+A render that may be stored sees the request its key is made of:
+
+- The key ignores tracking parameters (`utm_*`, `fbclid`, `gclid`, `mc_cid`,
+  `mc_eid`, `_`), so the render's `query` and its request's URL arrive
+  without them: `?utm_source=…` cannot put text into the page every visitor
+  of the path is served.
+- A cookie name the request repeats counts once, with its first value, as the
+  `cookie` package and what-server read it: in the key a `cookie:` vary entry
+  resolves to, and in the Cookie header the render reads.
+
 ## Shared regenerations and aborts
 
 A regeneration is shared work, so it is not tied to the request that started

@@ -165,6 +165,9 @@ test('what build emits a runnable artifact (runtime present, no bare imports)', 
     // Cross-package runtime imports must be relative, not bare.
     const router = readFileSync(join(cwd, 'dist/@what/router/index.js'), 'utf8');
     assert.match(router, /from '\.\.\/core\/index\.js'/);
+    // So is what-core's own #env import (package.json `imports`).
+    const reactive = readFileSync(join(cwd, 'dist/@what/core/reactive.js'), 'utf8');
+    assert.match(reactive, /from '\.\.\/core\/env\.js'/);
     // Minification must not eat URLs inside string literals.
     const dom = readFileSync(join(cwd, 'dist/@what/core/dom.js'), 'utf8');
     assert.match(dom, /http:\/\/www\.w3\.org\/2000\/svg/);

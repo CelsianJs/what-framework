@@ -123,11 +123,12 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
     }
     // Every URL in the page's import map is a published file, what-framework's
     // router and server subpaths among them.
-    const { imports } = JSON.parse(await readFile(join(appDir, 'import-map.json'), 'utf8'));
+    const { imports, scopes } = JSON.parse(await readFile(join(appDir, 'import-map.json'), 'utf8'));
     for (const specifier of ['what-framework/router', 'what-framework/server', 'what-framework/render', 'what-core/internal']) {
       assert.ok(imports[specifier], `the import map names ${specifier}`);
     }
-    for (const [specifier, url] of Object.entries(imports)) {
+    assert.equal(scopes['/node_modules/what-core/']['#env'], '/node_modules/what-core/src/env.js', 'and what-core\'s own #env, in its scope');
+    for (const [specifier, url] of [...Object.entries(imports), ...Object.values(scopes).flatMap((scope) => Object.entries(scope))]) {
       assert.ok(existsSync(join(s, url)), `${specifier} -> dist/static${url} is published`);
     }
     assert.equal(Object.keys(imports).some((k) => k.startsWith('what-devtools')), false, 'the production map has no devtools');
@@ -166,7 +167,7 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
       const got = JSON.parse(run.stdout.trim().split('\n').pop());
       assert.equal(got.home, 200);
       assert.ok(got.listsPosts, 'SSR lists the posts');
-      assert.deepEqual(got.importMap, { imports }, 'the Function renders the import map the build derived');
+      assert.deepEqual(got.importMap, { imports, scopes }, 'the Function renders the import map the build derived');
       assert.match(got.cookie || '', /what-csrf=[^;]+;.*Secure/);
       assert.equal(got.post, 200);
       assert.equal(got.missing, 404);

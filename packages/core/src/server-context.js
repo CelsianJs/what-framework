@@ -57,19 +57,27 @@ function renderOwner() {
   return ctx != null && ctx.owner != null ? ctx.owner : null;
 }
 
-// Whether this process renders on the server with no document of its own
-// (what-server's ensureServerRuntime). There, code outside every render has
-// no page of its own either: the query cache gives it nothing shared.
+// Whether code outside every render runs on a server, where a query cache
+// it shared could hand one request's data to another. what-server's
+// ensureServerRuntime marks the process. It is a server unless it had a
+// document when marked (a test that renders both ways in one process) AND
+// has AsyncLocalStorage: only then does everything a request runs keep its
+// render context past an `await`, so code outside every context is no
+// request's. Without AsyncLocalStorage a render's code after an `await` runs
+// outside its context, and a DOM shim (jsdom, happy-dom, a Workers polyfill)
+// must not make that code share one cache.
 let _serverProcess = false;
+let _markedWithDocument = false;
 
 /** @internal what-server: this process renders on the server. */
 export function __markServerProcess() {
-  _serverProcess = typeof document === 'undefined';
+  _serverProcess = true;
+  _markedWithDocument = typeof document !== 'undefined';
 }
 
-/** @internal Whether code outside a render runs on a server with no document. */
+/** @internal Whether code outside a render runs on a server (see above). */
 export function _isServerProcess() {
-  return _serverProcess;
+  return _serverProcess && (!_markedWithDocument || _asyncContextStorage === null);
 }
 
 /** @returns the active render context, or null on the client / outside a render. */

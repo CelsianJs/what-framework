@@ -13,6 +13,8 @@ import assert from 'node:assert/strict';
 
 const { isSafeUrl } = await import('../../router/src/index.js');
 const { safeLocalPath } = await import('../src/action-handler.js');
+const { safeLocalPath: isrSafeLocalPath } = await import('../../cache/src/local-path.js');
+const { createCacheEngine, createMemoryStore } = await import('../../cache/src/index.js');
 const { createResponse, localRedirectTarget, externalRedirectTarget } = await import('../src/response.js');
 
 // Targets spanning both predicates: open-redirect vectors, dangerous schemes,
@@ -56,6 +58,22 @@ describe('redirect predicate parity', () => {
       assert.equal(response.location, '/', `${JSON.stringify(t)} redirects home instead`);
     }
     assert.equal(safeLocalPath('/a/./b/../c'), '/a/c', 'dot segments that stay on the site are fine');
+  });
+
+  // what-isr cannot import what-server, so it carries the same function. A
+  // copy that missed a fix passed "/.//evil.test/x" to a CDN adapter as
+  // "//evil.test/x", which an adapter resolving it against its origin sends,
+  // with its API token, to evil.test.
+  it('what-isr\'s copy is the same function, and its purge paths follow it', async () => {
+    assert.equal(isrSafeLocalPath.toString(), safeLocalPath.toString(), 'packages/cache/src/local-path.js differs from action-handler.js');
+    const purged = [];
+    const engine = createCacheEngine({ store: createMemoryStore(), cdn: { name: 'probe', purge: async (paths) => { purged.push(...paths); } } });
+    for (const t of [...TARGETS, '/.//evil.test/x', '/..//evil.test/x', '/%2e//evil.test/x', '/x/..//evil.test/x', '/./\t/evil.test/x', '/ok']) {
+      assert.equal(isrSafeLocalPath(t), safeLocalPath(t), JSON.stringify(t));
+      await engine.revalidatePath(t).catch(() => {});
+    }
+    assert.deepEqual(purged.filter((p) => !p.startsWith('/') || p.startsWith('//')), [], 'a purge path left the site');
+    assert.ok(purged.includes('/ok'));
   });
 
   it('both accept an ordinary same-origin path', () => {

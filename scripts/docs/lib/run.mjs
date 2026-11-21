@@ -146,7 +146,8 @@ export class SnippetRunner {
         b.onResolve({ filter: /.*/ }, async (args) => {
           if (args.kind === 'entry-point' || args.pluginData?.resolving) return undefined;
           if (args.path.startsWith('node:') || BUILTINS.has(args.path)) return { path: args.path, external: true };
-          const bare = !args.path.startsWith('.') && !args.path.startsWith('/');
+          // A `#` import is its package's own (package.json `imports`), bundled with it.
+          const bare = !args.path.startsWith('.') && !args.path.startsWith('/') && !args.path.startsWith('#');
           if (bare && !packages.has(splitSpecifier(args.path).name)) return { path: args.path, external: true };
           const resolved = await b.resolve(args.path, { kind: args.kind, importer: args.importer, resolveDir: args.resolveDir, pluginData: { resolving: true } });
           if (resolved.errors.length) return { errors: resolved.errors };

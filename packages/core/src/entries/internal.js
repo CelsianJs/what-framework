@@ -13,7 +13,7 @@ export { _formStatusContext, _formStatus } from '../actions.js';
 export { _urgent, _currentTransition, _onCommit } from '../reactive.js';
 // The development flag, for sibling packages whose development-only text must
 // fold away in a production build (what-router's error fixes).
-export { __DEV__ } from '../env.js';
+export { __DEV__ } from '../reactive.js';
 export { report as reportDiagnostic, subscribe as subscribeDiagnostics, getDiagnostics } from '../diagnostics.js';
 export {
   configureGuardrails,

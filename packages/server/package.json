@@ -50,11 +50,7 @@
   },
   "files": [
     "src",
-    "dist/**/*.min.js",
-    "dist/index.js",
-    "dist/islands.js",
-    "dist/ssr-runtime.js",
-    "dist/actions.js",
+    "dist/**/*.js",
     "index.d.ts",
     "node.d.ts",
     "islands.d.ts",

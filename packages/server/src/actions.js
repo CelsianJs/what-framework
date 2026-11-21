@@ -265,9 +265,17 @@ export function handleActionRequest(req, actionId, args, options = {}) {
     return Promise.resolve({ status: 400, body: { message: 'Invalid action arguments' } });
   }
 
-  // A plain function's throw or return value goes the way a promise's would.
-  return Promise.resolve()
-    .then(() => action.fn(...args))
+  // Called now, inside the caller's context, so the action's synchronous part
+  // sees getRequest() even with no AsyncLocalStorage to carry the context past
+  // its first `await`. A plain function's throw or return value goes the way a
+  // promise's would: a throw is the 500 below, never an exception here.
+  let run;
+  try {
+    run = Promise.resolve(action.fn(...args));
+  } catch (error) {
+    run = Promise.reject(error);
+  }
+  return run
     .then(async result => {
       // Server-side cache revalidation: if the action declared revalidate paths
       // or tags, purge them through the bound cache engine (no-op if unbound).

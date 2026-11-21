@@ -433,31 +433,43 @@ function classAttribute(props, keys) {
 }
 
 // A style object as CSS text: camelCase properties in kebab-case, custom
-// properties (--x) as they are.
-// A style object as CSS text. A declaration the client's CSSOM would refuse
+// properties (--x) as they are. A declaration the client's CSSOM would refuse
 // (a name that is not a property or a custom property, a value that ends the
 // declaration or opens a block) is left out, as the client leaves it out: the
 // server must not write `color: red; background: url(//tracker)` from one value.
 const CSS_PROPERTY = /^(?:--[\w-]+|-?[a-zA-Z][\w-]*)$/;
 
-// A `;` inside a string or parentheses (`url(data:image/png;base64,…)`) is
-// part of the value; one outside them, a brace, or an unclosed string or
-// parenthesis is not.
+// Control characters other than CSS whitespace: tab, LF, FF, CR.
+const isControl = (code) => (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0c && code !== 0x0d) || code === 0x7f;
+
+// Whether `text` is a value in a conservative CSS grammar, which a CSS parser
+// reads as one declaration's value whatever it does with it:
+// - no control characters;
+// - outside strings, no `\` (an escape makes the next character, a quote or
+//   a parenthesis, part of an identifier), no comment (`/*`, which can hide a
+//   quote or a parenthesis from a reader that knows no comments) and no braces;
+// - strings close on their own line (`\` escapes the next character in them);
+// - parentheses and brackets nest and match, and a `;` is allowed only inside
+//   them (`url(data:image/png;base64,…)`).
+// A value outside the grammar is dropped, even one a browser would accept
+// (`red /* note */`): style objects never need one.
 function oneDeclaration(text) {
-  let depth = 0;
+  const open = [];
   let quote = '';
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
+    if (isControl(text.charCodeAt(i))) return false;
     if (quote !== '') {
       if (c === '\\') i++;
       else if (c === quote) quote = '';
+      else if (c === '\n' || c === '\r' || c === '\f') return false;
     } else if (c === '"' || c === "'") quote = c;
-    else if (c === '(') depth++;
-    else if (c === ')') {
-      if (--depth < 0) return false;
-    } else if (c === '{' || c === '}' || (c === ';' && depth === 0)) return false;
+    else if (c === '(' || c === '[') open.push(c === '(' ? ')' : ']');
+    else if (c === ')' || c === ']') {
+      if (open.pop() !== c) return false;
+    } else if (c === '\\' || c === '{' || c === '}' || (c === '/' && text[i + 1] === '*') || (c === ';' && open.length === 0)) return false;
   }
-  return depth === 0 && quote === '';
+  return open.length === 0 && quote === '';
 }
 
 function styleText(style) {

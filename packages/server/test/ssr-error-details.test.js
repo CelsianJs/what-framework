@@ -11,18 +11,22 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const serverEntry = fileURLToPath(new URL('../src/index.js', import.meta.url));
+// The bundler tier (the `module` condition), as a Worker or browser-platform
+// bundle without a minifier's NODE_ENV resolves it.
+const bundlerEntry = fileURLToPath(new URL('../dist/index.js', import.meta.url));
 const coreEntry = fileURLToPath(new URL('../../core/src/index.js', import.meta.url));
 
 // Render a page whose resource fails with a driver error and whose component
 // throws, in a fresh process with the given environment, and return what the
 // page carries.
-function renderIn(env, { removeProcess = false } = {}) {
+function renderIn(env, { removeProcess = false, entry = serverEntry } = {}) {
   const script = `
     const core = await import(${JSON.stringify(coreEntry)});
-    const server = await import(${JSON.stringify(serverEntry)});
+    const server = await import(${JSON.stringify(entry)});
     ${removeProcess ? 'delete globalThis.process;' : ''}
     const { h, Suspense, createResource } = core;
     function Db() {
@@ -57,6 +61,19 @@ describe('error details on the wire', () => {
       }
     });
   }
+
+  // The build once let esbuild define process.env.NODE_ENV as "development"
+  // while it built this tier, so its check read `typeof process !== "undefined"
+  // && true`, and any server with a `process` wrote the messages.
+  it('the bundler tier decides at run time too: no NODE_ENV writes no message', { skip: existsSync(bundlerEntry) ? false : 'needs the built dist/ (npm run build)' }, () => {
+    for (const [env, exposed] of [[{}, false], [{ NODE_ENV: 'production' }, false], [{ NODE_ENV: 'development' }, true]]) {
+      const { html, stream } = renderIn(env, { entry: bundlerEntry });
+      for (const out of [html, stream]) {
+        if (exposed) assert.match(out, /<!-- SSR Error: secret at \/srv\/app\/db\.js:12 -->/, JSON.stringify(env));
+        else assert.doesNotMatch(out, /password authentication|secret at|28P01/, JSON.stringify(env));
+      }
+    }
+  });
 
   it('no `process` at all (Workers without nodejs_compat) is production too', () => {
     const { html, stream } = renderIn({ NODE_ENV: 'development' }, { removeProcess: true });

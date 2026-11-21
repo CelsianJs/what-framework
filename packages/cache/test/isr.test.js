@@ -284,3 +284,39 @@ describe('ISR engine', () => {
     await assert.doesNotReject(() => engine.revalidateTag('t', { regenerate: true, routeResolver }));
   });
 });
+
+// A stored render is made of what its key is made of. A request that carried an
+// input the key ignores or reads differently (a tracking parameter, a repeated
+// cookie name) stored, under the key every visitor shares, a page built from
+// it.
+describe('ISR engine: the key and a stored render see the same request', () => {
+  const firstCookie = (header, name) => (new RegExp(`(?:^|;\\s*)${name}=([^;]*)`).exec(header || '') || [])[1] ?? '';
+  const engineFor = (render) => createCacheEngine({ store: createMemoryStore(), render });
+  const request = (url, cookie) => new Request(url, { headers: cookie ? { cookie } : {} });
+
+  it('a repeated cookie name counts once, its first value, in the key and in the render', async () => {
+    const engine = engineFor(async (rm) => ({ html: `<p>${firstCookie(rm.request.headers.get('cookie'), 'theme')}</p>`, tags: [] }));
+    const config = { mode: 'hybrid', revalidate: 60, vary: ['cookie:theme'] };
+    const visit = (cookie) => engine.handle({ path: '/', query: {}, config, varyHeaders: { cookie }, request: request('https://shop.test/', cookie) });
+    const attacker = await visit('theme=<b>paid-link</b>; theme=dark');
+    assert.equal(attacker.html, '<p><b>paid-link</b></p>');
+    const visitor = await visit('theme=dark');
+    assert.equal(visitor.cacheStatus, 'MISS', 'the attacker\'s render is not under the dark-theme key');
+    assert.equal(visitor.html, '<p>dark</p>');
+  });
+
+  it('a query parameter the key ignores reaches neither the render\'s query nor its request URL', async () => {
+    const seen = [];
+    const engine = engineFor(async (rm) => {
+      seen.push([rm.query, new URL(rm.request.url).search]);
+      return { html: `<p>${rm.query.utm_source ?? ''}${new URL(rm.request.url).searchParams.get('utm_source') ?? ''}</p>`, tags: [] };
+    });
+    const config = { mode: 'hybrid', revalidate: 60 };
+    const attacker = await engine.handle({ path: '/landing', query: { utm_source: 'CALL-555-0100', page: '2' }, config, request: request('https://shop.test/landing?utm_source=CALL-555-0100&page=2') });
+    assert.equal(attacker.html, '<p></p>');
+    assert.deepEqual(seen, [[{ page: '2' }, '?page=2']]);
+    const visitor = await engine.handle({ path: '/landing', query: { page: '2' }, config, request: request('https://shop.test/landing?page=2') });
+    assert.equal(visitor.cacheStatus, 'HIT');
+    assert.equal(visitor.html, '<p></p>');
+  });
+});

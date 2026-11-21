@@ -125,6 +125,12 @@
       "default": "./src/markup-rules.js"
     }
   },
+  "imports": {
+    "#env": {
+      "development": "./src/env-development.js",
+      "default": "./src/env.js"
+    }
+  },
   "files": [
     "src",
     "dist/**/*.js",

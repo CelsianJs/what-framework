@@ -53,6 +53,11 @@ const importMap = {
     // actions.js, which imports nothing from node:*.
     'what-server/actions': '/node_modules/what-server/src/actions.js',
   },
+  // what-core reads its development flag through its own `#env` import
+  // (package.json `imports`), which a browser resolves in the package's scope.
+  scopes: {
+    '/node_modules/what-core/': { '#env': '/node_modules/what-core/src/env.js' },
+  },
 };
 
 const sharedHead =

@@ -279,13 +279,20 @@ An owner can carry handlers. `_onError` receives errors: an error thrown by an e
 
 ### Development and production tiers
 
-`__DEV__` (packages/core/src/env.js) is the only switch, and each export of what-core, what-router and what-server names three files for it, by condition:
+`__DEV__` is the only switch. Each export of what-core, what-router and what-server names three files for it, by condition:
 
-- `production`: `dist/*.min.js`, where it is the literal `false`, so devtools hooks, dev warnings and the devtools pre-install buffer are removed from the bundle. what-compiler/vite, webpack 5 and Rollup's node-resolve select it in a production build; any non-development `vite build` through `what-compiler/vite` also folds it in the source.
-- `module`: `dist/*.js`, where each use reads `(process.env.NODE_ENV !== "production")` in place. Only a browser bundle made by a bundler that sets neither `development` nor `production` selects it: esbuild with its default conditions, `bun build --production`. Both define `process.env.NODE_ENV`, so a production build folds every development branch while parsing and drops the code only it reaches, and a development build keeps it. Node, Vite, webpack, Rollup and the buildless template's import map never select `module`.
-- `development`, `node`, `import`, `default`: `src/`, for dev servers, Node, server bundles and tests. `node` comes before `module`, so a server bundle (esbuild for Node, `bun build --target=bun`) resolves the source exactly as Node does. The flag is resolved at runtime: `globalThis.__WHAT_DEV__` set before load forces either tier, else Vite's `import.meta.env.DEV`, else `process.env.NODE_ENV`.
+- `production`: `dist/*.min.js`, where it is the literal `false`, so devtools hooks, dev warnings and the devtools pre-install buffer are removed from the bundle. what-compiler/vite, webpack 5, Rollup's node-resolve (its default with `NODE_ENV` unset or `production`) and `node --conditions=production` select it; any non-development `vite build` through `what-compiler/vite` also folds it in the source.
+- `module`: `dist/*.js`, where each use reads `(process.env.NODE_ENV !== "production")` in place. A bundler that names neither `development` nor `production` selects it: esbuild and rolldown with their default conditions, `bun build --production`. Each defines `process.env.NODE_ENV` itself: `"production"` when it minifies (Bun: with `--production`), `"development"` otherwise. So an unminified esbuild or rolldown build with no `NODE_ENV` of its own is a development build, diagnostics included, and a production build must minify or define `process.env.NODE_ENV` as `"production"`. Node, Vite, webpack, Rollup with node-resolve and the buildless template's import map never select `module`.
+- `development`, `node`, `import`, `default`: `src/`, for dev servers, Node, server bundles and tests. `node` comes before `module`, so a server bundle (esbuild for Node, `bun build --target=bun`) resolves the source exactly as Node does.
 
-`scripts/check-size.mjs` fails if a production bundle contains development-only code, including a counter built with esbuild's defaults (`--bundle --minify`, nothing else).
+The source reads the flag through what-core's `#env` import (package.json `imports`), which follows the same conditions:
+
+- `development`: `src/env-development.js`, `true`. Vite's dev server, webpack's development mode, Rollup with node-resolve and `NODE_ENV=development`, and a default `bun build` resolve it, so their development builds report diagnostics wherever they run, with or without a `process` in the page.
+- `default`: `src/env.js`, resolved at runtime: `globalThis.__WHAT_DEV__` set before load forces either tier, else Vite's `import.meta.env.DEV`, else a server runtime's `process.env.NODE_ENV` (a `process` whose `versions.node` is a string: page markup can name a global `process`, but never make that a string), else production.
+
+A buildless page that maps the framework's source through an import map maps `#env` in what-core's scope (create-what's full-stack template does). A tool that resolves `node` for a bundle served to a browser (esbuild `--platform=node`) gets `src/` with the runtime flag, which a browser answers with production; give such a build `--conditions=development` or `--conditions=production`.
+
+Every dist file is one source module's output and imports its siblings, in both tiers (`scripts/build.js`): two exports that reach a module share its state (what-server's action registry, what-core's component stack and tracking context), and an app bundled from dist/ tree-shakes as it does from src/. `scripts/check-size.mjs` fails if a production bundle contains development-only code, including a counter built with esbuild's defaults (`--bundle --minify`, nothing else).
 
 ### Component Lifecycle
 

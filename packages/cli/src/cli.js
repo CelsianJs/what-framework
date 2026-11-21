@@ -1080,6 +1080,9 @@ function coreTarget(sub) {
 }
 
 function runtimeTarget(spec) {
+  // what-core's own import of its development flag (package.json `imports`):
+  // the default target, which a buildless page switches with __WHAT_DEV__.
+  if (spec === '#env') return 'core/env.js';
   if (spec === 'what-framework') return 'core/index.js';
   if (spec.startsWith('what-framework/')) {
     const sub = spec.slice('what-framework/'.length);

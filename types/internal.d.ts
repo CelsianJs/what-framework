@@ -11,7 +11,8 @@ export {};
 
 declare global {
   /**
-   * The development flag's input, read by core/src/env.js. scripts/build.js
+   * The development flag's input, read by core/src/env.js and
+   * core/src/env-development.js (what-core's `#env` import). scripts/build.js
    * (dist/*.min.js) and what-compiler/vite (production builds) define it as
    * `false`. In src/, it is an optional global: set before the framework
    * loads, it forces the development or production tier. The bundler tier

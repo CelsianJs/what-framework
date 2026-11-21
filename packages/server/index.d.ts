@@ -214,13 +214,15 @@ export interface ActionOptions {
 }
 
 /**
- * Define a server action. On the server it is the function itself; on the
- * client, calling it posts to the action endpoint as a transition (it joins
- * one already running) and revalidates what the options name inside it.
+ * Define a server action: an async function or a plain one, whose value or
+ * throw the endpoint answers with either way. On the server it is the
+ * function itself (await its result: a plain function's comes back as is);
+ * on the client, calling it posts to the action endpoint as a transition (it
+ * joins one already running) and revalidates what the options name inside it.
  * Resolves with the action's result once the refetches have landed.
  */
 export function action<T extends any[], R>(
-  fn: (...args: T) => Promise<R>,
+  fn: (...args: T) => R | Promise<R>,
   options?: ActionOptions
 ): ((...args: T) => Promise<R>) & { _actionId: string; _isAction: true };
 
@@ -241,10 +243,16 @@ export interface ActionResponse {
   body: any;
 }
 
+/**
+ * Run the registered action `actionId` with `args`. It fails closed: without
+ * `csrfToken` (the session's token, compared with the request's
+ * `x-csrf-token` header) it answers 500, unless `skipCsrf` opts out.
+ */
 export function handleActionRequest(
   req: any,
   actionId: string,
-  args: any[]
+  args: any[],
+  options?: { csrfToken?: string; skipCsrf?: boolean }
 ): Promise<ActionResponse>;
 
 export function getRegisteredActions(): string[];

@@ -1759,8 +1759,13 @@ export function clientPackages({ dev = false } = {}) {
   return packages;
 }
 
+// A package's own \`#\` imports (package.json \`imports\`, what-core's \`#env\`)
+// resolve only inside the package, so they sit in the scope of its URL.
 export function importMapFor(packages) {
-  return { imports: Object.fromEntries(packages.flatMap((pkg) => pkg.imports)) };
+  return {
+    imports: Object.fromEntries(packages.flatMap((pkg) => pkg.imports)),
+    scopes: Object.fromEntries(packages.filter((pkg) => pkg.scope.length).map((pkg) => [pkg.url, Object.fromEntries(pkg.scope)])),
+  };
 }
 
 // The devtools are devDependencies: absent from a production install.
@@ -1773,8 +1778,9 @@ function installed(name, subpaths) {
   }
 }
 
-// { name, dir, imports: [[specifier, url]], dirs: [{ url, dir }] }, mapping
-// the given subpaths, or every one the package exports. \`dir\` is where Node
+// { name, dir, url, imports: [[specifier, url]], scope: [[specifier, url]],
+// dirs: [{ url, dir }] }, mapping the given subpaths, or every one the package
+// exports, and the package's own \`#\` imports. \`dir\` is where Node
 // found the package, which is where its own dependencies resolve from.
 function clientPackage(name, from, subpaths) {
   let dir = dirname(createRequire(join(from, 'package.json')).resolve(name));
@@ -1798,7 +1804,14 @@ function clientPackage(name, from, subpaths) {
     imports.push([name + subpath.slice(1), url + file.slice(2)]);
     tops.add(file.slice(2).split('/')[0]);
   }
-  return { name, dir, imports, dirs: [...tops].map((top) => ({ url: \`\${url}\${top}/\`, dir: join(home, top) })) };
+  const scope = [];
+  for (const [specifier, target] of Object.entries(readPackage(dir).imports ?? {})) {
+    const file = browserFile(target);
+    if (!file) continue;
+    scope.push([specifier, url + file.slice(2)]);
+    tops.add(file.slice(2).split('/')[0]);
+  }
+  return { name, dir, url, imports, scope, dirs: [...tops].map((top) => ({ url: \`\${url}\${top}/\`, dir: join(home, top) })) };
 }
 
 // The file a browser import of an export resolves to: its \`browser\`,

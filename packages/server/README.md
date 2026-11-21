@@ -355,7 +355,11 @@ visitor's name, not a client from calling an action itself. An action checks
 its caller and its arguments. The built-in endpoints (`createRequestHandler`,
 `nodeActionMiddleware`, `fetchActionHandler`, `createActionHandler`) run each
 call in a context of its own: `getRequest()` there is the request, with its
-cookies and headers, and the query cache it reads is the call's own.
+cookies and headers, and the query cache it reads is the call's own. Where
+the runtime has no AsyncLocalStorage (Workers without `nodejs_compat`), the
+context lasts until the action's first `await`: read `getRequest()` before
+it, as below. After it, `getRequest()` is null and a query read gets an empty
+cache of its own, never another caller's.
 
 ```js
 import { action, getRequest } from 'what-server';
@@ -587,10 +591,11 @@ compatibility_date = "2026-01-01"
 ```
 
 Enable AsyncLocalStorage with the `nodejs_compat` compatibility flag
-(`compatibility_flags = ["nodejs_compat"]`): without it, code a component runs
-after an `await` loses its request, and the queries it reads get an empty
-cache of their own instead of the request's (their data is then not in the
-page's data channel).
+(`compatibility_flags = ["nodejs_compat"]`): without it, code a component or
+a server action runs after an `await` loses its request (`getRequest()` is
+null), and the queries it reads get an empty cache of their own instead of the
+request's (their data is then not in the page's data channel). An action's
+code before its first `await` still sees its request.
 
 `wrangler dev` to verify locally, `wrangler deploy` to ship. The handler is a
 standard ES module worker (`{ fetch(request, env, ctx) }`); `env`/`ctx` are

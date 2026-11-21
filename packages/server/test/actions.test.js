@@ -5,6 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import { action, handleActionRequest, getRegisteredActions } from '../src/actions.js';
 import {
   createActionHandler,
@@ -15,9 +16,11 @@ import {
 // Register fixtures once (server-side registration: typeof window === 'undefined').
 action(async (a, b) => ({ sum: a + b }), { id: 'sum' });
 action(async () => { throw new Error('SECRET internal detail'); }, { id: 'boom' });
-// Plain functions: the types ask for a promise, a JavaScript app need not give one.
+// Plain functions are actions too, in the types and at runtime.
 action((a, b) => a * b, { id: 'product' });
 action(() => { throw new Error('SECRET sync detail'); }, { id: 'syncBoom' });
+let received = null;
+action((data) => { received = data; return 'ok'; }, { id: 'receive' });
 
 function mockReq(method, url, headers, bodyStr) {
   const req = new EventEmitter();
@@ -158,6 +161,52 @@ describe('form fields', () => {
     assert.equal(Object.getPrototypeOf(fields), Object.prototype);
     assert.equal(Object.prototype.hasOwnProperty.call(fields, 'to'), true);
     assert.equal({}.p, undefined, 'Object.prototype is untouched');
+  });
+});
+
+describe('an action on a runtime without AsyncLocalStorage', () => {
+  // Nothing carries the call's context past an `await` there, so the action
+  // must start inside it: its synchronous part sees its own request. After
+  // the await, getRequest() is null (README, "Server actions"), never another
+  // caller's.
+  it('sees its own request until its first await, and nobody else\'s after it', () => {
+    const script = `
+      delete process.getBuiltinModule;
+      delete globalThis.AsyncLocalStorage;
+      const { action, getRequest, createActionHandler } = await import(${JSON.stringify(new URL('../src/index.js', import.meta.url).href)});
+      const who = () => /uid=(\\w+)/.exec(getRequest()?.headers.get('cookie') ?? '')?.[1] ?? 'none';
+      action(async () => {
+        const start = who();
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 5));
+        return { start, after: who() };
+      }, { id: 'who' });
+      const handle = createActionHandler({ skipCsrf: true });
+      const calls = Array.from({ length: 20 }, (_, i) => handle({ method: 'POST', headers: { 'x-what-action': 'who', cookie: 'uid=u' + i }, body: { args: [] } }));
+      console.log(JSON.stringify((await Promise.all(calls)).map((r) => JSON.parse(r.body))));
+    `;
+    const out = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+    assert.equal(out.status, 0, out.stderr);
+    const seen = JSON.parse(out.stdout.trim().split('\n').pop());
+    assert.deepEqual(seen.map((s) => s.start), seen.map((_, i) => `u${i}`), 'each call starts with its own request');
+    assert.deepEqual([...new Set(seen.map((s) => s.after))], ['none'], 'after an await, no request: never another caller\'s');
+  });
+});
+
+describe('a no-JS form post', () => {
+  // The fields reach the action as own fields, as they do from the JS client:
+  // a field named `__proto__` is a key, and never sets data's prototype.
+  it('hands the action its fields as own keys, `__proto__` included', async () => {
+    const mw = nodeActionMiddleware({ skipCsrf: true });
+    const res = mockRes();
+    received = null;
+    await mw(mockReq('POST', '/__what_action', { 'content-type': 'application/x-www-form-urlencoded' },
+      '_action=receive&__proto__=p1&__proto__=p2&constructor=c&role=admin'), res, () => {});
+    assert.equal(res.statusCode, 303);
+    assert.equal(Object.getPrototypeOf(received), Object.prototype);
+    assert.deepEqual(Object.keys(received), ['__proto__', 'constructor', 'role']);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(received, '__proto__').value, ['p1', 'p2']);
+    assert.equal(received.length, undefined);
+    assert.equal({}.role, undefined);
   });
 });
 

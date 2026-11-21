@@ -64,6 +64,10 @@ function htmlResponse(status, message) {
 // narrower: same-origin local paths only. Harden one, re-read the other; do not
 // unify them. packages/server/test/redirect-predicate-parity.test.js gates the
 // ordering. Exported for that test only, not part of the package surface.
+//
+// what-isr carries this function character for character
+// (packages/cache/src/local-path.js gates a CDN purge path), because the
+// engine never imports what-server; the parity test fails when they differ.
 export function safeLocalPath(value) {
   if (typeof value !== 'string' || !value.startsWith('/')) return null;
   // Reject protocol-relative / backslash-smuggled targets up front.
@@ -238,9 +242,11 @@ export function createActionHandler(options = {}) {
         return htmlResponse(403, 'Missing CSRF token');
       }
 
+      // Copied as own fields (addField), as parseActionBody wrote them: an
+      // assignment to a field named `__proto__` would set data's prototype.
       const data = {};
       for (const [k, v] of Object.entries(form)) {
-        if (!RESERVED_FORM_FIELDS.has(k)) data[k] = v;
+        if (!RESERVED_FORM_FIELDS.has(k)) addField(data, k, v);
       }
 
       const result = await call(actionId, [data], { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }, formHeaders);

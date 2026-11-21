@@ -98,6 +98,11 @@ const importMap = {
       'what-devtools-mcp/client': '/node_modules/what-devtools-mcp/src/client.js',
     }),
   },
+  // what-core reads its development flag through its own `#env` import
+  // (package.json `imports`), which a browser resolves in the package's scope.
+  scopes: {
+    '/node_modules/what-core/': { '#env': '/node_modules/what-core/src/env.js' },
+  },
 };
 
 // The MCP bridge writes its token here when `npx what-devtools-mcp` starts.

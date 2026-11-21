@@ -20,8 +20,14 @@ for (const target of ['core', 'router']) {
           throw new Error('intentional fixture build failure');
         }
       }`);
-      mkdirSync(join(fixture, 'packages/router/src'), { recursive: true });
-      writeFileSync(join(fixture, 'packages/router/src/index.js'), 'export const value = 1;');
+      // The build reads each package's export map for the modules to build.
+      for (const name of ['core', 'router']) {
+        mkdirSync(join(fixture, 'packages', name, 'src'), { recursive: true });
+        writeFileSync(join(fixture, 'packages', name, 'src/index.js'), 'export const value = 1;');
+        writeFileSync(join(fixture, 'packages', name, 'package.json'), JSON.stringify({
+          exports: { '.': { production: './dist/index.min.js', import: './src/index.js' } },
+        }));
+      }
       const result = spawnSync(process.execPath, ['scripts/build.js'], { cwd: fixture, encoding: 'utf8' });
       assert.match(result.stderr, /intentional fixture build failure/);
       assert.equal(result.status, 1);

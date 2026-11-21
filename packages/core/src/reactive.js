@@ -61,10 +61,10 @@
 //   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //   SOFTWARE.
 
-import { __DEV__ } from './env.js';
+import { __DEV__ } from '#env';
 import { report, _setOwnerSource, nextBinding, clearNextBinding } from './diagnostics.js';
 
-export { __DEV__ } from './env.js';
+export { __DEV__ } from '#env';
 
 // DevTools hooks — set by what-devtools when installed. Development only.
 /** @type {WhatDevToolsHooks | null} */

@@ -11,7 +11,7 @@ import {
   describeToolAvailability,
   __resetToolRegistry,
 } from '../src/tool-registry.js';
-import { TOOL_CHANGES } from '../src/tool-changes.js';
+import { TOOL_CHANGES } from '../tool-changes.js';
 
 // Minimal stand-in for the MCP server surface the registry wraps.
 function fakeServer() {

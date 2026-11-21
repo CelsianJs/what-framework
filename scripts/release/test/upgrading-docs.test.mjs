@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { renderAll, toolCount } from '../../generate-import-changes.mjs';
-import { TOOL_CHANGES } from '../../../packages/devtools-mcp/src/tool-changes.js';
+import { TOOL_CHANGES } from '../../../packages/devtools-mcp/tool-changes.js';
 import { instrumentServer, getRegisteredTools, __resetToolRegistry } from '../../../packages/devtools-mcp/src/tool-registry.js';
 import { registerTools } from '../../../packages/devtools-mcp/src/tools.js';
 import { registerExtendedTools } from '../../../packages/devtools-mcp/src/tools-extended.js';

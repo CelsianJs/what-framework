@@ -23,8 +23,9 @@ import {
   definePage,
   generateStaticPage,
   server,
+  type ActionResponse,
 } from 'what-server';
-import { action, csrfMetaTag } from 'what-server/actions';
+import { action, csrfMetaTag, handleActionRequest } from 'what-server/actions';
 import { matchRoute, parseQuery, type CompiledPath } from 'what-router/match';
 
 // The SSR guide's first example, verbatim.
@@ -72,6 +73,12 @@ const typedHtml: string = renderToString(h(Typed, { name: 'Alice' }));
 // The subpaths server adapters and the compiler's action transform import.
 const save = action(async (title: string) => ({ saved: title.length }));
 const saving: Promise<{ saved: number }> = save('draft');
+// A plain function is an action too, with its parameter and result types.
+const rename = action((id: number, title: string) => `${id}:${title}`, { id: 'rename' });
+const renaming: Promise<string> = rename(7, 'draft');
+// @ts-expect-error the action keeps its parameter types
+rename('7', 'draft');
+const handled: Promise<ActionResponse> = handleActionRequest({ headers: {} }, 'rename', [7, 'draft'], { csrfToken: 'token' });
 const meta: string = csrfMetaTag('token');
 const routes = [{ path: '/posts/:id', title: 'Post' }];
 const matched = matchRoute('/posts/7', routes);
@@ -81,4 +88,4 @@ const query: Record<string, string> = parseQuery('?page=2');
 const compiled: CompiledPath | null = null;
 
 export { html, hydratable, withHead, stream, resolved, settled, rendered, document_, staticHtml, ServerOnly, typedHtml };
-export { saving, meta, postTitle, postId, query, compiled };
+export { saving, renaming, handled, meta, postTitle, postId, query, compiled };

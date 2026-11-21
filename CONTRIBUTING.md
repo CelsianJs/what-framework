@@ -324,12 +324,14 @@ Guardrail categories:
 When adding a guardrail:
 
 1. Add the check in the relevant source file (e.g. `reactive.js` for signal checks)
-2. Wrap it in `if (__DEV__) { ... }` — the shared flag from `env.js` (also
-   re-exported by `reactive.js`), not a raw `process.env` read. Production
-   builds define it as `false`, which strips the branch; unbuilt code resolves
-   it from `globalThis.__WHAT_DEV__`, then `import.meta.env.DEV`, then
-   `process.env`, so it works in a bundler, in a browser and in Node. A raw
-   `process.env` read works in none of them reliably and is not stripped.
+2. Wrap it in `if (__DEV__) { ... }` — the shared flag `reactive.js` reads
+   through what-core's `#env` import and re-exports, not a raw `process.env`
+   read. Production builds define it as `false`, which strips the branch; a
+   development build (the `development` condition) reads `true`, and other
+   unbuilt code resolves it from `globalThis.__WHAT_DEV__`, then
+   `import.meta.env.DEV`, then a server runtime's `process.env`, so it works in
+   a bundler, in a browser and in Node. A raw `process.env` read works in none
+   of them reliably and is not stripped.
 3. Give it a code from the catalogue above, so an agent can look up the fix
 4. Add an ESLint rule in `eslint-plugin-what` if it can be caught statically
 5. Document it in [docs/GOTCHAS.md](docs/GOTCHAS.md)

@@ -80,11 +80,13 @@ Successful initial effect execution reports its dependencies and run count;
 later writes report subsequent runs. Lazy computeds remain unevaluated until
 read. Reactive text and attribute bindings use these tracked effects too.
 
-`__DEV__` (`env.js`) is the only development switch. Production builds
-(`dist/*.min.js`, and `what-compiler/vite` builds from dist or source) define it
-as `false`, so every development branch is stripped; `scripts/check-size.mjs`
-fails if one survives. Unbuilt source resolves it at runtime, where
-`globalThis.__WHAT_DEV__` set before load forces either tier.
+`__DEV__` is the only development switch, read through what-core's `#env`
+import: `env-development.js` (`true`) under the `development` condition,
+`env.js` otherwise. Production builds (`dist/*.min.js`, and `what-compiler/vite`
+builds from dist or source) define it as `false`, so every development branch
+is stripped; `scripts/check-size.mjs` fails if one survives. `env.js` resolves
+it at runtime, where `globalThis.__WHAT_DEV__` set before load forces either
+tier (docs/ARCHITECTURE.md, "Development and production tiers").
 
 ### The DOM runtime — `dom.js`, `render.js`
 
@@ -237,9 +239,10 @@ positioning, and it is real code rather than a claim:
 
 ## Build and gates
 
-`scripts/build.js` is the build config: esbuild, per-package entry lists, code
-splitting for core so shared internals become one chunk. Six packages produce
-`dist/`; the rest ship source.
+`scripts/build.js` is the build config: esbuild, one output file per source
+module in each tier, built from the modules each package's export map reaches,
+so module state exists once per tier. Six packages produce `dist/`; the rest
+ship source.
 
 The gates, all runnable locally and all run in CI:
 

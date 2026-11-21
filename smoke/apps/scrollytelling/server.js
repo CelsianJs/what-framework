@@ -30,6 +30,11 @@ const importMap = {
     'what-framework/render': '/node_modules/what-framework/src/render.js',
     'what-core/render': '/node_modules/what-core/src/render.js',
   },
+  // what-core reads its development flag through its own `#env` import
+  // (package.json `imports`), which a browser resolves in the package's scope.
+  scopes: {
+    '/node_modules/what-core/': { '#env': '/node_modules/what-core/src/env.js' },
+  },
 };
 
 export const documentOptions = {

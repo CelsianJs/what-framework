@@ -26,14 +26,22 @@ package exports removes it. A bundler resolves one of three files per export:
 - `production` (`dist/*.min.js`, the flag already `false`): what-compiler/vite, webpack 5,
   Rollup with @rollup/plugin-node-resolve, and esbuild given `--conditions=production`.
 - `module` (`dist/*.js`, each check spelled `process.env.NODE_ENV !== "production"`): esbuild
-  with its default conditions and `bun build --production`. Both define `process.env.NODE_ENV`
-  (esbuild: `"production"` when it minifies), so a production build drops the checks and a
-  development build keeps them. The `__WHAT_DEV__` global does not apply to this file.
+  and rolldown with their default conditions, and `bun build --production`. Each defines
+  `process.env.NODE_ENV` itself, `"production"` only when it minifies (Bun: with `--production`), so
+  an unminified build with no `NODE_ENV` of your own is a development build: it keeps the reports.
+  A production build minifies or defines `process.env.NODE_ENV` as `"production"`. The
+  `__WHAT_DEV__` global does not apply to this file.
 - `development`, `node`, `import` and `default` (`src/`): dev servers, Node, server bundles and
-  tests, where the flag is decided at runtime (`__WHAT_DEV__`, then Vite's `import.meta.env.DEV`, then
-  `process.env.NODE_ENV`). A production build that resolves `src/` (a bundler given custom
-  conditions without `production` or `module`) keeps the development tier's code;
-  what-compiler/vite is the exception, because it folds the flag in the source too.
+  tests. The source reads the flag through what-core's `#env` import, by the same conditions:
+  under `development` it is on, so Vite's dev server, webpack's development mode, Rollup with
+  node-resolve and `NODE_ENV=development`, and a default `bun build` report in development wherever
+  the page runs. Otherwise it is decided at runtime (`__WHAT_DEV__`, then Vite's
+  `import.meta.env.DEV`, then a server runtime's `process.env.NODE_ENV`, never one a page's markup
+  names), and a browser with none of them runs production. A production build that resolves `src/`
+  (a bundler given custom conditions without `production` or `module`) keeps the development tier's
+  code; what-compiler/vite is the exception, because it folds the flag in the source too. A bundle
+  built for Node and served to a browser (esbuild `--platform=node`) resolves `src/` without
+  `development`: give it `--conditions=development` to report, `--conditions=production` to ship.
 
 | Code | Severity | What it means |
 |---|---|---|

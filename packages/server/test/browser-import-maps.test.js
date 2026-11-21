@@ -63,7 +63,8 @@ function appImportMap(serverFile) {
   const src = readFileSync(serverFile, 'utf8');
   const m = /^const importMap = (\{[\s\S]*?\n\});$/m.exec(src);
   assert.ok(m, `${relative(repo, serverFile)} declares \`const importMap = { ... };\``);
-  return runInNewContext(`(${m[1]})`, { isProd: false, Object }).imports;
+  const { imports, scopes = {} } = runInNewContext(`(${m[1]})`, { isProd: false, Object });
+  return { imports, scopes };
 }
 
 // The URL a map entry points at, as a file: /node_modules/<name>/<path> is
@@ -80,6 +81,19 @@ function packageName(spec) {
   return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
+// A package's own `#` import resolves only inside the package: through the
+// scope of the URL the importer is served from, /node_modules/<name>/.
+// [package name, url] or null.
+function scoped(scopes, spec, importer) {
+  for (const [prefix, entries] of Object.entries(scopes)) {
+    const name = /^\/node_modules\/((?:@[^/]+\/)?[^/]+)\/$/.exec(prefix)?.[1];
+    if (!name || !Object.hasOwn(entries, spec)) continue;
+    const dir = realpathSync(join(repo, 'node_modules', name));
+    if (realpathSync(importer).startsWith(dir + '/')) return [name, entries[spec]];
+  }
+  return null;
+}
+
 const apps = readdirSync(appsDir)
   .filter((name) => existsSync(join(appsDir, name, 'server.js')))
   .filter((name) => /^const importMap = /m.test(readFileSync(join(appsDir, name, 'server.js'), 'utf8')));
@@ -94,7 +108,7 @@ for (const app of apps) {
     const server = readFileSync(join(dir, 'server.js'), 'utf8');
     const entries = [...new Set([...server.matchAll(/clientEntry:\s*'([^']+)'/g)].map((m) => m[1]))];
     assert.ok(entries.length > 0, `${app} names a client entry`);
-    const map = appImportMap(join(dir, 'server.js'));
+    const { imports: map, scopes } = appImportMap(join(dir, 'server.js'));
 
     const problems = [];
     for (const [spec, url] of Object.entries(map)) {
@@ -103,12 +117,12 @@ for (const app of apps) {
     for (const entry of entries) {
       for (const { spec, importer, file } of await browserImports(join(dir, entry))) {
         const from = relative(repo, importer);
-        const url = map[spec];
+        const [name, url] = spec.startsWith('#') ? scoped(scopes, spec, importer) ?? [] : [packageName(spec), map[spec]];
         if (url === undefined) {
           problems.push(`${spec} (imported by ${from}) is not in the import map`);
           continue;
         }
-        const served = mappedFile(url, packageName(spec));
+        const served = mappedFile(url, name);
         if (served !== realpathSync(file)) {
           problems.push(`${spec} maps to ${url}, but the package exports ${relative(repo, realpathSync(file))}`);
         }
@@ -118,7 +132,7 @@ for (const app of apps) {
   });
 }
 
-test('what-server/islands asks an import map for what-core and what-core/internal only', async () => {
+test('what-server/islands asks an import map for what-core, what-core/internal and what-core\'s #env only', async () => {
   const reached = await browserImports(join(repo, 'packages/server/src/islands.js'));
-  assert.deepEqual([...new Set(reached.map((r) => r.spec))].sort(), ['what-core', 'what-core/internal']);
+  assert.deepEqual([...new Set(reached.map((r) => r.spec))].sort(), ['#env', 'what-core', 'what-core/internal']);
 });

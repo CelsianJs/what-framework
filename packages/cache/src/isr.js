@@ -22,7 +22,7 @@
 // `render(routeMatch, ctx)` is INJECTED by the adapter (wraps renderPage +
 // serializeState) — the engine never imports what-server, keeping it standalone.
 
-import { cacheKey, normalizePath, resolveVary, declaredVary } from './key.js';
+import { cacheKey, canonicalMatch, normalizePath, resolveVary, declaredVary } from './key.js';
 import { makeEntry, isFresh, isServableStale } from './stores/store-interface.js';
 import { buildCacheHeaders, responseHeaderList, servedHeaders } from './headers.js';
 import { safeLocalPath } from './local-path.js';
@@ -72,7 +72,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
   // with the entry and the render's full header list.
   async function renderEntry(key, routeMatch, renderOverride, signal) {
     const doRender = renderOverride || render;
-    const out = await doRender(routeMatch, { signal });
+    const out = await doRender(canonicalMatch(routeMatch), { signal });
     const entry = makeEntry({ ...out, path: routeMatch.path }, routeMatch.config || {}, now());
     // Only public 200 renders are cached. Storing a non-200 (soft-404, error
     // page) would serve it as a HIT until expiry (bad for correctness and

@@ -70,13 +70,59 @@ export function normalizeQuery(query) {
   return entries.map(([k, v]) => `${enc(k)}=${enc(v)}`).join('&');
 }
 
-function parseCookies(header) {
-  const out = {};
-  if (!header) return out;
-  for (const part of String(header).split(';')) {
+// A Cookie header's pairs, one per name: the first, as the `cookie` package,
+// what-server's readCookie and most server code read a repeated name.
+function cookiePairs(header) {
+  const pairs = new Map();
+  for (const part of String(header || '').split(';')) {
     const i = part.indexOf('=');
     if (i < 0) continue;
-    out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+    const name = part.slice(0, i).trim();
+    if (name && !pairs.has(name)) pairs.set(name, part.slice(i + 1).trim());
+  }
+  return pairs;
+}
+
+/** `header` with one pair per cookie name, the first: the view the key varies on. */
+export function canonicalCookie(header) {
+  return [...cookiePairs(header)].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+/** `query` (a string or an object) without the parameters the key ignores. */
+export function keyedQuery(query) {
+  if (!query) return query;
+  if (typeof query === 'string') {
+    const params = new URLSearchParams(query.startsWith('?') ? query.slice(1) : query);
+    for (const name of new Set(params.keys())) if (shouldStrip(name)) params.delete(name);
+    const s = params.toString();
+    return query.startsWith('?') && s ? `?${s}` : s;
+  }
+  return Object.fromEntries(Object.entries(query).filter(([name]) => !shouldStrip(name)));
+}
+
+/**
+ * `routeMatch` as a render that may be stored sees it: made of what its key
+ * is made of. A query parameter the key ignores (utm_*, fbclid, ...) is gone
+ * from the query and from the request's URL, and a cookie name the request
+ * repeats keeps its first value in the Cookie header. Otherwise one request
+ * could store, under the key every visitor shares, a render made from an
+ * input that key never saw (`?utm_source=<text>`, `theme=<text>; theme=dark`).
+ */
+export function canonicalMatch(routeMatch) {
+  const out = { ...routeMatch, query: keyedQuery(routeMatch.query) };
+  for (const field of ['varyHeaders', 'headers']) {
+    const headers = routeMatch[field];
+    if (!headers || typeof headers !== 'object') continue;
+    out[field] = Object.fromEntries(Object.entries(headers).map(([name, value]) =>
+      [name, name.toLowerCase() === 'cookie' ? canonicalCookie(Array.isArray(value) ? value.join('; ') : value) : value]));
+  }
+  const request = routeMatch.request;
+  if (typeof Request !== 'undefined' && request instanceof Request && (request.method === 'GET' || request.method === 'HEAD')) {
+    const url = new URL(request.url);
+    for (const name of new Set(url.searchParams.keys())) if (shouldStrip(name)) url.searchParams.delete(name);
+    const headers = new Headers(request.headers);
+    if (headers.has('cookie')) headers.set('cookie', canonicalCookie(headers.get('cookie')));
+    out.request = new Request(url, { method: request.method, headers, signal: request.signal });
   }
   return out;
 }
@@ -136,7 +182,7 @@ export function resolveVary(vary, headers) {
 
   const lower = {};
   for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = Array.isArray(v) ? v.join(',') : v;
-  const cookies = parseCookies(lower.cookie);
+  const cookies = cookiePairs(lower.cookie);
 
   const out = {};
   for (const raw of declared) {
@@ -144,7 +190,7 @@ export function resolveVary(vary, headers) {
     const i = name.indexOf(':');
     const kind = i < 0 ? 'header' : name.slice(0, i).toLowerCase();
     const source = i < 0 ? name : name.slice(i + 1);
-    if (kind === 'cookie') out[name] = cookies[source] ?? '';
+    if (kind === 'cookie') out[name] = cookies.get(source) ?? '';
     else if (kind === 'header') out[name] = lower[source.toLowerCase()] ?? '';
     else return null;
   }

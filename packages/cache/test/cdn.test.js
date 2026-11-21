@@ -76,3 +76,18 @@ describe('Vercel CDN adapter', () => {
     assert.equal(calls.length, 0);
   });
 });
+
+// A path whose canonical form is protocol-relative ("/.//evil.test/x" is
+// "//evil.test/x" once URL removes the dot segment) never reaches a custom
+// adapter, which may resolve it against its origin and send its token there.
+describe('revalidatePath hands a CDN adapter local paths only', () => {
+  it('drops a path that canonicalizes to another host', async () => {
+    const { createCacheEngine, createMemoryStore } = await import('../src/index.js');
+    const purged = [];
+    const engine = createCacheEngine({ store: createMemoryStore(), cdn: { name: 'custom', purge: async (paths) => { purged.push(...paths); } } });
+    for (const path of ['/.//evil.test/x', '/..//evil.test/x', '/%2e//evil.test/x', '/x/..//evil.test/x', '/./\t/evil.test/x', '/ok']) {
+      await engine.revalidatePath(path).catch(() => {});
+    }
+    assert.deepEqual(purged, ['/ok']);
+  });
+});

@@ -379,4 +379,34 @@ describe('SSR style object declarations', () => {
     const mod = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
     assert.equal(renderToString(h(mod.View, { style })), expected, 'compiled server output writes the same');
   });
+
+  // A filter that knew only strings and parentheses read these as one
+  // declaration; CSS reads the `\"`, `\(` and comments as part of an
+  // identifier or as nothing, so each `;` ends a declaration and the next one
+  // is the attacker's.
+  it('drops a value that hides its `;` behind an escape or a comment, in both SSR paths', async () => {
+    const { compileJSX } = await import('../../../test-utils/compile.js');
+    const code = compileJSX('export const View = ({ style }) => <div style={style} />;', { pluginOptions: { generate: 'ssr' } })
+      .replace(/(['"])(what-framework(?:\/[\w-]+)?)\1/g, (_m, _q, entry) => JSON.stringify(import.meta.resolve(entry)));
+    const mod = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+    const beacon = 'background-image:url(http://tracker.test/b)';
+    for (const color of [
+      `red\\";${beacon};x:"`,
+      `red\\(;${beacon};x:\\)`,
+      `red/*"*/;${beacon};x:/*"*/`,
+      `red/*(*/;${beacon};x:/*)*/`,
+      `red;x:url(a"b);${beacon}`,
+      `red"\n;${beacon};x:"`,
+      `red[;${beacon};x:)`,
+      `red\u0000;${beacon}`,
+    ]) {
+      for (const html of [renderToString(h('div', { style: { color } })), renderToString(h(mod.View, { style: { color } }))]) {
+        assert.match(html, /^<div(?: style="")?><\/div>$/, JSON.stringify(color));
+      }
+    }
+    const kept = { content: '"\\201C"', gridTemplateColumns: '[full-start] 1fr [full-end]', fontFamily: "'A;B', serif" };
+    const expected = '<div style="content:&quot;\\201C&quot;;grid-template-columns:[full-start] 1fr [full-end];font-family:&#39;A;B&#39;, serif"></div>';
+    assert.equal(renderToString(h('div', { style: kept })), expected);
+    assert.equal(renderToString(h(mod.View, { style: kept })), expected);
+  });
 });
