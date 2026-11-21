@@ -147,7 +147,7 @@ Each page load that connects is a session (`s1`, `s2`, …) with its own ids, ev
 `what_page_map` -> `what_look({componentId: N})` on key components -> `what_screenshot` only if text isn't enough
 
 **Build & test new features:**
-`what_look` on existing components to match styling -> `what_scaffold` for structure -> write code -> `what_lint` (eslint-plugin-what's rules plus a real compile) -> `what_snapshot({mode: "save"})` -> `what_set_signal` -> `what_snapshot({mode: "diff"})`
+`what_look` on existing components to match styling -> `what_scaffold` for structure -> write code -> `what_lint` (the project's ESLint config plus a compile check) -> `what_snapshot({mode: "save"})` -> `what_set_signal` -> `what_snapshot({mode: "diff"})`
 
 ### Understanding the output
 
@@ -161,7 +161,7 @@ Each page load that connects is a session (`s1`, `s2`, …) with its own ids, ev
 
 **Diagnostics** are coded events: `{ code, severity, count, message, owner, loc, subject }`. A repeat of the same code on the same subject folds into one event with a `count`, and the event shows the latest repeat. `owner` (e.g. `<App> › <TodoRow>`) and `loc` (`file:line:col`) appear when the runtime and compiler know them. `what_errors` pages: `summary` counts every code, `more`/`next` page the entries, `lost` says what the bounded buffers evicted.
 
-**Values are previews**: long strings, arrays and objects end with a marker like `…(+12 items)`. Lists of signals, effects and components are never cut; they page with `offset`/`next`. `what_signals {id}` returns a longer preview.
+**Values are previews**: long strings, arrays and objects end with a marker like `…(+12 items)`. Lists of tracked signals, effects and components page with `offset`/`next`. If devtools installs late and misses entries, `registry.truncated` reports tracked counts and dropped creations. `what_signals {id}` returns a longer preview.
 
 **Errors**: a failed call returns `{ error, hint }` (plus `sessions` when the target is unclear). Argument errors come from the MCP SDK as plain text: `MCP error -32602: Input validation error: ...`.
 
@@ -193,7 +193,7 @@ Each page load that connects is a session (`s1`, `s2`, …) with its own ids, ev
 | `what_snapshot` | `mode` | `"full"` `"save"` `"diff"` | Save first, then diff |
 | `what_set_signal` | `rawString` | boolean | Write a string exactly, without JSON parsing |
 | `what_navigate` | `timeout` | number | Max ms to wait for the router to settle |
-| `what_diagnose` | `threshold` | number | Runs above which an effect is hot (default 50) |
+| `what_diagnose` | `threshold` | number | Runs above which an effect is hot (default 5) |
 | `what_lint` | `compile` | boolean | Also compile with what-compiler (default true) |
 | `what_scaffold` | `type` | `"component"` `"page"` `"form"` `"store"` `"island"` | What to generate |
 

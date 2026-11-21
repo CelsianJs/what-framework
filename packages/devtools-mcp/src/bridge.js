@@ -47,7 +47,7 @@ export const EVENT_NAMES = new Set([
   'signal:created', 'signal:updated', 'signal:disposed',
   'effect:created', 'effect:run', 'effect:disposed',
   'component:mounted', 'component:unmounted',
-  'error:captured', 'diagnostic',
+  'error:captured', 'diagnostic', 'action',
   'async:start', 'async:land', 'async:unresolved', 'async:ready', 'async:errored',
   'transition:open', 'transition:commit', 'transition:merged',
   'optimistic:add', 'optimistic:drop',
@@ -174,24 +174,6 @@ export function createBridge({ port = 9229, host = '127.0.0.1', projectRoot = pr
       bindOrigin(origin);
       done(true);
     },
-  });
-
-  // The WebSocketServer binds the port on construction. Without an 'error'
-  // listener an EADDRINUSE (9229 is also Node's default --inspect port) is
-  // rethrown and crashes the process. The bridge cannot work without its
-  // port, so exit cleanly with an actionable message; tests pass onError.
-  wss.on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      const inspectNote = port === 9229 ? ' (note: 9229 is also Node\'s default --inspect port)' : '';
-      console.error(`[what-devtools-mcp] port ${port} in use — set WHAT_MCP_PORT to a free port or stop the process using it${inspectNote}.`);
-    } else {
-      console.error(`[what-devtools-mcp] bridge WebSocket server error: ${err && err.message ? err.message : err}`);
-    }
-    if (typeof onError === 'function') {
-      onError(err);
-    } else {
-      process.exit(0);
-    }
   });
 
   function newSession(socket, origin, pageId) {
@@ -403,35 +385,46 @@ export function createBridge({ port = 9229, host = '127.0.0.1', projectRoot = pr
     res.end('Not found');
   });
 
-  // Resolves once both ports listen; rejects with the first bind error.
-  const ready = Promise.all([
-    new Promise((resolveListen, rejectListen) => {
-      wss.once('listening', resolveListen);
-      wss.once('error', rejectListen);
-    }),
-    new Promise((resolveListen, rejectListen) => {
-      httpServer.once('listening', resolveListen);
-      httpServer.once('error', rejectListen);
-    }),
-  ]).then(() => undefined);
-  ready.catch(() => {});
-
-  httpServer.listen(controlPort, host, () => {
-    console.error(`[what-devtools-mcp] Pairing on http://${host}:${controlPort}`);
-  });
-  httpServer.on('error', () => {
-    console.error(`[what-devtools-mcp] Control port ${controlPort} unavailable: dev servers cannot pair until it is free`);
-  });
-
   const bridgeFile = join(root, BRIDGE_FILE);
-  try {
-    mkdirSync(join(bridgeFile, '..'), { recursive: true });
-    writeFileSync(bridgeFile, JSON.stringify({ port, controlPort, key: pairingKey, root, pid: process.pid }), { mode: 0o600 });
-  } catch {
-    // Without the file a dev server can still pair through WHAT_MCP_TOKEN.
+  let wroteFile = false;
+  let closed = false;
+
+  function listen(server, listenPort) {
+    return new Promise((resolveListen, rejectListen) => {
+      server.once('listening', resolveListen);
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          let saved;
+          try { saved = JSON.parse(readFileSync(bridgeFile, 'utf8')); } catch { /* no discovery file */ }
+          const known = saved?.root === root && (saved.port === listenPort || saved.controlPort === listenPort)
+            && Number.isSafeInteger(saved.pid) && saved.pid > 0;
+          const hint = known
+            ? `Discovery lists What MCP PID ${saved.pid} for this project. Verify that session and stop it if stale, or set WHAT_MCP_PORT to two free consecutive ports.`
+            : 'Stop the process using it, or set WHAT_MCP_PORT to two free consecutive ports.';
+          console.error(`[what-devtools-mcp] port ${listenPort} in use. ${hint}`);
+        } else {
+          console.error(`[what-devtools-mcp] bridge port ${listenPort}: ${err.message}`);
+        }
+        onError?.(err);
+        rejectListen(err);
+      });
+    });
   }
 
-  console.error(`[what-devtools-mcp] Bridge listening on ws://${host}:${port}`);
+  const ready = Promise.all([listen(wss, port), listen(httpServer, controlPort)]).then(() => {
+    if (closed) return;
+    try {
+      mkdirSync(join(bridgeFile, '..'), { recursive: true });
+      writeFileSync(bridgeFile, JSON.stringify({ port, controlPort, key: pairingKey, root, pid: process.pid }), { mode: 0o600 });
+      wroteFile = true;
+    } catch {
+      // Without the file a dev server can still pair through WHAT_MCP_TOKEN.
+    }
+    console.error(`[what-devtools-mcp] Bridge listening on ws://${host}:${port}`);
+    console.error(`[what-devtools-mcp] Pairing on http://${host}:${controlPort}`);
+  });
+  ready.catch(close);
+  httpServer.listen(controlPort, host);
 
   // --- Query API ---------------------------------------------------------------
 
@@ -519,6 +512,8 @@ export function createBridge({ port = 9229, host = '127.0.0.1', projectRoot = pr
   }
 
   function close() {
+    if (closed) return;
+    closed = true;
     for (const s of sessions.values()) {
       for (const [id, pending] of s.pending) {
         pending.fail(new Error('Bridge closing'));
@@ -528,9 +523,12 @@ export function createBridge({ port = 9229, host = '127.0.0.1', projectRoot = pr
     for (const client of wss.clients) client.terminate();
     wss.close();
     httpServer.close();
+    httpServer.closeAllConnections();
     // Remove the pairing file only while it is still this bridge's.
+    if (!wroteFile) return;
     try {
-      if (JSON.parse(readFileSync(bridgeFile, 'utf8')).key === pairingKey) rmSync(bridgeFile, { force: true });
+      const saved = JSON.parse(readFileSync(bridgeFile, 'utf8'));
+      if (saved.pid === process.pid && saved.port === port && saved.key === pairingKey) rmSync(bridgeFile, { force: true });
     } catch { /* already gone */ }
   }
 

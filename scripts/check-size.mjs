@@ -53,7 +53,7 @@ const DEV_BRANCH_SENTINELS = [
   'transition:held',                                         // reactive.js: transition observation
   'suspense:waiting',                                         // components.js: Suspense observation
   'hydration:complete',                                      // render.js: hydration observation
-  '__isPreinstallBuffer',                                     // reactive.js: devtools pre-install buffer
+  'onComponentUnmount',                                       // reactive.js: devtools mount hooks and pre-install buffer
   'installed by importing h, ',                               // render.js: a vnode reaching the compiled-JSX runtime
 ];
 const DEV_MODULE_SENTINELS = [
@@ -132,6 +132,22 @@ async function esbuildBundle(name, { source, loader, conditions = ['production']
     write: false,
     logLevel: 'silent',
     ...(loader === 'jsx' ? { jsx: 'automatic', jsxImportSource: 'what-framework' } : {}),
+  });
+  return result.outputFiles[0].contents;
+}
+
+// esbuild exactly as a user runs it for production with no configuration:
+// bundle and minify, nothing else (`esbuild app.js --bundle --minify`). Its
+// default conditions resolve the `module` export, the bundler tier, and
+// minifying defines process.env.NODE_ENV as "production", which folds that
+// tier's development checks.
+async function esbuildDefaultBundle(name, source) {
+  const result = await build({
+    stdin: { contents: source, resolveDir: repoRoot, sourcefile: `${name}.js`, loader: 'js' },
+    bundle: true,
+    minify: true,
+    write: false,
+    logLevel: 'silent',
   });
   return result.outputFiles[0].contents;
 }
@@ -379,6 +395,7 @@ hydrate(<App />, document.getElementById('app'));
 
 const scenarios = {
   'core-counter': () => esbuildBundle('core-counter', { source: coreCounter, loader: 'js' }),
+  'esbuild-default-counter': () => esbuildDefaultBundle('esbuild-default-counter', coreCounter),
   'scaffold-counter': () => esbuildBundle('scaffold-counter', { source: scaffoldCounter, loader: 'jsx' }),
   'compiled-counter': () => viteBundle('compiled-counter', { source: scaffoldCounter }),
   'compiled-h-counter': () => viteBundle('compiled-h-counter', { source: compiledHCounter }),
@@ -434,7 +451,7 @@ productionBundles['diagnostics-read (vite, source)'] = await viteBundle('diagnos
 productionBundles['async-app (vite, source)'] = await viteBundle('async-app-src', { source: asyncApp, fromSource: true });
 const allExports = ['', ...['a11y', 'ui', 'motion', 'dom', 'form', 'data'].map((kit) => `/${kit}`)]
   .map((sub) => `export * from 'what-core${sub}';`).join('\n');
-const developmentBundle = Buffer.from(await esbuildBundle('all-exports-dev', { source: allExports, loader: 'js', conditions: [] })).toString();
+const developmentBundle = Buffer.from(await esbuildBundle('all-exports-dev', { source: allExports, loader: 'js', conditions: ['development'] })).toString();
 const coreDist = join(repoRoot, 'packages/core/dist');
 const distFiles = Object.fromEntries(readdirSync(coreDist)
   .filter((f) => f.endsWith('.min.js'))
@@ -493,6 +510,19 @@ for (const name of ['what-error', 'what-error (vite, source)', 'diagnostics-read
   if (has) failed = true;
 }
 
+// --- A default esbuild build is the production build ----------------------
+// The bundler tier with process.env.NODE_ENV folded must carry what the
+// production tier carries, within per-module minification (2%).
+console.log('\n[check-size] esbuild defaults against the production condition (gzip):\n');
+{
+  const d = gzipSync(productionBundles['esbuild-default-counter'], { level: 9 }).length;
+  const p = gzipSync(productionBundles['core-counter'], { level: 9 }).length;
+  const drift = (d - p) / p;
+  const ok = Math.abs(drift) <= 0.02;
+  console.log(`  ${ok ? '✓' : '✗'} counter: esbuild defaults ${d} B, production condition ${p} B (${drift >= 0 ? '+' : ''}${(drift * 100).toFixed(1)}%)`);
+  if (!ok) failed = true;
+}
+
 // --- The dist tree-shakes like the source ---------------------------------
 // An app bundled from the production dist must be the app bundled from the
 // source, within zlib noise and per-module minification (2%).
@@ -512,7 +542,7 @@ for (const [dist, source] of [
 
 console.log('');
 if (failed) {
-  console.error('[check-size] FAIL: size budget exceeded, development code in a production bundle, or the dist does not tree-shake like the source.');
+  console.error('[check-size] FAIL: size budget exceeded, development code in a production bundle, a default esbuild build that is not the production build, or the dist does not tree-shake like the source.');
   process.exit(1);
 }
-console.log('[check-size] OK: all scenarios within budget, no development code in production bundles, the dist tree-shakes like the source.');
+console.log('[check-size] OK: all scenarios within budget, no development code in production bundles, a default esbuild build is the production build, the dist tree-shakes like the source.');

@@ -20,12 +20,20 @@ exactly what you read here.
 - `mcp`: an MCP server answers a tool call with it.
 
 **Production builds** carry none of the `reported` codes, their text or the console pointer:
-every report sits behind `if (__DEV__)`, and the supported production paths fold that flag
-to `false` at build time. Those paths are the published `dist/*.min.js` (the `production`
-export condition, which what-compiler/vite selects and esbuild selects with
-`--conditions=production`) and what-compiler/vite building the source. Bundling the source
-with another tool and only a `process.env.NODE_ENV` define keeps the development tier's
-code, because the flag is then decided at runtime.
+every report sits behind `if (__DEV__)`, and every production build that resolves the
+package exports removes it. A bundler resolves one of three files per export:
+
+- `production` (`dist/*.min.js`, the flag already `false`): what-compiler/vite, webpack 5,
+  Rollup with @rollup/plugin-node-resolve, and esbuild given `--conditions=production`.
+- `module` (`dist/*.js`, each check spelled `process.env.NODE_ENV !== "production"`): esbuild
+  with its default conditions and `bun build --production`. Both define `process.env.NODE_ENV`
+  (esbuild: `"production"` when it minifies), so a production build drops the checks and a
+  development build keeps them. The `__WHAT_DEV__` global does not apply to this file.
+- `development`, `node`, `import` and `default` (`src/`): dev servers, Node, server bundles and
+  tests, where the flag is decided at runtime (`__WHAT_DEV__`, then Vite's `import.meta.env.DEV`, then
+  `process.env.NODE_ENV`). A production build that resolves `src/` (a bundler given custom
+  conditions without `production` or `module`) keeps the development tier's code;
+  what-compiler/vite is the exception, because it folds the flag in the source too.
 
 | Code | Severity | What it means |
 |---|---|---|
@@ -33,7 +41,7 @@ code, because the flag is then decided at runtime.
 | [`ERR_ASYNC_COMPONENT`](#err-async-component) | warning | Component "`component`" returned a promise: an async component renders as text. |
 | [`ERR_ASYNC_EFFECT`](#err-async-effect) | warning | Effect "`effectName`" is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it. |
 | [`ERR_ASYNC_MEMO`](#err-async-memo) | warning | useMemo() returned a promise; useMemo keeps it, so its readers get the promise. |
-| [`ERR_ASYNC_MIDDLEWARE`](#err-async-middleware) | error | Route middleware must be synchronous; received a promise or thenable. |
+| [`ERR_ASYNC_MIDDLEWARE`](#err-async-middleware) | error | [what-router] Route middleware must be synchronous; received a promise or thenable. |
 | [`ERR_ASYNC_READ_IN_BODY`](#err-async-read-in-body) | error | Component "`component`" read an async value it made in its own body before the value landed: suspending would run it again, make the value again and fetch again, forever. |
 | [`ERR_ASYNC_WITHOUT_SUSPENSE`](#err-async-without-suspense) | warning | Component "`component`" suspended (lazy(), use() or a value that had not landed, read in its body) with no <Suspense> above it: it renders nothing until the promise settles. |
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
@@ -49,15 +57,15 @@ code, because the flag is then decided at runtime.
 | [`ERR_FORM_HANDLER_WITHOUT_EVENT`](#err-form-handler-without-event) | warning | register("`name`") change handler was called without an event; the field was left unchanged. |
 | [`ERR_FORM_RADIO_UNTYPED`](#err-form-radio-untyped) | warning | register("`name`") was spread onto a radio without { type: 'radio' }, which overwrote the radio's value. |
 | [`ERR_FORM_RADIO_WITHOUT_VALUE`](#err-form-radio-without-value) | warning | Radio for field "`name`" has no value, so it cannot record a choice. |
-| [`ERR_HOOK_OUTSIDE_COMPONENT`](#err-hook-outside-component) | error | `hookName`() was called outside a component function. |
+| [`ERR_HOOK_OUTSIDE_COMPONENT`](#err-hook-outside-component) | error | [what] `hookName`() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly. |
 | [`ERR_HOOK_OUTSIDE_RENDER`](#err-hook-outside-render) | error | [what-react] `hookName`() called outside of a component render. |
 | [`ERR_HYDRATION_MISMATCH`](#err-hydration-mismatch) | error | Hydration mismatch (`kind`) in <`component`> at `path`: the server rendered `found` where the client renders `expected`. Recovery: `recovery`. |
 | [`ERR_HYDRATION_OWNER_MISMATCH`](#err-hydration-owner-mismatch) | warning | A keyless resource or async value at owner path `path` was rendered by <`server`> on the server and <`client`> on the client, so it fetches instead of adopting the server value. |
 | [`ERR_INFINITE_EFFECT`](#err-infinite-effect) | error | Effect "`effectName`" was stopped after `rounds` re-runs in one flush: it keeps re-triggering itself, likely an infinite loop. |
 | [`ERR_INVALID_HTML_NESTING`](#err-invalid-html-nesting) | error | <`parent`> cannot contain <`child`>: the HTML parser closed the outer tag early, so the rendered tree does not match your JSX. |
-| [`ERR_INVALID_SSR_TAG`](#err-invalid-ssr-tag) | error | [what-server] Invalid tag name in SSR: `tag`. |
+| [`ERR_INVALID_SSR_TAG`](#err-invalid-ssr-tag) | error | [what-server] Invalid tag name in SSR: "`tag`" |
 | [`ERR_ISLAND_STORE_OUTSIDE_RENDER`](#err-island-store-outside-render) | error | [what-server] Island store "`name`" was accessed outside an active server render. |
-| [`ERR_ISR_MISSING_CLIENT`](#err-isr-missing-client) | error | [what-isr] createRedisStore requires { client }. |
+| [`ERR_ISR_MISSING_CLIENT`](#err-isr-missing-client) | error | [what-isr] createRedisStore requires { client } |
 | [`ERR_ISR_VARY_NO_HEADERS`](#err-isr-vary-no-headers) | error | [what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache. |
 | [`ERR_ISR_VARY_UNRESOLVED`](#err-isr-vary-unresolved) | error | [what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request. |
 | [`ERR_JSX_ISLAND_PROP`](#err-jsx-island-prop) | error | An island's props are serialized to JSON so the browser can hydrate it, and markup is not data: JSX in a prop would arrive as an empty object, or as a plain object pretending to be an element. |
@@ -75,22 +83,22 @@ code, because the flag is then decided at runtime.
 | [`ERR_PENDING_READ_UNTRACKED`](#err-pending-read-untracked) | warning | `call` was read in a component body. The body runs once, so this reads the pending state once and it never changes on screen. |
 | [`ERR_PRETEXT_NOT_INSTALLED`](#err-pretext-not-installed) | error | [what-text] Failed to load @chenglou/pretext: `message`. |
 | [`ERR_QUERY_OUTSIDE_RENDER`](#err-query-outside-render) | warning | [what] Server query cache used outside a render, loader or action. |
-| [`ERR_REDIRECT_NOT_CAUGHT`](#err-redirect-not-caught) | error | A redirect() to "`target`" surfaced uncaught, so nothing performed the navigation. |
+| [`ERR_REDIRECT_NOT_CAUGHT`](#err-redirect-not-caught) | error | [what-router] redirect to `target` |
 | [`ERR_RUNTIME`](#err-runtime) | error | An error surfaced that the framework could not classify, so the message is the original one verbatim. |
 | [`ERR_SIGNAL_WRITE_IN_COMPUTED`](#err-signal-write-in-computed) | warning | Computed "`computedName`" wrote signal "`signalName`". A computed only derives a value; a write from it runs again on every recomputation and can loop. |
 | [`ERR_SIGNAL_WRITE_IN_RENDER`](#err-signal-write-in-render) | error | Signal "`signalName`" written during render of component "`component`". This triggers re-execution. |
 | [`ERR_SSR_INVALID_ID_PREFIX`](#err-ssr-invalid-id-prefix) | error | [what-server] idPrefix `idPrefix` is not a letter followed by letters, digits, "_" or "-". |
 | [`ERR_SSR_LATE_HEAD`](#err-ssr-late-head) | warning | [what-server] <Head> inside a streamed <Suspense> (boundary `boundaryId`) set head tags after the shell was sent. |
 | [`ERR_SSR_SUSPENSE_TIMEOUT`](#err-ssr-suspense-timeout) | error | [what-server] A resource was still pending after 12 attempts during streaming SSR. |
-| [`ERR_SSR_UNSAFE_REDIRECT`](#err-ssr-unsafe-redirect) | warning | [what-server] redirect() refused the target `target` and redirected to "/" instead. |
-| [`ERR_STATIC_WRITE_ESCAPE`](#err-static-write-escape) | error | [what-server] Refusing to write outside outDir: `path`. |
+| [`ERR_SSR_UNSAFE_REDIRECT`](#err-ssr-unsafe-redirect) | warning | [what-server] `method`: refusing unsafe redirect target `target`; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT) |
+| [`ERR_STATIC_WRITE_ESCAPE`](#err-static-write-escape) | error | [what-server] Refusing to write outside outDir: `path` |
 | [`ERR_STORAGE_FAILED`](#err-storage-failed) | warning | useLocalStorage("`key`") could not `operation` localStorage: `reason`. |
 | [`ERR_SUSPEND_IN_TRANSITION`](#err-suspend-in-transition) | warning | Component "`component`" suspended while a transition committed: its fallback shows. |
 | [`ERR_TEMPLATE_NAMESPACE`](#err-template-namespace) | error | The compiled template for <`tag`> has no namespace flag, so its root would render as an unknown HTML element instead of SVG or MathML. |
 | [`ERR_UNKNOWN`](#err-unknown) | error | createWhatError() was called with a code that is not in this catalogue. |
 | [`ERR_UNKNOWN_TOOL`](#err-unknown-tool) | error | The MCP client called a tool this server does not expose. |
 | [`ERR_UNSAFE_INNERHTML`](#err-unsafe-innerhtml) | warning | innerHTML set on element without using the __html safety marker. |
-| [`ERR_UNSAFE_REDIRECT`](#err-unsafe-redirect) | error | redirect() refused an unsafe target: `target`. |
+| [`ERR_UNSAFE_REDIRECT`](#err-unsafe-redirect) | error | [what-router] redirect() refused an unsafe target: `target` |
 | [`ERR_UNSAFE_STATIC_MARKUP`](#err-unsafe-static-markup) | error | what-compiler writes static tags, attributes and text straight into markup (the DOM target's template strings, which the browser parses, and the server target's string templates), so it checks them when the module is compiled, by the same rules the runtime applies to a value on every path: a URL attribute (href, src, action, formaction, data, ping, xlink:href) must not use a javascript:, vbscript: or data: scheme, srcdoc and outerHTML are never written because escaping cannot make markup safe, innerHTML or dangerouslySetInnerHTML take { __html: trustedString }, never a string, the text of a <script> cannot contain "</" or "<!--" and that of a <style> cannot contain "</", and a tag cannot be a namespaced name such as <svg:rect>. |
 | [`ERR_USE_INVALID_ARG`](#err-use-invalid-arg) | error | [what-react] use() expects a promise or a context. |
 | [`ERR_USE_UNCACHED_PROMISE`](#err-use-uncached-promise) | error | Component "`component`" keeps suspending on a new promise: use() received a promise made in the component body, which is new on every attempt, so it never finishes. |
@@ -188,7 +196,7 @@ const user = computed(({ signal }) => fetch('/api/users/' + id(), { signal }).th
   ·  **Raised by:** `what-router`
   ·  **Detected:** thrown
 
-> Route middleware must be synchronous; received a promise or thenable.
+> [what-router] Route middleware must be synchronous; received a promise or thenable.
 
 Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.
 
@@ -386,19 +394,22 @@ const useCounter = createStore({ count: 0, doubled: derived(state => state.count
 ## ERR_DUPLICATE_ACTION_ID
 
 **Severity:** error
-  ·  **Raised by:** `what-compiler`
-  ·  **Detected:** compile
+  ·  **Raised by:** `what-compiler`, `what-server`
+  ·  **Detected:** server, compile
 
 > Duplicate server action ID "{{id}}".
 
 Action ids are the wire address of a server action, so two actions cannot share one. Ids derive from the file path and export name, so this usually means the same action is being registered twice, or an explicit id was reused.
 
 ```jsx
+import { action } from 'what-framework/server';
+
 // Bad — two actions pinned to the same id:
 export const save = action(fn, { id: 'save' });
 export const store = action(fn, { id: 'save' });
 
 // Good — let ids derive, or make them distinct:
+import { action } from 'what-framework/server';
 export const save = action(fn);
 export const store = action(fn, { id: 'store-user' });
 ```
@@ -527,7 +538,7 @@ Radios in a group share one field that holds the selected option's value. A radi
   ·  **Raised by:** `what-core`
   ·  **Detected:** reported, thrown
 
-> {{hookName}}() was called outside a component function.
+> [what] {{hookName}}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.
 
 A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.
 
@@ -670,7 +681,7 @@ The compiler turns each element into an HTML template string, and the browser pa
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what-server] Invalid tag name in SSR: {{tag}}.
+> [what-server] Invalid tag name in SSR: "{{tag}}"
 
 A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a "<" in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.
 
@@ -711,7 +722,7 @@ function Cart() { return <span>{cart.items.length}</span>; }
   ·  **Raised by:** `what-isr`
   ·  **Detected:** server
 
-> [what-isr] createRedisStore requires { client }.
+> [what-isr] createRedisStore requires { client }
 
 what-isr ships no Redis driver on purpose, so the client is injected. Pass an ioredis or node-redis instance (get/set/del/sadd/srem/smembers, optionally expire/scan/keys).
 
@@ -1092,7 +1103,7 @@ export async function loader() {
   ·  **Raised by:** `what-router`
   ·  **Detected:** thrown
 
-> A redirect() to "{{target}}" surfaced uncaught, so nothing performed the navigation.
+> [what-router] redirect to {{target}}
 
 redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().
 
@@ -1239,7 +1250,7 @@ const [posts] = createResource(() =>
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what-server] redirect() refused the target {{target}} and redirected to "/" instead.
+> [what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT)
 
 A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler's _redirect field. An absolute URL, "//host", "/\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to "/" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.
 
@@ -1263,7 +1274,7 @@ export function loader({ query, response }) {
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what-server] Refusing to write outside outDir: {{path}}.
+> [what-server] Refusing to write outside outDir: {{path}}
 
 A route path resolved to a location outside the export directory, which a "../" segment in a route or a param can do. Sanitize the route path, or drop the route from the static export.
 
@@ -1342,13 +1353,15 @@ const _tmpl$0 = _$template("<svg><circle r='1'></circle></svg>", 2);
   ·  **Raised by:** `what-core`
   ·  **Detected:** thrown
 
-> Unknown error: {{errorCode}}.
+> Unknown error: {{errorCode}}
 
 createWhatError() was called with a code that is not in this catalogue. Check the spelling against ERROR_CODES, or add the entry.
 
 ```jsx
+import { createWhatError } from 'what-core/internal';
+
 // Bad - not a catalogue key:
-createWhatError('MISSING_KEYS');
+throw createWhatError('MISSING_KEYS');
 
 // Good:
 createWhatError('MISSING_KEY', { component: 'TodoList' });
@@ -1396,7 +1409,7 @@ html`<div>${sanitizedContent}</div>`
   ·  **Raised by:** `what-router`
   ·  **Detected:** thrown
 
-> redirect() refused an unsafe target: {{target}}.
+> [what-router] redirect() refused an unsafe target: {{target}}
 
 redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.
 

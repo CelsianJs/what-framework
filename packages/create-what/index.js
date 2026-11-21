@@ -1057,8 +1057,10 @@ call \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` set.
 
 - \`src/pages/*\` — pages. Each may export \`page\` (route config), \`loader\` (server
   data), \`getStaticPaths\` (pre-render), and a default component.
-- \`src/actions/*\` — server actions (mutations), served at \`/__what_action\`. Call
-  \`revalidatePath\`/\`revalidateTag\` after a mutation to purge the ISR cache.
+- \`src/actions/*\` — server-only mutations and helpers. To call an action from a
+  hydrated page, put its declaration in a browser-served module such as
+  \`src/components/post-actions.js\` and import any server-only helpers inside
+  its callback. See the example in CLAUDE.md.
 - \`src/routes.js\` — the route table (loaders/getStaticPaths/page bound per route).
 - \`src/entry-client.js\` — client hydration entry: re-renders the matched page
   with the server's loader data (\`#__what_data\`) and attaches interactivity.
@@ -1344,9 +1346,6 @@ function matchPage(pathname) {
   return null;
 }
 
-const vnode = matchPage(location.pathname);
-if (vnode) hydrate(vnode, document.body);
-
 // Dev-only devtools bridge. This is what makes the \\\`what_*\\\` MCP tools in
 // CLAUDE.md able to see this running app: without it every live tool reports
 // "no browser connected". The SPA template gets this from the what-devtools-mcp
@@ -1354,10 +1353,11 @@ if (vnode) hydrate(vnode, document.body);
 // hand. server.js sets __WHAT_DEV__ and __WHAT_MCP__ in dev only, and the
 // imports are dynamic, so a production page never fetches either module.
 if (globalThis.__WHAT_DEV__) {
-  Promise.all([
-    import('what-core/internal'),
-    import('what-devtools'),
-  ]).then(async ([core, devtools]) => {
+  try {
+    const [core, devtools] = await Promise.all([
+      import('what-core/internal'),
+      import('what-devtools'),
+    ]);
     // installDevTools alone makes the app inspectable in the browser. The MCP
     // bridge connection goes through server.js's discovery endpoint, which
     // answers quietly when no bridge runs.
@@ -1366,10 +1366,13 @@ if (globalThis.__WHAT_DEV__) {
       const mcp = await import('what-devtools-mcp/client');
       mcp.connectDevToolsMCP(globalThis.__WHAT_MCP__);
     }
-  }).catch((err) => {
+  } catch (err) {
     console.warn('[what] devtools unavailable:', err.message);
-  });
+  }
 }
+
+const vnode = matchPage(location.pathname);
+if (vnode) hydrate(vnode, document.body);
 
 // Progressive enhancement for server-action forms: submit as JSON to
 // /__what_action with the X-What-Action header (the served-action protocol),
@@ -2349,8 +2352,8 @@ Run \`npm run dev\`, open the app, then use the live \`what_*\` tools below. \`w
 
   // CLAUDE.md for Claude Code and AGENTS.md for every other agent: one text,
   // shared with the skill what-framework ships (see agent-instructions.js).
-  writeFileSync(resolve(root, 'CLAUDE.md'), claudeMd({ packageName, authoringNotes, mcpIntro }));
-  writeFileSync(resolve(root, 'AGENTS.md'), agentsMd({ packageName, authoringNotes, mcpIntro }));
+  writeFileSync(resolve(root, 'CLAUDE.md'), claudeMd({ packageName, authoringNotes, mcpIntro, isFullstack }));
+  writeFileSync(resolve(root, 'AGENTS.md'), agentsMd({ packageName, authoringNotes, mcpIntro, isFullstack }));
 
   // Also generate a .cursor/mcp.json for Cursor users
   mkdirSync(resolve(root, '.cursor'), { recursive: true });

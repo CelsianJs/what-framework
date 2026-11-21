@@ -7,12 +7,12 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build as esbuild } from 'esbuild';
-import { PRODUCTION } from '../../../scripts/build.js';
+import { PRODUCTION, buildBundlerTier } from '../../../scripts/build.js';
 import whatVitePlugin from '../../compiler/src/vite-plugin.js';
 
 const SENTINEL = 'ERR_FIXTURE_CATALOGUE_ENTRY';
@@ -104,5 +104,49 @@ describe('production tier: dev-only modules are dropped', () => {
     ]);
     assert.ok(code.includes('console.log'), 'the app was built');
     assert.ok(!code.includes(SENTINEL));
+  });
+});
+
+// The bundler tier (dist/*.js, the `module` condition) is what esbuild's
+// default conditions resolve. Its checks read process.env.NODE_ENV in place,
+// which esbuild defines as "production" when it minifies and "development"
+// when it does not. The fixture sits where what-core does, so env.js is the
+// module the tier rewrites.
+describe('bundler tier: process.env.NODE_ENV decides', () => {
+  let tier;
+  const appBuild = async (minify) => {
+    const app = join(root, 'tier-app.js');
+    writeFileSync(app, "import { useThing } from './tier/hooks.js';\nimport { createThing } from './tier/store.js';\nconsole.log(useThing(1), createThing(2));\n");
+    const result = await esbuild({ entryPoints: [app], bundle: true, minify, write: false, logLevel: 'silent' });
+    return result.outputFiles[0].text;
+  };
+
+  before(async () => {
+    const coreSrc = join(root, 'packages', 'core', 'src');
+    cpSync(src, coreSrc, { recursive: true });
+    tier = join(root, 'tier');
+    await buildBundlerTier({
+      entryPoints: ['env.js', 'reactive.js', 'diag.js', 'hooks.js', 'store.js'].map((f) => join(coreSrc, f)),
+      bundle: true, splitting: true, format: 'esm', platform: 'browser', outdir: tier, logLevel: 'silent',
+    });
+  });
+
+  it('spells every check, and the flag itself, as the NODE_ENV test', () => {
+    const code = readAll(tier);
+    assert.ok(code.includes('(process.env.NODE_ENV !== "production")'));
+    assert.ok(!/__WHAT_DEV_|typeof __WHAT_DEV__|import\.meta/.test(code), 'the stand-in or runtime detection is left in the tier');
+  });
+
+  it('a minified esbuild build with default options drops the dev-only module', async () => {
+    const code = await appBuild(true);
+    assert.ok(code.includes('console.log'), 'the app was built');
+    assert.ok(!code.includes(SENTINEL), 'the catalogue reached the production bundle');
+    assert.ok(!code.includes('devSignals'), 'a dev branch reached the production bundle');
+  });
+
+  it('an unminified one keeps it', async () => {
+    const code = await appBuild(false);
+    assert.ok(code.includes(SENTINEL));
+    assert.ok(code.includes('devSignals'));
   });
 });

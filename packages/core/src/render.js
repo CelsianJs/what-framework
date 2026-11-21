@@ -7,7 +7,7 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
 import { attributeName, isEnumeratedAttr } from './markup-rules.js';
@@ -320,8 +320,7 @@ function devComponent(owner, anchor, devLoc) {
   owner._parentCtx = parentComponent(owner);
   owner._wrapper = anchor;
   _devAnchor(anchor, owner);
-  if (__devtools?.onComponentMount) __devtools.onComponentMount(owner);
-  owner.disposals.push(() => { if (__devtools?.onComponentUnmount) __devtools.onComponentUnmount(owner); });
+  _devMounted(owner);
 }
 
 // Development: a component returned a promise, as an `async function`
@@ -2926,8 +2925,7 @@ function adoptComponent(Component, props, endChildrenPass, devLoc) {
   if (__DEV__) {
     if (devLoc) owner.devLoc = devLoc;
     owner._parentCtx = parentComponent(owner);
-    if (__devtools?.onComponentMount) __devtools.onComponentMount(owner);
-    owner.disposals.push(() => { if (__devtools?.onComponentUnmount) __devtools.onComponentUnmount(owner); });
+    _devMounted(owner);
   }
   const c = cur;
   const outerKey = pendingKey;

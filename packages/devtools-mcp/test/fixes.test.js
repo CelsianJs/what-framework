@@ -222,3 +222,46 @@ describe('P2-8 — what_lint rules shared with eslint-plugin-what', () => {
     assert.doesNotMatch(messages, /'count'/);
   });
 });
+
+describe('verifier regressions', () => {
+  it('prioritizes written user signals and reports shared computed work', async () => {
+    const signals = [
+      ...Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `what-router:${i}`, rev: 3 })),
+      { id: 13, name: 'cart', rev: 2, loc: 'src/Lab.js:10:16', owner: '<Lab>' },
+      { id: 14, name: 'rows', rev: 5 },
+    ];
+    const effects = Array.from({ length: 3 }, (_, i) => ({
+      id: i + 1, name: `computed_${i + 1}`, loc: 'src/Row.js:2:4',
+      componentId: i + 1, kind: 'computed', depSignalIds: [14], runCount: 6,
+    }));
+    const components = effects.map((e) => ({ id: e.componentId, name: 'Row' }));
+    const { call } = await setup({ state: { signals, effects, components } });
+    const diagnosed = await call('what_diagnose');
+    assert.equal(diagnosed.unreadSignals.written, 1);
+    assert.deepEqual(diagnosed.unreadSignals.sample[0], { id: 13, name: 'cart', loc: 'src/Lab.js:10:16', owner: '<Lab>', writes: 2 });
+    assert.deepEqual(diagnosed.repeatedComputeds, [{ owner: '<Row>', loc: 'src/Row.js:2:4', count: 3, runs: 18, signals: ['rows#14'] }]);
+    assert.match(diagnosed.status, /unreadSignals/);
+    assert.match(diagnosed.status, /hotEffects/);
+  });
+
+  it('surfaces stalled async work and a partial registry in orientation', async () => {
+    const effects = [{ id: 1, name: 'report', kind: 'computed', async: { status: 'unresolved', inFlight: { startedAt: Date.now() - 6000 } } }];
+    const { call } = await setup({ state: { signals: [], effects, components: [], droppedBeforeInstall: { signals: 0, effects: 3, components: 1 } } });
+    const status = await call('what_connection_status');
+    assert.equal(status.stalled.work[0].name, 'report');
+    assert.deepEqual(status.registry, { truncated: true, tracked: { signals: 0, effects: 1, components: 0 }, droppedBeforeInstall: { signals: 0, effects: 3, components: 1 } });
+    assert.deepEqual((await call('what_effects')).registry, status.registry);
+  });
+
+  it('ships action completions and array invalidation targets', async () => {
+    const { page, call } = await setup({ handle: (command, args) => command === 'invalidate-cache' ? { invalidated: args.key } : undefined });
+    page.push('action', { name: 'addTodo', outcome: 'ok', invalidated: [], revalidated: [] });
+    await settle();
+    const log = await call('what_events', { types: ['action'] });
+    assert.equal(log.actions.length, 1);
+    assert.deepEqual(log.actions[0], {
+      seq: log.actions[0].seq, name: '«addTodo»', outcome: 'ok', invalidated: [], revalidated: [],
+    });
+    assert.deepEqual((await call('what_invalidate_cache', { key: ['todos'] })).invalidated, ['todos']);
+  });
+});

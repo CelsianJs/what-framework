@@ -5,6 +5,9 @@
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -12,10 +15,10 @@ import { ERROR_CODES, IMPORT_CHANGES } from 'what-core/internal';
 import { registerAgentTools } from '../src/tools-agent.js';
 
 // The offline tools never touch the bridge.
-async function setupMcp() {
+async function setupMcp(root = tmpdir()) {
   const bridge = null;
   const server = new McpServer({ name: 'test-agent', version: '0.1.0' });
-  registerAgentTools(server, bridge);
+  registerAgentTools(server, bridge, { root });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -117,6 +120,33 @@ function App() {
       assert.equal(parsed.compiled, true);
     });
 
+    it('uses the project flat config for the requested path', async (t) => {
+      const dir = mkdtempSync(join(tmpdir(), 'what-lint-'));
+      t.after(() => rmSync(dir, { recursive: true, force: true }));
+      writeFileSync(join(dir, 'eslint.config.mjs'), "export default [{ files: ['src/**/*.js'], rules: { 'no-alert': 'error' } }];");
+      ({ client, server } = await setupMcp(dir));
+      const code = 'alert("test");';
+      const inSrc = await callTool(client, 'what_lint', { code, filePath: 'src/example.js' });
+      assert.equal(inSrc.parsed.issues[0].rule, 'no-alert');
+      const outsideSrc = await callTool(client, 'what_lint', { code, filePath: 'example.js' });
+      assert.deepEqual(outsideSrc.parsed.issues, []);
+    });
+
+    for (const [code, input] of [
+      ['ERR_DUPLICATE_ACTION_ID', "import { action } from 'what-framework/server'; export const a = action(fn, { id: 'save' }); export const b = action(fn, { id: 'save' });"],
+      ['ERR_INVALID_HTML_NESTING', 'export const App = () => <p><div>Block</div></p>;'],
+      ['ERR_JSX_ISLAND_PROP', 'export const page = <Chart client:idle icon={<b />} />;'],
+      ['ERR_UNSAFE_STATIC_MARKUP', 'export const page = <a href="javascript:void(0)">Link</a>;'],
+    ]) {
+      it(`preserves compiler code ${code}`, async () => {
+        ({ client, server } = await setupMcp());
+        const { parsed } = await callTool(client, 'what_lint', { code: input });
+        assert.equal(parsed.compiled, false);
+        assert.ok(parsed.issues.some((i) => i.rule === 'compiler' && i.code === code));
+        assert.ok(!parsed.issues.some((i) => i.code === 'PARSE_ERROR'));
+      });
+    }
+
     it('reports a parse error from the compiler with its line', async () => {
       ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_lint', { code: 'function App() {\n  return <div>;\n}' });
@@ -186,7 +216,8 @@ effect(() => { count(count() + 1); });
       });
       assert.ok(parsed.code.includes('function Dashboard'));
       assert.ok(parsed.code.includes('<Head title="Dashboard" />'), 'the documented prop form');
-      assert.ok(parsed.code.includes('onMount'));
+      assert.match(parsed.code, /computed\(async/);
+      assert.match(parsed.code, /<Suspense/);
     });
 
     it('generates a form', async () => {
@@ -220,7 +251,7 @@ effect(() => { count(count() + 1); });
       });
       assert.ok(parsed.code.includes('function LiveChat(props)'));
       assert.ok(!parsed.code.includes('.island = true'), 'no marker the framework never reads');
-      assert.ok(parsed.code.includes("island('liveChat'"), 'says how to register it on the server');
+      assert.ok(parsed.code.includes("island('liveChat'"), 'says how to register the island loader');
       assert.ok(parsed.code.includes('data-island'));
     });
 

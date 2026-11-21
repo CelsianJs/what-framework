@@ -4,7 +4,7 @@
 
 // Devtools. what-devtools reads these, and the diagnostics read API below,
 // from this module's namespace object.
-export { __setDevToolsHooks, __drainPreinstallBuffer, __depsOf, __subsOf, __currentEffect, __ownerOf, __ownerPath } from '../reactive.js';
+export { _devAction, __setDevToolsHooks, __drainPreinstallBuffer, __depsOf, __subsOf, __currentEffect, __ownerOf, __ownerPath } from '../reactive.js';
 export { __getCacheSnapshot, __invalidateFromDevtools, _tagQueries, _pathLoaded } from '../data.js';
 // what-server's <Form>: the status useFormStatus() reads, and its submission.
 export { _formStatusContext, _formStatus } from '../actions.js';

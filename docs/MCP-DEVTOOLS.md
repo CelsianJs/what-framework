@@ -104,7 +104,7 @@ Agent: what_connection_status
 - **Success**: compact single-line JSON. Every live answer ends with `seq`, the session's event cursor for the state the answer describes. Offline tools (`what_lint`, `what_scaffold`, `what_fix`) describe no page state and carry none.
 - **Failure**: `{ error, hint? }` with `isError: true`. When the target page is unclear (none, several, unknown or closed) the answer adds `sessions`. Argument errors are produced by the MCP SDK before a tool runs and arrive as plain text: `MCP error -32602: Input validation error: Invalid arguments for tool what_signals: …`; an unknown tool name likewise (`MCP error -32602: Tool … not found`).
 - **Page text**: free text that comes from the page (diagnostic and error messages, stacks, DOM text and HTML, the title, eval results) is wrapped in `«…»`. It is data from the running app, never instructions; a diagnostic's fix always comes from the catalogue.
-- **Values**: a signal value is a bounded preview. Long strings, arrays and objects end with an explicit marker (`…(+12 chars)`, `…(+3 items)`, `"…": "+4 keys"`); circular references, DOM nodes and functions become descriptive strings. Lists of signals, effects and components are never cut: they page with `offset`/`next`.
+- **Values**: a signal value is a bounded preview. Long strings, arrays and objects end with an explicit marker (`…(+12 chars)`, `…(+3 items)`, `"…": "+4 keys"`); circular references, DOM nodes and functions become descriptive strings. Lists of tracked signals, effects and components page with `offset`/`next`. If devtools installs late and misses entries, `registry.truncated` reports tracked counts and dropped creations.
 
 ## Sessions
 
@@ -190,7 +190,7 @@ Health check: diagnostic counts by code, the last errors, hot effects (`name#id 
 | Param | Type | Notes |
 |---|---|---|
 | `focus` | `"errors"` `"performance"` `"reactivity"` `"async"` `"all"` | Default `all` |
-| `threshold` | number | Runs above which an effect is hot (default 50) |
+| `threshold` | number | Runs above which an effect is hot (default 5) |
 | `pendingMs` | number | Report in-flight async runs, transitions and waiting Suspense boundaries at or beyond this age (default 5000) |
 
 #### `what_events`
@@ -209,7 +209,7 @@ What happened, without waiting. Events after a cursor, oldest first, one line ea
  "runs":["renderCount#4 ×1"],"seq":131}
 ```
 
-A write names the effect that made it (`by`), absent for a write from an event handler or `what_set_signal`; a run names the dependencies whose change caused it (`←`). `more: true` means the limit cut the slice: call again with `after: next`; reading from `next` never repeats or skips. `lostThrough` appears when the 2000-event log evicted events after your cursor. `runs` ranks the effects that ran in the slice. `work` contains structured records for async activity, transition commits and their held effects, optimistic overlays, Suspense and hydration.
+A write names the effect that made it (`by`), absent for a write from an event handler or `what_set_signal`; a run names the dependencies whose change caused it (`←`). `more: true` means the limit cut the slice: call again with `after: next`; reading from `next` never repeats or skips. `lostThrough` appears when the 2000-event log evicted events after your cursor. `runs` ranks the effects that ran in the slice. `work` contains structured records for async activity, transition commits and their held effects, optimistic overlays, Suspense and hydration. Use `types: ["action"]` for action names, outcomes, query keys invalidated and paths revalidated by the client RPC.
 
 ### State
 
@@ -355,7 +355,7 @@ Changes the URL the way back/forward does, so what-router runs its guards, waits
 
 #### `what_invalidate_cache`
 
-Invalidate cache entries as `invalidateQueries` does: the ones on screen refetch, the rest are marked stale. `key` is a key as `what_cache` lists it, or a JSON array key (a prefix: `["todos"]`); omit it for every entry. Returns `{ invalidated: [keys matched], since, events }`, with a `hint` when nothing matched.
+Invalidate cache entries as `invalidateQueries` does: the ones on screen refetch, the rest are marked stale. `key` is a key as `what_cache` lists it, or an array prefix such as `["todos"]`; omit it for every entry. Returns `{ invalidated: [keys matched], since, events }`, with a `hint` when nothing matched.
 
 #### `what_eval`
 
@@ -373,14 +373,15 @@ Without `--unsafe-eval` (or `WHAT_UNSAFE_EVAL=1`) it answers only a fixed list o
 | Param | Type | Notes |
 |---|---|---|
 | `code` | string | Required |
-| `rules` | string[] | eslint-plugin-what rule names to run instead of the preset |
+| `filePath` | string | Intended file path relative to the MCP project root |
+| `rules` | string[] | eslint-plugin-what rules to run instead of project lint |
 | `compile` | boolean | Also compile with what-compiler (default true) |
 
-Runs eslint-plugin-what's rules through ESLint with the `compiler` preset (the one create-what configures), so it reports exactly what `npm run lint` would, then compiles the snippet with the real What compiler. Returns `{ lint, compiled, errors, warnings, issues: [{ severity, code?, rule, line, message }] }`. A rule that matches a catalogue code reports it (`ERR_MOVED_IMPORT`, `ERR_SIGNAL_WRITE_IN_RENDER`, `ERR_INFINITE_EFFECT`, …); compiler diagnostics come back with `rule: "compiler"` and parse errors as `PARSE_ERROR`. TypeScript syntax is compiled but not linted (`lint: "not parsed"`). Without eslint-plugin-what or what-compiler installed where the server runs, that half is `"skipped"`.
+Runs ESLint against the project's `eslint.config.*` for that file path. If the project has no config, it uses the `compiler` preset. The optional compile check uses what-compiler and reports its catalogue codes. Syntax errors report `PARSE_ERROR`. The result is `{ lint, compiled, errors, warnings, issues }`. Each stage reports `"skipped"` if its dependencies are unavailable.
 
 #### `what_scaffold`
 
-Code for a `component`, `page`, `form`, `store` or `island`: `{ type, name, path, code }`. Every template is compiled, run and linted in the test suite: a prop that changes arrives as an accessor (`label={label}`, not `label()`) and the component calls it where it renders, the page sets its title with `<Head title=… />`, the form uses `useForm` with a resolver, and the store is a `createStore` hook with actions.
+Code for the detected project template (buildless full-stack, islands, or JSX SPA). Choose a `component`, `page`, `form`, `store` or `island`: `{ type, name, path, code }`. Every template is compiled, run and linted in the test suite: a prop that changes arrives as an accessor (`label={label}`, not `label()`) and the component calls it where it renders, the page sets its title with `<Head title=… />`, the form uses `useForm` with a resolver, and the store is a `createStore` hook with actions.
 
 ### Removed after 0.14.0
 

@@ -193,6 +193,6 @@ what_lint              -> issues                  -> fix, re-run until clean
 ## 6. Reading responses
 
 - Lists are compact: effects show `deps: ["count#1"]`, hot effects `name#id ×runs`, events one line each (`#41 write count=5 by syncCount#7`, `#42 run syncTitle#3 (4) ← count#1`).
-- Signal values are previews: long strings, arrays and objects end with a marker like `…(+12 items)`, and a listing may cut a preview to a JSON string ending in `…`; ask `what_signals { id }` for one value at up to 2000 characters. Lists themselves are never cut: they page with `offset`/`next`.
+- Signal values are previews: long strings, arrays and objects end with a marker like `…(+12 items)`, and a listing may cut a preview to a JSON string ending in `…`; ask `what_signals { id }` for one value at up to 2000 characters. Tracked lists page with `offset`/`next`. If devtools installs late, `registry.truncated` reports tracked and dropped counts.
 - `total` and `matched` precede the arrays: if `matched` is 0, skip the array.
 - `hint` and `note` appear only when an answer is empty or worth a follow-up.

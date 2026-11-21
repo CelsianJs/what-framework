@@ -5,7 +5,7 @@ Server-side rendering, streaming, islands architecture, and static site generati
 ## Install
 
 ```bash
-npm install what-server what-core
+npm install what-framework
 ```
 
 Or use via the main package:
@@ -17,8 +17,8 @@ import { renderToString, renderToStream } from 'what-framework/server';
 ## Render to String
 
 ```js
-import { renderToString } from 'what-server';
-import { h } from 'what-core';
+import { renderToString } from 'what-framework/server';
+import { h } from 'what-framework';
 
 function App() {
   return h('div', null,
@@ -52,7 +52,7 @@ content that begins with a newline keeps it. The protocol is described in
 
 ```js
 // server
-import { renderToHydratableString } from 'what-server';
+import { renderToHydratableString } from 'what-framework/server';
 const body = renderToHydratableString(<App />);
 
 // client (what-framework)
@@ -104,8 +104,8 @@ swap script, with its resolved data sent ahead of it so the client hydrates
 without fetching again.
 
 ```js
-import { renderToStream } from 'what-server';
-import { h } from 'what-core';
+import { renderToStream } from 'what-framework/server';
+import { h } from 'what-framework';
 
 function App() {
   return h('main', null, h('h1', null, 'Hello from the server'));
@@ -269,7 +269,7 @@ different for every visitor.
 ## Page Modes
 
 ```js
-import { definePage } from 'what-server';
+import { definePage } from 'what-framework/server';
 
 export const page = definePage({
   mode: 'static',  // Pre-render at build time (default)
@@ -282,7 +282,7 @@ export const page = definePage({
 ## Static Generation
 
 ```js
-import { generateStaticPage } from 'what-server';
+import { generateStaticPage } from 'what-framework/server';
 
 const html = generateStaticPage({
   component: App,
@@ -297,7 +297,8 @@ const html = generateStaticPage({
 Mark components as server-only. They render on the server and ship no JavaScript to the client.
 
 ```js
-import { server } from 'what-server';
+import { h } from 'what-framework';
+import { server } from 'what-framework/server';
 
 const Header = server(({ title }) => h('header', null, title));
 ```
@@ -305,8 +306,8 @@ const Header = server(({ title }) => h('header', null, title));
 ## Server Actions
 
 ```js
-import { action, Form } from 'what-server';
-import { h, useActionState, useFormStatus, startTransition } from 'what-core';
+import { action, Form } from 'what-framework/server';
+import { h, useActionState, useFormStatus, startTransition } from 'what-framework';
 
 // Define a server action. `revalidate` purges the cached pages on the server
 // and refetches what was read on those paths on the client; `invalidates`
@@ -345,7 +346,7 @@ function addLater(text, addOptimistic) {
 The client callable posts JSON to `/__what_action`, rejects with the action's
 error (`ERR_ACTION_FAILED`, or `TIMEOUT` after `timeout`, default 30 s), and
 rolls back the optimistic overlays of its transition when it fails. See
-[DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
+the installed `what-framework/skills/what/SKILL.md` and the [online data guide](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
 
 **An action is a public endpoint.** Its id is in the page (`_action`,
 `data-action`) and can be computed from the source, so anyone can post it,
@@ -373,7 +374,7 @@ export const deleteTodo = action(async (id) => {
 dispatch, as a Web-Fetch `(Request) => Response` handler.
 
 ```js
-import { createRequestHandler } from 'what-server';
+import { createRequestHandler } from 'what-framework/server';
 
 const handle = createRequestHandler({ routes }); // CSRF protection is ON — zero config
 ```
@@ -444,7 +445,7 @@ Vercel and Cloudflare are covered by `test/deploy-readiness.test.js`, Vura by
 
 ```js
 // server.js
-import { createServer } from 'what-server';
+import { createServer } from 'what-framework/server';
 import { routes } from './routes.js';
 
 createServer({ routes }).listen(process.env.PORT || 3000);
@@ -459,7 +460,7 @@ inside an existing Express/connect app use `whatMiddleware(options)` (calls
 ### Static export (any CDN: Nginx, S3, GitHub Pages, Netlify)
 
 ```js
-import { exportStatic } from 'what-server';
+import { exportStatic } from 'what-framework/server';
 const { pages } = await exportStatic({ routes, outDir: 'dist' });
 ```
 
@@ -479,7 +480,7 @@ the runtime adapters if you use actions.
 
 ```js
 // build.mjs — emit a Build Output API v3 directory
-import { buildVercelOutput } from 'what-server';
+import { buildVercelOutput } from 'what-framework/server';
 
 await buildVercelOutput({
   files: { 'index.mjs': bundledHandlerCode }, // your build bundles routes + createVercelHandler into this
@@ -491,7 +492,7 @@ The function entry must export the Web-Fetch handler:
 
 ```js
 // (bundled into index.mjs)
-import { createVercelHandler } from 'what-server';
+import { createVercelHandler } from 'what-framework/server';
 import { routes } from './routes.js';
 export default createVercelHandler({ routes });
 ```
@@ -510,7 +511,7 @@ entry exports the handler:
 
 ```js
 // function.js
-import { createVuraHandler } from 'what-server';
+import { createVuraHandler } from 'what-framework/server';
 import { routes } from './routes.js';
 export default createVuraHandler({ routes });
 ```
@@ -528,7 +529,7 @@ The build script writes Vura's output directory:
 
 ```js
 // build.js
-import { buildVuraOutput } from 'what-server';
+import { buildVuraOutput } from 'what-framework/server';
 
 await buildVuraOutput({
   entry: 'function.js',
@@ -573,7 +574,7 @@ schedule, have an external cron call `POST /__what_revalidate` (set
 
 ```js
 // worker.js
-import { createCloudflareHandler } from 'what-server';
+import { createCloudflareHandler } from 'what-framework/server';
 import { routes } from './routes.js';
 export default createCloudflareHandler({ routes });
 ```

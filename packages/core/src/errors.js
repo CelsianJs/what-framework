@@ -416,7 +416,7 @@ html\`<div>\${sanitizedContent}</div>\``,
   ASYNC_MIDDLEWARE: {
     code: 'ERR_ASYNC_MIDDLEWARE',
     severity: 'error',
-    template: 'Route middleware must be synchronous; received a promise or thenable.',
+    template: '[what-router] Route middleware must be synchronous; received a promise or thenable.',
     suggestion: 'Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.',
     codeExample: `// Bad - an async middleware result cannot authorize a route:
 const routes = [{ path: '/private', component: Component, middleware: [async () => check()] }];
@@ -431,7 +431,7 @@ const Private = asyncGuard(check, { fallback: '/login', loading: Spinner })(Comp
   UNSAFE_REDIRECT: {
     code: 'ERR_UNSAFE_REDIRECT',
     severity: 'error',
-    template: 'redirect() refused an unsafe target: {{target}}.',
+    template: '[what-router] redirect() refused an unsafe target: {{target}}',
     suggestion: 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.',
     codeExample: `// Bad - a user-controlled target can leave your origin:
 redirect(query.next);
@@ -443,7 +443,7 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`,
   REDIRECT_NOT_CAUGHT: {
     code: 'ERR_REDIRECT_NOT_CAUGHT',
     severity: 'error',
-    template: 'A redirect() to "{{target}}" surfaced uncaught, so nothing performed the navigation.',
+    template: '[what-router] redirect to {{target}}',
     suggestion: 'redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().',
     codeExample: `// Bad - a reactive thunk re-runs outside the render the Router caught:
 <div>{() => (loggedOut() ? redirect('/login') : <Dashboard />)}</div>
@@ -464,7 +464,7 @@ catch (e) { if (e.name !== 'RouterRedirect') throw e; res.writeHead(302, { locat
   HOOK_OUTSIDE_COMPONENT: {
     code: 'ERR_HOOK_OUTSIDE_COMPONENT',
     severity: 'error',
-    template: '{{hookName}}() was called outside a component function.',
+    template: '[what] {{hookName}}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.',
     suggestion: 'A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.',
     codeExample: `import { onMount, useState } from 'what-framework';
 
@@ -653,7 +653,7 @@ export const save = action(async (data) => {
   STATIC_WRITE_ESCAPE: {
     code: 'ERR_STATIC_WRITE_ESCAPE',
     severity: 'error',
-    template: '[what-server] Refusing to write outside outDir: {{path}}.',
+    template: '[what-server] Refusing to write outside outDir: {{path}}',
     suggestion: 'A route path resolved to a location outside the export directory, which a "../" segment in a route or a param can do. Sanitize the route path, or drop the route from the static export.',
     codeExample: `// Bad — a slug from the CMS such as '../../x' resolves outside outDir:
 const docs = { path: '/docs/:slug', mode: 'static', component: Doc,
@@ -713,7 +713,7 @@ mount(<App />, document.body);`,
   INVALID_SSR_TAG: {
     code: 'ERR_INVALID_SSR_TAG',
     severity: 'error',
-    template: '[what-server] Invalid tag name in SSR: {{tag}}.',
+    template: '[what-server] Invalid tag name in SSR: "{{tag}}"',
     suggestion: 'A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a "<" in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.',
     codeExample: `// Bad — the tag is built from data, and is not an element name:
 function Heading({ level }) {
@@ -818,7 +818,7 @@ renderDocumentStream(page, req, { nonce });`,
   SSR_UNSAFE_REDIRECT: {
     code: 'ERR_SSR_UNSAFE_REDIRECT',
     severity: 'warning',
-    template: '[what-server] redirect() refused the target {{target}} and redirected to "/" instead.',
+    template: '[what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT)',
     suggestion: 'A server response redirect(), from a loader\'s `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler\'s _redirect field. An absolute URL, "//host", "/\\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to "/" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.',
     codeExample: `// Bad — an absolute URL through redirect() is refused:
 export function loader({ query, response }) {
@@ -906,7 +906,7 @@ export async function loader() {
   ISR_MISSING_CLIENT: {
     code: 'ERR_ISR_MISSING_CLIENT',
     severity: 'error',
-    template: '[what-isr] createRedisStore requires { client }.',
+    template: '[what-isr] createRedisStore requires { client }',
     suggestion: 'what-isr ships no Redis driver on purpose, so the client is injected. Pass an ioredis or node-redis instance (get/set/del/sadd/srem/smembers, optionally expire/scan/keys).',
     codeExample: `import Redis from 'ioredis';
 const store = createRedisStore({ client: new Redis(process.env.REDIS_URL) });`,
@@ -941,11 +941,14 @@ await engine.handle({ ...routeMatch, headers: request.headers });`,
     severity: 'error',
     template: 'Duplicate server action ID "{{id}}".',
     suggestion: 'Action ids are the wire address of a server action, so two actions cannot share one. Ids derive from the file path and export name, so this usually means the same action is being registered twice, or an explicit id was reused.',
-    codeExample: `// Bad — two actions pinned to the same id:
+    codeExample: `import { action } from 'what-framework/server';
+
+// Bad — two actions pinned to the same id:
 export const save = action(fn, { id: 'save' });
 export const store = action(fn, { id: 'save' });
 
 // Good — let ids derive, or make them distinct:
+import { action } from 'what-framework/server';
 export const save = action(fn);
 export const store = action(fn, { id: 'store-user' });`,
   },
@@ -1039,10 +1042,12 @@ try { render(); } catch (e) { console.log(classifyError(e).toJSON()); }`,
   UNKNOWN: {
     code: 'ERR_UNKNOWN',
     severity: 'error',
-    template: 'Unknown error: {{errorCode}}.',
+    template: 'Unknown error: {{errorCode}}',
     suggestion: 'createWhatError() was called with a code that is not in this catalogue. Check the spelling against ERROR_CODES, or add the entry.',
-    codeExample: `// Bad - not a catalogue key:
-createWhatError('MISSING_KEYS');
+    codeExample: `import { createWhatError } from 'what-core/internal';
+
+// Bad - not a catalogue key:
+throw createWhatError('MISSING_KEYS');
 
 // Good:
 createWhatError('MISSING_KEY', { component: 'TodoList' });`,

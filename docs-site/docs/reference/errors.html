@@ -195,7 +195,7 @@ const user = useMemo(() =&gt; fetch('/api/users/' + id()).then((r) =&gt; r.json(
 const user = computed(({ signal }) =&gt; fetch('/api/users/' + id(), { signal }).then((r) =&gt; r.json()));</code></pre>
 
           <h2 id="ERR_ASYNC_MIDDLEWARE">ERR_ASYNC_MIDDLEWARE</h2>
-          <p class="subtitle">Route middleware must be synchronous; received a promise or thenable.</p>
+          <p class="subtitle">[what-router] Route middleware must be synchronous; received a promise or thenable.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
           <p>Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.</p>
 <pre><code>// Bad - an async middleware result cannot authorize a route:
@@ -325,13 +325,16 @@ const useCounter = createStore({ count: 0, doubled: derived(state =&gt; state.co
 
           <h2 id="ERR_DUPLICATE_ACTION_ID">ERR_DUPLICATE_ACTION_ID</h2>
           <p class="subtitle">Duplicate server action ID &quot;id&quot;.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>, <code>what-server</code>.</p>
           <p>Action ids are the wire address of a server action, so two actions cannot share one. Ids derive from the file path and export name, so this usually means the same action is being registered twice, or an explicit id was reused.</p>
-<pre><code>// Bad — two actions pinned to the same id:
+<pre><code>import { action } from 'what-framework/server';
+
+// Bad — two actions pinned to the same id:
 export const save = action(fn, { id: 'save' });
 export const store = action(fn, { id: 'save' });
 
 // Good — let ids derive, or make them distinct:
+import { action } from 'what-framework/server';
 export const save = action(fn);
 export const store = action(fn, { id: 'store-user' });</code></pre>
 
@@ -406,7 +409,7 @@ form.setValue('email', 'a@b.co');</code></pre>
 &lt;input type=&quot;radio&quot; {...register('size', { type: 'radio', value: 'small' })} /&gt;;</code></pre>
 
           <h2 id="ERR_HOOK_OUTSIDE_COMPONENT">ERR_HOOK_OUTSIDE_COMPONENT</h2>
-          <p class="subtitle">hookName() was called outside a component function.</p>
+          <p class="subtitle">[what] hookName() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
           <p>A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.</p>
 <pre><code>import { onMount, useState } from 'what-framework';
@@ -501,7 +504,7 @@ const doubled = computed(() =&gt; count() * 2);</code></pre>
 &lt;p&gt;Intro&lt;span&gt;{body()}&lt;/span&gt;Outro&lt;/p&gt;;</code></pre>
 
           <h2 id="ERR_INVALID_SSR_TAG">ERR_INVALID_SSR_TAG</h2>
-          <p class="subtitle">[what-server] Invalid tag name in SSR: tag.</p>
+          <p class="subtitle">[what-server] Invalid tag name in SSR: &quot;tag&quot;</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
           <p>A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a &quot;&lt;&quot; in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.</p>
 <pre><code>// Bad — the tag is built from data, and is not an element name:
@@ -526,7 +529,7 @@ const count = cart.items.length;
 function Cart() { return &lt;span&gt;{cart.items.length}&lt;/span&gt;; }</code></pre>
 
           <h2 id="ERR_ISR_MISSING_CLIENT">ERR_ISR_MISSING_CLIENT</h2>
-          <p class="subtitle">[what-isr] createRedisStore requires { client }.</p>
+          <p class="subtitle">[what-isr] createRedisStore requires { client }</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-isr</code>.</p>
           <p>what-isr ships no Redis driver on purpose, so the client is injected. Pass an ioredis or node-redis instance (get/set/del/sadd/srem/smembers, optionally expire/scan/keys).</p>
 <pre><code>import Redis from 'ioredis';
@@ -763,7 +766,7 @@ export async function loader() {
 }</code></pre>
 
           <h2 id="ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</h2>
-          <p class="subtitle">A redirect() to &quot;target&quot; surfaced uncaught, so nothing performed the navigation.</p>
+          <p class="subtitle">[what-router] redirect to target</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
           <p>redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().</p>
 <pre><code>// Bad - a reactive thunk re-runs outside the render the Router caught:
@@ -854,7 +857,7 @@ const [posts] = createResource(() =&gt;
   fetch(API, { signal: AbortSignal.timeout(5000) }).then((r) =&gt; r.json()));</code></pre>
 
           <h2 id="ERR_SSR_UNSAFE_REDIRECT">ERR_SSR_UNSAFE_REDIRECT</h2>
-          <p class="subtitle">[what-server] redirect() refused the target target and redirected to &quot;/&quot; instead.</p>
+          <p class="subtitle">[what-server] method: refusing unsafe redirect target target; redirecting to &quot;/&quot; instead. (ERR_SSR_UNSAFE_REDIRECT)</p>
           <p><span class="badge badge-warning">warning</span> Raised by <code>what-server</code>.</p>
           <p>A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (&quot;/account?tab=2&quot;), by the same rule as the action handler's _redirect field. An absolute URL, &quot;//host&quot;, &quot;/\host&quot; or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to &quot;/&quot; instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.</p>
 <pre><code>// Bad — an absolute URL through redirect() is refused:
@@ -870,7 +873,7 @@ export function loader({ query, response }) {
 }</code></pre>
 
           <h2 id="ERR_STATIC_WRITE_ESCAPE">ERR_STATIC_WRITE_ESCAPE</h2>
-          <p class="subtitle">[what-server] Refusing to write outside outDir: path.</p>
+          <p class="subtitle">[what-server] Refusing to write outside outDir: path</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
           <p>A route path resolved to a location outside the export directory, which a &quot;../&quot; segment in a route or a param can do. Sanitize the route path, or drop the route from the static export.</p>
 <pre><code>// Bad — a slug from the CMS such as '../../x' resolves outside outDir:
@@ -920,8 +923,10 @@ const _tmpl$0 = _$template(&quot;&lt;svg&gt;&lt;circle r='1'&gt;&lt;/circle&gt;&
           <p class="subtitle">createWhatError() was called with a code that is not in this catalogue.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
           <p>createWhatError() was called with a code that is not in this catalogue. Check the spelling against ERROR_CODES, or add the entry.</p>
-<pre><code>// Bad - not a catalogue key:
-createWhatError('MISSING_KEYS');
+<pre><code>import { createWhatError } from 'what-core/internal';
+
+// Bad - not a catalogue key:
+throw createWhatError('MISSING_KEYS');
 
 // Good:
 createWhatError('MISSING_KEY', { component: 'TodoList' });</code></pre>
@@ -947,7 +952,7 @@ const { tools } = await client.listTools();</code></pre>
 html`&lt;div&gt;${sanitizedContent}&lt;/div&gt;`</code></pre>
 
           <h2 id="ERR_UNSAFE_REDIRECT">ERR_UNSAFE_REDIRECT</h2>
-          <p class="subtitle">redirect() refused an unsafe target: target.</p>
+          <p class="subtitle">[what-router] redirect() refused an unsafe target: target</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
           <p>redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative (&quot;//host&quot;), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.</p>
 <pre><code>// Bad - a user-controlled target can leave your origin:

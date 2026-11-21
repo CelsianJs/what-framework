@@ -18,6 +18,7 @@
 
 import {
   _asyncComputed,
+  _devCallSite,
   _refresh,
   _isPending,
   _startTransition,
@@ -50,7 +51,7 @@ import { report, recordObservation } from './diagnostics.js';
  */
 export function computed(fn) {
   _enableSuspense();
-  if (__DEV__ && arguments[1]) return /** @type {any} */ (_asyncComputed)(fn, _seedFor(null, true), arguments[1]);
+  if (__DEV__) return /** @type {any} */ (_asyncComputed)(fn, _seedFor(null, true), _devCallSite(arguments[1] || fn.name, computed));
   return _asyncComputed(fn, _seedFor(null, true));
 }
 

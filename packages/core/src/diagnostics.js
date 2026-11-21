@@ -29,7 +29,7 @@ import { getErrorDefinition } from './errors.js';
 // Kept equal to packages/core/package.json by scripts/bump-version.mjs and
 // checked by core/test/diagnostics.test.js. Pins the console docs link to the
 // release the app is running, never to a branch.
-export const VERSION = '0.14.0';
+export const VERSION = '0.15.0';
 
 const SKILL_PATH = 'node_modules/what-framework/skills/what-diagnostics/SKILL.md';
 const MAX_EVENTS = 500;

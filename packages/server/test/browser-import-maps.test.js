@@ -23,7 +23,12 @@ const repo = resolve(import.meta.dirname, '../../..');
 const appsDir = join(repo, 'smoke/apps');
 const SKIP = { skip: true };
 
-/** Every bare specifier reachable from `entry` in a browser: [{ spec, importer, file }]. */
+/**
+ * Every bare specifier reachable from `entry` in a browser: [{ spec, importer, file }].
+ * Resolved as an import map resolves exports (create-what's BROWSER_CONDITIONS:
+ * `browser`, `import`, `default`), not with esbuild's own defaults, whose
+ * `module` condition is the bundler tier.
+ */
 async function browserImports(entry) {
   const found = [];
   await build({
@@ -31,6 +36,7 @@ async function browserImports(entry) {
     bundle: true,
     write: false,
     platform: 'browser',
+    conditions: ['browser'],
     format: 'esm',
     logLevel: 'silent',
     plugins: [{

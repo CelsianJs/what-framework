@@ -3,8 +3,8 @@
  */
 
 import { z } from 'zod';
-import { createResponder, previewValue, pageText, sessionParam, UNTRUSTED_NOTE } from './respond.js';
-import { subscriberCounts, fetchState, actionEvents, causeLabels, parseStack, sourceFields, sourceSuffix, asyncFields } from './tools.js';
+import { isNamed, createResponder, previewValue, pageText, sessionParam, UNTRUSTED_NOTE } from './respond.js';
+import { subscriberCounts, fetchState, actionEvents, causeLabels, parseStack, sourceFields, sourceSuffix, asyncFields, stalledWork, registryCoverage } from './tools.js';
 import { SAFE_READ_PATHS, normalizeSafeRead } from './safe-read.js';
 
 const label = (map, id) => (map.get(id) ? `${map.get(id)}#${id}` : `#${id}`);
@@ -16,6 +16,33 @@ function markTree(node) {
   if (typeof out.text === 'string') out.text = pageText(out.text, 200);
   if (Array.isArray(out.children)) out.children = out.children.map(markTree);
   return out;
+}
+
+function repeatedComputeds(state) {
+  const groups = new Map();
+  const components = new Map(state.components.map((c) => [c.id, c.name]));
+  const signals = new Map(state.signals.map((s) => [s.id, s.name]));
+  for (const e of state.effects) {
+    const owner = components.get(e.componentId);
+    if (e.kind !== 'computed' || !e.loc || !owner || !e.depSignalIds?.length) continue;
+    const deps = [...e.depSignalIds].sort((a, b) => a - b);
+    const upstream = [...(e.depComputedIds || [])].sort((a, b) => a - b);
+    const key = JSON.stringify([owner, e.loc, deps, upstream]);
+    let group = groups.get(key);
+    if (!group) {
+      group = { owner: `<${owner}>`, loc: e.loc, count: 0, runs: 0, signals: deps.slice(0, 8).map((id) => label(signals, id)) };
+      groups.set(key, group);
+    }
+    group.count++;
+    group.runs += e.runCount || 0;
+  }
+  return [...groups.values()].filter((g) => g.count >= 3).sort((a, b) => b.runs - a.runs).slice(0, 5);
+}
+
+function unreadPriority(signal) {
+  if (signal.name.startsWith('what-router:')) return 0;
+  if (signal.loc && !/\/(?:node_modules|packages\/(?:core|router|server)\/src)\//.test(signal.loc)) return 3;
+  return isNamed(signal.name) ? 2 : 1;
 }
 
 export function registerExtendedTools(server, bridge) {
@@ -227,7 +254,7 @@ export function registerExtendedTools(server, bridge) {
     'Health check in one call: long-running async work, diagnostic codes the app reported, errors, hot effects ranked by runs, the most-subscribed signals, signals nothing reads and effects that read nothing.',
     {
       focus: z.enum(['errors', 'performance', 'reactivity', 'async', 'all']).optional().default('all').describe('Limit the checks (default all)'),
-      threshold: z.number().optional().default(50).describe('Runs above which an effect counts as hot (default 50)'),
+      threshold: z.number().optional().default(5).describe('Runs above which an effect counts as hot (default 5)'),
       pendingMs: z.number().nonnegative().optional().default(5000).describe('Age in ms above which async, transition or Suspense work is flagged'),
       session: sessionParam(z),
     },
@@ -236,6 +263,8 @@ export function registerExtendedTools(server, bridge) {
       const effects = state.effects;
       const out = { counts: { signals: signals.length, effects: effects.length, components: state.components.length } };
       const issues = [];
+      Object.assign(out, registryCoverage(state));
+      if (state.droppedBeforeInstall) issues.push('registryTruncated');
 
       if (focus === 'errors' || focus === 'all') {
         const diagnostics = {};
@@ -252,10 +281,15 @@ export function registerExtendedTools(server, bridge) {
       }
 
       if (focus === 'performance' || focus === 'all') {
+        const groups = repeatedComputeds(state);
+        if (groups.length) {
+          out.repeatedComputeds = groups;
+          issues.push('repeatedComputeds');
+        }
         const hot = effects
           .filter((e) => (e.runCount || 0) > threshold)
           .sort((a, b) => b.runCount - a.runCount)
-          .slice(0, 10)
+          .slice(0, 5)
           .map((e) => `${e.name}#${e.id} ×${e.runCount}${sourceSuffix(e)}`);
         if (hot.length) {
           out.hotEffects = hot;
@@ -270,24 +304,23 @@ export function registerExtendedTools(server, bridge) {
 
       if (focus === 'reactivity' || focus === 'all') {
         const read = new Set(effects.flatMap((e) => e.depSignalIds || []));
-        const unread = signals.filter((s) => !read.has(s.id));
+        const unread = signals.filter((s) => !read.has(s.id))
+          .sort((a, b) => unreadPriority(b) - unreadPriority(a) || (b.rev || 0) - (a.rev || 0) || a.id - b.id);
         const noDeps = effects.filter((e) => e.kind !== 'computed' && !(e.depSignalIds || []).length && !(e.depComputedIds || []).length);
-        // Informational only: a signal read once during setup, or a one-shot
-        // effect, is legitimate. They are worth a look, not a fix.
-        if (unread.length) out.unreadSignals = { count: unread.length, sample: unread.slice(0, 8).map((s) => `${s.name}#${s.id}`) };
+        const written = unread.filter((s) => s.rev > 0 && unreadPriority(s) >= 2);
+        if (unread.length) out.unreadSignals = {
+          count: unread.length, written: written.length,
+          sample: unread.slice(0, 5).map((s) => ({ id: s.id, name: s.name, ...(s.rev ? sourceFields(s) : {}), writes: s.rev || 0 })),
+          ...(written.length ? { hint: 'A written signal with no reactive readers may have been read once during setup.' } : {}),
+        };
+        if (written.length) issues.push('unreadSignals');
         if (noDeps.length) out.effectsWithoutDeps = { count: noDeps.length, sample: noDeps.slice(0, 8).map((e) => `${e.name}#${e.id}`) };
       }
 
       if (focus === 'async' || focus === 'all') {
-        const now = Date.now();
-        const flights = effects.filter((e) => e.async?.inFlight).map((e) => ({
-          kind: 'async', id: e.id, name: e.name, ...sourceFields(e), ...e.async.inFlight, status: e.async.status,
-        }));
-        const stalled = [...flights, ...(state.work || [])]
-          .map((entry) => ({ ...entry, ageMs: Math.max(0, now - entry.startedAt) }))
-          .filter((entry) => entry.ageMs >= pendingMs).sort((a, b) => b.ageMs - a.ageMs);
-        if (stalled.length) {
-          out.stalled = { count: stalled.length, work: stalled.slice(0, 10) };
+        const stalled = stalledWork(state, pendingMs);
+        if (stalled) {
+          out.stalled = stalled;
           issues.push('stalled');
         }
       }

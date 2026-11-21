@@ -469,6 +469,10 @@ visible (`async-model-limits.test.js`, `transitions-holds.test.js`).
   `hydrate()`. An app that uses neither does not carry them
   (`.size-budgets.json`, `computed-counter`). Each run of a computed made by
   `computed()` goes through one more call that checks what its function
-  returned. Against the engine's own computed, which `useMemo` and stores use,
-  that measured 0-2% slower on a wide graph of trivial computeds and 4-10%
-  slower along a chain of 1000.
+  returned. `benchmark/run.js` measures that against the engine's own
+  computed, which `useMemo` and stores use: one write flushed through 1000
+  trivial computeds read by one effect, side by side and as a chain. With
+  `NODE_ENV=production`, `computed()` took 1.14 times the engine computed's
+  time on both shapes (1.05 to 1.24 over six runs, Node 22 on an Apple M3 Max,
+  2026-11-21); in the development tier, 1.35 times on the wide graph and 1.22
+  times along the chain.

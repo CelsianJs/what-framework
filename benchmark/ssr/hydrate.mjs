@@ -9,9 +9,15 @@
 //   solid1  babel-preset-solid { generate: "ssr" | "dom", hydratable: true }
 //   solid2  @solidjs/babel-plugin, the same
 //
-// With --before <dir>, the two What entries are also built from another What
-// checkout (`before.whatc`, `before.what`), server and client: the behaviour
-// to compare against.
+// With --before <dir>, the What entries are also built from another What
+// checkout, server and client: the behaviour to compare against. `before.what`
+// always; `before.whatc` only when that checkout's compiler has a server target
+// (what 0.14's has none, and is skipped with a message).
+//
+// Every client is built as an app ships it: the What clients resolve the
+// `production` export condition, the published dist/*.min.js, so each checkout
+// must be built (`node scripts/build.js`). React is not measured: there is no
+// React entry.
 //
 // Per run, in a fresh page: the server's HTML is in the document, the client
 // bundle has loaded, and the page then measures `hydrate`, the time the
@@ -28,6 +34,7 @@ import { createRequire } from 'node:module';
 import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { buildRows, SELECTED_ID } from './shared/data.mjs';
@@ -49,8 +56,21 @@ async function whatCompiler(checkout) {
   return (await import(pathToFileURL(path.join(checkout, 'packages/compiler/src/babel-plugin.js')).href)).default;
 }
 
-// what-framework and its subpaths from a checkout's sources.
-function whatAliases(checkout) {
+// what-framework and its subpaths from a checkout, resolved through each
+// package's exports with `conditions`, as a bundler with those conditions
+// resolves them: the clients get the production dist, the servers the source.
+const CLIENT_CONDITIONS = ['production', 'browser', 'import', 'default'];
+const SERVER_CONDITIONS = ['import', 'default'];
+
+function whatAliases(checkout, conditions) {
+  const pick = (entry) => {
+    if (typeof entry === 'string') return entry;
+    for (const [condition, value] of Object.entries(entry)) {
+      const target = conditions.includes(condition) ? pick(value) : null;
+      if (target) return target;
+    }
+    return null;
+  };
   return {
     name: 'what-sources',
     setup(b) {
@@ -58,12 +78,21 @@ function whatAliases(checkout) {
         const [, pkg, sub = ''] = resolveArgs.path.match(/^what-(framework|core|server)(\/.*)?$/);
         const dir = path.join(checkout, 'packages', pkg === 'framework' ? 'what' : pkg);
         const pkgJson = createRequire(path.join(dir, 'package.json'))(path.join(dir, 'package.json'));
-        const entry = pkgJson.exports['.' + sub];
-        const target = typeof entry === 'string' ? entry : entry.import || entry.default;
-        return { path: path.join(dir, target) };
+        const file = path.join(dir, pick(pkgJson.exports['.' + sub]));
+        if (!existsSync(file)) throw new Error(`${file} does not exist: run \`node scripts/build.js\` in ${checkout}`);
+        return { path: file };
       });
     },
   };
+}
+
+// A compiler without a server target ignores `generate: 'ssr'` and emits
+// client code, which cannot render on a server.
+async function hasServerTarget(compiler) {
+  const out = await transformAsync('export const A = () => <div />;', {
+    babelrc: false, configFile: false, parserOpts: { plugins: ['jsx'] }, plugins: [[compiler, { generate: 'ssr', production: true }]],
+  });
+  return out.code.includes('what-framework/ssr-runtime');
 }
 
 function babelJsx(babelOptions) {
@@ -83,8 +112,8 @@ function babelJsx(babelOptions) {
 
 // The server side of each entry: its hydratable renderString.
 const SERVERS = {
-  whatc: (checkout, compiler) => ({ dir: 'whatc', plugins: [whatAliases(checkout), babelJsx({ parserOpts: { plugins: ['jsx'] }, plugins: [[compiler, { generate: 'ssr', production: true }]] })], define: { __HYDRATABLE__: 'true' } }),
-  what: (checkout) => ({ dir: 'what', plugins: [whatAliases(checkout)], jsx: 'automatic', jsxImportSource: 'what-framework', define: { __HYDRATABLE__: 'true' } }),
+  whatc: (checkout, compiler) => ({ dir: 'whatc', plugins: [whatAliases(checkout, SERVER_CONDITIONS), babelJsx({ parserOpts: { plugins: ['jsx'] }, plugins: [[compiler, { generate: 'ssr', production: true }]] })], define: { __HYDRATABLE__: 'true' } }),
+  what: (checkout) => ({ dir: 'what', plugins: [whatAliases(checkout, SERVER_CONDITIONS)], jsx: 'automatic', jsxImportSource: 'what-framework', define: { __HYDRATABLE__: 'true' } }),
   solid1: () => ({ dir: 'solid1', plugins: [babelJsx({ presets: [[solidPresetV1, { generate: 'ssr', hydratable: true }]] })] }),
   solid2: () => ({ dir: 'solid2', plugins: [babelJsx({ plugins: [[solidPluginV2.default ?? solidPluginV2, { generate: 'ssr', hydratable: true }]] })] }),
 };
@@ -98,7 +127,7 @@ import { buildRows } from '../../shared/data.mjs';
 const rows = buildRows(${ROWS});
 window.__hydrate = () => hydrate(<App rows={rows} selected={${SELECTED_ID}} />, document.getElementById('main'));`,
     jsx: { plugins: [[compiler, { production: true, ...(hydratable ? { hydratable: true } : {}) }]] },
-    plugins: [whatAliases(checkout), babelJsx({ parserOpts: { plugins: ['jsx'] }, plugins: [[compiler, { production: true, ...(hydratable ? { hydratable: true } : {}) }]] })],
+    plugins: [whatAliases(checkout, CLIENT_CONDITIONS), babelJsx({ parserOpts: { plugins: ['jsx'] }, plugins: [[compiler, { production: true, ...(hydratable ? { hydratable: true } : {}) }]] })],
   }),
   what: (checkout) => ({
     source: `import { h, hydrate } from 'what-framework';
@@ -107,7 +136,7 @@ import { buildRows } from '../../shared/data.mjs';
 const rows = buildRows(${ROWS});
 window.__hydrate = () => hydrate(h(App, { rows, selected: ${SELECTED_ID} }), document.getElementById('main'));`,
     esbuildJsx: { jsx: 'automatic', jsxImportSource: 'what-framework' },
-    plugins: [whatAliases(checkout)],
+    plugins: [whatAliases(checkout, CLIENT_CONDITIONS)],
   }),
   solid1: () => ({
     source: `import { hydrate } from 'solid-js/web';
@@ -212,7 +241,8 @@ const current = await whatCompiler(repo);
 for (const kind of ['whatc', 'what', 'solid1', 'solid2']) entries.push({ name: kind, kind, checkout: repo, compiler: current, hydratable: true });
 if (beforeAt) {
   const old = await whatCompiler(beforeAt);
-  entries.push({ name: 'before.whatc', kind: 'whatc', checkout: beforeAt, compiler: old, hydratable: false });
+  if (await hasServerTarget(old)) entries.push({ name: 'before.whatc', kind: 'whatc', checkout: beforeAt, compiler: old, hydratable: false });
+  else console.log(`Skipping before.whatc: the compiler in ${beforeAt} has no server target (generate: 'ssr').`);
   entries.push({ name: 'before.what', kind: 'what', checkout: beforeAt, compiler: old, hydratable: false });
 }
 

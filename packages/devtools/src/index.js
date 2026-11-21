@@ -52,8 +52,9 @@ function sourceOf(handle, rawName = '', fallback = '') {
   const at = /@(?=[^\n]+:\d+:\d+$)/.exec(rawName)?.index ?? -1;
   const where = core?.__ownerPath?.(handle);
   const stem = at === -1 ? rawName : rawName.slice(0, at);
-  const name = (stem === 'effect' || stem === 'computed') && handle?.fn?.name ? handle.fn.name : stem;
-  const loc = at === -1 ? where?.loc : rawName.slice(at + 1);
+  const fnName = (handle?.fn?.inner ?? handle?.fn)?.name;
+  const name = (stem === 'effect' || stem === 'computed') && fnName ? fnName : stem;
+  const loc = at === -1 ? handle?._devLoc || where?.loc : rawName.slice(at + 1);
   return {
     name: (name || fallback).slice(0, 160),
     ...(where?.length ? { owner: where.join(' › ').slice(0, 500) } : {}),
@@ -108,6 +109,7 @@ const workIds = new WeakMap();
 const activeWork = new Map();
 let workId = 0;
 let hydration = null;
+let droppedBeforeInstall = null;
 
 function workIdOf(ref) {
   if (!workIds.has(ref)) workIds.set(ref, ++workId);
@@ -124,6 +126,10 @@ function asyncState(node) {
 }
 
 function trackRecord(type, subject, state) {
+  if (type === 'action') {
+    emit(type, state);
+    return;
+  }
   if (type === 'hydration:complete') {
     hydration = { hydrated: true, ...state };
     emit(type, hydration);
@@ -646,9 +652,8 @@ export function getSnapshot(opts = {}) {
 }
 
 /**
- * The whole registry, JSON-safe, for the MCP bridge. Lists are never cut: ids,
- * names, revisions, run counts and dependencies are exact, and only each
- * signal's `value` is a bounded preview().
+ * The tracked registry, JSON-safe, for the MCP bridge. Signal values are
+ * bounded previews. A late install can miss pre-install entries.
  * @param {{ budget?: number }} [opts]
  */
 export function getState({ budget = 300 } = {}) {
@@ -675,7 +680,7 @@ export function getState({ budget = 300 } = {}) {
   }
   const componentList = [];
   for (const entry of components.values()) componentList.push({ ...descriptor(entry), parentId: entry.parentId });
-  return { signals: signalList, effects: effectList, components: componentList, hydration, work: [...activeWork.values()] };
+  return { signals: signalList, effects: effectList, components: componentList, hydration, work: [...activeWork.values()], ...(droppedBeforeInstall ? { droppedBeforeInstall } : {}) };
 }
 
 /**
@@ -737,11 +742,12 @@ export function installDevTools(coreModule) {
     if (typeof window !== 'undefined') window.__WHAT_CORE__ = mod;
 
     // Register what was created before installDevTools ran (module-scope
-    // signals in a store imported before the devtools entry): the engine's
-    // placeholder hooks buffered those creations.
+    // signals in a store imported before the devtools entry): the engine
+    // buffered those creations while no hooks were installed.
     if (typeof mod.__drainPreinstallBuffer === 'function') {
       try {
         const drained = mod.__drainPreinstallBuffer();
+        if (Object.values(drained.dropped || {}).some(Boolean)) droppedBeforeInstall = drained.dropped;
         for (const ctx of drained.components || []) {
           if (ctx._devId == null) hooks.onComponentMount(ctx);
         }

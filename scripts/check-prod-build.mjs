@@ -13,11 +13,13 @@
 // page. This catches both failure modes headlessly, for:
 //
 //   production   what-framework + what-framework/render (dist/*.min.js)
-//   development  what-core's readable dist (dist/index.js + dist/render.js)
+//   bundler      what-core's readable dist (dist/index.js + dist/render.js),
+//                which the `module` export condition resolves to
 //
-// It also checks that each tier is what it claims to be: the development tier
-// honours the `__WHAT_DEV__` global override, the production tier cannot be
-// switched back into development mode by it.
+// It also checks that each tier is what it claims to be: the bundler tier runs
+// development code unless process.env.NODE_ENV is "production" (package.json
+// runs this script both ways), and neither tier is switched into development
+// mode by the `__WHAT_DEV__` global.
 
 import { JSDOM } from 'jsdom';
 import assert from 'node:assert';
@@ -26,7 +28,7 @@ const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = dom.window.document;
 global.window = dom.window;
 
-// Set before any framework module loads: only the development tier may obey it.
+// Set before any framework module loads: neither tier may obey it.
 globalThis.__WHAT_DEV__ = true;
 
 const productionEntry = import.meta.resolve('what-framework');
@@ -35,7 +37,7 @@ assert.match(productionEntry, /\/dist\/index\.min\.js$/,
 
 const tiers = [
   { name: 'production', index: 'what-framework', render: 'what-framework/render', dev: false },
-  { name: 'development', index: '../packages/core/dist/index.js', render: '../packages/core/dist/render.js', dev: true },
+  { name: 'bundler', index: '../packages/core/dist/index.js', render: '../packages/core/dist/render.js', dev: process.env.NODE_ENV !== 'production' },
 ];
 
 const warn = console.warn;
@@ -100,7 +102,7 @@ for (const tier of tiers) {
   computed(() => { source(1); })();
   console.warn = warn;
   const warned = warnings.some((w) => w.includes('ERR_SIGNAL_WRITE_IN_COMPUTED'));
-  assert.equal(warned, tier.dev, `${label}: expected ${tier.dev ? 'development' : 'production'} behaviour with globalThis.__WHAT_DEV__ = true`);
+  assert.equal(warned, tier.dev, `${label}: expected ${tier.dev ? 'development' : 'production'} behaviour with NODE_ENV=${process.env.NODE_ENV ?? '(unset)'} and globalThis.__WHAT_DEV__ = true`);
 
   console.log(`  ✓ ${label}: rendered, reactive, nested list disposal stayed single-owned, ${tier.dev ? 'dev checks on' : 'dev checks compiled out'}.`);
 }

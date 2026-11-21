@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 
 // What Framework - Build Script
-// Uses esbuild to produce proper ESM bundles per package, in What's two tiers
-// (see packages/core/src/env.js):
-//   <entry>.js      development: readable, dev checks and devtools hooks kept,
-//                   __DEV__ resolved at runtime exactly as in src/.
+// Uses esbuild to produce proper ESM bundles per package, in two dist tiers
+// beside src/ (see packages/core/src/env.js):
+//   <entry>.js      for bundlers: readable, every dev check spelled as a
+//                   process.env.NODE_ENV test, which the bundler folds
+//                   (buildBundlerTier below). The `module` export condition.
 //   <entry>.min.js  production: minified, the flag folded to false so every
 //                   dev-only branch, and the code only they reach, is
-//                   removed (PRODUCTION below). This is what the
-//                   `production` export condition resolves to.
+//                   removed (PRODUCTION below). The `production` export
+//                   condition.
 
 import { build } from 'esbuild';
-import { mkdirSync, existsSync, statSync, rmSync, readdirSync } from 'fs';
+import { mkdirSync, existsSync, statSync, rmSync, readdirSync, writeFileSync } from 'fs';
 import { readFile } from 'fs/promises';
-import { join, resolve, relative } from 'path';
+import { join, resolve, relative, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -137,21 +138,55 @@ export const packages = [
 // which esbuild folds while parsing: dev branches go, then whatever only they
 // used. Modules must import the flag as `__DEV__`, unrenamed.
 const DEV_IMPORT = /\bimport\s*\{([^}]*)\}\s*from\b/g;
-const foldDevFlag = {
-  name: 'what-production-dev-flag',
-  setup(build) {
-    build.onLoad({ filter: /[\\/]packages[\\/][^\\/]+[\\/]src[\\/].*\.js$/ }, async (args) => {
-      const source = await readFile(args.path, 'utf8');
-      if (!source.includes('__DEV__')) return undefined;
-      const contents = source.replace(DEV_IMPORT, (statement, specifiers) => statement.replace(
-        specifiers,
-        specifiers.replace(/\b__DEV__\b(?!\s+as\b)(\s*,)?/, (match) => ' '.repeat(match.length)),
-      ));
-      return { contents, loader: 'js' };
-    });
-  },
-};
-export const PRODUCTION = { define: { __WHAT_DEV__: 'false', __DEV__: 'false' }, plugins: [foldDevFlag] };
+// `env`, when given, replaces the source of core's env.js, the module that
+// declares the flag.
+function freeDevFlag(env) {
+  return {
+    name: 'what-dev-flag',
+    setup(build) {
+      build.onLoad({ filter: /[\\/]packages[\\/][^\\/]+[\\/]src[\\/].*\.js$/ }, async (args) => {
+        if (env && /[\\/]packages[\\/]core[\\/]src[\\/]env\.js$/.test(args.path)) return { contents: env, loader: 'js' };
+        const source = await readFile(args.path, 'utf8');
+        if (!source.includes('__DEV__')) return undefined;
+        const contents = source.replace(DEV_IMPORT, (statement, specifiers) => statement.replace(
+          specifiers,
+          specifiers.replace(/\b__DEV__\b(?!\s+as\b)(\s*,)?/, (match) => ' '.repeat(match.length)),
+        ));
+        return { contents, loader: 'js' };
+      });
+    },
+  };
+}
+export const PRODUCTION = { define: { __WHAT_DEV__: 'false', __DEV__: 'false' }, plugins: [freeDevFlag()] };
+
+// The bundler tier. A browser bundle made with neither the `development` nor
+// the `production` condition resolves `module` to it: esbuild with its default
+// conditions, `bun build --production`. (`node` comes before `module` in the
+// export maps, so a server bundle resolves the source, as Node itself does.)
+// Both define process.env.NODE_ENV (esbuild: "production" when minifying for
+// the browser, else "development"), so each `__DEV__` is spelled as that test
+// in place: a production build folds every dev branch while parsing and drops
+// the code only it reaches, as the production tier does, and a development
+// build keeps the diagnostics. The __WHAT_DEV__ global plays no part here.
+// esbuild is handed a stand-in identifier of the test's length, spelled out in
+// the output, so the source maps stay exact.
+const NODE_ENV_DEV = '(process.env.NODE_ENV !== "production")';
+const DEV_STAND_IN = `__WHAT_DEV_${'_'.repeat(NODE_ENV_DEV.length - '__WHAT_DEV_'.length)}`;
+const BUNDLER_FLAG = freeDevFlag(`export const __DEV__ = ${DEV_STAND_IN};\n`);
+
+/** Build the bundler tier: esbuild `options` (their plugins run after the flag's). */
+export async function buildBundlerTier(options) {
+  const result = await build({
+    ...options,
+    define: { ...options.define, __DEV__: DEV_STAND_IN },
+    plugins: [BUNDLER_FLAG, ...(options.plugins || [])],
+    write: false,
+  });
+  for (const file of result.outputFiles) {
+    mkdirSync(dirname(file.path), { recursive: true });
+    writeFileSync(file.path, file.path.endsWith('.js') ? file.text.replaceAll(DEV_STAND_IN, NODE_ENV_DEV) : file.contents);
+  }
+}
 
 // Every file under `dir`, as paths relative to it.
 function filesUnder(dir, base = dir) {
@@ -196,7 +231,7 @@ export async function buildModules(pkgDir, distDir) {
     target: 'es2022',
     logLevel: 'silent',
   };
-  await build({ ...common, sourcemap: true, plugins: [siblingModules(srcDir, '.js')] });
+  await buildBundlerTier({ ...common, plugins: [siblingModules(srcDir, '.js')], sourcemap: 'external' });
   await build({
     ...common,
     ...PRODUCTION,
@@ -257,24 +292,23 @@ for (const pkg of packages) {
     if (!existsSync(entryPath)) continue;
 
     try {
-      // ESM bundle (readable, with source map)
-      await build({
+      // The bundler tier, readable. Maps here and below are emitted locally,
+      // without a sourceMappingURL comment: they are not in the npm payload.
+      await buildBundlerTier({
         entryPoints: [entryPath],
         outfile: join(distDir, `${entry.outputBase}.js`),
         bundle: true,
         format: 'esm',
         platform: 'browser',
-        sourcemap: true,
+        sourcemap: 'external',
         treeShaking: true,
         external: pkg.external,
-        // Keep readable for debugging
         minify: false,
         target: 'es2022',
         logLevel: 'silent',
       });
 
-      // Minified bundle (map emitted locally, but without a sourceMappingURL
-      // comment — maps are excluded from the npm payload)
+      // Minified bundle
       await build({
         entryPoints: [entryPath],
         outfile: join(distDir, `${entry.outputBase}.min.js`),

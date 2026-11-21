@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   signal, computed, effect, memo, batch, flushSync, untrack, createRoot,
   getOwner, runWithOwner, onCleanup, _createItemScope,
-  __DEV__, __devtools, __setDevToolsHooks, __subsOf, __drainPreinstallBuffer,
+  __DEV__, __devtools, __setDevToolsHooks, __subsOf, __drainPreinstallBuffer, _devMounted,
 } from '../src/reactive.js';
 import { createSelector } from '../src/selector.js';
 import { capture } from '../src/diagnostics.js';
@@ -606,19 +606,62 @@ describe('createSelector', () => {
   });
 });
 
-describe('the devtools pre-install buffer', { skip: !__DEV__ || !__devtools?.__isPreinstallBuffer }, () => {
-  it('keeps no unmounted component and empties on drain', () => {
-    const buffer = __devtools.__buffer;
-    const ctx = { name: 'Gone' };
-    __devtools.onComponentMount(ctx);
-    __devtools.onComponentUnmount(ctx);
-    const live = { name: 'Live' };
-    __devtools.onComponentMount(live);
+describe('the devtools pre-install buffer', { skip: !__DEV__ || typeof WeakRef === 'undefined' }, () => {
+  it('leaves the hooks empty: writes and runs before an install reach no hook', () => {
+    assert.equal(__devtools, null);
+  });
+
+  it('keeps no unmounted component, hands over creations and empties on drain', () => {
+    __drainPreinstallBuffer();
+    const gone = { disposals: [] };
+    _devMounted(gone);
+    for (const fn of gone.disposals) fn();
+    const live = { disposals: [] };
+    _devMounted(live);
+    const early = signal(0, 'early');
+    const stop = effect(() => { early(); });
+    early(1);
     const drained = __drainPreinstallBuffer();
-    assert.ok(!drained.components.includes(ctx));
+    assert.ok(!drained.components.includes(gone));
     assert.ok(drained.components.includes(live));
-    assert.equal(buffer.components.size + buffer.signals.size + buffer.effects.size, 0);
+    assert.ok(drained.signals.includes(early));
+    assert.equal(drained.effects.length, 1);
     assert.deepEqual(__drainPreinstallBuffer(), { signals: [], effects: [], components: [] });
+    stop();
+  });
+
+  it('records nothing while hooks are installed', () => {
+    __drainPreinstallBuffer();
+    const created = [];
+    __setDevToolsHooks({ onSignalCreate: (sig) => created.push(sig) });
+    try {
+      const s = signal(0, 'hooked');
+      assert.deepEqual(created, [s]);
+    } finally {
+      __setDevToolsHooks(null);
+    }
+    assert.deepEqual(__drainPreinstallBuffer(), { signals: [], effects: [], components: [] });
+  });
+});
+
+describe('call sites for devtools', { skip: !__DEV__ || typeof WeakRef === 'undefined' }, () => {
+  it('are captured only for creations a tool will see', () => {
+    const hadWindow = 'window' in globalThis;
+    if (!hadWindow) globalThis.window = globalThis;
+    const located = /reactive-engine-hazards\.test\.js:\d+:\d+$/;
+    try {
+      __drainPreinstallBuffer();
+      assert.match(signal(0)._devLoc, located, 'buffered for a late install: located');
+      const kept = [];
+      while (kept.length < 2000) kept.push(signal(kept.length));
+      assert.equal(signal(0)._devLoc, null, 'past the buffer cap, with no hooks: no stack trace');
+      __setDevToolsHooks({});
+      assert.match(signal(0)._devLoc, located, 'hooks installed: located');
+    } finally {
+      __setDevToolsHooks(null);
+      __drainPreinstallBuffer();
+      if (!hadWindow) delete globalThis.window;
+    }
   });
 });
 

@@ -52,6 +52,14 @@ function serializeEvent(devtools, event, data) {
   if (event === 'error:captured') {
     return { ...data, message: cut(data.message, 2000), stack: data.stack ? cut(data.stack, 4000) : null };
   }
+  if (event === 'action') {
+    return {
+      name: cut(data.name, 160),
+      outcome: data.outcome,
+      invalidated: data.invalidated.map((key) => cut(key, 200)),
+      revalidated: data.revalidated.map((path) => cut(path, 200)),
+    };
+  }
   if (event === 'diagnostic') {
     // The fix text is not sent: the MCP server takes it from its own catalogue,
     // so page code cannot supply instructions under a trusted label.

@@ -3,9 +3,8 @@
  * event cursor, cache, and the two state writes.
  *
  * Every live tool targets one page session (see bridge.js). Lists are built
- * from the page's full registry (ids, names, revisions, run counts and
- * dependencies are never truncated); only value previews are shortened, and
- * long lists page with offset/limit.
+ * from the tracked registry; a late install can miss entries. Value previews
+ * are shortened, and long lists page with offset/limit.
  */
 
 import { z } from 'zod';
@@ -28,6 +27,7 @@ const EVENT_TYPES = {
   optimistic: ['optimistic:add', 'optimistic:drop'],
   suspense: ['suspense:waiting', 'suspense:revealed', 'suspense:disposed'],
   hydration: ['hydration:complete'],
+  action: ['action'],
 };
 
 export function sourceFields(entry) {
@@ -80,6 +80,30 @@ export function subscriberCounts(effects) {
   return counts;
 }
 
+const DEFAULT_PENDING_MS = 5000;
+
+export function stalledWork(state, pendingMs = DEFAULT_PENDING_MS) {
+  const now = Date.now();
+  const flights = state.effects.filter((e) => e.async?.inFlight).map((e) => ({
+    kind: 'async', id: e.id, name: e.name, ...sourceFields(e), ...e.async.inFlight, status: e.async.status,
+  }));
+  const stalled = [...flights, ...(state.work || [])]
+    .map((entry) => ({ ...entry, ageMs: Math.max(0, now - entry.startedAt) }))
+    .filter((entry) => entry.ageMs >= pendingMs).sort((a, b) => b.ageMs - a.ageMs);
+  return stalled.length ? { count: stalled.length, work: stalled.slice(0, 10) } : null;
+}
+
+export function registryCoverage(state) {
+  if (!state.droppedBeforeInstall) return {};
+  return {
+    registry: {
+      truncated: true,
+      tracked: { signals: state.signals.length, effects: state.effects.length, components: state.components.length },
+      droppedBeforeInstall: state.droppedBeforeInstall,
+    },
+  };
+}
+
 /** Remember the names a state answer carries, so event lines can name ids. */
 export function learnNames(session, state) {
   for (const s of state.signals || []) session.names.signals.set(s.id, s.name);
@@ -122,6 +146,8 @@ export function formatEvent(entry, names) {
     case 'component:unmounted': return `#${seq} unmount #${data.id}${sourceSuffix(data)}`;
     case 'error:captured': return `#${seq} error ${data.type || ''}${data.code ? ` ${data.code}` : ''}: ${pageText(data.message, 160)}${sourceSuffix(data)}`;
     case 'diagnostic': return `#${seq} ${data.code}${data.count > 1 ? ` ×${data.count}` : ''} ${pageText(data.message, 200)}`;
+    case 'action':
+      return `#${seq} action ${pageText(data.name, 160)} ${data.outcome === 'ok' ? 'ok' : 'error'}`;
     case 'page:connected': return `#${seq} page connected`;
     case 'page:reconnected': return `#${seq} page reconnected (events while disconnected are missing)`;
     case 'page:closed': return `#${seq} page closed`;
@@ -210,7 +236,7 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_connection_status',
-    'Orient in one call: the connected pages (sessions), and for the page: URL/title/route, counts, the diagnostics and errors it reported (first lines, with codes), the key signals with values, and the component tree two levels deep. Call first.',
+    'Orient in one call: the connected pages (sessions), and for the page: URL/title/route, counts, the diagnostics and errors it reported (first lines, with codes), the key signals with values, stalled async work, and the component tree two levels deep. Call first.',
     { session: sessionParam(z) },
     async ({ session: id }) => {
       const sessions = bridge.listSessions();
@@ -254,6 +280,7 @@ export function registerTools(server, bridge) {
           ...diagnostics.slice(0, 5).map((d) => `${d.code}${d.count > 1 ? ` ×${d.count}` : ''} ${pageText(d.message, 140)}`),
           ...errors.slice(0, 3).map((e) => `${e.code || 'ERR_RUNTIME'} ${e.type || 'error'}: ${pageText(e.message, 140)}`),
         ];
+        const stalled = stalledWork(state);
         const hidden = Math.max(0, diagnostics.length - 5) + Math.max(0, errors.length - 3);
         return ok({
           connected: true,
@@ -265,6 +292,8 @@ export function registerTools(server, bridge) {
           diagnostics: diagnosticSummary(bridge, session),
           errors: errors.length,
           ...(issues.length ? { issues, ...(hidden ? { moreIssues: hidden } : {}), hint: 'what_errors gives each with its fix; what_fix({error}) the worked example.', note: UNTRUSTED_NOTE } : {}),
+          ...(stalled ? { stalled } : {}),
+          ...registryCoverage(state),
           keySignals,
           tree: componentTreeLine(state.components, 2),
           ...extras,
@@ -304,7 +333,7 @@ export function registerTools(server, bridge) {
         if (!signals.length) return fail(`Signal ${id} not found`, 'Ids change when the page reloads; call what_signals again.');
         const { data } = await bridge.request(session, 'signal', { id });
         const subs = subscriberCounts(state.effects);
-        return ok({ total, matched: 1, signals: [{ id, name: data.name ?? signals[0].name, ...sourceFields(signals[0]), value: previewValue(data.value ?? signals[0].value, 2000), rev: data.rev ?? signals[0].rev, subs: subs.get(id) || 0 }] }, seq);
+        return ok({ ...registryCoverage(state), total, matched: 1, signals: [{ id, name: data.name ?? signals[0].name, ...sourceFields(signals[0]), value: previewValue(data.value ?? signals[0].value, 2000), rev: data.rev ?? signals[0].rev, subs: subs.get(id) || 0 }] }, seq);
       }
       if (filter) {
         let re;
@@ -320,7 +349,7 @@ export function registerTools(server, bridge) {
         ...(s.async ? { effectId: s.id } : { id: s.id }), name: s.name, ...sourceFields(s),
         ...(s.async ? { kind: 'computed', ...asyncFields(s) } : { value: previewValue(s.value, 200), subs: subs.get(s.id) || 0 }),
       }));
-      return ok({ total, matched: signals.length, signals: rows, ...(next !== undefined ? { next } : {}) }, seq);
+      return ok({ ...registryCoverage(state), total, matched: signals.length, signals: rows, ...(next !== undefined ? { next } : {}) }, seq);
     })
   );
 
@@ -363,7 +392,7 @@ export function registerTools(server, bridge) {
           ...(e.componentId != null ? { componentId: e.componentId } : {}),
         };
       });
-      return ok({ total, matched: effects.length, effects: rows, ...(next !== undefined ? { next } : {}) }, seq);
+      return ok({ ...registryCoverage(state), total, matched: effects.length, effects: rows, ...(next !== undefined ? { next } : {}) }, seq);
     })
   );
 
@@ -391,6 +420,7 @@ export function registerTools(server, bridge) {
         const matched = re ? components.filter((c) => re.test(c.name || '')) : components;
         const { slice, next } = page(matched, offset, Math.max(limit || 100, 1));
         return ok({
+          ...registryCoverage(state),
           total: components.length,
           tree: componentTreeLine(components, 3),
           components: slice.map((c) => ({ id: c.id, name: c.name, ...sourceFields(c), parentId: c.parentId ?? null })),
@@ -421,7 +451,7 @@ export function registerTools(server, bridge) {
       }
       if (rootId != null && !byId.has(rootId)) return fail(`Component ${rootId} not found`, 'Ids change on remount; call what_components again.');
       const result = rootId != null ? toTree(byId.get(rootId), 0) : roots.map((r) => toTree(r, 0)).filter(Boolean);
-      return ok({ total: components.length, tree: result }, seq);
+      return ok({ ...registryCoverage(state), total: components.length, tree: result }, seq);
     })
   );
 
@@ -437,7 +467,7 @@ export function registerTools(server, bridge) {
     async ({ mode, maxSignals, maxEffects, session: sid }) => withState(sid, async ({ session, state, seq }) => {
       if (mode === 'save') {
         session.baseline = { state, seq };
-        return ok({ saved: true, counts: { signals: state.signals.length, effects: state.effects.length, components: state.components.length } }, seq);
+        return ok({ ...registryCoverage(state), saved: true, counts: { signals: state.signals.length, effects: state.effects.length, components: state.components.length } }, seq);
       }
 
       if (mode === 'diff') {
@@ -502,20 +532,23 @@ export function registerTools(server, bridge) {
         put('mounted', mounted, 10);
         put('unmounted', unmounted, 10);
         if (newDiagnostics.length) out.newDiagnostics = newDiagnostics;
-        if (!Object.keys(out).length) return ok({ changed: false, since: baseline.seq }, seq);
+        if (!Object.keys(out).length) return ok({ ...registryCoverage(state), changed: false, since: baseline.seq }, seq);
         return ok({
-          ...out, counts, since: baseline.seq,
+          ...registryCoverage(state), ...out, counts, since: baseline.seq,
           ...(owners.size || locations.size ? { sources: { owners: [...owners.keys()], locations: [...locations.keys()] } } : {}),
         }, seq);
       }
 
       const out = {
+        ...registryCoverage(state),
         signals: state.signals.slice(0, maxSignals).map((s) => ({ id: s.id, name: s.name, value: previewValue(s.value, 200), ...(s.componentId != null ? { componentId: s.componentId } : {}) })),
         effects: state.effects.slice(0, maxEffects).map((e) => ({ id: e.id, name: e.name, ...(e.kind === 'computed' ? { kind: 'computed' } : {}), runs: e.runCount || 0, deps: e.depSignalIds || [], ...(e.componentId != null ? { componentId: e.componentId } : {}) })),
         components: state.components.map((c) => ({ id: c.id, name: c.name, parentId: c.parentId ?? null })),
         diagnostics: diagnosticSummary(bridge, session),
       };
-      if (state.signals.length > maxSignals || state.effects.length > maxEffects) out.totals = { signals: state.signals.length, effects: state.effects.length };
+      if (state.signals.length > maxSignals || state.effects.length > maxEffects) {
+        return ok({ ...out, totals: { signals: state.signals.length, effects: state.effects.length } }, seq);
+      }
       return ok(out, seq);
     })
   );
@@ -594,14 +627,13 @@ export function registerTools(server, bridge) {
 
       const fixes = {};
       const mismatchFixes = {};
-      if (code === 'ERR_HYDRATION_MISMATCH') {
-        for (const entry of out.diagnostics) {
-          const kind = entry.mismatch?.kind;
-          if (Object.hasOwn(HYDRATION_FIXES, kind)) mismatchFixes[kind] = HYDRATION_FIXES[kind];
-        }
+      for (const entry of out.diagnostics) {
+        const kind = entry.mismatch?.kind;
+        if (Object.hasOwn(HYDRATION_FIXES, kind)) mismatchFixes[kind] = HYDRATION_FIXES[kind];
       }
       for (const code of Object.keys(summary)) {
-        if (code === 'ERR_HYDRATION_MISMATCH' && Object.keys(mismatchFixes).length) continue;
+        if (code === 'ERR_HYDRATION_MISMATCH' && Object.keys(mismatchFixes).length &&
+            out.diagnostics.every((d) => d.code !== code || Object.hasOwn(mismatchFixes, d.mismatch?.kind))) continue;
         const def = code === 'ERR_RUNTIME' ? null : getErrorDefinition(code);
         if (def) fixes[code] = def.suggestion;
       }
@@ -632,7 +664,7 @@ export function registerTools(server, bridge) {
     'What happened, without waiting: events after a cursor, oldest first (includes async, transitions, optimistic overlays, Suspense and hydration) (writes with their writer, effect runs with their cause, mounts, diagnostics, errors, page loads). Pass after = the seq or since from an earlier answer. more:true means call again with after = next; reading from next never repeats or skips.',
     {
       after: z.number().optional().describe('Return events with seq greater than this (default: the oldest kept)'),
-      types: z.array(z.enum(['diagnostic', 'error', 'write', 'run', 'mount', 'lifecycle', 'page', 'async', 'transition', 'optimistic', 'suspense', 'hydration'])).optional()
+      types: z.array(z.enum(['diagnostic', 'error', 'write', 'run', 'mount', 'lifecycle', 'page', 'async', 'transition', 'optimistic', 'suspense', 'hydration', 'action'])).optional()
         .describe('Only these kinds (default: all)'),
       limit: z.number().optional().default(50).describe('Max events (default 50, max 500)'),
       session: sessionParam(z),
@@ -658,7 +690,12 @@ export function registerTools(server, bridge) {
         runs[key] = (runs[key] || 0) + 1;
       }
       const ranked = Object.entries(runs).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, n]) => `${name} ×${n}`);
-      const hasPageText = events.some((e) => e.event === 'diagnostic' || e.event === 'error:captured');
+      const actions = events.filter((e) => e.event === 'action').map(({ seq, data }) => ({
+        seq, name: pageText(data.name, 160), outcome: data.outcome === 'ok' ? 'ok' : 'error',
+        invalidated: Array.isArray(data.invalidated) ? data.invalidated.map((key) => pageText(key, 200)) : [],
+        revalidated: Array.isArray(data.revalidated) ? data.revalidated.map((path) => pageText(path, 200)) : [],
+      }));
+      const hasPageText = actions.length || events.some((e) => e.event === 'diagnostic' || e.event === 'error:captured');
 
       return ok({
         next: more ? events[events.length - 1].seq : seq,
@@ -672,6 +709,7 @@ export function registerTools(server, bridge) {
           }),
         } : {}),
         ...(ranked.length ? { runs: ranked } : {}),
+        ...(actions.length ? { actions } : {}),
         ...(hasPageText ? { note: UNTRUSTED_NOTE } : {}),
         ...(session.socket === null ? { closed: `Session ${session.id} has closed; showing its buffered events.` } : {}),
       }, seq);
@@ -747,7 +785,7 @@ export function registerTools(server, bridge) {
     'what_invalidate_cache',
     'Mark query cache entries stale and refetch the ones on screen, as invalidateQueries does. Returns the keys it matched and since: what_events({after: since}) shows the refetch as it lands.',
     {
-      key: z.string().optional().describe('A key as what_cache lists it ("todos:1"), or a JSON array key, which is a prefix ("[\\"todos\\"]"). Omit to invalidate every entry.'),
+      key: z.union([z.string(), z.array(z.unknown())]).optional().describe('A key as what_cache lists it ("todos:1"), or an array prefix (["todos"]). Omit to invalidate every entry.'),
       session: sessionParam(z),
     },
     async ({ key, session: sid }) => {

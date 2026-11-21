@@ -6,6 +6,12 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { transform } from 'esbuild';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -21,7 +27,7 @@ let server;
 
 before(async () => {
   server = new McpServer({ name: 'scaffold-smoke', version: '0.0.0' });
-  registerAgentTools(server, null);
+  registerAgentTools(server, null, { root: tmpdir() });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: 'test', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -32,8 +38,8 @@ after(async () => {
   await server.close();
 });
 
-async function call(name, args) {
-  const result = await client.callTool({ name, arguments: args });
+async function call(name, args, connection = client) {
+  const result = await connection.callTool({ name, arguments: args });
   return JSON.parse(result.content[0].text);
 }
 
@@ -102,7 +108,7 @@ describe('what_scaffold output runs', () => {
     }
   });
 
-  it('page: sets the document title, declares what it uses and finishes loading on mount', async () => {
+  it('page: sets the document title, declares what it uses and resolves its async value under Suspense', async () => {
     const { module } = await scaffold('page', { signals: ['items'] });
     document.title = 'before';
     const { host, dispose } = mountInto(core.h(module.default, {}));
@@ -153,3 +159,66 @@ describe('what_scaffold output runs', () => {
     }
   });
 });
+
+for (const template of ['fullstack', 'islands']) {
+  it(`scaffolds, lints and loads every type in the ${template} project`, async (t) => {
+    const work = mkdtempSync(join(tmpdir(), 'what-scaffold-tool-'));
+    t.after(() => rmSync(work, { recursive: true, force: true }));
+    execFileSync(process.execPath, [fileURLToPath(new URL('../../create-what/index.js', import.meta.url)), 'app', '--template', template, '-y'], { cwd: work });
+    const root = join(work, 'app');
+    symlinkSync(fileURLToPath(new URL('../../../node_modules', import.meta.url)), join(root, 'node_modules'), 'dir');
+    const service = new McpServer({ name: 'template-scaffold', version: '0.0.0' });
+    const connection = new Client({ name: 'test', version: '0.0.0' });
+    const [c, s] = InMemoryTransport.createLinkedPair();
+    registerAgentTools(service, null, { root });
+    await Promise.all([service.connect(s), connection.connect(c)]);
+    t.after(async () => { await connection.close(); await service.close(); });
+
+    const modules = new Map();
+    for (const type of ['component', 'page', 'form', 'store', 'island']) {
+      const { code, path } = await call('what_scaffold', { type, name: 'Sample' }, connection);
+      const lint = await call('what_lint', { code, filePath: path }, connection);
+      assert.equal(lint.compiled, true, JSON.stringify(lint));
+      assert.deepEqual(lint.issues, [], code);
+      const file = join(root, path).replace(/\.jsx$/, '.js');
+      mkdirSync(dirname(file), { recursive: true });
+      const source = path.endsWith('.jsx')
+        ? (await transform(code, { loader: 'jsx', jsx: 'automatic', jsxImportSource: 'what-framework' })).code
+        : code;
+      writeFileSync(file, source);
+      modules.set(type, await import(pathToFileURL(file).href + '#' + type));
+      if (type === 'island' && template === 'islands') assert.equal(path, 'src/islands/Sample.jsx');
+      if (type === 'page' && template === 'fullstack') assert.equal(path, 'src/pages/sample.js');
+    }
+
+    const page = modules.get('page');
+    if (template === 'fullstack') {
+      assert.deepEqual(page.page, { mode: 'server' });
+      assert.deepEqual(await page.loader(), { status: 'Ready' });
+      const entry = readFileSync(join(root, 'src/entry-client.js'), 'utf8');
+      assert.match(entry, /devtools\.installDevTools\(core\)[\s\S]*if \(vnode\) hydrate\(/);
+      for (const file of ['CLAUDE.md', 'AGENTS.md']) {
+        const guide = readFileSync(join(root, file), 'utf8');
+        assert.doesNotMatch(guide, /```jsx/);
+        assert.match(guide, /h\(Form, \{ action: addPost/);
+      }
+      const { createRequestHandler } = await import('what-framework/server');
+      const handle = createRequestHandler({ routes: [{ path: '/', component: page.default, page: page.page, loader: page.loader }] });
+      assert.match(await (await handle(new Request('http://localhost/'))).text(), /Ready/);
+    } else {
+      const { host, dispose } = mountInto(core.h(page.default, {}));
+      try {
+        await tick();
+        assert.match(host.textContent, /Ready/);
+      } finally { dispose(); }
+    }
+    const { host, dispose } = mountInto(core.h(modules.get('island').default, {}));
+    try {
+      const button = host.querySelector('button');
+      assert.equal(button.textContent, 'Off');
+      button.click();
+      core.flushSync();
+      assert.equal(button.textContent, 'On');
+    } finally { dispose(); }
+  });
+}

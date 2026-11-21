@@ -156,7 +156,7 @@ load, keeps its value with `pending()` while it refetches, and is rendered on
 the server and adopted on hydrate) and by the SWR- and TanStack Query-style
 hooks. The hooks never suspend; their fields (`data`, `error`, `isLoading`, …)
 are accessors: call them where you render. See
-[DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
+the installed `what-framework/skills/what/SKILL.md` and the [online data guide](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
 
 ```jsx
 import { Suspense } from 'what-framework';

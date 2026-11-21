@@ -578,10 +578,8 @@ function refreshRead(c) {
 
 /** A computed read itself, directly or through other computeds. */
 function cycleError(node) {
-  const fn = __DEV__ ? devFn(node) : node.fn;
   return Object.assign(new Error(__DEV__
-    ? `[what] Cycle detected: computed ${fn.name ? `"${fn.name}"` : String(fn).slice(0, 60)} reads its own value, ` +
-      'directly or through computeds that read it. A computed cannot depend on itself.'
+    ? `Computed "${devName(node)}" reads its own value, directly or through computeds that read it.`
     : '[what] Cycle detected: a computed reads its own value'), { code: 'ERR_COMPUTED_CYCLE' });
 }
 
@@ -2504,7 +2502,7 @@ export function effect(fn, opts) {
       if (opts.binding) e.devBinding = opts.binding;
     }
     if (arguments[2]) e.devName = devNamed(e.devName, arguments[2]);
-    if (__devtools) devHook('onEffectCreate', e);
+    devCreated('effects', e);
     if (__devtools?.trace) devHook('onEffectBegin', e, null, parent);
     // Stamped before the run, so a write the run makes to its own dependency
     // is the cause of the re-run it triggers.
@@ -2585,7 +2583,10 @@ export function _userEffect(fn) {
     parent: runningEffect,
     owned: null,
   };
-  if (__DEV__ && __devtools) devHook('onEffectCreate', e);
+  if (__DEV__) {
+    if (arguments[1]) e.devName = arguments[1];
+    devCreated('effects', e);
+  }
   if (o !== null) o.disposals.push(e);
   // Under a <Suspense> that has not shown its content yet, the first run waits
   // until it does (see components.js).
@@ -3292,6 +3293,47 @@ function disposeOwner(root, runNode) {
 // builds remove it.
 // ---------------------------------------------------------------------------
 
+// Late-install replay buffer. Devtools that install after signals, effects or
+// components already exist (a module-scope store imported before the devtools
+// entry) register them from here: __drainPreinstallBuffer() hands them over.
+// Only creations are recorded, and only while no hooks are installed, so a
+// write or a run costs nothing extra. Signals and effects are held as weak
+// refs, components until they unmount. Capped, so an app that never installs
+// devtools does not accumulate entries; `dropped` counts what the cap missed.
+const PREINSTALL_CAP = 2000;
+/** @type {{ signals: Set<WeakRef<any>>, effects: Set<WeakRef<any>>, components: Set<any>, dropped: { signals: number, effects: number, components: number } } | null} */
+const preinstall = __DEV__ && typeof WeakRef !== 'undefined'
+  ? { signals: new Set(), effects: new Set(), components: new Set(), dropped: { signals: 0, effects: 0, components: 0 } }
+  : null;
+
+/** Development: whether a creation of `kind` reaches a tool, now or on install. */
+function devWatched(kind) {
+  return __devtools !== null || (preinstall !== null && preinstall[kind].size < PREINSTALL_CAP);
+}
+
+/** Development: a signal, or an effect or computed (`effects`), was created. */
+function devCreated(kind, x) {
+  if (__devtools !== null) devHook(kind === 'signals' ? 'onSignalCreate' : 'onEffectCreate', x);
+  else if (preinstall !== null) {
+    if (preinstall[kind].size < PREINSTALL_CAP) preinstall[kind].add(new WeakRef(x));
+    else preinstall.dropped[kind]++;
+  }
+}
+
+/** @internal Development: a component mounted (render.js). Devtools hear of it, and of its unmount. */
+export function _devMounted(owner) {
+  if (!__DEV__) return;
+  if (__devtools !== null) devHook('onComponentMount', owner);
+  else if (preinstall !== null) {
+    if (preinstall.components.size < PREINSTALL_CAP) preinstall.components.add(owner);
+    else preinstall.dropped.components++;
+  }
+  owner.disposals.push(() => {
+    if (__devtools !== null) devHook('onComponentUnmount', owner);
+    preinstall?.components.delete(owner);
+  });
+}
+
 // Every hook call goes through here: a hook that throws is reported and
 // ignored, so devtools can never leave the graph or the scheduler half-updated.
 function devHook(name, a, b, c) {
@@ -3325,14 +3367,15 @@ function devSignal(sig, node, debugName) {
   const where = ownerNow();
   if (where !== null && typeof WeakRef !== 'undefined') node.devOwnerRef = new WeakRef(where);
   if (debugName) sig._debugName = debugName;
-  if (__devtools) devHook('onSignalCreate', sig);
+  if (devSplit(debugName)[1] === null) sig._devLoc = devSplit(_devCallSite('', signal, 'signals'))[1];
+  devCreated('signals', sig);
 }
 
 function devComputed(read, node) {
   read[NODE] = node;
   node.sig = read;
   if (node.owner === null) node.devOwner = ownerNow();
-  if (__devtools) devHook('onEffectCreate', node);
+  devCreated('effects', node);
 }
 
 // How a diagnostic names an effect or computed: the compiler's name for it,
@@ -3369,6 +3412,30 @@ function devLabel(node) {
 function devFn(node) {
   const fn = node.fn;
   return fn.inner !== undefined ? fn.inner : fn;
+}
+
+/** @internal Publish a browser action completion to devtools. */
+export function _devAction(data) {
+  if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'action', null, data);
+}
+
+/**
+ * @internal Add the caller's location when the compiler supplied none, for a
+ * creation of `kind` that a tool will see (devWatched). A stack trace costs
+ * some thirty times the primitive it locates, so a page without devtools pays
+ * for at most the pre-install buffer's worth, not for every signal, computed
+ * and useEffect it makes.
+ */
+export function _devCallSite(name, primitive, kind = 'effects') {
+  if (!__DEV__ || !devWatched(kind) || typeof window === 'undefined' || devSplit(name)[1] !== null) return name;
+  const error = new Error();
+  const capture = /** @type {{ captureStackTrace?: (error: Error, skip: Function) => void }} */ (Error).captureStackTrace;
+  if (capture) capture(error, primitive);
+  const frames = error.stack?.split('\n') || [];
+  const caller = capture ? frames[1] : frames[frames.findIndex((line) => line.startsWith(primitive.name + '@')) + 1];
+  const loc = caller?.trim().match(/(?:^at (?:.*? \()?|@)((?:https?:|file:|\/).+?:\d+:\d+)\)?$/)?.[1];
+  if (!loc || /\/(?:node_modules|packages\/(?:core|router|server)\/src)\//.test(loc)) return name;
+  return `${name || ''}@${loc}`;
 }
 
 // A runtime name given the compiler's location, unless it carries its own.
@@ -3502,7 +3569,7 @@ function devHandle(node) {
 }
 
 function devTracksCauses() {
-  return __devtools != null && !__devtools.__isPreinstallBuffer && __devtools.trace !== false;
+  return __devtools !== null && __devtools.trace !== false;
 }
 
 // "Why did this run": the dependencies whose value changed since the node's
@@ -3688,61 +3755,29 @@ function devOrphan(e) {
 // Diagnostics reported in development name the scope they happened in.
 if (__DEV__) _setOwnerSource(() => __ownerPath(ownerNow()));
 
-// Late-install replay buffer. When devtools install after signals or effects
-// already exist (a module-scope store imported before the devtools entry), a
-// placeholder __devtools buffers creations, and the real hooks drain them with
-// __drainPreinstallBuffer() on install. Signals and effects are held as weak
-// refs, components only until they unmount, and the drain empties the buffer.
-// Capped so an app that never installs devtools does not accumulate entries.
-if (__DEV__ && typeof WeakRef !== 'undefined') {
-  const PREINSTALL_CAP = 2000;
-  /** @type {{ signals: Set<any>, effects: Set<any>, components: Set<any> }} */
-  const buffer = { signals: new Set(), effects: new Set(), components: new Set() };
-  __devtools = {
-    __isPreinstallBuffer: true,
-    onSignalCreate(sig) {
-      if (buffer.signals.size < PREINSTALL_CAP) buffer.signals.add(new WeakRef(sig));
-    },
-    onSignalUpdate() {},
-    onEffectCreate(e) {
-      if (buffer.effects.size < PREINSTALL_CAP) buffer.effects.add(new WeakRef(e));
-    },
-    onEffectDispose() {},
-    onEffectRun() {},
-    onError() {},
-    onComponentMount(ctx) {
-      if (buffer.components.size < PREINSTALL_CAP) buffer.components.add(ctx);
-    },
-    onComponentUnmount(ctx) {
-      buffer.components.delete(ctx);
-    },
-    __buffer: buffer,
-  };
-}
-
 /**
- * Drain the pre-install buffer. Called by the real devtools hooks after
- * __setDevToolsHooks replaces the placeholder. Returns arrays of the live
- * entries (disposed effects and unmounted components are left out) and
- * empties the buffer.
+ * Drain the pre-install buffer (see devCreated). Called by devtools right after
+ * __setDevToolsHooks. Returns the live entries (disposed effects and unmounted
+ * components are left out), with `dropped` counting the creations the cap
+ * turned away, and empties the buffer.
  */
 export function __drainPreinstallBuffer() {
-  /** @type {{ signals: any[], effects: any[], components: any[] }} */
+  /** @type {{ signals: any[], effects: any[], components: any[], dropped?: Record<string, number> }} */
   const out = { signals: [], effects: [], components: [] };
-  if (!__DEV__ || !preinstallSnapshot) return out;
-  for (const ref of preinstallSnapshot.signals) { const v = ref.deref?.(); if (v) out.signals.push(v); }
-  for (const ref of preinstallSnapshot.effects) {
-    const v = ref.deref?.();
+  if (!__DEV__ || preinstall === null) return out;
+  for (const ref of preinstall.signals) { const v = ref.deref(); if (v) out.signals.push(v); }
+  for (const ref of preinstall.effects) {
+    const v = ref.deref();
     if (v && !(v.flags & DISPOSED)) out.effects.push(v);
   }
-  for (const ctx of preinstallSnapshot.components) out.components.push(ctx);
-  preinstallSnapshot.signals.clear();
-  preinstallSnapshot.effects.clear();
-  preinstallSnapshot.components.clear();
+  for (const ctx of preinstall.components) out.components.push(ctx);
+  const { dropped } = preinstall;
+  if (dropped.signals + dropped.effects + dropped.components > 0) {
+    out.dropped = { ...dropped };
+    dropped.signals = dropped.effects = dropped.components = 0;
+  }
+  preinstall.signals.clear();
+  preinstall.effects.clear();
+  preinstall.components.clear();
   return out;
 }
-
-// The placeholder's buffer, captured at module load so __drainPreinstallBuffer
-// can return it after __setDevToolsHooks has replaced the placeholder.
-/** @type {WhatDevToolsHooks['__buffer'] | null} */
-const preinstallSnapshot = __DEV__ && __devtools?.__isPreinstallBuffer ? __devtools.__buffer : null;

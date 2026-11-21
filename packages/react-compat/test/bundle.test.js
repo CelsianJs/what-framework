@@ -45,8 +45,9 @@ const DIST_BUILT = ['core', 'what', 'router', 'server']
 const NEEDS_DIST = DIST_BUILT ? false : 'needs the built dist/ (npm run build)';
 
 // Built from the source rather than the dist: the client conditions without
-// `production`.
-const SOURCE_CONDITIONS = ['module', 'browser'];
+// `production`, and without `module`, which resolves the bundler tier
+// (dist/*.js).
+const SOURCE_CONDITIONS = ['browser'];
 
 const scratch = mkdtempSync(join(tmpdir(), 'what-react-bundle-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));

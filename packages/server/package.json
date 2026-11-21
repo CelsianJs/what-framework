@@ -14,25 +14,36 @@
         "default": "./src/node.js"
       },
       "types": "./index.d.ts",
+      "development": "./src/index.js",
       "production": "./dist/index.min.js",
+      "module": "./dist/index.js",
       "import": "./src/index.js",
       "default": "./src/index.js"
     },
     "./islands": {
       "types": "./islands.d.ts",
+      "development": "./src/islands.js",
       "production": "./dist/islands.min.js",
+      "node": "./src/islands.js",
+      "module": "./dist/islands.js",
       "import": "./src/islands.js",
       "default": "./src/islands.js"
     },
     "./ssr-runtime": {
       "types": "./ssr-runtime.d.ts",
+      "development": "./src/ssr-runtime.js",
       "production": "./dist/ssr-runtime.min.js",
+      "node": "./src/ssr-runtime.js",
+      "module": "./dist/ssr-runtime.js",
       "import": "./src/ssr-runtime.js",
       "default": "./src/ssr-runtime.js"
     },
     "./actions": {
       "types": "./actions.d.ts",
+      "development": "./src/actions.js",
       "production": "./dist/actions.min.js",
+      "node": "./src/actions.js",
+      "module": "./dist/actions.js",
       "import": "./src/actions.js",
       "default": "./src/actions.js"
     }
@@ -40,6 +51,10 @@
   "files": [
     "src",
     "dist/**/*.min.js",
+    "dist/index.js",
+    "dist/islands.js",
+    "dist/ssr-runtime.js",
+    "dist/actions.js",
     "index.d.ts",
     "node.d.ts",
     "islands.d.ts",

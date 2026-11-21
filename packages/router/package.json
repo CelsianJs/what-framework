@@ -8,20 +8,26 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "development": "./src/index.js",
       "production": "./dist/index.min.js",
+      "node": "./src/index.js",
+      "module": "./dist/index.js",
       "import": "./src/index.js",
       "default": "./src/index.js"
     },
     "./match": {
       "types": "./match.d.ts",
+      "development": "./src/match.js",
       "production": "./dist/match.min.js",
+      "node": "./src/match.js",
+      "module": "./dist/match.js",
       "import": "./src/match.js",
       "default": "./src/match.js"
     }
   },
   "files": [
     "src",
-    "dist/**/*.min.js",
+    "dist/**/*.js",
     "index.d.ts",
     "match.d.ts"
   ],

@@ -1207,7 +1207,12 @@ function invalidateEntry(e, hard) {
  */
 export function invalidateQueries(keyOrPredicate, options = {}) {
   const { hard = false, exact = false } = options;
-  return Promise.all(matching(keyOrPredicate, exact).map((e) => invalidateEntry(e, hard))).then(noop);
+  const entries = matching(keyOrPredicate, exact);
+  // Server actions record the normalized cache entries they actually touched.
+  if (__DEV__ && arguments[2]) {
+    for (const e of entries) arguments[2].add(e.hash);
+  }
+  return Promise.all(entries.map((e) => invalidateEntry(e, hard))).then(noop);
 }
 
 const revalidationCallbacks = new Map();

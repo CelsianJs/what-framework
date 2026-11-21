@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { DOM_TIMING } from './dom-gate.mjs';
+import { DOM_TIMING, loadAverage } from './dom-gate.mjs';
 
 const ROOT = process.cwd();
 const BASELINE_DIR = join(ROOT, 'benchmark', 'baseline');
@@ -218,17 +218,19 @@ function compareRun(corePath, dxPath, domPath) {
 // dom-gate.mjs with its own round count and noise floor.
 if (RECORD) {
   try {
+    const loadAtStart = loadAverage();
     console.log(`\nRecording core baseline (best of ${CORE_RUNS})...`);
     runCoreBestOf(coreOut);
     console.log(`Recording DX baseline (best of ${DX_RUNS})...`);
     runDxBestOf(dxOut);
 
+    const load = { start: loadAtStart, end: loadAverage() };
     for (const [from, to, label, guard] of [
       [coreOut, CORE_BASELINE, 'core', CORE_GUARD_OPS],
       [dxOut, DX_BASELINE, 'dx', DX_GUARD_OPS],
     ]) {
       const report = loadJson(from);
-      report.recordedWith = { estimator: 'best-of-N', runs: label === 'core' ? CORE_RUNS : DX_RUNS };
+      report.recordedWith = { estimator: 'best-of-N', runs: label === 'core' ? CORE_RUNS : DX_RUNS, load };
 
       // Print every guarded threshold's movement before overwriting. A recorder
       // that silently replaces the numbers a gate depends on is a way to make a

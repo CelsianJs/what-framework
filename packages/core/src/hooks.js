@@ -3,7 +3,7 @@
 // Components run ONCE. Hooks return signal accessors (functions) so the
 // fine-grained runtime handles reactive updates automatically via effects.
 
-import { signal, computed, untrack, getOwner, onCleanup as onOwnerCleanup, _userEffect, _currentComponent, _contextOf, _devAsyncWork, _asyncComputed, _asyncStatus, _asyncError, _refresh, _setAsyncValue, _installSeedOps, __DEV__ } from './reactive.js';
+import { signal, computed, untrack, getOwner, onCleanup as onOwnerCleanup, _userEffect, _currentComponent, _contextOf, _devAsyncWork, _devCallSite, _asyncComputed, _asyncStatus, _asyncError, _refresh, _setAsyncValue, _installSeedOps, __DEV__ } from './reactive.js';
 import { getServerContext, isServerRender } from './server-context.js';
 import { getLoaderData as _getLoaderData, getResource as _getResource, getResourceError as _getResourceError, _seedFor, _errorFromRecord } from './hydration-data.js';
 import { computed as asyncComputed } from './async.js';
@@ -151,18 +151,25 @@ export function useEffect(fn, deps) {
   // A server render never mounts.
   if (isServerRender()) return;
 
+  let run;
   if (deps === undefined) {
-    _userEffect(() => cleanupOf(fn(), ctx));
+    run = () => cleanupOf(fn(), ctx);
   } else if (deps.length === 0) {
-    _userEffect(() => cleanupOf(untrack(fn), ctx));
+    run = () => cleanupOf(untrack(fn), ctx);
   } else {
-    _userEffect(() => {
+    run = () => {
       for (let i = 0; i < deps.length; i++) {
         const dep = deps[i];
         if (typeof dep === 'function' && dep._signal) dep();
       }
       return cleanupOf(untrack(fn), ctx);
-    });
+    };
+  }
+  if (__DEV__) {
+    /** @type {any} */ (run).inner = fn;
+    /** @type {any} */ (_userEffect)(run, _devCallSite(fn.name || 'useEffect', useEffect));
+  } else {
+    _userEffect(run);
   }
 }
 

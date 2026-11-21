@@ -136,7 +136,7 @@ describe('captureDiagnostics effects', () => {
       });
       assert.equal(find(cap, 'beforeWatching')[0].owner, null, 'created in a createRoot outside any component');
       assert.equal(find(cap, 'inRoot')[0].owner, null, 'created in createRoot, with no component rendering');
-      assert.ok(cap.effects.some((e) => e.name === '(anonymous)' && e.runs === 1 && e.owner?.join() === '<Search>'), 'useEffect belongs to its component');
+      assert.ok(cap.effects.some((e) => e.name === 'deferred' && e.runs === 1 && e.owner?.join() === '<Search>'), 'useEffect belongs to its component');
       assert.deepEqual(find(cap, 'fromDeferred').map((e) => e.owner), [['<Search>'], ['<Search>']], 'an effect a useEffect run creates belongs to the component too: the first run\'s, disposed by the re-run, and the re-run\'s');
       assert.deepEqual(find(cap, 'plainMount')[0].owner, ['<Plain>'], 'mounted with mount(), outside render() and the capture');
     } finally {

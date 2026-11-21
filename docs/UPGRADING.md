@@ -135,7 +135,7 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
 
 <!-- import-changes:end -->
 
@@ -601,22 +601,50 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B (ceiling 6656 B) | 8878 B |
-| The create-what counter, runtime JSX | ceiling 7987 B | 8918 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | not measured | 6386 B |
+| A counter written with `h()` | 6601 B | 8878 B |
+| The create-what counter, runtime JSX | 6702 B | 8918 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 6386 B |
 
-0.14's numbers include development-only code (872 B of the `h()` counter),
-which 0.15 leaves out of production builds; the `h()` counter still grows by
-2277 B, for the new engine, the engine hooks async values and transitions need,
-and for fixes to keyed rows, class composition, delegated events, hydration,
-`<Suspense>` release and SVG animation URLs. The production build (`dist/*.min.js`, what the
-`production` export condition resolves) has one file per source module
-instead of one shared chunk, so an app bundled from it is as small as the
-same app bundled from source, and a compiled app with no `h()`, boundary or
-portal leaves the vnode renderer out. Loading the dist straight into a
-browser without a bundler fetches more, smaller files. This affects an app
-written with `h()` that has a size budget: compiled with what-compiler, the
-same counter is 6386 B.
+The compiled counter, what the scaffold ships, is 1345 B (17%) smaller in
+0.15: compiled output no longer carries the vnode reconciler. 0.14's numbers
+include development-only code (828 B of the `h()` counter: 5773 B with its
+flag folded out), which 0.15 leaves out of production builds; the `h()`
+counter still grows by 2277 B, for the new engine, the engine hooks async
+values and transitions need, and for fixes to keyed rows, class composition,
+delegated events, hydration, `<Suspense>` release and SVG animation URLs. The
+production build (`dist/*.min.js`, what the `production` export condition
+resolves) has one file per source module instead of one shared chunk, so an
+app bundled from it is as small as the same app bundled from source, and a
+compiled app with no `h()`, boundary or portal leaves the vnode renderer out.
+Loading the dist straight into a browser without a bundler fetches more,
+smaller files. This affects an app written with `h()` that has a size budget:
+compiled with what-compiler, the same counter is 6386 B.
+
+Three kinds of app grow more than the counters:
+
+- **An app that calls `computed()`** brings the async core with it
+  ([ASYNC.md](ASYNC.md)): the compiled counter with one `computed()` is
+  9117 B, against 7979 B in 0.14 (+1138 B).
+- **An app that hydrates** carries the hydration runtime: the compiled
+  hydrating counter is 18182 B, the same app mounted without hydration 8920 B.
+  0.14's compiler had no hydratable output to compare with.
+- **A production build that does not resolve the production files.** Each
+  export of what-core, what-router and what-server has three: `production`
+  (`dist/*.min.js`, development code removed), `module` (`dist/*.js`, every
+  development check reading `process.env.NODE_ENV`) and `src/` for
+  `development`, `node`, `import` and `default`. Vite with what-compiler, webpack 5
+  and Rollup with @rollup/plugin-node-resolve select `production` in a
+  production build. esbuild's default conditions and `bun build --production`
+  select `module`, and both define `process.env.NODE_ENV` as `"production"`
+  (esbuild when it minifies), so `esbuild app.js --bundle --minify` builds the
+  `h()` counter at 8892 B. A bundler given custom conditions with neither
+  `production` nor `module` bundles `src/` and its development tier (esbuild
+  `--conditions=browser`: 31574 B), whatever `process.env.NODE_ENV` says. Add
+  `production` to such a list. The other way
+  round, an esbuild or Bun development build now runs the development tier
+  with its diagnostics (esbuild sets `process.env.NODE_ENV` to `"development"`
+  when it does not minify); in 0.14 that needed `globalThis.__WHAT_DEV__`,
+  which the `module` files do not read.
 
 ### Companion packages
 

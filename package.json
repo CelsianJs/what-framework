@@ -49,7 +49,7 @@
     "test:gc": "node scripts/run-all-tests.mjs --gc",
     "test:prod:runtime": "NODE_ENV=production node --conditions=production --test scripts/qualification/production-runtime.test.mjs",
     "test:stress": "node --test stress-tests/*.js",
-    "test:prod": "node --conditions=production scripts/check-prod-build.mjs",
+    "test:prod": "node --conditions=production scripts/check-prod-build.mjs && NODE_ENV=production node --conditions=production scripts/check-prod-build.mjs",
     "test:browser:roundtrip": "node --test smoke/storefront-roundtrip.mjs",
     "smoke:workspace-apps": "node smoke/workspace-apps.mjs",
     "smoke:app-budgets": "node smoke/workspace-apps.mjs --budgets",

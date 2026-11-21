@@ -9,7 +9,9 @@ export { getDiagnostics, subscribeDiagnostics } from './index.js';
 /** @internal Installs the devtools hooks the reactive engine calls in development. */
 export function __setDevToolsHooks(hooks: Record<string, unknown> | null): void;
 /** @internal Hands devtools what was created before they installed, then clears it. */
-export function __drainPreinstallBuffer(): { signals: unknown[]; effects: unknown[]; components: unknown[] };
+export function __drainPreinstallBuffer(): { signals: unknown[]; effects: unknown[]; components: unknown[]; dropped?: Record<string, number> };
+/** @internal Emits a development action event. */
+export function _devAction(data: { name: string; outcome: "ok" | "error"; invalidated: string[]; revalidated: string[] }): void;
 /** @internal The sources a computation reads (development only; empty in production). */
 export function __depsOf(node: unknown): unknown[];
 /** @internal The computations that read a source (development only; empty in production). */

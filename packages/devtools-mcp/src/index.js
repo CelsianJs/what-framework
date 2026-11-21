@@ -76,4 +76,29 @@ registerAgentTools(server, bridge);
 registerResources(server, { toolCount: () => getRegisteredTools().length });
 
 const transport = new StdioServerTransport();
-await server.connect(transport);
+const parent = process.ppid;
+const parentCheck = setInterval(() => {
+  if (process.ppid !== parent) void stop();
+}, 500).unref();
+
+let stopping = false;
+async function stop(exitCode = 0) {
+  if (stopping) return;
+  stopping = true;
+  process.exitCode = exitCode;
+  clearInterval(parentCheck);
+  bridge.close();
+  await server.close();
+}
+
+process.stdin.once('end', () => { void stop(); });
+process.stdin.once('close', () => { void stop(); });
+process.once('SIGINT', () => { void stop(); });
+process.once('SIGTERM', () => { void stop(); });
+
+bridge.ready.catch(() => stop(1));
+try {
+  await server.connect(transport);
+} catch {
+  await stop(1);
+}

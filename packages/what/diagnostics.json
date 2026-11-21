@@ -74,7 +74,7 @@
       "raisedBy": [
         "what-router"
       ],
-      "trigger": "Route middleware must be synchronous; received a promise or thenable.",
+      "trigger": "[what-router] Route middleware must be synchronous; received a promise or thenable.",
       "fix": "Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.",
       "example": "// Bad - an async middleware result cannot authorize a route:\nconst routes = [{ path: '/private', component: Component, middleware: [async () => check()] }];\n\n// Good - the component wrapper waits for the authorization check:\nconst routes = [{ path: '/private', component: asyncGuard(check)(Component) }];\n\n// Optional denial redirect and loading UI:\nconst Private = asyncGuard(check, { fallback: '/login', loading: Spinner })(Component);"
     },
@@ -189,14 +189,16 @@
       "code": "ERR_DUPLICATE_ACTION_ID",
       "severity": "error",
       "detects": [
+        "server",
         "compile"
       ],
       "raisedBy": [
-        "what-compiler"
+        "what-compiler",
+        "what-server"
       ],
       "trigger": "Duplicate server action ID \"{{id}}\".",
       "fix": "Action ids are the wire address of a server action, so two actions cannot share one. Ids derive from the file path and export name, so this usually means the same action is being registered twice, or an explicit id was reused.",
-      "example": "// Bad — two actions pinned to the same id:\nexport const save = action(fn, { id: 'save' });\nexport const store = action(fn, { id: 'save' });\n\n// Good — let ids derive, or make them distinct:\nexport const save = action(fn);\nexport const store = action(fn, { id: 'store-user' });"
+      "example": "import { action } from 'what-framework/server';\n\n// Bad — two actions pinned to the same id:\nexport const save = action(fn, { id: 'save' });\nexport const store = action(fn, { id: 'save' });\n\n// Good — let ids derive, or make them distinct:\nimport { action } from 'what-framework/server';\nexport const save = action(fn);\nexport const store = action(fn, { id: 'store-user' });"
     },
     {
       "code": "ERR_DUPLICATE_KEY",
@@ -288,7 +290,7 @@
       "raisedBy": [
         "what-core"
       ],
-      "trigger": "{{hookName}}() was called outside a component function.",
+      "trigger": "[what] {{hookName}}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.",
       "fix": "A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.",
       "example": "import { onMount, useState } from 'what-framework';\n\n// Bad - after the await nothing owns the call:\nfunction Profile() {\n  onMount(async () => {\n    await Promise.resolve();\n    const [user, setUser] = useState(null);   // throws\n  });\n}\n\n// Good - hooks at the top of the body, async work inside:\nfunction Profile() {\n  const [user, setUser] = useState(null);\n  onMount(async () => setUser(await fetchUser()));\n  return <p>{() => user()?.name}</p>;\n}"
     },
@@ -370,7 +372,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what-server] Invalid tag name in SSR: {{tag}}.",
+      "trigger": "[what-server] Invalid tag name in SSR: \"{{tag}}\"",
       "fix": "A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a \"<\" in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.",
       "example": "// Bad — the tag is built from data, and is not an element name:\nfunction Heading({ level }) {\n  return h(`h${level} class=\"big\"`, {}, 'Title');\n}\n\n// Good — choose the tag from the ones you allow:\nconst TAGS = { 1: 'h1', 2: 'h2', 3: 'h3' };\nfunction Heading({ level }) {\n  return h(TAGS[level] || 'h2', { class: 'big' }, 'Title');\n}"
     },
@@ -396,7 +398,7 @@
       "raisedBy": [
         "what-isr"
       ],
-      "trigger": "[what-isr] createRedisStore requires { client }.",
+      "trigger": "[what-isr] createRedisStore requires { client }",
       "fix": "what-isr ships no Redis driver on purpose, so the client is injected. Pass an ioredis or node-redis instance (get/set/del/sadd/srem/smembers, optionally expire/scan/keys).",
       "example": "import Redis from 'ioredis';\nconst store = createRedisStore({ client: new Redis(process.env.REDIS_URL) });"
     },
@@ -634,7 +636,7 @@
       "raisedBy": [
         "what-router"
       ],
-      "trigger": "A redirect() to \"{{target}}\" surfaced uncaught, so nothing performed the navigation.",
+      "trigger": "[what-router] redirect to {{target}}",
       "fix": "redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().",
       "example": "// Bad - a reactive thunk re-runs outside the render the Router caught:\n<div>{() => (loggedOut() ? redirect('/login') : <Dashboard />)}</div>\n\n// Good - navigate() from a thunk or a handler:\n<div>{() => (loggedOut() ? (navigate('/login'), null) : <Dashboard />)}</div>;\n<button onclick={() => navigate('/login')}>Sign in</button>;\n\n// On the server, catch it and answer with the redirect instead of navigating:\ntry { html = renderToString(<App />); }\ncatch (e) { if (e.name !== 'RouterRedirect') throw e; res.writeHead(302, { location: e.to }).end(); }"
     },
@@ -727,7 +729,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what-server] redirect() refused the target {{target}} and redirected to \"/\" instead.",
+      "trigger": "[what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to \"/\" instead. (ERR_SSR_UNSAFE_REDIRECT)",
       "fix": "A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (\"/account?tab=2\"), by the same rule as the action handler's _redirect field. An absolute URL, \"//host\", \"/\\host\" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to \"/\" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.",
       "example": "// Bad — an absolute URL through redirect() is refused:\nexport function loader({ query, response }) {\n  response.redirect(query.next);          // ?next=https://evil.example -> \"/\"\n}\n\n// Good — a local path from request data, checked by redirect() itself,\n// and leaving the site explicitly:\nexport function loader({ query, response }) {\n  if (query.billing) response.redirectExternal('https://billing.example.com/portal');\n  else response.redirect(query.next ?? '/');   // \"/account\" is kept\n}"
     },
@@ -740,7 +742,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what-server] Refusing to write outside outDir: {{path}}.",
+      "trigger": "[what-server] Refusing to write outside outDir: {{path}}",
       "fix": "A route path resolved to a location outside the export directory, which a \"../\" segment in a route or a param can do. Sanitize the route path, or drop the route from the static export.",
       "example": "// Bad — a slug from the CMS such as '../../x' resolves outside outDir:\nconst docs = { path: '/docs/:slug', mode: 'static', component: Doc,\n  getStaticPaths: () => ({ paths: slugs.map((slug) => ({ params: { slug } })) }) };\n\n// Good — export only slugs that are one safe path segment:\nconst docs = { path: '/docs/:slug', mode: 'static', component: Doc,\n  getStaticPaths: () => ({ paths: slugs.filter((s) => /^[a-z0-9-]+$/.test(s)).map((slug) => ({ params: { slug } })) }) };"
     },
@@ -792,9 +794,9 @@
       "raisedBy": [
         "what-core"
       ],
-      "trigger": "Unknown error: {{errorCode}}.",
+      "trigger": "Unknown error: {{errorCode}}",
       "fix": "createWhatError() was called with a code that is not in this catalogue. Check the spelling against ERROR_CODES, or add the entry.",
-      "example": "// Bad - not a catalogue key:\ncreateWhatError('MISSING_KEYS');\n\n// Good:\ncreateWhatError('MISSING_KEY', { component: 'TodoList' });"
+      "example": "import { createWhatError } from 'what-core/internal';\n\n// Bad - not a catalogue key:\nthrow createWhatError('MISSING_KEYS');\n\n// Good:\ncreateWhatError('MISSING_KEY', { component: 'TodoList' });"
     },
     {
       "code": "ERR_UNKNOWN_TOOL",
@@ -831,7 +833,7 @@
       "raisedBy": [
         "what-router"
       ],
-      "trigger": "redirect() refused an unsafe target: {{target}}.",
+      "trigger": "[what-router] redirect() refused an unsafe target: {{target}}",
       "fix": "redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative (\"//host\"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.",
       "example": "// Bad - a user-controlled target can leave your origin:\nredirect(query.next);\n\n// Good - allowlist the target first:\nredirect(ALLOWED.has(query.next) ? query.next : '/');"
     },

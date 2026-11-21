@@ -109,6 +109,12 @@ export function createDomReport(runs, provenance = {}) {
   };
 }
 
+// The machine's 1, 5 and 15 minute load averages: a baseline recorded on a
+// busy machine is not one, so the file says what it was recorded under.
+export function loadAverage() {
+  return os.loadavg().map((n) => +n.toFixed(2));
+}
+
 function readToolchain() {
   const require = createRequire(import.meta.url);
   const buildRequire = createRequire(path.join(krausest, 'build-all.mjs'));
@@ -146,6 +152,7 @@ async function main() {
     execFileSync(process.execPath, ['build-all.mjs', 'what'], { cwd: krausest, stdio: 'inherit' });
   }
   const toolchain = readToolchain();
+  const loadAtStart = loadAverage();
   const runs = [];
   for (let i = 0; i < ROUNDS; i++) {
     process.stdout.write(`round ${i + 1}/${ROUNDS}`);
@@ -153,7 +160,7 @@ async function main() {
     runs.push(run);
     process.stdout.write(` ${OPS.map((op) => `${GATE_NAMES[op.id]}:${p25(run.results.what[op.id].script.samples)}`).join(' ')}\n`);
   }
-  const report = createDomReport(runs, { toolchain, buildPerformed });
+  const report = createDomReport(runs, { toolchain, buildPerformed, load: { start: loadAtStart, end: loadAverage() } });
   writeFileSync(outPath, JSON.stringify(report, null, 2) + '\n');
   console.log(`DOM benchmark written to ${outPath}`);
 }

@@ -279,7 +279,13 @@ An owner can carry handlers. `_onError` receives errors: an error thrown by an e
 
 ### Development and production tiers
 
-`__DEV__` (packages/core/src/env.js) is the only switch. Production builds (`dist/*.min.js`, and any non-development `vite build` through `what-compiler/vite`, from dist or from source) define it as the literal `false`, so devtools hooks, dev warnings and the devtools pre-install buffer are removed from the bundle. Unbuilt source (Node, tests, dev servers) and the readable `dist/*.js` resolve it at runtime, where `globalThis.__WHAT_DEV__` set before load can force either tier. `scripts/check-size.mjs` fails if a production bundle contains development-only code.
+`__DEV__` (packages/core/src/env.js) is the only switch, and each export of what-core, what-router and what-server names three files for it, by condition:
+
+- `production`: `dist/*.min.js`, where it is the literal `false`, so devtools hooks, dev warnings and the devtools pre-install buffer are removed from the bundle. what-compiler/vite, webpack 5 and Rollup's node-resolve select it in a production build; any non-development `vite build` through `what-compiler/vite` also folds it in the source.
+- `module`: `dist/*.js`, where each use reads `(process.env.NODE_ENV !== "production")` in place. Only a browser bundle made by a bundler that sets neither `development` nor `production` selects it: esbuild with its default conditions, `bun build --production`. Both define `process.env.NODE_ENV`, so a production build folds every development branch while parsing and drops the code only it reaches, and a development build keeps it. Node, Vite, webpack, Rollup and the buildless template's import map never select `module`.
+- `development`, `node`, `import`, `default`: `src/`, for dev servers, Node, server bundles and tests. `node` comes before `module`, so a server bundle (esbuild for Node, `bun build --target=bun`) resolves the source exactly as Node does. The flag is resolved at runtime: `globalThis.__WHAT_DEV__` set before load forces either tier, else Vite's `import.meta.env.DEV`, else `process.env.NODE_ENV`.
+
+`scripts/check-size.mjs` fails if a production bundle contains development-only code, including a counter built with esbuild's defaults (`--bundle --minify`, nothing else).
 
 ### Component Lifecycle
 

@@ -1,7 +1,7 @@
 // What Framework - Benchmark Suite
 // Measures core operations in Node.js. No browser needed.
 
-import { signal, computed, effect, batch } from '../packages/core/src/reactive.js';
+import { signal, computed, effect, batch, flushSync } from '../packages/core/src/reactive.js';
 import { h } from '../packages/core/src/h.js';
 import { renderToString } from '../packages/server/src/index.js';
 import { writeFileSync } from 'node:fs';
@@ -231,6 +231,48 @@ bench('renderToString() component tree', () => {
     h(List, { items: Array.from({ length: 50 }, (_, i) => `Item ${i}`) })
   );
 }, 500);
+
+// --- computed() against the engine's computed ---
+// docs/ASYNC.md quotes this pair. Each run of a computed made by computed()
+// (the root entry) checks what its function returned; the engine's computed,
+// which useMemo and stores use, does not. Each graph is built once and read by
+// one effect, and an iteration is one write flushed through it. The first
+// computed() installs the async core, so both sides run with it, as in an app
+// that calls computed(); it comes last so that nothing above runs with it.
+console.log('\n  computed() against the engine computed\n');
+const { computed: rootComputed } = await import('../packages/core/src/async.js');
+rootComputed(() => 0)();
+
+function wideGraph(make) {
+  const s = signal(0);
+  const nodes = Array.from({ length: 1000 }, (_, i) => make(() => s() + i));
+  effect(() => {
+    let sum = 0;
+    for (const c of nodes) sum += c();
+    globalThis.__benchSink = sum;
+  });
+  let n = 0;
+  return () => { s.set(++n); flushSync(); };
+}
+
+function chain(make) {
+  const s = signal(0);
+  let last = make(() => s());
+  for (let i = 1; i < 1000; i++) {
+    const prev = last;
+    last = make(() => prev() + 1);
+  }
+  effect(() => { globalThis.__benchSink = last(); });
+  let n = 0;
+  return () => { s.set(++n); flushSync(); };
+}
+
+for (const [shape, build] of [['wide graph of 1000', wideGraph], ['chain of 1000', chain]]) {
+  bench(`engine computed, ${shape}`, build(computed), 2000);
+  bench(`computed(), ${shape}`, build(rootComputed), 2000);
+  const [engine, root] = results.slice(-2);
+  console.log(`  ${''.padEnd(40)} computed() takes ${(root.avg / engine.avg).toFixed(2)}x the engine computed's time`);
+}
 
 // --- Summary ---
 console.log('\n  ' + '='.repeat(90));

@@ -13,15 +13,16 @@ declare global {
   /**
    * The development flag's input, read by core/src/env.js. scripts/build.js
    * (dist/*.min.js) and what-compiler/vite (production builds) define it as
-   * `false`. Unbuilt, it is an optional global: set before the framework
-   * loads, it forces the development or production tier.
+   * `false`. In src/, it is an optional global: set before the framework
+   * loads, it forces the development or production tier. The bundler tier
+   * (dist/*.js) reads process.env.NODE_ENV instead.
    */
   var __WHAT_DEV__: boolean | undefined;
 
   /**
-   * The devtools hook surface. `__devtools` in core/src/reactive.js is null in
-   * production, a buffering placeholder in dev before install, and the real
-   * hooks after `__setDevToolsHooks`. All three shapes satisfy this.
+   * The devtools hook surface. `__devtools` in core/src/reactive.js is null
+   * until `__setDevToolsHooks` installs hooks (always null in production);
+   * every hook is optional.
    *
    * Signals are handed out as their function; computeds and effects as their
    * node (`WhatComputedNode`, `WhatEffectNode`).
@@ -50,14 +51,6 @@ declare global {
     onError?(err: any, context?: { type: 'effect' | 'effect-cleanup' | 'cleanup' | 'component'; effect?: any; owner?: any }): void;
     onComponentMount?(ctx: any): void;
     onComponentUnmount?(ctx: any): void;
-    /** Marks the pre-install buffering placeholder, not the real hooks. */
-    __isPreinstallBuffer?: boolean;
-    /**
-     * The placeholder's buffer, emptied by the drain on late install: weak
-     * refs to signals and effects, and the components mounted and not yet
-     * unmounted.
-     */
-    __buffer?: { signals: Set<any>; effects: Set<any>; components: Set<any> };
     [key: string]: any;
   }
 
@@ -109,6 +102,7 @@ declare global {
     _signal: true;
     /** Development only. */
     _debugName?: string;
+    _devLoc?: string | null;
     /** Set by what-devtools on registration. */
     _devId?: number;
   }

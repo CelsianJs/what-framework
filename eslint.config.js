@@ -58,6 +58,10 @@ export default [
       // neither, so linting them made `npm run lint` pass there and fail here.
       '**/.build/**',
       '**/.vercel/**',
+      // An untracked checkout of other frameworks' benchmark apps that some
+      // machines keep at the root. Each app has its own ESLint config and
+      // plugins, and ESLint lints a file with its nearest config.
+      'comparison-test/**',
     ],
   },
 

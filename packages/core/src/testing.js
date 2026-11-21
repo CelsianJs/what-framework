@@ -198,9 +198,6 @@ function ensureWrapper() {
   const base = __devtools;
   /** @type {WhatDevToolsHooks} */
   const wrapper = { ...(base || {}) };
-  // The wrapper is not the pre-install buffer, or the real devtools would
-  // later try to drain it a second time.
-  delete wrapper.__isPreinstallBuffer;
   for (const hook of Object.keys(hookListeners)) {
     wrapper[hook] = (...args) => {
       for (const listener of hookListeners[hook]) listener(...args);
@@ -383,7 +380,7 @@ export function trackSignals(fn) {
 // fn throws.
 
 function effectName(node) {
-  return node.fn?.name || '(anonymous)';
+  return (node.fn?.inner ?? node.fn)?.name || '(anonymous)';
 }
 
 export function captureDiagnostics(fn) {

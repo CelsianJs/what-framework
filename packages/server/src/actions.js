@@ -15,6 +15,7 @@
 //   const result = await saveUser({ name: 'John' });
 
 import { startTransition } from 'what-core';
+import { _devAction, __DEV__ } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
@@ -115,12 +116,14 @@ export function action(fn, options = {}) {
 
   // Server-side: register the action
   if (typeof window === 'undefined') {
+    if (__DEV__ && actionRegistry.has(id)) console.warn(`Duplicate server action ID "${id}".`, '(ERR_DUPLICATE_ACTION_ID)');
     actionRegistry.set(id, { fn, options });
   }
 
   function callAction(...args) {
     // Server-side: call directly
     if (typeof window === 'undefined') return fn(...args);
+    if (__DEV__) return /** @type {any} */ (_callAction)(id, args, options, fn.name || id);
     return _callAction(id, args, options);
   }
 
@@ -140,17 +143,30 @@ export function action(fn, options = {}) {
  * landed; rejects with its error.
  */
 export function _callAction(id, args, options = {}) {
+  const name = __DEV__ ? arguments[3] || id : '';
   return new Promise((resolve, reject) => {
     startTransition(async () => {
+      /** @type {{ name: string, invalidated: Set<string>, revalidated: string[] } | null} */
+      const observation = __DEV__ ? { name, invalidated: new Set(), revalidated: [] } : null;
       try {
         const result = await post(id, args, options);
         if (options.onSuccess) options.onSuccess(result);
         const waits = [];
-        for (const path of options.revalidate || []) waits.push(invalidatePath(path));
-        for (const key of options.invalidates || []) waits.push(invalidateQueries(key));
+        for (const path of options.revalidate || []) {
+          waits.push(invalidatePath(path));
+          if (__DEV__) observation?.revalidated.push(path);
+        }
+        for (const key of options.invalidates || []) {
+          const wait = __DEV__ && observation
+            ? /** @type {any} */ (invalidateQueries)(key, undefined, observation.invalidated)
+            : invalidateQueries(key);
+          waits.push(wait);
+        }
         await Promise.all(waits);
+        if (__DEV__ && observation) _devAction({ ...observation, invalidated: [...observation.invalidated], outcome: 'ok' });
         resolve(result);
       } catch (error) {
+        if (__DEV__ && observation) _devAction({ ...observation, invalidated: [...observation.invalidated], outcome: 'error' });
         if (options.onError) options.onError(error);
         reject(error);
       }

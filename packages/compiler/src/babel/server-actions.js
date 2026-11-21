@@ -75,11 +75,11 @@ function registerActionId(callPath, state, id, bindingName, relativeFilename) {
   const key = `${relativeFilename}#${bindingName}`;
   const existing = state.serverActionIds.get(id);
   if (existing) {
-    throw callPath.buildCodeFrameError(
+    throw Object.assign(callPath.buildCodeFrameError(
       `Duplicate server action ID "${id}". ` +
       `First declared by "${existing.bindingName}" at ${existing.source}; ` +
       `conflicts with "${bindingName}" at ${source}.`
-    );
+    ), { code: 'ERR_DUPLICATE_ACTION_ID', loc });
   }
   const metadata = { id, key, bindingName, filename: relativeFilename, source, loc };
   state.serverActionIds.set(id, metadata);
@@ -87,7 +87,7 @@ function registerActionId(callPath, state, id, bindingName, relativeFilename) {
     try {
       state.opts.onActionId(metadata);
     } catch (error) {
-      throw callPath.buildCodeFrameError(error instanceof Error ? error.message : String(error));
+      throw Object.assign(callPath.buildCodeFrameError(error instanceof Error ? error.message : String(error)), { code: error?.code, loc });
     }
   }
 }

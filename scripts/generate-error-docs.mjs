@@ -117,12 +117,20 @@ function markdown() {
   out.push('- `mcp`: an MCP server answers a tool call with it.');
   out.push('');
   out.push('**Production builds** carry none of the `reported` codes, their text or the console pointer:');
-  out.push('every report sits behind `if (__DEV__)`, and the supported production paths fold that flag');
-  out.push('to `false` at build time. Those paths are the published `dist/*.min.js` (the `production`');
-  out.push('export condition, which what-compiler/vite selects and esbuild selects with');
-  out.push('`--conditions=production`) and what-compiler/vite building the source. Bundling the source');
-  out.push('with another tool and only a `process.env.NODE_ENV` define keeps the development tier\'s');
-  out.push('code, because the flag is then decided at runtime.');
+  out.push('every report sits behind `if (__DEV__)`, and every production build that resolves the');
+  out.push('package exports removes it. A bundler resolves one of three files per export:');
+  out.push('');
+  out.push('- `production` (`dist/*.min.js`, the flag already `false`): what-compiler/vite, webpack 5,');
+  out.push('  Rollup with @rollup/plugin-node-resolve, and esbuild given `--conditions=production`.');
+  out.push('- `module` (`dist/*.js`, each check spelled `process.env.NODE_ENV !== "production"`): esbuild');
+  out.push('  with its default conditions and `bun build --production`. Both define `process.env.NODE_ENV`');
+  out.push('  (esbuild: `"production"` when it minifies), so a production build drops the checks and a');
+  out.push('  development build keeps them. The `__WHAT_DEV__` global does not apply to this file.');
+  out.push('- `development`, `node`, `import` and `default` (`src/`): dev servers, Node, server bundles and');
+  out.push('  tests, where the flag is decided at runtime (`__WHAT_DEV__`, then Vite\'s `import.meta.env.DEV`, then');
+  out.push('  `process.env.NODE_ENV`). A production build that resolves `src/` (a bundler given custom');
+  out.push('  conditions without `production` or `module`) keeps the development tier\'s code;');
+  out.push('  what-compiler/vite is the exception, because it folds the flag in the source too.');
   out.push('');
   out.push('| Code | Severity | What it means |');
   out.push('|---|---|---|');
@@ -328,6 +336,14 @@ description: Write and debug What Framework apps (signals, components that run o
 ## Writing code
 
 ${agent.FRAMEWORK_BASICS}
+
+### Buildless full-stack
+
+Use \`h()\` with a function child for reactive text and import server actions
+from a browser-served module. The scaffold's CLAUDE.md and AGENTS.md show the
+buildless examples.
+
+${agent.FULLSTACK_ACTIONS}
 
 ## MCP DevTools
 

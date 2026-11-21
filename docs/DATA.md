@@ -249,6 +249,48 @@ fields as an object; a client action (`useActionState`'s dispatch) receives
 the FormData. (`packages/server/test/actions-transition.test.js`, "<Form> on a
 mounted page"; `packages/server/test/form.test.js`)
 
+### Call an action from a buildless page
+
+The full-stack starter serves page modules as native JavaScript. Put the
+action declaration in a file the browser may import, such as
+`src/components/post-actions.js`. Import the database inside the callback,
+which runs on the server, and use the same explicit ID on both sides.
+
+```js
+import { action } from 'what-framework/server';
+
+export const addPost = action(async function addPost({ title, body }) {
+  const { createPost } = await import('../db.js');
+  return createPost({ title, body });
+}, { id: 'addPost', revalidate: ['/'] });
+```
+
+In the page, import that action and pass it to `Form`. The loader supplies the
+per-request CSRF token for a normal form POST when JavaScript is disabled.
+
+```js
+import { h, useLoaderData } from 'what-framework';
+import { Form } from 'what-framework/server';
+import { addPost } from '../components/post-actions.js';
+
+export const page = { mode: 'server' };
+export async function loader({ csrfToken }) {
+  return { csrfToken };
+}
+
+export default function AddPost() {
+  const { csrfToken } = useLoaderData();
+  return h(Form, { action: addPost, csrfToken, redirect: '/' },
+    h('input', { name: 'title', required: true }),
+    h('textarea', { name: 'body', required: true }),
+    h('button', { type: 'submit' }, 'Publish'),
+  );
+}
+```
+
+Register the page in `src/routes.js` and add its component to the match in
+`src/entry-client.js`.
+
 ### CSRF, on cached and streamed pages too
 
 The action endpoint refuses a request the browser marks cross-site

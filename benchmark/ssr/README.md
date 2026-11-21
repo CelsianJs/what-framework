@@ -31,9 +31,13 @@ half: each framework's hydratable server renders the 1,000-row page and its
 client hydrates it in Chromium. It reports the `hydrate()` call's time, the
 time until a click on a row's label has selected it, the nodes created while
 hydrating (zero when the client adopts every node the server wrote) and the
-client bundle's gzip size. `--before <what-fw checkout>` adds both What
-entries built from another checkout. It prints its table and writes nothing
-outside `dist/`.
+client bundle's gzip size. Each client is built the way an app ships it: the
+What clients resolve the `production` export condition (`dist/*.min.js`), so
+run `node scripts/build.js` first. `--before <what-fw checkout>` adds
+`before.what` built from another (built) checkout, and `before.whatc` when that
+checkout's compiler has a server target; 0.14's has none, so that entry is
+skipped with a message. React's hydration is not measured: there is no React
+entry. It prints its table and writes nothing outside `dist/`.
 
 ## Layout
 
