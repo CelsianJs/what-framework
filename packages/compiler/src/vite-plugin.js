@@ -317,7 +317,8 @@ export default function whatVitePlugin(options = {}) {
       // Server action metadata is required in plain .js/.ts modules too, so
       // those modules pass through the same hermetic Babel transform even when
       // they contain no JSX.
-      if (!hasJsx && !hasServerActions) return null;
+      const hasDevMetadata = isScriptModule && isDevMode && !production && /['"]what-(?:core|framework)['"]/.test(code);
+      if (!hasJsx && !hasServerActions && !hasDevMetadata) return null;
 
       const serverTransform = isSsrTransform(transformOptions, this);
       const generate = serverTransform && ssr !== false && ssrGuard !== false ? 'ssr' : 'dom';

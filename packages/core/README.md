@@ -95,7 +95,7 @@ mount(<Counter />, '#app');
 | `what-core` | Signals, hooks, components and boundaries, context, store, `Head`, `mount`/`hydrate`, diagnostics |
 | `what-core/render` | Fine-grained rendering primitives (`template`, `insert`, `spread`, `delegateEvents`, `on`) |
 | `what-core/form` | Forms: `useForm`, `useField`, `rules`, resolvers, bound inputs |
-| `what-core/data` | Data fetching: `useSWR`, `useQuery`, `useFetch`, the query cache |
+| `what-core/data` | One query cache: `query`, `useQuery`, `useSWR`, `useInfiniteQuery`, `useFetch`, `invalidateQueries`, `invalidatePath` |
 | `what-core/a11y` | Focus management, ARIA helpers, announcements |
 | `what-core/ui` | Skeleton loaders and spinners |
 | `what-core/motion` | Springs, tweens, `useTween`, gestures, CSS transitions |
@@ -112,11 +112,13 @@ mount(<Counter />, '#app');
 
 **Async values** -- an async `computed`, `refresh`, `isPending`, `startTransition`, `useTransition`, `useOptimistic`, `use`, `settled` ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md))
 
+**Actions** -- `useActionState`, `useFormStatus` (React 19's, on transitions; [DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md))
+
 **Rendering** -- `h`, `Fragment`, `html`, `mount`, `hydrate`, `applyStreamedBoundaries`
 
 **Hooks** -- `useState`, `useSignal`, `useComputed`, `useEffect`, `useMemo`, `useCallback`, `useRef`, `useContext`, `useReducer`, `useId`, `createContext`, `onMount`, `onCleanup`, `createResource`, `useLoaderData`
 
-**Components** -- `memo`, `lazy`, `Suspense`, `ErrorBoundary`, `Show`, `For`, `Switch`, `Match`, `Island`, `Portal`
+**Components** -- `memo`, `lazy`, `Suspense`, `ErrorBoundary`, `Show`, `For`, `Switch`, `Match`, `Portal`
 
 **Store** -- `createStore`, `derived`
 
@@ -124,7 +126,7 @@ mount(<Counter />, '#app');
 
 **Diagnostics** -- `getDiagnostics`, `subscribeDiagnostics`, `clearDiagnostics`, `getErrorDefinition`, `WhatError`
 
-**Data Fetching** (`what-core/data`) -- `useSWR`, `useQuery`, `useInfiniteQuery`, `invalidateQueries`, `prefetchQuery`
+**Data Fetching** (`what-core/data`) -- `query`, `useSWR`, `useQuery`, `useInfiniteQuery`, `useFetch`, `invalidateQueries`, `invalidatePath`, `prefetchQuery`, `setQueryData`, `getQueryData`, `clearCache` (docs/DATA.md)
 
 **Forms** (`what-core/form`) -- `useForm`, `useField`, `rules`, `zodResolver`, `Input`, `Select`, `Checkbox`, `ErrorMessage`
 

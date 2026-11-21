@@ -89,4 +89,52 @@ describe('shop e2e', () => {
     const admin = await get('/dashboard', { 'x-demo-admin': '1' });
     assert.match(admin.body, /Signal Mug ×1/);
   });
+
+  // The product page is cached: its HTML is shared, so it can never carry a
+  // visitor's CSRF token. Its "Add to cart" form is a plain HTML form post
+  // (no JavaScript on this site), with the headers every current browser
+  // sends with it, and no token and no cookie.
+  async function postForm(fields, headers) {
+    return fetch(base + '/__what_action', {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
+      body: new URLSearchParams(fields).toString(),
+    });
+  }
+
+  it('"Add to cart" on a cached product page posts and lands on the cart', async () => {
+    const page = await get('/product/tee');
+    assert.equal((await get('/product/tee', { cookie: 'what-csrf=returning-visitor' })).cache, 'HIT');
+    // The form names its action and where to go, and carries no token.
+    assert.match(page.body, /<form[^>]*action="\/__what_action"/);
+    assert.match(page.body, /name="_action" value="addToCart"/);
+    assert.match(page.body, /name="_redirect" value="\/cart"/);
+    assert.doesNotMatch(page.body, /what-csrf-token/);
+
+    const fields = { _action: 'addToCart', _redirect: '/cart', id: 'tee' };
+    const fetchMetadata = await postForm(fields, { 'sec-fetch-site': 'same-origin', origin: base, referer: base + '/product/tee' });
+    assert.equal(fetchMetadata.status, 303);
+    assert.equal(fetchMetadata.headers.get('location'), '/cart');
+    // A browser that sends Origin but not Sec-Fetch-Site.
+    const originOnly = await postForm(fields, { origin: base });
+    assert.equal(originOnly.status, 303);
+
+    const cart = await get('/cart');
+    assert.match(cart.cc, /no-store/);
+    assert.match(cart.body, /No-VDOM Tee ×2/);
+  });
+
+  it('refuses the same post from another site', async () => {
+    const cartLines = async () => (await get('/cart')).body.match(/<main[^]*<\/main>/)[0];
+    const before = await cartLines();
+    const crossSite = await postForm({ _action: 'addToCart', id: 'tee' }, { 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' });
+    assert.equal(crossSite.status, 403);
+    const foreignOrigin = await postForm({ _action: 'addToCart', id: 'tee' }, { origin: 'https://evil.example' });
+    assert.equal(foreignOrigin.status, 403);
+    // Neither header and no token: the double-submit check still applies.
+    const bare = await postForm({ _action: 'addToCart', id: 'tee' }, {});
+    assert.equal(bare.status, 403);
+    assert.equal(await cartLines(), before, 'nothing was added');
+  });
 });

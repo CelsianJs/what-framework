@@ -8,4 +8,5 @@
  * This file re-exports from what-core for backwards compatibility.
  */
 
-export { h, Fragment, mount, Island } from 'what-core';
+export { h, Fragment, mount } from 'what-core';
+export { _$Island } from 'what-core/render';

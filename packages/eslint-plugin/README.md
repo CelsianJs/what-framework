@@ -202,12 +202,108 @@ function Status() {
 ```
 
 Tracks signals from `signal`, `computed`, `useSignal`, `useComputed` and
-`useMemo`, the accessor `useState`, `useReducer` and `createResource` return
-first, and the getter fields of `useSWR`, `useFetch`, `useQuery` and
-`useInfiniteQuery`. A name where it is declared, destructured or exported is not
-a read and is not reported. `what/signal-call-in-jsx` reports the condition case
+`useMemo`, the accessor `useState`, `useReducer`, `createResource`,
+`useTransition` (its `isPending`) and `useOptimistic` (the optimistic value)
+return first, and the getter fields of `useSWR`, `useFetch`, `useQuery` and
+`useInfiniteQuery`. `memo` is React's component memo and returns a component.
+A method of a signal (`count.set(…)`, `count.peek()`, an async computed's
+`users.pending()`) is not a read. A name where it is declared, destructured or
+exported is not a read and is not reported. `what/signal-call-in-jsx` reports the condition case
 in JSX (`{isLoading && …}`, `{open ? … : …}`) with the same code; the `compiler`
 preset turns it off and keeps this rule.
+
+### `what/no-async-component`
+
+A component written as an `async function` (React Server Components' habit)
+returns a promise. What's components run once and synchronously, so it renders
+the promise's text, even under `<Suspense>` (`ERR_ASYNC_COMPONENT`, which the
+runtime also reports):
+
+<!-- snippet: bad lint=ERR_ASYNC_COMPONENT -->
+```jsx
+async function Profile(props) {
+  const res = await fetch('/api/users/' + props.id);
+  const user = await res.json();
+  return <h1>{user.name}</h1>;
+}
+```
+
+Make the data an async value and read it in JSX, where a binding waits for it
+and a `<Suspense>` above shows its fallback:
+
+```jsx
+import { computed, Suspense } from 'what-framework';
+
+function Profile(props) {
+  const user = computed(({ signal }) => fetch('/api/users/' + props.id, { signal }).then((r) => r.json()));
+  return <h1>{user().name}</h1>;
+}
+
+export function Page() {
+  return <Suspense fallback={<p>Loading…</p>}><Profile id={1} /></Suspense>;
+}
+```
+
+### `what/no-promise-in-usememo`
+
+`useMemo` keeps what its function returns, as React's does, so a function that
+returns a promise gives its readers the promise (`ERR_ASYNC_MEMO`, which the
+runtime also reports):
+
+<!-- snippet: bad lint=ERR_ASYNC_MEMO -->
+```jsx
+import { useMemo, signal } from 'what-framework';
+
+const id = signal(1);
+
+function Profile() {
+  const user = useMemo(() => fetch('/api/users/' + id()).then((r) => r.json()));
+  return <h1>{user().name}</h1>;
+}
+```
+
+An async value is `computed()` (or `useComputed()`). The rule sees a promise
+where the source shows one: an `async` function, `fetch(…)`, `.then(…)`,
+`new Promise(…)`, `Promise.all(…)`; a call to another function that returns
+one is the runtime's to report.
+
+### `what/no-optimistic-snapshot`
+
+`useOptimistic(state, update)` takes the state as an accessor. A component runs
+once, so `useOptimistic(likes(), …)` is the value read when it ran, and the
+optimistic value never sees the real one change. The fix (`eslint --fix`)
+passes the accessor:
+
+```jsx
+import { useState, useOptimistic, startTransition } from 'what-framework';
+
+function Likes() {
+  const [likes, setLikes] = useState(0);
+  const [shown, addLike] = useOptimistic(likes, (n, delta) => n + delta);
+  const like = () => startTransition(async () => {
+    addLike(1);
+    await Promise.resolve();
+    startTransition(() => setLikes((n) => n + 1));
+  });
+  return <button onClick={like}>{shown()}</button>;
+}
+```
+
+### `what/prefer-async-computed`
+
+`computed(fn)` starts an async value when it is created if `fn` is an `async`
+function or takes `{ signal }`. A plain function that returns a promise shows
+it is async only when it runs, so it starts on its first read, and two read in
+turn by one binding load one after the other. The rule reports a plain function
+whose source returns a promise (`fetch(…)`, `.then(…)`, `new Promise(…)`);
+`eslint --fix` makes an arrow function `async`. Either form starts at once:
+
+```jsx
+import { computed } from 'what-framework';
+
+const user = computed(async () => (await fetch('/api/user')).json());
+const posts = computed(({ signal }) => fetch('/api/posts', { signal }).then((r) => r.json()));
+```
 
 ### `what/no-signal-read-in-effect-deps`
 
@@ -395,6 +491,10 @@ count.set(5);
   'what/no-unsafe-innerhtml': 'warn',
   'what/signal-debug-name': 'off',
   'what/prefer-computed': 'off',
+  'what/no-async-component': 'warn',
+  'what/no-promise-in-usememo': 'warn',
+  'what/no-optimistic-snapshot': 'warn',
+  'what/prefer-async-computed': 'warn',
 })
 ```
 
@@ -417,6 +517,10 @@ count.set(5);
   'what/no-unsafe-innerhtml': 'error',
   'what/signal-debug-name': 'warn',
   'what/prefer-computed': 'warn',
+  'what/no-async-component': 'error',
+  'what/no-promise-in-usememo': 'error',
+  'what/no-optimistic-snapshot': 'error',
+  'what/prefer-async-computed': 'error',
 })
 ```
 
@@ -439,6 +543,10 @@ count.set(5);
   'what/no-unsafe-innerhtml': 'warn',
   'what/signal-debug-name': 'off',
   'what/prefer-computed': 'off',
+  'what/no-async-component': 'warn',
+  'what/no-promise-in-usememo': 'warn',
+  'what/no-optimistic-snapshot': 'warn',
+  'what/prefer-async-computed': 'warn',
 })
 ```
 

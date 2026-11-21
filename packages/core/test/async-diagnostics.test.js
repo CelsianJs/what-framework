@@ -228,3 +228,93 @@ describe('ERR_ASYNC_READ_IN_BODY', () => {
     assert.deepEqual(codes(), []);
   });
 });
+
+describe('ERR_ASYNC_EFFECT on a run after the first', () => {
+  it('reports an effect that starts returning a promise when it runs again', async () => {
+    const { signal, effect, createRoot } = W;
+    const armed = signal(false);
+    const dispose = createRoot((d) => {
+      effect(() => { if (armed()) return Promise.resolve(); });
+      return d;
+    });
+    assert.deepEqual(codes(), []);
+    quiet(() => armed(true));
+    await drain();
+    assert.deepEqual(codes(), ['ERR_ASYNC_EFFECT']);
+    dispose();
+  });
+});
+
+describe('ERR_WRITE_AFTER_AWAIT is a heuristic', () => {
+  it('stays silent for a write, from a timer, to a signal the running transition never wrote', async () => {
+    const { signal, startTransition, h, mount } = W;
+    const status = signal('idle', 'status');
+    const other = signal('a', 'other');
+    const host = document.createElement('div');
+    const stop = mount(h('p', null, () => status() + other()), host);
+    const slow = Promise.withResolvers();
+    const done = startTransition(async () => { status('saving'); await slow.promise; });
+    await new Promise((resolve) => setTimeout(() => { other('b'); resolve(); }, 0));
+    slow.resolve();
+    await done;
+    stop();
+    assert.deepEqual(codes(), []);
+  });
+});
+
+describe('ERR_ASYNC_COMPONENT', () => {
+  it('reports a component that returns a promise', async () => {
+    const { h, mount } = W;
+    async function Profile() { return h('h1', null, 'Ada'); }
+    const host = document.createElement('div');
+    const stop = quiet(() => mount(h(Profile), host));
+    stop();
+    assert.deepEqual(codes(), ['ERR_ASYNC_COMPONENT']);
+    assert.match(W.getDiagnostics().events[0].message, /"Profile"/);
+  });
+
+  it('stays silent for a component that returns a function or reads an async value', async () => {
+    const { computed, h, mount, Suspense } = W;
+    function Profile() {
+      const user = computed(async () => ({ name: 'Ada' }));
+      return () => h('h1', null, user().name);
+    }
+    const host = document.createElement('div');
+    const stop = mount(h(Suspense, { fallback: 'wait' }, h(Profile)), host);
+    await drain();
+    stop();
+    assert.deepEqual(codes(), []);
+  });
+});
+
+describe('ERR_ASYNC_MEMO', () => {
+  it('reports useMemo returning a promise', async () => {
+    const { useMemo, h, mount } = W;
+    let memo;
+    function Profile() {
+      memo = useMemo(() => Promise.resolve({ name: 'Ada' }));
+      return h('p', null, 'profile');
+    }
+    const host = document.createElement('div');
+    const stop = quiet(() => mount(h(Profile), host));
+    quiet(() => memo());
+    stop();
+    assert.deepEqual(codes(), ['ERR_ASYNC_MEMO']);
+  });
+
+  it('stays silent for a synchronous useMemo and for computed() over a promise', async () => {
+    const { useMemo, computed, h, mount, Suspense } = W;
+    function Profile() {
+      const total = useMemo(() => 1 + 2);
+      const user = computed(() => Promise.resolve({ name: 'Ada' }));
+      return h('p', null, () => total() + user().name);
+    }
+    const host = document.createElement('div');
+    const stop = mount(h(Suspense, { fallback: 'wait' }, h(Profile)), host);
+    await drain();
+    await drain();
+    assert.equal(host.textContent, '3Ada');
+    stop();
+    assert.deepEqual(codes(), []);
+  });
+});

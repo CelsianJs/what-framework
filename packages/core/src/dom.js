@@ -1,8 +1,9 @@
+import { setNextBinding } from './diagnostics.js';
 // What Framework - Fine-Grained DOM Runtime
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
-import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, runWithOwner, __DEV__ } from './reactive.js';
+import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, runWithOwner, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, applyRef, setClassList, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, isAriaAttr, isUnsafeUrl } from './markup-rules.js';
 import { isVNode } from './vnode-renderer.js';
@@ -367,6 +368,7 @@ function createComponent(vnode, parent, isSvg) {
   if (children.length > 0) mergedProps.children = children.length === 1 ? children[0] : children;
   const lazyChildren = props && props._$lazyChildren;
   const endChildrenPass = lazyChildren ? _installLazyChildren(Component, mergedProps, lazyChildren) : null;
+  if (__DEV__ && vnode._loc) return _renderComponent(Component, mergedProps, endChildrenPass, isSvg, vnode._loc);
   return _renderComponent(Component, mergedProps, endChildrenPass, isSvg);
 }
 
@@ -541,6 +543,7 @@ function setProp(el, key, value, isSvg) {
 
   // Reactive function props — wrap in effect for fine-grained updates
   if (typeof value === 'function' && !_isEventProp(key) && key !== 'ref') {
+    if (__DEV__) setNextBinding(el, `${el.localName}.${key}`);
     effect(() => { setProp(el, key, value(), isSvg); });
     return;
   }
@@ -562,8 +565,18 @@ function setProp(el, key, value, isSvg) {
     if (value == null) return;
     if (!el._events) el._events = {};
     // Single closure per event listener. Uses untrack to prevent accidental
-    // signal subscriptions inside event handlers.
+    // signal subscriptions inside event handlers. The listener belongs to the
+    // owner it was set under: once that owner is disposed it never runs again
+    // and removes itself when an event reaches it (an element that outlived
+    // its owner: a node the next hydrate() of the same container claims, one
+    // the app keeps and inserts again).
+    const owner = getOwner();
     const wrappedHandler = (e) => {
+      if (owner !== null && _isDisposed(owner)) {
+        el.removeEventListener(event, wrappedHandler, eventOpts || useCapture || undefined);
+        if (el._events[storageKey] === wrappedHandler) delete el._events[storageKey];
+        return;
+      }
       if (!e.nativeEvent) e.nativeEvent = e;
       return untrack(() => wrappedHandler._handler(e));
     };
@@ -575,8 +588,10 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // Reject dangerous URL protocols and srcdoc
+  // Reject dangerous URL protocols and srcdoc. A refused value leaves no
+  // attribute: not one an earlier write set, not one the server wrote.
   if (_isUnsafeAttr(key, value)) {
+    el.removeAttribute(key);
     if (typeof console !== 'undefined') {
       console.warn(`[what] Blocked unsafe URL in "${key}" attribute:`, value);
     }
@@ -595,9 +610,15 @@ function setProp(el, key, value, isSvg) {
       el.style.cssText = value;
       el._prevStyle = null;
     } else if (typeof value === 'object') {
-      const oldStyle = el._prevStyle || {};
-      for (const prop in oldStyle) {
-        if (!(prop in value)) el.style[prop] = '';
+      // The object is the element's whole inline style: the first one replaces
+      // what the element had (a string's declarations, the server's).
+      const oldStyle = el._prevStyle;
+      if (oldStyle == null) {
+        if (el.hasAttribute('style')) el.removeAttribute('style');
+      } else {
+        for (const prop in oldStyle) {
+          if (!(prop in value)) el.style[prop] = '';
+        }
       }
       for (const prop in value) {
         el.style[prop] = value[prop] ?? '';

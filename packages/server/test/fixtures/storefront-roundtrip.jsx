@@ -1,4 +1,5 @@
-import { computed, createResource, effect, Head, Island, signal, startTransition, Suspense, useLoaderData, useOptimistic } from 'what-framework';
+import { computed, createResource, effect, Head, signal, startTransition, Suspense, useLoaderData, useOptimistic } from 'what-framework';
+import { _$Island as Island } from 'what-framework/render';
 
 export const loader = () => ({ customer: 'Ada' });
 const products = [{ id: 'apple', name: 'Apple' }, { id: 'pear', name: 'Pear' }];

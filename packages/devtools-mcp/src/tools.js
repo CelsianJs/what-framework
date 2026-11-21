@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { createResponder, previewValue, isNamed, pageText, sessionParam, UNTRUSTED_NOTE } from './respond.js';
 import { describeToolAvailability } from './tool-registry.js';
 import { getErrorDefinition } from './catalogue.js';
+import { HYDRATION_FIXES } from './hydration-fixes.js';
 
 // What each what_events type filter selects.
 const EVENT_TYPES = {
@@ -22,7 +23,26 @@ const EVENT_TYPES = {
   mount: ['component:mounted', 'component:unmounted'],
   lifecycle: ['signal:created', 'signal:disposed', 'effect:created', 'effect:disposed'],
   page: ['page:connected', 'page:reconnected', 'page:closed'],
+  async: ['async:start', 'async:land', 'async:unresolved', 'async:ready', 'async:errored'],
+  transition: ['transition:open', 'transition:commit', 'transition:merged'],
+  optimistic: ['optimistic:add', 'optimistic:drop'],
+  suspense: ['suspense:waiting', 'suspense:revealed', 'suspense:disposed'],
+  hydration: ['hydration:complete'],
 };
+
+export function sourceFields(entry) {
+  return { ...(entry.owner ? { owner: entry.owner } : {}), ...(entry.loc ? { loc: entry.loc } : {}) };
+}
+
+export function asyncFields(entry) {
+  if (!entry.async) return {};
+  const { lastError, ...state } = entry.async;
+  return { async: { ...state, ...(lastError !== undefined ? { lastError: pageText(lastError, 300) } : {}) } };
+}
+
+export function sourceSuffix(data) {
+  return `${data.owner ? ` in ${data.owner}` : ''}${data.loc ? ` at ${data.loc}` : ''}`;
+}
 
 /** "App > [Header, TodoList > [TodoItem ×20]]", grouping same-name siblings. */
 export function componentTreeLine(components, maxDepth = 2) {
@@ -88,19 +108,19 @@ export function formatEvent(entry, names) {
     case 'signal:updated': {
       const value = previewValue(data.value, 60);
       const by = data.writerEffectId != null ? ` by ${label(names.effects, data.writerEffectId)}` : '';
-      return `#${seq} write ${data.name || label(names.signals, data.id)}=${JSON.stringify(value)}${by}`;
+      return `#${seq} write ${data.name || label(names.signals, data.id)}=${JSON.stringify(value)}${by}${sourceSuffix(data)}`;
     }
     case 'effect:run': {
       const causes = causeLabels(data, names);
-      return `#${seq} run ${data.name ? `${data.name}#${data.id}` : label(names.effects, data.id)} (${data.runCount})${causes?.length ? ` ← ${causes.join(', ')}` : ''}`;
+      return `#${seq} run ${data.name ? `${data.name}#${data.id}` : label(names.effects, data.id)} (${data.runCount})${causes?.length ? ` ← ${causes.join(', ')}` : ''}${sourceSuffix(data)}`;
     }
-    case 'signal:created': return `#${seq} +signal #${data.id} ${data.name || ''}`.trimEnd();
-    case 'signal:disposed': return `#${seq} -signal ${label(names.signals, data.id)}`;
-    case 'effect:created': return `#${seq} +${data.kind === 'computed' ? 'computed' : 'effect'} #${data.id} ${data.name || ''}`.trimEnd();
-    case 'effect:disposed': return `#${seq} -effect ${label(names.effects, data.id)}`;
-    case 'component:mounted': return `#${seq} mount <${data.name}> #${data.id}`;
-    case 'component:unmounted': return `#${seq} unmount #${data.id}`;
-    case 'error:captured': return `#${seq} error ${data.type || ''}${data.code ? ` ${data.code}` : ''}: ${pageText(data.message, 160)}`;
+    case 'signal:created': return `#${seq} +signal #${data.id} ${data.name || ''}${sourceSuffix(data)}`.trimEnd();
+    case 'signal:disposed': return `#${seq} -signal ${label(names.signals, data.id)}${sourceSuffix(data)}`;
+    case 'effect:created': return `#${seq} +${data.kind || 'effect'} #${data.id} ${data.name || ''}${sourceSuffix(data)}`.trimEnd();
+    case 'effect:disposed': return `#${seq} -effect ${label(names.effects, data.id)}${sourceSuffix(data)}`;
+    case 'component:mounted': return `#${seq} mount <${data.name}> #${data.id}${sourceSuffix(data)}`;
+    case 'component:unmounted': return `#${seq} unmount #${data.id}${sourceSuffix(data)}`;
+    case 'error:captured': return `#${seq} error ${data.type || ''}${data.code ? ` ${data.code}` : ''}: ${pageText(data.message, 160)}${sourceSuffix(data)}`;
     case 'diagnostic': return `#${seq} ${data.code}${data.count > 1 ? ` ×${data.count}` : ''} ${pageText(data.message, 200)}`;
     case 'page:connected': return `#${seq} page connected`;
     case 'page:reconnected': return `#${seq} page reconnected (events while disconnected are missing)`;
@@ -226,7 +246,7 @@ export function registerTools(server, bridge) {
           .filter((s) => isNamed(s.name) && !s.name.startsWith('what-router:'))
           .sort((a, b) => (subs.get(b.id) || 0) - (subs.get(a.id) || 0) || a.id - b.id)
           .slice(0, 8)
-          .map((s) => ({ id: s.id, name: s.name, value: previewValue(s.value, 60), subs: subs.get(s.id) || 0 }));
+          .map((s) => ({ id: s.id, name: s.name, ...sourceFields(s), value: previewValue(s.value, 60), subs: subs.get(s.id) || 0 }));
 
         const diagnostics = bridge.getDiagnostics(session).sort((a, b) => b.seq - a.seq);
         const errors = bridge.getErrors(session).slice().reverse();
@@ -240,6 +260,7 @@ export function registerTools(server, bridge) {
           session: session.id,
           ...(live.length > 1 ? { otherSessions: live.filter((s) => s.id !== session.id).map((s) => s.id) } : {}),
           app: info && !info.error ? { url: info.url, title: pageText(info.title, 120), route: info.route } : null,
+          hydration: state.hydration || { hydrated: false },
           counts: { signals: signals.length, effects: state.effects.filter((e) => e.kind !== 'computed').length, computeds: state.effects.filter((e) => e.kind === 'computed').length, components: state.components.length },
           diagnostics: diagnosticSummary(bridge, session),
           errors: errors.length,
@@ -258,24 +279,32 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_signals',
-    'Signals with current values. Filter by name regex or id; named signals come first. Values are previews; one id returns a longer preview. Pages with offset.',
+    'Signals with current values and async computeds with status, in-flight run and last error. Filter by name regex or id; named signals come first. Values are previews; one id returns a longer preview. Pages with offset.',
     {
       filter: z.string().optional().describe('Regex on signal names (ignored if id is set)'),
-      id: z.number().optional().describe('One signal by id'),
+      id: z.number().optional().describe('One writable signal by signal id'),
+      effectId: z.number().optional().describe('One async computed by its effect id'),
       limit: z.number().optional().default(20).describe('Max signals (default 20, max 100)'),
       offset: z.number().optional().default(0).describe('Skip this many matches (from a previous answer\'s next)'),
       named_only: z.boolean().optional().default(false).describe('Drop signals without a debug name'),
       session: sessionParam(z),
     },
-    async ({ filter, id, limit, offset, named_only, session: sid }) => withState(sid, async ({ session, state, seq }) => {
-      let signals = state.signals;
+    async ({ filter, id, effectId, limit, offset, named_only, session: sid }) => withState(sid, async ({ session, state, seq }) => {
+      if (id != null && effectId != null) return fail('Pass a signal id or an async computed effectId.');
+      const asyncNodes = state.effects.filter((e) => e.async);
+      if (effectId != null) {
+        const node = asyncNodes.find((e) => e.id === effectId);
+        if (!node) return fail(`Async computed ${effectId} not found`, 'List async computeds with what_effects.');
+        return ok({ signals: [{ effectId, name: node.name, kind: 'computed', ...sourceFields(node), ...asyncFields(node) }] }, seq);
+      }
+      let signals = [...state.signals, ...asyncNodes];
       const total = signals.length;
       if (id != null) {
-        signals = signals.filter((s) => s.id === id);
+        signals = state.signals.filter((s) => s.id === id);
         if (!signals.length) return fail(`Signal ${id} not found`, 'Ids change when the page reloads; call what_signals again.');
         const { data } = await bridge.request(session, 'signal', { id });
         const subs = subscriberCounts(state.effects);
-        return ok({ total, matched: 1, signals: [{ id, name: data.name ?? signals[0].name, value: previewValue(data.value ?? signals[0].value, 2000), rev: data.rev ?? signals[0].rev, subs: subs.get(id) || 0 }] }, seq);
+        return ok({ total, matched: 1, signals: [{ id, name: data.name ?? signals[0].name, ...sourceFields(signals[0]), value: previewValue(data.value ?? signals[0].value, 2000), rev: data.rev ?? signals[0].rev, subs: subs.get(id) || 0 }] }, seq);
       }
       if (filter) {
         let re;
@@ -287,14 +316,17 @@ export function registerTools(server, bridge) {
 
       const subs = subscriberCounts(state.effects);
       const { slice, next } = page(signals, offset, Math.min(Math.max(limit || 20, 1), 100));
-      const rows = slice.map((s) => ({ id: s.id, name: s.name, value: previewValue(s.value, 200), subs: subs.get(s.id) || 0 }));
+      const rows = slice.map((s) => ({
+        ...(s.async ? { effectId: s.id } : { id: s.id }), name: s.name, ...sourceFields(s),
+        ...(s.async ? { kind: 'computed', ...asyncFields(s) } : { value: previewValue(s.value, 200), subs: subs.get(s.id) || 0 }),
+      }));
       return ok({ total, matched: signals.length, signals: rows, ...(next !== undefined ? { next } : {}) }, seq);
     })
   );
 
   server.tool(
     'what_effects',
-    'Effects and computeds with run counts, what they read ("name#id") and why they last re-ran (lastCause). Filter by run count, name regex or a dependency. Pages with offset.',
+    'Effects, bindings and computeds with run counts, dependencies and async status. Use what_why for causal history. Filter by run count, name regex or a dependency. Pages with offset.',
     {
       minRunCount: z.number().optional().describe('Only effects that ran at least this many times'),
       filter: z.string().optional().describe('Regex on effect names'),
@@ -322,7 +354,9 @@ export function registerTools(server, bridge) {
         return {
           id: e.id,
           name: e.name,
-          ...(e.kind === 'computed' ? { kind: 'computed' } : {}),
+          ...sourceFields(e),
+          ...asyncFields(e),
+          ...(e.binding ? { kind: 'binding' } : e.kind === 'computed' ? { kind: 'computed' } : {}),
           runs: e.runCount || 0,
           deps: [...(e.depSignalIds || []).map((d) => label(names.signals, d)), ...(e.depComputedIds || []).map((d) => label(names.effects, d))],
           ...(cause?.length ? { lastCause: cause } : {}),
@@ -359,7 +393,7 @@ export function registerTools(server, bridge) {
         return ok({
           total: components.length,
           tree: componentTreeLine(components, 3),
-          components: slice.map((c) => ({ id: c.id, name: c.name, parentId: c.parentId ?? null })),
+          components: slice.map((c) => ({ id: c.id, name: c.name, ...sourceFields(c), parentId: c.parentId ?? null })),
           ...(next !== undefined ? { next } : {}),
         }, seq);
       }
@@ -379,7 +413,8 @@ export function registerTools(server, bridge) {
       const matches = (node) => !re || re.test(node.name) || node.children.some(matches);
       function toTree(node, d) {
         if (d > depth || !matches(node)) return null;
-        const out = { id: node.id, name: node.name, signals: signalCount.get(node.id) || 0, effects: effectCount.get(node.id) || 0 };
+        /** @type {Record<string, any>} */
+        const out = { id: node.id, name: node.name, ...sourceFields(node), signals: signalCount.get(node.id) || 0, effects: effectCount.get(node.id) || 0 };
         const kids = node.children.map((c) => toTree(c, d + 1)).filter(Boolean);
         if (kids.length) out.children = kids;
         return out;
@@ -417,10 +452,10 @@ export function registerTools(server, bridge) {
         const signalsAdded = [];
         for (const [sigId, s] of currSignals) {
           const prev = baseSignals.get(sigId);
-          if (!prev) signalsAdded.push({ id: sigId, name: s.name, value: previewValue(s.value) });
-          else if (prev.rev !== s.rev) signalsChanged.push({ id: sigId, name: s.name, writes: s.rev - prev.rev, from: previewValue(prev.value), to: previewValue(s.value) });
+          if (!prev) signalsAdded.push({ id: sigId, name: s.name, ...sourceFields(s), value: previewValue(s.value) });
+          else if (prev.rev !== s.rev) signalsChanged.push({ id: sigId, name: s.name, ...sourceFields(s), writes: s.rev - prev.rev, from: previewValue(prev.value), to: previewValue(s.value) });
         }
-        const signalsRemoved = [...baseSignals.values()].filter((s) => !currSignals.has(s.id)).map((s) => ({ id: s.id, name: s.name }));
+        const signalsRemoved = [...baseSignals.values()].filter((s) => !currSignals.has(s.id)).map((s) => ({ id: s.id, name: s.name, ...sourceFields(s) }));
 
         const baseEffects = new Map(before.effects.map((e) => [e.id, e]));
         const currEffects = new Map(state.effects.map((e) => [e.id, e]));
@@ -428,24 +463,35 @@ export function registerTools(server, bridge) {
         const effectsAdded = [];
         for (const [effId, e] of currEffects) {
           const prev = baseEffects.get(effId);
-          if (!prev) effectsAdded.push({ id: effId, name: e.name });
-          else if ((e.runCount || 0) > (prev.runCount || 0)) effectsRan.push({ id: effId, name: e.name, delta: e.runCount - (prev.runCount || 0) });
+          if (!prev) effectsAdded.push({ id: effId, name: e.name, ...sourceFields(e) });
+          else if ((e.runCount || 0) > (prev.runCount || 0)) effectsRan.push({ id: effId, name: e.name, ...sourceFields(e), delta: e.runCount - (prev.runCount || 0) });
         }
         effectsRan.sort((a, b) => b.delta - a.delta);
-        const effectsRemoved = [...baseEffects.values()].filter((e) => !currEffects.has(e.id)).map((e) => ({ id: e.id, name: e.name }));
+        const effectsRemoved = [...baseEffects.values()].filter((e) => !currEffects.has(e.id)).map((e) => ({ id: e.id, name: e.name, ...sourceFields(e) }));
 
         const baseComps = new Set(before.components.map((c) => c.id));
         const currComps = new Set(state.components.map((c) => c.id));
-        const mounted = state.components.filter((c) => !baseComps.has(c.id)).map((c) => ({ id: c.id, name: c.name }));
-        const unmounted = before.components.filter((c) => !currComps.has(c.id)).map((c) => ({ id: c.id, name: c.name }));
+        const mounted = state.components.filter((c) => !baseComps.has(c.id)).map((c) => ({ id: c.id, name: c.name, ...sourceFields(c) }));
+        const unmounted = before.components.filter((c) => !currComps.has(c.id)).map((c) => ({ id: c.id, name: c.name, ...sourceFields(c) }));
         const newDiagnostics = bridge.getDiagnostics(session, { after: baseline.seq }).map((d) => `${d.code}${d.count > 1 ? ` ×${d.count}` : ''}`);
 
         const out = {};
         const counts = {};
+        const owners = new Map();
+        const locations = new Map();
+        function index(table, value) {
+          if (!value) return null;
+          if (!table.has(value)) table.set(value, table.size);
+          return table.get(value);
+        }
         const put = (key, arr, n) => {
           if (!arr.length) return;
           counts[key] = arr.length;
-          out[key] = arr.length <= n ? arr : [...arr.slice(0, n), `…${arr.length - n} more`];
+          const rows = arr.slice(0, n).map(({ owner, loc, ...entry }) => (
+            owner || loc ? { ...entry, source: [index(owners, owner), index(locations, loc)] } : entry
+          ));
+          if (arr.length > n) rows.push(`…${arr.length - n} more`);
+          out[key] = rows;
         };
         put('signalsChanged', signalsChanged, 20);
         put('signalsAdded', signalsAdded, 10);
@@ -457,7 +503,10 @@ export function registerTools(server, bridge) {
         put('unmounted', unmounted, 10);
         if (newDiagnostics.length) out.newDiagnostics = newDiagnostics;
         if (!Object.keys(out).length) return ok({ changed: false, since: baseline.seq }, seq);
-        return ok({ ...out, counts, since: baseline.seq }, seq);
+        return ok({
+          ...out, counts, since: baseline.seq,
+          ...(owners.size || locations.size ? { sources: { owners: [...owners.keys()], locations: [...locations.keys()] } } : {}),
+        }, seq);
       }
 
       const out = {
@@ -478,11 +527,12 @@ export function registerTools(server, bridge) {
     'Coded diagnostics the page reported (code, severity, count, owner path, source location) and errors it threw (in effects, event handlers, promises), oldest first, each code with its fix. summary counts everything; the list pages: pass after (a seq from any answer) or next.',
     {
       after: z.number().optional().describe('Only entries newer than this seq'),
+      code: z.string().optional().describe('Exact diagnostic or error code, e.g. ERR_HYDRATION_MISMATCH'),
       severity: z.enum(['error', 'warning', 'all']).optional().default('all').describe('Filter by severity (default all)'),
       limit: z.number().optional().default(20).describe('Max entries (default 20, max 100)'),
       session: sessionParam(z),
     },
-    async ({ after, severity, limit, session: sid }) => {
+    async ({ after, severity, limit, code, session: sid }) => {
       const { session, err } = target(sid, { allowClosed: true });
       if (err) return err;
       let seq;
@@ -490,9 +540,10 @@ export function registerTools(server, bridge) {
       const cursor = after || 0;
 
       const diagnostics = bridge.getDiagnostics(session, { after: cursor })
-        .filter((d) => severity === 'all' || d.severity === severity)
+        .filter((d) => (!code || d.code === code) && (severity === 'all' || d.severity === severity))
         .map((d) => ({ kind: 'diagnostic', seq: d.seq, d }));
-      const errors = severity === 'warning' ? [] : bridge.getErrors(session, { after: cursor }).map((e) => ({ kind: 'error', seq: e.seq, e }));
+      const errors = severity === 'warning' ? [] : bridge.getErrors(session, { after: cursor })
+        .filter((e) => !code || code === (getErrorDefinition(e.code)?.code || 'ERR_RUNTIME')).map((e) => ({ kind: 'error', seq: e.seq, e }));
       const all = [...diagnostics, ...errors].sort((a, b) => a.seq - b.seq);
       const max = Math.min(Math.max(limit || 20, 1), 100);
       const shown = all.slice(0, max);
@@ -518,6 +569,9 @@ export function registerTools(server, bridge) {
             ...(d.owner?.length ? { owner: d.owner.join(' › ') } : {}),
             ...(d.loc ? { loc: d.loc } : {}),
             ...(d.subject ? { subject: d.subject } : {}),
+            ...(d.code === 'ERR_HYDRATION_MISMATCH' && d.data ? { mismatch: {
+              ...d.data, expected: pageText(d.data.expected, 200), found: pageText(d.data.found, 200),
+            } } : {}),
             seq: d.seq,
           });
         } else {
@@ -530,6 +584,7 @@ export function registerTools(server, bridge) {
             message: pageText(e.message, 300),
             ...(e.effectId != null ? { effect: label(names.effects, e.effectId) } : {}),
             ...(where.component ? { component: where.component } : {}),
+            ...sourceFields(e),
             ...(where.file ? { at: `${where.file}:${where.line}:${where.column}` } : {}),
             ...(def ? {} : { hint: inferSuggestion(e.message || '') }),
             seq: e.seq,
@@ -538,7 +593,15 @@ export function registerTools(server, bridge) {
       }
 
       const fixes = {};
+      const mismatchFixes = {};
+      if (code === 'ERR_HYDRATION_MISMATCH') {
+        for (const entry of out.diagnostics) {
+          const kind = entry.mismatch?.kind;
+          if (Object.hasOwn(HYDRATION_FIXES, kind)) mismatchFixes[kind] = HYDRATION_FIXES[kind];
+        }
+      }
       for (const code of Object.keys(summary)) {
+        if (code === 'ERR_HYDRATION_MISMATCH' && Object.keys(mismatchFixes).length) continue;
         const def = code === 'ERR_RUNTIME' ? null : getErrorDefinition(code);
         if (def) fixes[code] = def.suggestion;
       }
@@ -555,6 +618,7 @@ export function registerTools(server, bridge) {
         summary,
         ...out,
         fixes,
+        ...(Object.keys(mismatchFixes).length ? { mismatchFixes } : {}),
         ...(all.length > shown.length ? { more: all.length - shown.length, next: shown[shown.length - 1].seq } : {}),
         ...(Object.keys(lost).length ? { lost } : {}),
         note: UNTRUSTED_NOTE,
@@ -565,10 +629,10 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_events',
-    'What happened, without waiting: events after a cursor, oldest first, one line each (writes with their writer, effect runs with their cause, mounts, diagnostics, errors, page loads). Pass after = the seq or since from an earlier answer. more:true means call again with after = next; reading from next never repeats or skips.',
+    'What happened, without waiting: events after a cursor, oldest first (includes async, transitions, optimistic overlays, Suspense and hydration) (writes with their writer, effect runs with their cause, mounts, diagnostics, errors, page loads). Pass after = the seq or since from an earlier answer. more:true means call again with after = next; reading from next never repeats or skips.',
     {
       after: z.number().optional().describe('Return events with seq greater than this (default: the oldest kept)'),
-      types: z.array(z.enum(['diagnostic', 'error', 'write', 'run', 'mount', 'lifecycle', 'page'])).optional()
+      types: z.array(z.enum(['diagnostic', 'error', 'write', 'run', 'mount', 'lifecycle', 'page', 'async', 'transition', 'optimistic', 'suspense', 'hydration'])).optional()
         .describe('Only these kinds (default: all)'),
       limit: z.number().optional().default(50).describe('Max events (default 50, max 500)'),
       session: sessionParam(z),
@@ -601,6 +665,12 @@ export function registerTools(server, bridge) {
         more,
         ...(slice.lostThrough ? { lostThrough: slice.lostThrough } : {}),
         events: events.map((e) => formatEvent(e, names)),
+        ...(events.some((e) => /^(async|transition|optimistic|suspense|hydration):/.test(e.event)) ? {
+          work: events.filter((e) => /^(async|transition|optimistic|suspense|hydration):/.test(e.event)).map((e) => {
+            const { lastError, ...data } = e.data;
+            return { seq: e.seq, type: e.event, ...data, ...(lastError !== undefined ? { lastError: pageText(lastError, 300) } : {}) };
+          }),
+        } : {}),
         ...(ranked.length ? { runs: ranked } : {}),
         ...(hasPageText ? { note: UNTRUSTED_NOTE } : {}),
         ...(session.socket === null ? { closed: `Session ${session.id} has closed; showing its buffered events.` } : {}),
@@ -612,9 +682,9 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_cache',
-    'SWR/useQuery cache entries in the running app.',
+    'The query cache of the running app (query(), useQuery, useSWR, useInfiniteQuery, useFetch share it): each key with its status (loading, refreshing, success, error, idle), a value preview, its readers, how long ago it landed and its last fetch.',
     {
-      key: z.string().optional().describe('Substring filter on cache keys'),
+      key: z.string().optional().describe('Substring filter on cache keys (array keys read as "todos:1")'),
       session: sessionParam(z),
     },
     async ({ key, session: sid }) => {
@@ -627,7 +697,20 @@ export function registerTools(server, bridge) {
         const now = Date.now();
         return ok({
           count: entries.length,
-          entries: entries.map((e) => ({ ...e, data: previewValue(e.data, 200), ...(typeof e.timestamp === 'number' ? { ageMs: now - e.timestamp } : {}) })),
+          entries: entries.map((e) => ({
+            key: e.key,
+            ...(e.kind && e.kind !== 'query' ? { kind: e.kind } : {}),
+            status: e.status,
+            data: previewValue(e.data, 200),
+            ...(e.error ? { error: String(e.error) } : {}),
+            observers: e.observers ?? 0,
+            ...(e.isValidating ? { fetching: true } : {}),
+            ...(typeof e.updatedAt === 'number' ? { ageMs: now - e.updatedAt } : {}),
+            ...(e.lastFetch ? { lastFetch: { agoMs: now - e.lastFetch.at, ms: e.lastFetch.ms, ok: e.lastFetch.ok } } : {}),
+            ...(e.fetches ? { fetches: e.fetches } : {}),
+            ...(Array.isArray(e.paths) && e.paths.length ? { paths: e.paths } : {}),
+          })),
+          ...(entries.length === 0 && !key ? { hint: 'Nothing is cached: the page reads no query, or what-framework/data is not loaded.' } : {}),
         }, seq);
       } catch (e) {
         return fail(e.message);
@@ -662,9 +745,9 @@ export function registerTools(server, bridge) {
 
   server.tool(
     'what_invalidate_cache',
-    'Force-refresh one cache key in the running app. Returns since: what_events({after: since}) shows the refetch as it lands.',
+    'Mark query cache entries stale and refetch the ones on screen, as invalidateQueries does. Returns the keys it matched and since: what_events({after: since}) shows the refetch as it lands.',
     {
-      key: z.string().describe('The cache key to invalidate'),
+      key: z.string().optional().describe('A key as what_cache lists it ("todos:1"), or a JSON array key, which is a prefix ("[\\"todos\\"]"). Omit to invalidate every entry.'),
       session: sessionParam(z),
     },
     async ({ key, session: sid }) => {
@@ -673,7 +756,12 @@ export function registerTools(server, bridge) {
       try {
         const { data, seq, since } = await bridge.request(session, 'invalidate-cache', { key });
         if (data?.error) return fail(data.error);
-        return ok({ invalidated: key, ...(await actionEvents(bridge, session, since, seq)) }, seq);
+        const invalidated = Array.isArray(data?.invalidated) ? data.invalidated : [];
+        return ok({
+          invalidated,
+          ...(invalidated.length === 0 ? { hint: 'No cache key matched; what_cache lists the keys.' } : {}),
+          ...(await actionEvents(bridge, session, since, seq)),
+        }, seq);
       } catch (e) {
         return fail(e.message);
       }

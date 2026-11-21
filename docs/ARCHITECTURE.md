@@ -153,9 +153,9 @@ _$insert(el, () => x(), marker, "li.children@src/App.jsx:15:11");
 
 A production build is byte-identical with the option on or off.
 
-- **Event delegation.** Event handlers are stored as `el.$$eventName` properties. A single document-level listener per event type (registered lazily, the first time an element needs it) walks the event's composed path and calls the handlers on it, innermost first. `e.target` reads at each handler as the native target would there: the inner node inside an open shadow tree, the host once the event leaves the shadow tree that node lives in, and the slotted node itself for a light-DOM child slotted into a shadow host. A disabled element's handler is skipped. A shadow root or an element passed to `delegateEvents(names, root)` delegates for its own subtree, its own handler included, and the document's listener does not run those handlers again. `currentTarget` and `target` are handed back after the walk, also when a handler throws.
+- **Event delegation.** Event handlers are stored as `el.$$eventName` properties. A single document-level listener per event type (registered lazily, the first time an element needs it) walks the event's composed path and calls the handlers on it, innermost first. `e.target` reads at each handler as the native target would there: the inner node inside an open shadow tree, the host once the event leaves the shadow tree that node lives in, and the slotted node itself for a light-DOM child slotted into a shadow host. A disabled element's handler is skipped. A shadow root or an element passed to `delegateEvents(names, root)` delegates for its own subtree, its own handler included, and the document's listener does not run those handlers again. `currentTarget` and `target` are handed back after the walk, also when a handler throws. A handler belongs to the owner it was set under (the element is marked with it): once that owner is disposed the handler never runs again and is dropped the first time an event reaches it, also on an element that outlived the owner (one the next `hydrate()` of the same container claims, one the app keeps and inserts again). A listener the compiler adds for an event that is not delegated is removed with its owner.
 
-- **Compiled-only runtime.** Compiled output imports `what-framework/render`, which never reaches the vnode renderer (`createDOM`: elements from vnodes, `<ErrorBoundary>`/`<Suspense>`/`<Portal>`). Vnodes are handed to a renderer held in an import-free slot (`vnode-renderer.js`) that `h.js` fills when imported, and every vnode producer (`h()`, the JSX runtime, the boundaries, `lazy`, `Island`) imports `h.js`. A compiled-only app therefore bundles none of it; an app that uses a boundary or `h()` gets it back automatically. A class component is not a vnode: the small bridge that runs it lives in `render.js`, so a compiled-only bundle renders one under every bundler. A vnode reaching a runtime with no renderer throws `ERR_NO_VNODE_RENDERER`; in development the message says what to import.
+- **Compiled-only runtime.** Compiled output imports `what-framework/render`, which never reaches the vnode renderer (`createDOM`: elements from vnodes, `<ErrorBoundary>`/`<Suspense>`/`<Portal>`). Vnodes are handed to a renderer held in an import-free slot (`vnode-renderer.js`) that `h.js` fills when imported, and every vnode producer (`h()`, the JSX runtime, the boundaries, `lazy`, `_$Island`) imports `h.js`. A compiled-only app therefore bundles none of it; an app that uses a boundary or `h()` gets it back automatically. A class component is not a vnode: the small bridge that runs it lives in `render.js`, so a compiled-only bundle renders one under every bundler. A vnode reaching a runtime with no renderer throws `ERR_NO_VNODE_RENDERER`; in development the message says what to import.
 
 - **Compiler and runtime move together.** The runtime takes the compiler's output protocol as given rather than second-guessing it: `_$template(html, 2)` marks a template whose SVG or MathML root the compiler wrapped, and a template without the flag parses as HTML. what-compiler requires the what-core of its own minor version, so an installed pair always agrees; output from an older compiler that reaches a newer runtime anyway (a library shipping precompiled code) throws `ERR_TEMPLATE_NAMESPACE` in development at its first SVG or MathML root.
 
@@ -275,7 +275,7 @@ A region (a function child, a `<Show>` arm) is an effect, so what it renders bel
 
 An owner can carry handlers. `_onError` receives errors: an error thrown by an effect's re-run or cleanup, by a binding (a computed read in one included), by a list row's effects, by a component created later, or by a component's body or output while it is built, goes to the nearest live owner above it that has an `_onError` handler; a handler that throws passes its error further up. With no handler the error is logged with `console.error` and the flush goes on: nothing halts. An error thrown by the first run of an effect created outside any component propagates out of `effect()`. Every thrown error reaches the devtools `onError` hook once.
 
-`<ErrorBoundary>` installs its handler on the root its children are built in. When it catches, it disposes that root and shows its fallback, built under the boundary's owner, so an error in the fallback goes to the boundary above. `reset()` disposes the fallback and builds the children again. `<Suspense>` installs `_onPending` the same way: a thenable a component throws while it is built (`lazy()` before its chunk lands, a resource) goes to the nearest `_onPending` above it.
+`<ErrorBoundary>` installs its handler on the root its children are built in. When it catches, it disposes that root and shows its fallback, built under the boundary's owner, so an error in the fallback goes to the boundary above. `reset()` disposes the fallback and builds the children again. `<Suspense>` installs `_onPending` the same way: a thenable a component throws while it is built (`lazy()` before its chunk lands, a resource) goes to the nearest `_onPending` above it, and so does a binding or effect held on an async value that has not landed, which the boundary counts until a run of it completes (docs/ASYNC.md).
 
 ### Development and production tiers
 
@@ -470,13 +470,24 @@ the attribute is ignored, and reads them all as one payload, so
 A keyless resource or async computed is adopted by key: while hydrating, every
 component owner gets the same owner path the server gave its frame
 (`_assignHydrationOwnerPath`, called where the client creates a component), and
-the value looks up its own owner key. In development it adopts the value only
-when the server's component at that path has the same name, and otherwise
+the value looks up its own owner key. A component whose output starts with an
+element the server keyed takes its path from that `data-hk` (the step of it
+right after its parent's path), so it finds its own values wherever the trees
+diverged before it: a branch only one side rendered, the children a boundary
+tried before its fallback, a streamed fallback. A component with no key in
+front of it is numbered in order, but only while the walk has matched the
+server's structure; after a structural mismatch, or where the server rendered
+nothing at all, it is numbered under a prefix no server key has, and fetches.
+The built-ins what-compiler lowers away (`<Show>`, `<For>`, `<Switch>`,
+`<Match>`) take no step when they run as components, so a subtree has the same
+paths compiled and through h(). In development a value is adopted only when the
+server's component at that path has the same name, and otherwise the resource
 fetches and reports `ERR_HYDRATION_OWNER_MISMATCH`; a production build, whose
-bundle renames every function, adopts by the path alone. A second `hydrate()`
-root that is not the server's render root fetches. A root counts from the server's root when its container holds the
-page's data element, or from the path in its `data-what-owner` attribute (an
-island).
+bundle renames every function, adopts by the path alone. Each `hydrate()` call
+counts from its container's anchor again, and a boundary that resumes later
+counts on the call it belongs to. A root counts from the server's root when its
+container holds the page's data element, or from the path in its
+`data-what-owner` attribute (an island); any other second root fetches.
 
 ### Client Hydration
 
@@ -507,16 +518,33 @@ or mounting into a container that holds a root disposes that root first.
   its two markers around what it claimed.
 - **A keyed list** (`<For>`, a keyed `.map()` of vnodes or compiled rows)
   adopts each row's server nodes as that row, so the first reorder moves the
-  server's nodes rather than rebuilding them.
+  server's nodes rather than rebuilding them. A compiled row of several nodes
+  starts at the array marker the server bracketed it with, and a compiled
+  `<For fallback>` adopts its rows, or its fallback, whichever the server
+  rendered. A compiled keyed row's plain field of its item (`{row.label}`) is a
+  text node of its own that the row's item cell rewrites when the row gets a
+  new item: no effect, region or marker per field; the server writes it as
+  plain text and the walk claims that text node.
 - **A component** gets the owner path the server gave it, as the data channel
   needs (Hydration data). A `data-hk` on its first element is checked against
-  that path (a different key is reported as kind `key` with recovery `none`:
-  the markup itself matched) and removed.
+  that path (a key that cannot be the component's is reported as kind `key`
+  with recovery `none`: the markup itself matched) and removed. Children a
+  component renders elsewhere (`<Portal>`, an island's slot) are built, or
+  hydrated, where they render, never where the component stands.
+- **Text-only elements.** `<textarea>` and `<title>` hold text the parser
+  decodes (a comment there is text), so the server writes their children with
+  no markers and the walk claims that text as one text node. The parser drops a
+  newline right after `<pre>`, `<textarea>` and `<listing>`, so the server
+  writes one there and content that begins with a newline keeps it.
 - **`<Suspense>` and `<ErrorBoundary>`** read their marker: `<!--b-->` adopts
   the children; `<!--b!-->` renders the children on the client and keeps the
   server's fallback only if they throw or suspend there too; a streaming
   placeholder adopts the fallback now and the children when the content
-  arrives (`_resumeBoundary`, which `_$W.h(id)` calls). Without a marker, a
+  arrives (`_resumeBoundary`, which `_$W.h(id)` calls), reporting to the same
+  `onHydrationError`; unmounting before then drops the wait. A component that
+  suspends while its server content is adopted (a `lazy()` chunk not loaded
+  yet) leaves that content up, untouched, and the boundary walks it again once
+  the chunk has landed: no fallback frame and no rebuild. Without a marker, a
   `<Suspense>` whose fallback renders exactly what the cursor stands on showed
   its fallback, anything else its children.
 
@@ -538,34 +566,55 @@ the reuse is lost. A hydratable build carries the hydration runtime (about
 6.3 KB gzip, `.size-budgets.json` `compiled-hydrate`); a build without the
 option carries none of it.
 
-**Mismatches** are reported, never silently rewritten: one record per region,
+**Mismatches** are reported, never silently rewritten: one record per region
+(a marked region, else the element the walk is in),
 `{ kind, component, ownerPath, path, expected, found, recovery }`, where `kind`
-is `tag`, `text`, `missing`, `extra-nodes`, `marker`, `key` or
+is `tag`, `text`, `missing`, `extra-nodes`, `marker`, `key`, `shadow-root` or
 `not-hydratable` and `path` is the DOM path under the container. Development
 prints it as `ERR_HYDRATION_MISMATCH`; every build, production included,
 passes it to `options.onHydrationError`. Recovery client-renders the smallest
 part it can: the one element (with its subtree) or text node that differs is
 replaced by the client's, nodes the client does not render are removed, and a
-missing node is inserted. Leftovers at the end of an element are removed
-(reported as `extra-nodes`), except `<script>` and `<template>` elements (the
-payload and pending boundaries); a `<body>` or `<html>` container's own
-leftovers are left alone, since the page puts its scripts and other roots
-there.
+missing node is inserted. Leftovers at the end of an element or region are
+removed (reported as `extra-nodes`). Only at the container's top level are the
+stream's own elements left in place: its data elements, the content templates
+of boundaries not yet swapped in, and its `_$W` scripts. A `<body>` or `<html>`
+container's own leftovers are left alone, since the page puts its scripts and
+other roots there.
 
-**Claimed markup is held to the client's rules.** `hydrate()` never parses a
-string: it adopts nodes the browser built from the response, and from then on
-the client owns them as if it had created them. A claimed element keeps only
-the attributes the client renders: every other attribute the server's markup
-carries is removed, and an attribute is not kept because a prop of the same
-name exists when the client's setter would not write it (an `on*` handler,
-which the client attaches as a listener, or a value the URL and attribute
-rules refuse). What it renders is written through the same setters as a client
-render, except that a plain string or number the server already wrote
-identically is left in place. Raw inner HTML is only ever the client's
-`{ __html }`, written again unless the server's is identical. Markers are
-matched by their exact text and position and are never interpreted further.
-Stale state from the server cannot leak in either direction: recovery leaves
-what a client render leaves (`packages/core/test/hydration-mismatch.test.js`).
+**Claimed markup is held to the client's rules** (SECURITY.md, Hydration).
+`hydrate()` never parses a string: it adopts nodes the browser built from the
+response, and from then on the client owns them as if it had created them.
+After the walk the container holds exactly what a client render of the same
+tree with the same data holds:
+
+- A claimed element's attributes end as a client render's. On an h() element a
+  server attribute stays as it is only where a prop renders exactly that value
+  (a string or number the setter writes as it stands); every other prop is
+  written by its setter, each of which writes its attribute whole (a refused
+  URL removes the attribute, a style object replaces the inline style), and an
+  attribute no prop renders is removed. A reactive prop's attribute stands
+  until the effect's first run writes the client's value, and goes if that run
+  is held on a value that has not landed. A compiled element takes exactly its
+  template node's attributes, and its bindings write the dynamic ones.
+- An element the client leaves empty keeps what the server put in it only
+  where the client says so: an island's host (which the island hydrates), and
+  an element whose raw HTML a binding writes (`{ __html }`, kept when it is the
+  same). Anything else in it is left over.
+- An element hosting a shadow root (a declarative one: `<template
+  shadowrootmode="open">` in the response) is not what the client renders, as
+  the page would show the shadow tree: it is replaced and reported as
+  `shadow-root`, also inside a static subtree adopted whole (`isEqualNode`
+  does not see shadow roots).
+- Raw inner HTML is only ever the client's `{ __html }`. Markers are matched by
+  their exact text and position and are never interpreted further.
+- Event handlers belong to their owner: once the component, row or root that
+  set one is disposed (a later `hydrate()` of the same container replacing it,
+  an unmount), it never runs again, also on an element that outlived it.
+
+Recovery leaves what a client render leaves
+(`packages/core/test/hydration-mismatch.test.js`,
+`packages/core/test/hydration-trust.test.js`).
 
 ### Islands Architecture
 

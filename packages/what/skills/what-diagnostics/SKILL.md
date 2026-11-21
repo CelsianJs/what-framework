@@ -12,7 +12,9 @@ To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, works offline) for the 
 
 ## Reported live by the running app (`what_errors`, `what_events`)
 
+- `ERR_ASYNC_COMPONENT` warn: Component "component" returned a promise: an async component renders as text.
 - `ERR_ASYNC_EFFECT` warn: Effect "effectName" is an async function. Only what it reads before its first await is…
+- `ERR_ASYNC_MEMO` warn: useMemo() returned a promise; useMemo keeps it, so its readers get the promise.
 - `ERR_ASYNC_READ_IN_BODY` error: Component "component" read an async value it made in its own body before the value land…
 - `ERR_ASYNC_WITHOUT_SUSPENSE` warn: Component "component" suspended (lazy(), use() or a value that had not landed, read in…
 - `ERR_CLEANUP_WITHOUT_OWNER` warn: onCleanup() was called outside a component and outside any reactive owner, so the clean…
@@ -34,6 +36,7 @@ To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, works offline) for the 
 - `ERR_PENDING_READ_UNTRACKED` warn: call was read in a component body. The body runs once, so this reads the pending state…
 - `ERR_SIGNAL_WRITE_IN_COMPUTED` warn: Computed "computedName" wrote signal "signalName". A computed only derives a value; a w…
 - `ERR_STORAGE_FAILED` warn: useLocalStorage("key") could not operation localStorage: reason.
+- `ERR_SUSPEND_IN_TRANSITION` warn: Component "component" suspended while a transition committed: its fallback shows.
 - `ERR_USE_UNCACHED_PROMISE` error: Component "component" keeps suspending on a new promise: use() received a promise made…
 - `ERR_WRITE_AFTER_AWAIT` warn: Signal "signalName" was written outside a transition while the async function of a tran…
 
@@ -58,8 +61,7 @@ To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, works offline) for the 
 - `ERR_ACTION_FAILED` error: The server action rejected.
 - `ERR_COMPILED_JSX_IN_SSR` error: what-compiler client output cannot be server-rendered: file.
 - `ERR_DUPLICATE_ACTION_ID` error: Duplicate server action ID "id".
-- `ERR_FORM_ACTION_MISSING` error: <Form> requires an `action` prop: a server action or its id.
-- `ERR_FORM_ACTION_NOT_REGISTERED` error: <Form action={fn}>: that function is not a server action.
+- `ERR_FORM_ACTION_MISSING` error: <Form> requires an `action` prop: a server action, its id, or a function.
 - `ERR_INVALID_SSR_TAG` error: Invalid tag name in SSR: tag.
 - `ERR_ISLAND_STORE_OUTSIDE_RENDER` error: Island store "name" was accessed outside an active server render.
 - `ERR_ISR_MISSING_CLIENT` error: createRedisStore requires { client }.

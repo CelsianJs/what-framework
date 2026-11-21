@@ -1,8 +1,17 @@
 // What Framework - Router
 // Production-grade file-based routing with nested layouts, loading states,
 // route groups, view transitions, and middleware.
+//
+// A navigation is a transition. navigate() first prepares the destination: it
+// loads a lazy() route's chunk and runs the route's `preload`, whose queries
+// fetch into the query cache, and waits for both. Then it commits the new URL
+// inside startTransition, which holds what the URL change reaches (the outlet,
+// a layout's data keyed on the params) until the async work it starts has
+// landed, so the old page stays on screen until the new one can show at once.
+// A newer navigation supersedes one still preparing.
 
-import { signal, effect, computed, batch, h, ErrorBoundary } from 'what-core';
+import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, h, ErrorBoundary } from 'what-core';
+import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, __DEV__ } from 'what-core/internal';
 import { matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
@@ -46,7 +55,11 @@ export function isSafeUrl(url) {
 const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/', 'what-router:url');
 const _params = signal({}, 'what-router:params');
 const _query = signal({}, 'what-router:query');
-const _isNavigating = signal(false, 'what-router:navigating');
+// A navigation runs from navigate() until the data its new page reads first
+// has landed (route.isNavigating, and what_navigate's "settled"); it prepares
+// until it commits, and while it prepares the destination's `loading:` shows.
+const _navigating = signal(false, 'what-router:navigating');
+const _preparing = signal(false, 'what-router:preparing');
 // The URL a navigation is heading TO, live for the duration of the navigation.
 // _url only commits at the very end, so during an awaited guard the router still
 // matches the route being LEFT. Without this, a destination route's `loading:`
@@ -66,7 +79,7 @@ export const route = {
     const h = readUrl().split('#')[1];
     return h ? '#' + h : '';
   },
-  get isNavigating() { return _isNavigating(); },
+  get isNavigating() { return _navigating(); },
   get error() { return _navigationError(); },
 };
 
@@ -98,10 +111,122 @@ export function afterNavigate(fn) {
   return subscribe(_afterHooks, fn);
 }
 
-// --- Navigation with View Transitions ---
+// --- Preparing a route ---
+// What a route needs before it can show at once: its lazy() chunk, and the
+// data its `preload({ params, query, url })` returns (queries, async values,
+// promises, or an array or object of them). The page component receives that
+// as its `data` prop. The queries preload makes are read on the route's path,
+// so invalidatePath(path) (a server action's revalidation) refetches them.
 
+/** The routes of the mounted <Router>: what navigate() prepares against. @type {any[] | null} */
+let _routes = null;
+/** The preparation of the URL on screen, and of the one a navigation is heading to. @type {any} */
+let _shown = null;
+/** @type {any} */
+let _incoming = null;
+
+function pathOf(url) {
+  return url.split('?')[0].split('#')[0];
+}
+
+// A lazy() component's chunk, loading: calling the wrapper starts the load and
+// throws its promise until it has settled.
+function chunkOf(component) {
+  if (!component || !component._lazy) return null;
+  try {
+    component({});
+    return null;
+  } catch (pending) {
+    return pending && typeof pending.then === 'function' ? pending : null;
+  }
+}
+
+// What a navigation waits for in what preload returned: a promise, an async
+// value that has not landed (reading it untracked throws the thenable it
+// waits on), or an array or object of them. A failure is the page's to show,
+// not a reason to stay on the old one.
+function waitsOf(data, out) {
+  if (data == null) return out;
+  if (typeof data.then === 'function') {
+    out.push(Promise.resolve(data).catch(() => {}));
+  } else if (typeof data === 'function') {
+    try {
+      untrack(data);
+    } catch (pending) {
+      if (pending && typeof pending.then === 'function') out.push(Promise.resolve(pending).catch(() => {}));
+    }
+  } else if (Array.isArray(data)) {
+    for (const item of data) waitsOf(item, out);
+  } else if (typeof data === 'object' && Object.getPrototypeOf(data) === Object.prototype) {
+    for (const key in data) waitsOf(data[key], out);
+  }
+  return out;
+}
+
+function prepare(url, routes) {
+  const path = pathOf(url);
+  const matched = routes ? matchRoute(path, routes) : null;
+  const prep = { url, route: matched ? matched.route : null, data: undefined, dispose: () => {}, ready: Promise.resolve() };
+  if (!matched) return prep;
+  const r = matched.route;
+  const waits = [];
+  const chunk = chunkOf(r.component);
+  if (chunk !== null) waits.push(chunk.then(() => {}, () => {}));
+  if (typeof r.preload === 'function') {
+    // Owned by nothing but this preparation: it lives while the route is
+    // shown (or being prepared), whatever called navigate().
+    runWithOwner(null, () => createRoot((dispose) => {
+      prep.dispose = dispose;
+      try {
+        prep.data = _tagQueries(path, () => r.preload({ params: matched.params, query: parseQuery(url.split('?')[1]?.split('#')[0] || ''), url }));
+      } catch (err) {
+        prep.data = undefined;
+        if (typeof console !== 'undefined') console.error('[what-router] preload failed:', err);
+      }
+    }));
+    waitsOf(prep.data, waits);
+  }
+  prep.ready = Promise.all(waits).then(() => {});
+  return prep;
+}
+
+// The preparation renderMatch shows `url` with: the one a navigation made, or
+// one made now (the first render, or a URL the router did not navigate to).
+function shownFor(url) {
+  if (_shown !== null && _shown.url === url) return _shown;
+  if (_incoming !== null && _incoming.url === url) {
+    const prep = _incoming;
+    show(prep);
+    return prep;
+  }
+  const prep = untrack(() => prepare(url, _routes));
+  show(prep);
+  return prep;
+}
+
+function show(prep) {
+  const old = _shown;
+  _shown = prep;
+  if (_incoming === prep) _incoming = null;
+  // The page leaving still reads its route data until the commit's flush is
+  // over.
+  if (old !== null && old !== prep) queueMicrotask(() => old.dispose());
+}
+
+// --- Navigation ---
+
+let _navigation = 0;
+
+/**
+ * Navigate to `to`. Runs the beforeNavigate guards, prepares the destination
+ * (its lazy chunk and preload data), then commits the URL as a transition, in
+ * a View Transition when the browser has them and `transition` is not false.
+ * `flushSync: true` commits at once, without holding the screen for async
+ * values the URL change starts. Resolves once the new page is on screen; a
+ * newer navigation supersedes this one while it prepares.
+ */
 export async function navigate(to, opts = {}) {
-  const { replace = false, state = null, transition = true, _fromPopstate = false, _redirectChain = false } = opts;
+  const { replace = false, state = null, transition = true, flushSync: sync = false, _fromPopstate = false, _redirectChain = false } = opts;
 
   // A navigation the user asked for starts a fresh redirect chain; a hop
   // queued by handleRedirect continues the current one.
@@ -131,16 +256,27 @@ export async function navigate(to, opts = {}) {
   }
 
   // Don't navigate if already on the same URL
-  if (to === readUrl()) return;
+  if (to === readUrl() && !_preparing.peek()) return;
 
-  // Prevent concurrent navigations: wait for the current one to finish. The
-  // flag is claimed in the same tick as the check, because an awaited
-  // beforeNavigate hook otherwise leaves a gap two navigations both get through.
-  if (_isNavigating.peek()) return;
-  _isNavigating.set(true);
-  _pendingUrl.set(to);
+  // The newest navigation wins: one that is still running its guards or
+  // preparing its route when another starts never commits.
+  const nav = ++_navigation;
+  if (_incoming !== null) {
+    _incoming.dispose();
+    _incoming = null;
+  }
+  // Progress shows at once, also for a navigation started inside a
+  // transition (useTransition around navigate()), which would hold it.
+  _urgent(() => batch(() => {
+    _navigating.set(true);
+    _preparing.set(true);
+    _pendingUrl.set(to);
+  }));
 
   const from = readUrl();
+  /** The new page's first data, landing: set at the commit. @type {Promise<void> | null} */
+  let landed = null;
+  let committing = false;
 
   // A popstate has already moved the browser URL, so cancelling one means
   // pushing the previous entry back to keep the address bar in sync. That entry
@@ -154,19 +290,28 @@ export async function navigate(to, opts = {}) {
       }
     } catch (e) {
       // A throwing guard must not leave the router permanently wedged.
-      _isNavigating.set(false);
-      _pendingUrl.set(null);
+      if (nav === _navigation) end();
       throw e;
     }
+    if (nav !== _navigation) return;
     if (cancelled) {
-      _isNavigating.set(false);
-      _pendingUrl.set(null);
+      end();
       if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
       return;
     }
   }
 
   _navigationError.set(null);
+
+  // Prepare the destination while the old page stays.
+  const prep = prepare(to, _routes);
+  _incoming = prep;
+  await prep.ready;
+  if (nav !== _navigation) {
+    if (_incoming === prep) _incoming = null;
+    prep.dispose();
+    return;
+  }
 
   const doNavigation = () => {
     // Skip history manipulation on popstate (browser already updated the URL)
@@ -183,15 +328,42 @@ export async function navigate(to, opts = {}) {
         history.pushState(state, '', to);
       }
     }
-    _url.set(to);
-    _isNavigating.set(false);
-    _pendingUrl.set(null);
+    batch(() => {
+      _url.set(to);
+      _preparing.set(false);
+      _pendingUrl.set(null);
+    });
+    // The navigation goes on until the data the new page reads first, beyond
+    // what preload returned, has landed: the page shows it pending meanwhile.
+    const t = _currentTransition();
+    if (t !== null) {
+      committing = true;
+      _onCommit(t, () => queueMicrotask(() => {
+        landed = _pathLoaded(pathOf(to)).then(() => {
+          if (nav === _navigation) _navigating.set(false);
+        });
+      }));
+    }
+  };
+  // The commit: a transition, so what the new URL reaches commits in one
+  // flush once the async values it starts (a layout's data for the new
+  // params) have landed; with flushSync, at once.
+  const commit = () => {
+    if (sync) {
+      doNavigation();
+      flushSync();
+      _navigating.set(false);
+      return undefined;
+    }
+    return startTransition(doNavigation);
   };
 
   // Use View Transitions API if available and enabled
   if (transition && typeof document !== 'undefined' && document.startViewTransition) {
     try {
-      const viewTransition = document.startViewTransition(doNavigation);
+      // The update callback returns the commit: the browser captures the new
+      // state once the transition has committed.
+      const viewTransition = document.startViewTransition(commit);
       // `.ready` rejects when the transition is skipped, which two navigations
       // in quick succession do routinely. Awaiting only `.finished` left that
       // rejection unhandled, so it surfaced as an uncaught page error
@@ -205,12 +377,29 @@ export async function navigate(to, opts = {}) {
       // Transition failed, navigation still happened
     }
   } else {
-    doNavigation();
+    try {
+      await commit();
+    } catch {
+      // A commit's async work failed; the URL has changed and its page shows
+      // the error.
+    }
   }
 
   if (_afterHooks.length) {
     for (const fn of _afterHooks.slice()) fn(to, from);
   }
+  if (landed !== null) await landed;
+  // Inside a transition an action holds, the commit (and the end) is still to come.
+  else if (!committing && nav === _navigation) _navigating.set(false);
+}
+
+// A navigation that is not going to commit stops.
+function end() {
+  batch(() => {
+    _navigating.set(false);
+    _preparing.set(false);
+    _pendingUrl.set(null);
+  });
 }
 
 // --- redirect() ---
@@ -237,12 +426,16 @@ export function redirect(to, options = {}) {
     /** @type {Error & { code?: string, suggestion?: string, codeExample?: string }} */
     const err = new Error(`[what-router] redirect() refused an unsafe target: ${target}`);
     err.code = 'ERR_UNSAFE_REDIRECT';
-    err.suggestion = 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.';
+    // The fix and the example are for the developer reading the console: a
+    // production build carries the code alone.
+    if (__DEV__) {
+      err.suggestion = 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.';
     err.codeExample = `// Bad - a user-controlled target can leave your origin:
 redirect(query.next);
 
 // Good - allowlist the target first:
 redirect(ALLOWED.has(query.next) ? query.next : '/');`;
+    }
     throw err;
   }
 
@@ -250,7 +443,8 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`;
   const sig = new Error(`[what-router] redirect to ${to}`);
   sig.name = 'RouterRedirect';
   sig.code = 'ERR_REDIRECT_NOT_CAUGHT';
-  sig.suggestion = 'Seeing this signal in your console means nothing caught it. redirect() works from route middleware and from a component body, where the Router catches it. From an event handler, a promise callback or a timer, call navigate(to) instead. A try/catch around the redirect() call also swallows it.';
+  if (__DEV__) {
+    sig.suggestion = 'Seeing this signal in your console means nothing caught it. redirect() works from route middleware and from a component body, where the Router catches it. From an event handler, a promise callback or a timer, call navigate(to) instead. A try/catch around the redirect() call also swallows it.';
   sig.codeExample = `// Bad - an event handler runs long after the render the Router caught:
 <button onclick={() => redirect('/login')}>Sign in</button>
 
@@ -262,6 +456,7 @@ function Private() {
   if (!user()) redirect('/login');
   return <Secret />;
 }`;
+  }
   sig[REDIRECT] = true;
   sig[NAV_SIGNAL] = () => { handleRedirect(to, options); };
   sig.to = to;
@@ -366,12 +561,12 @@ function handleRedirect(target, options) {
   //
   // It happens on every re-match that occurs before the URL commits. With the
   // View Transitions API, navigate() defers the `_url` write into the
-  // transition callback while `_isNavigating` flips immediately, and
-  // renderMatch reads `_isNavigating`, so the match re-runs against the
+  // transition callback while `_preparing` flips immediately, and
+  // renderMatch reads `_preparing`, so the match re-runs against the
   // still-old URL, the same middleware returns the same target, and the hop was
   // counted twice. One guarded deep link produced 25 false "Redirect cycle
   // detected" errors and a flash of the redirect-loop screen, and the detector
-  // then cleared `_isNavigating` / `_pendingUrl` while the real navigation was
+  // then cleared `_preparing` / `_pendingUrl` while the real navigation was
   // still in flight, corrupting router state mid-navigation.
   //
   // Chromium-only, because without View Transitions doNavigation() runs
@@ -384,8 +579,7 @@ function handleRedirect(target, options) {
     const cycle = _redirectHistory.slice(-5).join(' → ');
     _redirectHistory.length = 0;
     console.error(`[what-router] Redirect loop detected: ${cycle}`);
-    _isNavigating.set(false);
-    _pendingUrl.set(null);
+    end();
     return loopScreen('Too many redirects. Check your middleware configuration.');
   }
 
@@ -399,8 +593,7 @@ function handleRedirect(target, options) {
     const cycle = _redirectHistory.join(' → ');
     _redirectHistory.length = 0;
     console.error(`[what-router] Redirect cycle detected: ${cycle}`);
-    _isNavigating.set(false);
-    _pendingUrl.set(null);
+    end();
     return loopScreen('Circular redirect detected. Check your middleware configuration.');
   }
 
@@ -422,6 +615,17 @@ function destinationLoading(pendingUrl, routes, currentRoute) {
 }
 
 export function Router({ routes, fallback, globalLayout }) {
+  _routes = routes;
+  // The `loading:` component a navigation in flight shows instead of the page:
+  // the destination's, or the departing route's when only it declares one.
+  // A computed, so the page re-renders only when there is one to show, not
+  // whenever a navigation starts or ends.
+  const pendingView = computed(() => {
+    if (!_preparing()) return null;
+    const matched = matchRoute(pathOf(readUrl()), routes);
+    const current = matched ? matched.route : null;
+    return destinationLoading(_pendingUrl(), routes, current) || (current && current.loading) || null;
+  });
   // The Router component runs ONCE. `content` is a reactive function child that
   // re-evaluates whenever _url changes; the fine-grained runtime reconciles only
   // the matched page in place. The globalLayout is rendered ONCE around it (below)
@@ -430,7 +634,7 @@ export function Router({ routes, fallback, globalLayout }) {
     const currentUrl = readUrl();
     const path = currentUrl.split('?')[0].split('#')[0];
     const search = currentUrl.split('?')[1]?.split('#')[0] || '';
-    const isNavigating = _isNavigating();
+    const loadingView = pendingView();
 
     const matched = matchRoute(path, routes);
 
@@ -467,12 +671,12 @@ export function Router({ routes, fallback, globalLayout }) {
                   Reflect.apply(Promise.prototype.then, returned, [ignore, ignore]);
                 } catch { /* Non-promise return values need no observation. */ }
               }).catch(() => {});
-              throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), {
+              throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), __DEV__ ? {
                 code: 'ERR_ASYNC_MIDDLEWARE',
                 suggestion: 'Return true, void, false or a redirect path synchronously. For async authorization, wrap the route component with asyncGuard(check)(Component); promises returned by middleware are not awaited.',
                 codeExample: `// Async authorization belongs on the component, not in middleware:
 { path: '/private', component: asyncGuard(check)(Component) }`,
-              });
+              } : { code: 'ERR_ASYNC_MIDDLEWARE' });
             }
           }
           if (result === false) {
@@ -495,18 +699,16 @@ export function Router({ routes, fallback, globalLayout }) {
       // being left: without this, declaring `loading:` on the page you are
       // navigating TO could never show it. Falling back to the departing route's
       // `loading:` preserves the existing behaviour for the case where only the
-      // page being left declares one.
-      const pendingLoading = isNavigating ? destinationLoading(_pendingUrl(), routes, r) : null;
-
-      if (pendingLoading) {
-        element = h(pendingLoading, {});
-      } else if (r.loading && isNavigating) {
-        element = h(r.loading, {});
+      // page being left declares one. Without either, the page being left
+      // stays until the new one can show.
+      if (loadingView) {
+        element = h(loadingView, {});
       } else {
         element = h(r.component, {
           params,
           query: queryObj,
           route: r,
+          data: shownFor(currentUrl).data,
         });
       }
 
@@ -942,6 +1144,7 @@ export function FileRouter({
     layout: r.layout || undefined,
     loading: r.loading || undefined,
     error: r.error || globalError || undefined,
+    preload: r.preload || undefined,
     // Attach page mode as metadata for build system
     _mode: r.mode || 'client',
   }));

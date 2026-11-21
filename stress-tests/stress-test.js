@@ -11,7 +11,7 @@ import {
 // The eager, equality-gated memo the compiler emits for conditional branches
 // (`memo` in what-framework/render). `memo` from the root entry is the
 // component wrapper.
-import { memo as eagerMemo } from '../packages/core/src/render.js';
+import { _$memo as eagerMemo } from '../packages/core/src/render.js';
 
 import { renderToString, renderToHydratableString, renderToStream } from '../packages/server/src/index.js';
 

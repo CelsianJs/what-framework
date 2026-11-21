@@ -96,15 +96,16 @@ describe('h() client: one coded report per mismatch, and the client render left 
     expectMismatch(result, { kind: 'marker', path: 'div>#comment', expected: '<p>', found: '<!--b-->' });
   });
 
-  it('key: a component key that is not the client\'s reports, and keeps the matching markup', () => {
+  it('key: a component key that cannot be the client\'s reports, and keeps the matching markup', () => {
     const host = document.createElement('div');
-    host.innerHTML = '<p data-hk="9">x</p><script id="__what_data" type="application/json">{}</script>';
+    host.innerHTML = '<div data-hk="0"><p data-hk="5">x</p></div><script id="__what_data" type="application/json">{}</script>';
     const p = host.querySelector('p');
     const reports = [];
     function Para() { return h('p', null, 'x'); }
-    const stop = quiet(() => hydrate(h(Para), host, { onHydrationError: (info) => reports.push(info) }));
+    function Outer() { return h('div', null, h(Para)); }
+    const stop = quiet(() => hydrate(h(Outer), host, { onHydrationError: (info) => reports.push(info) }));
     try {
-      assert.deepEqual(reports.map((r) => [r.kind, r.ownerPath, r.expected, r.found, r.recovery]), [['key', '0', 'data-hk="0"', 'data-hk="9"', 'none']]);
+      assert.deepEqual(reports.map((r) => [r.kind, r.component, r.ownerPath, r.expected, r.found, r.recovery]), [['key', 'Para', '~00', 'data-hk="00"', 'data-hk="5"', 'none']]);
       assert.equal(host.querySelector('p'), p, 'the matching markup is kept');
       assert.equal(p.hasAttribute('data-hk'), false);
     } finally {

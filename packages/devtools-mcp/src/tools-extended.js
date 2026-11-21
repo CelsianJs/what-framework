@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import { createResponder, previewValue, pageText, sessionParam, UNTRUSTED_NOTE } from './respond.js';
-import { subscriberCounts, fetchState, actionEvents, causeLabels, parseStack } from './tools.js';
+import { subscriberCounts, fetchState, actionEvents, causeLabels, parseStack, sourceFields, sourceSuffix, asyncFields } from './tools.js';
 import { SAFE_READ_PATHS, normalizeSafeRead } from './safe-read.js';
 
 const label = (map, id) => (map.get(id) ? `${map.get(id)}#${id}` : `#${id}`);
@@ -104,8 +104,8 @@ export function registerExtendedTools(server, bridge) {
       const effIds = focused ? [...used].filter((n) => !n.startsWith('signal#')).map((n) => Number(n.split('#')[1])) : [...effects.keys()];
 
       return ok({
-        signals: sigIds.map((id) => ({ id, name: signals.get(id)?.name || `signal_${id}`, value: previewValue(signals.get(id)?.value) })),
-        effects: effIds.map((id) => ({ id, name: effects.get(id)?.name || `effect_${id}`, ...(kind(id) === 'computed' ? { kind: 'computed' } : {}), runs: effects.get(id)?.runCount || 0 })),
+        signals: sigIds.map((id) => ({ id, name: signals.get(id)?.name || `signal_${id}`, ...sourceFields(signals.get(id) || {}), value: previewValue(signals.get(id)?.value) })),
+        effects: effIds.map((id) => ({ id, name: effects.get(id)?.name || `effect_${id}`, ...sourceFields(effects.get(id) || {}), ...(kind(id) === 'computed' ? { kind: 'computed' } : {}), runs: effects.get(id)?.runCount || 0 })),
         reads: edges.map(([from, to]) => `${from} -> ${to}`),
       }, seq);
     })
@@ -167,7 +167,7 @@ export function registerExtendedTools(server, bridge) {
     },
     async ({ componentId, depth, session: sid }) => ask(sid, 'dom-inspect', { componentId, depth: depth ?? 3 }, {
       hint: () => 'Ids change on remount; call what_components again. A provider-only component has no DOM.',
-      ok: ({ data, seq }) => ok({ componentName: data.componentName, componentId, html: pageText(data.html, 5000), structure: markTree(data.structure), note: UNTRUSTED_NOTE }, seq),
+      ok: ({ data, seq }) => ok({ componentName: data.componentName, componentId, ...sourceFields(data), html: pageText(data.html, 5000), structure: markTree(data.structure), note: UNTRUSTED_NOTE }, seq),
     })
   );
 
@@ -190,18 +190,48 @@ export function registerExtendedTools(server, bridge) {
   );
 
   // ---------------------------------------------------------------------------
+  // what_why
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'what_why',
+    'Explain the last observed run or skip for one effect, binding, component, or DOM element. Pass exactly one target. Returns reads and a bounded graph linking changes to their origin. Recording starts when the browser connects.',
+    {
+      effectId: z.number().int().optional().describe('Effect or computed id from what_effects'),
+      bindingId: z.number().int().optional().describe('Binding effect id from what_effects or what_explain'),
+      componentId: z.number().int().optional().describe('Component id from what_components'),
+      selector: z.string().min(1).max(500).optional().describe('CSS selector for the element with the binding'),
+      session: sessionParam(z),
+    },
+    async ({ session: sid, ...query }) => {
+      if (Object.values(query).filter((v) => v !== undefined).length !== 1) {
+        return fail('Pass exactly one of effectId, bindingId, componentId or selector.');
+      }
+      return ask(sid, 'why', query, {
+        ok: ({ data, seq }) => {
+          for (const step of data.graph || []) {
+            if (step.origin?.targetId) step.origin.targetId = pageText(step.origin.targetId, 120);
+          }
+          return ok({ ...data, note: UNTRUSTED_NOTE }, seq);
+        },
+      });
+    }
+  );
+
+  // ---------------------------------------------------------------------------
   // what_diagnose
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_diagnose',
-    'Health check in one call: diagnostic codes the app reported, errors, hot effects ranked by runs, the most-subscribed signals, signals nothing reads and effects that read nothing.',
+    'Health check in one call: long-running async work, diagnostic codes the app reported, errors, hot effects ranked by runs, the most-subscribed signals, signals nothing reads and effects that read nothing.',
     {
-      focus: z.enum(['errors', 'performance', 'reactivity', 'all']).optional().default('all').describe('Limit the checks (default all)'),
+      focus: z.enum(['errors', 'performance', 'reactivity', 'async', 'all']).optional().default('all').describe('Limit the checks (default all)'),
       threshold: z.number().optional().default(50).describe('Runs above which an effect counts as hot (default 50)'),
+      pendingMs: z.number().nonnegative().optional().default(5000).describe('Age in ms above which async, transition or Suspense work is flagged'),
       session: sessionParam(z),
     },
-    async ({ focus, threshold, session: sid }) => withState(sid, async ({ session, state, seq }) => {
+    async ({ focus, threshold, pendingMs, session: sid }) => withState(sid, async ({ session, state, seq }) => {
       const signals = state.signals;
       const effects = state.effects;
       const out = { counts: { signals: signals.length, effects: effects.length, components: state.components.length } };
@@ -226,7 +256,7 @@ export function registerExtendedTools(server, bridge) {
           .filter((e) => (e.runCount || 0) > threshold)
           .sort((a, b) => b.runCount - a.runCount)
           .slice(0, 10)
-          .map((e) => `${e.name}#${e.id} ×${e.runCount}`);
+          .map((e) => `${e.name}#${e.id} ×${e.runCount}${sourceSuffix(e)}`);
         if (hot.length) {
           out.hotEffects = hot;
           issues.push('hotEffects');
@@ -246,6 +276,20 @@ export function registerExtendedTools(server, bridge) {
         // effect, is legitimate. They are worth a look, not a fix.
         if (unread.length) out.unreadSignals = { count: unread.length, sample: unread.slice(0, 8).map((s) => `${s.name}#${s.id}`) };
         if (noDeps.length) out.effectsWithoutDeps = { count: noDeps.length, sample: noDeps.slice(0, 8).map((e) => `${e.name}#${e.id}`) };
+      }
+
+      if (focus === 'async' || focus === 'all') {
+        const now = Date.now();
+        const flights = effects.filter((e) => e.async?.inFlight).map((e) => ({
+          kind: 'async', id: e.id, name: e.name, ...sourceFields(e), ...e.async.inFlight, status: e.async.status,
+        }));
+        const stalled = [...flights, ...(state.work || [])]
+          .map((entry) => ({ ...entry, ageMs: Math.max(0, now - entry.startedAt) }))
+          .filter((entry) => entry.ageMs >= pendingMs).sort((a, b) => b.ageMs - a.ageMs);
+        if (stalled.length) {
+          out.stalled = { count: stalled.length, work: stalled.slice(0, 10) };
+          issues.push('stalled');
+        }
       }
 
       out.status = issues.length ? `issues: ${issues.join(', ')}` : 'healthy';
@@ -298,7 +342,7 @@ export function registerExtendedTools(server, bridge) {
 
   server.tool(
     'what_explain',
-    'Everything about one component: its signals with values, its effects with what they read, run counts and last cause, its rendered DOM, and diagnostics or errors that name it. Ids change on remount; re-query what_components after writes that may remount.',
+    'Everything about one component: its signals with values, async status, its effects with what they read, run counts and last cause, its rendered DOM, and diagnostics or errors that name it. Ids change on remount; re-query what_components after writes that may remount.',
     {
       componentId: z.number().describe('Component id (from what_components)'),
       includeDOM: z.boolean().optional().default(true).describe('Include rendered HTML (default true)'),
@@ -311,13 +355,16 @@ export function registerExtendedTools(server, bridge) {
 
       const names = session.names;
       const signals = state.signals.filter((s) => s.componentId === componentId)
-        .map((s) => ({ id: s.id, name: s.name, value: previewValue(s.value, 200) }));
+        .map((s) => ({ id: s.id, name: s.name, ...sourceFields(s), value: previewValue(s.value, 200) }));
       const effects = state.effects.filter((e) => e.componentId === componentId)
         .map((e) => {
           const cause = causeLabels(e, names);
           return {
             id: e.id,
             name: e.name,
+            ...sourceFields(e),
+            ...asyncFields(e),
+            ...(e.binding ? { kind: 'binding' } : e.kind === 'computed' ? { kind: 'computed' } : {}),
             runs: e.runCount || 0,
             deps: [...(e.depSignalIds || []).map((d) => label(names.signals, d)), ...(e.depComputedIds || []).map((d) => label(names.effects, d))],
             ...(cause?.length ? { lastCause: cause } : {}),
@@ -343,7 +390,7 @@ export function registerExtendedTools(server, bridge) {
         .filter((e) => parseStack(e.stack, names.components).component === comp.name)
         .map((e) => `${e.code || 'ERR_RUNTIME'} ${e.type || 'error'}: ${pageText(e.message, 200)}`);
 
-      const out = { component: { id: comp.id, name: comp.name, parentId: comp.parentId ?? null }, signals, effects };
+      const out = { component: { id: comp.id, name: comp.name, ...sourceFields(comp), parentId: comp.parentId ?? null }, signals, effects };
       if (html !== null) out.html = html;
       if (diagnostics.length) out.diagnostics = diagnostics;
       if (errors.length) out.errors = errors;
@@ -398,7 +445,7 @@ export function registerExtendedTools(server, bridge) {
         .filter((e) => (e.depSignalIds || []).includes(signalId))
         .map((e) => `${e.name}#${e.id} ×${e.runCount || 0}`);
 
-      const out = { signal: { id: sig.id, name: sig.name, value: previewValue(sig.value, 200), writes: sig.rev }, writes, readers };
+      const out = { signal: { id: sig.id, name: sig.name, ...sourceFields(sig), value: previewValue(sig.value, 200), writes: sig.rev }, writes, readers };
       if (session.lostThrough && writeIndexes.length < sig.rev) out.lostThrough = session.lostThrough;
       if (!writes.length) out.note = 'No writes recorded since the page connected. Act (what_set_signal, or in the page), then call again.';
       return ok(out, seq);
@@ -422,6 +469,7 @@ export function registerExtendedTools(server, bridge) {
         const { componentName, boundingRect, styles, textContent, childElements, totalChildren, layout, viewport, accessibility } = data;
         return ok({
           component: componentName,
+          ...sourceFields(data),
           boundingRect,
           layout,
           styles,
@@ -485,7 +533,7 @@ export function registerExtendedTools(server, bridge) {
       ok: ({ data, seq }) => ({
         content: [
           { type: 'image', data: data.base64, mimeType: data.mimeType || (data.format === 'png' ? 'image/png' : 'image/jpeg') },
-          { type: 'text', text: JSON.stringify({ component: data.componentName, width: data.width, height: data.height, kb: Math.round(data.sizeBytes / 1024), seq }) },
+          { type: 'text', text: JSON.stringify({ component: data.componentName, ...sourceFields(data), width: data.width, height: data.height, kb: Math.round(data.sizeBytes / 1024), seq }) },
         ],
       }),
     }, 10000)

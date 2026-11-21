@@ -16,13 +16,16 @@
 // anyone noticed, including two holding ports in the runner's own range.
 //
 // Deliberately conservative. It only stops a process that is BOTH listening in
-// the smoke port range AND working inside this repo or a what-smoke temp
-// directory, because this machine also runs dev servers for unrelated projects
-// and none of them are ours to kill.
+// the smoke port range AND working inside this checkout or in the workdir of a
+// smoke run this checkout started (scripts/lib/smoke-workdir.mjs). This machine
+// also runs dev servers for unrelated projects, and other checkouts of this
+// repo run smokes of their own at the same time: none of those are ours to
+// kill.
 
 import { execFileSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { startedBy } from '../scripts/lib/smoke-workdir.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..');
@@ -62,16 +65,10 @@ function cwdOf(pid) {
   return line ? line.slice(1) : '';
 }
 
-/** Ours to stop: inside this repo, or in a runner temp directory. */
-function isOurs(cwd) {
-  if (!cwd) return false;
-  return cwd.startsWith(REPO) || /what-smoke-apps-/.test(cwd);
-}
-
 const candidates = [];
 for (const [pid, ports] of listeningPids()) {
   const cwd = cwdOf(pid);
-  candidates.push({ pid, ports: [...ports].sort((a, b) => a - b), cwd, ours: isOurs(cwd) });
+  candidates.push({ pid, ports: [...ports].sort((a, b) => a - b), cwd, ours: startedBy(cwd, REPO) });
 }
 
 if (candidates.length === 0) {

@@ -38,6 +38,7 @@ const EXPECTED_EXPORTS = {
     'For', 'Show', 'Suspense', 'ErrorBoundary', 'Fragment',
     'createStore', 'createResource', 'createContext', 'useContext', 'lazy',
     'refresh', 'isPending', 'startTransition', 'useTransition', 'useOptimistic', 'use', 'settled',
+    'useActionState', 'useFormStatus',
   ],
   './router': [
     'Router', 'Link', 'NavLink', 'Outlet', 'route', 'navigate',
@@ -46,7 +47,7 @@ const EXPECTED_EXPORTS = {
   './server': [
     'renderToString', 'renderToStringAsync', 'renderDocument', 'renderToStream',
     'createRequestHandler', 'createActionHandler', 'createServer',
-    'action', 'formAction', 'island', 'Island', 'hydrateIslands',
+    'action', 'Form', 'island', 'Island', 'hydrateIslands',
     'generateCsrfToken', 'validateCsrfToken', 'csrfMetaTag',
     'exportStatic', 'createVercelHandler', 'createCloudflareHandler',
     'createVuraHandler', 'buildVuraOutput',
@@ -65,7 +66,7 @@ const EXPECTED_EXPORTS = {
   './motion': ['spring', 'tween', 'useTween', 'transitionClass', 'cssTransition'],
   './dom': ['scheduleRead', 'scheduleWrite', 'raf', 'cls', 'debounce', 'useLocalStorage', 'clearHead'],
   './form': ['useForm', 'useField', 'rules', 'Input', 'ErrorMessage'],
-  './data': ['useSWR', 'useQuery', 'useFetch', 'invalidateQueries'],
+  './data': ['query', 'useSWR', 'useQuery', 'useFetch', 'invalidateQueries', 'invalidatePath'],
 };
 
 describe('what-framework documented subpaths', () => {

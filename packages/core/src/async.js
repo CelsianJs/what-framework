@@ -25,6 +25,7 @@ import {
   _onCommit,
   _urgent,
   _latestComputed,
+  _runHeldReaders,
   _busy,
   _onQuiet,
   _currentComponent,
@@ -33,11 +34,12 @@ import {
   getOwner,
   onCleanup,
   __DEV__,
+  __devtools,
 } from './reactive.js';
 import { _seedFor } from './hydration-data.js';
 import { _enableSuspense } from './render.js';
 import { useContext } from './hooks.js';
-import { report } from './diagnostics.js';
+import { report, recordObservation } from './diagnostics.js';
 
 /**
  * A computed. Its function may return a promise, a thenable or an async
@@ -48,6 +50,7 @@ import { report } from './diagnostics.js';
  */
 export function computed(fn) {
   _enableSuspense();
+  if (__DEV__ && arguments[1]) return /** @type {any} */ (_asyncComputed)(fn, _seedFor(null, true), arguments[1]);
   return _asyncComputed(fn, _seedFor(null, true));
 }
 
@@ -84,16 +87,19 @@ export function startTransition(fn) {
  * React's useTransition: `[isPending, startTransition]`. `isPending` is an
  * accessor, `isPending()`, true from the moment `startTransition` is called
  * until the transition commits. Leaving the component stops waiting for the
- * async part of its transitions.
+ * async part of its transitions. A rejection goes to the error boundary above
+ * the component, as in React 19; the returned promise rejects too.
  */
 export function useTransition() {
   const open = signal(0);
   /** @type {Set<any>} */
   const calls = new Set();
-  if (getOwner() !== null) onCleanup(() => { for (const call of calls) call.abandon(); });
+  const owner = getOwner();
+  if (owner !== null) onCleanup(() => { for (const call of calls) call.abandon(); });
   const isPending = () => open() > 0;
   const start = (fn) => _startTransition(fn, (t, call) => {
     open((n) => n + 1);
+    call.owner = owner;
     calls.add(call);
     _onCommit(t, () => {
       open((n) => n - 1);
@@ -124,8 +130,16 @@ export function useOptimistic(state, update) {
   const addOptimistic = (value) => {
     const overlay = { value };
     const place = (t) => {
-      _urgent(() => overlays((list) => [...list, overlay]));
-      _onCommit(t, () => overlays((list) => list.filter((o) => o !== overlay)));
+      if (__DEV__) recordObservation(__devtools, 'optimistic:add', overlay, { transition: t, owner: getOwner() });
+      // Urgent, also where a transition holds a reader of the view.
+      _urgent(() => {
+        overlays((list) => [...list, overlay]);
+        _runHeldReaders(optimistic);
+      });
+      _onCommit(t, () => overlays((list) => (
+        __DEV__ && recordObservation(__devtools, 'optimistic:drop', overlay, { transition: t }),
+        list.filter((o) => o !== overlay)
+      )));
     };
     const t = _currentTransition();
     if (t !== null) {
@@ -181,15 +195,17 @@ export function use(x) {
 // one it suspended on before has settled and was not read again, makes a new
 // promise every time it runs: it would never finish, and a promise that is
 // already resolved retries at once, so the page would never get to paint. The
-// third such suspension in a row is an error instead.
+// third such suspension in a row is an error instead. The count is per
+// instance: a component rendered again in place keeps its props object.
 /** @type {WeakMap<object, { last: any, strikes: number }>} */
 const suspensions = new WeakMap();
 
 function suspensionsOf() {
   const frame = _currentComponent();
   if (frame === null) return null;
-  let d = suspensions.get(frame.Component);
-  if (d === undefined) suspensions.set(frame.Component, d = { last: null, strikes: 0 });
+  const instance = frame.props !== undefined ? frame.props : frame.Component;
+  let d = suspensions.get(instance);
+  if (d === undefined) suspensions.set(instance, d = { last: null, strikes: 0 });
   return d;
 }
 

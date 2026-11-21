@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 63 of them: 39 errors and 24 warnings.
+Every code in What's error catalogue, all 65 of them: 38 errors and 27 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -30,7 +30,9 @@ code, because the flag is then decided at runtime.
 | Code | Severity | What it means |
 |---|---|---|
 | [`ERR_ACTION_FAILED`](#err-action-failed) | error | The server action rejected. |
+| [`ERR_ASYNC_COMPONENT`](#err-async-component) | warning | Component "`component`" returned a promise: an async component renders as text. |
 | [`ERR_ASYNC_EFFECT`](#err-async-effect) | warning | Effect "`effectName`" is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it. |
+| [`ERR_ASYNC_MEMO`](#err-async-memo) | warning | useMemo() returned a promise; useMemo keeps it, so its readers get the promise. |
 | [`ERR_ASYNC_MIDDLEWARE`](#err-async-middleware) | error | Route middleware must be synchronous; received a promise or thenable. |
 | [`ERR_ASYNC_READ_IN_BODY`](#err-async-read-in-body) | error | Component "`component`" read an async value it made in its own body before the value landed: suspending would run it again, make the value again and fetch again, forever. |
 | [`ERR_ASYNC_WITHOUT_SUSPENSE`](#err-async-without-suspense) | warning | Component "`component`" suspended (lazy(), use() or a value that had not landed, read in its body) with no <Suspense> above it: it renders nothing until the promise settles. |
@@ -43,8 +45,7 @@ code, because the flag is then decided at runtime.
 | [`ERR_DUPLICATE_ACTION_ID`](#err-duplicate-action-id) | error | Duplicate server action ID "`id`". |
 | [`ERR_DUPLICATE_KEY`](#err-duplicate-key) | warning | A keyed list has more than one item with the key `key`. |
 | [`ERR_EFFECT_DEP_NOT_FUNCTION`](#err-effect-dep-not-function) | warning | useEffect dependency at index `index` is a plain value, so the effect cannot re-run when it changes. |
-| [`ERR_FORM_ACTION_MISSING`](#err-form-action-missing) | error | [what] <Form> requires an `action` prop: a server action or its id. |
-| [`ERR_FORM_ACTION_NOT_REGISTERED`](#err-form-action-not-registered) | error | [what] <Form action={fn}>: that function is not a server action. |
+| [`ERR_FORM_ACTION_MISSING`](#err-form-action-missing) | error | [what] <Form> requires an `action` prop: a server action, its id, or a function. |
 | [`ERR_FORM_HANDLER_WITHOUT_EVENT`](#err-form-handler-without-event) | warning | register("`name`") change handler was called without an event; the field was left unchanged. |
 | [`ERR_FORM_RADIO_UNTYPED`](#err-form-radio-untyped) | warning | register("`name`") was spread onto a radio without { type: 'radio' }, which overwrote the radio's value. |
 | [`ERR_FORM_RADIO_WITHOUT_VALUE`](#err-form-radio-without-value) | warning | Radio for field "`name`" has no value, so it cannot record a choice. |
@@ -83,6 +84,7 @@ code, because the flag is then decided at runtime.
 | [`ERR_SSR_UNSAFE_REDIRECT`](#err-ssr-unsafe-redirect) | warning | [what-server] redirect() refused the target `target` and redirected to "/" instead. |
 | [`ERR_STATIC_WRITE_ESCAPE`](#err-static-write-escape) | error | [what-server] Refusing to write outside outDir: `path`. |
 | [`ERR_STORAGE_FAILED`](#err-storage-failed) | warning | useLocalStorage("`key`") could not `operation` localStorage: `reason`. |
+| [`ERR_SUSPEND_IN_TRANSITION`](#err-suspend-in-transition) | warning | Component "`component`" suspended while a transition committed: its fallback shows. |
 | [`ERR_TEMPLATE_NAMESPACE`](#err-template-namespace) | error | The compiled template for <`tag`> has no namespace flag, so its root would render as an unknown HTML element instead of SVG or MathML. |
 | [`ERR_UNKNOWN`](#err-unknown) | error | createWhatError() was called with a code that is not in this catalogue. |
 | [`ERR_UNKNOWN_TOOL`](#err-unknown-tool) | error | The MCP client called a tool this server does not expose. |
@@ -110,6 +112,30 @@ export const save = action(async (data) => {
 });
 ```
 
+## ERR_ASYNC_COMPONENT
+
+**Severity:** warning
+  ·  **Raised by:** `eslint-plugin-what`, `what-core`
+  ·  **Detected:** reported, lint
+
+> Component "{{component}}" returned a promise: an async component renders as text.
+
+Components run once and synchronously, so an async one renders the promise's text, even under <Suspense>. Keep the component synchronous and make the data an async value: computed(async ({ signal }) => ...) made in the body or outside it, and read in JSX, where a binding waits for it to land and a <Suspense> above shows its fallback meanwhile. For a component whose code loads later, use lazy().
+
+```jsx
+// Bad — an async component renders "[object Promise]":
+async function Profile(props) {
+  const user = await fetchUser(props.id);
+  return <h1>{user.name}</h1>;
+}
+
+// Good — a synchronous component that reads an async value:
+function Profile(props) {
+  const user = computed(({ signal }) => fetchUser(props.id, { signal }));
+  return <h1>{user().name}</h1>;
+}
+```
+
 ## ERR_ASYNC_EFFECT
 
 **Severity:** warning
@@ -135,6 +161,24 @@ function Profile() {
   });
   return <h1>{user().name}</h1>;
 }
+```
+
+## ERR_ASYNC_MEMO
+
+**Severity:** warning
+  ·  **Raised by:** `eslint-plugin-what`, `what-core`
+  ·  **Detected:** reported, lint
+
+> useMemo() returned a promise; useMemo keeps it, so its readers get the promise.
+
+useMemo keeps what its function returns, as React's does. For a value that loads, use computed() or useComputed() instead: computed(async ({ signal }) => ...) is an async value, whose readers wait for it to land and which refetches when what it reads changes. Keep useMemo for values computed synchronously.
+
+```jsx
+// Bad — user() is a promise:
+const user = useMemo(() => fetch('/api/users/' + id()).then((r) => r.json()));
+
+// Good — user() is the user once it has landed:
+const user = computed(({ signal }) => fetch('/api/users/' + id(), { signal }).then((r) => r.json()));
 ```
 
 ## ERR_ASYNC_MIDDLEWARE
@@ -405,9 +449,9 @@ useEffect(() => save(count()));
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what] <Form> requires an `action` prop: a server action or its id.
+> [what] <Form> requires an `action` prop: a server action, its id, or a function.
 
-Pass the action itself, or the string id it was registered under.
+Pass the server action itself, the string id it was registered under, or a client action such as the dispatch useActionState returns.
 
 ```jsx
 // Bad:
@@ -416,26 +460,6 @@ Pass the action itself, or the string id it was registered under.
 // Good:
 <Form action={save} />;
 <Form action="save-user" />;
-```
-
-## ERR_FORM_ACTION_NOT_REGISTERED
-
-**Severity:** error
-  ·  **Raised by:** `what-server`
-  ·  **Detected:** server
-
-> [what] <Form action={fn}>: that function is not a server action.
-
-Wrap it with action() from what-server, or pass the action id as a string. A plain function has no id, so there is nothing for the form post to address.
-
-```jsx
-// Bad — a plain function:
-async function save(data) {}
-<Form action={save} />
-
-// Good — a registered action:
-export const save = action(async (data) => {});
-<Form action={save} />
 ```
 
 ## ERR_FORM_HANDLER_WITHOUT_EVENT
@@ -549,7 +573,7 @@ export default { plugins: [reactCompat()] };
 
 > Hydration mismatch ({{kind}}) in <{{component}}> at {{path}}: the server rendered {{found}} where the client renders {{expected}}. Recovery: {{recovery}}.
 
-hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).
+hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).
 
 ```jsx
 // Bad — the client renders a value the server could not know:
@@ -1244,6 +1268,32 @@ A write fails when the quota is exhausted or storage is disabled (private browsi
 ```jsx
 // Good - a namespaced key and a small value:
 const theme = useLocalStorage('myapp:theme', 'light');
+```
+
+## ERR_SUSPEND_IN_TRANSITION
+
+**Severity:** warning
+  ·  **Raised by:** `what-core`
+  ·  **Detected:** reported
+
+> Component "{{component}}" suspended while a transition committed: its fallback shows.
+
+The component suspended on a promise (use() or a lazy() chunk), so its <Suspense> shows the fallback again. A transition holds async values, not components that suspend (React keeps the old content here). Make what the component waits for an async value of the state the transition writes, and read it in JSX: computed(async ({ signal }) => fetchTab(tab(), { signal })) is held by the transition, which keeps the old content on screen until the new value has landed. A lazy() chunk can be loaded before the transition (call its import() first), or read as an async value in its parent: computed(() => import("./Page.jsx")).
+
+```jsx
+// Bad — React's tabs pattern: the fallback replaces the old tab:
+function Panel(props) {
+  const data = use(props.promise);
+  return <p>{data.text}</p>;
+}
+<button onClick={() => startTransition(() => tab('b'))}>B</button>
+
+// Good — the tab's data is an async value of the tab:
+const data = computed(({ signal }) => fetchTab(tab(), { signal }));
+function Panel() {
+  return <p>{data().text}</p>;
+}
+<button onClick={() => startTransition(() => tab('b'))}>B</button>
 ```
 
 ## ERR_TEMPLATE_NAMESPACE

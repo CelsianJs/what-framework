@@ -19,6 +19,8 @@
  * into engine internals.
  */
 
+import { createCauseHistory } from './causes.js';
+
 let installed = false;
 let signalId = 0;
 let effectId = 0;
@@ -45,53 +47,156 @@ const signals = new Map();    // id → { id, name, ref, rev, createdAt, interna
 const effects = new Map();    // id → { id, name, node, kind, depSignalIds, depComputedIds, runCount, lastRunAt, causes, componentId }
 const components = new Map(); // id → { id, name, element, mountedAt, parentId }
 
-// Set of known component function names (added on registerComponent, kept
-// forever even after unmount so post-mortem signals still attribute).
-// Used by attributeToComponent() to recognise component frames in stack traces.
-const knownComponentNames = new Set();
+function sourceOf(handle, rawName = '', fallback = '') {
+  if (typeof rawName !== 'string') rawName = '';
+  const at = /@(?=[^\n]+:\d+:\d+$)/.exec(rawName)?.index ?? -1;
+  const where = core?.__ownerPath?.(handle);
+  const stem = at === -1 ? rawName : rawName.slice(0, at);
+  const name = (stem === 'effect' || stem === 'computed') && handle?.fn?.name ? handle.fn.name : stem;
+  const loc = at === -1 ? where?.loc : rawName.slice(at + 1);
+  return {
+    name: (name || fallback).slice(0, 160),
+    ...(where?.length ? { owner: where.join(' › ').slice(0, 500) } : {}),
+    ...(loc ? { loc: loc.slice(0, 300) } : {}),
+  };
+}
 
-// name -> Set<componentId>. When multiple components share a name we cannot
-// disambiguate via stack; the heuristic falls back to the most-recently-mounted.
-const componentsByName = new Map();
-
-/**
- * Heuristic attribution: parse new Error().stack to find the most recently
- * called component frame. Returns a componentId or null.
- *
- * Signal and effect creation happens during the component body, so its stack
- * contains a frame named after the component function. Anonymous components
- * cannot be matched, and an arrow component bound to a const gets the const's
- * name in V8 stacks. Component ownership from the engine will replace this.
- */
-function attributeToComponent() {
-  if (knownComponentNames.size === 0) return null;
-  let stack;
-  try { throw new Error(); } catch (e) { stack = e.stack; }
-  if (!stack) return null;
-  // Walk stack from innermost to outermost. The FIRST component frame we
-  // hit is the deepest (currently-running) component.
-  const lines = stack.split('\n');
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line.startsWith('at ')) continue;
-    // Extract function name token. Handles `at Foo`, `at Object.Foo`,
-    // `at new Foo`, `at Foo.bar`, `at Foo (file:line:col)`.
-    const m = line.match(/^at\s+(?:new\s+)?([\w$.]+)/);
-    if (!m) continue;
-    const tokens = m[1].split('.');
-    for (const tok of tokens) {
-      if (knownComponentNames.has(tok)) {
-        const ids = componentsByName.get(tok);
-        if (ids && ids.size > 0) {
-          // Most-recently-mounted wins.
-          let max = -1;
-          for (const id of ids) if (id > max) max = id;
-          return max;
-        }
-      }
-    }
+function componentOf(handle) {
+  for (let o = core?.__ownerOf?.(handle); o != null; o = core?.__ownerOf?.(o)) {
+    if (o.Component !== undefined && o._devId != null) return o._devId;
   }
   return null;
+}
+
+function descriptor(entry) {
+  if (entry.descriptor) return entry.descriptor;
+  const { id, name, owner, loc } = entry;
+  return { id, name, ...(owner ? { owner } : {}), ...(loc ? { loc } : {}) };
+}
+
+function describeHandle(handle) {
+  if (typeof handle === 'function') {
+    const entry = signals.get(handle._devId);
+    return { kind: 'signal', ...(entry ? descriptor(entry) : sourceOf(handle, handle._debugName, 'signal')) };
+  }
+  if (handle?.Component !== undefined) {
+    const component = components.get(handle._devId);
+    return { kind: 'component', ...(component ? descriptor(component) : sourceOf(handle, handle.devLoc, handle.Component.name)) };
+  }
+  const entry = effects.get(handle?._devId);
+  return entry
+    ? { kind: entry.binding ? 'binding' : entry.kind, ...descriptor(entry) }
+    : { kind: kindOf(handle), ...sourceOf(handle, handle?.devName, handle?.fn?.name || 'anonymous') };
+}
+
+function describeEvent(event, target) {
+  const metadata = target?.[`_$source_${event.type}`];
+  const handler = target?._events?.[event.type]?._original;
+  return {
+    kind: 'event', event: event.type,
+    ...sourceOf(target?.$$owner || target, metadata, handler?.name || event.type),
+    ...(target?.localName ? { target: target.localName } : {}),
+    ...(target?.id ? { targetId: target.id.slice(0, 120) } : {}),
+  };
+}
+
+const causes = createCauseHistory(describeHandle, (node) => core?.__depsOf?.(node) || [], describeEvent);
+
+// Active work may have started before the MCP client connected. Keep a
+// read-only view of it separately from the armed causal history.
+const workIds = new WeakMap();
+const activeWork = new Map();
+let workId = 0;
+let hydration = null;
+
+function workIdOf(ref) {
+  if (!workIds.has(ref)) workIds.set(ref, ++workId);
+  return workIds.get(ref);
+}
+
+function asyncState(node) {
+  if (node.devAsync === undefined) return null;
+  return {
+    status: node.devAsync,
+    ...(node.devFlight ? { inFlight: node.devFlight } : {}),
+    ...(node.devLastError !== undefined ? { lastError: node.devLastError } : {}),
+  };
+}
+
+function trackRecord(type, subject, state) {
+  if (type === 'hydration:complete') {
+    hydration = { hydrated: true, ...state };
+    emit(type, hydration);
+    return;
+  }
+  if (type.startsWith('async:')) {
+    emit(type, { ...describeHandle(subject), ...(type === 'async:land' ? state : asyncState(subject)) });
+    return;
+  }
+  const id = workIdOf(subject);
+  if (type === 'transition:open' || type === 'suspense:waiting') {
+    if (activeWork.has(id)) return;
+    const kind = type.startsWith('transition') ? 'transition' : 'suspense';
+    const record = { id, kind, ...sourceOf(state, '', kind), startedAt: Date.now() };
+    activeWork.set(id, record);
+    emit(type, record);
+    return;
+  }
+  if (type === 'transition:held' || type === 'transition:commit') {
+    const work = activeWork.get(id);
+    if (!work && type === 'transition:held') return;
+    const held = [...state.held].slice(0, 16).map(describeHandle);
+    const pending = [...state.pending].slice(0, 16).map(describeHandle);
+    const record = { ...work, id, held, pending, heldCount: state.held.size, pendingCount: state.pending.size };
+    if (type === 'transition:held') {
+      activeWork.set(id, record);
+    } else {
+      activeWork.delete(id);
+      if (causes.armed) causes.commit(state.held, { kind: 'transition', ...descriptor(record) });
+      emit(type, record);
+    }
+    return;
+  }
+  if (type.startsWith('optimistic:')) {
+    emit(type, { id, transitionId: workIdOf(state.transition), ...sourceOf(state.owner, '', 'optimistic') });
+    return;
+  }
+  const record = activeWork.get(id);
+  if (!record) return;
+  activeWork.delete(id);
+  emit(type, { ...record, ...(state?.into ? { into: workIdOf(state.into) } : {}) });
+}
+
+function explainCause({ effectId, bindingId, componentId, selector }) {
+  let entries;
+  let target;
+  let mountOwner;
+  if (effectId != null || bindingId != null) {
+    const entry = effects.get(effectId ?? bindingId);
+    if (!entry || (bindingId != null && !entry.binding)) return { error: 'No live effect or binding with that id.' };
+    entries = [entry];
+  } else if (componentId != null) {
+    const entry = components.get(componentId);
+    if (!entry) return { error: 'No live component with that id.' };
+    target = { kind: 'component', ...descriptor(entry) };
+    mountOwner = entry.scope;
+    entries = [...effects.values()].filter((e) => e.componentId === componentId);
+  } else {
+    let node;
+    try { node = document.querySelector(selector); } catch { return { error: 'Invalid CSS selector.' }; }
+    if (node === null) return { error: 'Selector matched no element.' };
+    const owner = core?.__ownerOf?.(node);
+    const component = components.get(owner?._devId);
+    mountOwner = component?.scope;
+    target = { kind: 'dom', selector, ...sourceOf(node, '', node.localName), ...(component ? { componentId: component.id } : {}) };
+    entries = [...effects.values()].filter((e) => e.binding === node || (e.binding?.nodeType === 8 && e.binding.parentNode === node));
+  }
+  return {
+    ...(target ? { target } : {}),
+    ...causes.explain(entries.slice(0, 12), mountOwner),
+    ...(entries.length > 12 ? { omittedTargets: entries.length - 12 } : {}),
+    ...(!entries.length ? { reason: 'no-live-bindings-or-effects-for-target' } : {}),
+  };
 }
 
 // --- Self-tracking suppression ---
@@ -263,16 +368,17 @@ export function registerSignal(sig, name) {
   const id = ++signalId;
   const entry = {
     id,
-    name: sig._debugName || name || `signal_${id}`,
+    ...sourceOf(sig, sig._debugName || name, `signal_${id}`),
     ref: sig,
     rev: 0,
     createdAt: Date.now(),
     internal: false,
-    componentId: attributeToComponent(),
+    componentId: componentOf(sig),
   };
+  Object.assign(entry, { descriptor: descriptor(entry) });
   signals.set(id, entry);
   sig._devId = id;
-  emit('signal:created', { id, name: entry.name, componentId: entry.componentId });
+  emit('signal:created', { ...descriptor(entry), componentId: entry.componentId });
   return id;
 }
 
@@ -287,9 +393,11 @@ export function notifySignalUpdate(sig, next, prev) {
   if (id == null) return;
   const entry = signals.get(id);
   entry.rev++;
+  if (!causes.armed && listeners.size === 0) return;
   const writer = typeof core?.__currentEffect === 'function' ? core.__currentEffect() : null;
   const writerEffectId = writer?._devId != null && effects.has(writer._devId) ? writer._devId : null;
-  emit('signal:updated', { id, name: entry.name, value: next, prev, rev: entry.rev, writerEffectId });
+  if (causes.armed) causes.write(sig, writer);
+  emit('signal:updated', { ...descriptor(entry), value: next, prev, rev: entry.rev, writerEffectId });
 }
 
 /**
@@ -299,8 +407,10 @@ export function unregisterSignal(sig) {
   if (!installed) return;
   const id = sig._devId;
   if (id == null) return;
+  const entry = signals.get(id);
+  if (!entry) return;
   signals.delete(id);
-  emit('signal:disposed', { id });
+  emit('signal:disposed', descriptor(entry));
 }
 
 // --- Effects and computeds --------------------------------------------------
@@ -320,7 +430,8 @@ export function registerEffect(e, name) {
   const kind = kindOf(e);
   const entry = {
     id,
-    name: name || e.fn?.name || `${kind}_${id}`,
+    ...sourceOf(e, name || e.devName, e.fn?.name || `${kind}_${id}`),
+    binding: e.devBinding || null,
     node: e,
     kind,
     createdAt: Date.now(),
@@ -329,11 +440,12 @@ export function registerEffect(e, name) {
     runCount: 0,
     lastRunAt: null,
     causes: null,
-    componentId: attributeToComponent(),
+    componentId: componentOf(e),
   };
+  Object.assign(entry, { descriptor: descriptor(entry) });
   effects.set(id, entry);
   e._devId = id;
-  emit('effect:created', { id, name: entry.name, kind, componentId: entry.componentId });
+  emit('effect:created', { ...descriptor(entry), kind: entry.binding ? 'binding' : kind, componentId: entry.componentId });
   return id;
 }
 
@@ -355,9 +467,11 @@ function splitHandles(handles) {
 
 function readDeps(entry) {
   if (typeof core?.__depsOf !== 'function') return;
-  const { signalIds, computedIds } = splitHandles(core.__depsOf(entry.node));
+  const handles = core.__depsOf(entry.node);
+  const { signalIds, computedIds } = splitHandles(handles);
   entry.depSignalIds = signalIds;
   entry.depComputedIds = computedIds;
+  return handles;
 }
 
 /**
@@ -370,16 +484,18 @@ function trackEffectRun(e, info) {
   if (id == null) return;
   const entry = effects.get(id);
   if (!entry) return;
-  readDeps(entry);
+  const handles = readDeps(entry);
   entry.runCount++;
   entry.lastRunAt = Date.now();
-  const causes = info?.causes ? splitHandles(info.causes) : null;
-  entry.causes = causes ? { signalIds: causes.signalIds, computedIds: causes.computedIds } : null;
+  if (causes.armed) causes.ran(e, entry.kind === 'computed', info?.causes, handles);
+  const direct = info?.causes ? splitHandles(info.causes) : null;
+  entry.causes = direct;
+  if (listeners.size === 0) return;
   emit('effect:run', {
-    id,
+    ...descriptor(entry),
     runCount: entry.runCount,
     depSignalIds: entry.depSignalIds,
-    ...(causes ? { causeSignalIds: causes.signalIds, causeComputedIds: causes.computedIds } : {}),
+    ...(direct ? { causeSignalIds: direct.signalIds, causeComputedIds: direct.computedIds } : {}),
   });
 }
 
@@ -390,8 +506,10 @@ export function unregisterEffect(e) {
   if (!installed) return;
   const id = e._devId;
   if (id == null) return;
+  const entry = effects.get(id);
+  if (!entry) return;
   effects.delete(id);
-  emit('effect:disposed', { id });
+  emit('effect:disposed', descriptor(entry));
 }
 
 // --- Errors -----------------------------------------------------------------
@@ -409,7 +527,10 @@ function captureError(err, context) {
     if (capturedErrors.has(err)) return;
     capturedErrors.add(err);
   }
+  const subject = context?.effect || context?.owner;
+  const where = subject ? sourceOf(subject, subject.devName || subject.devLoc, subject.fn?.name) : {};
   const entry = {
+    ...where,
     message: err?.message || String(err),
     stack: err?.stack || null,
     type: context?.type || 'unknown',
@@ -441,25 +562,20 @@ function captureUncaught() {
  * Register a component mount. Ids are a monotonic counter, so a remount gets a
  * fresh id; the MCP tool descriptions tell agents to re-query.
  */
-export function registerComponent(name, element, parentDevId) {
+export function registerComponent(name, element, parentDevId, owner) {
   if (!installed || suppressDepth > 0) return;
   const id = ++componentId;
   const entry = {
     id,
-    name: name || 'Anonymous',
-    element,
+    ...sourceOf(owner, owner?.devLoc, name || 'Anonymous'),
+    get element() { return owner ? owner._wrapper : element; },
+    scope: owner,
     parentId: parentDevId || null,
     mountedAt: Date.now(),
   };
+  Object.assign(entry, { descriptor: descriptor(entry) });
   components.set(id, entry);
-  // Index by name so attributeToComponent() can match stack frames.
-  if (name) {
-    knownComponentNames.add(name);
-    let set = componentsByName.get(name);
-    if (!set) { set = new Set(); componentsByName.set(name, set); }
-    set.add(id);
-  }
-  emit('component:mounted', { id, name: entry.name, parentId: entry.parentId });
+  emit('component:mounted', { ...descriptor(entry), parentId: entry.parentId });
   return id;
 }
 
@@ -470,12 +586,7 @@ export function unregisterComponent(id) {
   if (!installed) return;
   const entry = components.get(id);
   components.delete(id);
-  if (entry?.name) {
-    // knownComponentNames stays populated: a re-mount of the same component
-    // still attributes, and attribution costs nothing when no live one matches.
-    componentsByName.get(entry.name)?.delete(id);
-  }
-  emit('component:unmounted', { id });
+  if (entry) emit('component:unmounted', descriptor(entry));
 }
 
 /**
@@ -496,11 +607,10 @@ export function getSnapshot(opts = {}) {
   const { includeInternal = false } = opts;
 
   const signalList = [];
-  for (const [id, entry] of signals) {
+  for (const entry of signals.values()) {
     if (!includeInternal && entry.internal) continue;
     signalList.push({
-      id,
-      name: entry.name,
+      ...descriptor(entry),
       value: entry.ref.peek(),
       rev: entry.rev,
       componentId: entry.componentId || null,
@@ -508,11 +618,12 @@ export function getSnapshot(opts = {}) {
   }
 
   const effectList = [];
-  for (const [id, entry] of effects) {
+  for (const entry of effects.values()) {
     effectList.push({
-      id,
-      name: entry.name,
+      ...descriptor(entry),
       kind: entry.kind,
+      ...(entry.binding ? { binding: true } : {}),
+      ...(asyncState(entry.node) ? { async: asyncState(entry.node) } : {}),
       depSignalIds: entry.depSignalIds,
       depComputedIds: entry.depComputedIds,
       runCount: entry.runCount,
@@ -522,8 +633,8 @@ export function getSnapshot(opts = {}) {
   }
 
   const componentList = [];
-  for (const [id, entry] of components) {
-    componentList.push({ id, name: entry.name, parentId: entry.parentId });
+  for (const entry of components.values()) {
+    componentList.push({ ...descriptor(entry), parentId: entry.parentId });
   }
 
   return {
@@ -542,18 +653,19 @@ export function getSnapshot(opts = {}) {
  */
 export function getState({ budget = 300 } = {}) {
   const signalList = [];
-  for (const [id, entry] of signals) {
+  for (const entry of signals.values()) {
     if (entry.internal) continue;
     let value;
     try { value = preview(entry.ref.peek(), budget); } catch (err) { value = `[unreadable: ${err?.message || err}]`; }
-    signalList.push({ id, name: entry.name, rev: entry.rev, value, componentId: entry.componentId || null });
+    signalList.push({ ...descriptor(entry), rev: entry.rev, value, componentId: entry.componentId || null });
   }
   const effectList = [];
-  for (const [id, entry] of effects) {
+  for (const entry of effects.values()) {
     effectList.push({
-      id,
-      name: entry.name,
+      ...descriptor(entry),
       kind: entry.kind,
+      ...(entry.binding ? { binding: true } : {}),
+      ...(asyncState(entry.node) ? { async: asyncState(entry.node) } : {}),
       runCount: entry.runCount,
       depSignalIds: entry.depSignalIds,
       depComputedIds: entry.depComputedIds,
@@ -562,8 +674,8 @@ export function getState({ budget = 300 } = {}) {
     });
   }
   const componentList = [];
-  for (const [id, entry] of components) componentList.push({ id, name: entry.name, parentId: entry.parentId });
-  return { signals: signalList, effects: effectList, components: componentList };
+  for (const entry of components.values()) componentList.push({ ...descriptor(entry), parentId: entry.parentId });
+  return { signals: signalList, effects: effectList, components: componentList, hydration, work: [...activeWork.values()] };
 }
 
 /**
@@ -590,6 +702,13 @@ export function installDevTools(coreModule) {
   installed = true;
 
   const hooks = {
+    get trace() { return causes.armed; },
+    onEffectBegin: (e, deps, parent) => causes.begin(e, deps, parent),
+    onEffectSkip: (e) => causes.skip(e),
+    onComputedChange: (c) => causes.change(c, 'change'),
+    onComputedEqual: (c) => causes.change(c, 'equal'),
+    onAsyncLanding: (c) => causes.change(c, 'async-landing'),
+    onRecord: trackRecord,
     onSignalCreate: (sig) => registerSignal(sig),
     onSignalUpdate: (sig, next, prev) => notifySignalUpdate(sig, next, prev),
     onEffectCreate: (e) => registerEffect(e),
@@ -599,8 +718,9 @@ export function installDevTools(coreModule) {
     onComponentMount: (ctx) => {
       const name = ctx.Component?.displayName || ctx.Component?.name || 'Anonymous';
       const parentDevId = ctx._parentCtx?._devId || null;
-      const id = registerComponent(name, ctx._wrapper, parentDevId);
+      const id = registerComponent(name, ctx._wrapper, parentDevId, ctx);
       ctx._devId = id;
+      if (causes.armed && id != null) causes.mount(ctx, core?.__currentEffect?.());
     },
     onComponentUnmount: (ctx) => {
       if (ctx._devId != null) unregisterComponent(ctx._devId);
@@ -622,6 +742,9 @@ export function installDevTools(coreModule) {
     if (typeof mod.__drainPreinstallBuffer === 'function') {
       try {
         const drained = mod.__drainPreinstallBuffer();
+        for (const ctx of drained.components || []) {
+          if (ctx._devId == null) hooks.onComponentMount(ctx);
+        }
         for (const sig of drained.signals || []) {
           if (sig._devId == null) registerSignal(sig);
         }
@@ -637,9 +760,6 @@ export function installDevTools(coreModule) {
             entry.runCount = 1;
             entry.lastRunAt = Date.now();
           }
-        }
-        for (const ctx of drained.components || []) {
-          if (ctx._devId == null) hooks.onComponentMount(ctx);
         }
       } catch (err) {
         // Non-fatal — pre-install drain is best-effort.
@@ -670,6 +790,9 @@ export function installDevTools(coreModule) {
       getState,
       getErrors,
       getDiagnostics,
+      armCauses: causes.arm,
+      why: explainCause,
+      withWriteOrigin: causes.withOrigin,
       subscribe,
       preview,
       safeSerialize,

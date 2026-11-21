@@ -182,7 +182,8 @@ const infinite = useInfiniteQuery<{ id: string }[]>({ queryKey: ['feed'], queryF
 export const firstPage = infinite.data().pages[0];
 export const morePages: boolean = infinite.hasPreviousPage();
 export const fetched = useFetch<{ id: string }>('/api').data();
-invalidateQueries(['todos'], { hard: true });
+// It returns a promise of the refetches it started (void once they landed).
+export const refetched: Promise<void> = invalidateQueries(['todos'], { hard: true });
 export const cached = getQueryData<{ id: string }>(['todos', 1]);
 
 // A derived store field reads as its VALUE.
@@ -234,11 +235,13 @@ const NEGATIVE = {
   `,
   'neg-infinite-data.ts': `
     import { useInfiniteQuery } from 'what-framework/data';
-    export const bad = useInfiniteQuery<{ id: string }>({}).data().map((p) => p);
+    export const bad = useInfiniteQuery<{ id: string }>({ queryKey: ['x'], queryFn: async () => ({ id: '' }) }).data().map((p) => p);
   `,
+  // invalidateQueries resolves once the refetches have landed, with nothing:
+  // the data is in the cache, not in its result.
   'neg-invalidate-await.ts': `
     import { invalidateQueries } from 'what-framework/data';
-    export const bad: Promise<void> = invalidateQueries('todos');
+    export const bad: Promise<string[]> = invalidateQueries('todos');
   `,
   // Called WITH the state argument the old DerivedFn signature wanted, so this
   // fails on "not callable" rather than on arity, i.e. it really is testing
@@ -439,8 +442,12 @@ describe('runtime shape: data fetching', () => {
     }
   });
 
-  it('invalidateQueries is synchronous', () => {
-    assert.equal(W.invalidateQueries('parity-nothing'), undefined);
+  // It starts the refetches at once and resolves when they have landed, so
+  // `await invalidateQueries(...)` means the cache holds the fresh data.
+  it('invalidateQueries returns a promise of the refetches', async () => {
+    const result = W.invalidateQueries('parity-nothing');
+    assert.equal(typeof result.then, 'function');
+    assert.equal(await result, undefined);
   });
 
   it('getQueryData is undefined for a key the cache never held, and takes array keys', () => {

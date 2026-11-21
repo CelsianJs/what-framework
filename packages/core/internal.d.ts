@@ -29,7 +29,40 @@ export function __ownerOf(node: unknown): unknown;
  */
 export function __ownerPath(node: unknown): string[] & { loc: string | null };
 /** @internal The query cache, for what-devtools-mcp's what_cache. */
-export function __getCacheSnapshot(): unknown[];
+export function __getCacheSnapshot(): Array<{
+  key: string;
+  kind: 'query' | 'infinite';
+  status: 'idle' | 'loading' | 'refreshing' | 'success' | 'error';
+  data: unknown;
+  error: string | null;
+  isValidating: boolean;
+  observers: number;
+  updatedAt: number | null;
+  fetches: number;
+  lastFetch: { at: number; ms: number; ok: boolean } | null;
+  version: number;
+  paths: string[];
+}>;
+/** @internal what_invalidate_cache: invalidate the entries under `key` (every entry when omitted); returns the keys matched. */
+export function __invalidateFromDevtools(key?: string | readonly unknown[]): string[];
+/** @internal what-router: run `fn`, tagging the entries its queries read with `path` for invalidatePath(path). */
+export function _tagQueries<T>(path: string, fn: () => T): T;
+/** @internal what-router: run `fn` outside the running transition, so what it writes shows at once. */
+export function _urgent(fn: () => void): void;
+/** @internal what-router: the transition whose function is running, or null. */
+export function _currentTransition(): object | null;
+/** @internal what-router: run `fn` inside transition `t`'s commit. */
+export function _onCommit(t: object, fn: () => void): void;
+/** @internal what-router: resolves once no query read on `path` is fetching its first value. */
+export function _pathLoaded(path: string): Promise<void>;
+/** @internal Whether this is a development build: false in a production bundle, where the branches it guards fold away. */
+export const __DEV__: boolean;
+/** @internal what-server's <Form>: the context its status is provided in. */
+export function _formStatusContext(): any;
+/** @internal what-server's <Form>: a form's status, with `submit(formData, run)` running one submission as a transition. */
+export function _formStatus(method: string | null, action: unknown): import('./index.js').FormStatus & {
+  submit(formData: FormData, run: (formData: FormData) => unknown): Promise<void>;
+};
 
 export interface DiagnosticDetail {
   data?: Record<string, any>;
@@ -144,8 +177,10 @@ export function _endComponentSSR(...args: unknown[]): unknown;
 export function _runInComponentSSR(...args: unknown[]): unknown;
 /** @internal Used by what-server. Escapes `& < > " '` for HTML text and attribute values. */
 export function _escapeHtml(str: string): string;
-/** @internal Used by what-server. Gives an SSR component frame its owner path (hydration keys). */
-export function _assignOwnerPath(...args: unknown[]): unknown;
+/** @internal Used by what-server. Gives an SSR component frame its owner path (hydration keys); false for a built-in the compiler lowers away, which takes no step and no key. */
+export function _assignOwnerPath(...args: unknown[]): boolean;
+/** @internal Used by what-server. The object that counts a frame's child components and keyless resources (its parent's for a lowered built-in). */
+export function _ownerCounter(frame: unknown, root: unknown): { _ownerChildren?: number; _ownerResources?: number; [key: string]: unknown };
 /** @internal Used by what-server. The owner path of the component frame running now, or undefined. */
 export function _currentOwnerPath(): string | undefined;
 /** @internal Used by what-server. The hydration data merged from the page's data elements, or null. */

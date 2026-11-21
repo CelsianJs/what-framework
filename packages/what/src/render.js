@@ -13,8 +13,10 @@ export {
   // Keyed-only list entry, imported instead of mapArray by modules whose every
   // list is a keyed .map().
   _$mapKeyed,
-  // A compiled keyed row's read of its item.
+  // A compiled keyed row's read of its item, and its plain fields' text.
   _$item,
+  _$field,
+  _$hfield,
   // O(1) selection, emitted for `sel() === row.key` in keyed .map() rows.
   createSelector,
   spread,
@@ -31,8 +33,12 @@ export {
   applyRef,
   // Equality-gated eager memo — emitted for branch memoization of
   // conditional JSX (SPRINT v0.11 C1).
-  memo,
+  _$memo,
+  // What `<C client:idle />` compiles to: an island that hydrates itself.
+  _$Island,
   delegateEvents,
+  // Compiled output: an element's delegated handlers belong to its owner.
+  _$own,
   on,
   classList,
   isHydrating,

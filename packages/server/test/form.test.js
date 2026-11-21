@@ -71,11 +71,15 @@ describe('<Form> refuses ambiguous actions rather than failing silently', () => 
     assert.match(html, /value="someId"/);
   });
 
-  it('rejects a function that is not a server action', () => {
-    assert.throws(
-      () => renderToString(h(Form, { action: () => {}, csrfToken: 't' })),
-      /not a server action/
-    );
+  // A function that is not a server action is a client action (the dispatch
+  // of useActionState): the form posts to its permalink before JavaScript
+  // loads, and carries no endpoint fields.
+  it('takes a client function, posting to its permalink without JavaScript', () => {
+    const dispatch = () => {};
+    dispatch.permalink = '/cart';
+    const html = renderToString(h(Form, { action: dispatch }));
+    assert.match(html, /action="\/cart"/);
+    assert.doesNotMatch(html, /name="_action"/);
   });
 
   it('rejects a missing action', () => {

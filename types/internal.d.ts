@@ -39,6 +39,8 @@ declare global {
      * functions and computed nodes), i.e. why it ran.
      */
     onEffectRun?(node: any, info?: { causes: any[] | null }): void;
+    trace?: boolean;
+    onRecord?(type: string, subject: any, state?: any): void;
     /**
      * Once per thrown error: an effect's run or cleanup ('effect',
      * 'effect-cleanup', with the effect), a cleanup an owner held ('cleanup'),
@@ -143,6 +145,7 @@ declare global {
     subHead: WhatLink | null;
     subTail: WhatLink | null;
     flags: number;
+    devOwnerRef?: WeakRef<WhatOwner | WhatEffectNode | WhatComputedNode>;
     /** Dev: the signal function and its last write stamp. */
     sig?: any;
     devSeq?: number;
@@ -214,6 +217,7 @@ declare global {
     owned: WhatOwner | null;
     /** Dev: what-compiler's "name@path:line:column". */
     devName?: string;
+    devBinding?: Node;
     /** Dev: change stamp of the last run. */
     devSeen?: number;
     /** Set by what-devtools on registration. */
@@ -245,6 +249,7 @@ declare global {
    * `_parentCtx` and the owner to restore when it ends (`_outer`).
    */
   interface WhatOwner {
+    devScope?: string;
     flags: number;
     disposals: Array<(() => void) | WhatEffectNode | WhatComputedNode>;
     owner: WhatOwner | WhatEffectNode | WhatComputedNode | null;

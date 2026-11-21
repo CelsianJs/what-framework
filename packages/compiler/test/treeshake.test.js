@@ -75,8 +75,8 @@ describe('C6: compiled output is tree-shakeable', () => {
   it('does NOT emit a module-top-level _$delegateEvents side-effect call', () => {
     const code = compile(FIXTURE);
     // The call must only appear inside the once-guarded helper function.
-    assert.match(code, /function _\$delegate\$\(\)/, 'lazy delegation helper expected');
-    assert.match(code, /_\$delegate\$\(\);/, 'element setup must invoke the helper');
+    assert.match(code, /function _\$delegate\$\(el\)/, 'lazy delegation helper expected');
+    assert.match(code, /_\$delegate\$\(_el\$\d+\);/, 'element setup must invoke the helper');
     // Column-0 lines only — the (indented) call inside the helper body is fine.
     const lines = code.split('\n');
     const topLevelCall = lines.some(l => l.startsWith('_$delegateEvents('));

@@ -1,7 +1,7 @@
 # Upgrading to 0.15
 
 0.15 reshapes the public surface. The root entry, `what-framework`, went from
-177 names to <!-- root-count -->57<!-- /root-count -->: reactivity, async values, components and
+177 names to <!-- root-count -->58<!-- /root-count -->: reactivity, async values, components and
 boundaries, hooks, context, stores, `Head`, `mount`/`hydrate` and the
 diagnostics read API. The domain kits moved
 to subpaths, names that meant something else in React were renamed, and
@@ -48,6 +48,15 @@ migration.
 
 Every `what-framework/<kit>` path has a `what-core/<kit>` twin with the same
 exports.
+
+A page that loads What without a bundler, through an import map, maps every
+specifier the framework's own modules import, not only the ones the app writes:
+`what-framework/<kit>` imports `what-core/<kit>`, `what-framework/render`
+imports `what-core/render`, and `what-server/islands` and `what-router` import
+`what-core/internal`, which 0.14 did not have. A browser rejects the
+page's whole module graph over one missing entry, so nothing on it hydrates. The
+create-what full-stack template builds its import map from the packages'
+`exports`, so it already maps all of them.
 
 ## For agents and tools
 
@@ -110,6 +119,7 @@ Each name below keeps its name and behaviour; only the module changed. Every `wh
 | Now imported from | Names |
 |---|---|
 | `what-framework/render` | `on`, `template`, `svgTemplate`, `insert`, `mapArray`, `spread`, `setProp`, `delegateEvents`, `classList`, `isHydrating`, `_$template`, `_$createComponent` |
+| `what-framework/server` | `Island` |
 | `what-framework/a11y` | `useFocus`, `useFocusRestore`, `useFocusTrap`, `FocusTrap`, `announce`, `announceAssertive`, `SkipLink`, `useAriaExpanded`, `useAriaSelected`, `useAriaChecked`, `useRovingTabIndex`, `VisuallyHidden`, `LiveRegion`, `useIds`, `useDescribedBy`, `useLabelledBy`, `Keys`, `onKey`, `onKeys` |
 | `what-framework/ui` | `Skeleton`, `SkeletonText`, `SkeletonAvatar`, `SkeletonCard`, `SkeletonTable`, `IslandSkeleton`, `useSkeleton`, `Placeholder`, `LoadingDots`, `Spinner` |
 | `what-framework/motion` | `spring`, `tween`, `easings`, `useGesture`, `useAnimatedValue`, `createTransitionClasses`, `cssTransition` |
@@ -125,7 +135,7 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `isVNode` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
 
 <!-- import-changes:end -->
 
@@ -141,15 +151,16 @@ return. This is the contract:
 The hooks keep React's names and call shapes: `const [count, setCount] = useState(0)`, `useReducer(reducer, initial)`, `useMemo(fn)`, `useEffect(fn, deps)` returning a cleanup, `useRef(initial).current`, `useContext(Ctx)`, `useId()` (a string). What differs is that a component runs once, so a hook cannot hand you this render's value. It hands you the signal:
 
 - `useState` and `useReducer` return `[accessor, setter]`. `count` is a function: read the value by calling it, `count()` or `state().items`. `setCount(5)` and `setCount((c) => c + 1)` write, as in React.
-- `useMemo(fn)` returns an accessor too (`total()`), recomputed when a signal `fn` reads changes. Its dependency array is ignored, and so is `useCallback`'s, which returns your function unchanged.
+- `useMemo(fn)` returns an accessor too (`total()`), recomputed when a signal `fn` reads changes. Its dependency array is ignored, and so is `useCallback`'s, which returns your function unchanged. A promise it returns stays a promise (`ERR_ASYNC_MEMO`): fetch with `computed()`.
 - `useEffect(fn)` runs after the component mounts and re-runs when a signal it reads changes; the cleanup it returns runs before the next run and on unmount. With a dependency array it re-runs only for the accessors listed (`[count]`, never `[count()]`: a plain value reports `ERR_EFFECT_DEP_NOT_FUNCTION`), and `[]` runs it once.
 - `useContext(Ctx)` returns what the nearest provider passed. Provide a signal for a value that changes (`<Theme value={theme}>`) and call it where you read it.
-- React's async hooks keep their shapes and hand you accessors too: `const [isPending, start] = useTransition()` (`isPending()`), `const [optimistic, addOptimistic] = useOptimistic(state, update)` (`optimistic()`), and `const [data, { loading, error, refetch, mutate }] = createResource(fetcher)` (`data()`, `loading()`, `error()`). `use(promise)` and `use(Ctx)` return the value itself.
+- React's async hooks keep their shapes and hand you accessors too: `const [isPending, start] = useTransition()` (`isPending()`; a rejected action shows in the `<ErrorBoundary>` above), `const [optimistic, addOptimistic] = useOptimistic(state, update)` (pass the accessor `state`, read `optimistic()`), and `const [data, { loading, error, refetch, mutate }] = createResource(fetcher)` (`data()`, `loading()`, `error()`). `use(promise)` and `use(Ctx)` return the value itself, but a transition does not hold a component that suspends on `use(promise)`: make the data an async computed of the state the transition writes.
+- A component is never `async`: one that returns a promise renders it as text (`ERR_ASYNC_COMPONENT`).
 - The rules that exist because React re-renders do not apply: no stale closures (a handler that calls `count()` reads the current value), no exhaustive dependency lists, nothing to memoize for a stable identity. Hooks still run only in a component body.
 
 The habit that makes React-trained code correct: **whatever a hook or `signal()` returns, call it to read it.** In development, a signal used as a value without the call (`` `${count}` ``, `count + 1`) reports `ERR_MISSING_SIGNAL_READ`.
 
-Data a component fetches is an async value, not an effect: `computed(async ({ signal }) => …)` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (`users()`) under a `<Suspense fallback>` that shows on first load only. `refresh(users)` fetches again while `users.pending()` says so, `startTransition(() => page(2))` keeps the screen as it is until what the write made fetch has landed, and a test acts, then `await settled()`, then reads the DOM.
+Data a component fetches is an async value, not an effect: `computed(async ({ signal }) => …)` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (`users()`) under a `<Suspense fallback>` that shows on first load only. `refresh(users)` fetches again while `users.pending()` says so, `startTransition(() => page(2))` keeps the screen as it is until what the write made fetch has landed, and a test acts, then `await settled()`, then reads the DOM. Data several components share by key comes from the query cache: `query(() => ['user', id()], fetchUser)` from `what-framework/data` is the same kind of value, with one request per key, and the server renders it and hands it to the client. Mutations are actions: `const [result, run, isPending] = useActionState(action, initial)` runs one in a transition, and its state commits with the data it revalidated (`invalidateQueries` inside it).
 
 ```jsx
 import { mount, useState, useEffect, useMemo } from 'what-framework';
@@ -325,6 +336,59 @@ are the differences from 0.14.
   for the animation helper), and `validateImports` no longer redirects them.
 - An `async` function passed to `effect`/`useEffect` reports
   `ERR_ASYNC_EFFECT` in development: fetch with an async computed instead.
+
+### Data, actions and routing
+
+[DATA.md](DATA.md) describes the layer: one query cache whose entries are
+async values, `query(key, fetcher)` beside the hooks, React 19's action hooks,
+and navigations that are transitions. Each change below has its migration.
+
+- **`useQuery`/`useSWR`/`useInfiniteQuery`/`useFetch` read one cache of async
+  values.** Their shapes and options stay. A `queryKey` (or SWR key) may be a
+  function of signals, and the query follows it to the new key's entry; a
+  static array is still read once. A signal read inside `queryFn`/`fetcher`
+  still refetches, under the same key: move it into a function key.
+- **`invalidateQueries` returns a promise** that resolves once the refetches
+  it started have landed. Ignoring it is unchanged.
+- **Callbacks fire once per landing**, for the reader that started the fetch
+  (an invalidation's belongs to the key's first reader). Two readers of one
+  key no longer both run `onSuccess` for one response.
+- **Unmounting the last reader of a key while its fetch is in flight cancels
+  the fetch**, and a remount fetches again. **`setQueryData` drops a fetch in
+  flight** for its key, so a late response cannot overwrite it.
+- **what-server's `useAction`, `useFormAction`, `useMutation` and `formAction`
+  are removed.** Use `useActionState` from `what-framework`
+  (`const [result, run, isPending] = useActionState((prev, args) => save(args), null)`),
+  call the action inside `startTransition`, or pass it to
+  `<Form action={save}>`. Return an error from the action to show it, or let
+  it reach an `<ErrorBoundary>`.
+- **A server action called on the client is a transition.** It joins the
+  transition it is called in, and its `revalidate` paths
+  (`invalidatePath`, which now also refetches the queries read on the path) and
+  `invalidates` query keys refetch inside it; it resolves once they have landed.
+  `onRevalidate`/`invalidatePath` come from `what-framework/data` (what-server
+  re-exports them).
+- **`<Form>` accepts a client function** (`useActionState`'s dispatch), runs
+  its submit as a transition when mounted (with `useFormStatus()` inside it),
+  renders the CSRF field only when it has a token, and no longer warns about
+  a missing one.
+- **The action endpoint refuses cross-site posts** (`Sec-Fetch-Site:
+  cross-site`/`same-site`, or a foreign `Origin`) with 403, token or not, and
+  accepts same-origin ones without a token, which is how forms on cached pages
+  post. Another origin of the app needs
+  `createRequestHandler({ csrf: { trustedOrigins: [...] } })`.
+- **`ERR_FORM_ACTION_NOT_REGISTERED` is gone**: a plain function is a valid
+  `<Form action>`.
+- **A navigation waits for its destination.** `navigate()` and `<Link>` load
+  a `lazy()` route's chunk and run its new `preload`, while the old page
+  stays, then commit the URL in `startTransition`. The fallback a lazy route
+  showed on navigation no longer appears (it still does on first load), a
+  navigation started while another is preparing supersedes it instead of being
+  dropped, and `navigate()` resolves once the new page is on screen.
+  `{ flushSync: true }` commits at once.
+- **`renderToString(vnode, { response })`** takes a response to read the
+  status and headers back from, and `renderToStringAsync` returns it as
+  `response`.
 
 ### Lists
 
@@ -535,21 +599,21 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B (ceiling 6656 B) | 8710 B |
-| The create-what counter, runtime JSX | ceiling 7987 B | 8752 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | not measured | 6285 B |
+| A counter written with `h()` | 6601 B (ceiling 6656 B) | 8825 B |
+| The create-what counter, runtime JSX | ceiling 7987 B | 8869 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | not measured | 6371 B |
 
 0.14's numbers include development-only code (872 B of the `h()` counter),
 which 0.15 leaves out of production builds; the `h()` counter still grows by
-2109 B, for the new engine, the engine hooks async values need, and for fixes
-to keyed rows, class composition and delegated events. The production build (`dist/*.min.js`, what the
+2224 B, for the new engine, the engine hooks async values and transitions need,
+and for fixes to keyed rows, class composition, delegated events and hydration. The production build (`dist/*.min.js`, what the
 `production` export condition resolves) has one file per source module
 instead of one shared chunk, so an app bundled from it is as small as the
 same app bundled from source, and a compiled app with no `h()`, boundary or
 portal leaves the vnode renderer out. Loading the dist straight into a
 browser without a bundler fetches more, smaller files. This affects an app
 written with `h()` that has a size budget: compiled with what-compiler, the
-same counter is 6285 B.
+same counter is 6371 B.
 
 ### Companion packages
 
@@ -592,13 +656,14 @@ Beyond that:
 - **what-devtools-mcp**: see [MCP tools](#mcp-tools).
 - **what-server** and **what-isr**: see [Server rendering](#server-rendering).
 - **what-compiler**: see [The compiler](#the-compiler).
-- **what-router** and **what-react**: nothing to change in your code.
+- **what-router**: navigations are transitions; see [Data, actions and routing](#data-actions-and-routing).
+- **what-react**: nothing to change in your code.
 
 ## MCP tools
 
 <!-- tool-changes:start (generated by scripts/generate-import-changes.mjs; edit packages/devtools-mcp/src/tool-changes.js) -->
 
-what-devtools-mcp 0.14.0 registered 29 tools. 6 of them are gone, `what_events` is new, and the server now registers 24. A call to a removed tool fails with `MCP error -32602: Tool … not found`; make the call on its row instead.
+what-devtools-mcp 0.14.0 registered 29 tools. 6 of them are gone, `what_events`, `what_why` are new, and the server now registers 25. A call to a removed tool fails with `MCP error -32602: Tool … not found`; make the call on its row instead.
 
 | Removed | Use instead |
 |---|---|

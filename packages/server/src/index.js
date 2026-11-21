@@ -24,10 +24,11 @@ import {
   BOUNDARY_TAGS,
   SERVER_SKIPPED_TAGS,
   VOID_ELEMENTS,
-  RAW_TEXT_ELEMENTS,
   _componentProps,
   _boundaryFallback,
   _rawText,
+  _isTextContent,
+  _afterOpen,
   _resolveInnerHTML,
   _rethrowIfUnrenderable,
   _plainText,
@@ -106,8 +107,8 @@ export function renderToHydratableString(vnode) {
 
 // A synchronous render that brings its own context releases it when it
 // returns, which disposes every effect and computed its components created.
-function renderInOwnContext(render) {
-  const ctx = createRenderContext(undefined);
+function renderInOwnContext(render, response) {
+  const ctx = createRenderContext(undefined, response ? { response } : undefined);
   try {
     return runWithServerContext(ctx, render);
   } finally {
@@ -212,9 +213,16 @@ function _renderHydratable(vnode) {
 
   // Component — its owner path is its hydration key, placed on the first
   // element of its output (compiled.js has the rule) as the output is written.
+  // A built-in the compiler lowers away has none (hydration-data.js).
   if (typeof vnode.tag === 'function') {
     const ctx = _beginComponentSSR(vnode.tag);
-    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext());
+    if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext())) {
+      try {
+        return _renderHydratable(vnode.tag(_componentProps(vnode)));
+      } finally {
+        _endComponentSSR(ctx);
+      }
+    }
     const outer = HK.key;
     const key = /** @type {string} */ (ctx._ownerPath);
     HK.key = key;
@@ -236,8 +244,9 @@ function _renderHydratable(vnode) {
 
   const rawInner = _resolveInnerHTML(props);
   if (rawInner != null) return open + out(String(rawInner)) + out(`</${tag}>`);
-  if (RAW_TEXT_ELEMENTS.has(tag)) return open + out(_rawText(tag, children, _ns)) + out(`</${tag}>`);
-  return open + renderElementChildren(tag, props, children, _renderHydratable) + out(`</${tag}>`);
+  const lead = _afterOpen(tag, _ns);
+  if (_isTextContent(tag, _ns)) return open + lead + out(_rawText(tag, children, _ns)) + out(`</${tag}>`);
+  return open + lead + renderElementChildren(tag, props, children, _renderHydratable) + out(`</${tag}>`);
 }
 
 function renderChildren(children, render) {
@@ -250,11 +259,13 @@ function renderChildren(children, render) {
 // --- Render to String ---
 // Renders a VNode tree to an HTML string. Used for SSR and static gen.
 
-export function renderToString(vnode) {
+// `options.response` (a createResponse()) is what getResponse() returns to
+// the components it renders: read its status, headers and redirect after.
+export function renderToString(vnode, options) {
   ensureServerRuntime();
   // See renderToHydratableString: the scope is established by "no scope yet",
   // not by "no document".
-  if (!getServerContext()) return renderInOwnContext(() => _renderString(vnode));
+  if (!getServerContext()) return renderInOwnContext(() => _renderString(vnode), options && options.response);
   return _renderString(vnode);
 }
 
@@ -356,8 +367,9 @@ function _renderString(vnode) {
 
   const rawInner = _resolveInnerHTML(props);
   if (rawInner != null) return `${open}${String(rawInner)}</${tag}>`;
-  if (RAW_TEXT_ELEMENTS.has(tag)) return `${open}${_rawText(tag, children, _ns)}</${tag}>`;
-  return `${open}${renderElementChildren(tag, props, children, _renderString)}</${tag}>`;
+  const lead = _afterOpen(tag, _ns);
+  if (_isTextContent(tag, _ns)) return `${open}${lead}${_rawText(tag, children, _ns)}</${tag}>`;
+  return `${open}${lead}${renderElementChildren(tag, props, children, _renderString)}</${tag}>`;
 }
 
 // --- Render to String + collected <head> ---
@@ -441,7 +453,7 @@ export async function renderToStringAsync(vnode, ctx, options = {}) {
   if (!ctx) ctx = createRenderContext(undefined);
   const body = await renderBuffered(vnode, ctx, options);
   const { resources = {}, owned = {} } = resourcePayload(ctx);
-  return { body, head: endHeadCollection(ctx.head), loaderData: ctx.loaderData, resources, owned, ctx };
+  return { body, head: endHeadCollection(ctx.head), loaderData: ctx.loaderData, resources, owned, ctx, response: ctx.response };
 }
 
 // --- Render a complete HTML document (loader + data + head + hydration payload) ---
@@ -633,11 +645,7 @@ export function server(Component) {
 // Re-export server actions
 export {
   action,
-  formAction,
-  useAction,
-  useFormAction,
   useOptimistic,
-  useMutation,
   onRevalidate,
   invalidatePath,
   handleActionRequest,

@@ -41,6 +41,10 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
   { name: '_template', to: null, note: 'Use template() from what-framework/render; compiled output imports _$template from there.' },
   { name: 'getResource', to: null, note: 'Use createResource(fetcher, { key }), which reads the hydrated value for its key.' },
 
+  // One island component: the server's. What the compiler lowers client:*
+  // directives to is a compiler target.
+  { name: 'Island', to: 'what-framework/server', note: 'The island component is what-framework/server\'s Island({ name, props, mode }), which the client hydrates through the island registry (island(), hydrateIslands()). A JSX client:* directive (<Counter client:idle />) compiles to _$Island from what-framework/render, an island that hydrates itself; code written with h() calls that the same way: h(_$Island, { component: Counter, mode: \'idle\' }).' },
+
   // The error collector: the diagnostics channel replaced it.
   { name: 'collectError', to: null, note: 'Nothing collects errors by hand: the runtime reports its coded diagnostics on one channel (getDiagnostics(), subscribeDiagnostics()), and what-devtools records thrown errors (getErrors()). Both are development-only: a production build reports nothing.' },
   { name: 'getCollectedErrors', to: null, note: 'Use getDiagnostics({ since }) for the coded diagnostics (since is the seq the previous call returned, not a timestamp), or getErrors() from what-devtools for thrown errors; both are development-only.' },
@@ -110,8 +114,11 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
     '__depsOf', '__subsOf', '__currentEffect', '__ownerOf', '__ownerPath', 'reportDiagnostic', 'IMPORT_CHANGES',
   ], note: 'Devtools hooks, guardrails and the error catalogue are tool interfaces in what-core/internal.' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
-    '_escapeHtml', '_runInComponentSSR', '_assignOwnerPath', '_currentOwnerPath', '__flushOutsideServerContext', '__outsideServerContext',
+    '_escapeHtml', '_runInComponentSSR', '_assignOwnerPath', '_ownerCounter', '_currentOwnerPath', '__flushOutsideServerContext', '__outsideServerContext',
   ], note: 'Server-rendering internals are what-server\'s interface in what-core/internal; apps use getResponse() and useLoaderData().' },
+  { to: 'what-core/internal', neverOnRoot: true, names: [
+    '__invalidateFromDevtools', '_tagQueries', '_formStatus', '_formStatusContext', '__DEV__', '_urgent', '_currentTransition', '_onCommit', '_pathLoaded',
+  ], note: 'The query cache\'s devtools and router hooks, the status <Form> provides, the engine hooks a navigation uses and the development flag are what-devtools\', what-router\'s and what-server\'s interface in what-core/internal; apps use what-framework/data, useFormStatus(), <Form> and useTransition().' },
   { name: 'isVNode', to: 'what-core/internal', neverOnRoot: true, note: 'Whether a value is a vnode, by the brand only what-core\'s producers (h(), the JSX runtime, the boundaries) give: for libraries that make or inspect elements, such as what-react. Apps make elements with h() or JSX.' },
 ]);
 

@@ -54,6 +54,14 @@ export interface WhatRules {
   'signal-debug-name': WhatRuleModule;
   /** An effect that only writes one signal should be a computed (hint). */
   'prefer-computed': WhatRuleModule;
+  /** A component is never an async function: it would render a promise. */
+  'no-async-component': WhatRuleModule;
+  /** useMemo keeps a promise as its value; an async value is computed(). */
+  'no-promise-in-usememo': WhatRuleModule;
+  /** useOptimistic takes its state as an accessor, not a value read once (autofix). */
+  'no-optimistic-snapshot': WhatRuleModule;
+  /** A computed that returns a promise is async or takes { signal }, so it starts when created (autofix). */
+  'prefer-async-computed': WhatRuleModule;
 }
 
 /**

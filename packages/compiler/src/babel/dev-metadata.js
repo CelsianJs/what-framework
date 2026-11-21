@@ -5,7 +5,7 @@
 // `projectRoot` with forward slashes, the line and column are 1-based and point
 // at the original source, because they are all read in the same Babel pass
 // that lowers the JSX (positions from a second pass would be shifted by the
-// first). The runtime reads the extra arguments; today it ignores them.
+// first). The runtime reads the metadata in development.
 //
 //   components   _$createComponent(Row, props, children, "Row@src/App.jsx:12:5")
 //                (also _$componentVNode and the server back end's _$ssrComponent)
@@ -15,9 +15,8 @@
 //   bindings     _$effect(() => _$setAttr(el, "title", x()), { name: "li.title@src/App.jsx:14:9" })
 //                _$insert(el, () => x(), marker, "li.children@src/App.jsx:15:11")
 //
-// Only calls that provably reach What's own `signal` / `effect` (imported from
-// what-framework or what-core, by name or through a namespace) are named, and
-// only when the caller did not name them already.
+// Only calls that provably reach What's own primitives are named. Explicit
+// names are preserved and their call-site locations still travel with them.
 
 import { t } from './types.js';
 import { importedFrom } from './common.js';
@@ -65,6 +64,8 @@ const NAMED_PRIMITIVES = new Map([
   // name -> how the name is passed
   ['signal', 'argument'],
   ['effect', 'options'],
+  ['computed', 'argument'],
+  ['h', 'vnode'],
 ]);
 
 function primitiveName(callPath) {
@@ -101,24 +102,44 @@ function boundName(callPath, fallback) {
   return fallback;
 }
 
+const annotatedVNodes = new WeakSet();
+
 export function annotatePrimitive(callPath, state) {
   if (!devMetadataEnabled(state)) return;
   const primitive = primitiveName(callPath);
   if (primitive === null) return;
   const args = callPath.node.arguments;
   if (args.length === 0 || args.some(arg => t.isSpreadElement(arg))) return;
+  if (primitive === 'h') {
+    if (annotatedVNodes.has(callPath.node) || !(t.isIdentifier(args[0]) || t.isMemberExpression(args[0]))) return;
+    const name = t.isIdentifier(args[0]) ? args[0].name : t.isIdentifier(args[0].property) && !args[0].computed ? args[0].property.name : 'component';
+    const meta = describe(name, callPath.node, state);
+    if (meta) {
+      annotatedVNodes.add(callPath.node);
+      const vnode = callPath.scope.generateUidIdentifier('vnode');
+      callPath.replaceWith(t.callExpression(t.arrowFunctionExpression([vnode], t.sequenceExpression([
+        t.assignmentExpression('=', t.memberExpression(vnode, t.identifier('_loc')), t.stringLiteral(meta)),
+        vnode,
+      ])), [callPath.node]));
+    }
+    return;
+  }
   const text = describe(boundName(callPath, primitive), callPath.node, state);
   if (!text) return;
   if (NAMED_PRIMITIVES.get(primitive) === 'argument') {
     if (args.length === 1) args.push(t.stringLiteral(text));
+    else if (primitive === 'signal' && args.length === 2) args.push(t.stringLiteral(text));
     return;
   }
   const nameProperty = t.objectProperty(t.identifier('name'), t.stringLiteral(text));
   if (args.length === 1) {
     args.push(t.objectExpression([nameProperty]));
   } else if (args.length === 2 && t.isObjectExpression(args[1])) {
-    const named = args[1].properties.some(p => (t.isObjectProperty(p) || t.isObjectMethod(p)) && !p.computed &&
+    const named = args[1].properties.some(p => t.isSpreadElement(p) || (t.isObjectProperty(p) || t.isObjectMethod(p)) && !p.computed &&
       (t.isIdentifier(p.key, { name: 'name' }) || t.isStringLiteral(p.key, { value: 'name' })));
     if (!named) args[1].properties.push(nameProperty);
+    else args.push(t.stringLiteral(text));
+  } else if (args.length === 2) {
+    args.push(t.stringLiteral(text));
   }
 }

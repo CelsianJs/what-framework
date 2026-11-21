@@ -45,6 +45,10 @@ export const HTML_ENCODINGS: ReadonlySet<string>;
 export function childNamespace(ns: MarkupNamespace, tag: string, encoding?: unknown): MarkupNamespace;
 /** Elements whose content the HTML parser reads as raw text: script, style. */
 export const RAW_TEXT_ELEMENTS: ReadonlySet<string>;
+/** <textarea> and <title>: text the parser decodes, with no markup (a comment there is text). */
+export const TEXT_ONLY_ELEMENTS: ReadonlySet<string>;
+/** <pre>, <textarea> and <listing>: the parser drops a newline right after their start tag. */
+export const LEADING_NEWLINE_ELEMENTS: ReadonlySet<string>;
 /** Whether raw text holds a sequence that could end its element. */
 export function rawTextHazard(tag: string, text: string): boolean;
 /** Raw text, encoded so it cannot end its element. */

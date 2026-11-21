@@ -13,7 +13,12 @@ import { VNode, VNodeChild, Signal, ServerResponse, ServerContext } from 'what-c
 // never had the problem because they take `VNodeChild`.
 
 /** Render VNode tree to HTML string */
-export function renderToString(vnode: VNode<any>): string;
+/**
+ * Render a tree to HTML, synchronously. `options.response` is what
+ * getResponse() returns to its components: read the status, headers and
+ * redirect they set from it afterwards.
+ */
+export function renderToString(vnode: VNode<any>, options?: { response?: RenderResponse }): string;
 
 export interface StreamErrorInfo {
   /**
@@ -189,8 +194,14 @@ export interface ActionOptions {
   id?: string;
   onError?: (error: Error) => void;
   onSuccess?: (result: any) => void;
-  /** Paths to revalidate after the action succeeds. */
+  /**
+   * Paths to revalidate after the action succeeds: on the server their cached
+   * pages are purged; on the client invalidatePath(path) refetches the
+   * queries and route data read on them, inside the action's transition.
+   */
   revalidate?: string[];
+  /** Query keys to invalidate on the client after the action succeeds (prefixes, as invalidateQueries reads them), inside its transition. */
+  invalidates?: ReadonlyArray<string | readonly unknown[]>;
   /**
    * Cache tags to purge after the action succeeds (handleActionRequest reads
    * these off the registered action). The only way to purge by tag from an
@@ -202,76 +213,26 @@ export interface ActionOptions {
   timeout?: number;
 }
 
-/** Define a server action */
+/**
+ * Define a server action. On the server it is the function itself; on the
+ * client, calling it posts to the action endpoint as a transition (it joins
+ * one already running) and revalidates what the options name inside it.
+ * Resolves with the action's result once the refetches have landed.
+ */
 export function action<T extends any[], R>(
   fn: (...args: T) => Promise<R>,
   options?: ActionOptions
-): (...args: T) => Promise<R>;
-
-/** Create a form action handler */
-export function formAction<R>(
-  actionFn: (data: Record<string, any>) => Promise<R>,
-  options?: {
-    onSuccess?: (result: R, form?: HTMLFormElement) => void;
-    onError?: (error: Error, form?: HTMLFormElement) => void;
-    resetOnSuccess?: boolean;
-  }
-): (formDataOrEvent: FormData | Event) => Promise<R>;
-
-// --- useAction Hook ---
-
-export interface UseActionResult<T extends any[], R> {
-  trigger: (...args: T) => Promise<R>;
-  isPending: () => boolean;
-  error: () => Error | null;
-  data: () => R | null;
-  reset: () => void;
-}
-
-export function useAction<T extends any[], R>(
-  actionFn: (...args: T) => Promise<R>
-): UseActionResult<T, R>;
-
-// --- useFormAction Hook ---
-
-export interface UseFormActionResult<R> extends UseActionResult<[FormData], R> {
-  handleSubmit: (e: Event) => Promise<R>;
-  formRef: { current: HTMLFormElement | null };
-}
-
-export function useFormAction<R>(
-  actionFn: (data: Record<string, any>) => Promise<R>,
-  options?: { resetOnSuccess?: boolean }
-): UseFormActionResult<R>;
+): ((...args: T) => Promise<R>) & { _actionId: string; _isAction: true };
 
 // --- Optimistic Updates ---
 
 /** what-core's useOptimistic (React 19's shape), re-exported for server-action code. */
 export { useOptimistic } from 'what-core';
 
-// --- Mutations ---
-
-export interface UseMutationResult<T extends any[], R> {
-  mutate: (...args: T) => Promise<R>;
-  isPending: () => boolean;
-  error: () => Error | null;
-  data: () => R | null;
-  reset: () => void;
-}
-
-export function useMutation<T extends any[], R>(
-  mutationFn: (...args: T) => Promise<R>,
-  options?: {
-    onSuccess?: (result: R, ...args: T) => void;
-    onError?: (error: Error, ...args: T) => void;
-    onSettled?: (data: R | null, error: Error | null, ...args: T) => void;
-  }
-): UseMutationResult<T, R>;
-
 // --- Revalidation ---
 
-export function onRevalidate(path: string, callback: () => void): () => void;
-export function invalidatePath(path: string): void;
+/** what-core/data's: call `callback` whenever invalidatePath(path) runs. */
+export { onRevalidate, invalidatePath } from 'what-core/data';
 
 // --- Server Handler ---
 
@@ -315,6 +276,8 @@ export function renderToStringAsync(
   resources: Record<string, unknown>;
   owned: Record<string, unknown>;
   ctx: ServerContext;
+  /** The status, headers and redirect the components set (getResponse()). */
+  response: RenderResponse;
 }>;
 
 // The six keys wrapHtmlDocument reads. `bodyAttrs`, `scripts` and `styles`
@@ -353,11 +316,19 @@ export function renderDocument(
 // with JavaScript disabled and is enhanced to a fetch when JS is present.
 
 export interface FormProps {
-  /** A server action (from `action()`) or its id. */
+  /**
+   * A server action (from `action()`) or its id, or a client function such as
+   * useActionState's dispatch (it receives the FormData; without JavaScript
+   * the form posts to its `permalink`).
+   */
   action: ((...args: any[]) => any) | string;
-  /** Per-request CSRF token. Required for SSR; read from the page when omitted. */
+  /**
+   * The visitor's CSRF token, when the page knows it (an uncached route's
+   * loader gets `ctx.csrfToken`). Optional: the endpoint accepts a post the
+   * browser marks same-origin, which is how a form on a cached page posts.
+   */
   csrfToken?: string | null;
-  /** Where to send the browser after a no-JS submit. */
+  /** Where the endpoint sends the browser after a no-JS submit (303). A mounted form stays put. */
   redirect?: string;
   method?: string;
   /** Set false to leave a plain HTML form the client enhancer ignores. */
@@ -394,6 +365,8 @@ export interface ActionHandlerOptions {
   getCsrfToken?: (reqLike: any) => string | null | undefined | Promise<string | null | undefined>;
   /** Opt out of CSRF validation (e.g. a token-authed API behind another gateway). */
   skipCsrf?: boolean;
+  /** Other origins whose pages may post here ("https://app.example"); the browser's Origin must be one of them or this host. */
+  trustedOrigins?: string[];
   /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. */
   basePath?: string;
 }
@@ -525,8 +498,14 @@ export interface RequestHandlerOptions {
   notFound?: () => string;
   /** Path prefix stripped before matching. */
   basePath?: string;
-  /** Double-submit CSRF, on by default. */
-  csrf?: boolean;
+  /**
+   * CSRF protection, on by default: a post the browser marks cross-site
+   * (Sec-Fetch-Site / Origin) is refused, one it marks same-origin accepted
+   * (forms on cached pages), and one with neither header needs the
+   * double-submit token. `false` turns it off; `trustedOrigins` lets other
+   * origins of the app post.
+   */
+  csrf?: boolean | { trustedOrigins?: string[] };
   /** Take over /__what_action entirely. A custom handler owns its own CSRF policy, so cookie/meta auto-provisioning is skipped. */
   actionHandler?: (reqLike: any) => Promise<{ status: number; headers: Record<string, string>; body: any }>;
   /** Hears every error a built-in route render (streamed or buffered) contains or fails on. Default: console.error. */

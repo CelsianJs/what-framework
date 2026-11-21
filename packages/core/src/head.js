@@ -91,7 +91,10 @@ function collectHeadChildren(child, found) {
 /** @returns {{ name: string, attrs: Record<string, any>, text: string } | null} */
 function readHeadTag(child) {
   if (typeof child !== 'object') return null;
-  if (isServerMarkup(child)) return readHeadMarkup(child.parts(null));
+  // Only markup that opens with a head tag is rendered to be read: any other
+  // child renders where it stands, once (its attributes and holes are
+  // evaluated when it is rendered).
+  if (isServerMarkup(child)) return isHeadTag(child.rootTag()) ? readHeadMarkup(child.parts(null)) : null;
   if (isVNode(child) && typeof child.tag === 'string') {
     if (!isHeadTag(child.tag)) return null;
     const attrs = {};

@@ -41,11 +41,43 @@ const compiled = await loadCompiled(`
   );
 `, { pluginOptions: { generate: 'ssr' } });
 
+// Every hole of a child that is not a head tag counts its evaluations.
+const counted = await loadCompiled(`
+  import { Head } from 'what-framework';
+  export function make(c) {
+    const n = (k) => () => { c[k] = (c[k] || 0) + 1; return k; };
+    const text = n('text'), cls = n('cls'), css = n('css'), attr = n('attr'), spread = n('spread');
+    function Widget() { c.widget = (c.widget || 0) + 1; return <i>w</i>; }
+    return () => (
+      <main>
+        <Head>
+          <title>Hi</title>
+          <p>{text()}</p>
+          <p class={cls()}>x</p>
+          <style>{css()}</style>
+          <div {...{ id: spread }}>s</div>
+          <div classList={{ on: true }} title={attr()}>s</div>
+          <Widget />
+        </Head>
+      </main>
+    );
+  }
+`, { pluginOptions: { generate: 'ssr' } });
+
 function count(html, pattern) {
   return (html.match(pattern) || []).length;
 }
 
 describe('Head children in a server render', () => {
+  it('a compiled child that is not a head tag is evaluated once, by the render that places it', async () => {
+    for (const render of [renderToString, (tree) => renderDocument({ default: () => tree }, {}, {})]) {
+      const c = {};
+      const html = await render(h(counted.make(c)));
+      assert.deepEqual(c, { text: 1, cls: 1, css: 1, spread: 1, attr: 1, widget: 1 });
+      assert.match(html, /<div id="spread">s<\/div>/);
+    }
+  });
+
   it('h() children go to the head, once, and leave the body', () => {
     const { head, body } = renderToStringWithHead(h('main', {},
       h(Head, {},

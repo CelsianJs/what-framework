@@ -41,7 +41,9 @@ describe('the hydration key scan', () => {
 // The hashes are of renderToString output as the previous release wrote it,
 // and of renderToHydratableString output in the current hydration protocol
 // (compiled.js), which changed when keys became owner paths and boundaries
-// got markers.
+// got markers. A <textarea> changed in both in 0.15: its content is text only
+// (no element, no marker) and a newline follows its start tag, which the
+// parser drops (what-core markup-rules.js).
 describe('string output is unchanged', () => {
   it('renderToString matches the previous release, renderToHydratableString the protocol, on 300 seeded random trees', () => {
     const expected = JSON.parse(readFileSync(new URL('./fixtures/string-render-hashes.json', import.meta.url), 'utf8'));

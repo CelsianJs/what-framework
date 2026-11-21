@@ -21,7 +21,7 @@ The bridge (`what-devtools-mcp`) runs as a Node.js process started by your MCP c
 2. Writes a pairing key to `node_modules/.cache/what-devtools-mcp/bridge.json` in the project it was started in (or uses `WHAT_MCP_TOKEN`)
 3. Admits a browser page only with a credential the dev server obtained for that page's origin, one dev-server origin at a time
 4. Keeps each page load as a session (`s1`, `s2`, …): its own event log (last 2000 events, each stamped with a bridge-wide `seq`), diagnostics (500, folded by code and subject), errors (100) and baseline
-5. Forwards commands from the agent to the page and exposes 24 MCP tools
+5. Forwards commands from the agent to the page and exposes 25 MCP tools
 
 [DESIGN.md](../packages/devtools-mcp/DESIGN.md) explains the session, trust and time model.
 
@@ -169,6 +169,8 @@ Coded diagnostics the page reported and errors it threw (in effects, in event ha
 
 `summary` counts every entry after the cursor; the list is one page: with `more`, call again with `after: next`. `lost` reports what bounded buffers evicted (`diagnosticsEvictedThrough`, `droppedInPageBeforeConnect`, `errorsEvicted`). A repeat folds into one entry with a `count`, showing the latest repeat. A thrown error that carries an `ERR_*` code resolves to its catalogue entry; one without a code is `ERR_RUNTIME` with a JavaScript-level hint. No code is ever guessed from message text.
 
+For hydration, filter by `code: "ERR_HYDRATION_MISMATCH"`. Each result includes `mismatch` with the mismatch kind, component, hydration owner key, DOM path, expected and found markup, and recovery. The separate `owner` and `loc` fields identify the owning source scope. The filtered answer includes `mismatchFixes` indexed by mismatch kind. `what_connection_status.hydration` summarizes the latest completed walk, counting retained and created element and text nodes by identity.
+
 #### `what_fix` *(offline)*
 
 The catalogue entry for one code: `{ found, code, severity, message, fix, example }`.
@@ -176,6 +178,8 @@ The catalogue entry for one code: `{ found, code, severity, message, fix, exampl
 | Param | Type | Notes |
 |---|---|---|
 | `error` | string | A code (`ERR_INFINITE_EFFECT`, `infinite_effect`), or an error message containing one or matching exactly one catalogue template |
+
+For `ERR_HYDRATION_MISMATCH`, pass optional `kind` from the diagnostic's `mismatch.kind` to get the corresponding fix.
 
 Anything else returns `{ found: false, closest: [up to 3 codes] }`. Every code in [ERRORS.md](./ERRORS.md) resolves.
 
@@ -185,8 +189,9 @@ Health check: diagnostic counts by code, the last errors, hot effects (`name#id 
 
 | Param | Type | Notes |
 |---|---|---|
-| `focus` | `"errors"` `"performance"` `"reactivity"` `"all"` | Default `all` |
+| `focus` | `"errors"` `"performance"` `"reactivity"` `"async"` `"all"` | Default `all` |
 | `threshold` | number | Runs above which an effect is hot (default 50) |
+| `pendingMs` | number | Report in-flight async runs, transitions and waiting Suspense boundaries at or beyond this age (default 5000) |
 
 #### `what_events`
 
@@ -195,7 +200,7 @@ What happened, without waiting. Events after a cursor, oldest first, one line ea
 | Param | Type | Notes |
 |---|---|---|
 | `after` | number | A `seq` or `since` from an earlier answer (default: the oldest kept) |
-| `types` | string[] | `diagnostic` `error` `write` `run` `mount` `lifecycle` `page` |
+| `types` | string[] | `diagnostic` `error` `write` `run` `mount` `lifecycle` `page` `async` `transition` `optimistic` `suspense` `hydration` |
 | `limit` | number | Default 50, max 500 |
 
 ```json
@@ -204,7 +209,7 @@ What happened, without waiting. Events after a cursor, oldest first, one line ea
  "runs":["renderCount#4 ×1"],"seq":131}
 ```
 
-A write names the effect that made it (`by`), absent for a write from an event handler or `what_set_signal`; a run names the dependencies whose change caused it (`←`). `more: true` means the limit cut the slice: call again with `after: next`; reading from `next` never repeats or skips. `lostThrough` appears when the 2000-event log evicted events after your cursor. `runs` ranks the effects that ran in the slice.
+A write names the effect that made it (`by`), absent for a write from an event handler or `what_set_signal`; a run names the dependencies whose change caused it (`←`). `more: true` means the limit cut the slice: call again with `after: next`; reading from `next` never repeats or skips. `lostThrough` appears when the 2000-event log evicted events after your cursor. `runs` ranks the effects that ran in the slice. `work` contains structured records for async activity, transition commits and their held effects, optimistic overlays, Suspense and hydration.
 
 ### State
 
@@ -214,6 +219,7 @@ A write names the effect that made it (`by`), absent for a write from an event h
 |---|---|---|
 | `filter` | string | Regex on names (ignored when `id` is set) |
 | `id` | number | One signal, with a longer value preview |
+| `effectId` | number | One async computed by its effect id |
 | `named_only` | boolean | Drop `signal_N` names |
 | `limit` | number | Default 20, max 100 |
 | `offset` | number | From a previous answer's `next` |
@@ -231,6 +237,14 @@ Returns `{ total, matched, signals: [{ id, name, value, subs }], next? }`, named
 | `offset` | number | From a previous answer's `next` |
 
 Returns `{ total, matched, effects: [{ id, name, kind?, runs, deps: ["count#1"], lastCause?, componentId? }], next? }`, most-run first. Computeds are listed with `kind: "computed"`; `deps` names the signals and computeds read in the latest run, `lastCause` the ones whose change caused the latest re-run.
+
+Async entries in `what_signals`, `what_effects` and `what_explain` include `async.status` (unresolved, pending, ready or errored), `async.inFlight` with run number and start time while pending, and `async.lastError` when an error has been observed. Async rows in `what_signals` use `effectId`; writable signals use `id`. Compiled bindings appear in the effect list as `kind: "binding"`.
+
+#### `what_why`
+
+Pass exactly one of `effectId`, `bindingId`, `componentId` or CSS `selector`. The answer includes the latest observed run or skip and the reads on the last run. The `graph` links causes through numeric record references and records when equal dependencies stopped a pending effect. Changes can trace back to a synchronous event, an effect write, `what_set_signal`, an async landing or a transition commit. Owner paths and compiler source locations travel with the nodes that have them.
+
+Recording starts on connection and stops on disconnect. A run before attachment has no cause record. `omitted` indicates evicted or capped records. Components summarize the effects they own and selectors find bindings attached to the matching element. CSS selectors match the first element in the page. For a remounted component or a node inside it, `mountRef` can identify the graph record for its mount.
 
 #### `what_components`
 
@@ -254,6 +268,8 @@ Everything about one component: `{ component, signals, effects, html, diagnostic
 | `domDepth` | number | Default 2 |
 
 #### `what_snapshot`
+
+Diff rows with source information include `source: [ownerIndex, locationIndex]` into the response's `sources.owners` and `sources.locations` arrays. Each index is zero-based and is null when that information is unavailable.
 
 | Param | Type | Notes |
 |---|---|---|
@@ -283,7 +299,7 @@ Recent writes to one signal from the session's event log, oldest first: `{ seq, 
 
 #### `what_cache`
 
-SWR / `useQuery` entries: `{ count, entries: [{ key, data, error, isValidating, ageMs }] }`. `key` filters by substring.
+The query cache (`query()`, `useQuery`, `useSWR`, `useInfiniteQuery` and `useFetch` share it): `{ count, entries: [{ key, kind?, status, data, error?, observers, fetching?, ageMs?, lastFetch?: { agoMs, ms, ok }, fetches?, paths? }], seq }`. `status` is `loading`, `refreshing`, `success`, `error` or `idle`; `observers` counts the readers of the key; `paths` are the route paths it was read on (what `invalidatePath` reaches). `key` filters by substring (array keys read as `todos:1`).
 
 ### Visual and DOM
 
@@ -339,7 +355,7 @@ Changes the URL the way back/forward does, so what-router runs its guards, waits
 
 #### `what_invalidate_cache`
 
-Force-refresh one cache `key`. Returns `{ invalidated, since, events }`.
+Invalidate cache entries as `invalidateQueries` does: the ones on screen refetch, the rest are marked stale. `key` is a key as `what_cache` lists it, or a JSON array key (a prefix: `["todos"]`); omit it for every entry. Returns `{ invalidated: [keys matched], since, events }`, with a `hint` when nothing matched.
 
 #### `what_eval`
 
@@ -370,7 +386,7 @@ Code for a `component`, `page`, `form`, `store` or `island`: `{ type, name, path
 
 <!-- tool-changes:start (generated by scripts/generate-import-changes.mjs; edit packages/devtools-mcp/src/tool-changes.js) -->
 
-what-devtools-mcp 0.14.0 registered 29 tools. 6 of them are gone, `what_events` is new, and the server now registers 24. A call to a removed tool fails with `MCP error -32602: Tool … not found`; make the call on its row instead.
+what-devtools-mcp 0.14.0 registered 29 tools. 6 of them are gone, `what_events`, `what_why` are new, and the server now registers 25. A call to a removed tool fails with `MCP error -32602: Tool … not found`; make the call on its row instead.
 
 | Removed | Use instead |
 |---|---|

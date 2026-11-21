@@ -857,8 +857,8 @@ describe('invalidateQueries reaches queries with no cache entry', () => {
 //    and reached invalidateQueries' predicate as an Array, where the documented
 //    `key => key.startsWith('/api/posts')` throws.
 //
-// NOT fixed, deliberately: queryKey is still read exactly once, at hook
-// creation. See the last describe() in this file for what that costs.
+// A static queryKey is read exactly once, at hook creation; a function key
+// follows its signals. See the last describe() in this file.
 
 describe('a disabled query and an enabled one agree about a cleared cache', () => {
   beforeEach(() => clearCache());
@@ -1385,23 +1385,16 @@ describe('invalidateQueries hands its predicate a normalized key', () => {
   });
 });
 
-describe('KNOWN LIMITATION: queryKey is read once, at hook creation', () => {
+describe('a static queryKey is read once, at hook creation', () => {
   beforeEach(() => clearCache());
 
-  // This describe() pins a DEFECT, not a design. It is here so the behaviour is
-  // written down and so that making queryKey reactive breaks a test on purpose
-  // rather than by surprise.
-  //
-  // `enabled` is a live gate; the KEY next to it is not. useQuery does
-  // `const key = normalizeQueryKey(queryKey)` once, and components run once, so
-  // the array literal `['posts', user.data()?.id]` has already been built
-  // before useQuery ever sees it -- there is nothing left in it to observe.
-  // Making the key reactive therefore cannot be done by reading it more often;
-  // it needs a thunk form for the key, a lifecycle for switching keys (cancel
-  // in flight, move the invalidation subscription, re-point the data and status
-  // computeds at the new signals, decide what to show while it switches), and
-  // the same again in useSWR and useInfiniteQuery. That is a release, not a
-  // patch, so it is not attempted here.
+  // A static array key is a value: components run once, so the array literal
+  // `['posts', user.data()?.id]` has already been built before useQuery sees
+  // it, and there is nothing left in it to observe. That stays true, and these
+  // tests pin it. The form that follows a dependency is a function key,
+  // `queryKey: () => ['posts', user.data()?.id]`, which moves the query to the
+  // new key's entry (query.test.js, "a function queryKey follows its signals
+  // into a new entry").
 
   it('freezes the key at whatever the dependency was worth on the first run', async () => {
     const user = useQuery({

@@ -99,25 +99,60 @@ export function isPending(fn: () => unknown): boolean;
  * started has landed, then commit it in one flush. Writes outside `fn` commit
  * as usual; writes after an `await` in `fn` are ordinary writes, as in React.
  * Resolves when the transition commits; rejects with an async `fn`'s error.
+ * Inside an async action it commits with, it resolves once only the action
+ * keeps the commit waiting, so the action can await it.
  */
 export function startTransition(fn: () => void | Promise<unknown>): Promise<void>;
 /**
  * React's useTransition. `isPending` is an ACCESSOR, not a boolean: call it,
  * `isPending()`, true from the call to `startTransition` until that
  * transition commits. `{isPending() && <Spinner />}` in JSX updates;
- * `{isPending && ...}` is always truthy.
+ * `{isPending && ...}` is always truthy. A rejected action shows in the
+ * <ErrorBoundary> above the component, as in React 19; the returned promise
+ * rejects too.
  */
 export function useTransition(): [isPending: () => boolean, startTransition: (fn: () => void | Promise<unknown>) => Promise<void>];
 /**
- * React 19's useOptimistic. `optimistic` is an ACCESSOR: `optimistic()` is
- * `state` with the overlays added by `addOptimistic(value)` applied through
- * `update` (or replacing it, without `update`). Each overlay lasts as long as
- * the transition it was added in and drops when that commits, in the same
- * flush as the real result. Call `addOptimistic` synchronously inside
- * startTransition.
+ * React 19's useOptimistic. `state` is an accessor (a signal, a computed) or a
+ * plain value: pass `likes`, not `likes()`, which is read once. `optimistic` is
+ * an ACCESSOR: `optimistic()` is `state` with the overlays added by
+ * `addOptimistic(value)` applied through `update` (or replacing it, without
+ * `update`). Each overlay lasts as long as the transition it was added in and
+ * drops when that commits, in the same flush as the real result. Call
+ * `addOptimistic` synchronously inside startTransition.
  */
-export function useOptimistic<S>(state: S | (() => S)): [optimistic: () => S, addOptimistic: (value: S) => void];
-export function useOptimistic<S, A>(state: S | (() => S), update: (current: S, value: A) => S): [optimistic: () => S, addOptimistic: (value: A) => void];
+export function useOptimistic<S>(state: Signal<S> | Computed<S> | (() => S)): [optimistic: () => S, addOptimistic: (value: S) => void];
+export function useOptimistic<S, A>(state: Signal<S> | Computed<S> | (() => S), update: (current: S, value: A) => S): [optimistic: () => S, addOptimistic: (value: A) => void];
+export function useOptimistic<S>(state: S): [optimistic: () => S, addOptimistic: (value: S) => void];
+export function useOptimistic<S, A>(state: S, update: (current: S, value: A) => S): [optimistic: () => S, addOptimistic: (value: A) => void];
+/**
+ * React 19's useActionState: `[state, dispatch, isPending]`, where `state` and
+ * `isPending` are ACCESSORS. `dispatch(payload)` runs
+ * `action(previousState, payload)` inside a transition; dispatches queue,
+ * each receiving the state the previous one returned. The new state commits
+ * with the transition, in the same flush as the data its action revalidated.
+ * An action that throws reaches the nearest <ErrorBoundary> and drops the
+ * dispatches queued behind it. `permalink` is where a <Form> posts before
+ * JavaScript has loaded.
+ */
+export function useActionState<S, P = FormData>(
+  action: (previousState: S, payload: P) => S | Promise<S>,
+  initialState: S,
+  permalink?: string,
+): [state: () => S, dispatch: ((payload: P) => void) & { permalink?: string }, isPending: () => boolean];
+/** What useFormStatus() returns: the submission of the <Form> around the component. */
+export interface FormStatus {
+  /** True from the submit until its transition commits. */
+  pending: () => boolean;
+  /** The pending submission's FormData, or null. */
+  data: () => FormData | null;
+  /** The form's method, or null outside a <Form>. */
+  method: string | null;
+  /** The form's action, or null outside a <Form>. */
+  action: ((...args: any[]) => any) | string | null;
+}
+/** React 19's useFormStatus: the submission of the <Form> (what-server) this component renders in. */
+export function useFormStatus(): FormStatus;
 /**
  * React 19's use(). A context reads like useContext. A promise returns its
  * value once settled, or suspends the component until it settles: it must be
@@ -347,13 +382,14 @@ export function memo<P>(component: Component<P>, areEqual?: (prev: P, next: P) =
 
 /**
  * Shows `fallback` until its children have first shown: while a binding under
- * it waits for an async value that has not landed, or a component under it
- * has suspended (lazy(), use()). After that an async value never brings the
- * fallback back: a refresh keeps the children mounted, their bindings holding
- * what they show until the new value lands. A component that suspends again
- * (a lazy() chunk, use(promise)) does, and the children stay mounted behind
- * it. onMount and useEffect under it first run when its children first show.
- * A server-rendered one is adopted by hydrate() as it is.
+ * it waits for an async value that has not landed (one computed from another
+ * async value included), or a component under it has suspended (lazy(),
+ * use()). After that an async value never brings the fallback back: a refresh
+ * keeps the children mounted, their bindings holding what they show until the
+ * new value lands. A component that suspends again (a lazy() chunk,
+ * use(promise)) does, and the children stay mounted behind it; a transition
+ * does not hold that. onMount and useEffect under it first run when its
+ * children first show. A server-rendered one is adopted by hydrate() as it is.
  */
 export function Suspense(props: {
   fallback: VNodeChild;
@@ -362,8 +398,9 @@ export function Suspense(props: {
 
 /**
  * Shows `fallback` when its children throw, while they are built or later
- * (an effect, a binding, an async value that rejected). `reset()` fetches
- * again the async values whose errors it caught and builds the children again.
+ * (an effect, a binding, an async value that rejected, a useTransition action
+ * of a component under it that rejected). `reset()` fetches again the async
+ * value runs whose errors it caught and builds the children again.
  */
 export function ErrorBoundary(props: {
   fallback: VNodeChild | ((args: { error: Error; reset: () => void }) => VNodeChild);
@@ -377,10 +414,24 @@ export function Show(props: {
   children?: VNodeChild;
 }): VNode;
 
+/**
+ * A list: `each` is an accessor (a signal, a computed) or an array. With
+ * `key`, each row is built once per key and gets its item as an accessor,
+ * `item()`, which follows an item replaced under the same key; without it, a
+ * row gets the item itself and a new item is a new row. `.map()` with a `key`
+ * prop is the usual form in compiled JSX.
+ */
 export function For<T>(props: {
-  each: T[] | (() => T[]);
+  each: readonly T[] | (() => readonly T[] | null | undefined);
+  key: (item: T) => unknown;
   fallback?: VNodeChild;
-  children: ((item: T, index: number) => VNodeChild) | VNodeChild;
+  children: (item: () => T, index: number) => VNodeChild;
+}): VNode;
+export function For<T>(props: {
+  each: readonly T[] | (() => readonly T[] | null | undefined);
+  key?: undefined;
+  fallback?: VNodeChild;
+  children: (item: T, index: number) => VNodeChild;
 }): VNode;
 
 export function Switch(props: {
@@ -392,15 +443,6 @@ export function Match(props: {
   when: boolean | (() => boolean);
   children?: VNodeChild;
 }): VNode;
-
-export interface IslandProps {
-  component: Component<any>;
-  mode: 'load' | 'idle' | 'visible' | 'interaction' | 'media';
-  mediaQuery?: string;
-  [key: string]: any;
-}
-
-export function Island(props: IslandProps): VNode;
 
 export function Portal(props: { target: string | Element; children?: VNodeChild }): VNode | null;
 

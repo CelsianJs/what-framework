@@ -227,6 +227,11 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
     if (isSafeGlobalCall(expr)) {
       return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
     }
+    // A function argument the call may run at once reads for the call:
+    // isPending(() => users()), a formatter handed a getter.
+    if (expr.arguments.some(arg => readsInCallback(arg, signalNames, importedIds))) {
+      return true;
+    }
     // Any other zero-argument call has the shape of an accessor read, so it
     // is assumed to be one. `props.count()`, a plain parameter `count()` and
     // `s()` from `const s = useThing()` are all opaque to the compiler: it
@@ -249,13 +254,23 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
            expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
   }
 
+  // Optional chaining reads like the plain chain: a()?.b and a()?.[k]
+  // through their object, f?.() as a call.
+  if (t.isOptionalCallExpression(expr)) {
+    if (expr.arguments.length === 0) return true;
+    return isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
+           expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds) ||
+             readsInCallback(arg, signalNames, importedIds));
+  }
+
   if (t.isIdentifier(expr)) {
     return isSignalIdentifier(expr.name, signalNames) ||
            (importedIds && importedIds.has(expr.name));
   }
 
-  if (t.isMemberExpression(expr)) {
-    return isPotentiallyReactive(expr.object, signalNames, importedIds);
+  if (t.isMemberExpression(expr) || t.isOptionalMemberExpression(expr)) {
+    return isPotentiallyReactive(expr.object, signalNames, importedIds) ||
+           (expr.computed && isPotentiallyReactive(expr.property, signalNames, importedIds));
   }
 
   if (t.isConditionalExpression(expr)) {
@@ -293,6 +308,37 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   }
 
   return false;
+}
+
+// Whether `fn`, a function handed to a call, returns something that reads
+// reactively: its expression body, or what its block body returns (nested
+// functions aside).
+function readsInCallback(fn, signalNames, importedIds) {
+  if (!t.isArrowFunctionExpression(fn) && !t.isFunctionExpression(fn)) return false;
+  if (!t.isBlockStatement(fn.body)) return isPotentiallyReactive(fn.body, signalNames, importedIds);
+  const returned = [];
+  collectReturns(fn.body, returned);
+  return returned.some(e => isPotentiallyReactive(e, signalNames, importedIds));
+}
+
+function collectReturns(stmt, out) {
+  if (t.isReturnStatement(stmt)) {
+    if (stmt.argument) out.push(stmt.argument);
+  } else if (t.isBlockStatement(stmt)) {
+    for (const s of stmt.body) collectReturns(s, out);
+  } else if (t.isIfStatement(stmt)) {
+    collectReturns(stmt.consequent, out);
+    if (stmt.alternate) collectReturns(stmt.alternate, out);
+  } else if (t.isTryStatement(stmt)) {
+    collectReturns(stmt.block, out);
+    if (stmt.handler) collectReturns(stmt.handler.body, out);
+    if (stmt.finalizer) collectReturns(stmt.finalizer, out);
+  } else if (t.isSwitchStatement(stmt)) {
+    for (const c of stmt.cases) for (const s of c.consequent) collectReturns(s, out);
+  } else if (t.isLabeledStatement(stmt) || t.isForStatement(stmt) || t.isForOfStatement(stmt) ||
+             t.isForInStatement(stmt) || t.isWhileStatement(stmt) || t.isDoWhileStatement(stmt)) {
+    collectReturns(stmt.body, out);
+  }
 }
 
 // A `when` prop's shape determines how the condition is formed:

@@ -26,6 +26,9 @@ const importMap = {
       [`what-framework/${kit}`, `/node_modules/what-framework/src/${kit}.js`],
       [`what-core/${kit}`, `/node_modules/what-core/src/entries/${kit}.js`],
     ])),
+    // The compiled-JSX runtime: src/page.js takes _$Island from it.
+    'what-framework/render': '/node_modules/what-framework/src/render.js',
+    'what-core/render': '/node_modules/what-core/src/render.js',
   },
 };
 

@@ -6,20 +6,18 @@ import { build } from 'esbuild';
 const CLIENT_ACTION_ENTRY = `
   import {
     action,
-    formAction,
-    useAction,
-    useFormAction,
+    Form,
     useOptimistic,
-    useMutation,
+    onRevalidate,
+    invalidatePath,
   } from 'what-framework/server';
 
   globalThis.__whatClientActionSurface = [
     action,
-    formAction,
-    useAction,
-    useFormAction,
+    Form,
     useOptimistic,
-    useMutation,
+    onRevalidate,
+    invalidatePath,
   ];
 `;
 

@@ -425,6 +425,7 @@ describe('what adoption needs from the boundary', () => {
     host.innerHTML = server.renderToHydratableString(serverTree);
     document.body.appendChild(host);
     const footer = host.querySelector('#f');
+    const chunk = host.querySelector('#chunk');
     const reports = [];
     // The client's chunk has not loaded: the component suspends in the walk.
     const stop = hydrate(h('div', null, h(Suspense, { fallback: h('i', { id: 'fb' }, 'wait') }, h('p', null, 'before'), h(Chunk, {})), h('footer', { id: 'f' }, 'end')), host,
@@ -433,7 +434,8 @@ describe('what adoption needs from the boundary', () => {
       flushSync();
       assert.equal(host.querySelector('#f'), footer, 'the walk after the boundary claimed the server\'s footer');
       assert.deepEqual(reports, [], 'a walk that a suspension drops reports nothing');
-      assert.ok(host.querySelector('#fb'), 'once the walk was over, the fallback stands in');
+      assert.equal(host.querySelector('#fb'), null, 'the fallback does not stand in for the server\'s content');
+      assert.equal(host.querySelector('#chunk'), chunk, 'the server\'s content stays up while the chunk loads');
       resolve({ default: () => h('b', { id: 'chunk' }, 'chunk') });
       await until(() => host.querySelector('#chunk') !== null && host.querySelector('#fb') === null);
       assert.equal(host.querySelectorAll('footer').length, 1);

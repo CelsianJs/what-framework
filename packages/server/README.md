@@ -43,8 +43,12 @@ any of the async and streaming renderers below, which all write the same
 hydratable markup: `data-hk="<owner path>"` on the first element of each
 component, `<!--$-->…<!--/$-->` around a reactive child, `<!--[]-->…<!--/[]-->`
 around an array, and `<!--b-->…<!--/b-->` around a `<Suspense>` or
-`<ErrorBoundary>` (`<!--b!-->` when it rendered its fallback). The protocol is
-described in [docs/ARCHITECTURE.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ARCHITECTURE.md#server-rendering).
+`<ErrorBoundary>` (`<!--b!-->` when it rendered its fallback). The children of
+a `<textarea>` or `<title>` are written as escaped text with no markers (the
+parser reads a comment there as text), and every renderer writes a newline
+right after `<pre>`, `<textarea>` and `<listing>`, the one the parser drops, so
+content that begins with a newline keeps it. The protocol is described in
+[docs/ARCHITECTURE.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ARCHITECTURE.md#server-rendering).
 
 ```js
 // server
@@ -73,9 +77,19 @@ hydrating the same container again disposes the first root.
   as they are.
 - **Mismatches** (the client renders something the server did not) are reported
   as `ERR_HYDRATION_MISMATCH` in development and to `onHydrationError` in every
-  build, with the kind, the component, its owner path and the DOM path; the one
-  element or text node that differs is rendered on the client, and nothing the
-  server wrote that the client does not render survives.
+  build, one per region, with the kind, the component, its owner path and the
+  DOM path; the one element or text node that differs is rendered on the
+  client. A late streamed boundary reports to the same hook.
+- **Nothing the server wrote that the client does not render survives**
+  (SECURITY.md, Hydration): an attribute stays only where a prop renders
+  exactly its value, an element the client leaves empty is emptied (an
+  island's host and matching `{ __html }` excepted), and an element hosting a
+  declarative shadow root is replaced (kind `shadow-root`). Event handlers
+  belong to their owner, so a handler of a root that a later `hydrate()`
+  replaced never runs again.
+- **Server data is found by identity.** A component takes its owner path from
+  the `data-hk` the server put where its output starts, so a branch only one
+  side renders, or a boundary's fallback, never hands it a neighbour's value.
 - **Vnodes are branded.** Only `h()`, the JSX runtime and the boundaries make
   vnodes: an object from JSON shaped like one renders as text on every server
   path and on the client. An island prop that is a vnode is revived on the
@@ -188,9 +202,16 @@ export async function loader({ params, signal, response }) {
 }
 ```
 
-The response is committed with the shell: until then a redirect is a real 3xx.
-A redirect from a streamed boundary, after the shell went out, is sent as a
-script. Server resource fetchers receive `{ signal, request }`; `signal` is the
+The response is committed with the first byte. A buffered render
+(`renderToString(vnode, { response })`, `renderToStringAsync`, which returns
+it as `response`, `renderDocument`, a route with `page.stream: false`) sends
+nothing before it has finished, so whatever a component sets counts. A
+streamed render sends its shell first: what the shell's components set counts,
+including a status decided by data read outside any `<Suspense>` (the shell
+waits for it), and a redirect made by then is a real 3xx. After the shell,
+`setStatus` and `setHeader` do nothing (with a development warning) and a
+redirect is sent as a script. The Node and edge adapters send exactly what the
+tree set. Server resource fetchers receive `{ signal, request }`; `signal` is the
 render's own, which aborts when the client goes away or the stream's consumer
 stops reading.
 
@@ -279,25 +300,47 @@ const Header = server(({ title }) => h('header', null, title));
 ## Server Actions
 
 ```js
-import { action, useAction, formAction } from 'what-server/actions';
-import { h } from 'what-core';
+import { action, Form } from 'what-server';
+import { h, useActionState, useFormStatus, startTransition } from 'what-core';
 
-// Define a server action
-const addTodo = action(async (text) => {
+// Define a server action. `revalidate` purges the cached pages on the server
+// and refetches what was read on those paths on the client; `invalidates`
+// refetches query keys on the client.
+export const addTodo = action(async ({ text }) => {
   await db.todos.create({ text });
-});
+  return { ok: true };
+}, { id: 'addTodo', revalidate: ['/todos'], invalidates: [['todos']] });
 
-// Use in a component: trigger() calls it; isPending(), error() and data() read its state
+// A form: a real <form method="post"> without JavaScript; with it, a
+// transition whose status useFormStatus() reads.
+function SaveButton() {
+  const status = useFormStatus();
+  return h('button', { disabled: () => status.pending() }, () => (status.pending() ? 'Adding…' : 'Add'));
+}
 function TodoForm() {
-  const { trigger, isPending } = useAction(addTodo);
-  return h('button', { onclick: () => trigger('New todo'), disabled: () => isPending() }, 'Add');
+  return h(Form, { action: addTodo, redirect: '/todos' }, h('input', { name: 'text' }), h(SaveButton));
 }
 
-// Form action: called with the form's fields as a plain object
-const submitForm = formAction(async (fields) => {
-  await subscribe(fields.email);
-});
+// Or call it: on the client it runs as a transition (or joins the one it is
+// called in) and resolves once what it revalidates has landed.
+function AddButton() {
+  const [result, run, isPending] = useActionState((_, text) => addTodo({ text }), null);
+  return h('button', { onclick: () => run('New todo'), disabled: () => isPending() }, () => (result() ? 'Added' : 'Add'));
+}
+
+// Inside your own transition, with an optimistic overlay.
+function addLater(text, addOptimistic) {
+  return startTransition(async () => {
+    addOptimistic(text);
+    await addTodo({ text });
+  });
+}
 ```
+
+The client callable posts JSON to `/__what_action`, rejects with the action's
+error (`ERR_ACTION_FAILED`, or `TIMEOUT` after `timeout`, default 30 s), and
+rolls back the optimistic overlays of its transition when it fails. See
+[DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
 
 ## Request Handler & CSRF (on by default)
 
@@ -310,16 +353,23 @@ import { createRequestHandler } from 'what-server';
 const handle = createRequestHandler({ routes }); // CSRF protection is ON — zero config
 ```
 
-How the default CSRF wiring works (double-submit cookie):
+How the default CSRF protection works:
 
-1. Every HTML response ensures a `what-csrf` cookie (`SameSite=Lax`, readable
-   by JS so the fetch client can echo it).
-2. Uncached HTML renders also embed `<meta name="what-csrf-token">` with the
-   same token (ISR-cached pages skip the meta tag so a per-user token is never
-   baked into shared cache entries — clients read the cookie instead).
-3. `POST /__what_action` validates the client-supplied token (`X-CSRF-Token`
-   header for fetch clients, `_csrf` form field for plain HTML forms) against
-   the cookie. Mismatch or missing token → `403`.
+1. `POST /__what_action` refuses a request the browser marks cross-site
+   (`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that is not
+   this host) with `403`, and accepts one it marks same-origin. That is how a
+   form on a cached or streamed page posts: its shared HTML carries no
+   visitor's token. `csrf: { trustedOrigins: ['https://app.example'] }` lets
+   other origins of the app post.
+2. A request that carries neither header (an old browser, a script) must
+   carry the double-submit token: every HTML response ensures a `what-csrf`
+   cookie (`SameSite=Lax`, readable by JS so the fetch client can echo it),
+   uncached HTML renders also embed `<meta name="what-csrf-token">` and hand
+   the token to the loader as `ctx.csrfToken` (ISR-cached pages never carry
+   one), and the endpoint checks the token (`X-CSRF-Token` header for fetch
+   clients, `_csrf` or `what-csrf-token` field for plain HTML forms) against
+   the cookie. Mismatch or missing token → `403`. A token sent with a
+   same-origin request is checked too.
 
 Opt out explicitly (e.g. token-authed APIs behind another gateway):
 
@@ -543,13 +593,10 @@ covered by automated tests.
 | `definePage(config)` | Define page rendering mode and metadata |
 | `generateStaticPage(page, data?)` | Generate a full HTML document |
 | `server(Component)` | Mark a component as server-only |
-| `action(fn)` | Define a server action |
-| `formAction(fn)` | Define a form-based server action |
-| `useAction(action)` | Hook to call a server action |
-| `useFormAction(action)` | Hook for form server actions |
+| `action(fn, options?)` | Define a server action; on the client a transition that revalidates `revalidate` paths and `invalidates` query keys inside it |
+| `Form` | `<Form action={serverActionOrDispatch} redirect?>`: a real form that runs as a transition when mounted; `useFormStatus()` reads it |
 | `useOptimistic(state, update?)` | The root entry's `useOptimistic`, re-exported: `[optimistic, addOptimistic]` as in React 19; call `addOptimistic` inside `startTransition` and the overlay drops when the action's transition commits ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)) |
-| `useMutation(fn)` | Mutation with loading/error states |
-| `invalidatePath(path)` | Revalidate a page path |
+| `invalidatePath(path)` / `onRevalidate(path, cb)` | what-framework/data's, re-exported: refetch what was read on `path` and run its callbacks |
 
 ## Links
 

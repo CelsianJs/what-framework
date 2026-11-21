@@ -121,15 +121,16 @@ These are the patterns that change. Read this section carefully.
 The hooks keep React's names and call shapes: `const [count, setCount] = useState(0)`, `useReducer(reducer, initial)`, `useMemo(fn)`, `useEffect(fn, deps)` returning a cleanup, `useRef(initial).current`, `useContext(Ctx)`, `useId()` (a string). What differs is that a component runs once, so a hook cannot hand you this render's value. It hands you the signal:
 
 - `useState` and `useReducer` return `[accessor, setter]`. `count` is a function: read the value by calling it, `count()` or `state().items`. `setCount(5)` and `setCount((c) => c + 1)` write, as in React.
-- `useMemo(fn)` returns an accessor too (`total()`), recomputed when a signal `fn` reads changes. Its dependency array is ignored, and so is `useCallback`'s, which returns your function unchanged.
+- `useMemo(fn)` returns an accessor too (`total()`), recomputed when a signal `fn` reads changes. Its dependency array is ignored, and so is `useCallback`'s, which returns your function unchanged. A promise it returns stays a promise (`ERR_ASYNC_MEMO`): fetch with `computed()`.
 - `useEffect(fn)` runs after the component mounts and re-runs when a signal it reads changes; the cleanup it returns runs before the next run and on unmount. With a dependency array it re-runs only for the accessors listed (`[count]`, never `[count()]`: a plain value reports `ERR_EFFECT_DEP_NOT_FUNCTION`), and `[]` runs it once.
 - `useContext(Ctx)` returns what the nearest provider passed. Provide a signal for a value that changes (`<Theme value={theme}>`) and call it where you read it.
-- React's async hooks keep their shapes and hand you accessors too: `const [isPending, start] = useTransition()` (`isPending()`), `const [optimistic, addOptimistic] = useOptimistic(state, update)` (`optimistic()`), and `const [data, { loading, error, refetch, mutate }] = createResource(fetcher)` (`data()`, `loading()`, `error()`). `use(promise)` and `use(Ctx)` return the value itself.
+- React's async hooks keep their shapes and hand you accessors too: `const [isPending, start] = useTransition()` (`isPending()`; a rejected action shows in the `<ErrorBoundary>` above), `const [optimistic, addOptimistic] = useOptimistic(state, update)` (pass the accessor `state`, read `optimistic()`), and `const [data, { loading, error, refetch, mutate }] = createResource(fetcher)` (`data()`, `loading()`, `error()`). `use(promise)` and `use(Ctx)` return the value itself, but a transition does not hold a component that suspends on `use(promise)`: make the data an async computed of the state the transition writes.
+- A component is never `async`: one that returns a promise renders it as text (`ERR_ASYNC_COMPONENT`).
 - The rules that exist because React re-renders do not apply: no stale closures (a handler that calls `count()` reads the current value), no exhaustive dependency lists, nothing to memoize for a stable identity. Hooks still run only in a component body.
 
 The habit that makes React-trained code correct: **whatever a hook or `signal()` returns, call it to read it.** In development, a signal used as a value without the call (`` `${count}` ``, `count + 1`) reports `ERR_MISSING_SIGNAL_READ`.
 
-Data a component fetches is an async value, not an effect: `computed(async ({ signal }) => …)` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (`users()`) under a `<Suspense fallback>` that shows on first load only. `refresh(users)` fetches again while `users.pending()` says so, `startTransition(() => page(2))` keeps the screen as it is until what the write made fetch has landed, and a test acts, then `await settled()`, then reads the DOM.
+Data a component fetches is an async value, not an effect: `computed(async ({ signal }) => …)` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (`users()`) under a `<Suspense fallback>` that shows on first load only. `refresh(users)` fetches again while `users.pending()` says so, `startTransition(() => page(2))` keeps the screen as it is until what the write made fetch has landed, and a test acts, then `await settled()`, then reads the DOM. Data several components share by key comes from the query cache: `query(() => ['user', id()], fetchUser)` from `what-framework/data` is the same kind of value, with one request per key, and the server renders it and hands it to the client. Mutations are actions: `const [result, run, isPending] = useActionState(action, initial)` runs one in a transition, and its state commits with the data it revalidated (`invalidateQueries` inside it).
 
 ```jsx
 import { mount, useState, useEffect, useMemo } from 'what-framework';
@@ -370,7 +371,7 @@ Call the signal in the condition. The compiler wraps a JSX expression that calls
 </For>
 ```
 
-Keep `.map()` with a `key` prop, and call the list's accessor (`items()`). The compiler lowers it to keyed reconciliation with LIS-based minimal DOM moves; each row gets its own reactive scope that is disposed on removal, and a row whose item is replaced under the same key (an immutable update, a refetch) keeps its DOM and shows the new item, as React does. `<For each={items}>` takes the accessor itself, not `items()`, and hands the row its item as an accessor (`item()`).
+Keep `.map()` with a `key` prop, and call the list's accessor (`items()`). The compiler lowers it to keyed reconciliation with LIS-based minimal DOM moves; each row gets its own reactive scope that is disposed on removal, and a row whose item is replaced under the same key (an immutable update, a refetch) keeps its DOM and shows the new item, as React does. `<For each={items}>` takes the accessor (or an array; compiled JSX makes `each={items().filter(f)}` reactive too), and with `key` hands each row its item as an accessor (`item()`), built once per key.
 
 ## What's Better
 
@@ -485,23 +486,71 @@ Be aware of these gaps before migrating.
 until the async work they started has landed, then commits it in one flush.
 There is no priority scheduling: nothing is interrupted or rendered in the
 background, because there is no render to interrupt. `isPending` and the
-optimistic state are accessors: call them. The animation helper that used to be
+optimistic state are accessors: call them, and pass `useOptimistic` the
+accessor (`useOptimistic(likes)`, not `likes()`). A rejected `useTransition`
+action shows in the `<ErrorBoundary>` above the component, as in React 19, and
+the promise `start` returns rejects too. The animation helper that used to be
 called `useTransition` is `useTween` in `what-framework/motion`.
 `useDeferredValue` is not implemented.
+
+React's tabs pattern, panels that `use()` a cached promise switched inside
+`startTransition`, shows the fallback here instead of keeping the old tab
+(development reports `ERR_SUSPEND_IN_TRANSITION`): a transition holds async
+values, not components that suspend. Make the tab's data an async value of the
+tab signal, which the transition holds:
+
+```jsx
+import { signal, computed, startTransition, Suspense } from 'what-framework';
+
+const tab = signal('about');
+const content = computed(({ signal }) => fetch('/api/tabs/' + tab(), { signal }).then((r) => r.text()));
+
+export function Tabs() {
+  return (
+    <Suspense fallback={<p>Loading…</p>}>
+      <button onClick={() => startTransition(() => tab('posts'))}>Posts</button>
+      <p>{content()}</p>
+    </Suspense>
+  );
+}
+```
 
 ### Suspense Shows Its Fallback Only Once
 
 An async value suspends its `<Suspense>` like a lazy component does:
 `computed(fn)` takes a function that returns a promise, `use(promise)` reads a
-promise in a component, and `createResource` is built on them. Unlike React,
-an async value shows the fallback only on first load: after the content has
+promise in a component, and `createResource` is built on them. A component is
+never `async`: an `async function` component renders its promise as text
+(`ERR_ASYNC_COMPONENT`); read an async value in JSX instead. The fallback stays
+until every value under it has landed, one fetched with another's result
+included. Unlike React, an async value shows the fallback only on first load: after the content has
 shown, a refetch keeps it on screen, and `pending()` tells you it is stale. A
 `lazy()` component or `use(promise)` brings the fallback back, as in React,
 and the content stays mounted behind it, with its DOM state. The server waits for
 async values in `renderDocument` and `renderToStream`, and the client adopts
 them when it hydrates, with no second fetch. See [ASYNC.md](ASYNC.md).
-`useSWR`, `useQuery` and `useFetch` in `what-framework/data` remain for cached,
-shared queries.
+
+### Data Libraries, Actions and Routing Map Onto One Cache
+
+TanStack Query, SWR, React 19's actions and react-router's data APIs each
+have a What counterpart. They all sit on one query cache, whose entries are
+async values ([DATA.md](DATA.md)). Accessors replace values: `q.data()`, not
+`q.data`.
+
+| React ecosystem | What |
+|---|---|
+| `useQuery({ queryKey, queryFn, enabled, staleTime, select, placeholderData })` (TanStack) | `useQuery` from `what-framework/data`, same options. `queryKey` may also be a function of signals: `() => ['user', id()]`. |
+| `useSuspenseQuery`, `use(promise)` for data | `query(key, fetcher)`: suspends its `<Suspense>` on first load, then keeps the value with `pending()` |
+| `queryClient.invalidateQueries`, `setQueryData`, `getQueryData`, `prefetchQuery` | The same names from `what-framework/data`, on the one cache (no client object) |
+| `useInfiniteQuery` | `useInfiniteQuery`: `data().pages`, `fetchNextPage()` |
+| `useSWR(key, fetcher, { dedupingInterval, fallbackData, keepPreviousData })`, `mutate` | `useSWR`, same options, and `mutate` on the result |
+| `useMutation({ mutationFn, onSuccess })` | `useActionState(action, initial)`, or the action inside `startTransition`; revalidate with `invalidateQueries` inside it |
+| `useActionState`, `useFormStatus`, `useOptimistic` (React 19) | The same names from `what-framework`, same shapes, accessors for the state |
+| `<form action={serverAction}>` | `<Form action={serverAction}>` from `what-framework/server`. It works without JavaScript, and runs as a transition with JavaScript. |
+| `'use server'` functions, `revalidatePath` | `action(fn, { revalidate: [path], invalidates: [key] })` from `what-framework/server`. On the client it is a transition that refetches what it revalidates. |
+| react-router `loader` / `useLoaderData` on the client | A route's `preload({ params })` that returns queries; the page gets them as `data` |
+| react-router navigations wrapped in `startTransition` | `navigate()` and `<Link>`: the old page stays until the new route's chunk and `preload` data have landed |
+| `useNavigation().state === 'loading'` | `route.isNavigating`, or `useTransition`'s `isPending` around `navigate()` |
 
 ### No Server Components
 

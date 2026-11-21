@@ -76,9 +76,18 @@ const importMap = {
   imports: {
     'what-framework': '/node_modules/what-framework/src/index.js',
     'what-core': '/node_modules/what-core/src/index.js',
+    // The domain kits, for both packages: what-framework/<kit> re-exports
+    // what-core/<kit>. src/pages/search.js reads data and dom.
+    ...Object.fromEntries(['a11y', 'ui', 'motion', 'dom', 'form', 'data'].flatMap((kit) => [
+      [`what-framework/${kit}`, `/node_modules/what-framework/src/${kit}.js`],
+      [`what-core/${kit}`, `/node_modules/what-core/src/entries/${kit}.js`],
+    ])),
     // The client half of the server package: island hydration and
     // enhanceForms(). It imports nothing from node:*, so it loads in a browser.
+    // It reads what-core's shared internals (the hydration channel, the vnode
+    // brand) from what-core/internal, which the map must name too.
     'what-server/islands': '/node_modules/what-server/src/islands.js',
+    'what-core/internal': '/node_modules/what-core/src/entries/internal.js',
     // Dev only. This template is buildless, so there is no Vite plugin to inject
     // the devtools bridge the way the SPA template gets it. Mapping the two
     // specifiers here (and serving them below) is all it takes for the MCP

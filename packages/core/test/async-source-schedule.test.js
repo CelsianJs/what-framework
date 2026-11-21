@@ -38,7 +38,28 @@ const adapters = {
       supersede: () => data.invalidateQueries(key),
     };
   },
+  // The pages are one cache entry: a refetch replaces the list with page one.
+  useInfiniteQuery(fetch, key, delivered) {
+    const pages = data.useInfiniteQuery({
+      queryKey: key, queryFn: fetch, initialPageParam: 0, getNextPageParam: () => undefined, retry: 0,
+      onSuccess: value => delivered.push(value), onError: error => delivered.push(error.message),
+    });
+    return {
+      value: () => pages.data().pages[0], error: pages.error, pending: pages.isFetching,
+      supersede: pages.refetch,
+    };
+  },
+  // useFetch has no callbacks; the network is the test's.
+  useFetch(fetch, key) {
+    const json = data.useFetch('/' + key, {
+      fetch: () => fetch().then(body => ({ ok: true, json: async () => body })),
+    });
+    return { value: json.data, error: json.error, pending: json.isLoading, supersede: json.refetch };
+  },
 };
+
+// Adapters with no success or error callbacks: nothing to deliver.
+const silent = new Set(['createResource', 'useFetch']);
 
 for (const [source, adapt] of Object.entries(adapters)) {
   describe(source + ' virtual completion order', () => {
@@ -88,7 +109,7 @@ for (const [source, adapt] of Object.entries(adapters)) {
             core.flushSync();
             const view = host.querySelector('output');
             const actual = { starts, view: view ? JSON.parse(view.textContent) : null };
-            if (source !== 'createResource' && expected.view && !expected.view.pending) {
+            if (!silent.has(source) && expected.view && !expected.view.pending) {
               if (action === 'resolve' && expected.view.data === name) expectedDelivered.push(name);
               if (action === 'reject' && expected.view.error === 'failed ' + name) expectedDelivered.push('failed ' + name);
             }
@@ -158,12 +179,22 @@ it('SWR late settlement cannot make another reader refetch an active replacement
 // Settle every promise continuation: the timer mocks leave setImmediate real.
 const drain = () => new Promise((resolve) => setImmediate(resolve));
 
-for (const mode of ['default', 'suspense', 'transition', 'optimistic']) {
-  describe('async computed (' + mode + ') virtual completion order', () => {
+// The same oracle for computed() and for query(), the cache's async value: a
+// supersede moves its key, so the cache must abort the old key's fetch as
+// soon as nothing reads it, and a remount after a dispose fetches again.
+const values = {
+  computed: (source, fetchFor) => core.computed(({ signal: abort }) => fetchFor(source(), abort)),
+  query: (source, fetchFor, id) => data.query(() => ['schedule-query', id, source()], (key, { signal: abort }) => fetchFor(key[2], abort)),
+};
+
+let queryRun = 0;
+for (const [kind, make] of Object.entries(values)) for (const mode of ['default', 'suspense', 'transition', 'optimistic']) {
+  describe((kind === 'computed' ? 'async computed' : 'query()') + ' (' + mode + ') virtual completion order', () => {
     for (const schedule of schedules()) {
       it(schedule.map(step => step.join(' ')).join(' → '), async (t) => {
         t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 10_000 });
-        const { h, signal, computed, useOptimistic, startTransition, onMount, Suspense, mount, settled, flushSync } = core;
+        const { h, signal, useOptimistic, startTransition, onMount, Suspense, mount, settled, flushSync } = core;
+        const id = ++queryRun;
         const model = asyncComputedOracle(mode);
         const flights = new Map();
         const failures = [];
@@ -184,7 +215,7 @@ for (const mode of ['default', 'suspense', 'transition', 'optimistic']) {
         }
         function Observer(props) {
           const source = signal(props.name);
-          const value = computed(({ signal: abort }) => fetchFor(source(), abort));
+          const value = make(source, fetchFor, id);
           let shown = value;
           let add = null;
           if (mode === 'optimistic') [shown, add] = useOptimistic(value, (_, overlay) => overlay);

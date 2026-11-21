@@ -42,7 +42,10 @@ function pageCommands(command, args, page) {
     };
   }
   if (command === 'get-cache') return { entries: page.cache || [] };
-  if (command === 'invalidate-cache') return { invalidated: args.key };
+  if (command === 'invalidate-cache') {
+    page.invalidations = [...(page.invalidations || []), args.key];
+    return { invalidated: (page.cache || []).map((e) => e.key).filter((k) => args.key === undefined || k === args.key) };
+  }
   return undefined;
 }
 
@@ -401,6 +404,40 @@ describe('cache, components and visual tools', () => {
     const { parsed } = await call('what_cache');
     assert.equal(parsed.count, 1);
     assert.equal(parsed.entries[0].key, '/api/users');
+  });
+
+  it('what_cache shows each key\'s status, readers, age and last fetch, with a seq', async () => {
+    const { call, pages } = await setup();
+    const now = Date.now();
+    pages[0].cache = [
+      { key: 'todos:1', kind: 'query', status: 'refreshing', data: { title: 'x'.repeat(500) }, error: null, isValidating: true, observers: 2, updatedAt: now - 1500, fetches: 3, lastFetch: { at: now - 1500, ms: 40, ok: true }, paths: ['/todos'] },
+      { key: 'feed', kind: 'infinite', status: 'error', data: undefined, error: 'offline', isValidating: false, observers: 0, updatedAt: null, fetches: 1, lastFetch: { at: now - 10, ms: 5, ok: false }, paths: [] },
+    ];
+    const { parsed } = await call('what_cache', { key: 'todos' });
+    assert.equal(typeof parsed.seq, 'number');
+    assert.equal(parsed.count, 1);
+    const [todo] = parsed.entries;
+    assert.equal(todo.status, 'refreshing');
+    assert.equal(todo.fetching, true);
+    assert.equal(todo.observers, 2);
+    assert.ok(todo.ageMs >= 1500);
+    assert.deepEqual([todo.lastFetch.ms, todo.lastFetch.ok], [40, true]);
+    assert.deepEqual(todo.paths, ['/todos']);
+    assert.ok(JSON.stringify(todo.data).length < 400, 'the value is a preview');
+    const all = (await call('what_cache')).parsed;
+    assert.deepEqual(all.entries.map((e) => [e.key, e.kind, e.status, e.error]), [['todos:1', undefined, 'refreshing', undefined], ['feed', 'infinite', 'error', 'offline']]);
+  });
+
+  it('what_invalidate_cache reports the keys it matched, or a hint', async () => {
+    const { call, pages } = await setup();
+    pages[0].cache = [{ key: 'todos:1', status: 'success', observers: 1 }];
+    const hit = (await call('what_invalidate_cache', { key: 'todos:1' })).parsed;
+    assert.deepEqual(hit.invalidated, ['todos:1']);
+    assert.equal(typeof hit.since, 'number');
+    const miss = (await call('what_invalidate_cache', { key: 'nope' })).parsed;
+    assert.deepEqual(miss.invalidated, []);
+    assert.match(miss.hint, /what_cache/);
+    assert.deepEqual(pages[0].invalidations, ['todos:1', 'nope']);
   });
 
   it('what_components returns the list, a tree line, and the nested tree with counts', async () => {

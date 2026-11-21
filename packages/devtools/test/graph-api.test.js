@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 globalThis.__WHAT_DEV__ = true;
+globalThis.window = {};
 const core = await import('../../core/src/index.js');
 const internal = await import('../../core/src/entries/internal.js');
 const { installDevTools, subscribe, getState, getSnapshot, preview } = await import('../src/index.js');
@@ -54,10 +55,11 @@ test('devtools on the engine development API', async (t) => {
     ]);
   });
 
-  await t.test('says which dependency caused a re-run', () => {
+  await t.test('records dependency causes only while armed', () => {
     const a = core.signal(1, 'causeA');
     const b = core.signal(1, 'causeB');
     const dispose = core.effect(function readsBoth() { a(); b(); });
+    const disarm = window.__WHAT_DEVTOOLS__.armCauses();
     try {
       const start = events.length;
       b(2);
@@ -66,7 +68,13 @@ test('devtools on the engine development API', async (t) => {
       const ids = new Map(getSnapshot().signals.map((s) => [s.name, s.id]));
       assert.deepEqual(run.causeSignalIds, [ids.get('causeB')]);
       assert.deepEqual(run.depSignalIds, [ids.get('causeA'), ids.get('causeB')]);
+      disarm();
+      b(3);
+      core.flushSync();
+      assert.equal(events.at(-1)[1].causeSignalIds, undefined);
+      assert.equal(window.__WHAT_DEVTOOLS__.why({ effectId: run.id }).graph.length, 0);
     } finally {
+      disarm();
       dispose();
     }
   });

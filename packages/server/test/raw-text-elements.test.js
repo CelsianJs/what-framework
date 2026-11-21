@@ -115,7 +115,8 @@ describe('raw-text elements: the text is written as it is', () => {
   });
 
   it('<textarea> and <title> are still escaped: the parser decodes them', async () => {
-    for (const html of await everyRenderer(() => compiled.textarea('a & </textarea><b>'))) assert.equal(html, '<textarea>a &amp; &lt;/textarea&gt;&lt;b&gt;</textarea>');
+    // The newline after <textarea> is the one the parser drops (markup-rules.js).
+    for (const html of await everyRenderer(() => compiled.textarea('a & </textarea><b>'))) assert.equal(html, '<textarea>\na &amp; &lt;/textarea&gt;&lt;b&gt;</textarea>');
   });
 });
 

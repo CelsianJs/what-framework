@@ -86,7 +86,6 @@ describe('the errors packages actually throw', () => {
     'ERR_ACTION_FAILED',
     'ERR_STATIC_WRITE_ESCAPE',
     'ERR_INVALID_SSR_TAG',
-    'ERR_FORM_ACTION_NOT_REGISTERED',
     'ERR_FORM_ACTION_MISSING',
     'ERR_ISLAND_STORE_OUTSIDE_RENDER',
     'ERR_ISR_MISSING_CLIENT',

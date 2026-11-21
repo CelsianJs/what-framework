@@ -76,6 +76,7 @@ import {
   _runInComponentSSR,
   _mapArrayToArray,
   _assignOwnerPath,
+  _ownerCounter,
   runWithServerContext,
   __flushOutsideServerContext,
   isVNode,
@@ -87,7 +88,6 @@ import { serializeState } from './serialize.js';
 import {
   SERVER_SKIPPED_TAGS,
   VOID_ELEMENTS,
-  RAW_TEXT_ELEMENTS,
   _componentProps,
   _boundaryFallback,
   _isDevMode,
@@ -95,6 +95,8 @@ import {
   _resolveInnerHTML,
   _rethrowIfUnrenderable,
   _rawText,
+  _isTextContent,
+  _afterOpen,
   _plainText,
   assertSafeTag,
   renderAttrs,
@@ -380,7 +382,8 @@ function step(seg, node, owner) {
     seg.buf += `${String(rawInner)}</${tag}>`;
     return null;
   }
-  if (RAW_TEXT_ELEMENTS.has(tag)) {
+  seg.buf += _afterOpen(tag, seg.ns);
+  if (_isTextContent(tag, seg.ns)) {
     seg.buf += `${_rawText(tag, node.children, seg.ns)}</${tag}>`;
     return null;
   }
@@ -402,7 +405,7 @@ function enterNamespace(seg, ns, owner) {
 // A reactive child, a signal or a compiled keyed list: evaluated once, in the
 // frame that owns it.
 function stepFunction(seg, fn, owner, attempts) {
-  const holder = owner || seg.r.ctx;
+  const holder = _ownerCounter(owner || null, seg.r.ctx);
   const children = holder._ownerChildren;
   const resources = holder._ownerResources;
   let value;
@@ -424,13 +427,14 @@ function stepFunction(seg, fn, owner, attempts) {
 }
 
 function stepComponent(seg, node, owner, attempts) {
-  const holder = owner || seg.r.ctx;
+  const holder = _ownerCounter(owner || null, seg.r.ctx);
   const children = holder._ownerChildren;
   const resources = holder._ownerResources;
   const frame = _beginComponentSSR(node.tag, owner);
-  _assignOwnerPath(frame, owner, seg.r.ctx);
+  // A built-in the compiler lowers away has no key (hydration-data.js).
+  const stepped = _assignOwnerPath(frame, owner, seg.r.ctx);
   const outer = seg.key;
-  seg.key = frame._ownerPath;
+  if (stepped) seg.key = frame._ownerPath;
   let result;
   try {
     result = node.tag(_componentProps(node));
@@ -471,7 +475,7 @@ function retry(seg, marker, owner) {
     if (seg.id !== null) throw new BoundaryFailure(error);
     throw error;
   }
-  const holder = owner || seg.r.ctx;
+  const holder = _ownerCounter(owner || null, seg.r.ctx);
   holder._ownerChildren = marker.children;
   holder._ownerResources = marker.resources;
   return typeof node === 'function'

@@ -23,6 +23,21 @@
       "example": "// In the action, fail with something the client can read:\nexport const save = action(async (data) => {\n  if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });\n});"
     },
     {
+      "code": "ERR_ASYNC_COMPONENT",
+      "severity": "warning",
+      "detects": [
+        "reported",
+        "lint"
+      ],
+      "raisedBy": [
+        "eslint-plugin-what",
+        "what-core"
+      ],
+      "trigger": "Component \"{{component}}\" returned a promise: an async component renders as text.",
+      "fix": "Components run once and synchronously, so an async one renders the promise's text, even under <Suspense>. Keep the component synchronous and make the data an async value: computed(async ({ signal }) => ...) made in the body or outside it, and read in JSX, where a binding waits for it to land and a <Suspense> above shows its fallback meanwhile. For a component whose code loads later, use lazy().",
+      "example": "// Bad — an async component renders \"[object Promise]\":\nasync function Profile(props) {\n  const user = await fetchUser(props.id);\n  return <h1>{user.name}</h1>;\n}\n\n// Good — a synchronous component that reads an async value:\nfunction Profile(props) {\n  const user = computed(({ signal }) => fetchUser(props.id, { signal }));\n  return <h1>{user().name}</h1>;\n}"
+    },
+    {
       "code": "ERR_ASYNC_EFFECT",
       "severity": "warning",
       "detects": [
@@ -34,6 +49,21 @@
       "trigger": "Effect \"{{effectName}}\" is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it.",
       "fix": "Fetch in an async computed instead: computed(async () => ...) is a value in the graph that supersedes older runs, aborts them and shows as pending, and an effect or binding that reads it runs when the value lands. Keep effects synchronous; if one must start async work, start it inside and keep the effect itself sync, returning a cleanup that cancels it.",
       "example": "// Bad — reads after the await are not tracked, and a slow old run can win:\nuseEffect(async () => {\n  const res = await fetch('/api/users/' + id());\n  user(await res.json());\n});\n\n// Good — an async computed: one value, newest run wins, older runs aborted:\nfunction Profile() {\n  const user = computed(async ({ signal }) => {\n    const res = await fetch('/api/users/' + id(), { signal });\n    return res.json();\n  });\n  return <h1>{user().name}</h1>;\n}"
+    },
+    {
+      "code": "ERR_ASYNC_MEMO",
+      "severity": "warning",
+      "detects": [
+        "reported",
+        "lint"
+      ],
+      "raisedBy": [
+        "eslint-plugin-what",
+        "what-core"
+      ],
+      "trigger": "useMemo() returned a promise; useMemo keeps it, so its readers get the promise.",
+      "fix": "useMemo keeps what its function returns, as React's does. For a value that loads, use computed() or useComputed() instead: computed(async ({ signal }) => ...) is an async value, whose readers wait for it to land and which refetches when what it reads changes. Keep useMemo for values computed synchronously.",
+      "example": "// Bad — user() is a promise:\nconst user = useMemo(() => fetch('/api/users/' + id()).then((r) => r.json()));\n\n// Good — user() is the user once it has landed:\nconst user = computed(({ signal }) => fetch('/api/users/' + id(), { signal }).then((r) => r.json()));"
     },
     {
       "code": "ERR_ASYNC_MIDDLEWARE",
@@ -205,22 +235,9 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what] <Form> requires an `action` prop: a server action or its id.",
-      "fix": "Pass the action itself, or the string id it was registered under.",
+      "trigger": "[what] <Form> requires an `action` prop: a server action, its id, or a function.",
+      "fix": "Pass the server action itself, the string id it was registered under, or a client action such as the dispatch useActionState returns.",
       "example": "// Bad:\n<Form method=\"post\" />\n\n// Good:\n<Form action={save} />;\n<Form action=\"save-user\" />;"
-    },
-    {
-      "code": "ERR_FORM_ACTION_NOT_REGISTERED",
-      "severity": "error",
-      "detects": [
-        "server"
-      ],
-      "raisedBy": [
-        "what-server"
-      ],
-      "trigger": "[what] <Form action={fn}>: that function is not a server action.",
-      "fix": "Wrap it with action() from what-server, or pass the action id as a string. A plain function has no id, so there is nothing for the form post to address.",
-      "example": "// Bad — a plain function:\nasync function save(data) {}\n<Form action={save} />\n\n// Good — a registered action:\nexport const save = action(async (data) => {});\n<Form action={save} />"
     },
     {
       "code": "ERR_FORM_HANDLER_WITHOUT_EVENT",
@@ -298,7 +315,7 @@
         "what-core"
       ],
       "trigger": "Hydration mismatch ({{kind}}) in <{{component}}> at {{path}}: the server rendered {{found}} where the client renders {{expected}}. Recovery: {{recovery}}.",
-      "fix": "hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).",
+      "fix": "hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).",
       "example": "// Bad — the client renders a value the server could not know:\nimport { h, hydrate } from 'what-framework';\n\nfunction Width() {\n  return h('p', {}, `${window.innerWidth}px`);\n}\n\nconst page = document.createElement('main');\npage.innerHTML = '<p>1280px</p>'; // what the server sent\ndocument.body.append(page);\nhydrate(h(Width), page, { onHydrationError: (record) => console.log(record) });\n// { kind: 'text', component: 'Width', ownerPath: '~0', path: 'p>#text',\n//   expected: '\"1024px\"', found: '\"1280px\"', recovery: 'client-render' }\n\n// Good — the same on both sides, corrected after hydration:\nfunction Width() {\n  const width = signal(0);\n  onMount(() => width(window.innerWidth));\n  return <p>{width()}px</p>;\n}"
     },
     {
@@ -726,6 +743,19 @@
       "trigger": "useLocalStorage(\"{{key}}\") could not {{operation}} localStorage: {{reason}}.",
       "fix": "A write fails when the quota is exhausted or storage is disabled (private browsing); a read fails when the stored text is not valid JSON, usually because something else wrote that key. The signal keeps working in memory either way. Use a key no other code writes, and keep stored values small.",
       "example": "// Good - a namespaced key and a small value:\nconst theme = useLocalStorage('myapp:theme', 'light');"
+    },
+    {
+      "code": "ERR_SUSPEND_IN_TRANSITION",
+      "severity": "warning",
+      "detects": [
+        "reported"
+      ],
+      "raisedBy": [
+        "what-core"
+      ],
+      "trigger": "Component \"{{component}}\" suspended while a transition committed: its fallback shows.",
+      "fix": "The component suspended on a promise (use() or a lazy() chunk), so its <Suspense> shows the fallback again. A transition holds async values, not components that suspend (React keeps the old content here). Make what the component waits for an async value of the state the transition writes, and read it in JSX: computed(async ({ signal }) => fetchTab(tab(), { signal })) is held by the transition, which keeps the old content on screen until the new value has landed. A lazy() chunk can be loaded before the transition (call its import() first), or read as an async value in its parent: computed(() => import(\"./Page.jsx\")).",
+      "example": "// Bad — React's tabs pattern: the fallback replaces the old tab:\nfunction Panel(props) {\n  const data = use(props.promise);\n  return <p>{data.text}</p>;\n}\n<button onClick={() => startTransition(() => tab('b'))}>B</button>\n\n// Good — the tab's data is an async value of the tab:\nconst data = computed(({ signal }) => fetchTab(tab(), { signal }));\nfunction Panel() {\n  return <p>{data().text}</p>;\n}\n<button onClick={() => startTransition(() => tab('b'))}>B</button>"
     },
     {
       "code": "ERR_TEMPLATE_NAMESPACE",

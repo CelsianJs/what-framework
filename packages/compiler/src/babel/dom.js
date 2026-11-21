@@ -1,7 +1,7 @@
 // The DOM back end: JSX lowered to cloned templates, fine-grained bindings and
 // keyed list inserters (what-framework/render).
 
-import { RAW_TEXT_ELEMENTS, attributeName, isEnumeratedAttr } from 'what-core/internal/markup-rules';
+import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, attributeName, isEnumeratedAttr } from 'what-core/internal/markup-rules';
 import { t } from './types.js';
 import {
   EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,
@@ -18,7 +18,7 @@ import {
 } from './reactivity.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { bindingMetadata, componentMetadata } from './dev-metadata.js';
-import { findMappedJsx, readItemThroughAccessor } from './lists.js';
+import { findMappedJsx, readItemThroughAccessor, rowField, withItem } from './lists.js';
 import { hasNoSelectorPragma, lowerRowSelectors } from './auto-selector.js';
 
 
@@ -383,7 +383,8 @@ export function transformElementFineGrained(path, state) {
   applyDynamicAttrs(statements, elId, attributes, state, tagName, node._whatNs);
 
   // Handle dynamic children
-  if (applyDynamicChildren(statements, elId, children, node, state)) acquire.arguments.push(t.numericLiteral(1));
+  const rootFlags = (applyDynamicChildren(statements, elId, children, node, state) ? 1 : 0) | (writesContent(attributes) ? 2 : 0);
+  if (state.hydratable && rootFlags !== 0) acquire.arguments.push(t.numericLiteral(rootFlags));
 
   // Instead of wrapping in an IIFE, store setup statements for hoisting.
   // The JSXElement visitor will insert them before the enclosing statement.
@@ -527,19 +528,23 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
   function bindingEffect(fn, what, node) {
     const args = [fn];
     const name = bindingMetadata(tagName, what, node, state);
-    if (name) args.push(t.objectExpression([t.objectProperty(t.identifier('name'), name)]));
+    if (name) args.push(t.objectExpression([
+      t.objectProperty(t.identifier('name'), name),
+      t.objectProperty(t.identifier('binding'), t.identifier(elId)),
+    ]));
     return t.callExpression(helper(state, '_$effect'), args);
   }
 
-  // Lazy delegation init (C6): the first element of a module that assigns a
-  // delegated `$$event` handler also calls the once-guarded _$delegate$()
-  // helper at construction time. Emitted at most once per element.
+  // Lazy delegation init (C6): an element that is assigned a delegated
+  // `$$event` handler calls the module's once-guarded _$delegate$() helper at
+  // construction time, which also marks the element's handlers as the current
+  // owner's (render.js _$own). Emitted at most once per element.
   let delegateInitEmitted = false;
   function emitDelegateInit() {
     if (delegateInitEmitted) return;
     delegateInitEmitted = true;
     statements.push(
-      t.expressionStatement(t.callExpression(helper(state, '_$delegate$'), []))
+      t.expressionStatement(t.callExpression(helper(state, '_$delegate$'), [t.identifier(elId)]))
     );
   }
 
@@ -575,6 +580,13 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
     if (attrName.startsWith('on') && !attrName.includes('|') && !hasEventModifiers(attrName, state)) {
       const event = attrName.slice(2).toLowerCase();
       const handler = getAttributeValue(attr.value);
+      const metadata = bindingMetadata(tagName, attrName, attr, state);
+      if (metadata) {
+        statements.push(t.expressionStatement(t.assignmentExpression('=',
+          t.memberExpression(t.identifier(elId), t.stringLiteral(`_$source_${event}`), true),
+          metadata
+        )));
+      }
 
       if (DELEGATED_EVENTS.has(event)) {
         // Use event delegation: el.$$click = handler (matches runtime lookup)
@@ -593,13 +605,10 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
           )
         );
       } else {
-        // Non-delegated: use per-element addEventListener
+        // Non-delegated: a listener per element, which its owner removes.
         statements.push(
           t.expressionStatement(
-            t.callExpression(
-              t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
-              [t.stringLiteral(event), handler]
-            )
+            t.callExpression(helper(state, '_$on'), [t.identifier(elId), t.stringLiteral(event), handler])
           )
         );
       }
@@ -624,10 +633,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
 
       statements.push(
         t.expressionStatement(
-          t.callExpression(
-            t.memberExpression(t.identifier(elId), t.identifier('addEventListener')),
-            addEventArgs
-          )
+          t.callExpression(helper(state, '_$on'), [t.identifier(elId), ...addEventArgs])
         )
       );
       continue;
@@ -856,6 +862,12 @@ function memoizeBranchCondition(expr, statements, state) {
     : t.logicalExpression(expr.operator, condRead, expr.right);
 }
 
+// Whether a binding writes the element's content as raw HTML: a hydratable
+// claim then keeps what the server put in it (render.js claimNode, flag 2).
+function writesContent(attributes) {
+  return attributes.some((attr) => t.isJSXAttribute(attr) && INNER_HTML_PROPS.has(getAttrName(attr)));
+}
+
 // The bindings for an element's children. A hydratable build reaches the
 // children in document order through the hydration cursor instead of by
 // firstChild/nextSibling paths (render.js _$claim): `_$skip(k)` passes k static
@@ -953,9 +965,35 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
     return t.callExpression(helper(state, '_$insert'), args);
   }
 
+  // A plain field of a keyed row's item (`{row.label}`): a text node the
+  // row's item cell writes (render.js _$field), read now from the item the
+  // row is built from, with its reader hoisted to the module.
+  function fieldCall(expr, root, marker, placeholder) {
+    const id = uniqueName(state, '_f$');
+    state.rowFieldReaders.push({ id, fn: t.arrowFunctionExpression([t.identifier('r')], withItem(expr, root, t.identifier('r'))) });
+    const value = withItem(expr, root, t.identifier(root._whatRowItemName));
+    const cell = t.cloneNode(root.arguments[0]);
+    if (hydratable) {
+      flushSkip();
+      stepped = true;
+      const flag = marker === undefined ? 3 : marker === null ? 2 : placeholder ? 1 : 0;
+      return t.callExpression(helper(state, '_$hfield'), [t.identifier(elId), cell, value, t.numericLiteral(flag), t.identifier(id)]);
+    }
+    const at = marker === undefined ? t.unaryExpression('void', t.numericLiteral(0))
+      : marker === null ? t.nullLiteral()
+        : markerVars.has(marker) ? t.identifier(markerVars.get(marker)) : buildChildAccess(elId, marker);
+    return t.callExpression(helper(state, '_$field'), [t.identifier(elId), cell, value, at, t.identifier(id)]);
+  }
+
   for (const entry of entries) {
     if (entry.kind === 'dynamic' && t.isJSXExpressionContainer(entry.node)) {
       let expr = entry.node.expression;
+
+      const field = rowField(expr);
+      if (field !== null && t.isCallExpression(field) && field._whatRowItemName) {
+        statements.push(t.expressionStatement(fieldCall(expr, field, entry.marker, entry.placeholder)));
+        continue;
+      }
 
       // Auto-lower .map() to mapArray when the callback returns keyed JSX.
       // Pattern: source().map(item => <Comp key={...} />) or source().map((item, i) => ...)
@@ -1035,7 +1073,8 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       statements.push(t.variableDeclaration('const', [t.variableDeclarator(t.identifier(childElRef), next)]));
       const childEl = entry.node.openingElement;
       applyDynamicAttrs(statements, childElRef, childEl.attributes, state, childEl.name.name, entry.node._whatNs);
-      if (applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state)) next.arguments.push(t.numericLiteral(1));
+      const flags = (applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state) ? 1 : 0) | (writesContent(childEl.attributes) ? 2 : 0);
+      if (flags !== 0) next.arguments.push(t.numericLiteral(flags));
       continue;
     }
 
@@ -1241,7 +1280,7 @@ function transformComponentFineGrained(path, state) {
       );
     }
 
-    const islandArgs = [helper(state, 'Island'), islandPropsExpr, transformComponentChildren()];
+    const islandArgs = [helper(state, '_$Island'), islandPropsExpr, transformComponentChildren()];
     const islandMeta = componentMetadata(node, state);
     if (islandMeta) islandArgs.push(islandMeta);
     return t.callExpression(helper(state, '_$createComponent'), islandArgs);
@@ -1455,6 +1494,15 @@ function transformForFineGrained(path, state) {
 
   state.needsGeneralMapArray = true;
 
+  // An expression that reads reactively is the list's accessor, as in any
+  // other position: each={list()}, each={user()?.orders}. A plain name is
+  // handed over as it is: a signal is an accessor already, and a prop or a
+  // variable may hold an accessor or an array, both of which mapArray takes.
+  if (!t.isIdentifier(eachExpr) && !t.isArrowFunctionExpression(eachExpr) && !t.isFunctionExpression(eachExpr) &&
+      isPotentiallyReactive(eachExpr, state.signalNames, state.importedIdentifiers)) {
+    eachExpr = t.arrowFunctionExpression([], eachExpr);
+  }
+
   // `_$mapArray(source, renderFn[, { key }])` — built from whichever source
   // expression the caller wants, because the fallback lowering below has to
   // read the source twice and therefore binds it to a const first.
@@ -1522,14 +1570,8 @@ function transformForFineGrained(path, state) {
   const fallbackId = uniqueName(state, '_fb$');
   const emptyId = state.nextMemoId();
 
-  // `each` has to be a signal, or some other accessor. The typeof guard below
-  // is NOT plain-array support and must not be read as advertising any: it
-  // only keeps this memo total. `_$mapArray` calls its source, so
-  // `each={["a","b"]}` throws "source is not a function" the moment the list
-  // mounts — identically to the no-fallback lowering above, which hands the
-  // same value straight to `_$mapArray`. The guard is here so that failure
-  // arrives from the list, with that message, instead of from the emptiness
-  // test first with a less obvious one.
+  // `each` is an accessor or an array, as mapArray takes either: the
+  // emptiness test resolves it the same way.
   const resolvedId = path.scope
     ? path.scope.generateUidIdentifier('list')
     : t.identifier('_list');
@@ -1628,7 +1670,10 @@ function transformForFineGrained(path, state) {
           t.returnStatement(t.cloneNode(endId))
         ])
       ),
-      t.identifier(listId)
+      t.identifier(listId),
+      // Hydratable output also hands over the fallback, which hydrate()
+      // adopts beside the list's rows (render.js adoptList).
+      ...(state.hydratable ? [t.objectExpression([t.objectProperty(t.identifier('_fallback'), t.identifier(fallbackId))])] : []),
     ]
   );
 }
@@ -2100,6 +2145,9 @@ export function initDomState(state) {
   state.delegatedEvents = new Set();
   state.templates = [];
   state.templateMap = new Map(); // html → template id (deduplication)
+  // The readers of keyed rows' plain fields (`r => r.label`), hoisted to the
+  // module so a row allocates none.
+  state.rowFieldReaders = [];
   state._pendingSetup = [];
   state.nextVarId = () => uniqueName(state, '_el$');
   state.nextMemoId = () => uniqueName(state, '_c$');
@@ -2118,10 +2166,13 @@ const RENDER_IMPORTS = [
   ['_$effect', 'effect'],
   ['_$mapArray', null],
   ['_$item', '_$item'],
+  ['_$field', '_$field'],
+  ['_$hfield', '_$hfield'],
   ['_$createSelector', 'createSelector'],
   ['_$spread', 'spread'],
   ['_$setProp', 'setProp'],
-  ['_$memo', 'memo'],
+  ['_$memo', '_$memo'],
+  ['_$Island', '_$Island'],
   ['_$setClass', 'setClass'],
   ['_$className', 'className'],
   ['_$setClassList', 'setClassList'],
@@ -2133,6 +2184,8 @@ const RENDER_IMPORTS = [
   ['_$createComponent', null],
   ['_$componentVNode', '_$componentVNode'],
   ['_$delegateEvents', 'delegateEvents'],
+  ['_$own', '_$own'],
+  ['_$on', 'on'],
   ['_$claim', '_$claim'],
   ['_$next', '_$next'],
   ['_$skip', '_$skip'],
@@ -2147,7 +2200,7 @@ function renderExport(name, state) {
   if (name === '_$template') return state.hydratable ? '_$htemplate' : '_$template';
   return state.hydratable ? '_$hcreateComponent' : '_$createComponent';
 }
-const CORE_IMPORTS = ['h', 'Island'];
+const CORE_IMPORTS = ['h'];
 
 export function finishDomProgram(path, state) {
   // Emit LAZY event delegation setup if any delegated events were used.
@@ -2164,11 +2217,12 @@ export function finishDomProgram(path, state) {
     const eventArray = t.arrayExpression(
       [...state.delegatedEvents].map(e => t.stringLiteral(e))
     );
-    // function _$delegate$() { if (_$delegated$) return; _$delegated$ = true; _$delegateEvents([...]); }
+    // function _$delegate$(el) { _$own(el); if (_$delegated$) return; _$delegated$ = true; _$delegateEvents([...]); }
     const helperFn = t.functionDeclaration(
       helper(state, '_$delegate$'),
-      [],
+      [t.identifier('el')],
       t.blockStatement([
+        t.expressionStatement(t.callExpression(helper(state, '_$own'), [t.identifier('el')])),
         t.ifStatement(
           helper(state, '_$delegated$'),
           t.returnStatement()
@@ -2187,6 +2241,10 @@ export function finishDomProgram(path, state) {
       ]),
       helperFn,
     ];
+  }
+
+  for (const reader of state.rowFieldReaders.reverse()) {
+    path.unshiftContainer('body', t.variableDeclaration('const', [t.variableDeclarator(t.identifier(reader.id), reader.fn)]));
   }
 
   // Insert template declarations at top of program (hoisted to module scope)

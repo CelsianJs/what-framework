@@ -229,52 +229,61 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
 });</code></pre>
 
           <p>Give every action an explicit <code>id</code> unless you build with <code>what-compiler</code>, which supplies a deterministic one. Without either, <code>action()</code> generates a random id per process and warns; the client and server bundles then disagree about the name and every dispatch answers 404.</p>
-          <p><code>revalidate</code> does two different things depending on which side runs. In the served endpoint it purges those paths from the ISR cache. In the client wrapper it fires the in-memory <code>invalidatePath</code> subscribers instead, and <code>revalidateTags</code> is ignored there.</p>
+          <p><code>revalidate</code> works on both sides. In the served endpoint it purges those paths from the ISR cache (with <code>revalidateTags</code>, the tags). On the client, the call is a transition: after the action answers, <code>invalidatePath(path)</code> refetches the queries and route data read on each path, and <code>invalidates: [key]</code> refetches query keys, inside that transition, so the screen goes from the old data to the new in one commit. The call resolves once those refetches have landed. See <a href="https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md">DATA.md</a>.</p>
 
-          <h3 id="use-action">useAction</h3>
-          <p>The <code>useAction</code> hook wraps a server action with reactive state for pending status, errors, and response data:</p>
+          <h3 id="use-action-state">useActionState</h3>
+          <p>React 19's <code>useActionState</code> runs an action inside a transition and keeps its result. <code>state</code> and <code>isPending</code> are accessors; dispatches queue, each receiving the state the previous one returned, and the new state commits in the same flush as the data the action revalidated:</p>
 
-<pre><code><span class="keyword">import</span> { useAction } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+<pre><code><span class="keyword">import</span> { useActionState } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { action } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
-<span class="keyword">function</span> <span class="function">SaveButton</span>() {
-  <span class="keyword">const</span> { trigger, isPending, error, data } = <span class="function">useAction</span>(saveUser);
+<span class="keyword">const</span> saveUser = <span class="function">action</span>(<span class="keyword">async</span> (data) =&gt; ({ id: <span class="number">1</span>, ...data }), { id: <span class="string">'saveUser'</span>, revalidate: [<span class="string">'/users'</span>] });
+
+<span class="keyword">export function</span> <span class="function">SaveButton</span>() {
+  <span class="keyword">const</span> [saved, save, isPending] = <span class="function">useActionState</span>(<span class="keyword">async</span> (previous, user) =&gt; {
+    <span class="keyword">try</span> {
+      <span class="keyword">return</span> { user: <span class="keyword">await</span> <span class="function">saveUser</span>(user) };
+    } <span class="keyword">catch</span> (error) {
+      <span class="keyword">return</span> { error: error.message };
+    }
+  }, <span class="keyword">null</span>);
 
   <span class="keyword">return</span> (
     &lt;div&gt;
-      &lt;button
-        onClick={() =&gt; trigger({ name: <span class="string">'Alice'</span>, email: <span class="string">'alice@example.com'</span> })}
-        disabled={() =&gt; isPending()}
-      &gt;
+      &lt;button onClick={() =&gt; save({ name: <span class="string">'Alice'</span> })} disabled={() =&gt; isPending()}&gt;
         {() =&gt; (isPending() ? <span class="string">'Saving...'</span> : <span class="string">'Save User'</span>)}
       &lt;/button&gt;
-
-      {() =&gt; (error() ? &lt;p class="error"&gt;{error().message}&lt;/p&gt; : <span class="keyword">null</span>)}
-      {() =&gt; (data() ? &lt;p class="success"&gt;Saved with ID: {data().id}&lt;/p&gt; : <span class="keyword">null</span>)}
+      {() =&gt; (saved()?.error ? &lt;p class="error"&gt;{saved().error}&lt;/p&gt; : <span class="keyword">null</span>)}
+      {() =&gt; (saved()?.user ? &lt;p class="success"&gt;Saved with ID: {saved().user.id}&lt;/p&gt; : <span class="keyword">null</span>)}
     &lt;/div&gt;
   );
 }</code></pre>
 
-          <p>The thunks make each dynamic part update on every path. Compiled, they are optional: what-compiler wraps any JSX expression that makes a zero-argument call in a reactive region, so a bare <code>{isPending() ? 'Saving...' : 'Save User'}</code> or <code>{error() &amp;&amp; &lt;p&gt;{error().message}&lt;/p&gt;}</code> updates too, and the guarded paragraph is built only once <code>error()</code> is set. Without the compiler (<code>h()</code>, or the automatic JSX runtime) nothing is wrapped: a bare read is evaluated once at creation, so <code>{isPending()}</code> keeps its first label and the error paragraph never appears. Written with thunks, the same component works on both paths.</p>
+          <p>An error the action throws (instead of returning) reaches the nearest <code>&lt;ErrorBoundary&gt;</code>, as in React, and drops the dispatches queued behind it. The thunks make each dynamic part update on every path. Compiled, they are optional: what-compiler wraps any JSX expression that makes a zero-argument call in a reactive region. Without the compiler (<code>h()</code>, or the automatic JSX runtime) nothing is wrapped, so a bare read is evaluated once at creation.</p>
 
-          <h3 id="use-mutation">useMutation</h3>
-          <p>For simpler cases where you just need pending/error/data tracking around any async function, use <code>useMutation</code>:</p>
+          <h3 id="form">&lt;Form&gt; and useFormStatus</h3>
+          <p><code>&lt;Form action&gt;</code> renders a real <code>&lt;form method="post"&gt;</code>, so it submits with JavaScript disabled; on a mounted page it runs the action as a transition instead, and <code>useFormStatus()</code> inside it reads the submission:</p>
 
-<pre><code><span class="keyword">import</span> { useMutation } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+<pre><code><span class="keyword">import</span> { useFormStatus } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { action, Form } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
-<span class="keyword">const</span> { mutate, isPending, error, data, reset } = <span class="function">useMutation</span>(
-  <span class="keyword">async</span> (id) =&gt; {
-    <span class="keyword">const</span> res = <span class="keyword">await</span> fetch(<span class="string">`/api/items/${id}`</span>, { method: <span class="string">'DELETE'</span> });
-    <span class="keyword">return</span> res.json();
-  },
-  {
-    onSuccess: () =&gt; console.log(<span class="string">'Deleted'</span>),
-    onError: (err) =&gt; console.error(err),
-    onSettled: () =&gt; console.log(<span class="string">'Done'</span>),
-  }
-);
+<span class="keyword">const</span> subscribe = <span class="function">action</span>(<span class="keyword">async</span> ({ email }) =&gt; ({ ok: !!email }), { id: <span class="string">'subscribe'</span> });
 
-<span class="comment">// Call the mutation</span>
-<span class="function">mutate</span>(<span class="number">42</span>);</code></pre>
+<span class="keyword">function</span> <span class="function">Submit</span>() {
+  <span class="keyword">const</span> status = <span class="function">useFormStatus</span>();
+  <span class="keyword">return</span> &lt;button disabled={() =&gt; status.pending()}&gt;{() =&gt; (status.pending() ? <span class="string">'Sending...'</span> : <span class="string">'Subscribe'</span>)}&lt;/button&gt;;
+}
+
+<span class="keyword">export function</span> <span class="function">Newsletter</span>() {
+  <span class="keyword">return</span> (
+    &lt;Form action={subscribe} redirect=<span class="string">"/thanks"</span>&gt;
+      &lt;input name=<span class="string">"email"</span> type=<span class="string">"email"</span> /&gt;
+      &lt;Submit /&gt;
+    &lt;/Form&gt;
+  );
+}</code></pre>
+
+          <p>A server action receives the fields as an object; a client function (the dispatch of <code>useActionState</code>) receives the <code>FormData</code>. The form is reset once the action has succeeded. Without JavaScript, the action endpoint answers <code>303</code> to <code>redirect</code>.</p>
 
           <h3 id="use-optimistic">useOptimistic</h3>
           <p>Show the user an instant result while the server processes the real mutation. If the server call fails, the optimistic update is automatically rolled back:</p>
@@ -332,6 +341,7 @@ app.use(<span class="function">nodeActionMiddleware</span>({
 
           <p>Mount the endpoint with <code>nodeActionMiddleware</code> rather than writing the route by hand. The client wrapper sends the action name in an <code>X-What-Action</code> header and posts only <code>{ args }</code> as the body, while a plain no-JS form sends it as a hidden <code>_action</code> field, so a handwritten route that reads <code>req.body.actionId</code> answers 404 to every request. The middleware handles both shapes, parses the body by content type, caps it at 1 MB and then dispatches through <code>handleActionRequest</code>, which is the low-level dispatcher rather than a route handler. On edge runtimes (Deno, Bun, Cloudflare Workers) use <code>fetchActionHandler({ getCsrfToken })</code> instead, which takes a <code>Request</code> and returns a <code>Response</code>.</p>
 
+          <p>The action endpoint first asks the browser where the request comes from. Every current browser sends <code>Sec-Fetch-Site</code> (or an <code>Origin</code> header) with a POST: a request it marks cross-site, or whose origin is not this host, is refused with 403, and one it marks same-origin passes without a token. That is how a form on a cached or streamed page posts, since its shared HTML can never carry a visitor's token. The token check below applies to requests that carry neither header, and to any request that sends a token anyway. <code>createRequestHandler({ csrf: { trustedOrigins: ['https://app.example'] } })</code> lets other origins of the app post.</p>
           <p><code>handleActionRequest</code> uses fail-closed semantics: if no CSRF token reaches it, it returns a 500 error explaining the misconfiguration rather than silently accepting the request. Token comparison uses constant-time string matching to prevent timing attacks. The client reads the token from the <code>&lt;meta&gt;</code> tag automatically (falling back to the <code>what-csrf</code> cookie) and sends it with every action request.</p>
 
           <div class="callout callout-warning">

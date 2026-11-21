@@ -38,7 +38,14 @@ export const flows = {
   'scaffold-fullstack': [click('Like', '.like-demo output', /^1$/)],
   'package-demos/02-what-router': [{ action: 'link', name: 'About', selector: 'h2', expected: /^About$/ }],
   'blog': [{ action: 'link', name: /New Post/i, selector: 'h1', expected: /New post/i }],
-  'shop': [{ action: 'link', name: /Dashboard/i, selector: 'main', expected: /Not authorized/i }],
+  // "Add to cart" is a plain form post from a cached product page (no token
+  // in its shared HTML): the browser's own headers carry it past the CSRF check.
+  'shop': [
+    { action: 'link', name: /No-VDOM Tee/, selector: 'h1', expected: /No-VDOM Tee/ },
+    { action: 'button', name: 'Add to cart', selector: 'h1', expected: /Your cart/ },
+    { action: 'link', name: /Keep shopping/, selector: 'h1', expected: /What Shop/ },
+    { action: 'link', name: /Dashboard/i, selector: 'main', expected: /Not authorized/i },
+  ],
 };
 
 export async function drive(page, { action, name, target, value, selector, expected, max, disappears = false, syncBudget = false }, budgets = false) {

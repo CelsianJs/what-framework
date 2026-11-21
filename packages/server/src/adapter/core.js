@@ -214,15 +214,21 @@ function defaultRenderRoute(documentOptions) {
 /**
  * Create the framework request handler: (Request) -> Response.
  *
- * CSRF is ON BY DEFAULT (double-submit cookie):
- *   - Every HTML response ensures a `what-csrf` cookie (SameSite=Lax, NOT
- *     HttpOnly so the fetch client can echo it in the X-CSRF-Token header).
- *   - Uncached HTML renders also embed <meta name="what-csrf-token"> plus the
- *     token for hidden form fields (cached/ISR pages rely on the cookie only,
- *     so a per-user token is never baked into shared cache entries).
- *   - POST /__what_action validates the client token (X-CSRF-Token header for
- *     fetch clients, `_csrf` or `what-csrf-token` form field for plain HTML
- *     forms — the header wins when both are present) against the cookie.
+ * CSRF is ON BY DEFAULT:
+ *   - POST /__what_action refuses a request the browser marks cross-site
+ *     (Sec-Fetch-Site, or an Origin that is not this host) with 403, and
+ *     accepts one it marks same-origin. That is how a form on a cached or
+ *     streamed page posts: its shared HTML carries no visitor's token.
+ *   - A request with neither header (an old browser, a script) must carry the
+ *     double-submit token: every HTML response ensures a `what-csrf` cookie
+ *     (SameSite=Lax, NOT HttpOnly so the fetch client can echo it in the
+ *     X-CSRF-Token header), uncached renders also embed
+ *     <meta name="what-csrf-token"> and hand the token to the loader for
+ *     hidden form fields, and the endpoint checks the token (X-CSRF-Token
+ *     header, or `_csrf` / `what-csrf-token` form field) against the cookie.
+ *     A token sent with a same-origin request is checked too.
+ *   - `csrf: { trustedOrigins: ['https://other.example'] }` lets another
+ *     origin of the same app post.
  *
  * Opt out with `csrf: false` (e.g. token-authed APIs behind another gateway),
  * or take full control by passing your own `actionHandler` — a custom handler
@@ -253,7 +259,10 @@ export function createRequestHandler(options = {}) {
   const autoCsrf = csrf !== false && !options.actionHandler;
   const actionHandler = options.actionHandler || createActionHandler(
     autoCsrf
-      ? { getCsrfToken: (reqLike) => readCookie(reqLike.headers && reqLike.headers.cookie, CSRF_COOKIE) }
+      ? {
+        getCsrfToken: (reqLike) => readCookie(reqLike.headers && reqLike.headers.cookie, CSRF_COOKIE),
+        trustedOrigins: (typeof csrf === 'object' && csrf !== null && csrf.trustedOrigins) || [],
+      }
       : { skipCsrf: true }
   );
 
@@ -290,6 +299,7 @@ export function createRequestHandler(options = {}) {
         headers: headersToObject(request.headers),
         body,
         query: Object.fromEntries(url.searchParams),
+        url: request.url,
       });
       return new Response(out.body, { status: out.status, headers: out.headers });
     }

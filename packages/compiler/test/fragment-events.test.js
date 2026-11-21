@@ -91,7 +91,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
     `);
     assertAllElRefsDeclared(code);
     assert.match(code, /_el\$\d+\.\$\$click = /, 'click is delegated');
-    assert.match(code, /_el\$\d+\.addEventListener\("mouseenter"/, 'mouseenter is direct');
+    assert.match(code, /_\$on\(_el\$\d+, "mouseenter"/, 'mouseenter is direct');
     assert.match(code, /return \[_el\$\d+, _el\$\d+\]/, 'fragment returns an array of both elements');
   });
 

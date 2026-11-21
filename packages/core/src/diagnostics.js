@@ -221,3 +221,26 @@ export function clearDiagnostics() {
   pointed.clear();
   dropped = 0;
 }
+
+// Internal renderer annotations. Every caller is behind the development flag.
+
+/** @type {{ name: string, binding: Node } | null} */
+export let nextBinding = null;
+
+// The renderer pairs this with its immediately following effect(() => …).
+// The effect takes the annotation before the first run, so nesting is safe.
+export function setNextBinding(binding, name) {
+  nextBinding = { binding, name };
+}
+
+export function clearNextBinding() {
+  nextBinding = null;
+}
+
+export function recordObservation(hooks, type, subject, state) {
+  if (!hooks?.onRecord) return;
+  try { hooks.onRecord(type, subject, state); }
+  catch (error) {
+    try { console.error('[what] devtools hook onRecord threw:', error); } catch { /* no console */ }
+  }
+}

@@ -61,15 +61,16 @@ name.set('What');
 The hooks keep React's names and call shapes: `const [count, setCount] = useState(0)`, `useReducer(reducer, initial)`, `useMemo(fn)`, `useEffect(fn, deps)` returning a cleanup, `useRef(initial).current`, `useContext(Ctx)`, `useId()` (a string). What differs is that a component runs once, so a hook cannot hand you this render's value. It hands you the signal:
 
 - `useState` and `useReducer` return `[accessor, setter]`. `count` is a function: read the value by calling it, `count()` or `state().items`. `setCount(5)` and `setCount((c) => c + 1)` write, as in React.
-- `useMemo(fn)` returns an accessor too (`total()`), recomputed when a signal `fn` reads changes. Its dependency array is ignored, and so is `useCallback`'s, which returns your function unchanged.
+- `useMemo(fn)` returns an accessor too (`total()`), recomputed when a signal `fn` reads changes. Its dependency array is ignored, and so is `useCallback`'s, which returns your function unchanged. A promise it returns stays a promise (`ERR_ASYNC_MEMO`): fetch with `computed()`.
 - `useEffect(fn)` runs after the component mounts and re-runs when a signal it reads changes; the cleanup it returns runs before the next run and on unmount. With a dependency array it re-runs only for the accessors listed (`[count]`, never `[count()]`: a plain value reports `ERR_EFFECT_DEP_NOT_FUNCTION`), and `[]` runs it once.
 - `useContext(Ctx)` returns what the nearest provider passed. Provide a signal for a value that changes (`<Theme value={theme}>`) and call it where you read it.
-- React's async hooks keep their shapes and hand you accessors too: `const [isPending, start] = useTransition()` (`isPending()`), `const [optimistic, addOptimistic] = useOptimistic(state, update)` (`optimistic()`), and `const [data, { loading, error, refetch, mutate }] = createResource(fetcher)` (`data()`, `loading()`, `error()`). `use(promise)` and `use(Ctx)` return the value itself.
+- React's async hooks keep their shapes and hand you accessors too: `const [isPending, start] = useTransition()` (`isPending()`; a rejected action shows in the `<ErrorBoundary>` above), `const [optimistic, addOptimistic] = useOptimistic(state, update)` (pass the accessor `state`, read `optimistic()`), and `const [data, { loading, error, refetch, mutate }] = createResource(fetcher)` (`data()`, `loading()`, `error()`). `use(promise)` and `use(Ctx)` return the value itself, but a transition does not hold a component that suspends on `use(promise)`: make the data an async computed of the state the transition writes.
+- A component is never `async`: one that returns a promise renders it as text (`ERR_ASYNC_COMPONENT`).
 - The rules that exist because React re-renders do not apply: no stale closures (a handler that calls `count()` reads the current value), no exhaustive dependency lists, nothing to memoize for a stable identity. Hooks still run only in a component body.
 
 The habit that makes React-trained code correct: **whatever a hook or `signal()` returns, call it to read it.** In development, a signal used as a value without the call (`` `${count}` ``, `count + 1`) reports `ERR_MISSING_SIGNAL_READ`.
 
-Data a component fetches is an async value, not an effect: `computed(async ({ signal }) => …)` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (`users()`) under a `<Suspense fallback>` that shows on first load only. `refresh(users)` fetches again while `users.pending()` says so, `startTransition(() => page(2))` keeps the screen as it is until what the write made fetch has landed, and a test acts, then `await settled()`, then reads the DOM.
+Data a component fetches is an async value, not an effect: `computed(async ({ signal }) => …)` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (`users()`) under a `<Suspense fallback>` that shows on first load only. `refresh(users)` fetches again while `users.pending()` says so, `startTransition(() => page(2))` keeps the screen as it is until what the write made fetch has landed, and a test acts, then `await settled()`, then reads the DOM. Data several components share by key comes from the query cache: `query(() => ['user', id()], fetchUser)` from `what-framework/data` is the same kind of value, with one request per key, and the server renders it and hands it to the client. Mutations are actions: `const [result, run, isPending] = useActionState(action, initial)` runs one in a transition, and its state commits with the data it revalidated (`invalidateQueries` inside it).
 
 ```jsx
 import { mount, useState, useEffect, useMemo } from 'what-framework';
@@ -126,7 +127,7 @@ function App() {
 }
 ```
 
-`<Show when>` and `<For each>` take the accessor (`items`, not `items()`).
+`<Show when>` takes the accessor (`open`, or an expression of it), and `<For each>` an accessor or an array (`items`; compiled JSX makes `each={items()}` reactive too).
 `.map()` with a `key` prop renders a list too, and the compiler turns it into
 keyed updates.
 
@@ -149,11 +150,22 @@ export function SettingsPage() {
 
 ## Data Fetching
 
-SWR and TanStack Query-style data hooks, on `what-framework/data`. Their fields
-(`data`, `error`, `isLoading`, …) are accessors: call them where you render.
+One query cache, on `what-framework/data`: every key is one entry, shared by
+`query(key, fetcher)` (an async value: it suspends a `<Suspense>` on first
+load, keeps its value with `pending()` while it refetches, and is rendered on
+the server and adopted on hydrate) and by the SWR- and TanStack Query-style
+hooks. The hooks never suspend; their fields (`data`, `error`, `isLoading`, …)
+are accessors: call them where you render. See
+[DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
 
 ```jsx
-import { useSWR, useQuery } from 'what-framework/data';
+import { Suspense } from 'what-framework';
+import { query, useSWR, useQuery } from 'what-framework/data';
+
+export function Account(props) {
+  const user = query(() => ['user', props.id], (key, { signal }) => fetch(`/api/users/${key[1]}`, { signal }).then((r) => r.json()));
+  return <Suspense fallback={<p>Loading…</p>}><p>{user().name}</p></Suspense>;
+}
 
 export function Profile() {
   const user = useSWR('user', () => fetch('/api/user').then((r) => r.json()));
@@ -220,7 +232,7 @@ x.set(200); // animate toward 200; x.current() reads the value as it moves
 |---|---|
 | `what-framework` | Signals, hooks, components and boundaries, context, stores, `Head`, `mount`/`hydrate`, diagnostics |
 | `what-framework/form` | Forms: `useForm`, `useField`, `rules`, resolvers, bound inputs |
-| `what-framework/data` | Data fetching: `useSWR`, `useQuery`, `useFetch`, the query cache |
+| `what-framework/data` | One query cache: `query`, `useQuery`, `useSWR`, `useInfiniteQuery`, `useFetch`, `invalidateQueries`, `invalidatePath` |
 | `what-framework/a11y` | Focus management, ARIA helpers, announcements |
 | `what-framework/ui` | Skeleton loaders and spinners |
 | `what-framework/motion` | Springs, tweens, `useTween`, gestures, CSS transitions |

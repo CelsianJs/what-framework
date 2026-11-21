@@ -1,6 +1,6 @@
 // Names the compiler introduces never collide with names the file uses. A user
 // binding spelled like a generated one (`_el$0`, `_tmpl$0`, `_sel$0`, `_c$0`,
-// a helper import such as `_$insert`, the `Island` import, ...) used to be a
+// a helper import such as `_$insert` or `_$Island`, ...) used to be a
 // SyntaxError or a silent shadowing; generated names now skip every name the
 // file spells.
 
@@ -15,7 +15,7 @@ await import('../../core/src/index.js');
 
 const NAMES = ['_el$0', '_el$1', '_tmpl$0', '_sel$0', '_c$0', '_k$0', '_each$0', '_for$0', '_fb$0',
   '_$insert', '_$template', '_$effect', '_$mapArray', '_$createSelector', '_$memo', '_$className',
-  '_$createComponent', '_$delegate$', '_$delegated$', 'Island'];
+  '_$createComponent', '_$delegate$', '_$delegated$', '_$Island'];
 
 function source(name) {
   return `

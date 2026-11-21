@@ -48,6 +48,10 @@ export const EVENT_NAMES = new Set([
   'effect:created', 'effect:run', 'effect:disposed',
   'component:mounted', 'component:unmounted',
   'error:captured', 'diagnostic',
+  'async:start', 'async:land', 'async:unresolved', 'async:ready', 'async:errored',
+  'transition:open', 'transition:commit', 'transition:merged',
+  'optimistic:add', 'optimistic:drop',
+  'suspense:waiting', 'suspense:revealed', 'suspense:disposed', 'hydration:complete',
 ]);
 
 // Diagnostics fold by code and subject in the page; the bridge keeps the latest

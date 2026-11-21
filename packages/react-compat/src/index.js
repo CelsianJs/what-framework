@@ -379,9 +379,14 @@ export const Children = {
 };
 
 // ---- cloneElement ----
+// Only an element is cloned (isValidElement). Anything else comes back as it
+// is, so `isValidElement(c) ? cloneElement(c, extra) : c` and a bare
+// `cloneElement(c, extra)` treat data the same way: an object from JSON, a
+// store or a server action renders as text, never as the element its fields
+// describe.
 
 export function cloneElement(element, props, ...children) {
-  if (!element) return element;
+  if (!isValidElement(element)) return element;
 
   const type = element.type !== undefined ? element.type : element.tag;
   const oldProps = element.props || {};
@@ -417,13 +422,13 @@ export function createFactory(type) {
 }
 
 // ---- isValidElement ----
+// An element is a vnode (what-core's private brand: every element this module
+// makes is one) or an object carrying React's element symbol, which only code
+// can set: JSON, structuredClone and postMessage cannot carry a symbol, so a
+// payload that spells `"$$typeof": "react.element"` is still data.
 
 export function isValidElement(object) {
-  return (
-    typeof object === 'object' &&
-    object !== null &&
-    (isVNode(object) || object.$$typeof !== undefined)
-  );
+  return isVNode(object) || (typeof object === 'object' && object !== null && object.$$typeof === REACT_ELEMENT_TYPE);
 }
 
 // ---- StrictMode ----

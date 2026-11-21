@@ -1,3 +1,4 @@
+import { HYDRATION_FIXES } from './hydration-fixes.js';
 /**
  * Offline tools for what-devtools-mcp: lint, scaffold, fix. None of them needs
  * a browser, and their answers describe no page state, so they carry no seq.
@@ -304,8 +305,10 @@ export function registerAgentTools(server, bridge) {
     'The fix for a What Framework diagnostic: severity, what it means, how to fix it and a worked bad/good example. Accepts a code (ERR_INFINITE_EFFECT) or an error message containing one. No browser needed.',
     {
       error: z.string().describe('Error code, e.g. "ERR_INFINITE_EFFECT", or the error message'),
+      kind: z.enum(['tag', 'text', 'missing', 'extra-nodes', 'marker', 'key', 'not-hydratable', 'shadow-root']).optional()
+        .describe('Hydration mismatch kind for a targeted fix'),
     },
-    async ({ error }) => {
+    async ({ error, kind }) => {
       const found = lookup(error);
       if (!found.def) {
         return ok({
@@ -317,6 +320,9 @@ export function registerAgentTools(server, bridge) {
         });
       }
       const def = found.def;
+      if (kind && def.code === 'ERR_HYDRATION_MISMATCH') {
+        return ok({ found: true, code: def.code, severity: def.severity, kind, fix: HYDRATION_FIXES[kind] });
+      }
       return ok({
         found: true,
         code: def.code,

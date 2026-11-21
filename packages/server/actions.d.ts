@@ -5,13 +5,9 @@ export {
   validateCsrfToken,
   csrfMetaTag,
   action,
-  formAction,
-  useAction,
-  useFormAction,
   useOptimistic,
   onRevalidate,
   invalidatePath,
   handleActionRequest,
   getRegisteredActions,
-  useMutation,
 } from './index.js';

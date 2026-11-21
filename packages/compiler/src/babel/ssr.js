@@ -33,7 +33,7 @@
 // island prop.
 
 import {
-  RAW_TEXT_ELEMENTS, SAFE_ATTR_NAME, SAFE_TAG_NAME, VOID_ELEMENTS, escapeHtml,
+  RAW_TEXT_ELEMENTS, TEXT_ONLY_ELEMENTS, LEADING_NEWLINE_ELEMENTS, SAFE_ATTR_NAME, SAFE_TAG_NAME, VOID_ELEMENTS, escapeHtml,
   attributeName, isEnumeratedAttr, isNamespaceNeutralText, isRefusedAttr, isUrlAttr,
 } from 'what-core/internal/markup-rules';
 import { t } from './types.js';
@@ -45,7 +45,7 @@ import {
   checkIslandProp, directiveValue, renderFunctionChild,
 } from './common.js';
 import { buildWhenCondition, isPotentiallyReactive } from './reactivity.js';
-import { findMappedJsx, isKeyedRow, markRowItemReads } from './lists.js';
+import { findMappedJsx, isKeyedRow, markRowItemReads, rowField } from './lists.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { componentMetadata } from './dev-metadata.js';
 
@@ -205,6 +205,8 @@ function appendElement(node, markup, state) {
   for (const attr of attributes.list) appendAttribute(attr, markup, state);
   addText(markup, '>');
   if (VOID_ELEMENTS.has(tag)) return;
+  // The newline the parser drops after this start tag (markup-rules.js).
+  if (!isForeignNs(node) && LEADING_NEWLINE_ELEMENTS.has(tag)) addText(markup, '\n');
   appendChildren(node, markup, state);
   addText(markup, `</${tag}>`);
 }
@@ -312,7 +314,7 @@ function appendAttribute({ key, fixed, expr }, markup, state) {
 
 function appendChildren(node, markup, state) {
   const tag = node.openingElement.name.name;
-  if (RAW_TEXT_ELEMENTS.has(tag)) {
+  if (RAW_TEXT_ELEMENTS.has(tag) || (TEXT_ONLY_ELEMENTS.has(tag) && !isForeignNs(node))) {
     appendRawText(node, tag, markup, state);
     return;
   }
@@ -341,8 +343,11 @@ function appendChildren(node, markup, state) {
 // (an expression, text holding `&` or `<`) makes one hole for all of them,
 // because the encoding that keeps the element from ending applies to the text
 // as a whole, and whether the element holds raw text at all depends on the
-// namespace it is placed in (ssr-runtime's ssrRawText).
+// namespace it is placed in (ssr-runtime's ssrRawText). The children of a
+// <textarea> or <title> in HTML are text too: escaped, and with no hydration
+// markers, which the parser would read as text.
 function appendRawText(node, tag, markup, state) {
+  const textOnly = !RAW_TEXT_ELEMENTS.has(tag);
   const pieces = [];
   let fixed = true;
   for (const child of node.children) {
@@ -365,13 +370,15 @@ function appendRawText(node, tag, markup, state) {
       continue;
     }
     if (!text) continue;
-    checkStaticRawText(child, tag, text, state);
-    if (!isNamespaceNeutralText(text)) fixed = false;
+    if (!textOnly) {
+      checkStaticRawText(child, tag, text, state);
+      if (!isNamespaceNeutralText(text)) fixed = false;
+    }
     pieces.push(t.stringLiteral(text));
   }
   if (pieces.length === 0) return;
   if (fixed) {
-    for (const piece of pieces) addText(markup, piece.value);
+    for (const piece of pieces) addText(markup, textOnly ? escapeHtml(piece.value) : piece.value);
     return;
   }
   addHole(markup, call(state, '_$ssrRawText', [t.stringLiteral(tag), t.arrayExpression(pieces)]));
@@ -380,6 +387,9 @@ function appendRawText(node, tag, markup, state) {
 function childHole(expr, state) {
   const list = listHole(expr, state);
   if (list) return list;
+  // A plain field of a keyed row's item is a text binding on the client
+  // (lists.js rowField): written as text, with no markers.
+  if (rowField(expr) !== null) return call(state, '_$ssrText', [expr]);
   return isReactive(expr, state) ? thunk(expr) : call(state, '_$ssrText', [expr]);
 }
 

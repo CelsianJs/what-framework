@@ -205,6 +205,8 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       return {
         componentName: entry.name,
+        owner: entry.owner,
+        loc: entry.loc,
         componentId,
         html,
         structure,
@@ -342,6 +344,8 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       return {
         componentName: entry.name,
+        owner: entry.owner,
+        loc: entry.loc,
         componentId,
         boundingRect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
         styles,
@@ -434,6 +438,8 @@ export async function handleExtendedCommand(command, args, devtools) {
           components.push({
             id,
             name: entry.name,
+            owner: entry.owner,
+            loc: entry.loc,
             rect: compEl ? rectOf(compEl) : { x: 0, y: 0, w: 0, h: 0 },
             hasElement: !!compEl,
           });
@@ -579,6 +585,8 @@ export async function handleExtendedCommand(command, args, devtools) {
           height: Math.round(svgHeight * scale),
           sizeBytes,
           componentName: entry.name,
+          owner: entry.owner,
+          loc: entry.loc,
         };
       } catch (e) {
         return {

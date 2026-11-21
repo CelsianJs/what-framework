@@ -198,7 +198,19 @@ async function browse(browser, name, { staticRoot, shell }) {
       const file = staticFile(staticRoot, url.pathname, !shell);
       if (file) return route.fulfill({ path: file, contentType: types[extname(file)] });
       if (shell && !extname(url.pathname)) {
-        const response = await shell(new Request(url));
+        // A form post reaches the app as the browser sent it: method, body,
+        // and the headers the action endpoint's CSRF check reads.
+        const request = route.request();
+        const headers = Object.fromEntries(Object.entries(await request.allHeaders()).filter(([name]) => !name.startsWith(':')));
+        const response = await shell(request.method() === 'GET'
+          ? new Request(url)
+          : new Request(url, { method: request.method(), headers, body: request.postData() }));
+        // A fulfilled redirect is not followed for a navigation; send the
+        // browser on the way a redirect would.
+        const location = response.headers.get('location');
+        if (response.status >= 300 && response.status < 400 && location) {
+          return route.fulfill({ status: 200, contentType: 'text/html', body: `<meta http-equiv="refresh" content="0;url=${new URL(location, url).href}">` });
+        }
         return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
       }
       return route.fulfill({ status: 404, body: 'Missing ' + url.pathname });

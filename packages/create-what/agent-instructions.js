@@ -21,15 +21,16 @@ export const SHIPPED_REFERENCES = `### Shipped references (no network needed)
 export const HOOKS_CONTRACT = `The hooks keep React's names and call shapes: \`const [count, setCount] = useState(0)\`, \`useReducer(reducer, initial)\`, \`useMemo(fn)\`, \`useEffect(fn, deps)\` returning a cleanup, \`useRef(initial).current\`, \`useContext(Ctx)\`, \`useId()\` (a string). What differs is that a component runs once, so a hook cannot hand you this render's value. It hands you the signal:
 
 - \`useState\` and \`useReducer\` return \`[accessor, setter]\`. \`count\` is a function: read the value by calling it, \`count()\` or \`state().items\`. \`setCount(5)\` and \`setCount((c) => c + 1)\` write, as in React.
-- \`useMemo(fn)\` returns an accessor too (\`total()\`), recomputed when a signal \`fn\` reads changes. Its dependency array is ignored, and so is \`useCallback\`'s, which returns your function unchanged.
+- \`useMemo(fn)\` returns an accessor too (\`total()\`), recomputed when a signal \`fn\` reads changes. Its dependency array is ignored, and so is \`useCallback\`'s, which returns your function unchanged. A promise it returns stays a promise (\`ERR_ASYNC_MEMO\`): fetch with \`computed()\`.
 - \`useEffect(fn)\` runs after the component mounts and re-runs when a signal it reads changes; the cleanup it returns runs before the next run and on unmount. With a dependency array it re-runs only for the accessors listed (\`[count]\`, never \`[count()]\`: a plain value reports \`ERR_EFFECT_DEP_NOT_FUNCTION\`), and \`[]\` runs it once.
 - \`useContext(Ctx)\` returns what the nearest provider passed. Provide a signal for a value that changes (\`<Theme value={theme}>\`) and call it where you read it.
-- React's async hooks keep their shapes and hand you accessors too: \`const [isPending, start] = useTransition()\` (\`isPending()\`), \`const [optimistic, addOptimistic] = useOptimistic(state, update)\` (\`optimistic()\`), and \`const [data, { loading, error, refetch, mutate }] = createResource(fetcher)\` (\`data()\`, \`loading()\`, \`error()\`). \`use(promise)\` and \`use(Ctx)\` return the value itself.
+- React's async hooks keep their shapes and hand you accessors too: \`const [isPending, start] = useTransition()\` (\`isPending()\`; a rejected action shows in the \`<ErrorBoundary>\` above), \`const [optimistic, addOptimistic] = useOptimistic(state, update)\` (pass the accessor \`state\`, read \`optimistic()\`), and \`const [data, { loading, error, refetch, mutate }] = createResource(fetcher)\` (\`data()\`, \`loading()\`, \`error()\`). \`use(promise)\` and \`use(Ctx)\` return the value itself, but a transition does not hold a component that suspends on \`use(promise)\`: make the data an async computed of the state the transition writes.
+- A component is never \`async\`: one that returns a promise renders it as text (\`ERR_ASYNC_COMPONENT\`).
 - The rules that exist because React re-renders do not apply: no stale closures (a handler that calls \`count()\` reads the current value), no exhaustive dependency lists, nothing to memoize for a stable identity. Hooks still run only in a component body.
 
 The habit that makes React-trained code correct: **whatever a hook or \`signal()\` returns, call it to read it.** In development, a signal used as a value without the call (\`\` \`\${count}\` \`\`, \`count + 1\`) reports \`ERR_MISSING_SIGNAL_READ\`.
 
-Data a component fetches is an async value, not an effect: \`computed(async ({ signal }) => …)\` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (\`users()\`) under a \`<Suspense fallback>\` that shows on first load only. \`refresh(users)\` fetches again while \`users.pending()\` says so, \`startTransition(() => page(2))\` keeps the screen as it is until what the write made fetch has landed, and a test acts, then \`await settled()\`, then reads the DOM.
+Data a component fetches is an async value, not an effect: \`computed(async ({ signal }) => …)\` fetches, aborts a run a newer one replaces, keeps its last value meanwhile, and is read by calling it (\`users()\`) under a \`<Suspense fallback>\` that shows on first load only. \`refresh(users)\` fetches again while \`users.pending()\` says so, \`startTransition(() => page(2))\` keeps the screen as it is until what the write made fetch has landed, and a test acts, then \`await settled()\`, then reads the DOM. Data several components share by key comes from the query cache: \`query(() => ['user', id()], fetchUser)\` from \`what-framework/data\` is the same kind of value, with one request per key, and the server renders it and hands it to the client. Mutations are actions: \`const [result, run, isPending] = useActionState(action, initial)\` runs one in a transition, and its state commits with the data it revalidated (\`invalidateQueries\` inside it).
 
 \`\`\`jsx
 import { mount, useState, useEffect, useMemo } from 'what-framework';
@@ -82,7 +83,7 @@ Five rules:
 4. **Lists need a stable \`key\`.** \`items().map(i => <li key={i.id}>…</li>)\`.
 5. **An effect that writes what it reads loops.** Read it with \`untrack(count)\` or derive with \`computed()\`.
 
-\`what-framework\` has the reactivity, async values (\`computed\` of a promise, \`refresh\`, \`startTransition\`, \`useOptimistic\`, \`use\`, \`settled\`), components, hooks and context. The domain kits are subpaths: \`what-framework/form\`, \`/data\` (useSWR, useQuery: a shared query cache), \`/a11y\`, \`/ui\` (skeletons), \`/motion\` and \`/dom\` (scheduler, cls, useLocalStorage).
+\`what-framework\` has the reactivity, async values (\`computed\` of a promise, \`refresh\`, \`startTransition\`, \`useOptimistic\`, \`use\`, \`settled\`), actions (\`useActionState\`, \`useFormStatus\`), components, hooks and context. The domain kits are subpaths: \`what-framework/form\`, \`/data\` (\`query\`, \`useQuery\`, \`useSWR\`: one shared query cache), \`/a11y\`, \`/ui\` (skeletons), \`/motion\` and \`/dom\` (scheduler, cls, useLocalStorage).
 
 **React's hooks, in a component that runs once.** ${HOOKS_CONTRACT}`;
 
@@ -100,13 +101,14 @@ Each page load that connects is a session (\`s1\`, \`s2\`, …) with its own ids
 | I want to... | Tool | Key params |
 |---|---|---|
 | Orient | \`what_connection_status\` | \`session\` |
-| Diagnostics and thrown errors, with fixes | \`what_errors\` | \`after\` (seq), \`severity\`, \`limit\` |
+| Diagnostics and hydration mismatches, with fixes | \`what_errors\` | \`after\` (seq), \`code\`, \`severity\`, \`limit\` |
 | The worked example for one code (offline) | \`what_fix\` | \`error\` |
-| Health check: hot effects, most-subscribed and unread signals | \`what_diagnose\` | \`focus\`, \`threshold\` |
+| Health check: hot effects, unread signals and long-running async work | \`what_diagnose\` | \`focus\`, \`threshold\`, \`pendingMs\` |
 | Find a component, or the hierarchy | \`what_components\` | \`filter\`, \`tree: true\` |
 | Everything about one component | \`what_explain\` | \`componentId\` |
 | Signal values | \`what_signals\` | \`filter\`, \`named_only: true\`, \`offset\` |
-| Effect run counts, what they read, why they ran | \`what_effects\` | \`minRunCount\`, \`depSignalId\` |
+| Effects, bindings, dependencies, and async status | \`what_effects\` | \`minRunCount\`, \`depSignalId\` |
+| Why an effect or binding ran or skipped | \`what_why\` | One of \`effectId\`, \`bindingId\`, \`componentId\`, \`selector\` |
 | Who reacts to a signal, what an effect reads | \`what_dependency_graph\` | \`signalId\` or \`effectId\`, \`direction\` |
 | Recent writes to one signal, with the writer | \`what_signal_trace\` | \`signalId\` |
 | What happened since a cursor | \`what_events\` | \`after\`, \`types\` |

@@ -5,7 +5,15 @@
 // Devtools. what-devtools reads these, and the diagnostics read API below,
 // from this module's namespace object.
 export { __setDevToolsHooks, __drainPreinstallBuffer, __depsOf, __subsOf, __currentEffect, __ownerOf, __ownerPath } from '../reactive.js';
-export { __getCacheSnapshot } from '../data.js';
+export { __getCacheSnapshot, __invalidateFromDevtools, _tagQueries, _pathLoaded } from '../data.js';
+// what-server's <Form>: the status useFormStatus() reads, and its submission.
+export { _formStatusContext, _formStatus } from '../actions.js';
+// what-router's navigation: progress written outside the transition it may
+// run in (it shows at once), and the commit it waits for there.
+export { _urgent, _currentTransition, _onCommit } from '../reactive.js';
+// The development flag, for sibling packages whose development-only text must
+// fold away in a production build (what-router's error fixes).
+export { __DEV__ } from '../env.js';
 export { report as reportDiagnostic, subscribe as subscribeDiagnostics, getDiagnostics } from '../diagnostics.js';
 export {
   configureGuardrails,
@@ -35,4 +43,4 @@ export { _mapArrayToArray } from '../render.js';
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';
-export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _currentOwnerPath } from '../hydration-data.js';
+export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath } from '../hydration-data.js';

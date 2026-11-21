@@ -13,6 +13,7 @@
  */
 
 import { resolveSafeRead } from './safe-read.js';
+import { cacheSnapshot, invalidateCache } from './cache-commands.js';
 
 // Branded console logger
 const BADGE = 'background:#6366f1;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold';
@@ -64,10 +65,20 @@ function serializeEvent(devtools, event, data) {
       owner: Array.isArray(data.owner) ? data.owner.slice(0, 12).map((o) => cut(o, 120)) : [],
       loc: data.loc ? cut(data.loc, 300) : null,
       subject: isObject(data.subject) ? devtools.preview(data.subject, 300) : null,
-      data: devtools.preview(data.data, 1000),
+      data: data.code === 'ERR_HYDRATION_MISMATCH' ? hydrationMismatch(data.data) : devtools.preview(data.data, 1000),
     };
   }
   return data;
+}
+
+function hydrationMismatch(data) {
+  if (!isObject(data)) return null;
+  return {
+    kind: cut(data.kind, 40), component: cut(data.component, 120),
+    ownerPath: data.ownerPath == null ? null : cut(data.ownerPath, 300),
+    path: cut(data.path, 300), expected: cut(data.expected, 200), found: cut(data.found, 200),
+    recovery: cut(data.recovery, 40),
+  };
 }
 
 export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' } = {}) {
@@ -99,6 +110,8 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
   let hasShownBanner = false;
   /** @type {(() => void) | null} */
   let unsubscribe = null;
+  /** @type {(() => void) | null} */
+  let disarm = null;
   let credential = token;
   let wsPort = port;
 
@@ -228,6 +241,8 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
       flush();
 
       unsubscribe?.();
+      disarm?.();
+      disarm = devtools.armCauses?.();
       unsubscribe = devtools.subscribe((event, data) => {
         eventCount++;
         queue(event, serializeEvent(devtools, event, data));
@@ -245,6 +260,8 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
       connected = false;
       unsubscribe?.();
       unsubscribe = null;
+      disarm?.();
+      disarm = null;
       batch = [];
       if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
       if (wasConnected) {
@@ -269,6 +286,8 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
         return {};
       case 'state':
         return devtools ? devtools.getState({ budget: Number(args.budget) || 300 }) : { signals: [], effects: [], components: [] };
+      case 'why':
+        return devtools?.why?.(args) || { error: 'Causal history is unavailable. Refresh the dev page.' };
       case 'signal': {
         const entry = devtools?._registries?.signals?.get(args.id);
         if (!entry) return { error: `Signal ${args.id} not found` };
@@ -276,25 +295,21 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
       }
       case 'read':
         return resolveSafeRead(args.path);
-      case 'get-cache': {
-        const core = window.__WHAT_CORE__ || {};
-        const entries = typeof core.__getCacheSnapshot === 'function' ? core.__getCacheSnapshot() : [];
-        return { entries: devtools ? devtools.preview(entries, 8000) : [] };
-      }
+      case 'get-cache':
+        return cacheSnapshot(window.__WHAT_CORE__ || {}, devtools);
       case 'set-signal': {
         const entry = devtools?._registries?.signals?.get(args.signalId);
         if (!entry) return { error: `Signal ${args.signalId} not found` };
         const previous = devtools.preview(entry.ref.peek(), 300);
-        entry.ref(args.value);
+        if (devtools.withWriteOrigin) devtools.withWriteOrigin({ kind: 'what_set_signal' }, () => entry.ref(args.value));
+        else entry.ref(args.value);
         settleEffects();
         return { previous, current: devtools.preview(entry.ref.peek(), 300), rev: entry.rev };
       }
       case 'invalidate-cache': {
-        const core = window.__WHAT_CORE__ || {};
-        if (typeof core.invalidateQueries !== 'function') return { error: 'invalidateQueries not available' };
-        core.invalidateQueries(args.key);
+        const result = invalidateCache(window.__WHAT_CORE__ || {}, args.key);
         settleEffects();
-        return { invalidated: args.key };
+        return result;
       }
       default: {
         const { handleExtendedCommand } = await import('./client-commands.js');
@@ -329,6 +344,8 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
     stopped = true;
     unsubscribe?.();
     unsubscribe = null;
+    disarm?.();
+    disarm = null;
     if (probeTimer) {
       clearTimeout(probeTimer);
       probeTimer = null;

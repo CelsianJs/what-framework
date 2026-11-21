@@ -1,27 +1,31 @@
 // What Framework - Server Actions
-// Call server-side functions from client code seamlessly.
-// Similar to Next.js Server Actions / SolidStart server functions.
+// Call server-side functions from client code. On the client an action is a
+// transition (what-core's startTransition): what it changes, the queries and
+// route data it revalidates and the optimistic overlays added in it reach the
+// screen in one commit.
 //
 // Usage:
 //   // Define on server
-//   const saveUser = action(async (formData) => {
-//     'use server';
-//     const user = await db.users.create(formData);
+//   const saveUser = action(async (data) => {
+//     const user = await db.users.create(data);
 //     return { success: true, id: user.id };
-//   });
+//   }, { revalidate: ['/users'], invalidates: [['users']] });
 //
-//   // Call from client
+//   // Call from client (or pass it to <Form action={saveUser}>)
 //   const result = await saveUser({ name: 'John' });
 
-import { signal } from 'what-core';
+import { startTransition } from 'what-core';
+import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
 // Registry of server actions
 const actionRegistry = new Map();
 
 // --- CSRF Protection ---
-// Server generates a token per session; client sends it with every action request.
-// The token is injected into the page via a meta tag or embedded in the server response.
+// The action endpoint checks that a request comes from this site: the
+// browser's Fetch Metadata (Sec-Fetch-Site) or Origin header, or, when a
+// browser sends neither, the double-submit token (the what-csrf cookie, echoed
+// in X-CSRF-Token or a form field). See action-handler.js.
 
 // Client: read the CSRF token from the page meta tag or cookie
 // Re-reads on every call to handle token rotation
@@ -108,73 +112,16 @@ function generateActionId() {
 
 export function action(fn, options = {}) {
   const id = options.id || generateActionId();
-  const { onError, onSuccess, revalidate } = options;
 
   // Server-side: register the action
   if (typeof window === 'undefined') {
     actionRegistry.set(id, { fn, options });
   }
 
-  // Create the callable wrapper
-  async function callAction(...args) {
+  function callAction(...args) {
     // Server-side: call directly
-    if (typeof window === 'undefined') {
-      return fn(...args);
-    }
-
-    // Client-side: call via fetch with timeout support
-    const timeout = options.timeout || 30000; // Default 30s timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    try {
-      const csrfToken = getCsrfToken();
-      const headers = {
-        'Content-Type': 'application/json',
-        'X-What-Action': id,
-      };
-      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
-
-      const response = await fetch('/__what_action', {
-        method: 'POST',
-        headers,
-        credentials: 'same-origin',
-        signal: controller.signal,
-        body: JSON.stringify({ args }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Action failed' }));
-        // ERROR_CODES.ACTION_FAILED
-      throw Object.assign(new Error(error.message || 'Action failed'), {
-        code: 'ERR_ACTION_FAILED',
-      });
-      }
-
-      const result = await response.json();
-
-      if (onSuccess) onSuccess(result);
-      if (revalidate) {
-        // Trigger revalidation of specified paths
-        for (const path of revalidate) {
-          invalidatePath(path);
-        }
-      }
-
-      return result;
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        /** @type {Error & { code?: string }} */
-        const timeoutError = new Error(`Action "${id}" timed out after ${timeout}ms`);
-        timeoutError.code = 'TIMEOUT';
-        if (onError) onError(timeoutError);
-        throw timeoutError;
-      }
-      if (onError) onError(error);
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    if (typeof window === 'undefined') return fn(...args);
+    return _callAction(id, args, options);
   }
 
   callAction._actionId = id;
@@ -183,115 +130,73 @@ export function action(fn, options = {}) {
   return callAction;
 }
 
-// --- Form action helper ---
-// For forms that submit to server actions.
-
-export function formAction(actionFn, options = {}) {
-  const { onSuccess, onError, resetOnSuccess = true } = options;
-
-  return async (formDataOrEvent) => {
-    let formData;
-    let form;
-
-    if (formDataOrEvent instanceof Event) {
-      formDataOrEvent.preventDefault();
-      form = /** @type {HTMLFormElement} */ (formDataOrEvent.target);
-      formData = new FormData(form);
-    } else {
-      formData = formDataOrEvent;
-    }
-
-    // Convert FormData to plain object, preserving File instances
-    const data = {};
-    let hasFiles = false;
-    for (const [key, value] of formData.entries()) {
-      if (typeof File !== 'undefined' && value instanceof File) {
-        hasFiles = true;
+/**
+ * @internal Call the server action `id` from the client, as a transition: the
+ * RPC, then the revalidation the action declares (`revalidate` paths through
+ * invalidatePath, `invalidates` query keys through invalidateQueries), whose
+ * refetches join the transition. Called inside another transition (the
+ * caller's startTransition, a <Form> submission, useActionState), it joins
+ * that one. Resolves with the action's result once the refetches have
+ * landed; rejects with its error.
+ */
+export function _callAction(id, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    startTransition(async () => {
+      try {
+        const result = await post(id, args, options);
+        if (options.onSuccess) options.onSuccess(result);
+        const waits = [];
+        for (const path of options.revalidate || []) waits.push(invalidatePath(path));
+        for (const key of options.invalidates || []) waits.push(invalidateQueries(key));
+        await Promise.all(waits);
+        resolve(result);
+      } catch (error) {
+        if (options.onError) options.onError(error);
+        reject(error);
       }
-      if (data[key]) {
-        // Handle multiple values (e.g., checkboxes, multi-file inputs)
-        if (Array.isArray(data[key])) {
-          data[key].push(value);
-        } else {
-          data[key] = [data[key], value];
-        }
-      } else {
-        data[key] = value;
-      }
-    }
-
-    try {
-      // If form contains files, pass the raw FormData as second arg
-      // so the action handler can access files directly
-      const result = hasFiles
-        ? await actionFn(data, formData)
-        : await actionFn(data);
-      if (onSuccess) onSuccess(result, form);
-      if (resetOnSuccess && form) form.reset();
-      return result;
-    } catch (error) {
-      if (onError) onError(error, form);
-      throw error;
-    }
-  };
+    });
+  });
 }
 
-// --- useAction hook ---
-// Returns action state and trigger function.
+async function post(id, args, options) {
+  const timeout = options.timeout || 30000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  try {
+    const csrfToken = getCsrfToken();
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-What-Action': id,
+    };
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
 
-export function useAction(actionFn) {
-  const isPending = signal(false);
-  const error = signal(null);
-  const data = signal(null);
+    const response = await fetch('/__what_action', {
+      method: 'POST',
+      headers,
+      credentials: 'same-origin',
+      signal: controller.signal,
+      body: JSON.stringify({ args }),
+    });
 
-  async function trigger(...args) {
-    isPending.set(true);
-    error.set(null);
-
-    try {
-      const result = await actionFn(...args);
-      data.set(result);
-      return result;
-    } catch (e) {
-      error.set(e);
-      throw e;
-    } finally {
-      isPending.set(false);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Action failed' }));
+      // ERROR_CODES.ACTION_FAILED
+      throw Object.assign(new Error(error.message || 'Action failed'), {
+        code: 'ERR_ACTION_FAILED',
+      });
     }
+    return await response.json();
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      /** @type {Error & { code?: string }} */
+      const timeoutError = new Error(`Action "${id}" timed out after ${timeout}ms`);
+      timeoutError.code = 'TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return {
-    trigger,
-    isPending: () => isPending(),
-    error: () => error(),
-    data: () => data(),
-    reset: () => {
-      error.set(null);
-      data.set(null);
-    },
-  };
-}
-
-// --- useFormAction hook ---
-// Combines useAction with form handling.
-
-export function useFormAction(actionFn, options = {}) {
-  const { resetOnSuccess = true } = options;
-  const formRef = { current: null };
-  const actionState = useAction(formAction(actionFn, { resetOnSuccess }));
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    formRef.current = e.target;
-    return actionState.trigger(formData);
-  }
-
-  return {
-    ...actionState,
-    handleSubmit,
-    formRef,
-  };
 }
 
 // --- Optimistic updates ---
@@ -302,28 +207,11 @@ export function useFormAction(actionFn, options = {}) {
 export { useOptimistic } from 'what-core';
 
 // --- Path revalidation ---
+// One implementation: what-core/data's. invalidatePath(path) refetches the
+// queries and route data read on that path and runs the onRevalidate
+// callbacks for it.
 
-const revalidationCallbacks = new Map();
-
-export function onRevalidate(path, callback) {
-  if (!revalidationCallbacks.has(path)) {
-    revalidationCallbacks.set(path, new Set());
-  }
-  revalidationCallbacks.get(path).add(callback);
-
-  return () => {
-    revalidationCallbacks.get(path)?.delete(callback);
-  };
-}
-
-export function invalidatePath(path) {
-  const callbacks = revalidationCallbacks.get(path);
-  if (callbacks) {
-    for (const cb of callbacks) {
-      try { cb(); } catch (e) { console.error('[what] Revalidation error:', e); }
-    }
-  }
-}
+export { onRevalidate, invalidatePath } from 'what-core/data';
 
 // --- Server-side action handler ---
 // Add this to your server middleware.
@@ -388,47 +276,4 @@ export function handleActionRequest(req, actionId, args, options = {}) {
 
 export function getRegisteredActions() {
   return [...actionRegistry.keys()];
-}
-
-// --- Mutation helper ---
-// Like useSWR mutation but simpler.
-
-export function useMutation(mutationFn, options = {}) {
-  const { onSuccess, onError, onSettled } = options;
-
-  const state = {
-    isPending: signal(false),
-    error: signal(null),
-    data: signal(null),
-  };
-
-  async function mutate(...args) {
-    state.isPending.set(true);
-    state.error.set(null);
-
-    try {
-      const result = await mutationFn(...args);
-      state.data.set(result);
-      if (onSuccess) onSuccess(result, ...args);
-      return result;
-    } catch (error) {
-      state.error.set(error);
-      if (onError) onError(error, ...args);
-      throw error;
-    } finally {
-      state.isPending.set(false);
-      if (onSettled) onSettled(state.data.peek(), state.error.peek(), ...args);
-    }
-  }
-
-  return {
-    mutate,
-    isPending: () => state.isPending(),
-    error: () => state.error(),
-    data: () => state.data(),
-    reset: () => {
-      state.error.set(null);
-      state.data.set(null);
-    },
-  };
 }

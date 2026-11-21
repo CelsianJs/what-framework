@@ -55,12 +55,12 @@ describe('the tool catalogue is derived from registration, not hand-maintained',
   });
 });
 
-// The 24 tools, after the 2026-11 consolidation.
+// Pin the full tool surface, including what_why.
 const TOOLS = [
   'what_connection_status', 'what_signals', 'what_effects', 'what_components', 'what_snapshot',
   'what_errors', 'what_events', 'what_cache', 'what_set_signal', 'what_invalidate_cache',
   'what_dependency_graph', 'what_eval', 'what_dom_inspect', 'what_route', 'what_diagnose',
-  'what_navigate', 'what_explain', 'what_signal_trace', 'what_look', 'what_page_map', 'what_screenshot',
+  'what_navigate', 'what_explain', 'what_why', 'what_signal_trace', 'what_look', 'what_page_map', 'what_screenshot',
   'what_lint', 'what_scaffold', 'what_fix',
 ];
 

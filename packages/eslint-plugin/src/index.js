@@ -26,6 +26,10 @@ import effectCleanup from './rules/effect-cleanup.js';
 import noUnsafeInnerhtml from './rules/no-unsafe-innerhtml.js';
 import signalDebugName from './rules/signal-debug-name.js';
 import preferComputed from './rules/prefer-computed.js';
+import noAsyncComponent from './rules/no-async-component.js';
+import noPromiseInUsememo from './rules/no-promise-in-usememo.js';
+import noOptimisticSnapshot from './rules/no-optimistic-snapshot.js';
+import preferAsyncComputed from './rules/prefer-async-computed.js';
 
 // Read the real version from package.json so plugin meta never goes stale.
 const require = createRequire(import.meta.url);
@@ -53,6 +57,10 @@ const plugin = {
     'no-unsafe-innerhtml': noUnsafeInnerhtml,
     'signal-debug-name': signalDebugName,
     'prefer-computed': preferComputed,
+    'no-async-component': noAsyncComponent,
+    'no-promise-in-usememo': noPromiseInUsememo,
+    'no-optimistic-snapshot': noOptimisticSnapshot,
+    'prefer-async-computed': preferAsyncComputed,
   },
 
   configs: {},
@@ -112,6 +120,10 @@ plugin.configs.recommended = {
     'what/no-unsafe-innerhtml': 'warn',
     'what/signal-debug-name': 'off',
     'what/prefer-computed': 'off',
+    'what/no-async-component': 'warn',
+    'what/no-promise-in-usememo': 'warn',
+    'what/no-optimistic-snapshot': 'warn',
+    'what/prefer-async-computed': 'warn',
   },
 };
 
@@ -137,6 +149,10 @@ plugin.configs.strict = {
     'what/no-unsafe-innerhtml': 'error',
     'what/signal-debug-name': 'warn',
     'what/prefer-computed': 'warn',
+    'what/no-async-component': 'error',
+    'what/no-promise-in-usememo': 'error',
+    'what/no-optimistic-snapshot': 'error',
+    'what/prefer-async-computed': 'error',
   },
 };
 
@@ -162,6 +178,10 @@ plugin.configs.compiler = {
     'what/no-unsafe-innerhtml': 'warn',
     'what/signal-debug-name': 'off',
     'what/prefer-computed': 'off',
+    'what/no-async-component': 'warn',
+    'what/no-promise-in-usememo': 'warn',
+    'what/no-optimistic-snapshot': 'warn',
+    'what/prefer-async-computed': 'warn',
   },
 };
 

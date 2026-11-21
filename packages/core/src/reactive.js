@@ -62,7 +62,7 @@
 //   SOFTWARE.
 
 import { __DEV__ } from './env.js';
-import { report, _setOwnerSource } from './diagnostics.js';
+import { report, _setOwnerSource, nextBinding, clearNextBinding } from './diagnostics.js';
 
 export { __DEV__ } from './env.js';
 
@@ -96,9 +96,11 @@ const RELEASE = 4096;  // computed: queued to drop its dependencies if still uno
 const ASYNC = 8192;        // computed: its function returned a promise or an async iterable
 const WAITING = 16384;     // async computed: a run is in flight
 const NOT_READY = 32768;   // computed: its last run read a value that was not ready; keeps its last value
-const NO_VALUE = 65536;    // computed: no value has settled yet
-const CAPABLE = 131072;    // computed: made by computed(); its run goes through asyncOps.result
+const NO_VALUE = 65536;    // computed: no run has given it a value yet
+const CAPABLE = 131072;    // computed: made by computed(); what its function returns may start a run
 const ASKS = 262144;       // capable computed: its function takes `{ signal }`
+const HELD = 524288;       // effect: a <Suspense> counts it as waiting until a run of it completes
+const STAGED = 1048576;    // async computed: landed inside a transition that has not committed
 
 // ---------------------------------------------------------------------------
 // Global state
@@ -184,6 +186,8 @@ let asyncOps = null;
 let txOps = null;
 /** The transition whose function is running, or null. @type {any} */
 let currentTx = null;
+/** What a write with readers tells the transitions (installed with them). @type {((node: any) => void) | null} */
+let onWrite = null;
 /**
  * The node whose direct reads of an async value return its last value instead
  * of holding (useOptimistic's view, isPending's probe), or null. @type {any}
@@ -444,7 +448,7 @@ function stopWalk(changed, walker) {
 
 /** Re-run a computed. Returns true when its value (or error) changed. */
 function updateComputed(c) {
-  const causes = __DEV__ && __devtools ? devCauses(c) : null;
+  const causes = __DEV__ && devTracksCauses() ? devCauses(c) : null;
   const seen = __DEV__ ? c.devSeen : undefined;
   if (__DEV__) c.devSeen = devSeq;
   if (c.owned !== null) disposeRun(c);
@@ -459,7 +463,7 @@ function updateComputed(c) {
   let value;
   let threw = false;
   try {
-    value = (oldFlags & CAPABLE) === 0 ? c.fn() : asyncOps.result(c);
+    value = (oldFlags & CAPABLE) === 0 ? c.fn() : asyncOps.run(c, oldFlags);
   } catch (err) {
     value = err;
     threw = true;
@@ -492,16 +496,20 @@ function updateComputed(c) {
     c.flags = (c.flags & ~RUNNING) | ERRORED;
     if ((oldFlags & ERRORED) && old === value) return false;
   } else {
-    c.flags &= ~RUNNING;
+    c.flags &= ~(RUNNING | NO_VALUE);
     // A value after an error, or after an input that was not ready, is news
     // even when it equals the last one: readers whose runs were held must run.
     if ((oldFlags & (ERRORED | NOT_READY)) === 0 &&
         (old === value ? (old !== 0 || 1 / old === 1 / value) : (old !== old && value !== value))) {
+      if (__DEV__ && __devtools?.trace) devHook('onComputedEqual', c);
       return false;
     }
   }
   c.value = value;
-  if (__DEV__) c.devSeq = ++devSeq;
+  if (__DEV__) {
+    c.devSeq = ++devSeq;
+    if (__devtools?.trace) devHook('onComputedChange', c);
+  }
   if (c.flags & SELECTOR) /** @type {any} */ (selectorOps).notify(c, old, oldFlags);
   return true;
 }
@@ -570,7 +578,7 @@ function refreshRead(c) {
 
 /** A computed read itself, directly or through other computeds. */
 function cycleError(node) {
-  const fn = node.fn;
+  const fn = __DEV__ ? devFn(node) : node.fn;
   return Object.assign(new Error(__DEV__
     ? `[what] Cycle detected: computed ${fn.name ? `"${fn.name}"` : String(fn).slice(0, 60)} reads its own value, ` +
       'directly or through computeds that read it. A computed cannot depend on itself.'
@@ -656,6 +664,9 @@ function notify(sig, node, prev) {
     if (__devtools) devHook('onSignalUpdate', sig, node.value, prev);
   }
   if (node.subHead !== null) {
+    // A transition remembers what it wrote: an effect another open transition
+    // holds that also reads it makes the two commit together.
+    if (onWrite !== null) onWrite(node);
     propagate(node.subHead);
     if (selectorQueue.length !== 0) /** @type {any} */ (selectorOps).settle();
     if (batchDepth === 0 && !flushing) scheduleFlush();
@@ -677,7 +688,7 @@ export function signal(initial, debugName) {
 
   sig[NODE] = node;
   Object.setPrototypeOf(sig, signalPrototype());
-  if (__DEV__) devSignal(sig, node, debugName);
+  if (__DEV__) devSignal(sig, node, devNamed(debugName, arguments[2]));
   return /** @type {WhatSignalFunction} */ (/** @type {unknown} */ (sig));
 }
 
@@ -692,7 +703,7 @@ export function signal(initial, debugName) {
  * @param {any} item
  */
 export function _rowItem(item) {
-  return { value: item, subHead: null, subTail: null, flags: 0, builder: activeSub, building: true, taken: false };
+  return { value: item, subHead: null, subTail: null, flags: 0, builder: activeSub, building: true, taken: false, fields: null };
 }
 
 /** @internal Read a list row's item (see _rowItem). */
@@ -705,13 +716,21 @@ export function _readRowItem(node) {
 /**
  * @internal Hand a list row its new item (see _rowItem). With `rebuildTaken`,
  * returns true instead when the row took its item as a value, and has to be
- * built again.
+ * built again. `fields` holds the row's plain-field bindings (render.js
+ * _$field) as [target, read, write] triples, written here directly; a write
+ * that cannot show its new value also has the row built again.
  */
 export function _setRowItem(node, item, rebuildTaken) {
   const prev = node.value;
   if (prev === item) return false;
   if (rebuildTaken && node.taken) return true;
   node.value = item;
+  const fields = node.fields;
+  if (fields !== null) {
+    for (let i = 0; i < fields.length; i += 3) {
+      if (!fields[i + 2](fields[i], fields[i + 1](item)) && rebuildTaken) return true;
+    }
+  }
   notify(node, node, prev);
   return false;
 }
@@ -726,7 +745,7 @@ function createComputedNode(fn) {
     value: undefined,
     subHead: null, subTail: null,
     depHead: null, depTail: null,
-    flags: COMPUTED | DIRTY,
+    flags: COMPUTED | DIRTY | NO_VALUE,
     fn,
     owner: null,
     owned: null,
@@ -770,14 +789,15 @@ function computedReader(node) {
 }
 
 // A computed whose last run threw, or read a value that was not ready. Only
-// the async machinery marks the latter, so it answers for it.
+// the async machinery marks the latter, so once installed it answers for both.
 function readFailed(node) {
-  if (node.flags & ERRORED) throw node.value;
-  return asyncOps.read(node);
+  if (asyncOps !== null) return asyncOps.read(node);
+  throw node.value;
 }
 
 export function computed(fn) {
   const node = createComputedNode(fn);
+  if (__DEV__ && arguments[1]) node.devName = arguments[1];
   own(node);
   return computedReader(node);
 }
@@ -902,23 +922,31 @@ function releaseKey(k) {
 // ---------------------------------------------------------------------------
 // A computed made by the root entry's computed() (_asyncComputed) becomes
 // async the first time its function returns a promise or an async iterable.
-// It is CAPABLE: the engine runs it through asyncResult, which hands back a
-// plain value or throws STARTED, and its async state lives in `a`. Each
-// evaluation is a run: it supersedes the run before it (whose result is
-// dropped and whose AbortSignal is aborted) and is in flight (WAITING) until
-// it lands. The node
-// keeps its last value meanwhile, so a run that starts changes nothing for the
-// engine: the readers a write marked find nothing new when they check, and
-// keep what they show. A small effect of its own (its companion) reads it, so
-// it fetches again when an input changes even when nothing else reads it.
+// It is CAPABLE: updateComputed runs it through asyncOps.run (capableRun),
+// which starts a run for async work and throws STARTED, and its async state
+// lives in `a`. Each evaluation is a run: it supersedes the run before it
+// (whose result is dropped and whose AbortSignal is aborted) and is in flight
+// (WAITING) until it lands. The node keeps its last value meanwhile, so a run
+// that starts changes nothing for the engine: the readers a write marked find
+// nothing new when they check, and keep what they show. A small effect of its
+// own (its companion) reads it, so it fetches again when an input changes
+// even when nothing else reads it.
+//
+// A run ends one way: its promise settles, its iterable yields or ends, or an
+// answer already known replaces it (the function returned a plain value or
+// threw, mutate() set one). Each way settles what waits for the outcome
+// (settleOutcome): refresh() promises, and the NotReady a reader or a
+// suspended component holds. The promise callbacks of a run hold only its
+// flight record, which lets go of the computed when the run ends, so a
+// promise nobody waits for any more retains nothing of it.
 //
 // Reading one:
 //   tracked (an effect, a binding, a computed): a value that has not settled,
 //     or is being fetched again, is not ready: the read throws a NotReady.
 //     An effect or binding that catches it is held: it keeps what it
 //     showed, stays subscribed, and runs again when the value lands. A
-//     computed that catches it is NOT_READY: it keeps its last value, and its
-//     readers keep theirs.
+//     computed that catches it is NOT_READY: it keeps its last value (or,
+//     with none yet, stays NO_VALUE), and its readers keep theirs.
 //   untracked (an event handler, a component body, peek()): the last value
 //     that landed; a NotReady only when none has.
 // Plain signals and settled values are never held: reads stay fresh.
@@ -968,29 +996,12 @@ export function _isNotReady(value) {
   return value instanceof NotReady;
 }
 
-// What a held effect waits for: the value its last run read last, which was
-// not ready, so the read threw (it links before it throws). A run that
-// completed did not end on such a read.
-function heldOn(e) {
-  const l = e.depTail;
-  if ((e.flags & DISPOSED) || l === null) return null;
-  const f = l.dep.flags;
-  return f & (WAITING | NOT_READY) ? waitOf(l.dep, f) : null;
-}
-
-/**
- * @internal Suspense: a promise that settles when what held `e` (an effect or
- * binding whose last run read a value that was not ready) lands, or null when
- * `e` is not held.
- */
-export function _heldOn(e) {
-  return heldOn(e);
-}
-
 // Bookkeeping, reached only through asyncOps.
 /** Async computeds with a run in flight (settled() waits for none). */
 let inFlight = 0;
-/** Other work settled() waits for: promises a <Suspense> waits on. */
+/** Async iterables still being pulled: settled() waits until each has ended. */
+let streams = 0;
+/** Other work settled() waits for: what a <Suspense> waits on, and its reveal. */
 let tracked = 0;
 /** What an engine computed that is NOT_READY waits for. @type {WeakMap<any, NotReady> | null} */
 let waitsOf = null;
@@ -998,8 +1009,18 @@ let waitsOf = null;
 let companionOf = null;
 /** Effects that read pending(): a transition never holds them, so a pending indicator shows at once. @type {WeakSet<any> | null} */
 let pendingReaders = null;
-/** Errors of async computeds, to the computed, so an error boundary's reset can retry it. @type {WeakMap<any, any> | null} */
-let errorSources = null;
+/** The pending-state node of an engine computed (one with no `a`), for isPending()'s readers. @type {WeakMap<any, any> | null} */
+let pendsOf = null;
+/** Where the async error an engine computed caches came from ({ node, run }). @type {WeakMap<any, any> | null} */
+let sourcesOf = null;
+// The error a read of a failed value threw last, and the async computed run
+// that failed with it, so the error boundary that catches it knows what to
+// fetch again (_errorSource). An error travels from the read to its handler
+// synchronously, so the pair still describes it when the handler asks.
+/** @type {any} */
+let thrownError;
+/** @type {{ node: any, run: number } | null} */
+let thrownFrom = null;
 /** Called when the graph may have gone quiet: after a landing, a commit, a disposal. @type {Set<() => void> | null} */
 let quietHooks = null;
 let quietQueued = false;
@@ -1011,10 +1032,11 @@ function installAsync() {
   waitsOf = new WeakMap();
   companionOf = new WeakMap();
   pendingReaders = new WeakSet();
-  errorSources = new WeakMap();
+  pendsOf = new WeakMap();
+  sourcesOf = new WeakMap();
   quietHooks = new Set();
   asyncOps = {
-    result: asyncResult,
+    run: capableRun,
     caught: asyncCaught,
     read: readAsync,
     held: holdEffect,
@@ -1025,12 +1047,15 @@ function newRecord() {
   return {
     run: 0,
     /** @type {AbortController | null} */ ac: null,
-    /** @type {any} */ iter: null,
+    /** @type {{ c: any, iter: any } | null} */ flight: null,
     /** @type {NotReady | null} */ wait: null,
     /** @type {NotReady | null} */ upstream: null,
     /** @type {any} */ error: undefined,
+    /** @type {{ node: any, run: number } | null} */ failure: null,
     /** @type {any} */ pend: null,
     /** @type {any} */ tx: null,
+    /** @type {any} */ before: undefined,
+    viewed: false,
     /** @type {Array<[(v: any) => void, (e: any) => void]> | null} */ waiters: null,
     tracking: false,
     /** @type {Map<any, any> | null} */ store: null,
@@ -1045,36 +1070,53 @@ function recordOf(c) {
   return c.a !== null ? c.a : (c.a = newRecord());
 }
 
-// A capable computed's run (updateComputed calls it in place of the function):
-// the user's function, with `{ signal }` when it takes an argument. A promise
-// or an async iterable starts a run and throws STARTED (asyncCaught keeps the
-// last value); a plain value ends any run in flight and is the value. This
-// frame sits between updateComputed's and the function's, so it counts as a
-// level of its own toward MAX_EVAL_DEPTH (updateComputed restores the depth
-// when the function throws).
-function asyncResult(node) {
+// A capable computed's run, in updateComputed's place of its function: the
+// user's function, with `{ signal }` when it takes one. A promise or an async
+// iterable starts a run and throws STARTED (asyncCaught keeps the last
+// value); a plain value is the value, and answers what waits for the
+// computed's outcome. A run made void by a deferred evaluation (see
+// MAX_EVAL_DEPTH) answers nothing: it is repeated. This frame sits between
+// updateComputed's and the function's, so it counts as a level of its own
+// toward MAX_EVAL_DEPTH (updateComputed restores the depth when it throws).
+function capableRun(c, oldFlags) {
+  const mark = deferred.length;
   ++evalDepth;
-  const value = node.flags & ASKS ? node.fn(runArg(node)) : node.fn();
+  const value = oldFlags & ASKS ? c.fn(runArg(c)) : c.fn();
   --evalDepth;
   if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
     const thenable = typeof value.then === 'function';
     const make = thenable ? undefined : value[Symbol.asyncIterator];
     if (thenable || typeof make === 'function') {
-      startRun(node, value, thenable ? null : make.call(value));
+      startRun(c, value, thenable ? null : make.call(value));
       throw STARTED;
     }
   }
-  if (node.flags & WAITING) {
-    // The fetch gave way to a plain value: readers held on it must run,
-    // even if the value equals the last one.
-    voidRun(node);
-    node.flags &= ~WAITING;
-    statusChanged(node);
-    reach(node.subHead);
-  }
-  node.flags &= ~NO_VALUE;
-  if (node.a !== null && node.a.tx !== null) txOps.answered(node);
+  if ((oldFlags & (WAITING | NOT_READY | NO_VALUE)) !== 0 && deferred.length === mark) answeredNow(c, value);
   return value;
+}
+
+// A capable computed answered with a plain value while it waited (for a run,
+// an input, or a first value). A run in flight gives way to it: it never
+// lands, and the readers held on it run even if the value equals the last
+// one. What waits for its outcome (refresh(), a component that suspended on
+// it, a transition) has it now.
+function answeredNow(c, value) {
+  const a = c.a;
+  if (a === null) return;
+  if (c.flags & WAITING) {
+    endFlight(a);
+    inFlight--;
+    c.flags &= ~WAITING;
+    statusChanged(c);
+    reach(c.subHead);
+  }
+  if (__DEV__) devAsyncState(c, 'ready');
+  // A server render keeps it for the client like a value that landed, when
+  // the function is one that fetches (it takes `{ signal }`, as every
+  // resource's does); a plain derivation is computed again on the client.
+  if (a.store !== null && (c.flags & ASKS) !== 0) seedOps.settled(a, value, false);
+  settleOutcome(a, value, false);
+  if (a.tx !== null) txOps.answered(c);
 }
 
 // A computed that has become async: it gets its companion, an effect owned
@@ -1107,44 +1149,69 @@ function runArg(c) {
   return { signal: ac.signal };
 }
 
-// A run starts: `promise`, or the iterator `iter` of an async iterable.
+// A run starts: `promise`, or the iterator `iter` of an async iterable. Its
+// callbacks hold the flight record `f`, which endFlight empties.
 function startRun(c, promise, iter) {
   const a = recordOf(c);
-  endRun(a);
-  const run = ++a.run;
+  endFlight(a);
+  a.run++;
   if ((c.flags & WAITING) === 0) inFlight++;
   makeAsync(c);
   c.flags |= WAITING;
-  if (__DEV__) c.devAsync = c.flags & NO_VALUE ? 'unresolved' : 'pending';
+  if (__DEV__) devAsyncState(c, c.flags & NO_VALUE ? 'unresolved' : 'pending', a.run);
   if (txOps !== null) txOps.attribute(c, a);
   if (a.store !== null) seedOps.pending(a);
+  const f = a.flight = { c, iter };
   if (iter !== null) {
-    a.iter = iter;
-    pump(c, run, iter);
+    streams++;
+    pump(f, iter);
   } else {
-    Promise.resolve(promise).then((v) => land(c, run, v, false), (e) => land(c, run, e, true));
+    Promise.resolve(promise).then((v) => land(f, v, false, false), (e) => land(f, e, true, false));
   }
 }
 
-// Each value an async iterable yields lands; the iterable is closed when a
-// newer run supersedes it or the computed is disposed.
-function pump(c, run, iter) {
-  Promise.resolve(iter.next()).then((step) => {
-    if (run !== c.a.run || (c.flags & DISPOSED)) return;
-    if (step.done) {
-      c.a.iter = null;
-      if (c.flags & WAITING) land(c, run, undefined, false);
+// Each value an async iterable yields lands; its end or failure ends the run.
+// A next() that throws instead of returning is a failure like a rejection.
+function pump(f, iter) {
+  let step;
+  try {
+    step = iter.next();
+  } catch (err) {
+    step = Promise.reject(err);
+  }
+  Promise.resolve(step).then((s) => {
+    const c = f.c;
+    if (c === null) return;
+    if (s.done) {
+      // An iterable that ends before it yields lands undefined.
+      if (c.flags & WAITING) land(f, undefined, false, false);
+      else {
+        endFlight(c.a);
+        quietSoon();
+      }
       return;
     }
-    land(c, run, step.value, false);
-    pump(c, run, iter);
-  }, (e) => land(c, run, e, true));
+    land(f, s.value, false, true);
+    if (f.c !== null) pump(f, iter);
+  }, (err) => land(f, err, true, false));
 }
 
-function endRun(a) {
-  const iter = a.iter;
-  if (iter === null) return;
-  a.iter = null;
+// The run in flight stops: it delivers nothing more. Its callbacks let go of
+// the computed, and an async iterable is closed.
+function endFlight(a) {
+  const f = a.flight;
+  if (f === null) return;
+  a.flight = null;
+  f.c = null;
+  if (f.iter !== null) {
+    const iter = f.iter;
+    f.iter = null;
+    streams--;
+    closeIterator(iter);
+  }
+}
+
+function closeIterator(iter) {
   try {
     if (typeof iter.return === 'function') Promise.resolve(iter.return()).catch(noop);
   } catch { /* closing a finished iterator */ }
@@ -1164,7 +1231,11 @@ function asyncCaught(c, err, oldFlags) {
     return false;
   }
   if (err instanceof NotReady) {
-    if (oldFlags & WAITING) voidRun(c);
+    if (oldFlags & WAITING) {
+      endFlight(c.a);
+      inFlight--;
+      if (__DEV__) c.devFlight = null;
+    }
     c.flags = (c.flags & ~(RUNNING | WAITING)) | NOT_READY;
     // An engine computed (no `a`: useMemo, a store's derived value) keeps what
     // it waits for on the side.
@@ -1173,46 +1244,64 @@ function asyncCaught(c, err, oldFlags) {
     if ((oldFlags & (WAITING | NOT_READY)) === 0) statusChanged(c);
     return (oldFlags & ERRORED) !== 0;
   }
-  if ((c.flags & ASYNC) === 0) return undefined;
-  if (oldFlags & WAITING) voidRun(c);
+  if ((c.flags & ASYNC) === 0) {
+    // An engine computed caching an async value's error keeps where it came
+    // from, for the boundary that catches it from there.
+    if (err === thrownError && thrownFrom !== null) /** @type {WeakMap<any, any>} */ (sourcesOf).set(c, thrownFrom);
+    return undefined;
+  }
+  if (oldFlags & WAITING) {
+    endFlight(c.a);
+    inFlight--;
+  }
   c.flags = (c.flags & ~(RUNNING | WAITING)) | ERRORED;
   failed(c, err);
-  if (oldFlags & WAITING) statusChanged(c);
+  if (oldFlags & WAITING) {
+    statusChanged(c);
+    reach(c.subHead);
+  }
+  if (c.a.store !== null) seedOps.settled(c.a, err, true);
+  settleOutcome(c.a, err, true);
   if (c.a.tx !== null) txOps.answered(c);
   return true;
 }
 
-// The run in flight will never land: a newer evaluation did not start one.
-function voidRun(c) {
-  const a = c.a;
-  a.run++;
-  endRun(a);
-  inFlight--;
-}
-
 function failed(c, err) {
-  c.a.error = err;
-  if (err !== null && (typeof err === 'object' || typeof err === 'function')) {
-    /** @type {WeakMap<any, any>} */ (errorSources).set(err, c);
-  }
+  const a = c.a;
+  a.error = err;
+  a.failure = { node: c, run: a.run };
   if (__DEV__) {
-    c.devAsync = 'errored';
+    devAsyncState(c, 'errored', undefined, err);
     if (__devtools) _devError(err, { type: 'async', effect: c });
   }
 }
 
-// A run's result arrived. A superseded run, or one of a disposed computed, is
-// dropped. One that belongs to a transition lands through it (txLand).
-// refresh() promises resolve either way, so awaiting one inside the transition
-// cannot wait for its own commit.
-function land(c, run, result, isError) {
-  const a = c.a;
-  if (run !== a.run || (c.flags & DISPOSED)) return;
+// The outcome of a run is known: refresh() promises settle with it, and what
+// waits for a value (a held reader, a suspended component) is released.
+function settleOutcome(a, result, isError) {
   const waiters = a.waiters;
   if (waiters !== null) {
     a.waiters = null;
     for (const [resolve, reject] of waiters) (isError ? reject : resolve)(result);
   }
+  if (a.wait !== null) {
+    settleWait(a.wait);
+    a.wait = null;
+  }
+}
+
+// A run's result arrived (`more`: an iterable that goes on). A superseded or
+// ended run, or one of a disposed computed, has an empty flight and is
+// dropped. One that belongs to a transition lands through it (txLand).
+// refresh() promises settle either way, so awaiting one inside the transition
+// cannot wait for its own commit.
+function land(f, result, isError, more) {
+  const c = f.c;
+  if (c === null) return;
+  const a = c.a;
+  if (!more) endFlight(a);
+  settleOutcome(a, result, isError);
+  if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'async:land', c, { run: a.run, errored: isError });
   if (a.tx !== null) txOps.land(c, result, isError);
   else apply(c, result, isError);
 }
@@ -1229,33 +1318,38 @@ function apply(c, result, isError) {
   } else {
     c.flags = f & ~(WAITING | NOT_READY | NO_VALUE | ERRORED);
     c.value = result;
-    if (__DEV__) c.devAsync = 'ready';
+    if (__DEV__) devAsyncState(c, 'ready');
   }
-  if (__DEV__) c.devSeq = ++devSeq;
-  if (a.store !== null) seedOps.settled(a, c, isError);
-  if (a.wait !== null) {
-    settleWait(a.wait);
-    a.wait = null;
+  if (__DEV__) {
+    c.devSeq = ++devSeq;
+    if (__devtools?.trace) devHook('onAsyncLanding', c);
   }
+  if (a.store !== null) seedOps.settled(a, result, isError);
   reach(c.subHead);
   reach(a.pend !== null ? a.pend.subHead : null);
-  if (batchDepth === 0 && !flushing) scheduleFlush();
   quietSoon();
 }
 
-// The status a pending() reader sees changed: a run started, or stopped
-// without landing.
+// The status a pending() or isPending() reader sees changed: a run started or
+// stopped without landing, or a computed began to wait for an input.
 function statusChanged(c) {
-  // A computed that is not async-capable (no `a`) has no pending() readers.
-  const p = c.a != null ? c.a.pend : null;
-  if (p === null || p.subHead === null) return;
-  reach(p.subHead);
-  if (batchDepth === 0 && !flushing) scheduleFlush();
+  const p = c.a != null ? c.a.pend : /** @type {WeakMap<any, any>} */ (pendsOf).get(c);
+  if (p != null) reach(p.subHead);
 }
 
-// A change a run brought reaches its readers as a write does.
+// A change a run brought reaches its readers as a write does. It can happen
+// while a reader is being brought up to date (a run that starts during its
+// check): propagate marks that reader DIRTY without queueing it, as it is
+// already in the flush, and the check that is running does not look again, so
+// it is queued here.
 function reach(head) {
-  if (head !== null) propagate(head);
+  if (head === null) return;
+  propagate(head);
+  for (let l = head; l !== null; l = l.nextSub) {
+    const s = l.sub;
+    if ((s.flags & (EFFECT | DIRTY | QUEUED | RUNNING | DISPOSED)) === (EFFECT | DIRTY)) enqueue(s);
+  }
+  if (batchDepth === 0 && !flushing) scheduleFlush();
 }
 
 /** @param {any} node */
@@ -1264,28 +1358,46 @@ function readAsync(node) {
   if (f & (WAITING | NOT_READY)) {
     if (f & NO_VALUE) throw notReady(node, f);
     if (activeSub !== null && activeSub !== latestSub) throw waitOf(node, f);
-    return node.value;
+  } else if (f & ERRORED) {
+    if (f & ASYNC) {
+      thrownError = node.a.error;
+      thrownFrom = node.a.failure;
+    } else {
+      thrownError = node.value;
+      thrownFrom = /** @type {WeakMap<any, any>} */ (sourcesOf).get(node) || null;
+    }
+    throw thrownError;
+  } else if (f & NO_VALUE) {
+    throw notReady(node, f);
   }
-  if (f & ERRORED) throw f & ASYNC ? node.a.error : node.value;
-  if (f & NO_VALUE) throw notReady(node, f);
+  // useOptimistic's view shows what is committed: a value that landed inside
+  // a transition still open is not, yet.
+  if ((f & STAGED) && activeSub !== null && activeSub === latestSub) {
+    node.a.viewed = true;
+    return node.a.before;
+  }
   return node.value;
 }
 
 // What a read of a value that has never landed throws. Read untracked in the
-// body of the component that made it, it is an error: suspending would run
-// the component again, which would make the value again and fetch again,
-// forever. (A server render finds the value in its store the second time.)
+// body of the component that made the value it waits for, it is an error:
+// suspending would run the component again, which would make the value again
+// and fetch again, forever. (A server render finds the value in its store the
+// second time.) A derived value waits for the value it reads, so the check is
+// on the value that is fetching.
 function notReady(node, f) {
-  if (activeSub === null && node.owner !== null && node.owner === ownerNow() &&
-      node.owner.Component !== undefined && (node.a == null || node.a.store === null)) {
-    const c = node.owner.Component;
+  const w = waitOf(node, f);
+  const src = w.node;
+  if (activeSub === null && src.owner !== null && src.owner === ownerNow() &&
+      src.owner.Component !== undefined && (src.a == null || src.a.store === null)) {
+    const c = src.owner.Component;
     const component = c.displayName || c.name || 'Anonymous';
     if (__DEV__) report('ERR_ASYNC_READ_IN_BODY', { data: { component } });
     throw Object.assign(new Error(__DEV__
       ? `[what] Component "${component}" read an async value it made in its own body before the value landed. Read it in JSX, or make it outside the component.`
       : '[what] async value read in the body that made it'), { code: 'ERR_ASYNC_READ_IN_BODY' });
   }
-  return waitOf(node, f);
+  return w;
 }
 
 function waitOf(node, f) {
@@ -1294,18 +1406,56 @@ function waitOf(node, f) {
   return a.wait !== null ? a.wait : (a.wait = new NotReady(node));
 }
 
-// An effect's run threw: a NotReady holds it. It keeps what it showed and its
+// An effect's run threw. A NotReady holds it: it keeps what it showed and its
 // subscriptions, and runs again when what it read lands. The nearest Suspense
-// is told, which counts it as waiting until it has shown its content once.
+// is told; while it counts the effect as waiting (until it has shown its
+// content once), it is told again when a run of it completes or fails, or
+// when it is disposed. Any other error releases a counted effect.
 function holdEffect(e, err) {
   if (!(err instanceof NotReady)) return false;
-  _handlePending(e.owner, e);
+  if ((e.flags & HELD) === 0) {
+    for (let o = e.owner; o != null; o = o.owner) {
+      if ((o.flags & DISPOSED) === 0 && typeof o._onPending === 'function') {
+        const release = o._onPending(e);
+        if (typeof release === 'function') countHeld(e, release);
+        break;
+      }
+    }
+  }
   return true;
+}
+
+// A boundary counts `e` as waiting: its next run that does not end on a value
+// that is not ready (or its disposal) tells the boundary, once. The function
+// runs through a wrapper until then, so an effect no boundary counts pays
+// nothing for it.
+function countHeld(e, release) {
+  e.flags |= HELD;
+  const fn = e.fn;
+  const done = () => {
+    if ((e.flags & HELD) === 0) return;
+    e.flags &= ~HELD;
+    e.fn = fn;
+    release(e);
+  };
+  const held = () => {
+    let out;
+    try {
+      out = fn();
+    } catch (err) {
+      if (!(err instanceof NotReady)) done();
+      throw err;
+    }
+    done();
+    return out;
+  };
+  if (__DEV__) held.inner = fn;
+  e.fn = held;
+  if (e.owner !== null) scopeOf(e.owner).disposals.push(done);
 }
 
 function asyncDisposed(c) {
   const a = c.a;
-  a.run++;
   if (c.flags & WAITING) {
     c.flags &= ~WAITING;
     inFlight--;
@@ -1314,16 +1464,10 @@ function asyncDisposed(c) {
     a.ac.abort();
     a.ac = null;
   }
-  endRun(a);
-  if (a.wait !== null) {
-    settleWait(a.wait);
-    a.wait = null;
-  }
-  const waiters = a.waiters;
-  if (waiters !== null) {
-    a.waiters = null;
-    for (const [resolve] of waiters) resolve(c.value);
-  }
+  endFlight(a);
+  // A pending refresh() resolves with the last value; what waits for a value
+  // stops waiting.
+  settleOutcome(a, c.value, false);
   if (a.tx !== null) txOps.drop(c);
   quietSoon();
 }
@@ -1351,10 +1495,10 @@ function storePending(a) {
   });
 }
 
-function storeSettled(a, c, isError) {
+function storeSettled(a, result, isError) {
   /** @type {Map<any, any>} */ (a.store).set(a.key, isError
-    ? { status: 'error', error: a.error, owner: a.owner }
-    : { status: 'ready', value: c.value, owner: a.owner });
+    ? { status: 'error', error: result, owner: a.owner }
+    : { status: 'ready', value: result, owner: a.owner });
   if (a.stored !== null) {
     const done = a.stored;
     a.stored = null;
@@ -1362,8 +1506,16 @@ function storeSettled(a, c, isError) {
   }
 }
 
-// The node behind pending(): only its subscriber list is used.
+// The node behind a computed's pending state: only its subscriber list is
+// used. An async-capable computed keeps it in `a`; an engine computed, which
+// a pending reader can reach through, on the side.
 function pendOf(c) {
+  if (c.a === undefined) {
+    const map = /** @type {WeakMap<any, any>} */ (pendsOf);
+    let p = map.get(c);
+    if (p === undefined) map.set(c, p = { value: false, subHead: null, subTail: null, flags: 0 });
+    return p;
+  }
   const a = recordOf(c);
   return a.pend !== null ? a.pend : (a.pend = { value: false, subHead: null, subTail: null, flags: 0 });
 }
@@ -1381,7 +1533,8 @@ function refreshUntracked(c) {
 // Whether an async computed among `start` and what they read, through
 // computeds, has a value and is fetching a new one (or waits for an input
 // that is). The reader, if any, is subscribed to the pending state of every
-// async computed on the way, so it runs again when one starts or stops.
+// computed on the way, so it runs again when one starts or stops waiting
+// (a computed that switches onto a value being fetched included).
 function anyRefreshing(start, sub) {
   let found = false;
   const seen = new Set();
@@ -1390,9 +1543,9 @@ function anyRefreshing(start, sub) {
     const n = stack.pop();
     if ((n.flags & COMPUTED) === 0 || seen.has(n)) continue;
     seen.add(n);
+    if (sub !== null) link(pendOf(n), sub);
     if (n.flags & ASYNC) {
       if ((n.flags & (DIRTY | PENDING)) && (n.flags & (RUNNING | DISPOSED)) === 0) refreshUntracked(n);
-      if (sub !== null) link(pendOf(n), sub);
       if ((n.flags & (WAITING | NOT_READY)) !== 0 && (n.flags & NO_VALUE) === 0) found = true;
     }
     for (let l = n.depHead; l !== null; l = l.nextDep) stack.push(l.dep);
@@ -1496,7 +1649,7 @@ function asyncReader(node) {
       refreshRead(node);
     }
     if (activeSub !== null) link(node, activeSub);
-    if (node.flags & (ERRORED | NOT_READY | WAITING | NO_VALUE)) return readAsync(node);
+    if (node.flags & (ERRORED | NOT_READY | WAITING | NO_VALUE | STAGED)) return readAsync(node);
     return node.value;
   }
   read[NODE] = node;
@@ -1520,6 +1673,7 @@ const ASYNC_FN = /^Async(?:Generator)?Function$/;
 export function _asyncComputed(fn, seed) {
   installAsync();
   const node = asyncCapableNode(fn);
+  if (__DEV__ && arguments[2]) node.devName = arguments[2];
   own(node);
   const read = asyncReader(node);
   if ((seed == null || !seedOps.seed(node, seed, fn)) && (fn.length > 0 || ASYNC_FN.test(fn.constructor.name))) {
@@ -1553,17 +1707,20 @@ function adopt(c, seed, fn) {
   if ('error' in seed) {
     c.flags |= ERRORED;
     a.error = seed.error;
-    if (__DEV__) c.devAsync = 'errored';
+    a.failure = { node: c, run: a.run };
+    if (__DEV__) devAsyncState(c, 'errored', undefined, seed.error);
   } else {
     c.flags &= ~NO_VALUE;
     c.value = seed.value;
-    if (__DEV__) c.devAsync = 'ready';
+    if (__DEV__) devAsyncState(c, 'ready');
   }
   if (seed.track !== false) trackRun(c, fn);
 }
 
 // Learn what an adopted computed reads without fetching: run its function
-// with an aborted signal and discard what it returns.
+// with an aborted signal and discard what it returns. An async generator's
+// body runs only when it is pulled, so it is pulled once (the reads before
+// its first await are tracked) and closed.
 function trackRun(c, fn) {
   const a = recordOf(c);
   a.tracking = true;
@@ -1572,18 +1729,21 @@ function trackRun(c, fn) {
   ++cycle;
   c.depTail = null;
   c.flags |= RUNNING;
-  let value;
   try {
-    value = fn.length > 0 ? fn(runArg(c)) : fn();
+    const value = fn.length > 0 ? fn(runArg(c)) : fn();
+    if (value !== null && typeof value === 'object') {
+      if (typeof value.then === 'function') {
+        Promise.resolve(value).catch(noop);
+      } else if (typeof value[Symbol.asyncIterator] === 'function') {
+        const iter = value[Symbol.asyncIterator]();
+        Promise.resolve(iter.next()).then(() => closeIterator(iter), noop);
+      }
+    }
   } catch { /* an input not ready, or an error: what it read so far is tracked */ }
   activeSub = prevSub;
   c.flags &= ~RUNNING;
   a.tracking = false;
   purgeDeps(c);
-  if (value !== null && typeof value === 'object') {
-    if (typeof value.then === 'function') Promise.resolve(value).catch(noop);
-    else if (typeof value.return === 'function') endRun({ iter: value });
-  }
 }
 
 function seedFromStore(c, { store, key, owner }) {
@@ -1597,12 +1757,13 @@ function seedFromStore(c, { store, key, owner }) {
   makeAsync(c);
   if (entry.status === 'pending') {
     // A run an earlier attempt of this render started: wait for it.
-    const run = ++a.run;
+    a.run++;
     c.flags |= WAITING;
     inFlight++;
+    const f = a.flight = { c, iter: null };
     entry.promise.then(() => {
       const done = store.get(key);
-      land(c, run, done.status === 'ready' ? done.value : done.error, done.status !== 'ready');
+      land(f, done.status === 'ready' ? done.value : done.error, done.status !== 'ready', false);
     });
     return true;
   }
@@ -1612,6 +1773,7 @@ function seedFromStore(c, { store, key, owner }) {
   } else {
     c.flags |= ERRORED;
     a.error = entry.error;
+    a.failure = { node: c, run: a.run };
   }
   return true;
 }
@@ -1619,8 +1781,10 @@ function seedFromStore(c, { store, key, owner }) {
 /**
  * @internal refresh(computed): run it again now, superseding a run in flight.
  * Its readers see it as pending (once it has a value) until the new value
- * lands (inside an open transition too, before it commits), rejects with its
- * error.
+ * lands (inside an open transition too, before it commits), and they are
+ * reached as by a write of an input: inside a transition they are held, and
+ * an answer it gives at once (a value, an error) reaches them. Resolves with
+ * the value of the run, or rejects with its error.
  */
 export function _refresh(read) {
   const node = typeof read === 'function' ? read[NODE] : undefined;
@@ -1630,20 +1794,18 @@ export function _refresh(read) {
       : '[what] refresh: not a computed');
   }
   if (node.flags & (DISPOSED | RUNNING)) return Promise.resolve(node.value);
-  const before = node.value;
   node.flags |= DIRTY;
+  if (node.subHead !== null) {
+    markPending(node.subHead);
+    if (batchDepth === 0 && !flushing) scheduleFlush();
+  }
   refreshUntracked(node);
-  if ((node.flags & WAITING) === 0) {
-    // A computed that answered at once: a changed value reaches its readers
-    // as a write would.
-    if ((node.flags & ASYNC) === 0 && node.subHead !== null && !Object.is(before, node.value)) {
-      propagate(node.subHead);
-      if (batchDepth === 0 && !flushing) scheduleFlush();
-    }
-    if (node.flags & ERRORED) return Promise.reject(node.flags & ASYNC ? node.a.error : node.value);
+  const f = node.flags;
+  if ((f & (WAITING | NOT_READY)) === 0 || node.a === undefined) {
+    if (f & ERRORED) return Promise.reject(f & ASYNC ? node.a.error : node.value);
     return Promise.resolve(node.value);
   }
-  const a = node.a;
+  const a = recordOf(node);
   return new Promise((resolve, reject) => {
     (a.waiters || (a.waiters = [])).push([resolve, reject]);
   });
@@ -1674,28 +1836,40 @@ export function _asyncError(read) {
 
 /**
  * @internal createResource's mutate(): make `value` the computed's value now,
- * as a landing would, superseding a run in flight.
+ * as a landing would. A run in flight is superseded (its request aborted), and
+ * what waits for it has the value: refresh() promises, and a transition the
+ * run belonged to, which stops waiting for it.
  */
 export function _setAsyncValue(read, value) {
   const node = read[NODE];
   if (node.flags & DISPOSED) return;
   makeAsync(node);
+  const a = node.a;
   if (node.flags & WAITING) {
-    voidRun(node);
-    node.flags &= ~WAITING;
+    if (a.ac !== null) a.ac.abort();
+    endFlight(a);
   }
+  settleOutcome(a, value, false);
+  if (a.tx !== null) txOps.drop(node);
   apply(node, value, false);
 }
 
 /**
- * @internal An error boundary's reset: fetch again the async computeds whose
- * errors it caught. Errors that are not an async computed's are ignored.
+ * @internal Where the error a read just threw came from, for the boundary
+ * that catches it: the async computed run that failed with it, or null.
  */
-export function _retryErrors(errors) {
-  if (errorSources === null) return;
-  for (const err of errors) {
-    const node = err !== null && (typeof err === 'object' || typeof err === 'function') ? errorSources.get(err) : undefined;
-    if (node !== undefined && (node.flags & (ERRORED | DISPOSED)) === ERRORED) {
+export function _errorSource(err) {
+  return err === thrownError ? thrownFrom : null;
+}
+
+/**
+ * @internal An error boundary's reset: fetch again the async computed runs
+ * whose errors it caught (see _errorSource), unless one has run again since.
+ */
+export function _retryErrors(sources) {
+  for (const s of sources) {
+    const node = s.node;
+    if ((node.flags & (ERRORED | DISPOSED)) === ERRORED && node.a.run === s.run) {
       node.flags |= DIRTY;
       refreshUntracked(node);
     }
@@ -1703,16 +1877,27 @@ export function _retryErrors(errors) {
 }
 
 /**
+ * @internal Count work settled() waits for until the returned function is
+ * called (once; later calls do nothing).
+ */
+export function _beginWork() {
+  installAsync();
+  tracked++;
+  let open = true;
+  return () => {
+    if (!open) return;
+    open = false;
+    tracked--;
+    quietSoon();
+  };
+}
+
+/**
  * @internal Count `promise` as work settled() waits for until it settles (a
  * thenable a <Suspense> waits on).
  */
 export function _trackWork(promise) {
-  installAsync();
-  tracked++;
-  const done = () => {
-    tracked--;
-    quietSoon();
-  };
+  const done = _beginWork();
   promise.then(done, done);
 }
 
@@ -1726,18 +1911,23 @@ export function _onQuiet(hook) {
 
 /**
  * @internal 0 when nothing is queued, flushing, in flight or open; 1 when only
- * effects are queued to run (a flush is on its way); 2 while an async computed
- * is fetching, a transition is open or a <Suspense> waits on a promise.
+ * effects are queued to run (a flush is on its way: one is scheduled here if
+ * the code that queued them did not); 2 while an async computed is fetching,
+ * an async iterable is being pulled, a transition is open or a <Suspense>
+ * waits.
  */
 export function _busy() {
-  if (inFlight !== 0 || tracked !== 0 || (txOps !== null && openTx !== 0)) return 2;
-  return queueLen === 0 && userQueueLen === 0 && !flushScheduled && !flushing ? 0 : 1;
+  if (inFlight !== 0 || streams !== 0 || tracked !== 0 || opened.size !== 0) return 2;
+  if (queueLen === 0 && userQueueLen === 0 && !flushScheduled && !flushing) return 0;
+  if (batchDepth === 0 && !flushing) scheduleFlush();
+  return 1;
 }
 
 /**
  * @internal A computed (useOptimistic's view) whose function's direct reads of
- * async values return their last value while a new one is fetched, so what it
- * adds on top shows at once.
+ * async values return their last value while a new one is fetched, and their
+ * committed value while one that landed inside a transition waits for its
+ * commit, so what it adds on top shows at once.
  */
 export function _latestComputed(fn) {
   const node = createComputedNode(fn);
@@ -1751,7 +1941,9 @@ export function _latestComputed(fn) {
     }
   };
   own(node);
-  return computedReader(node);
+  const read = computedReader(node);
+  read[NODE] = node;
+  return read;
 }
 
 // ---------------------------------------------------------------------------
@@ -1766,27 +1958,36 @@ export function _latestComputed(fn) {
 // effect the transition already holds, which then commits with it.
 //
 // Holding is taking out of the flush queue (capture): the effects a write
-// inside the transition queued are moved to the transition, and a write
-// outside it cannot queue them again while they are dirty. So that the
-// effects `fn`'s writes reach are queued by those writes, what earlier writes
-// queued is flushed first, when a flush may start there; inside a flush, a
-// batch() or an effect, an effect an earlier write queued already is not
-// held. An async computed's companion is never held: it starts the fetch.
+// inside the transition queued are moved to the transition, still marked
+// QUEUED, so neither a write outside it nor the enqueue of a child effect
+// queues them again before the commit. So that the effects `fn`'s writes
+// reach are queued by those writes, what earlier writes queued is flushed
+// first, when a flush may start there; inside a flush, a batch() or an effect,
+// an effect an earlier write queued already is not held. An async computed's
+// companion is never held: it starts the fetch.
 //
 // Attribution: a run started by a write inside `fn`, by a refresh inside it,
 // or while its async function is still running (after an `await`) belongs to
-// the transition. Two transitions that share a run in flight are merged and
-// commit together, so a newer one supersedes an older one for the same state:
-// the older state never shows. Without an async context, a run started during
-// the async part of one is attributed to every transition whose async
-// function is running then.
+// the transition. Before it commits, the computeds its held effects read that
+// its writes made dirty are brought up to date inside it, so a run they start
+// then (a computed that answered synchronously until now) belongs to it too.
+// Two transitions that share a run in flight are merged and commit together,
+// so a newer one supersedes an older one for the same state: the older state
+// never shows. So are two that reach one effect: one holds it, and the other
+// wrote something it reads (entangled). Without an async context, a run
+// started during the async part of one is attributed to every transition
+// whose async function is running then.
 
-/** Transitions not committed yet. */
-let openTx = 0;
+/** Transitions not committed yet (one merged into another is not counted). @type {Set<any>} */
+const opened = /* @__PURE__ */ new Set();
 /** Effects an urgent write queued inside a capture: they are not held. @type {Set<any>} */
-const urgent = new Set();
+const urgent = /* @__PURE__ */ new Set();
 /** Transitions whose async function is still running. @type {Set<any>} */
-const actionTxs = new Set();
+const actionTxs = /* @__PURE__ */ new Set();
+/** The transition that holds each held effect (merged ones resolve through txRoot). @type {WeakMap<any, any> | null} */
+let heldIn = null;
+/** Development: a transition's commit is running its held effects. */
+let devCommitting = 0;
 
 // What the async machinery calls on a computed that a transition waits for
 // (`a.tx`) or on a run that is starting. A transition exists only once
@@ -1794,14 +1995,17 @@ const actionTxs = new Set();
 function installTx() {
   if (txOps !== null) return;
   installAsync();
+  heldIn = new WeakMap();
+  onWrite = wrote;
   txOps = { attribute, land: txLand, drop: txDrop, answered };
 }
 
 function newTx() {
-  openTx++;
-  return {
+  const t = {
     /** @type {Set<any>} */ pending: new Set(),
     /** @type {Set<any>} */ held: new Set(),
+    /** @type {Set<any>} */ staged: new Set(),
+    /** @type {Set<any>} */ writes: new Set(),
     /** @type {Array<() => void>} */ onCommit: [],
     /** @type {any[]} */ calls: [],
     open: 0,
@@ -1809,8 +2013,9 @@ function newTx() {
     /** @type {any} */ into: null,
     done: false,
     committing: false,
-    /** @type {Set<any> | null} */ devWrites: null,
   };
+  opened.add(t);
+  return t;
 }
 
 function txRoot(t) {
@@ -1824,15 +2029,22 @@ function merge(a, b) {
   if (a === b) return a;
   for (const c of b.pending) a.pending.add(c);
   for (const e of b.held) a.held.add(e);
+  for (const c of b.staged) a.staged.add(c);
+  for (const n of b.writes) a.writes.add(n);
   a.onCommit.push(...b.onCommit);
   a.calls.push(...b.calls);
   a.open += b.open;
   a.actions += b.actions;
-  if (b.devWrites !== null) for (const n of b.devWrites) (a.devWrites || (a.devWrites = new Set())).add(n);
   if (actionTxs.delete(b) && a.actions > 0) actionTxs.add(a);
   b.into = a;
-  openTx--;
+  opened.delete(b);
+  if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'transition:merged', b, { into: a });
   return a;
+}
+
+// A signal written: the transition whose function is running records it.
+function wrote(node) {
+  if (currentTx !== null) txRoot(currentTx).writes.add(node);
 }
 
 // The transition a run now starting belongs to, if any (see Attribution).
@@ -1843,14 +2055,18 @@ function attribute(c, a) {
   for (const w of actionTxs) t = t === null ? w : merge(t, w);
   if (t !== null) t = txRoot(t);
   a.tx = t;
-  if (t !== null) t.pending.add(c);
+  if (t !== null) {
+    t.pending.add(c);
+    if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'transition:held', t, t);
+  }
 }
 
 // A run of `c` that transition `a.tx` waits for landed. If the transition is
 // still open it lands inside it: what it reaches on screen is held with the
 // rest of the transition, and the async values it makes fetch again (a team
 // that depends on a user) join it, so the transition commits once those have
-// landed too.
+// landed too. Until the commit, useOptimistic's view reads the value it had
+// before (STAGED), so an overlay shows on top of what is committed.
 function txLand(c, result, isError) {
   const a = c.a;
   const t = txRoot(a.tx);
@@ -1859,8 +2075,14 @@ function txLand(c, result, isError) {
     apply(c, result, isError);
     return;
   }
+  if (!isError && (c.flags & (NO_VALUE | STAGED)) === 0) {
+    a.before = c.value;
+    c.flags |= STAGED;
+    t.staged.add(c);
+  }
   capture(t, () => apply(c, result, isError));
   t.pending.delete(c);
+  if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'transition:held', t, t);
   maybeCommit(t);
 }
 
@@ -1871,6 +2093,7 @@ function txDrop(c) {
   const t = txRoot(a.tx);
   a.tx = null;
   t.pending.delete(c);
+  if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'transition:held', t, t);
   maybeCommit(t);
 }
 
@@ -1898,6 +2121,7 @@ function capture(t, fn) {
     t = txRoot(t);
     queueLen = keep(t, queue, fromRender, queueLen);
     userQueueLen = keep(t, userQueue, fromUser, userQueueLen);
+    if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'transition:held', t, t);
     if (batchDepth === 0) urgent.clear();
     if (batchDepth === 0 && !flushing) scheduleFlush();
   }
@@ -1917,8 +2141,8 @@ function keep(t, list, from, to) {
       a.tx = a.tx === null || txRoot(a.tx).done ? t : merge(a.tx, t);
       list[n++] = e;
     } else {
-      e.flags &= ~QUEUED;
       t.held.add(e);
+      /** @type {WeakMap<any, any>} */ (heldIn).set(e, t);
     }
   }
   for (let i = n; i < to; i++) list[i] = undefined;
@@ -1929,7 +2153,11 @@ function keep(t, list, from, to) {
 // after the flush that starts whatever its last landing made fetch again
 // (which then joins it), and never in the middle of an evaluation or a flush.
 function maybeCommit(t) {
-  if (t.done || t.committing || t.open > 0 || t.pending.size > 0) return;
+  if (t.done || t.committing || t.pending.size > 0) return;
+  if (t.open > 0) {
+    if (t.open === t.actions) settleJoined(t);
+    return;
+  }
   t.committing = true;
   queueMicrotask(() => {
     t.committing = false;
@@ -1937,39 +2165,182 @@ function maybeCommit(t) {
   });
 }
 
+// Only async actions keep `t` open, and nothing else it waits for is left:
+// the calls that joined it (a transition started inside an action, or one
+// entangled with it) resolve now, and commit with the actions. An action that
+// awaits one, as `await navigate()` does, would otherwise wait for its own
+// commit.
+function settleJoined(t) {
+  let n = 0;
+  for (const call of t.calls) {
+    if (call.acting || call.failed) t.calls[n++] = call;
+    else call.settle();
+  }
+  t.calls.length = n;
+}
+
 function commit(t) {
   if (t.done || t.into !== null || t.open > 0 || t.pending.size > 0) return;
-  t.done = true;
-  openTx--;
-  // One commit: overlays drop and held effects run, with what landed inside.
-  batch(() => {
-    for (const fn of t.onCommit) fn();
-    for (const e of t.held) {
-      if ((e.flags & (DISPOSED | QUEUED)) === 0 && (e.flags & (DIRTY | PENDING))) enqueue(e);
+  discover(t);
+  if (t.open > 0 || t.pending.size > 0) return;
+  if (opened.size > 1) {
+    const other = entangled(t);
+    if (other !== null) {
+      maybeCommit(merge(t, other));
+      return;
     }
-  });
+  }
+  t.done = true;
+  opened.delete(t);
+  if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'transition:commit', t, t);
+  if (__DEV__) devCommitting++;
+  try {
+    // One commit: overlays drop, staged values become what the optimistic
+    // view reads, and held effects run, with what landed inside. Every held
+    // effect is unmarked before any is queued, so each is queued after the
+    // held effects above it, as a flush queue orders them.
+    batch(() => {
+      for (const fn of t.onCommit) fn();
+      for (const c of t.staged) unstage(c);
+      for (const e of t.held) e.flags &= ~QUEUED;
+      for (const e of t.held) {
+        if ((e.flags & (DISPOSED | QUEUED)) === 0 && (e.flags & (DIRTY | PENDING))) enqueue(e);
+      }
+    });
+  } finally {
+    if (__DEV__) devCommitting--;
+  }
   for (const call of t.calls) call.settle();
   quietSoon();
+}
+
+// Before `t` commits: bring the computeds its held effects read, that its
+// writes made dirty, up to date inside it, so a run one starts now belongs to
+// `t`. A held effect that reads, directly or through computeds, a value with
+// a run in flight would only be held again after the commit, so `t` waits for
+// that run too: a run no open transition has (one a pending indicator
+// started), or one another transition has, which then commits with `t`.
+function discover(t) {
+  capture(t, () => {
+    for (const e of t.held) {
+      if (e.flags & DISPOSED) continue;
+      for (let l = e.depHead; l !== null; l = l.nextDep) {
+        const d = l.dep;
+        if ((d.flags & COMPUTED) !== 0 && (d.flags & (DIRTY | PENDING)) !== 0 && (d.flags & (RUNNING | DISPOSED)) === 0) {
+          try { refresh(d); } catch (err) { if (err !== DEFER) throw err; }
+        }
+      }
+    }
+  });
+  const seen = new Set();
+  for (const e of txRoot(t).held) {
+    if (e.flags & DISPOSED) continue;
+    const stack = [e];
+    while (stack.length > 0) {
+      const n = stack.pop();
+      for (let l = n.depHead; l !== null; l = l.nextDep) {
+        const d = l.dep;
+        if ((d.flags & COMPUTED) === 0 || seen.has(d)) continue;
+        seen.add(d);
+        if (d.flags & WAITING) {
+          const a = d.a;
+          const u = a.tx !== null ? txRoot(a.tx) : null;
+          const r = txRoot(t);
+          if (u === null || u.done) {
+            a.tx = r;
+            r.pending.add(d);
+          } else if (u !== r) {
+            merge(r, u);
+          }
+        }
+        stack.push(d);
+      }
+    }
+  }
+}
+
+// Another open transition that reaches an effect along with `t`: it wrote
+// something an effect `t` holds reads, or holds an effect that reads
+// something `t` wrote. Or null.
+function entangled(t) {
+  for (const u of opened) {
+    if (u === t) continue;
+    if (u.writes.size > 0 && holdsReader(t, u.writes)) return u;
+    if (t.writes.size > 0 && holdsReader(u, t.writes)) return u;
+  }
+  return null;
+}
+
+// Whether an effect `t` holds reads, directly or through computeds, one of `nodes`.
+function holdsReader(t, nodes) {
+  const seen = new Set();
+  for (const e of t.held) {
+    if (e.flags & DISPOSED) continue;
+    const stack = [e];
+    while (stack.length > 0) {
+      const n = stack.pop();
+      for (let l = n.depHead; l !== null; l = l.nextDep) {
+        const d = l.dep;
+        if (nodes.has(d)) return true;
+        if ((d.flags & COMPUTED) !== 0 && !seen.has(d)) {
+          seen.add(d);
+          stack.push(d);
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// A value that landed inside a transition is committed: the optimistic views
+// that read the value from before see the new one.
+function unstage(c) {
+  const a = c.a;
+  c.flags &= ~STAGED;
+  a.before = undefined;
+  if (a.viewed) {
+    a.viewed = false;
+    reach(c.subHead);
+  }
 }
 
 /**
  * @internal startTransition(fn, onStart?). `onStart(t, call)` runs before
  * `fn`, outside the transition: what it writes shows at once (useTransition's
- * isPending, an optimistic overlay), and `call.abandon()` stops waiting for an
- * async `fn`. Returns a promise that resolves when the transition commits, and
- * rejects with what an async `fn` rejected with (after the commit). A
- * synchronous throw from `fn` is rethrown.
+ * isPending, an optimistic overlay), `call.abandon()` stops waiting for an
+ * async `fn` (also before it has returned), and `call.owner`, if it sets one,
+ * is where a rejection goes (the nearest error boundary above it). Returns a
+ * promise that resolves when the transition commits, and rejects with what an
+ * async `fn` rejected with (after the commit). A synchronous throw from `fn`
+ * is rethrown.
  */
 export function _startTransition(fn, onStart) {
   installTx();
   const outer = currentTx;
   if (outer === null && !flushing && batchDepth === 0 && runningEffect === null && evalDepth === 0) flush();
   const t = outer !== null ? txRoot(outer) : newTx();
+  if (__DEV__ && outer === null && __devtools?.onRecord) devHook('onRecord', 'transition:open', t, ownerNow());
   t.open++;
-  const call = { error: undefined, failed: false, acting: false, settle: noop, abandon: noop };
+  const call = { error: undefined, failed: false, acting: false, gone: false, owner: null, settle: noop, abandon: noop };
   const done = new Promise((resolve, reject) => {
-    call.settle = () => (call.failed ? reject(call.error) : resolve(undefined));
+    call.settle = () => {
+      if (!call.failed) {
+        resolve(undefined);
+        return;
+      }
+      // As in React 19, the error boundary above the component whose
+      // transition it was shows the error. The promise still rejects, but is
+      // not reported as unhandled once a boundary took the error.
+      if (call.owner !== null && _handleError(call.owner, call.error) === HANDLED) done.catch(noop);
+      reject(call.error);
+    };
   });
+  call.abandon = () => {
+    call.gone = true;
+    if (!call.acting) return;
+    call.acting = false;
+    endAction(t);
+  };
   t.calls.push(call);
   if (onStart !== undefined) _urgent(() => onStart(t, call));
   /** @type {any} */
@@ -1981,23 +2352,20 @@ export function _startTransition(fn, onStart) {
     throw err;
   }
   if (result != null && typeof result.then === 'function') {
-    const r = txRoot(t);
-    r.open++;
-    r.actions++;
-    actionTxs.add(r);
-    call.acting = true;
-    // Closing the async part early (useTransition's component unmounted) lets
-    // the transition commit without waiting for a function nothing shows.
-    call.abandon = () => {
-      if (!call.acting) return;
-      call.acting = false;
-      endAction(t);
-    };
     Promise.resolve(result).then(call.abandon, (err) => {
       call.failed = true;
       call.error = err;
       call.abandon();
     });
+    // An async fn keeps the transition open until it settles, unless what
+    // started it left first (in fn's synchronous part included).
+    if (!call.gone) {
+      const r = txRoot(t);
+      r.open++;
+      r.actions++;
+      actionTxs.add(r);
+      call.acting = true;
+    }
   }
   // The sync part ends after the flush its writes scheduled, which starts the
   // async work they caused.
@@ -2045,6 +2413,44 @@ export function _urgent(fn) {
   }
 }
 
+/**
+ * @internal useOptimistic: an overlay shows at once, also where an open
+ * transition holds a reader of the view (a value landed inside it). Those
+ * readers, of `read` directly or through computeds, run in the next flush
+ * instead of at its commit. Call it inside _urgent.
+ */
+export function _runHeldReaders(read) {
+  if (heldIn === null) return;
+  const held = heldIn;
+  const seen = new Set();
+  const stack = [read[NODE]];
+  while (stack.length > 0) {
+    const n = stack.pop();
+    for (let l = n.subHead; l !== null; l = l.nextSub) {
+      const s = l.sub;
+      if (s.flags & EFFECT) {
+        const t = held.get(s);
+        if (t === undefined) continue;
+        const r = txRoot(t);
+        held.delete(s);
+        if (r.done || !r.held.delete(s)) continue;
+        if (__DEV__ && __devtools?.onRecord) devHook('onRecord', 'transition:held', r, r);
+        s.flags &= ~QUEUED;
+        if ((s.flags & DISPOSED) === 0) enqueue(s);
+      } else if ((s.flags & COMPUTED) !== 0 && !seen.has(s)) {
+        seen.add(s);
+        stack.push(s);
+      }
+    }
+  }
+  if (batchDepth === 0 && !flushing) scheduleFlush();
+}
+
+/** @internal Development: whether a transition's commit is running the effects it held. */
+export function _committingTransition() {
+  return __DEV__ && devCommitting > 0;
+}
+
 // ---------------------------------------------------------------------------
 // Effect
 // ---------------------------------------------------------------------------
@@ -2066,8 +2472,18 @@ export function effect(fn, opts) {
   };
   if ((opts != null && opts.phase === 'user') || (parent !== null && (parent.flags & USER))) e.flags |= USER;
   if (__DEV__) {
-    if (opts != null && opts.name) e.devName = opts.name;
+    if (nextBinding !== null) {
+      e.devName = nextBinding.name;
+      e.devBinding = nextBinding.binding;
+      clearNextBinding();
+    }
+    if (opts != null) {
+      if (opts.name) e.devName = opts.name;
+      if (opts.binding) e.devBinding = opts.binding;
+    }
+    if (arguments[2]) e.devName = devNamed(e.devName, arguments[2]);
     if (__devtools) devHook('onEffectCreate', e);
+    if (__devtools?.trace) devHook('onEffectBegin', e, null, parent);
     // Stamped before the run, so a write the run makes to its own dependency
     // is the cause of the re-run it triggers.
     e.devSeen = devSeq;
@@ -2207,11 +2623,14 @@ function runEffect(e) {
     if (e.flags & DISPOSED) return;               // checking ran code that disposed it
   }
   if (dirty) executeEffect(e);
-  else e.flags &= ~PENDING;
+  else {
+    if (__DEV__ && (f & PENDING) && __devtools?.trace) devHook('onEffectSkip', e);
+    e.flags &= ~PENDING;
+  }
 }
 
 function executeEffect(e) {
-  const causes = __DEV__ && __devtools ? devCauses(e) : null;
+  const causes = __DEV__ && devTracksCauses() ? devCauses(e) : null;
   if (e.owned !== null) {
     disposeRun(e);
     if (e.flags & DISPOSED) return;               // a cleanup it owned disposed it
@@ -2233,11 +2652,13 @@ function executeEffect(e) {
   }
   if (__DEV__) {
     e.devSeen = devSeq;
+    if (__devtools?.trace) devHook('onEffectBegin', e, causes);
     if (devRuns !== null) devRuns.set(e, (devRuns.get(e) || 0) + 1);
   }
   try {
     const result = e.fn();
     if (typeof result === 'function') e.cleanup = result;
+    else if (__DEV__) devAsyncEffect(e, result);
   } catch (err) {
     handleEffectError(e, err, false);
   }
@@ -2641,7 +3062,12 @@ export function createRoot(fn) {
 // parent, so errors from a row's effects reach the parent's handlers.
 export function _createItemScope(fn) {
   const parent = ownerNow();
-  return runOwned(createOwner(parent, 0), parent, fn);
+  return runOwned(__DEV__ ? devRow(createOwner(parent, 0)) : createOwner(parent, 0), parent, fn);
+}
+
+function devRow(row) {
+  row.devScope = 'row';
+  return row;
 }
 
 function runOwned(scope, parent, fn) {
@@ -2668,10 +3094,13 @@ function runOwned(scope, parent, fn) {
  * The owner of a component (render.js), created under the current owner like
  * a root: the component's hooks, context values and dev metadata live on it,
  * and disposing it disposes everything the component's body and bindings
- * created. Pair with _runOwned to run code under it.
+ * created. Pair with _runOwned to run code under it. `props` identifies the
+ * instance across the attempts of a component that suspends and is rendered
+ * again in place with the same props (use() counts its suspensions by it).
  * @param {any} Component
+ * @param {any} [props]
  */
-export function _componentOwner(Component) {
+export function _componentOwner(Component, props) {
   const now = ownerNow();
   const parent = now === null ? null : scopeOf(now);
   /** @type {WhatOwner} */
@@ -2683,6 +3112,7 @@ export function _componentOwner(Component) {
     prevSibling: null, nextSibling: null,
     dropped: 0,
     Component,
+    props,
     hooks: null,
     hookIndex: 0,
     context: null,
@@ -2868,6 +3298,8 @@ export function _devError(err, context) {
 
 function devSignal(sig, node, debugName) {
   node.sig = sig;
+  const where = ownerNow();
+  if (where !== null && typeof WeakRef !== 'undefined') node.devOwnerRef = new WeakRef(where);
   if (debugName) sig._debugName = debugName;
   if (__devtools) devHook('onSignalCreate', sig);
 }
@@ -2875,13 +3307,28 @@ function devSignal(sig, node, debugName) {
 function devComputed(read, node) {
   read[NODE] = node;
   node.sig = read;
+  if (node.owner === null) node.devOwner = ownerNow();
   if (__devtools) devHook('onEffectCreate', node);
 }
 
 // How a diagnostic names an effect or computed: the compiler's name for it,
 // else its function's name, else the start of its source.
 function devName(node) {
-  return devLabel(node) || String(node.fn).slice(0, 60);
+  return devLabel(node) || String(devFn(node)).slice(0, 60);
+}
+
+function devAsyncState(c, status, run, error) {
+  c.devAsync = status;
+  if (run !== undefined) {
+    c.devFlight = { run, startedAt: Date.now() };
+  } else {
+    c.devFlight = null;
+  }
+  if (status === 'errored') {
+    try { c.devLastError = String(error?.message ?? error).slice(0, 300); }
+    catch { c.devLastError = 'Error could not be displayed'; }
+  }
+  if (__devtools?.onRecord) devHook('onRecord', `async:${run !== undefined ? 'start' : status}`, c);
 }
 
 // The compiler's name for a node, unless that is only the primitive's name
@@ -2889,13 +3336,29 @@ function devName(node) {
 // name of its own; else its function's name; else ''.
 function devLabel(node) {
   const meta = node.devName ? devSplit(node.devName)[0] : '';
-  return meta && !(meta === (node.flags & EFFECT ? 'effect' : 'computed') && node.fn.name) ? meta : node.fn.name;
+  const name = devFn(node).name;
+  return meta && !(meta === (node.flags & EFFECT ? 'effect' : 'computed') && name) ? meta : name;
+}
+
+// The user's function of a node, through a development or held wrapper
+// around it (`inner`).
+function devFn(node) {
+  const fn = node.fn;
+  return fn.inner !== undefined ? fn.inner : fn;
+}
+
+// A runtime name given the compiler's location, unless it carries its own.
+function devNamed(name, meta) {
+  if (!meta || !name || devSplit(name)[1] !== null) return name || meta;
+  return `${name}@${devSplit(meta)[1]}`;
 }
 
 // "name@path:line:column" (what-compiler's development metadata) as
 // [name, location]. The name never holds an "@"; the path may.
+/** @returns {[string, string | null]} */
 function devSplit(meta) {
-  const at = meta.indexOf('@');
+  if (typeof meta !== 'string') return ['', null];
+  const at = /@(?=[^\n]+:\d+:\d+$)/.exec(meta)?.index ?? -1;
   return at === -1 ? [meta, null] : [meta.slice(0, at), meta.slice(at + 1)];
 }
 
@@ -2912,11 +3375,15 @@ if (__DEV__) {
     /** @this {any} */
     value: function toString() {
       const text = Function.prototype.toString.call(this);
-      const node = kind === 'computed' ? this[NODE] : undefined;
-      const name = this._debugName || (node ? devName(node) : '(unnamed)');
+      const node = this[NODE];
+      const rawName = this._debugName;
+      const name = rawName ? devSplit(rawName)[0] : kind === 'computed' && node ? devName(node) : '(unnamed)';
+      const where = __ownerPath(this);
       report('ERR_MISSING_SIGNAL_READ', {
         data: { signalName: name },
-        subject: { kind, id: (node || this)._devId, name },
+        subject: { kind, id: (kind === 'computed' ? node : this)?._devId, name },
+        owner: where,
+        loc: where.loc,
       });
       return text;
     },
@@ -2929,7 +3396,7 @@ if (__DEV__) {
 function devWriteInComputed(sig, c) {
   const computedName = devName(c);
   report('ERR_SIGNAL_WRITE_IN_COMPUTED', {
-    data: { computedName, signalName: sig._debugName || '(unnamed)' },
+    data: { computedName, signalName: sig._debugName ? devSplit(sig._debugName)[0] : '(unnamed)' },
     subject: { kind: 'computed', id: c._devId, name: computedName },
   });
 }
@@ -2943,9 +3410,12 @@ function devReportLoop() {
   const writers = stuck.filter((e) => devWriters?.has(e));
   for (const e of writers.length > 0 ? writers : stuck) {
     const effectName = devName(e);
+    const where = __ownerPath(e);
     report('ERR_INFINITE_EFFECT', {
       data: { effectName, rounds: devRuns?.get(e) || 0 },
       subject: { kind: 'effect', id: e._devId, name: effectName },
+      owner: where,
+      loc: where.loc,
     });
   }
 }
@@ -2972,20 +3442,21 @@ function devAsyncEffect(e, result) {
 
 // Development: a write made outside every transition, from neither an effect
 // nor an event handler, while a transition that wrote the same signal still
-// waits for its async function: almost always that function writing again
-// after an await, which no longer counts as part of the transition. A write
-// inside a transition is recorded for the check.
+// waits for its async function. A heuristic: without an async context the
+// engine cannot tell which code made the write, and almost always it is that
+// function writing again after an await, which no longer counts as part of
+// the transition (a timer of its own looks the same). A write inside a
+// transition is recorded with what it wrote, read or not.
 function devWriteAfterAwait(sig, node) {
   if (currentTx !== null) {
-    const t = txRoot(currentTx);
-    (t.devWrites || (t.devWrites = new Set())).add(node);
+    txRoot(currentTx).writes.add(node);
     return;
   }
   if (actionTxs.size === 0 || runningEffect !== null) return;
   const view = typeof window !== 'undefined' ? /** @type {any} */ (window) : null;
   if (view !== null && view.event !== undefined) return;
   for (const t of actionTxs) {
-    if (t.devWrites !== null && t.devWrites.has(node)) {
+    if (t.writes.has(node)) {
       report('ERR_WRITE_AFTER_AWAIT', { data: { signalName: sig._debugName || '(unnamed)' } });
       return;
     }
@@ -3004,6 +3475,10 @@ function devNestedFlush() {
 // (onSignalCreate), a computed, an effect or a selector key as its node.
 function devHandle(node) {
   return node.flags & (COMPUTED | EFFECT | KEYED) ? node : node.sig;
+}
+
+function devTracksCauses() {
+  return __devtools != null && !__devtools.__isPreinstallBuffer && __devtools.trace !== false;
 }
 
 // "Why did this run": the dependencies whose value changed since the node's
@@ -3073,7 +3548,7 @@ export function __ownerOf(x) {
   if (!__DEV__ || x == null) return null;
   if (typeof x === 'object' && typeof x.nodeType === 'number') return devDomOwner(x);
   const node = devNodeOf(x);
-  return node != null && node.owner !== undefined ? node.owner : null;
+  return node?.owner ?? node?.devOwner ?? node?.devOwnerRef?.deref() ?? null;
 }
 
 /**
@@ -3090,17 +3565,21 @@ export function __ownerPath(x) {
   const path = /** @type {string[] & { loc: string | null }} */ (Object.assign([], { loc: null }));
   if (!__DEV__ || x == null) return path;
   let o = typeof x === 'object' && typeof x.nodeType === 'number' ? devDomOwner(x) : devNodeOf(x);
-  for (; o != null; o = o.owner) {
-    /** @type {string[] | null} */
+  for (; o != null; o = o.owner ?? o.devOwner ?? o.devOwnerRef?.deref()) {
+    /** @type {[string, string | null] | null} */
     let meta = null;
     if (o.Component !== undefined) {
       meta = o.devLoc ? devSplit(o.devLoc) : null;
       path.push(`<${(meta && meta[0]) || o.Component.displayName || o.Component.name || 'Anonymous'}>`);
     } else if (o.flags & (EFFECT | COMPUTED)) {
       meta = o.devName ? devSplit(o.devName) : null;
-      const kind = o.flags & EFFECT ? 'effect' : 'computed';
+      const kind = o.devBinding ? 'binding' : o.flags & EFFECT ? 'effect' : 'computed';
       const name = devLabel(o);
       if (name) path.push(name !== kind ? `${kind} "${name}"` : kind);
+    } else if (o.sig?._debugName) {
+      meta = devSplit(o.sig._debugName);
+    } else if (o.devScope) {
+      path.push(o.devScope);
     }
     if (path.loc === null && meta && meta[1]) path.loc = meta[1];
   }

@@ -1,58 +1,70 @@
 // What Framework - <Form>
 //
-// The no-JS server-action path works and is covered by the scaffold smoke test,
-// but reaching it meant hand-writing four exact things per form: the endpoint,
-// the `_action` id, the `what-csrf-token` field, and the `_redirect`. Getting the
-// CSRF field name wrong is silent: the form posts, the double-submit check
-// rejects it, and nothing on the page says why. This component is the one piece
-// that was missing between the forms module and a path that already worked.
+// A real <form method="post">, so it submits with JavaScript disabled, that
+// a mounted page runs as an action instead:
 //
 //   <Form action={createPost} redirect="/">
 //     <input name="title" required />
-//     <button>Publish</button>
+//     <SubmitButton />            // useFormStatus().pending() inside it
 //   </Form>
 //
-// Renders a real <form method="post">, so it submits with JavaScript disabled.
-// With JS, the client enhancer intercepts it and posts without a page reload.
+// `action` is a server action (what action() returns, or its id) or a client
+// function such as the dispatch of useActionState. Without JavaScript the
+// browser posts to the action endpoint (a server action) or to the
+// dispatch's permalink, and the endpoint answers 303 to `redirect`. Mounted,
+// the form handles its own submit: it runs the action with the form's data as
+// a transition, the status useFormStatus() reads inside it shows the
+// submission, and the form is reset once the action has succeeded.
+//
+// CSRF: the endpoint accepts a post the browser marks same-origin (Fetch
+// Metadata, or an Origin header), which is how a form on a cached page posts.
+// A token is only needed where a browser sends neither; when the page knows
+// the visitor's token (an uncached route's loader gets `ctx.csrfToken`), pass
+// it as `csrfToken` and the form carries it.
 
 import { h } from 'what-core';
+import { _formStatusContext, _formStatus } from 'what-core/internal';
+import { _callAction } from './actions.js';
 
 export const ACTION_ENDPOINT = '/__what_action';
+
+// Fields the endpoint reads itself; an enhanced submit does not pass them on.
+const RESERVED = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect']);
 
 // The action id lives on the callable wrapper that action() returns. Accepting
 // the function itself is the point: passing the id as a string means keeping two
 // spellings in sync by hand, which is the failure this component exists to stop.
-function resolveActionId(action) {
+function serverActionId(action) {
   if (typeof action === 'string') return action;
-  if (typeof action === 'function') {
-    const id = action._actionId;
-    if (id) return id;
-    // ERROR_CODES.FORM_ACTION_NOT_REGISTERED
-    throw Object.assign(
-      new Error(
-        '[what] <Form action={fn}>: that function is not a server action. ' +
-        'Wrap it with action() from what-server, or pass the action id as a string.'
-      ),
-      { code: 'ERR_FORM_ACTION_NOT_REGISTERED' },
-    );
-  }
+  if (typeof action === 'function') return action._actionId || null;
   // ERROR_CODES.FORM_ACTION_MISSING
   throw Object.assign(
-    new Error('[what] <Form> requires an `action` prop: a server action or its id.'),
+    new Error('[what] <Form> requires an `action` prop: a server action, its id, or a function.'),
     { code: 'ERR_FORM_ACTION_MISSING' },
   );
 }
 
 // On the server there is no document, so the per-request token must be handed
-// in: the adapter puts it on the loader context as `ctx.csrfToken`, and the
-// page returns it in loader data. On the client it can be recovered from the
-// page (meta tag, then cookie).
+// in: the adapter puts it on the loader context as `ctx.csrfToken`. On the
+// client it can be recovered from the page (meta tag, then cookie).
 function readClientCsrfToken() {
   if (typeof document === 'undefined') return null;
   const meta = document.querySelector('meta[name="what-csrf-token"]');
   if (meta) return meta.getAttribute('content');
   const match = document.cookie.match(/(?:^|;\s*)what-csrf=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+// The form's fields as the endpoint hands them to a server action: one value
+// per name, an array for a repeated name, reserved fields left out.
+function fieldsOf(formData) {
+  const data = {};
+  for (const [key, value] of formData.entries()) {
+    if (RESERVED.has(key)) continue;
+    if (key in data) data[key] = [].concat(data[key], value);
+    else data[key] = value;
+  }
+  return data;
 }
 
 export function Form({
@@ -64,44 +76,45 @@ export function Form({
   children,
   ...rest
 }) {
-  const actionId = resolveActionId(action);
+  const actionId = serverActionId(action);
   const token = csrfToken !== undefined ? csrfToken : readClientCsrfToken();
+  const status = _formStatus(method, action);
 
-  if (
-    token == null
-    && typeof process !== 'undefined'
-    && process.env?.NODE_ENV !== 'production'
-  ) {
-    // Both halves of the contract, because only naming the first one sends
-    // developers looking for a token on a cached page that will never have one.
-    console.warn(
-      `[what] <Form action="${actionId}"> has no CSRF token. Pass one: the adapter hands ` +
-      'the per-request token to the route loader as `ctx.csrfToken`, so return it in ' +
-      'loader data and set `csrfToken` on the form. Cached routes (page mode "static" or ' +
-      '"hybrid") have no per-visitor token by design, since their HTML is shared, so a ' +
-      'form that must submit without JavaScript belongs on a "server" mode route. ' +
-      'Otherwise the double-submit check rejects the POST and the failure is silent.'
-    );
+  const hidden = [];
+  if (actionId !== null) {
+    hidden.push(h('input', { type: 'hidden', name: '_action', value: actionId }));
+    if (token) hidden.push(h('input', { type: 'hidden', name: 'what-csrf-token', value: token }));
+    if (redirect) hidden.push(h('input', { type: 'hidden', name: '_redirect', value: redirect }));
   }
 
-  const hidden = [
-    h('input', { type: 'hidden', name: '_action', value: actionId }),
-    h('input', { type: 'hidden', name: 'what-csrf-token', value: token || '' }),
-  ];
-  if (redirect) {
-    hidden.push(h('input', { type: 'hidden', name: '_redirect', value: redirect }));
-  }
-
+  /** @type {Record<string, any>} */
   const props = {
     ...rest,
     method,
-    action: rest.action || ACTION_ENDPOINT,
-    'data-action': actionId,
+    action: rest.action || (actionId !== null ? ACTION_ENDPOINT : action.permalink),
   };
-  // `data-enhance` is the selector enhanceForms() looks for. Opting out leaves a
-  // plain HTML form, which still works: that is the whole point of the design.
-  if (enhance) props['data-enhance'] = '';
+  if (actionId !== null) props['data-action'] = actionId;
+  if (enhance) {
+    // `data-enhance` is what enhanceForms() looks for on a page that does
+    // not mount its forms. A mounted form runs its submit itself.
+    props['data-enhance'] = '';
+    props.onsubmit = (event) => {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const form = event.currentTarget;
+      const formData = new FormData(form, event.submitter || undefined);
+      status.submit(formData, async (data) => {
+        if (actionId === null) await action(data);
+        else if (typeof action === 'function') await action(fieldsOf(data));
+        else await _callAction(actionId, [fieldsOf(data)]);
+        form.reset();
+      }).catch((error) => {
+        form.dispatchEvent(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
+      });
+    };
+  }
 
   const kids = children == null ? [] : (Array.isArray(children) ? children : [children]);
-  return h('form', props, ...hidden, ...kids);
+  return h(_formStatusContext(), { value: status }, h('form', props, ...hidden, ...kids));
 }

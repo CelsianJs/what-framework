@@ -202,9 +202,11 @@ export default {
         PAGE_SIZE, { timeout: 5000 });
 
       // --- cmp:suspense-lazy ---------------------------------------------
-      // Hold the detail module in flight. The fallback is a real state on a
-      // cold cache; holding the request is how it stays on screen long enough
-      // to be read.
+      // Hold the detail module in flight. A navigation loads a lazy route's
+      // chunk before it commits (docs/DATA.md, "A lazy route keeps the old
+      // page"), so the pane being left stays on screen while the chunk is held
+      // and the Suspense fallback never shows; holding the request is how that
+      // state lasts long enough to be read.
       let releaseChunk;
       const chunkGate = new Promise((resolve) => { releaseChunk = resolve; });
       let chunkRequests = 0;
@@ -219,10 +221,17 @@ export default {
       const firstRowTitle = (await page.textContent(`[data-row="${firstRowId}"] .row-title`)).trim();
 
       const paneBefore = await page.locator('[data-pane-empty]').count();
+      await page.evaluate(() => {
+        window.__paneSkeletonSeen = false;
+        new MutationObserver(() => {
+          if (document.querySelector('[data-pane-skeleton]')) window.__paneSkeletonSeen = true;
+        }).observe(document.body, { childList: true, subtree: true });
+      });
       await page.click(`[data-open="${firstRowId}"]`);
-      await page.waitForSelector('[data-pane-skeleton]', { timeout: 10000 });
-      const skeletonShown = await page.locator('[data-pane-skeleton]').count();
+      for (let i = 0; i < 200 && chunkRequests === 0; i++) await page.waitForTimeout(50);
+      const paneWhileHeld = await page.locator('[data-pane-empty]').count();
       const detailWhileHeld = await page.locator('[data-detail]').count();
+      const busyWhileHeld = await page.getAttribute('.pane-route', 'aria-busy');
 
       releaseChunk();
       await page.waitForSelector(`[data-detail="${firstRowId}"]`, { timeout: 15000 });
@@ -231,16 +240,18 @@ export default {
         firstRowTitle,
         { timeout: 10000 },
       );
-      const skeletonAfter = await page.locator('[data-pane-skeleton]').count();
+      const skeletonSeen = await page.evaluate(() => window.__paneSkeletonSeen);
       const detailService = await page.textContent('[data-detail-service]');
+      await page.waitForFunction(() => document.querySelector('.pane-route')?.getAttribute('aria-busy') === 'false',
+        undefined, { timeout: 10000 });
 
       check('cmp:suspense-lazy',
-        paneBefore === 1 && chunkRequests === 1 && skeletonShown === 1 && detailWhileHeld === 0
-        && skeletonAfter === 0 && detailService.trim().length > 0,
-        'a lazy route reached by navigation shows the fallback, then replaces it',
+        paneBefore === 1 && chunkRequests === 1 && paneWhileHeld === 1 && detailWhileHeld === 0
+        && busyWhileHeld === 'true' && skeletonSeen === false && detailService.trim().length > 0,
+        'a lazy route reached by navigation keeps the pane being left, marked busy, until its chunk has loaded, then replaces it',
         `emptyPaneFirst=${paneBefore} chunkRequests=${chunkRequests}`
-        + ` fallbackWhileHeld=${skeletonShown} detailWhileHeld=${detailWhileHeld}`
-        + ` fallbackAfter=${skeletonAfter} resolvedService=${detailService.trim()}`);
+        + ` emptyPaneWhileHeld=${paneWhileHeld} busyWhileHeld=${busyWhileHeld} detailWhileHeld=${detailWhileHeld}`
+        + ` fallbackSeen=${skeletonSeen} resolvedService=${detailService.trim()}`);
 
       await page.unroute('**/panels/incident-detail.js', holdChunk);
 
@@ -491,6 +502,32 @@ export default {
       reporter.assert(title.length > 0 && diag.errors.length === 0,
         'a deep link into the client-routed pane renders the detail on first load',
         `title="${title}" errors=${diag.errors.length}`);
+    });
+
+    // === A first load shows the lazy pane's fallback =====================
+    // Where React shows a fallback: a boundary with nothing revealed yet. A
+    // cold load of the deep link holds the detail chunk, and the pane's
+    // Suspense shows its skeleton until the chunk lands. A navigation keeps
+    // revealed content instead (the cmp:suspense-lazy check above).
+    await withPage(browser, `${base}/health`, async (page, diag) => {
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      let requests = 0;
+      await page.route('**/panels/incident-detail.js', async (chunk) => {
+        requests += 1;
+        await gate;
+        await chunk.continue();
+      });
+      await page.goto(`${base}/incidents/INC-1042`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('[data-pane-skeleton]', { timeout: 15000 });
+      const detailWhileHeld = await page.locator('[data-detail]').count();
+      release();
+      await page.waitForSelector('[data-detail="INC-1042"]', { timeout: 15000 });
+      const skeletonAfter = await page.locator('[data-pane-skeleton]').count();
+      check('cmp:suspense-lazy',
+        requests === 1 && detailWhileHeld === 0 && skeletonAfter === 0 && diag.errors.length === 0,
+        'a lazy route on a first load, with nothing revealed yet, shows its boundary\'s fallback, then the route',
+        `chunkRequests=${requests} detailWhileHeld=${detailWhileHeld} fallbackAfter=${skeletonAfter} errors=${diag.errors.length}`);
     });
 
     log('ops-console checks complete');

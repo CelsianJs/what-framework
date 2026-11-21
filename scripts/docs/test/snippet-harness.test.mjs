@@ -132,7 +132,7 @@ mount(<Counter />, '#app');`;
 const FIXTURES = {
   good: { code: COUNTER },
   mountedForYou: { code: "import { signal } from 'what-framework';\nexport default function App() { const n = signal(1); return <p>{n}</p>; }" },
-  forCrash: { code: "import { For, signal } from 'what-framework';\nfunction List() { const items = signal([1, 2]); return <ul><For each={items()}>{(i) => <li>{i}</li>}</For></ul>; }" },
+  forCrash: { code: "function List() { const config = null; return <ul><li>{config.title}</li></ul>; }" },
   missingExport: { code: "import { useTween } from 'what-framework';" },
   unknownEntry: { code: "import { x } from 'what-framework/nope';" },
   oldPackage: { code: "import { signal } from 'what';" },

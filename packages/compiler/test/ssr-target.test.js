@@ -92,10 +92,10 @@ const a = _$ssrComponent(C, {
   a: 1
 }, []);`],
   ["keyed map", String.raw`const a = <ul>{items().map(it => <li key={it.id}>{it.n}</li>)}</ul>;`, String.raw`
-import { ssr as _$ssr, ssrRow as _$ssrRow, ssrList as _$ssrList } from "what-framework/ssr-runtime";
+import { ssr as _$ssr, ssrRow as _$ssrRow, ssrText as _$ssrText, ssrList as _$ssrList } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<ul>", "</ul>"];
 const _tmpl$1 = ["<li>", "</li>"];
-const a = _$ssr(_tmpl$0, () => _$ssrList(items(), it => _$ssrRow(_tmpl$1, () => it.n), true));`],
+const a = _$ssr(_tmpl$0, () => _$ssrList(items(), it => _$ssrRow(_tmpl$1, _$ssrText(it.n)), true));`],
   ["conditional", String.raw`const a = <p>{ok() ? <A /> : <b>no</b>}{x && <A />}</p>;`, String.raw`
 import { ssr as _$ssr, ssrText as _$ssrText, ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<p>", "", "</p>"];

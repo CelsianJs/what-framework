@@ -37,10 +37,11 @@
 // of a <script> or <style> cannot end its element, and a tag computed at run
 // time is a vnode the renderer checks with assertSafeTag.
 
-import { h, Fragment, Island } from 'what-core';
+import { h, Fragment } from 'what-core';
+import { _$Island } from 'what-core/render';
 import { isVNode } from 'what-core/internal';
-import { isUnsafeUrl } from 'what-core/internal/markup-rules';
-import { _isDevMode, _rawText, _resolveInnerHTML, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
+import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
+import { _afterOpen, _isDevMode, _rawText, _resolveInnerHTML, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml } from './compiled.js';
 
 // Compiled JSX: HTML, or HTML with what is rendered when it is placed. The
@@ -116,6 +117,11 @@ class Markup extends Html {
     }
     if (this.list) parts.push(ARRAY_CLOSE);
     return parts;
+  }
+
+  rootTag() {
+    const open = /^<([A-Za-z][\w:.-]*)/.exec(this.h);
+    return open === null ? null : open[1];
   }
 
   // Markup with no SVG or MathML placed in HTML defers into HTML. Anywhere
@@ -303,7 +309,7 @@ export function ssrFragment(children) {
 
 /** `<Comp client:mode />`: the island wrapper around the component. */
 export function ssrIsland(props, children) {
-  return h(Island, props, ...children);
+  return h(_$Island, props, ...children);
 }
 
 // --- Attributes ----------------------------------------------------------------
@@ -435,7 +441,7 @@ class Element extends Html {
     const open = keyed(hk, '<' + tag + renderAttrs(props) + '>');
     if (VOID_ELEMENTS.has(tag)) return open;
     const inner = _resolveInnerHTML(props);
-    const content = inner != null ? keyed(hk, String(inner)) : children === null ? '' : children.render(renderChild, hk, ns);
+    const content = inner != null ? keyed(hk, String(inner)) : _afterOpen(tag, ns) + (children === null ? '' : children.render(renderChild, hk, ns));
     return open + content + keyed(hk, '</' + tag + '>');
   }
 
@@ -445,12 +451,17 @@ class Element extends Html {
     if (VOID_ELEMENTS.has(tag)) return open;
     const inner = _resolveInnerHTML(props);
     if (inner != null) return open + String(inner) + '</' + tag + '>';
+    const head = open + _afterOpen(tag, ns);
     const content = children === null ? '' : children.parts(ns);
-    return typeof content === 'string' ? open + content + '</' + tag + '>' : [open, ...content, '</' + tag + '>'];
+    return typeof content === 'string' ? head + content + '</' + tag + '>' : [head, ...content, '</' + tag + '>'];
   }
 
   childNs(ns) {
     return this.children === null ? ns : this.children.childNs(ns);
+  }
+
+  rootTag() {
+    return this.tag;
   }
 }
 
@@ -481,6 +492,7 @@ class RawText extends Html {
   childNs(ns) {
     return ns;
   }
+
 }
 
 function collect(value, out) {
@@ -496,11 +508,14 @@ function collect(value, out) {
 
 /**
  * The children of a <script> or <style> whose text is not fixed, or not the
- * same in every namespace: the compiler's static strings, plain values and
- * reactive thunks, in order.
+ * same in every namespace, or of a <textarea> or <title> that are not all
+ * fixed: the compiler's static strings, plain values and reactive thunks, in
+ * order. A <textarea>'s or <title>'s text that is known now is escaped now,
+ * the same in every namespace, so the markup around it stays finished HTML.
  */
 export function ssrRawText(tag, pieces) {
   const children = [];
   collect(pieces, children);
+  if (TEXT_ONLY_ELEMENTS.has(tag) && children.every((c) => typeof c === 'string')) return escapeHtml(children.join(''));
   return new RawText(tag, children);
 }

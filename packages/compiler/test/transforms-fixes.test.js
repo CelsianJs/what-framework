@@ -172,7 +172,10 @@ describe('.map() lowering to _$mapArray', () => {
     // accessor and follows an item replaced under the same key.
     assert.match(code, /follow:\s*true/);
     assert.match(code, /\(_item\$0, _i\$0, item\) =>/);
-    assert.match(code, /\(\) => _\$item\(_item\$0\)\.name/, 'the read is a binding');
+    // A plain field is a text binding the row's item cell writes, read from
+    // the item through a reader hoisted to the module.
+    assert.match(code, /_\$field\(_el\$\d+, _item\$0, item\.name, void 0, _f\$0\)/, 'the read is a binding');
+    assert.match(code, /const _f\$0 = r => r\.name;/);
   });
 
   it('hands a row that reads only its key the raw item', () => {
@@ -282,8 +285,8 @@ describe('event modifiers', () => {
         return <button onclick__preventDefault__stopPropagation={fn}>x</button>;
       }
     `);
-    // Should produce an addEventListener with a wrapper that calls preventDefault
-    assert.match(codeUnderscore, /addEventListener\(\s*["']click["']/);
+    // Should produce a listener (_$on) with a wrapper that calls preventDefault
+    assert.match(codeUnderscore, /_\$on\(_el\$\d+,\s*["']click["']/);
     assert.match(codeUnderscore, /preventDefault/);
     assert.match(codeUnderscore, /stopPropagation/);
   });
@@ -311,7 +314,7 @@ describe('event modifiers', () => {
     // Regression: `onclick__totalyWrong` used to be classified as "no
     // modifiers", which emitted `el.$$onclick__totalyWrong = handler` —
     // a delegated-event property that never fires. Now it must warn AND
-    // route through addEventListener('click', handler) (modifier path).
+    // route through a listener for 'click' (modifier path).
     const origWarn = console.warn;
     const warnings = [];
     console.warn = (...args) => warnings.push(args.join(' '));
@@ -336,8 +339,8 @@ describe('event modifiers', () => {
       /\$\$onclick__totalyWrongUniqA/,
       'must not silently emit el.$$onclick__totalyWrongUniqA assignment'
     );
-    // Must route through addEventListener with the bare event name
-    assert.match(code, /addEventListener\(\s*["']click["']/);
+    // Must route through a listener with the bare event name
+    assert.match(code, /_\$on\(_el\$\d+,\s*["']click["']/);
   });
 
   it('mixed known+unknown modifiers: warns about unknown, applies known', () => {
@@ -361,7 +364,7 @@ describe('event modifiers', () => {
     );
     // The known modifier must still be applied — wrapper calls preventDefault
     assert.match(code, /preventDefault/);
-    assert.match(code, /addEventListener\(\s*["']click["']/);
+    assert.match(code, /_\$on\(_el\$\d+,\s*["']click["']/);
     // And the broken delegated-property form must not appear
     assert.doesNotMatch(code, /\$\$onclick__/);
   });
@@ -382,7 +385,7 @@ describe('event modifiers', () => {
     }
     // Should NOT route through addEventListener (no real modifiers)
     // Should use delegated event or direct assignment
-    assert.doesNotMatch(code, /addEventListener\(\s*["']click["']/,
+    assert.doesNotMatch(code, /_\$on\(_el\$\d+,\s*["']click["']/,
       'onclick__ with no real modifiers should not use addEventListener');
     // No warnings about unknown modifiers (empty string filtered out)
     const modWarnings = warnings.filter(w => /modifier/.test(w));

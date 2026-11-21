@@ -3,8 +3,25 @@
 // so TypeScript consumers need these; the package shipped without any types
 // until 0.13.1.
 
+export interface DevToolsSource {
+  owner?: string;
+  loc?: string;
+}
+
+export interface DevToolsAsyncState {
+  status: 'unresolved' | 'pending' | 'ready' | 'errored';
+  inFlight?: { run: number; startedAt: number };
+  lastError?: string;
+}
+
+export interface DevToolsHydration {
+  hydrated: true;
+  adopted: number;
+  created: number;
+}
+
 /** A tracked signal, as returned by {@link getSnapshot}. */
-export interface DevToolsSignal {
+export interface DevToolsSignal extends DevToolsSource {
   id: number;
   name: string;
   /** Read with `peek()`, so taking a snapshot never creates a subscription. */
@@ -15,10 +32,12 @@ export interface DevToolsSignal {
 }
 
 /** A tracked effect or computed, as returned by {@link getSnapshot}. */
-export interface DevToolsEffect {
+export interface DevToolsEffect extends DevToolsSource {
   id: number;
   name: string;
   kind: 'effect' | 'computed';
+  binding?: true;
+  async?: DevToolsAsyncState;
   /** Signals it read in its latest run. */
   depSignalIds: number[];
   /** Computeds (by their effect id) it read in its latest run. */
@@ -30,14 +49,15 @@ export interface DevToolsEffect {
 }
 
 /** A mounted component, as returned by {@link getSnapshot}. */
-export interface DevToolsComponent {
+export interface DevToolsComponent extends DevToolsSource {
   id: number;
   name: string;
   parentId: number | null;
 }
 
 /** A captured error. The buffer holds the most recent 100. */
-export interface DevToolsError {
+export interface DevToolsError extends DevToolsSource {
+  name?: string;
   message: string;
   stack: string | null;
   /** Where it came from: 'effect', 'effect-cleanup', 'cleanup' (an onCleanup callback), 'uncaught' or 'unhandled-rejection'. */
@@ -66,7 +86,12 @@ export type DevToolsEvent =
   | 'component:unmounted'
   | 'error:captured'
   /** A coded what-core diagnostic; the payload is a what-core DiagnosticEvent. */
-  | 'diagnostic';
+  | 'diagnostic'
+  | 'async:start' | 'async:land' | 'async:unresolved' | 'async:ready' | 'async:errored'
+  | 'transition:open' | 'transition:merged' | 'transition:commit'
+  | 'optimistic:add' | 'optimistic:drop'
+  | 'suspense:waiting' | 'suspense:revealed' | 'suspense:disposed'
+  | 'hydration:complete';
 
 /** Minimal shape of a what-core signal accessor, as devtools sees it. */
 export interface TrackedSignal<T = unknown> {
@@ -93,20 +118,15 @@ export function safeSerialize(value: unknown, budget?: number): unknown;
 
 /** The registry as the MCP bridge reads it: every entry, with only signal values previewed. */
 export interface DevToolsState {
-  signals: Array<{ id: number; name: string; rev: number; value: unknown; componentId: number | null }>;
-  effects: Array<{
-    id: number;
-    name: string;
-    kind: 'effect' | 'computed';
-    runCount: number;
-    depSignalIds: number[];
-    depComputedIds: number[];
+  signals: DevToolsSignal[];
+  effects: Array<Omit<DevToolsEffect, 'lastRunAt'> & {
     /** The dependencies whose change caused the latest re-run (absent after a first run). */
     causeSignalIds?: number[];
     causeComputedIds?: number[];
-    componentId: number | null;
   }>;
   components: DevToolsComponent[];
+  hydration: DevToolsHydration | null;
+  work: Array<DevToolsSource & { id: number; kind: 'transition' | 'suspense'; name: string; startedAt: number }>;
 }
 
 /** The whole registry, JSON-safe, with each signal value previewed within `budget`. */
@@ -124,6 +144,7 @@ export function registerComponent(
   name: string,
   element: Node | null,
   parentDevId?: number | null,
+  owner?: object,
 ): number;
 export function unregisterComponent(id: number): void;
 

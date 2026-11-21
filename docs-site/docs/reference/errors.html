@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 63 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 65 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 63 of them: 39 errors and 24 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 65 of them: 38 errors and 27 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -73,7 +73,9 @@
           <h2 id="all-codes">All codes</h2>
           <ul class="error-index">
             <li><a href="#ERR_ACTION_FAILED">ERR_ACTION_FAILED</a></li>
+            <li><a href="#ERR_ASYNC_COMPONENT">ERR_ASYNC_COMPONENT</a></li>
             <li><a href="#ERR_ASYNC_EFFECT">ERR_ASYNC_EFFECT</a></li>
+            <li><a href="#ERR_ASYNC_MEMO">ERR_ASYNC_MEMO</a></li>
             <li><a href="#ERR_ASYNC_MIDDLEWARE">ERR_ASYNC_MIDDLEWARE</a></li>
             <li><a href="#ERR_ASYNC_READ_IN_BODY">ERR_ASYNC_READ_IN_BODY</a></li>
             <li><a href="#ERR_ASYNC_WITHOUT_SUSPENSE">ERR_ASYNC_WITHOUT_SUSPENSE</a></li>
@@ -87,7 +89,6 @@
             <li><a href="#ERR_DUPLICATE_KEY">ERR_DUPLICATE_KEY</a></li>
             <li><a href="#ERR_EFFECT_DEP_NOT_FUNCTION">ERR_EFFECT_DEP_NOT_FUNCTION</a></li>
             <li><a href="#ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</a></li>
-            <li><a href="#ERR_FORM_ACTION_NOT_REGISTERED">ERR_FORM_ACTION_NOT_REGISTERED</a></li>
             <li><a href="#ERR_FORM_HANDLER_WITHOUT_EVENT">ERR_FORM_HANDLER_WITHOUT_EVENT</a></li>
             <li><a href="#ERR_FORM_RADIO_UNTYPED">ERR_FORM_RADIO_UNTYPED</a></li>
             <li><a href="#ERR_FORM_RADIO_WITHOUT_VALUE">ERR_FORM_RADIO_WITHOUT_VALUE</a></li>
@@ -126,6 +127,7 @@
             <li><a href="#ERR_SSR_UNSAFE_REDIRECT">ERR_SSR_UNSAFE_REDIRECT</a></li>
             <li><a href="#ERR_STATIC_WRITE_ESCAPE">ERR_STATIC_WRITE_ESCAPE</a></li>
             <li><a href="#ERR_STORAGE_FAILED">ERR_STORAGE_FAILED</a></li>
+            <li><a href="#ERR_SUSPEND_IN_TRANSITION">ERR_SUSPEND_IN_TRANSITION</a></li>
             <li><a href="#ERR_TEMPLATE_NAMESPACE">ERR_TEMPLATE_NAMESPACE</a></li>
             <li><a href="#ERR_UNKNOWN">ERR_UNKNOWN</a></li>
             <li><a href="#ERR_UNKNOWN_TOOL">ERR_UNKNOWN_TOOL</a></li>
@@ -146,6 +148,22 @@ export const save = action(async (data) =&gt; {
   if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });
 });</code></pre>
 
+          <h2 id="ERR_ASYNC_COMPONENT">ERR_ASYNC_COMPONENT</h2>
+          <p class="subtitle">Component &quot;component&quot; returned a promise: an async component renders as text.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
+          <p>Components run once and synchronously, so an async one renders the promise's text, even under &lt;Suspense&gt;. Keep the component synchronous and make the data an async value: computed(async ({ signal }) =&gt; ...) made in the body or outside it, and read in JSX, where a binding waits for it to land and a &lt;Suspense&gt; above shows its fallback meanwhile. For a component whose code loads later, use lazy().</p>
+<pre><code>// Bad — an async component renders &quot;[object Promise]&quot;:
+async function Profile(props) {
+  const user = await fetchUser(props.id);
+  return &lt;h1&gt;{user.name}&lt;/h1&gt;;
+}
+
+// Good — a synchronous component that reads an async value:
+function Profile(props) {
+  const user = computed(({ signal }) =&gt; fetchUser(props.id, { signal }));
+  return &lt;h1&gt;{user().name}&lt;/h1&gt;;
+}</code></pre>
+
           <h2 id="ERR_ASYNC_EFFECT">ERR_ASYNC_EFFECT</h2>
           <p class="subtitle">Effect &quot;effectName&quot; is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it.</p>
           <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
@@ -164,6 +182,16 @@ function Profile() {
   });
   return &lt;h1&gt;{user().name}&lt;/h1&gt;;
 }</code></pre>
+
+          <h2 id="ERR_ASYNC_MEMO">ERR_ASYNC_MEMO</h2>
+          <p class="subtitle">useMemo() returned a promise; useMemo keeps it, so its readers get the promise.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
+          <p>useMemo keeps what its function returns, as React's does. For a value that loads, use computed() or useComputed() instead: computed(async ({ signal }) =&gt; ...) is an async value, whose readers wait for it to land and which refetches when what it reads changes. Keep useMemo for values computed synchronously.</p>
+<pre><code>// Bad — user() is a promise:
+const user = useMemo(() =&gt; fetch('/api/users/' + id()).then((r) =&gt; r.json()));
+
+// Good — user() is the user once it has landed:
+const user = computed(({ signal }) =&gt; fetch('/api/users/' + id(), { signal }).then((r) =&gt; r.json()));</code></pre>
 
           <h2 id="ERR_ASYNC_MIDDLEWARE">ERR_ASYNC_MIDDLEWARE</h2>
           <p class="subtitle">Route middleware must be synchronous; received a promise or thenable.</p>
@@ -332,27 +360,15 @@ useEffect(() =&gt; save(count()), [count]);
 useEffect(() =&gt; save(count()));</code></pre>
 
           <h2 id="ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</h2>
-          <p class="subtitle">[what] &lt;Form&gt; requires an `action` prop: a server action or its id.</p>
+          <p class="subtitle">[what] &lt;Form&gt; requires an `action` prop: a server action, its id, or a function.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>Pass the action itself, or the string id it was registered under.</p>
+          <p>Pass the server action itself, the string id it was registered under, or a client action such as the dispatch useActionState returns.</p>
 <pre><code>// Bad:
 &lt;Form method=&quot;post&quot; /&gt;
 
 // Good:
 &lt;Form action={save} /&gt;;
 &lt;Form action=&quot;save-user&quot; /&gt;;</code></pre>
-
-          <h2 id="ERR_FORM_ACTION_NOT_REGISTERED">ERR_FORM_ACTION_NOT_REGISTERED</h2>
-          <p class="subtitle">[what] &lt;Form action={fn}&gt;: that function is not a server action.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>Wrap it with action() from what-server, or pass the action id as a string. A plain function has no id, so there is nothing for the form post to address.</p>
-<pre><code>// Bad — a plain function:
-async function save(data) {}
-&lt;Form action={save} /&gt;
-
-// Good — a registered action:
-export const save = action(async (data) =&gt; {});
-&lt;Form action={save} /&gt;</code></pre>
 
           <h2 id="ERR_FORM_HANDLER_WITHOUT_EVENT">ERR_FORM_HANDLER_WITHOUT_EVENT</h2>
           <p class="subtitle">register(&quot;name&quot;) change handler was called without an event; the field was left unchanged.</p>
@@ -420,7 +436,7 @@ export default { plugins: [reactCompat()] };</code></pre>
           <h2 id="ERR_HYDRATION_MISMATCH">ERR_HYDRATION_MISMATCH</h2>
           <p class="subtitle">Hydration mismatch (kind) in &lt;component&gt; at path: the server rendered found where the client renders expected. Recovery: recovery.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
-          <p>hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).</p>
+          <p>hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).</p>
 <pre><code>// Bad — the client renders a value the server could not know:
 import { h, hydrate } from 'what-framework';
 
@@ -857,6 +873,24 @@ const docs = { path: '/docs/:slug', mode: 'static', component: Doc,
           <p>A write fails when the quota is exhausted or storage is disabled (private browsing); a read fails when the stored text is not valid JSON, usually because something else wrote that key. The signal keeps working in memory either way. Use a key no other code writes, and keep stored values small.</p>
 <pre><code>// Good - a namespaced key and a small value:
 const theme = useLocalStorage('myapp:theme', 'light');</code></pre>
+
+          <h2 id="ERR_SUSPEND_IN_TRANSITION">ERR_SUSPEND_IN_TRANSITION</h2>
+          <p class="subtitle">Component &quot;component&quot; suspended while a transition committed: its fallback shows.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>The component suspended on a promise (use() or a lazy() chunk), so its &lt;Suspense&gt; shows the fallback again. A transition holds async values, not components that suspend (React keeps the old content here). Make what the component waits for an async value of the state the transition writes, and read it in JSX: computed(async ({ signal }) =&gt; fetchTab(tab(), { signal })) is held by the transition, which keeps the old content on screen until the new value has landed. A lazy() chunk can be loaded before the transition (call its import() first), or read as an async value in its parent: computed(() =&gt; import(&quot;./Page.jsx&quot;)).</p>
+<pre><code>// Bad — React's tabs pattern: the fallback replaces the old tab:
+function Panel(props) {
+  const data = use(props.promise);
+  return &lt;p&gt;{data.text}&lt;/p&gt;;
+}
+&lt;button onClick={() =&gt; startTransition(() =&gt; tab('b'))}&gt;B&lt;/button&gt;
+
+// Good — the tab's data is an async value of the tab:
+const data = computed(({ signal }) =&gt; fetchTab(tab(), { signal }));
+function Panel() {
+  return &lt;p&gt;{data().text}&lt;/p&gt;;
+}
+&lt;button onClick={() =&gt; startTransition(() =&gt; tab('b'))}&gt;B&lt;/button&gt;</code></pre>
 
           <h2 id="ERR_TEMPLATE_NAMESPACE">ERR_TEMPLATE_NAMESPACE</h2>
           <p class="subtitle">The compiled template for &lt;tag&gt; has no namespace flag, so its root would render as an unknown HTML element instead of SVG or MathML.</p>

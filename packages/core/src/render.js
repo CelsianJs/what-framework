@@ -7,18 +7,21 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
 import { attributeName, isEnumeratedAttr } from './markup-rules.js';
-import { report } from './diagnostics.js';
+import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
-import { _assignHydrationOwnerPath, _installSeeding, _swapArrived } from './hydration-data.js';
+import { _assignHydrationOwnerPath, _hydrationRoot, _ownerCounter, _installSeeding, _swapArrived } from './hydration-data.js';
 export { effect, untrack };
-// Re-export memo for compiled output (branch memoization: the compiler emits
+// The eager memo, for compiled output (branch memoization: the compiler emits
 // _$memo(() => cond) so conditional branches only re-create DOM when the
-// condition value actually changes, not on every dependency write).
-export { memo };
+// condition value actually changes, not on every dependency write). The root
+// entry's `memo` is React's component memo.
+export { memo as _$memo };
+// What `<Counter client:idle />` compiles to: an island that hydrates itself.
+export { _$Island } from './components.js';
 // The compiler rewrites `sig() === row.key` in keyed .map() rows to a selector.
 export { createSelector } from './selector.js';
 // A compiled `.map()` row reads its item with _$item (mapArray's follow mode).
@@ -153,7 +156,7 @@ export function _toFunctionComponent(ClassComp) {
 export function _renderComponent(Component, props, endChildrenPass, isSvg, devLoc) {
   // Props are read-only to the component; in development a write throws.
   if (__DEV__) Object.freeze(props);
-  const owner = _componentOwner(Component);
+  const owner = _componentOwner(Component, props);
 
   // Comment boundaries rather than a wrapper element: no DOM pollution, no CSS
   // selector breakage.
@@ -165,6 +168,7 @@ export function _renderComponent(Component, props, endChildrenPass, isSvg, devLo
   container.appendChild(startComment);
   try {
     const result = _runOwned(owner, Component, props);
+    if (__DEV__ && result != null && typeof result.then === 'function') devAsyncComponent(Component);
     // Anything that reads props.children from here on is a later render pass
     // and must build its own children.
     if (endChildrenPass !== null) endChildrenPass();
@@ -250,7 +254,44 @@ function renderWhenSettled(thenable, parentOwner, start, end, Component, props, 
       ? '[what] A component suspended on a promise that had already settled, so rendering it again would suspend again forever. Read a settled promise with use(promise), which returns its value.'
       : '[what] suspended on a settled promise'), parentOwner);
   }
-  const retry = () => {
+  // The promise's callbacks hold only `job`, which lets go of the component
+  // (its props, its place, its owner) once that place is disposed, so a
+  // promise nobody waits for any more retains none of it. `retried` settles
+  // when the component has been rendered again, or its place is gone: what
+  // the nearest Suspense waits for.
+  /** @type {{ retry: (() => void) | null }} */
+  const job = { retry: retryIn(parentOwner, start, end, Component, props, isSvg, devLoc) };
+  /** @type {any} */
+  let release = null;
+  /** @type {any} */
+  const retried = new Promise((resolve) => { release = resolve; });
+  const record = /** @type {WeakMap<object, any>} */ (settledPromises);
+  const run = (outcome) => {
+    record.set(thenable, outcome);
+    const retry = job.retry;
+    job.retry = null;
+    if (retry !== null) retry();
+    release();
+  };
+  Promise.resolve(thenable).then((value) => run({ failed: false, reason: value }), (reason) => run({ failed: true, reason }));
+  if (parentOwner !== null) {
+    runWithOwner(parentOwner, () => onCleanup(() => {
+      job.retry = null;
+      release();
+    }));
+  }
+  retried.showsFallback = !_isNotReady(thenable);
+  if (__DEV__) retried.component = Component.displayName || Component.name || 'Anonymous';
+  if (!_handlePending(parentOwner, retried) && __DEV__) {
+    report('ERR_ASYNC_WITHOUT_SUSPENSE', { data: { component: retried.component } });
+  }
+  return HANDLED;
+}
+
+// Render a suspended component again in its place, unless the place is gone.
+// Made apart from the callbacks that call it, so they do not share its scope.
+function retryIn(parentOwner, start, end, Component, props, isSvg, devLoc) {
+  return () => {
     if ((parentOwner !== null && _isDisposed(parentOwner)) || end.parentNode === null) return;
     const host = end.parentNode;
     while (start.nextSibling !== end) host.removeChild(/** @type {ChildNode} */ (start.nextSibling));
@@ -258,20 +299,6 @@ function renderWhenSettled(thenable, parentOwner, start, end, Component, props, 
       host.insertBefore(runWithOwner(parentOwner, () => _renderComponent(Component, props, null, isSvg, devLoc)), end);
     } catch { /* reported by the attempt itself */ }
   };
-  const record = /** @type {WeakMap<object, any>} */ (settledPromises);
-  /** @type {any} */
-  const retried = Promise.resolve(thenable).then((value) => {
-    record.set(thenable, { failed: false, reason: value });
-    retry();
-  }, (reason) => {
-    record.set(thenable, { failed: true, reason });
-    retry();
-  });
-  retried.showsFallback = !_isNotReady(thenable);
-  if (!_handlePending(parentOwner, retried) && __DEV__) {
-    report('ERR_ASYNC_WITHOUT_SUSPENSE', { data: { component: Component.displayName || Component.name || 'Anonymous' } });
-  }
-  return HANDLED;
 }
 
 // A component threw while it was built. A thrown thenable is a suspension, not
@@ -295,6 +322,13 @@ function devComponent(owner, anchor, devLoc) {
   _devAnchor(anchor, owner);
   if (__devtools?.onComponentMount) __devtools.onComponentMount(owner);
   owner.disposals.push(() => { if (__devtools?.onComponentUnmount) __devtools.onComponentUnmount(owner); });
+}
+
+// Development: a component returned a promise, as an `async function`
+// component does. Components run once and synchronously; its output is the
+// promise's text.
+function devAsyncComponent(Component) {
+  report('ERR_ASYNC_COMPONENT', { data: { component: Component.displayName || Component.name || 'Anonymous' } });
 }
 
 // The nearest component owner above `owner`.
@@ -490,7 +524,7 @@ function insertReactive(parent, child, marker, devName) {
       if (rows !== null) rows.remove();
     }
     current = reconcileInsert(parent, val, current, m);
-  }, __DEV__ && devName ? { name: devName } : undefined);
+  }, __DEV__ ? { name: devName || 'children', binding: parent } : undefined);
   return current;
 }
 
@@ -524,6 +558,7 @@ export function _region(fn, isSvg) {
   let current = [];
   /** @type {any} */
   let rows = null;
+  if (__DEV__) setNextBinding(endMarker, fn.name || 'region');
   effect(() => {
     const val = fn();
     const host = endMarker.parentNode;
@@ -899,8 +934,15 @@ function reconcileInsert(parent, value, current, marker) {
 // so no row is ever left behind. Repeated items are ordinary in an unkeyed
 // list; a repeated key in a keyed list is a mistake, reported in development
 // (ERR_DUPLICATE_KEY) with `options.loc` when the compiler supplies it.
+//
+// `source` is an accessor, or an array for a list that never changes (what
+// `<For each={rows}>` passes for a plain value).
 
 export function mapArray(source, mapFn, options) {
+  if (typeof source !== 'function') {
+    const items = source;
+    source = () => items;
+  }
   const keyFn = options?.key;
   return keyFn
     ? listInserter(source, mapFn, keyFn, options.raw ? RAW : options.follow ? FOLLOW : ACCESSOR, options)
@@ -944,6 +986,7 @@ function listInserter(source, mapFn, keyFn, keyedSignals, keyed) {
     const endMarker = document.createComment('/list');
     parent.insertBefore(endMarker, marker || null);
 
+    if (__DEV__) setNextBinding(endMarker, keyed?.loc ? `list@${keyed.loc}` : 'list');
     effect(() => {
       const newItems = source() || [];
       // Resolve the LIVE parent from the end marker each run: a list built into
@@ -974,11 +1017,13 @@ function listInserter(source, mapFn, keyFn, keyedSignals, keyed) {
 // An unkeyed list may repeat its items, so its source is left as it is.
 function checkedSource(source, keyFn, keyed) {
   if (keyed === null) return source;
-  return () => {
+  const read = () => {
     const items = source();
     if (items) reportDuplicateKey(items, keyFn, keyed);
     return items;
   };
+  read._listLoc = keyed.loc;
+  return read;
 }
 
 // A keyed list whose items repeat a key. Every row is still rendered and none
@@ -1616,10 +1661,10 @@ export function spread(el, props) {
     }
 
     if (_isEventProp(key)) {
-      // Event handler — direct assignment. Use $$name for delegated events.
+      // Event handler — a listener the current owner removes. Use $$name for
+      // delegated events.
       if (typeof value !== 'function') continue;
-      const event = key.slice(2).toLowerCase();
-      el.addEventListener(event, value);
+      on(el, key.slice(2).toLowerCase(), value);
       continue;
     }
 
@@ -1673,14 +1718,17 @@ export function setProp(el, key, value) {
   // Reactive accessor: function values on non-event props are treated as
   // reactive getters. Wrap in an effect so the prop auto-updates.
   if (typeof value === 'function' && !_isEventProp(key)) {
+    if (__DEV__) setNextBinding(el, `${el.localName}.${key}`);
     effect(() => setProp(el, key, value()));
     return;
   }
 
   if (_isEventProp(key)) return;
 
-  // Sanitize URL attributes: reject dangerous protocols and srcdoc
+  // Sanitize URL attributes: reject dangerous protocols and srcdoc. A refused
+  // value leaves no attribute, not even one an earlier write set.
   if (_isUnsafeAttr(key, value)) {
+    el.removeAttribute(key);
     if (typeof console !== 'undefined') {
       console.warn(`[what] Blocked unsafe URL in "${key}" attribute:`, value);
     }
@@ -1752,6 +1800,7 @@ export function setProp(el, key, value) {
 // resolved value.
 
 function _wrapPropAccessor(el, accessor, apply) {
+  if (__DEV__) setNextBinding(el, `${el.localName}.${apply.name}`);
   effect(() => apply(el, accessor()));
 }
 
@@ -1953,6 +2002,12 @@ export function setChecked(el, value) {
 // root already delegates is a no-op, so the compiler can call it lazily from
 // every module that needs it.
 //
+// A handler belongs to the owner it was set under (_$own: the component, list
+// row or root that built or claimed the element): once that owner is disposed
+// it never runs again, and goes the first time an event reaches it, also on an
+// element that outlived its owner (a node the next hydrate() of the same
+// container claims, one the app keeps and inserts again).
+//
 // The listener walks the event's propagation path, innermost node first, and
 // calls each handler it finds until one stops propagation:
 //   - The path is composedPath(), so handlers inside open shadow trees run.
@@ -2012,6 +2067,11 @@ function dispatchDelegated(e) {
       if (i < first) continue;
       const handler = n[key];
       if (typeof handler !== 'function' || n.disabled === true) continue;
+      const owner = n.$$owner;
+      if (owner != null && _isDisposed(owner)) {
+        n[key] = undefined;
+        continue;
+      }
       node = n;
       if (target !== e.target) {
         Object.defineProperty(e, 'target', { configurable: true, value: target });
@@ -2027,10 +2087,19 @@ function dispatchDelegated(e) {
   }
 }
 
+/** Mark `el`'s delegated handlers as the current owner's (compiler output). */
+export function _$own(el) {
+  el.$$owner = getOwner();
+}
+
 // --- addEventListener helper for non-delegated events ---
-export function on(el, event, handler) {
-  el.addEventListener(event, handler);
-  return () => el.removeEventListener(event, handler);
+// The listener goes with the current owner, and the returned function removes
+// it sooner.
+export function on(el, event, handler, options) {
+  el.addEventListener(event, handler, options);
+  const off = () => el.removeEventListener(event, handler, options);
+  onCleanup(off);
+  return off;
 }
 
 // --- classList(el, classes): setClassList for hand-written code ---
@@ -2099,11 +2168,28 @@ let cur = null;
 const outer = [];
 // One hydrate() call: its container, the onHydrationError hook, the regions
 // already reported (one report each), what was built before the walk could
-// claim it (_$outside), and the <Suspense> records whose children are being
-// adopted: once a component under one suspends, its walk is dropped, and what
-// the walk finds out of place is not reported.
+// claim it (_$outside), the <Suspense> records whose children are being
+// adopted (once a component under one suspends, its walk is dropped, and what
+// the walk finds out of place is not reported), the counter of its root-level
+// components (hydration-data.js), and whether the walk has matched the
+// server's structure so far (`ordered`). A boundary that resumes later walks
+// in a session of its own with the same container, hook and counter.
 /** @type {any} */
 let session = null;
+
+function newSession(container, onError, ownerRoot) {
+  return {
+    root: container,
+    onError,
+    reported: new WeakSet(),
+    prebuilt: new WeakSet(),
+    warned: false,
+    lenient: false,
+    dropping: [],
+    ownerRoot,
+    ordered: true,
+  };
+}
 // The owner path of the component whose output has not written its first node
 // yet: the server put it on that node if it is an element.
 /** @type {string | null} */
@@ -2144,15 +2230,8 @@ export function hydrate(tree, container, options) {
   createRoot((dispose) => {
     unmount = _trackRoot(container, dispose);
     const saved = { cur, depth: outer.length, session, pendingKey };
-    session = {
-      root: container,
-      onError: (options && options.onHydrationError) || null,
-      reported: new WeakSet(),
-      prebuilt: new WeakSet(),
-      warned: false,
-      lenient: false,
-      dropping: [],
-    };
+    if (__DEV__ && __devtools?.onRecord) /** @type {any} */ (saved).devNodes = devHydrationNodes(container);
+    session = newSession(container, (options && options.onHydrationError) || null, _hydrationRoot(container));
     // The server counts useId from 1 for every render; the client restarts so
     // `for` and `aria-labelledby` keep pointing at the ids the server wrote.
     __resetIdCounter();
@@ -2173,11 +2252,29 @@ export function hydrate(tree, container, options) {
         outer.length = saved.depth;
         session = saved.session;
         pendingKey = saved.pendingKey;
+        if (saved.depth === 0) releaseCursors();
       }
     });
     _adoptDetached(container.childNodes);
+    if (__DEV__ && /** @type {any} */ (saved).devNodes) devHydrationComplete(container, /** @type {any} */ (saved).devNodes);
   });
   return unmount;
+}
+
+// Count the completed tree by node identity. Comments are hydration protocol
+// markers, not elements or text the app rendered.
+function devHydrationNodes(container) {
+  const nodes = new Set();
+  const walk = container.ownerDocument.createTreeWalker(container, 5);
+  for (let node = walk.nextNode(); node !== null; node = walk.nextNode()) nodes.add(node);
+  return nodes;
+}
+
+function devHydrationComplete(container, before) {
+  const after = devHydrationNodes(container);
+  let adopted = 0;
+  for (const node of after) if (before.has(node)) adopted++;
+  recordObservation(__devtools, 'hydration:complete', container, { adopted, created: after.size - adopted });
 }
 
 // --- The cursor ---
@@ -2191,10 +2288,31 @@ function isMarker(node, data) {
 function next(c) {
   if (c.o > 0) return c.n;
   let n = c.n;
-  while (n !== null && n !== c.e
-    && ((n.nodeType === 8 && TRANSPARENT.has(n.data)) || (n.nodeType === 3 && n.data === ''))) n = n.nextSibling;
+  while (n !== null && n !== c.e) {
+    const type = n.nodeType;
+    if (type === 8 ? !TRANSPARENT.has(n.data) : type !== 3 || n.data !== '') break;
+    n = n.nextSibling;
+  }
   c.n = n;
   return n === c.e ? null : n;
+}
+
+// Where next() would stand, without moving the cursor.
+function past(c) {
+  let n = c.n;
+  while (n !== null && n !== c.e
+    && ((n.nodeType === 8 && TRANSPARENT.has(n.data)) || (n.nodeType === 3 && n.data === ''))) n = n.nextSibling;
+  return n;
+}
+
+// What the server has where a component's output starts (hydration-data.js
+// _assignHydrationOwnerPath): the key of the element there, '' when there is
+// something without one, null when there is nothing.
+function serverKeyAt(c) {
+  if (c.o > 0) return '';
+  const n = past(c);
+  if (n === c.e || n === null) return null;
+  return n.nodeType === 1 ? /** @type {Element} */ (n).getAttribute('data-hk') || '' : '';
 }
 
 // The next node past empty text only: where a region or a list looks for its
@@ -2262,17 +2380,31 @@ function afterAnchor(c, anchor) {
 // client does not render: reported, and removed.
 function finish(c) {
   splitHere(c);
+  const top = c.p === session.root && c.e === null;
   for (let x = next(c); x !== null && x !== c.e;) {
     const following = x.nextSibling;
-    // A stream's data, scripts and content templates follow the page in the
-    // container it was written into; they are not the page.
-    if (x.nodeType !== 1 || (x.localName !== 'script' && x.localName !== 'template')) {
+    if (frozen()) break;
+    if (!top || !streamElement(x)) {
       mismatch('extra-nodes', 'nothing', describe(x), x);
       x.remove();
     }
     x = following;
   }
   c.n = c.e;
+}
+
+// What a stream writes after the page into the container it renders into,
+// which no tree renders: its data elements, the content templates of
+// boundaries not yet swapped in, and its inline scripts, all of which call
+// the stream's _$W functions (what-server stream.js). Only the container's
+// top level holds them.
+function streamElement(x) {
+  if (x.nodeType !== 1) return false;
+  if (x.localName === 'template') return x.id !== '';
+  if (x.localName !== 'script') return false;
+  if (x.getAttribute('type') === 'application/json') return x.id === '__what_data' || x.hasAttribute('data-what-data');
+  const code = x.textContent;
+  return code.startsWith('_$W.') || code.startsWith('(self._$W=');
 }
 
 // --- Mismatches ---
@@ -2312,12 +2444,28 @@ function domPath(node) {
   return parts.reverse().join('>');
 }
 
-// One report per region: what follows a mismatch in the same region is the
-// recovery's own doing.
+function regionOf(c) {
+  return c.e !== null ? c.e : c.p;
+}
+
+// Whether a component under a <Suspense> being adopted has suspended: that
+// boundary's walk will be dropped and walked again once what it waits for
+// lands (hydrateSuspense), so from here on the walk changes nothing of the
+// server's DOM, and reports nothing.
+function frozen() {
+  return session.dropping.some((b) => b.thenables > 0);
+}
+
+// One report per region (a marked region, by its closing marker; else the
+// element the walk is in): what follows a mismatch in the same region is the
+// recovery's own doing. Any but a text mismatch means the two sides' trees
+// differ in structure, so components are no longer numbered in order.
 function mismatch(kind, expected, found, at, recovery = 'client-render') {
   const s = session;
-  const region = cur.p;
-  if (s.reported.has(region) || s.dropping.some((b) => b.thenables > 0)) return;
+  const region = regionOf(cur);
+  if (frozen()) return;
+  if (kind !== 'text') s.ordered = false;
+  if (s.reported.has(region)) return;
   s.reported.add(region);
   if (!__DEV__ && s.onError === null) return;
   const owner = _currentComponent();
@@ -2330,7 +2478,13 @@ function mismatch(kind, expected, found, at, recovery = 'client-render') {
     found,
     recovery,
   };
-  if (__DEV__) report('ERR_HYDRATION_MISMATCH', { data: info });
+  if (__DEV__) {
+    const where = __ownerPath(owner || getOwner());
+    report('ERR_HYDRATION_MISMATCH', {
+      data: info, owner: where, loc: where.loc,
+      subject: { kind: 'hydration', id: `${info.ownerPath ?? 'root'}|${info.path}|${kind}`, name: info.component },
+    });
+  }
   if (s.onError !== null) s.onError(info);
 }
 
@@ -2339,7 +2493,9 @@ function mismatch(kind, expected, found, at, recovery = 'client-render') {
 function recover(c, node, expected, kind) {
   splitHere(c);
   const found = next(c);
-  mismatch(kind || (found === null ? 'missing' : found.nodeType === 8 ? 'marker' : found.nodeType === 3 ? 'text' : 'tag'), expected, describe(found), found || c.p);
+  if (frozen()) return node;
+  mismatch(kind || (found === null ? 'missing' : found.nodeType === 8 ? 'marker' : found.nodeType === 3 ? 'text'
+    : /** @type {Element} */ (found).shadowRoot != null ? 'shadow-root' : 'tag'), expected, describe(found), found || c.p);
   if (found !== null && (found.nodeType === 1 || found.nodeType === 3)) {
     c.p.replaceChild(node, found);
     c.n = node.nextSibling;
@@ -2351,12 +2507,15 @@ function recover(c, node, expected, kind) {
 
 // --- Claims ---
 
-// The element the cursor stands on, when it is a `tag` element.
+// The element the cursor stands on, when it is a `tag` element. One that
+// hosts a shadow root (a declarative one, <template shadowrootmode="open"> in
+// the server's markup) is not what the client renders: what the page shows is
+// the shadow tree, not the children the walk would claim.
 function takeElement(c, tag) {
   const n = next(c);
   if (n === null || n.nodeType !== 1) return null;
   const name = n.localName;
-  if (name !== tag && name !== tag.toLowerCase()) return null;
+  if ((name !== tag && name !== tag.toLowerCase()) || /** @type {Element} */ (n).shadowRoot != null) return null;
   c.n = n.nextSibling;
   settleKey(n);
   return n;
@@ -2409,6 +2568,10 @@ function claimText(text) {
 function replaceText(c, text) {
   splitHere(c);
   const node = /** @type {Text} */ (c.n);
+  if (frozen()) {
+    c.n = node.nextSibling;
+    return;
+  }
   mismatch('text', JSON.stringify(short(text)), describe(node), node);
   if (text === '') {
     c.n = node.nextSibling;
@@ -2425,57 +2588,80 @@ function replaceText(c, text) {
 // the template's value.
 function keepTemplateAttrs(el, t) {
   const want = templateAttrs(t);
-  let same = el.attributes.length * 2 === want.length;
-  for (let i = 0; same && i < want.length; i += 2) same = el.getAttribute(want[i]) === want[i + 1];
+  // Names, not el.attributes: the attribute map is an object per element.
+  const names = el.hasAttributes() ? el.getAttributeNames() : null;
+  let same = (names === null ? 0 : names.length) * 3 === want.length;
+  for (let i = 0; same && i < want.length; i += 3) same = el.getAttribute(want[i]) === want[i + 1];
   if (same) return;
-  for (const name of el.getAttributeNames()) {
-    if (!t.hasAttribute(name)) el.removeAttribute(name);
+  if (names !== null) {
+    for (let i = 0; i < names.length; i++) {
+      if (!t.hasAttribute(names[i])) el.removeAttribute(names[i]);
+    }
   }
-  for (const attr of t.attributes) {
-    if (el.getAttribute(attr.name) !== attr.value) el.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+  for (let i = 0; i < want.length; i += 3) {
+    if (el.getAttribute(want[i]) !== want[i + 1]) el.setAttributeNS(want[i + 2], want[i], want[i + 1]);
   }
 }
 
-// A template node's attributes as [name, value, ...], read from the node once.
+// A template node's attributes as [name, value, namespace, ...], read from
+// the node once.
 function templateAttrs(t) {
   const node = /** @type {any} */ (t);
   if (node._attrs === undefined) {
     node._attrs = [];
-    for (const attr of t.attributes) node._attrs.push(attr.name, attr.value);
+    for (const attr of t.attributes) node._attrs.push(attr.name, attr.value, attr.namespaceURI);
   }
   return node._attrs;
 }
 
-// The same for a vnode: an attribute none of its props renders. A prop named
-// like the attribute does not keep it when the client's setter never writes
-// it: an event handler (a listener, not an attribute) or a value the URL and
-// attribute rules refuse (dom.js _isUnsafeAttr, from the renderer slot: a
-// vnode exists only where h.js installed it).
-function keepPropAttrs(el, props) {
-  if (!el.hasAttributes()) return;
-  // Names, not el.attributes: reading the attribute map makes an Attr object
-  // per attribute.
-  const names = el.getAttributeNames();
+// Whether the setter for prop `key` would write `value` as the attribute
+// value `current` the server wrote: a string or number it writes as it is.
+// Not a value the URL and attribute rules refuse (dom.js _isUnsafeAttr, from
+// the renderer slot: a vnode exists only where h.js installed it), `value` (a
+// property, not the attribute), or an empty string for a property the element
+// reads as a boolean (`disabled: ''` is not disabled, `disabled=""` is; any
+// other string is true both ways).
+function keepsAttr(el, key, value, current) {
+  if ((typeof value !== 'string' && typeof value !== 'number') || current !== String(value)) return false;
+  if (key === 'value' || /** @type {Function} */ (vnodeRefuses)(key, value)) return false;
+  return current !== '' || !(key in el && typeof el[key] === 'boolean');
+}
+
+// The attribute a prop writes, or null for a prop that writes none of its
+// own: children, key, ref, a delegated handler ($$click), raw inner HTML, a
+// listener, a classList (it writes class, which `fold` removed first).
+function attrOf(key) {
+  return key === 'children' || key === 'key' || key === 'ref' || key.startsWith('$$') || key === 'innerHTML'
+    || key === 'dangerouslySetInnerHTML' || key === 'classList' || _isEventProp(key) ? null : attributeName(key);
+}
+
+// The server attributes no prop renders, removed: an event handler's name
+// (a listener, not an attribute), a key, anything the client never writes.
+function dropUnrendered(el, props, fold, names) {
   for (let i = 0; i < names.length; i++) {
-    if (!rendersAttr(props, names[i])) el.removeAttribute(names[i]);
+    const name = names[i];
+    let rendered = name === 'class' && fold;
+    for (const k in props) {
+      if (rendered) break;
+      const a = attrOf(k);
+      rendered = a !== null && (a === name || a.toLowerCase() === name);
+    }
+    if (!rendered) el.removeAttribute(name);
   }
 }
 
-function rendersAttr(props, name) {
-  if (name === 'class') return props.class != null || props.className != null || props.classList != null;
-  let key = name;
-  if (!Object.hasOwn(props, name)) {
-    key = null;
-    for (const k in props) {
-      if (k.toLowerCase() === name || attributeName(k) === name) {
-        key = k;
-        break;
-      }
-    }
-    if (key === null) return false;
-  }
-  const value = props[key];
-  return !_isEventProp(key) && !(typeof value === 'string' && /** @type {Function} */ (vnodeRefuses)(key, value));
+// A reactive prop whose attribute the server wrote: the attribute stands
+// until the effect's first run writes the client's value over it (every
+// setter writes its attribute whole), and goes when that run is held on a
+// value that has not landed, as a client render would show none yet.
+function hydrateReactiveProp(el, key, value, svg, name) {
+  let ran = false;
+  /** @type {Function} */ (vnodeProp)(el, key, () => {
+    const v = value();
+    ran = true;
+    return v;
+  }, svg);
+  if (!ran) el.removeAttribute(name);
 }
 
 // --- Values ---
@@ -2523,6 +2709,7 @@ function adoptNode(node) {
 // Built DOM where the server rendered the same JSX: the server's nodes for it
 // are consumed by the built nodes' structure and replaced by them.
 function placeBuilt(c, value) {
+  if (frozen()) return;
   const nodes = value.nodeType === 11 ? Array.from(value.childNodes) : [value];
   splitHere(c);
   let same = true;
@@ -2569,15 +2756,12 @@ function dropText(c, text) {
   return true;
 }
 
-// Development: DOM built before hydration could claim it, by a component
-// compiled without what-compiler's `hydratable` option or by hand, replaces the
-// server's copy. Reported once per hydrate() call.
 // DOM built before the walk could claim the server's: compiled JSX built
 // without the hydratable option, or nodes made by hand. One cause, so one
 // report for the whole hydrate(); what the replacement leaves of the server's
 // DOM in a region is its doing, not another mismatch.
 function notHydratable() {
-  const region = cur.p;
+  const region = regionOf(cur);
   if (session.warned) {
     session.reported.add(region);
     return;
@@ -2585,7 +2769,7 @@ function notHydratable() {
   session.warned = true;
   splitHere(cur);
   const at = nextOwn(cur);
-  mismatch('not-hydratable', 'DOM built before hydrate() could claim it', describe(at), at || region);
+  mismatch('not-hydratable', 'DOM built before hydrate() could claim it', describe(at), at || cur.p);
   session.reported.add(region);
 }
 
@@ -2620,14 +2804,15 @@ function adoptVNode(vnode) {
   hydrateElementProps(el, props);
   const html = props.dangerouslySetInnerHTML ?? props.innerHTML;
   if (html != null) return;
-  // An element the client leaves empty keeps what the server put in it: an
-  // island fills its host from that markup when it hydrates.
+  // An element the client leaves empty keeps what the server put in it only
+  // where the client says it will: an island's host, which the island fills
+  // from that markup when it hydrates. Anywhere else it is left over.
   const children = vnode.children;
-  if (!children || children.length === 0) return;
-  outer.push(c);
-  cur = { p: el, n: el.firstChild, o: 0, e: null, h: true, t: null };
+  const empty = !children || children.length === 0;
+  if (empty && (el.firstChild === null || props['data-island'] != null)) return;
+  enterNode(el, null);
   try {
-    for (let i = 0; i < children.length; i++) adopt(children[i]);
+    if (!empty) for (let i = 0; i < children.length; i++) adopt(children[i]);
     finish(cur);
   } finally {
     cur = outer.pop();
@@ -2635,35 +2820,65 @@ function adoptVNode(vnode) {
 }
 
 // What a vnode element's props render, written onto the claimed element as
-// createDOM writes them (dom.js _setVNodeProp, from the renderer slot), after
-// the server's attributes none of them renders are removed. A plain string or
-// number the server already wrote as that attribute is left as it is, unless
-// the client's setter would refuse or transform it (an event handler, an
-// unsafe URL). With a classList the server folded class and classList into
+// createDOM writes them (dom.js _setVNodeProp, from the renderer slot), so
+// that its attributes end exactly as a client render's: an attribute the
+// server wrote stays as it is where a prop renders exactly that value
+// (keepsAttr), every other prop is written by its setter, each of which
+// writes its attribute whole (a refused URL removes it, a style object
+// replaces the inline style), and an attribute no prop renders is removed.
+// The server attributes the props name are counted on the way: when that is
+// all of them, none is left over. `value` is a property, so its attribute
+// goes first. With a classList the server folded class and classList into
 // one attribute; writing them in prop order from no attribute ends on the
 // attribute the server wrote. Raw inner HTML is the client's: written again
 // only when it differs.
 function hydrateElementProps(el, props) {
-  keepPropAttrs(el, props);
   const fold = props.classList != null;
   if (fold) el.removeAttribute('class');
-  const svg = _hasSVGElement && el instanceof SVGElement;
+  // Whether it is an SVG element, read when a setter first needs it.
+  /** @type {boolean | null} */
+  let svg = null;
   const raw = props.dangerouslySetInnerHTML ?? props.innerHTML;
   const keepHtml = raw != null && typeof raw === 'object' && el.innerHTML === (raw.__html ?? '');
+  // Names, not el.attributes: the attribute map is an object per element.
+  const names = el.hasAttributes() ? el.getAttributeNames() : null;
+  // The server attributes the props name, and whether two props name one.
+  let named = 0;
+  let twice = false;
   for (const key in props) {
-    if (key === 'children' || key === 'key') continue;
     const value = props[key];
-    if (key === 'ref') applyRef(value, el);
-    // `$$click` and the like: a delegated handler, assigned as compiled code does.
-    else if (key.startsWith('$$')) el[key] = value;
-    else if (keepHtml && (key === 'dangerouslySetInnerHTML' || key === 'innerHTML')) continue;
-    else if ((typeof value === 'string' || typeof value === 'number') && key !== 'value'
-      && !(fold && (key === 'class' || key === 'className'))
-      && !_isEventProp(key) && !/** @type {Function} */ (vnodeRefuses)(key, value)
-      && el.getAttribute(attributeName(key)) === String(value)) continue;
-    else /** @type {Function} */ (vnodeProp)(el, key, value, svg);
+    const name = attrOf(key);
+    if (name === null) {
+      if (key === 'ref') applyRef(value, el);
+      // `$$click` and the like: a delegated handler, assigned as compiled code does.
+      else if (key.startsWith('$$')) {
+        el[key] = value;
+        el.$$owner = getOwner();
+      } else if (key !== 'children' && key !== 'key' && !(keepHtml && (key === 'innerHTML' || key === 'dangerouslySetInnerHTML'))) {
+        /** @type {Function} */ (vnodeProp)(el, key, value, svg ??= _hasSVGElement && el instanceof SVGElement);
+      }
+      continue;
+    }
+    const current = names === null ? null : el.getAttribute(name);
+    if (current !== null) {
+      named++;
+      if (!twice && (name !== key || key !== key.toLowerCase())) {
+        twice = (name !== key && Object.hasOwn(props, name)) || (name.toLowerCase() !== key && Object.hasOwn(props, name.toLowerCase()));
+      }
+      if (!(fold && name === 'class')) {
+        if (keepsAttr(el, key, value, current)) continue;
+        if (typeof value === 'function' && key !== 'value') {
+          hydrateReactiveProp(el, key, value, svg ??= _hasSVGElement && el instanceof SVGElement, name);
+          continue;
+        }
+        if (key === 'value') el.removeAttribute(name);
+      }
+    }
+    /** @type {Function} */ (vnodeProp)(el, key, value, svg ??= _hasSVGElement && el instanceof SVGElement);
   }
+  if (names !== null && (named !== names.length || twice)) dropUnrendered(el, props, fold, names);
 }
+
 
 // The (Component, props, endChildrenPass) createDOM renders a component vnode
 // with (dom.js createComponent).
@@ -2693,11 +2908,19 @@ function adoptComponent(Component, props, endChildrenPass, devLoc) {
     if (__devtools?.onComponentMount) __devtools.onComponentMount(owner);
     owner.disposals.push(() => { if (__devtools?.onComponentUnmount) __devtools.onComponentUnmount(owner); });
   }
-  _assignHydrationOwnerPath(owner, session.root);
   const c = cur;
   const outerKey = pendingKey;
+  const serverKey = serverKeyAt(c);
+  // A built-in the compiler lowers away has no key: the next component's, or
+  // its parent's, still waits for the first element.
+  const stepped = _assignHydrationOwnerPath(owner, session.ownerRoot, serverKey, session.ordered);
   const key = owner._ownerPath;
-  pendingKey = key !== undefined && key[0] !== '~' ? key : null;
+  if (stepped !== 0) pendingKey = key !== undefined && key[0] !== '~' ? key : null;
+  if (stepped === 2 && !session.lenient) {
+    // The server's component here is not this one: the markup may still
+    // match, so only the report, and this component fetches.
+    _runOwned(owner, () => mismatch('key', `data-hk="${key.slice(1)}"`, `data-hk="${serverKey}"`, past(c), 'none'));
+  }
   splitHere(c);
   const anchor = anchorOf(c);
   try {
@@ -2714,7 +2937,7 @@ function adoptComponent(Component, props, endChildrenPass, devLoc) {
     if (left !== HANDLED) console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', left);
     return [];
   }
-  if (pendingKey === key) pendingKey = outerKey;
+  if (stepped !== 0 && pendingKey === key) pendingKey = outerKey;
   const nodes = [];
   for (let n = afterAnchor(c, anchor); n !== null && n !== c.n; n = n.nextSibling) nodes.push(n);
   if (__DEV__ && nodes.length > 0) {
@@ -2822,7 +3045,7 @@ function adoptRegion(fn, devName) {
         if (rows !== null) rows.remove();
       }
       current = reconcileInsert(host, value, current, end);
-    }, __DEV__ && devName ? { name: devName } : undefined);
+    }, __DEV__ ? { name: devName || fn.name || 'region', binding: parent } : undefined);
     if (close !== null) finish(cur);
   } finally {
     if (close !== null) cur = outer.pop();
@@ -2891,21 +3114,29 @@ function adoptVNodeRows(vnodes, scope) {
 // A compiled list (mapArray / _$mapKeyed), adopted: each item's row claims the
 // server's nodes for it inside an item scope, as buildRow builds one, and the
 // list's effect reconciles from there on. The source is read once per run,
-// the first included. A <For fallback> pairs the list with a second inserter
-// (what-compiler's lowering) and is rendered by the client instead.
+// the first included. A <For fallback> pairs the list with the fallback's
+// region (what-compiler's lowering); the server rendered one or the other,
+// and each adopts what it renders: the rows, then the fallback after them.
 function adoptList(inserter) {
   const [source, mapFn, keyFn, keyedSignals, list] = inserter._list;
   const c = cur;
   const parent = c.p;
   pendingKey = null;
-  if (list !== inserter) {
+  const fallback = inserter._fallback;
+  if (list !== inserter && fallback === undefined) {
     placeInserter(c, inserter);
     return;
   }
+  /** @type {[any, any, any, any, any]} */
+  const args = [source, mapFn, keyFn, keyedSignals, parent];
+  const adoptAll = fallback === undefined ? adoptListRows : () => {
+    adoptListRows(args);
+    adoptRegion(fallback);
+  };
   const at = nextOwn(c);
   const regionClose = at !== null && isMarker(at, REGION_OPEN) ? closeOf(at, REGION_CLOSE) : null;
-  if (regionClose !== null) within(at, regionClose, adoptListRows, [source, mapFn, keyFn, keyedSignals, parent]);
-  else adoptListRows([source, mapFn, keyFn, keyedSignals, parent]);
+  if (regionClose !== null) within(at, regionClose, adoptAll, args);
+  else adoptAll(args);
 }
 
 function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
@@ -2930,8 +3161,9 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
     for (let i = 0; i < newItems.length; i++) {
       const item = newItems[i];
       const cell = keyedSignals === RAW ? null : _rowItem(item);
-      // Markers the server wrapped the rows in (a fragment's array, a
-      // region) stay outside the rows.
+      // Markers the server wrapped the rows in (a region, the list's array)
+      // stay outside the rows; a row of several nodes the server bracketed as
+      // an array starts at its opening marker.
       next(rc);
       splitHere(rc);
       const anchor = anchorOf(rc);
@@ -2946,12 +3178,15 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
       splitHere(rc);
       const first = afterAnchor(rc, anchor);
       const single = first !== rc.n && first.nextSibling === rc.n && (first.nodeType === 1 || first.nodeType === 3);
-      mappedNodes[i] = single ? first : rc.p.insertBefore(document.createComment('i'), first);
+      mappedNodes[i] = single ? first
+        : anchor !== start && isMarker(anchor, ARRAY_OPEN) ? anchor
+          : rc.p.insertBefore(document.createComment('i'), first);
     }
   };
   // Whether the first run was held: the server's rows stay up until the run
   // that renders the list.
   let held = false;
+  if (__DEV__) setNextBinding(endMarker || parent, source._listLoc ? `list@${source._listLoc}` : 'list');
   effect(() => {
     let newItems;
     if (first) {
@@ -3054,8 +3289,9 @@ function awaitStream(at, close, adoptFallback, resume) {
   const id = placeholder.id.slice(3);
   const fallbackEnd = commentAfter(placeholder, 'pl-' + id);
   const owner = getOwner();
-  const component = _currentComponent();
-  const counter = component !== null ? component._ownerChildren : undefined;
+  const holder = _ownerCounter(_currentComponent(), session.ownerRoot);
+  const counter = holder._ownerChildren;
+  const { root, onError, ownerRoot } = session;
   within(at, close, () => {
     const pc = cur;
     pc.n = placeholder.nextSibling;
@@ -3067,13 +3303,19 @@ function awaitStream(at, close, adoptFallback, resume) {
       pc.n = fallbackEnd.nextSibling;
     }
   });
-  waiting.set(id, () => {
-    waiting.delete(id);
+  const entry = () => {
+    if (waiting.get(id) === entry) waiting.delete(id);
     if (at.parentNode === null || (owner !== null && _isDisposed(owner))) return;
-    runWithOwner(owner, () => resume((fn) => resumeIn(at, close, () => {
-      if (component !== null) component._ownerChildren = counter;
+    runWithOwner(owner, () => resume((fn) => resumeIn(newSession(root, onError, ownerRoot), at, close, () => {
+      holder._ownerChildren = counter;
       fn();
     })));
+  };
+  waiting.set(id, entry);
+  // Unmounted before its content arrives: nothing is left waiting for it, so
+  // the boundary's DOM is not kept alive by an id the stream may never send.
+  onCleanup(() => {
+    if (waiting.get(id) === entry) waiting.delete(id);
   });
   installResumeHook();
   return true;
@@ -3361,14 +3603,21 @@ function hydrateSuspense(vnode) {
     }
   };
 
-  // After a walk of the children: a component that suspended there drops it.
+  // After a walk of the children: a component that suspended there (code
+  // that has not loaded on the client: a lazy() chunk) drops it, and the
+  // server's content stays up, as the walk left it, until what the component
+  // waits for has landed: the boundary's reveal then walks it again.
   const settle = () => {
     if (b.revealed || fallbackShown) return;
     if (childrenArm !== null) childrenArm();
     childrenArm = null;
-    clear();
-    buildFallback();
-    build();
+    const show = b.show;
+    const walk = newSession(session.root, session.onError, session.ownerRoot);
+    b.show = () => {
+      b.show = show;
+      if (start.parentNode === null || (owner !== null && _isDisposed(owner))) return;
+      runWithOwner(owner, () => resumeIn(walk, start, end, () => adoptChildren(true)));
+    };
   };
 
   if (close === null) {
@@ -3430,10 +3679,11 @@ function commentAfter(placeholder, data) {
 const waiting = new Map();
 
 // Hydrate the region between `start` and `end` in a walk of its own: a
-// boundary whose content arrived after the page hydrated.
-function resumeIn(start, end, fn) {
+// boundary whose content arrived after the page hydrated, reported to the
+// hook of the hydrate() call it belongs to.
+function resumeIn(walk, start, end, fn) {
   const saved = { cur, depth: outer.length, session, pendingKey };
-  session = { root: start.parentNode, onError: null, reported: new WeakSet(), prebuilt: new WeakSet(), warned: false, lenient: false, dropping: [] };
+  session = walk;
   batch(() => {
     cur = { p: start.parentNode, n: start.nextSibling, o: 0, e: end, h: true, t: null };
     pendingKey = null;
@@ -3445,6 +3695,7 @@ function resumeIn(start, end, fn) {
       outer.length = saved.depth;
       session = saved.session;
       pendingKey = saved.pendingKey;
+      if (saved.depth === 0) releaseCursors();
     }
   });
 }
@@ -3504,6 +3755,20 @@ export function _$htemplate(html, flag) {
 // every template it runs.
 const entered = [];
 
+// Once the outermost walk is over, the pooled cursors let go of the nodes
+// they last stood on.
+function releaseCursors() {
+  for (let i = 0; i < entered.length; i++) {
+    const c = entered[i];
+    if (c !== undefined) {
+      c.p = null;
+      c.n = null;
+      c.e = null;
+      c.t = null;
+    }
+  }
+}
+
 function enterNode(el, t) {
   outer.push(cur);
   const depth = outer.length;
@@ -3518,7 +3783,7 @@ function enterNode(el, t) {
   cur = c;
 }
 
-/** A template's root: the server's element while hydrating, a clone otherwise. `flags` 1: enter it. */
+/** A template's root: the server's element while hydrating, a clone otherwise. `flags` 1: enter it; 2: a binding writes its content. */
 export function _$claim(tmpl, flags) {
   const c = cur;
   if (c === null || !c.h) {
@@ -3557,20 +3822,31 @@ function claimStatic(c, t) {
 // The server's element claimed for template node `t`, entered (`flags` 1)
 // for the code that follows or else claimed with its subtree, which is all
 // the template's: adopted whole when the server wrote exactly the template's
-// node, and otherwise claimed node by node, so each difference is reported
-// and replaced. An element the template leaves empty keeps what the server
-// put in it: raw HTML a binding writes again, an island's markup.
+// node (isEqualNode, which does not see shadow roots: hasShadowRoot), and
+// otherwise claimed node by node, so each difference is reported and
+// replaced. An element the template leaves empty keeps what the server put in
+// it only when a binding writes its content (`flags` 2: innerHTML); anything
+// else in it is left over.
 function claimNode(el, t, flags) {
   if (flags & 1) {
     keepTemplateAttrs(el, t);
     enterNode(el, t.firstChild);
-  } else if (!el.isEqualNode(t)) {
+  } else if (!el.isEqualNode(t) || hasShadowRoot(el)) {
     keepTemplateAttrs(el, t);
-    if (t.firstChild !== null) {
+    if (t.firstChild !== null || (el.firstChild !== null && (flags & 2) === 0)) {
       enterNode(el, t.firstChild);
       _$exit();
     }
   }
+}
+
+// Whether an element below `el` hosts a shadow root (`el`'s own was checked
+// when it was taken).
+function hasShadowRoot(el) {
+  for (let child = el.firstElementChild; child !== null; child = child.nextElementSibling) {
+    if (child.shadowRoot != null || hasShadowRoot(child)) return true;
+  }
+  return false;
 }
 
 /** Step over `k` static children. */
@@ -3585,7 +3861,7 @@ export function _$skip(k) {
   c.n = n;
 }
 
-/** The next child after `k` static ones: an element with bindings. `flags` 1: enter it. */
+/** The next child after `k` static ones: an element with bindings. `flags` 1: enter it; 2: a binding writes its content. */
 export function _$next(k, flags) {
   const c = cur;
   if (c.h) {
@@ -3624,6 +3900,105 @@ export function _$hole(parent, value, flag, devName) {
     if (flag === 1) c.n = marker.nextSibling;
   }
   insert(parent, value, marker, devName);
+}
+
+// --- Plain fields of a keyed row's item ---
+//
+// A keyed row's text that reads a plain field of the row's item (`{row.label}`
+// in a keyed .map(), what-compiler's lowering) is a text node of its own,
+// which the row's item cell rewrites when the row is handed a new item
+// (reactive.js _setRowItem): no effect, region or markers per field. The
+// server writes such a field as plain text when it is text (a string, a
+// number; null, undefined and booleans render nothing), and the walk claims
+// that text node. A value that is not text (a vnode, a function, an array) is
+// a reactive child read through the cell, as any other read of the item is,
+// and a later item whose field is not text has the row built again.
+
+function fieldText(value) {
+  const type = typeof value;
+  if (type === 'string') return value;
+  if (type === 'number') return String(value);
+  return value == null || type === 'boolean' ? '' : null;
+}
+
+function writeField(node, value) {
+  const text = fieldText(value);
+  if (text === null) return false;
+  if (node.data !== text) node.data = text;
+  if (_onTextInsert !== null && node.parentNode !== null) _onTextInsert(node.parentNode, text);
+  return true;
+}
+
+function bindField(cell, node, read) {
+  const fields = cell.fields;
+  if (fields === null) cell.fields = [node, read, writeField];
+  else fields.push(node, read, writeField);
+}
+
+/** A keyed row's plain field of its item, placed as insert() places a child (`marker`). */
+export function _$field(parent, cell, value, marker, read) {
+  const text = fieldText(value);
+  if (text === null) {
+    insert(parent, () => read(_readRowItem(cell)), marker);
+    return;
+  }
+  let node;
+  if (marker === undefined && text !== '' && parent.firstChild === null) {
+    parent.textContent = text;
+    node = /** @type {Text} */ (parent.firstChild);
+  } else {
+    node = parent.insertBefore(document.createTextNode(text), marker || null);
+  }
+  if (_onTextInsert !== null) _onTextInsert(parent, text);
+  bindField(cell, node, read);
+}
+
+/** _$field for hydratable output: placed where `flag` says (_$hole), the server's text claimed while hydrating. */
+export function _$hfield(parent, cell, value, flag, read) {
+  const c = cur;
+  const text = fieldText(value);
+  if (text === null || !c.h) {
+    if (c.h) {
+      _$hole(parent, () => read(_readRowItem(cell)), flag);
+      return;
+    }
+    let marker;
+    if (flag === 2) marker = null;
+    else if (flag !== 3) {
+      marker = c.n;
+      if (flag === 1) c.n = marker.nextSibling;
+    }
+    _$field(parent, cell, value, marker, read);
+    return;
+  }
+  bindField(cell, claimField(c, text), read);
+  if (flag === 1) c.t = c.t.nextSibling;
+}
+
+// The server's text for a field, as a text node of its own (split from text
+// the parser merged it with); the client's text in its place where it
+// differs, and a node of its own where the server wrote none.
+function claimField(c, text) {
+  pendingKey = null;
+  splitHere(c);
+  const n = next(c);
+  const want = text.indexOf('\r') >= 0 ? text.replace(/\r\n?/g, '\n') : text;
+  if (want !== '' && n !== null && n.nodeType === 3) {
+    const node = /** @type {Text} */ (n);
+    if (node.data.startsWith(want)) {
+      if (node.data.length > want.length) node.splitText(want.length);
+      c.n = node.nextSibling;
+      return node;
+    }
+    if (!frozen()) {
+      replaceText(c, text);
+      return node;
+    }
+  }
+  const node = document.createTextNode(text);
+  if (want === '') c.p.insertBefore(node, c.n);
+  else recover(c, node, JSON.stringify(short(text)), n === null ? 'missing' : 'text');
+  return node;
 }
 
 /** Leave the entered element: while hydrating, its remaining static children are claimed and leftovers removed. */

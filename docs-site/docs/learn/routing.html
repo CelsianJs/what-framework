@@ -157,7 +157,31 @@ mount(
 <span class="comment">// Options</span>
 <span class="function">navigate</span>(<span class="string">'/settings'</span>, { replace: <span class="keyword">true</span> });   <span class="comment">// Replace history entry</span>
 <span class="function">navigate</span>(<span class="string">'/profile'</span>, { state: { from: <span class="string">'nav'</span> } }); <span class="comment">// Pass state</span>
-<span class="function">navigate</span>(<span class="string">'/page'</span>, { transition: <span class="keyword">false</span> });     <span class="comment">// Skip view transition</span></code></pre>
+<span class="function">navigate</span>(<span class="string">'/page'</span>, { transition: <span class="keyword">false</span> });     <span class="comment">// Skip view transition</span>
+<span class="function">navigate</span>(<span class="string">'/page'</span>, { flushSync: <span class="keyword">true</span> });      <span class="comment">// Commit at once</span></code></pre>
+
+          <p>A navigation is a transition. <code>navigate()</code> and <code>&lt;Link&gt;</code> run the <code>beforeNavigate</code> guards, then prepare the destination while the old page stays on screen: they load a <code>lazy()</code> route's chunk and run its <code>preload</code>, and wait for both. Then the URL commits inside <code>startTransition</code>, so the page and everything else the new URL reaches (a layout's data keyed on the params) commit in one flush. <code>navigate()</code> resolves once the new page is on screen and the data it reads first has landed, and a newer navigation supersedes one still preparing. <code>route.isNavigating</code> is true meanwhile, and <code>useTransition</code>'s <code>isPending</code> around a <code>navigate()</code> call is true until the commit.</p>
+
+          <h2 id="preload">Route Data: preload</h2>
+          <p>A route's <code>preload({ params, query, url })</code> starts the data the page needs. The navigation waits for what it returns (a <code>query()</code>, an async value, a promise, or an array or object of them), and the page receives it as its <code>data</code> prop:</p>
+
+<pre><code><span class="keyword">import</span> { Router } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
+<span class="keyword">import</span> { query } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+
+<span class="keyword">const</span> user = (id) =&gt; <span class="function">query</span>([<span class="string">'user'</span>, id], (key, { signal }) =&gt; fetch(<span class="string">`/api/users/${key[1]}`</span>, { signal }).then((r) =&gt; r.json()), { staleTime: <span class="number">30_000</span> });
+
+<span class="keyword">const</span> routes = [
+  {
+    path: <span class="string">'/users/:id'</span>,
+    preload: ({ params }) =&gt; <span class="function">user</span>(params.id),
+    component: ({ data }) =&gt; &lt;h1&gt;{data().name}&lt;/h1&gt;,
+  },
+];
+
+<span class="keyword">export const</span> <span class="function">App</span> = () =&gt; &lt;Router routes={routes} /&gt;;</code></pre>
+
+          <p>A <code>query()</code> the page makes on the same key is answered from the cache. The queries a preload makes are read on the route's path, so <code>invalidatePath('/users/7')</code>, which a server action's <code>revalidate</code> calls, refetches them inside the action's transition.</p>
+          <p>Data the page reads that <code>preload</code> does not return is fetched after the URL commits: the page shows it pending (its bindings hold, or its <code>&lt;Suspense&gt;</code> shows its fallback), and the navigation goes on until it has landed. Only <code>preload</code> data keeps the old page on screen, so return what the page needs at once from it.</p>
 
           <h2 id="route-object">The route Object</h2>
           <p>Access the current route state from anywhere in your app using the reactive <code>route</code> object:</p>
@@ -169,7 +193,7 @@ route.path     <span class="comment">// "/users/42"</span>
 route.params   <span class="comment">// { id: "42" }</span>
 route.query    <span class="comment">// { tab: "posts" }</span>
 route.hash     <span class="comment">// "#section"</span>
-route.isNavigating  <span class="comment">// true during navigation</span></code></pre>
+route.isNavigating  <span class="comment">// true from navigate() until the new page's first data has landed</span></code></pre>
 
           <div class="callout callout-note">
             <p class="callout-title">No Parentheses Needed</p>
@@ -299,7 +323,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
   },
 });</code></pre>
 
-          <p>The <code>loading</code> component renders while <code>route.isNavigating</code> is true. <code>asyncGuard</code> never sets that flag, so a route it protects shows the guard's own <code>loading</code> option while the check is pending, never the route's. When both the route being left and the route being entered declare a <code>loading</code> component, the destination's wins.</p>
+          <p>Without a <code>loading</code> component, the page being left stays on screen while a navigation prepares. With one, the <code>loading</code> component renders instead while the navigation prepares. <code>asyncGuard</code> never sets that flag, so a route it protects shows the guard's own <code>loading</code> option while the check is pending, never the route's. When both the route being left and the route being entered declare a <code>loading</code> component, the destination's wins.</p>
 
           <p>The <code>error</code> component is wrapped in an <code>ErrorBoundary</code> that catches exceptions during rendering. It is called with <code>{ error, reset }</code>, and <code>reset</code> re-runs the failed subtree:</p>
 
@@ -313,7 +337,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 }</code></pre>
 
           <h2 id="view-transitions">View Transitions</h2>
-          <p>What Router uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API">View Transitions API</a> by default for smooth page transitions. No configuration needed, just add CSS:</p>
+          <p>What Router uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API">View Transitions API</a> by default for smooth page transitions. The update callback is the navigation's commit, after the destination was prepared, so the browser captures the new page once it is on screen. No configuration needed, just add CSS:</p>
 
 <pre><code><span class="comment">/* Fade in/out by default */</span>
 ::view-transition-old(root) {
@@ -408,6 +432,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
             <li><a href="#nested-layouts">Nested Layouts</a></li>
             <li><a href="#middleware">Route Guards</a></li>
             <li><a href="#route-groups">Route Groups</a></li>
+            <li><a href="#preload">Route Data: preload</a></li>
             <li><a href="#loading-states">Loading &amp; Error States</a></li>
             <li><a href="#view-transitions">View Transitions</a></li>
             <li><a href="#scroll-restoration">Scroll Restoration</a></li>

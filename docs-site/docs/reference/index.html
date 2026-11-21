@@ -57,7 +57,7 @@
       <div class="sidebar-section">
         <div class="sidebar-title">Data &amp; State</div>
         <ul class="sidebar-links">
-          <li><a href="#data-fetching">useSWR / useQuery</a></li>
+          <li><a href="#data-fetching">query / useQuery / useSWR</a></li>
           <li><a href="#data-fetching">useInfiniteQuery</a></li>
           <li><a href="#forms">useForm / useField</a></li>
           <li><a href="#stores">createStore / derived</a></li>
@@ -70,7 +70,7 @@
           <li><a href="#accessibility">Focus / ARIA / Keys</a></li>
           <li><a href="#scheduler">scheduleRead / scheduleWrite</a></li>
           <li><a href="#ssr">renderToString / Stream</a></li>
-          <li><a href="#server-actions">action / useMutation</a></li>
+          <li><a href="#server-actions">action / Form</a></li>
         </ul>
       </div>
     </aside>
@@ -128,14 +128,13 @@
             </thead>
             <tbody>
               <tr><td><a href="./Show.html"><code>&lt;Show when fallback&gt;</code></a></td><td>Conditionally render children based on a condition</td></tr>
-              <tr><td><a href="./For.html"><code>&lt;For each fallback&gt;</code></a></td><td>Render a list, with <code>fallback</code> shown while the list is empty on both the compiled and the runtime path. Keyed reconciliation needs the What compiler: on the runtime path <code>key</code> is ignored and every row is rebuilt on each change</td></tr>
+              <tr><td><a href="./For.html"><code>&lt;For each fallback&gt;</code></a></td><td>Render a list of an accessor or an array, with <code>fallback</code> shown while the list is empty, on both the compiled and the runtime path. With <code>key={(item) =&gt; item.id}</code> each row is built once per key and gets its item as an accessor, <code>item()</code>, that follows an item replaced under the key; without it a row gets the item itself</td></tr>
               <tr><td><code>&lt;Switch&gt; / &lt;Match when&gt;</code></td><td>Render one of multiple conditions</td></tr>
               <tr><td><code>&lt;Portal target&gt;</code></td><td>Render children into a different DOM container</td></tr>
               <tr><td><code>&lt;ErrorBoundary fallback onError&gt;</code></td><td>Catch errors in child components</td></tr>
               <tr><td><code>&lt;Suspense fallback&gt;</code></td><td>Show the fallback until the async values and lazy components under it have first shown. After that a refresh keeps the content up, and a component that suspends again (<code>lazy()</code>, <code>use(promise)</code>) shows the fallback with the content kept mounted behind it</td></tr>
               <tr><td><code>memo(Component, areEqual)</code></td><td>No-op pass-through wrapper, kept for React source compatibility. There is no re-render to skip in the run-once model, and <code>areEqual</code> is never called</td></tr>
               <tr><td><code>lazy(loader)</code></td><td>Code-split a component. Works with Suspense on the client. Under SSR <code>renderToStream</code>, <code>renderToStringAsync</code> and <code>renderDocument</code> wait for it; the synchronous <code>renderToString</code> emits the Suspense fallback</td></tr>
-              <tr><td><code>&lt;Island component mode&gt;</code></td><td>Deferred hydration: load, idle, visible, interaction, media</td></tr>
             </tbody>
           </table>
 
@@ -185,22 +184,24 @@
           </table>
 
           <h2 id="data-fetching">Data Fetching</h2>
-          <p>SWR, query, and cache management primitives, imported from <code>what-framework/data</code>. <a href="../learn/data-fetching.html">Learn more →</a></p>
+          <p>One query cache, from <code>what-framework/data</code>: every key is one entry, an async value in the graph, shared by <code>query()</code> and every hook. <a href="../learn/data-fetching.html">Learn more →</a> · <a href="https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md">DATA.md</a></p>
 
           <table>
             <thead>
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>useFetch(url, options)</code></td><td>Simple fetch wrapper. Returns data(), error(), isLoading(), refetch()</td></tr>
-              <tr><td><code>useSWR(key, fetcher, opts)</code></td><td>Stale-while-revalidate with caching, dedup, revalidation on focus/reconnect. An array key is normalized into the same key space as <code>useQuery</code>, so <code>useSWR(['/api/user', 7], ...)</code> and <code>useQuery({ queryKey: ['/api/user', 7] })</code> share one cache entry that <code>getQueryData</code> and <code>invalidateQueries</code> both reach. The fetcher still receives the original key, so <code>useSWR(['/api/user', id], ([url, id]) =&gt; ...)</code> is unchanged</td></tr>
-              <tr><td><code>useQuery(options)</code></td><td>Full query management: retry, staleTime, cacheTime, refetchInterval, select, placeholderData, and <code>enabled</code>. <code>enabled</code> takes a boolean, a signal or a thunk and is read reactively, so a query disabled at mount starts the moment the flag flips. Disabled with nothing cached it reports <code>status() === 'idle'</code> (<code>isIdle()</code>, and <code>isLoading()</code> is false); <code>refetch()</code> is never gated by <code>enabled</code> and never answered from the staleTime window. <code>queryKey</code> is the opposite: it is read exactly ONCE, when the hook is created, so every value in it has to be known by then. Gate on a value the key does not contain with <code>enabled</code>; when the key itself depends on data still loading, render the dependent component conditionally and pass the id in as a prop instead of writing <code>['posts', user.data()?.id]</code>, which freezes as <code>'posts:undefined'</code></td></tr>
-              <tr><td><code>useInfiniteQuery(options)</code></td><td>Infinite scroll/pagination with getNextPageParam, fetchNextPage. Honours <code>enabled</code> (same rules as <code>useQuery</code>), <code>select</code>, <code>retry</code>, <code>retryDelay</code> and <code>onSuccess</code>/<code>onError</code>/<code>onSettled</code>, and exposes <code>error()</code>, <code>status()</code>, <code>isLoading()</code>, <code>isError()</code>, <code>isSuccess()</code>, <code>isIdle()</code>, <code>isFetching()</code>. Its <code>data()</code> is the page container <code>{ pages, pageParams }</code>, not a flat array. On an EMPTY list <code>fetchNextPage()</code> and <code>fetchPreviousPage()</code> fetch the first page from <code>initialPageParam</code> without consulting <code>getNextPageParam</code>/<code>getPreviousPageParam</code> at all, so either can start a list created with <code>enabled: false</code> or retry a first page that failed; on a loaded list a <code>getNextPageParam</code> that returns undefined is still a no-op. Its pages live in hook-local signals, so <code>getQueryData</code>, <code>setQueryData</code>, <code>staleTime</code>, <code>cacheTime</code>, <code>placeholderData</code>, <code>refetchOnWindowFocus</code> and <code>refetchInterval</code> do not reach it; <code>invalidateQueries</code> and <code>clearCache</code> do</td></tr>
-              <tr><td><code>invalidateQueries(keyOrPredicate, opts)</code></td><td>Trigger refetch. An array key matches as a prefix on segment boundaries, so <code>['todos']</code> also invalidates <code>['todos', 1]</code>. Pass <code>{ exact: true }</code> for that key alone, <code>{ hard: true }</code> to clear data immediately, or a predicate function to select keys. A predicate is handed the NORMALIZED key, so an array key arrives joined (<code>['/api/posts', 1]</code> as <code>'/api/posts:1'</code>) and <code>key =&gt; key.startsWith('/api/posts')</code> is safe; a non-string non-array key (a number, an object) is passed through unchanged. It is synchronous and returns nothing, so awaiting it does not wait for the refetches. Every form reaches infinite queries and queries that have subscribed but not yet resolved. A query whose <code>enabled</code> is false is deliberately left asleep</td></tr>
-              <tr><td><code>prefetchQuery(key, fetcher)</code></td><td>Pre-fill cache before component mounts</td></tr>
-              <tr><td><code>setQueryData(key, updater)</code></td><td>Manually set cache data</td></tr>
-              <tr><td><code>getQueryData(key)</code></td><td>Read cached data</td></tr>
-              <tr><td><code>clearCache()</code></td><td>Empty every cached entry, including the pages of an infinite query. A key a mounted component is still reading is emptied in place, so the clear shows on screen and a later write to that key (<code>setQueryData</code>, a sibling's fetch, <code>prefetchQuery</code>) still reaches the component. Afterwards <code>getQueryData()</code> reports the key as absent, and a query left with nothing settles on <code>status() === 'idle'</code> whether it was created enabled or disabled. It also aborts requests already in flight, including one started by an explicit <code>refetch()</code>, so a response that lands after the clear is discarded and <code>await q.refetch()</code> raced by a logout resolves with <code>undefined</code></td></tr>
+              <tr><td><code>query(key, fetcher, opts)</code></td><td>The signal-native read: an async value for the entry <code>key</code> names now (a key, or a function of signals returning one). Suspends its <code>&lt;Suspense&gt;</code> on first load, holds a reader while it refetches, keeps the old value with <code>pending()</code> while a new key loads, aborts a key nothing reads, and <code>refresh(q)</code> fetches again. A server render sends it in the data channel under its key, and the hydrating client adopts it with no request. Options: <code>staleTime</code>, <code>gcTime</code>, <code>retry</code>, <code>retryDelay</code>, <code>initialData</code></td></tr>
+              <tr><td><code>useFetch(url, options)</code></td><td>One URL's JSON from the cache: data(), error(), isLoading(), refetch(), mutate(). <code>url</code> may be a function</td></tr>
+              <tr><td><code>useSWR(key, fetcher, opts)</code></td><td>SWR's shape: data() (the value, <code>fallbackData</code>, or null), error(), isLoading(), isValidating(), mutate(), revalidate(). A null, false or throwing key (or a function returning one) pauses it. Options: <code>dedupingInterval</code> (2000), <code>revalidateOnFocus</code>, <code>revalidateOnReconnect</code>, <code>refreshInterval</code>, <code>fallbackData</code>, <code>keepPreviousData</code>. The fetcher receives the key as written</td></tr>
+              <tr><td><code>useQuery(options)</code></td><td>TanStack Query's shape; never suspends. <code>queryKey</code> may be a function of signals, and the query follows it to the new key's entry (a static array is read once). <code>enabled</code> (a boolean, signal or thunk) gates automatic fetching; <code>refetch()</code> is never gated and never answered from the staleTime window. Disabled with nothing cached it reports <code>status() === 'idle'</code>. Options: <code>staleTime</code>, <code>gcTime</code>/<code>cacheTime</code>, <code>select</code>, <code>placeholderData</code>, <code>keepPreviousData</code>, <code>refetchOnWindowFocus</code>, <code>refetchOnReconnect</code>, <code>refetchInterval</code>, <code>retry</code>, <code>retryDelay</code>, callbacks</td></tr>
+              <tr><td><code>useInfiniteQuery(options)</code></td><td>The pages as one cache entry: <code>data()</code> is <code>{ pages, pageParams }</code>. On an empty list <code>fetchNextPage()</code>/<code>fetchPreviousPage()</code> fetch the first page from <code>initialPageParam</code>. Invalidating its key refetches page one and replaces the list</td></tr>
+              <tr><td><code>invalidateQueries(keyOrPredicate, opts)</code></td><td>Mark stale and refetch what is shown (inside a transition, the refetch joins it). An array key matches as a prefix on segment boundaries; <code>{ exact: true }</code> for that key alone, <code>{ hard: true }</code> to empty first, or a predicate that receives each normalized key. A query whose <code>enabled</code> is false is left asleep. Returns a promise of the refetches</td></tr>
+              <tr><td><code>invalidatePath(path)</code> / <code>onRevalidate(path, cb)</code></td><td>Refetch the queries and route data read on <code>path</code>, and run its callbacks. A server action's <code>revalidate</code> calls it inside its transition</td></tr>
+              <tr><td><code>prefetchQuery(key, fetcher, opts)</code></td><td>Fill the cache unless it holds a fresh value; resolves with it</td></tr>
+              <tr><td><code>setQueryData(key, updater)</code></td><td>Land a value in the entry now, for every reader; a fetch in flight for it is dropped</td></tr>
+              <tr><td><code>getQueryData(key)</code></td><td>The cached value (undefined: nothing cached; null: emptied by a hard invalidation)</td></tr>
+              <tr><td><code>clearCache()</code></td><td>Logout: what is in flight is dropped, so no response requested before the clear lands after it. Entries a reader shows stay attached, empty (a hook settles on <code>'idle'</code>, a mounted <code>query()</code> fetches again); the rest are forgotten</td></tr>
             </tbody>
           </table>
 
@@ -361,10 +362,8 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>action(fn, options)</code></td><td>Define server action callable from client via fetch. Options: <code>id</code>, <code>onSuccess</code>, <code>onError</code>, <code>revalidate</code> (paths), <code>revalidateTags</code> (cache tags purged through the bound engine after the action succeeds), <code>timeout</code> (client fetch timeout in ms, default 30000)</td></tr>
-              <tr><td><code>formAction(actionFn, opts)</code></td><td>Form submission wrapper with FormData handling</td></tr>
-              <tr><td><code>useAction(actionFn)</code></td><td>Action state: trigger(), isPending(), error(), data(), reset()</td></tr>
-              <tr><td><code>useMutation(mutationFn, opts)</code></td><td>Simple mutation: mutate(), isPending(), error(), data(), reset()</td></tr>
+              <tr><td><code>action(fn, options)</code></td><td>Define a server action. On the client a call is a transition (it joins one already running) that posts to the action endpoint, then revalidates inside it, and resolves once the refetches have landed. Options: <code>id</code>, <code>onSuccess</code>, <code>onError</code>, <code>revalidate</code> (paths: purged on the server, refetched through <code>invalidatePath</code> on the client), <code>invalidates</code> (query keys refetched on the client), <code>revalidateTags</code>, <code>timeout</code> (client fetch timeout in ms, default 30000)</td></tr>
+              <tr><td><code>Form</code></td><td><code>&lt;Form action={serverActionOrDispatch} redirect?&gt;</code>: a real form that posts without JavaScript, and on a mounted page runs the action as a transition that <code>useFormStatus()</code> reads</td></tr>
               <tr><td><code>useOptimistic(state, update?)</code></td><td>The root entry's <code>useOptimistic</code>, re-exported: React 19's <code>[optimistic, addOptimistic]</code>, where <code>optimistic()</code> is an accessor. Call <code>addOptimistic(value)</code> inside <code>startTransition</code>; the overlay drops when that transition commits, or alone when its action rejects</td></tr>
               <tr><td><code>generateCsrfToken()</code></td><td>Generate CSRF token for server actions</td></tr>
             </tbody>
@@ -396,9 +395,10 @@
 <span class="keyword">import</span> {
   signal, computed, effect, batch, untrack, flushSync,
   refresh, isPending, startTransition, useTransition, useOptimistic, use, settled,
+  useActionState, useFormStatus,
   h, mount, hydrate, Fragment, html,
   Show, For, Switch, Match, Portal, ErrorBoundary, Suspense,
-  memo, lazy, Island,
+  memo, lazy,
   useState, useSignal, useComputed, useEffect, useMemo,
   useCallback, useRef, useReducer, useId,
   onMount, onCleanup, createResource,
@@ -415,9 +415,9 @@
 
 <span class="comment">// Data fetching</span>
 <span class="keyword">import</span> {
-  useFetch, useSWR, useQuery, useInfiniteQuery,
-  invalidateQueries, prefetchQuery, setQueryData, getQueryData,
-  clearCache,
+  query, useFetch, useSWR, useQuery, useInfiniteQuery,
+  invalidateQueries, invalidatePath, onRevalidate,
+  prefetchQuery, setQueryData, getQueryData, clearCache,
 } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="comment">// Forms</span>
@@ -453,7 +453,7 @@
   renderToHydratableString, renderToStringAsync,
   renderToStream, renderDocument, generateStaticPage,
   definePage, server,
-  action, formAction, useAction, useMutation,
+  action, Form,
   generateCsrfToken,
 } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 <span class="comment">// (what-framework/server also exports useOptimistic: the root entry's, above)</span></code></pre>

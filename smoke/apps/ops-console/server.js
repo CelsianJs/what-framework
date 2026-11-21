@@ -46,6 +46,9 @@ const importMap = {
       [`what-core/${kit}`, `/node_modules/what-core/src/entries/${kit}.js`],
     ])),
     'what-router': '/node_modules/what-router/src/index.js',
+    // what-router reads the development flag and the query tags from
+    // what-core/internal.
+    'what-core/internal': '/node_modules/what-core/src/entries/internal.js',
     // The client-safe half of the server package: useOptimistic lives in
     // actions.js, which imports nothing from node:*.
     'what-server/actions': '/node_modules/what-server/src/actions.js',

@@ -210,7 +210,7 @@ describe('repeated items and duplicate keys', () => {
       const events = diagnostics.events.filter(e => e.code === 'ERR_DUPLICATE_KEY');
       assert.equal(events.length, 1);
       assert.match(events[0].message, /"dup"/);
-      assert.deepEqual(events[0].owner, ['<Keyed>']);
+      assert.deepEqual(events[0].owner, ['binding "KeyedApp"', '<Keyed>', 'binding "list"']);
 
       diagnostics.clear();
       const list = signal([1, 2, 2]);

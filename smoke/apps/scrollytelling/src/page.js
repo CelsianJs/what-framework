@@ -8,7 +8,8 @@
 // Client-safe by construction: the server imports this module to render, and
 // the browser imports the same file to hydrate.
 
-import { Head, Island, h, signal } from 'what-framework';
+import { Head, h, signal } from 'what-framework';
+import { _$Island as Island } from 'what-framework/render';
 import { easings, tween } from 'what-framework/motion';
 import { onIntersect } from 'what-framework/dom';
 

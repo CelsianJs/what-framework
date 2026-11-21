@@ -72,7 +72,7 @@ export const CAPABILITIES = {
   // so this capability must be claimed by an app that runs what-compiler.
   'cmp:keyed-list': { area: 'components', desc: 'a keyed list reorders without recreating rows (compiled path)' },
   'cmp:error-boundary': { area: 'components', desc: 'ErrorBoundary catches a throw AFTER a state change, not just first paint' },
-  'cmp:suspense-lazy': { area: 'components', desc: 'a lazy component reached by navigation shows a fallback then resolves' },
+  'cmp:suspense-lazy': { area: 'components', desc: 'a lazy component shows its boundary\'s fallback where nothing is revealed yet; a navigation to one keeps the revealed content until it resolves' },
   'cmp:portal': { area: 'components', desc: 'Portal renders a modal outside its parent DOM position' },
   'cmp:head': { area: 'components', desc: 'Head sets document title and meta tags, server-rendered' },
 

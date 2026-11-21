@@ -12,7 +12,9 @@ import { installDOM } from '../../../test-utils/dom.js';
 
 const { dom } = installDOM();
 
-const { h, mount, hydrate, signal, Island } = await import('../src/index.js');
+const { h, mount, hydrate, signal } = await import('../src/index.js');
+// What a client:* directive compiles to; h() code calls it the same way.
+const { _$Island: Island } = await import('../src/render.js');
 const { renderToString } = await import('../../server/src/index.js');
 
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));

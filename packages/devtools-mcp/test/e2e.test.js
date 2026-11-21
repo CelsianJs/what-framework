@@ -17,6 +17,7 @@ import { chromium } from 'playwright';
 import what from 'what-compiler/vite';
 import devtoolsPlugin from '../src/vite-plugin.js';
 import { createBridge } from '../src/bridge.js';
+import { registerAgentTools } from '../src/tools-agent.js';
 import { freePortPair, connectTools } from './helpers/fake-page.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +85,7 @@ e2eDescribe('E2E: Chromium → Vite plugin pairing → bridge → MCP', () => {
       }
     }
     tools = await connectTools(bridge);
+    registerAgentTools(tools.server, bridge);
     urlA = await serve('app-a', port);
     urlB = await serve('app-b', port);
     browser = await chromium.launch({ headless: true });
@@ -102,6 +104,94 @@ e2eDescribe('E2E: Chromium → Vite plugin pairing → bridge → MCP', () => {
   });
 
   const call = (name, args) => tools.call(name, args).then((r) => r.parsed);
+
+  it('explains an equal computed skip and the entire click-to-DOM chain by selector or id', async () => {
+    const { effects } = await call('what_effects', { filter: '^writeResult$' });
+    const writer = effects[0];
+    assert.match(writer.owner, /<App>.*<DiagnosticsExample>/);
+    assert.match(writer.loc, /diagnostics\.jsx:\d+:\d+$/);
+    const writerId = writer.id;
+    await pageA.locator('#cause-click').click();
+    const equal = await call('what_why', { effectId: writerId });
+    assert.equal(equal.graph[0].kind, 'skip', JSON.stringify(equal));
+    assert.ok(equal.graph.some((step) => step.kind === 'equal' && step.subject.name === 'equal'), JSON.stringify(equal));
+    assert.equal(await pageA.locator('#cause-output').textContent(), 'value: 0');
+
+    await pageA.locator('#cause-click').click();
+    const why = await call('what_why', { selector: '#cause-output' });
+    assert.equal(why.targets.length, 2, JSON.stringify(why));
+    assert.equal(await pageA.locator('#cause-output').textContent(), 'value: 1');
+    assert.ok(why.targets.every((target) => target.kind === 'binding' && target.reads.some((read) => read.name === 'writtenByEffect')));
+    const expected = ['writtenByEffect', 'writeResult', 'formatted', 'equal', 'count'];
+    assert.ok(expected.every((name) => why.graph.some((step) => step.subject.name === name)), JSON.stringify(why));
+    const origin = why.graph.find((step) => step.origin?.kind === 'event')?.origin;
+    assert.equal(origin?.event, 'click', JSON.stringify(why));
+    assert.match(origin.loc, /diagnostics\.jsx:\d+:\d+$/);
+    const byBinding = await call('what_why', { bindingId: why.targets[0].id });
+    assert.equal(byBinding.targets[0].id, why.targets[0].id);
+    const byComponent = await call('what_why', { componentId: why.target.componentId });
+    assert.ok(byComponent.targets.some((target) => target.id === writerId));
+    assert.ok((await call('what_why', { effectId: writerId, selector: '#cause-output' })).error);
+
+    const { signals } = await call('what_signals', { filter: '^count$' });
+    const count = signals.find((entry) => entry.owner?.includes('<DiagnosticsExample>'));
+    await call('what_set_signal', { signalId: count.id, value: 4 });
+    const fromMcp = await call('what_why', { effectId: writerId });
+    assert.ok(fromMcp.graph.some((step) => step.origin?.kind === 'what_set_signal'), JSON.stringify(fromMcp));
+  });
+
+  it('reports unsettled work and explains async landings and transition commits', async () => {
+    const stuck = await call('what_diagnose', { focus: 'async', pendingMs: 0 });
+    assert.ok(stuck.stalled.work.some((entry) => entry.kind === 'async' && entry.name === 'result'));
+    assert.ok(stuck.stalled.work.some((entry) => entry.kind === 'suspense'));
+    const pending = await call('what_signals', { filter: '^result$' });
+    assert.equal(pending.signals[0].async.status, 'unresolved');
+    assert.equal(pending.signals[0].async.inFlight.run, 1);
+    assert.ok(pending.signals[0].async.inFlight.startedAt > 0);
+    await pageA.locator('#land').click();
+    assert.equal(await pageA.locator('#async-value').textContent(), '0');
+    const landing = await call('what_why', { selector: '#async-value' });
+    assert.ok(landing.graph.some((step) => step.kind === 'async-landing'), JSON.stringify(landing));
+    const first = await call('what_events', { after: stuck.seq, types: ['async', 'suspense'] });
+    assert.ok(first.work.some((event) => event.type === 'async:land' && event.run === 1));
+    assert.ok(first.work.some((event) => event.type === 'suspense:revealed'));
+
+    await pageA.locator('#hold').click();
+    const held = await call('what_diagnose', { focus: 'async', pendingMs: 0 });
+    assert.ok(held.stalled.work.some((entry) => entry.kind === 'transition'));
+    await pageA.locator('#land').click();
+    assert.equal(await pageA.locator('#async-value').textContent(), '1');
+    const commit = await call('what_why', { selector: '#async-value' });
+    assert.ok(commit.graph.some((step) => step.kind === 'transition-commit'), JSON.stringify(commit));
+    assert.ok(commit.graph.some((step) => step.kind === 'async-landing'));
+    const events = await call('what_events', { after: first.seq, types: ['transition', 'optimistic'] });
+    const types = events.work.map((event) => event.type);
+    assert.deepEqual(types, ['transition:open', 'optimistic:add', 'transition:commit', 'optimistic:drop']);
+    assert.ok(events.work.find((event) => event.type === 'transition:commit').heldCount > 0);
+    assert.equal((await call('what_diagnose', { focus: 'async', pendingMs: 0 })).stalled, undefined);
+  });
+
+  it('reports the adopted tree and each hydration mismatch as structured data', async () => {
+    const before = await call('what_connection_status');
+    assert.equal(before.hydration.hydrated, false);
+    await pageA.locator('#hydrate-mismatch').click();
+    assert.equal(await pageA.locator('#hydrate-target').textContent(), 'clientnew');
+    const errors = await call('what_errors', { code: 'ERR_HYDRATION_MISMATCH', after: before.seq });
+    const mismatch = errors.diagnostics.find((item) => item.mismatch.kind === 'text');
+    assert.ok(mismatch.owner.includes('<HydrationMismatch>'), JSON.stringify(errors));
+    assert.match(mismatch.loc, /diagnostics\.jsx:\d+:\d+$/);
+    assert.match(mismatch.mismatch.path, /p.*#text/);
+    assert.match(mismatch.mismatch.found, /«.*server.*»/);
+    assert.match(mismatch.mismatch.expected, /«.*client.*»/);
+    assert.equal(mismatch.mismatch.recovery, 'client-render');
+    const after = await call('what_connection_status');
+    assert.deepEqual(after.hydration, { hydrated: true, adopted: 2, created: 2 });
+    const fix = await call('what_fix', { error: 'ERR_HYDRATION_MISMATCH', kind: 'text' });
+    assert.match(fix.fix, /locale and formatting/);
+    assert.equal(errors.mismatchFixes.text, fix.fix);
+    const shadow = await call('what_fix', { error: 'ERR_HYDRATION_MISMATCH', kind: 'shadow-root' });
+    assert.match(shadow.fix, /shadow host/);
+  });
 
   it('reports what happened before the bridge connected: a startup diagnostic and a startup effect error (major 3)', async () => {
     const status = await call('what_connection_status');
@@ -148,7 +238,7 @@ e2eDescribe('E2E: Chromium → Vite plugin pairing → bridge → MCP', () => {
   it('a write is read back at once, and its events are exactly the action (critical 3, major 1)', async () => {
     const { signals } = await call('what_signals', { filter: '^refresh$' });
     const write = await call('what_set_signal', { signalId: signals[0].id, value: 99 });
-    assert.ok(write.events.some((l) => / write refresh=99$/.test(l)), JSON.stringify(write.events));
+    assert.ok(write.events.some((l) => / write refresh=99 at main\.jsx:\d+:\d+$/.test(l)), JSON.stringify(write.events));
     assert.ok(write.events.some((l) => / run .*← refresh#/.test(l)), 'the binding re-ran, caused by the write');
     const read = await call('what_signals', { id: signals[0].id });
     assert.equal(read.signals[0].value, 99);
@@ -179,7 +269,10 @@ e2eDescribe('E2E: Chromium → Vite plugin pairing → bridge → MCP', () => {
     await pageA.locator('#many').click();
     const found = await call('what_signals', { filter: '^bulk109$' });
     assert.deepEqual(found.signals.map((s) => s.value), [109]);
-    const count = await pageA.evaluate(() => window.__WHAT_DEVTOOLS__.getState().signals.length);
+    const count = await pageA.evaluate(() => {
+      const state = window.__WHAT_DEVTOOLS__.getState();
+      return state.signals.length + state.effects.filter((entry) => entry.async).length;
+    });
     assert.equal(found.total, count);
   });
 

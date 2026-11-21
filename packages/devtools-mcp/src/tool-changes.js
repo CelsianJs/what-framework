@@ -21,5 +21,5 @@ export const TOOL_CHANGES = Object.freeze({
     { names: ['what_validate'], use: ['what_lint({ code })'], note: 'it now compiles the snippet, offline' },
     { names: ['what_perf'], use: ['what_diagnose({ focus: "performance" })'] },
   ]),
-  added: Object.freeze(['what_events']),
+  added: Object.freeze(['what_events', 'what_why']),
 });

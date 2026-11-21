@@ -177,10 +177,22 @@ export function useMemo(fn, _deps) {
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    ctx.hooks[index] = { computed: computed(fn) };
+    ctx.hooks[index] = { computed: computed(__DEV__ ? devMemo(fn) : fn) };
   }
 
   return ctx.hooks[index].computed;
+}
+
+// Development: useMemo keeps a promise its function returns as the value, as
+// React's does; one that does is almost always meant to be an async value.
+function devMemo(fn) {
+  const memo = () => {
+    const value = fn();
+    if (value != null && typeof value.then === 'function') report('ERR_ASYNC_MEMO');
+    return value;
+  };
+  memo.inner = fn;
+  return memo;
 }
 
 // --- useCallback ---

@@ -120,8 +120,11 @@ export function useLocalStorage(key, initial) {
 }
 
 // --- portal ---
-// Render children into a different DOM container.
-export function Portal({ target, children }) {
+// Render children into a different DOM container. Compiled children arrive
+// unbuilt (`_deferChildren`, see dom.js _installLazyChildren) and are built in
+// the container: while hydrating, children built where the portal is placed
+// would claim the server's nodes there.
+export const Portal = /* @__PURE__ */ Object.assign(function Portal({ target, children }) {
   // In SSR, just return null (portals are client-only)
   if (typeof document === 'undefined') return null;
   const container = typeof target === 'string'
@@ -130,7 +133,7 @@ export function Portal({ target, children }) {
   if (!container) return null;
   // The DOM reconciler will mount children here
   return _vnode('__portal', { container }, Array.isArray(children) ? children : [children]);
-}
+}, { _deferChildren: true });
 
 // --- useClickOutside ---
 // Detect clicks outside a ref'd element. Essential for dropdowns, modals, popovers.

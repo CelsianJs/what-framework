@@ -215,3 +215,75 @@ describe('a hydrated keyed row after an immutable update', () => {
     stop();
   });
 });
+
+// A plain field of the item (`{t.title}`) is a text node the row's item cell
+// writes, not a reactive region: no effect, no markers, and on the server
+// plain text the client claims as its text node.
+describe('a keyed row\'s plain field', () => {
+  const source = `
+    import { signal, effect } from 'what-framework';
+    export const items = signal([{ id: 1, title: 'a' }, { id: 2, title: 'b' }]);
+    export function List() {
+      return <ul>{items().map((t) => <li key={t.id}><b>{t.title}</b></li>)}</ul>;
+    }`;
+
+  it('is a text node the row writes in place, with no effect of its own', async () => {
+    const { items, List } = await loadCompiled(source);
+    const app = document.getElementById('app');
+    app.textContent = '';
+    const stop = mount(() => List(), app);
+    const text = app.querySelector('b').firstChild;
+    assert.equal(app.querySelector('ul').innerHTML.includes('<!--'), true, 'precondition: the list keeps its end marker');
+    assert.equal(app.querySelector('b').childNodes.length, 1, 'no region markers around the field');
+    items((prev) => prev.map((t) => (t.id === 1 ? { ...t, title: 'a!' } : t)));
+    flushSync();
+    assert.equal(app.querySelector('b').firstChild, text, 'the same text node');
+    assert.equal(text.data, 'a!');
+    stop();
+  });
+
+  it('is written as plain text by the server target and claimed with no node created', async () => {
+    const serverSide = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+    const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+    const html = server.renderToHydratableString(h(serverSide.List));
+    assert.match(html, /<b>a<\/b>/, 'no markers around a plain field');
+    const app = document.getElementById('app');
+    app.innerHTML = html;
+    __resetHydrationData();
+    const before = new Set();
+    const walk = (fn) => { const w = document.createTreeWalker(app, 0xFFFFFFFF); for (let n = w.nextNode(); n; n = w.nextNode()) fn(n); };
+    walk((n) => before.add(n));
+    const reports = [];
+    const stop = hydrate(h(client.List), app, { onHydrationError: (r) => reports.push(r) });
+    let created = 0;
+    walk((n) => { if (!before.has(n)) created++; });
+    assert.equal(created, 0);
+    assert.deepEqual(reports, []);
+    const text = app.querySelector('b').firstChild;
+    client.items((prev) => prev.map((t) => (t.id === 1 ? { ...t, title: 'a!' } : t)));
+    flushSync();
+    assert.equal(app.querySelector('b').firstChild, text);
+    assert.equal(text.data, 'a!');
+    stop();
+  });
+
+  it('a field that is not text renders as a child, and an item whose field stops being text builds the row again', async () => {
+    const { items, List } = await loadCompiled(`
+      import { signal, h } from 'what-framework';
+      export const items = signal([{ id: 1, title: 'a' }, { id: 2, title: h('i', null, 'b') }]);
+      export function List() {
+        return <ul>{items().map((t) => <li key={t.id}>{t.title}</li>)}</ul>;
+      }
+    `);
+    const app = document.getElementById('app');
+    app.textContent = '';
+    const stop = mount(() => List(), app);
+    assert.equal(app.querySelectorAll('li')[1].querySelector('i').textContent, 'b');
+    const first = app.querySelector('li');
+    items((prev) => prev.map((t) => (t.id === 1 ? { ...t, title: h('em', null, 'now an element') } : t)));
+    flushSync();
+    assert.equal(app.querySelector('li em').textContent, 'now an element');
+    assert.notEqual(app.querySelector('li'), first, 'built again');
+    stop();
+  });
+});

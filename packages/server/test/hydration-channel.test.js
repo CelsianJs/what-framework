@@ -118,7 +118,8 @@ describe('a server-rendered page hydrates without fetching again', () => {
   });
 
   it('an island does not take a value meant for another part of the page', async () => {
-    const { h, createResource, Island, Suspense } = core;
+    const { h, createResource, Suspense } = core;
+    const { _$Island: Island } = await import('what-core/render');
     let islandFetches = 0;
     function Static() {
       const [v] = createResource(() => Promise.resolve('PAGE VALUE'));

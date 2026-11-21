@@ -4,6 +4,8 @@ import { signal, effect, createStore, useState, mount, batch, Show } from 'what-
 import { useForm } from 'what-framework/form';
 import { beforeNavigate, route } from 'what-framework/router';
 
+import { DiagnosticsExample } from './diagnostics.jsx';
+
 const todo = createStore({
   items: [{ id: 1, title: 'First' }, { id: 2, title: 'Second' }],
   add(title) { this.items = [...this.items, { id: this.items.length + 1, title }]; },
@@ -68,7 +70,7 @@ function App() {
     <p id="refresh">{refresh()}</p>
     <p id="sample">{() => JSON.stringify(sample())}</p>
     <Show when={() => route.path === '/archive'} fallback={<h2>Todos</h2>}><Archive /></Show>
-    <TodoForm /><HookButton />
+    <TodoForm /><HookButton /><DiagnosticsExample />
     <button id="many" onClick={() => { for (let i = 0; i < 110; i++) signal(i, 'bulk' + i); }}>Create signals</button>
     <button id="diagnostic-flood" onClick={() => { for (let i = 0; i < 505; i++) String(signal(i, 'warning' + i)); }}>Flood diagnostics</button>
     <button id="flood" onClick={() => batch(() => { for (let i = 1; i <= 50; i++) refresh(refresh.peek() + 1); })}>Flood writes</button>

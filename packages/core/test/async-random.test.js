@@ -1,7 +1,9 @@
 // Randomized: synchronous writes, writes inside transitions, async landings
-// and failures, refreshes, disposals and remounts, in seeded orders, against a
-// model of what each binding shows (docs/ASYNC.md). Time-bounded: it runs as
-// many seeds as fit in the budget and always at least the first few.
+// and failures, answers known at once (id 0 is answered without a fetch),
+// refreshes, disposals and remounts, in seeded orders, against a model of what
+// each binding shows (docs/ASYNC.md). Every refresh() promise settles by the
+// end. Time-bounded: it runs as many seeds as fit in the budget and always at
+// least the first few.
 
 import { it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,8 +36,10 @@ function mulberry32(seed) {
 //   id     'id <n>': a plain write shows at once; one inside a transition (and
 //          any write while that transition is open) shows when it commits
 //   user   the last run that landed for the current id ('v:<flight>' or
-//          'e:failed <flight>'); nothing before the first; while a transition
-//          is open, held until it commits
+//          'e:failed <flight>', 'v:local' for id 0); nothing before the first;
+//          while a transition is open, held until it commits. An answer known
+//          at once supersedes the run in flight, so a transition waiting for
+//          it commits
 //   pending  a run in flight, and a value to show meanwhile
 //   other  shows at once, always
 function model() {
@@ -47,6 +51,13 @@ function model() {
     s.starts++;
     s.current = 'f' + s.flights++;
   };
+  const answerAtOnce = () => {
+    s.current = null;
+    s.hasValue = true;
+    s.shownUser = 'v:local';
+    s.open = false;
+    s.shownId = s.id;
+  };
   return {
     s,
     mount() {
@@ -56,7 +67,8 @@ function model() {
       s.shownId = s.id;
       s.shownOther = s.other;
       s.open = false;
-      start();
+      if (s.id === 0) answerAtOnce();
+      else start();
     },
     dispose() {
       s.mounted = false;
@@ -67,6 +79,10 @@ function model() {
       if (v === s.id) return;
       s.id = v;
       if (!s.mounted) return;
+      if (v === 0) {
+        answerAtOnce();
+        return;
+      }
       start();
       if (inTransition) s.open = true;
       else if (!s.open) s.shownId = v;
@@ -76,7 +92,7 @@ function model() {
       if (s.mounted) s.shownOther = v;
     },
     refresh() {
-      start();
+      if (s.id !== 0) start();
     },
     land(flight, ok) {
       if (!s.mounted || flight !== s.current) return;
@@ -109,7 +125,7 @@ async function runSeed(seed) {
   const host = document.createElement('div');
   function Observer() {
     user = computed(({ signal: abort }) => {
-      id();
+      if (id() === 0) return 'local';
       const name = 'f' + starts++;
       const flight = Promise.withResolvers();
       flights.set(name, { ...flight, abort });
@@ -134,6 +150,7 @@ async function runSeed(seed) {
     return { id: b.textContent, user: i.textContent, pending: s.textContent === 'true', other: u.textContent };
   };
   const trace = [];
+  const refreshes = [];
   const doMount = () => {
     m.mount();
     stop = mount(h(Observer), host);
@@ -142,10 +159,14 @@ async function runSeed(seed) {
   try {
     for (let step = 0; step < STEPS; step++) {
       const inFlight = [...flights.entries()].filter(([, f]) => !f.done);
-      const ops = ['id', 'id', 'transition', 'transition', 'other', 'land', 'land', 'land', 'fail', 'refresh', 'remount'];
+      const ops = ['id', 'id', 'transition', 'transition', 'other', 'land', 'land', 'land', 'fail', 'refresh', 'remount', 'sync', 'sync transition'];
       const op = pick(ops);
       let label = op;
-      if (op === 'id' || op === 'transition') {
+      if (op === 'sync' || op === 'sync transition') {
+        m.writeId(0, op === 'sync transition');
+        if (op === 'sync') id(0);
+        else void startTransition(() => id(0));
+      } else if (op === 'id' || op === 'transition') {
         const v = 1 + Math.floor(random() * 3);
         label += ' ' + v;
         m.writeId(v, op === 'transition');
@@ -165,7 +186,9 @@ async function runSeed(seed) {
         else flight.reject(new Error('failed ' + name));
       } else if (op === 'refresh' && stop !== null) {
         m.refresh();
-        void refresh(user).catch(() => {});
+        const r = { settled: false, label: 'refresh at step ' + step };
+        refreshes.push(r);
+        void refresh(user).then(() => { r.settled = true; }, () => { r.settled = true; });
       } else if (op === 'remount') {
         if (stop !== null) {
           stop();
@@ -202,6 +225,9 @@ async function runSeed(seed) {
   }
   const quiet = await Promise.race([settled().then(() => true), drain().then(drain).then(() => false)]);
   assert.ok(quiet, `seed ${seed}: the graph did not go quiet after ${trace.join(' → ')}`);
+  for (const r of refreshes) {
+    if (!r.settled) assert.fail(`seed ${seed}: the ${r.label} never settled, after ${trace.join(' → ')}`);
+  }
 }
 
 it('random writes, transitions, landings, failures, refreshes and remounts match the model', async () => {

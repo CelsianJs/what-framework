@@ -13,11 +13,12 @@ export { signal, effect, batch, untrack, flushSync, createRoot, getOwner, runWit
 // Async values in the graph: computed() may return a promise; transitions,
 // optimistic overlays and React 19's use() are built on it (docs/ASYNC.md).
 export { computed, refresh, isPending, startTransition, useTransition, useOptimistic, use, settled } from './async.js';
+// React 19's action hooks, on those transitions.
+export { useActionState, useFormStatus } from './actions.js';
 // O(1) keyed selection: isSelected(key) re-runs only the readers of the keys a change involves.
 export { createSelector } from './selector.js';
 
-// Rendering. h, Fragment and Island are also compiler targets: compiled JSX
-// imports them from here.
+// Rendering. h is also a compiler target: compiled JSX imports it from here.
 export { h, Fragment, html } from './h.js';
 export { mount } from './dom.js';
 export { hydrate } from './render.js';
@@ -43,7 +44,7 @@ export {
 export { useId } from './a11y.js';
 
 // Components and boundaries
-export { memo, lazy, Suspense, ErrorBoundary, Show, For, Switch, Match, Island } from './components.js';
+export { memo, lazy, Suspense, ErrorBoundary, Show, For, Switch, Match } from './components.js';
 export { Portal } from './helpers.js';
 
 // Stores

@@ -474,7 +474,7 @@ describe('development owner API', { skip: !__DEV__ }, () => {
       }
       mount(h(Keyed, {}), host);
       const [event] = diagnostics.events.filter((e) => e.code === 'ERR_DUPLICATE_KEY');
-      assert.deepEqual(event.owner, ['<Keyed>']);
+      assert.deepEqual(event.owner, ['<Keyed>', 'binding "list"']);
     } finally {
       diagnostics.stop();
     }

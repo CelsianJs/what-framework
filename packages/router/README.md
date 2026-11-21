@@ -63,20 +63,32 @@ const routes = [
 ];
 ```
 
-A route object can also carry `layout`, `loading` (shown while a navigation to
-it is in flight), `error` (an error boundary fallback) and `middleware`.
+A route object can also carry `layout`, `loading` (shown instead of the page
+being left while a navigation to it is in flight; without one, the old page
+stays), `error` (an error boundary fallback), `middleware` and `preload`
+(below).
 `<Router>` takes `routes`, `fallback` (the 404 page, and what a middleware that
 returns `false` shows) and `globalLayout` (rendered once around every page).
 
 ## Navigation
 
+A navigation is a transition. `navigate()` and `<Link>` run the
+`beforeNavigate` guards, then prepare the destination while the old page
+stays on screen: they load a `lazy()` route's chunk and run its `preload`,
+and wait for both. Then the URL commits inside `startTransition`, so
+everything the new URL reaches (the page, and a layout's data keyed on the
+params) commits in one flush. A newer navigation supersedes one still
+preparing. Back/forward and redirects take the same path.
+
 ```js
 import { navigate, route } from 'what-router';
 
-// Programmatic navigation
+// Programmatic navigation: resolves once the new page is on screen and the
+// data it reads first has landed
 navigate('/dashboard');
 navigate('/login', { replace: true });
 navigate('/page', { transition: false }); // skip View Transition
+navigate('/page', { flushSync: true });   // commit at once, without holding for async values
 
 // Route state: getters on the global `route` object. Read inside a binding,
 // an effect or a computed, they subscribe, so the reader updates on navigation.
@@ -85,9 +97,40 @@ route.params;       // { id: '123' }
 route.query;        // { page: '1' }
 route.hash;         // '#section'
 route.url;          // path + search + hash
-route.isNavigating; // true while a navigation is in flight
+route.isNavigating; // true from navigate() until the new page's first data has landed
 route.error;
 ```
+
+## Route data: `preload`
+
+```jsx
+import { query } from 'what-framework/data';
+
+const user = (id) => query(['user', id], (key, { signal }) => fetch(`/api/users/${key[1]}`, { signal }).then((r) => r.json()), { staleTime: 30_000 });
+
+export const routes = [
+  {
+    path: '/users/:id',
+    preload: ({ params }) => user(params.id),
+    component: ({ data }) => <h1>{data().name}</h1>,
+  },
+];
+```
+
+`preload({ params, query, url })` runs when a navigation prepares the route
+(and on its first render). The navigation waits for what it returns: a
+`query()`, an async value, a promise, or an array or object of them. The
+page receives it as its `data` prop, and a `query()` the page makes on the
+same key is answered from the cache. The queries a preload makes are read
+on the route's path, so `invalidatePath('/users/7')` (a server action's
+`revalidate`) refetches them. `route.isNavigating`, or `useTransition`'s
+`isPending` around a `navigate()` call, shows the progress.
+
+Data the page reads that `preload` does not return is fetched after the URL
+commits: the page shows it pending, and the navigation (`route.isNavigating`,
+the promise `navigate()` returns) goes on until it has landed. Only `preload`
+data keeps the old page on screen. See
+[DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
 
 ## Link Component
 
@@ -255,7 +298,9 @@ setViewTransition('slide');
 ```
 
 `navigate(to, { transition: false })` and `<Link transition={false}>` skip the
-transition for one navigation.
+View Transition for one navigation. The browser's update callback is the
+commit: the new state is captured once the new page is on screen, after the
+destination was prepared.
 
 ## Scroll Restoration
 
@@ -271,7 +316,7 @@ enableScrollRestoration(); // call once at app entry
 |---|---|
 | `Router` | Route matching component |
 | `Link` / `NavLink` | Navigation link with active states |
-| `navigate(to, opts?)` | Programmatic navigation |
+| `navigate(to, opts?)` | Navigate as a transition: prepare the destination (lazy chunk, `preload`), then commit; `{ replace, state, transition, flushSync }` |
 | `route` | Route state: `url`, `path`, `params`, `query`, `hash`, `isNavigating` and `error` are getters that subscribe when read in a binding, effect or computed |
 | `useRoute()` | `{ path, params, query, hash, isNavigating }` as computeds (call them: `path()`), plus `navigate` and `prefetch` |
 | `useParams()` | The current params, read when called (call it inside a binding or effect to track changes) |

@@ -23,6 +23,8 @@
 //   parts(ns)       for the stream: its HTML as a string, or an array of
 //                   HTML strings and the children and Html between them.
 //   childNs(ns)     the namespace the items of that array sit in.
+//   rootTag()       the name of the element it opens with, or null, read
+//                   without rendering anything (what-core's <Head> uses it).
 
 export class Html {
   #brand;
@@ -35,6 +37,11 @@ export class Html {
   // an island's props are sent in, as a function is.
   toJSON() {
     return undefined;
+  }
+
+  /** @returns {string | null} */
+  rootTag() {
+    return null;
   }
 }
 

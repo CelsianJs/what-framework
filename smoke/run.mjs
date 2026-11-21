@@ -33,6 +33,7 @@ import {
   verifyInstalledSource,
 } from './harness/index.mjs';
 import { CAPABILITIES, auditResults, coverageReport, validateCoverage } from './harness/capabilities.mjs';
+import { WORKDIR_PREFIX, markWorkdir } from '../scripts/lib/smoke-workdir.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..');
@@ -91,7 +92,9 @@ log(`source=${SOURCE}${SOURCE === 'npm' ? ` version=${VERSION}` : ''} apps=${app
 
 // --- Run -------------------------------------------------------------------
 
-const workRoot = mkdtempSync(join(tmpdir(), 'what-smoke-apps-'));
+const workRoot = mkdtempSync(join(tmpdir(), WORKDIR_PREFIX));
+// smoke:clean reaps only the servers of runs this checkout started.
+markWorkdir(workRoot, REPO);
 const allResults = [];
 let browser = null;
 

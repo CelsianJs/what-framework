@@ -1,12 +1,13 @@
 export { effect, untrack } from './index.js';
-import type { VNodeChild, Signal } from './index.js';
+import type { VNodeChild, Signal, Component, VNode } from './index.js';
 
 // Fine-grained rendering primitives: the runtime compiled JSX calls, for code
 // written without JSX.
 export function template(html: string): () => Element;
 export function insert(parent: Node, child: any, marker?: Node | null): any;
+/** `source` is an accessor, or an array for a list that never changes. */
 export function mapArray<T>(
-  source: () => T[],
+  source: (() => readonly T[] | null | undefined) | readonly T[],
   mapFn: (item: T | Signal<T>, index: number, raw: T) => Node,
   /**
    * `raw`: the row gets the item itself. `follow`: the row gets the item's cell
@@ -23,8 +24,14 @@ export function setProp(el: Element, key: string, value: any): void;
  * the event's path.
  */
 export function delegateEvents(eventNames: string[], root?: Document | ShadowRoot | Element): void;
-/** Add a DOM listener; returns the function that removes it. In components, write onClick={...} in JSX. */
-export function on(el: Element, event: string, handler: (e: Event) => void): () => void;
+/**
+ * Add a DOM listener, removed when the current owner (the component, list row
+ * or root being built) is disposed; returns the function that removes it
+ * sooner. In components, write onClick={...} in JSX.
+ */
+export function on(el: Element, event: string, handler: (e: Event) => void, options?: boolean | AddEventListenerOptions): () => void;
+/** @internal Compiler output: marks the element's delegated `$$event` handlers as the current owner's. */
+export function _$own(el: Element): void;
 export function classList(
   el: Element,
   classes: Record<string, unknown> | null | undefined | (() => Record<string, unknown> | null | undefined),
@@ -89,7 +96,22 @@ export function _$mapKeyed<T>(
 // Equality-gated eager memo (the reactive memo, NOT the component-HOC `memo`
 // exported from the package index). Emitted by the compiler for branch
 // memoization of conditional JSX (SPRINT v0.11 C1).
-export function memo<T>(fn: () => T): (() => T) & { peek(): T };
+export function _$memo<T>(fn: () => T): (() => T) & { peek(): T };
+
+export interface IslandProps {
+  component: Component<any>;
+  mode: 'load' | 'idle' | 'visible' | 'interaction' | 'media' | 'action' | 'static';
+  mediaQuery?: string;
+  name?: string;
+  [key: string]: any;
+}
+
+/**
+ * What `<Counter client:idle />` compiles to: an island that hydrates itself
+ * when its trigger fires (`mode`). The public island component, which
+ * hydrates through the island registry, is what-framework/server's Island.
+ */
+export function _$Island(props: IslandProps): VNode;
 
 // --- Hydration ---
 // hydrate() adopts server-rendered DOM instead of recreating it: the tree's
@@ -98,7 +120,7 @@ export function memo<T>(fn: () => T): (() => T) & { peek(): T };
 // option). Returns the unmount function, as mount() does; hydrating or
 // mounting into the same container disposes the root it held.
 export interface HydrationMismatch {
-  /** tag, text, missing, extra-nodes, marker, key, or not-hydratable (DOM built before hydrate() could claim the server's, reported once) */
+  /** tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a shadow root the client would not make), or not-hydratable (DOM built before hydrate() could claim the server's, reported once) */
   kind: string;
   /** The component whose output mismatched, or 'root'. */
   component: string;
@@ -140,6 +162,10 @@ export function _$componentVNode(component: unknown, props?: unknown, ...args: u
 
 // @internal The helpers what-compiler's `hydratable` output calls instead of
 // cloning templates and walking them by path (render.js has the protocol).
+/** @internal Compiler output: a keyed row's text that reads a plain field of its item, written by the row's item cell. */
+export function _$field(parent: Node, cell: unknown, value: unknown, marker: Node | null | undefined, read: (item: any) => unknown): void;
+/** @internal `_$field` for hydratable output (`flag` as `_$hole`'s). */
+export function _$hfield(parent: Node, cell: unknown, value: unknown, flag: number, read: (item: any) => unknown): void;
 export function _$htemplate(html: string, flag?: number): (() => Node) & { root(): Node };
 export function _$claim(template: (() => Node) & { root(): Node }, flags?: number): any;
 export function _$next(skip: number, flags?: number): any;

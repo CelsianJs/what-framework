@@ -850,7 +850,8 @@ describe('compiler lowering parity (fuzz)', () => {
       seed: ISLAND_SEED,
       makeCase: gen => makeIslandSpec(gen, SCALAR_SIGNALS),
       imports: 'Chart',
-      coreNames: 'h, Fragment, Island',
+      coreNames: 'h, Fragment',
+      hHeader: `import { _$Island as Island } from ${q(CORE_RENDER)};\n`,
       needsSettle: true,
     });
 
@@ -1098,7 +1099,8 @@ describe('server target parity (fuzz)', () => {
       seed: ISLAND_SEED,
       makeCase: gen => makeIslandSpec(gen, SCALAR_SIGNALS),
       imports: 'Chart',
-      coreNames: 'h, Fragment, Island',
+      coreNames: 'h, Fragment',
+      hHeader: `import { _$Island as Island } from ${q(CORE_RENDER)};\n`,
     });
     reportServerDivergence(divergent, SSR_ISLAND_CASES);
   });

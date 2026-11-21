@@ -18,13 +18,14 @@ const ROOT = [
   'createSelector',
   // Async values, transitions and optimistic updates
   'refresh', 'isPending', 'startTransition', 'useTransition', 'useOptimistic', 'use', 'settled',
+  'useActionState', 'useFormStatus',
   // Rendering
   'h', 'Fragment', 'html', 'mount', 'hydrate', 'applyStreamedBoundaries',
   // Hooks
   'useState', 'useSignal', 'useComputed', 'useEffect', 'useMemo', 'useCallback', 'useRef', 'useReducer',
   'createContext', 'useContext', 'onMount', 'onCleanup', 'createResource', 'useLoaderData', 'useId',
   // Components and boundaries
-  'memo', 'lazy', 'Suspense', 'ErrorBoundary', 'Show', 'For', 'Switch', 'Match', 'Island', 'Portal',
+  'memo', 'lazy', 'Suspense', 'ErrorBoundary', 'Show', 'For', 'Switch', 'Match', 'Portal',
   // Stores
   'createStore', 'derived',
   // Document head and the server response
@@ -47,12 +48,13 @@ const KITS = {
     'useLocalStorage', 'useClickOutside', 'clearHead',
   ],
   form: ['useForm', 'useField', 'rules', 'simpleResolver', 'zodResolver', 'yupResolver', 'Input', 'Textarea', 'Select', 'Checkbox', 'Radio', 'ErrorMessage'],
-  data: ['useFetch', 'useSWR', 'useQuery', 'useInfiniteQuery', 'invalidateQueries', 'prefetchQuery', 'setQueryData', 'getQueryData', 'clearCache'],
+  data: ['query', 'useFetch', 'useSWR', 'useQuery', 'useInfiniteQuery', 'invalidateQueries', 'invalidatePath', 'onRevalidate', 'prefetchQuery', 'setQueryData', 'getQueryData', 'clearCache'],
 };
 
 // Where a module specifier in the table lives in this repo.
 const MODULE = {
   'what-framework/render': '../../what/src/render.js',
+  'what-framework/server': '../../what/src/server.js',
   'what-core/render': '../src/render.js',
   'what-core/internal': '../src/entries/internal.js',
   ...Object.fromEntries(Object.keys(KITS).map((kit) => [`what-framework/${kit}`, `../src/entries/${kit}.js`])),

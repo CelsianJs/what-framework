@@ -618,7 +618,7 @@ describe('event delegation', () => {
       }
     `);
 
-    assert.match(code, /addEventListener/, 'scroll should use addEventListener');
+    assert.match(code, /_\$on\(_el\$\d+, "scroll"/, 'scroll should be a listener of its own, which its owner removes');
     assert.doesNotMatch(code, /__scroll/, 'scroll should not use delegation');
   });
 
@@ -629,7 +629,7 @@ describe('event delegation', () => {
       }
     `);
 
-    assert.match(code, /addEventListener/, 'pointer events should use addEventListener');
+    assert.match(code, /_\$on\(_el\$\d+, "pointerdown"/, 'pointer events should be a listener of their own, which the owner removes');
   });
 
   it('emits delegateEvents with the list of used events', () => {

@@ -255,13 +255,44 @@ export function findMappedJsx(mapCall, state, requireKey) {
 export function readItemThroughAccessor(mapFn, keyValue, read, cellName, indexName) {
   const reads = rowItemReads(mapFn, keyValue);
   if (reads === null) return false;
+  const itemName = mapFn.params[0].name;
   for (const [holder, slot] of reads) {
     const callee = read();
     callee._whatRowItem = true;
-    holder[slot] = t.callExpression(callee, [t.identifier(cellName)]);
+    const call = t.callExpression(callee, [t.identifier(cellName)]);
+    // The item the row was built from, for the bindings of its plain fields.
+    call._whatRowItemName = itemName;
+    holder[slot] = call;
   }
   mapFn.params = [t.identifier(cellName), mapFn.params[1] || t.identifier(indexName), mapFn.params[0]];
   return true;
+}
+
+// A plain field of a keyed row's item, read where the row renders text:
+// `row.label`, `row.a.b`, `row?.label`, `row['x']` or the item itself, and
+// nothing else (no call, no computed key that is not a literal). Returns the
+// read of the item at its root (the DOM target's `_$item(cell)` call, the
+// server target's marked name; see readItemThroughAccessor and
+// markRowItemReads), or null. Such a field is a text binding the row's item
+// cell writes (what-core render.js _$field), and the server writes it as plain
+// text, with no markers.
+export function rowField(expr) {
+  let node = expr;
+  while (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+    if (node.computed && !t.isStringLiteral(node.property) && !t.isNumericLiteral(node.property)) return null;
+    node = node.object;
+  }
+  if (t.isCallExpression(node) && node.callee._whatRowItem === true) return node;
+  if (t.isIdentifier(node) && node._whatRowItem === true) return node;
+  return null;
+}
+
+// `expr` with its item read (`root`, from rowField) replaced by `replacement`.
+export function withItem(expr, root, replacement) {
+  if (expr === root) return replacement;
+  const copy = t.cloneNode(expr, false);
+  copy.object = withItem(expr.object, root, replacement);
+  return copy;
 }
 
 // The server target's half: the holes that read a keyed row's item are the

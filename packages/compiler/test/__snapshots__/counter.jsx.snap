@@ -1,10 +1,11 @@
 let _$delegated$ = false;
-function _$delegate$() {
+function _$delegate$(el) {
+  _$own(el);
   if (_$delegated$) return;
   _$delegated$ = true;
   _$delegateEvents(["click"]);
 }
-import { _$template, insert as _$insert, delegateEvents as _$delegateEvents } from "what-framework/render";
+import { _$template, insert as _$insert, delegateEvents as _$delegateEvents, _$own } from "what-framework/render";
 const _tmpl$0 = /* @__PURE__ */_$template("<div class=counter><span>Count: </span><button>+1");
 import { signal } from 'what-framework';
 export function Counter() {
@@ -13,7 +14,7 @@ export function Counter() {
   const _el$1 = _el$0.firstChild;
   const _el$2 = _el$1.nextSibling;
   _$insert(_el$1, () => count(), null);
-  _$delegate$();
+  _$delegate$(_el$2);
   _el$2.$$click = () => count(c => c + 1);
   return _el$0;
 }

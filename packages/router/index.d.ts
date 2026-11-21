@@ -30,11 +30,27 @@ export interface NavigateOptions {
   replace?: boolean;
   /** History state object */
   state?: any;
-  /** Use View Transitions API */
+  /** Use the View Transitions API when the browser has it. Default true. */
   transition?: boolean;
+  /**
+   * Commit at once instead of as a transition: what the new URL reaches (a
+   * layout's data for the new params) shows as it lands rather than in one
+   * commit.
+   */
+  flushSync?: boolean;
 }
 
-/** Navigate to a new URL */
+/**
+ * Navigate to a new URL. A navigation is a transition: the beforeNavigate
+ * guards run, then the destination is prepared (its lazy() chunk loaded, its
+ * `preload` data fetched) while the old page stays, then the URL commits in
+ * startTransition, so everything it reaches commits in one flush. A newer
+ * navigation supersedes one still preparing. Resolves once the new page is
+ * on screen and the data it reads first (beyond `preload`, which it shows
+ * pending) has landed; `route.isNavigating` is true until then. Inside a
+ * transition's async action it resolves before the commit, which happens with
+ * the action (useTransition's isPending shows it).
+ */
 export function navigate(to: string, options?: NavigateOptions): Promise<void>;
 
 // --- Route Configuration ---
@@ -46,18 +62,28 @@ export interface RouteConfig {
   component: Component<RouteComponentProps>;
   /** Layout wrapper */
   layout?: Component<LayoutProps>;
-  /** Loading component */
+  /** Shown instead of the page being left while a navigation to this route prepares. Without one, the old page stays. */
   loading?: Component<{}>;
   /** Error component */
   error?: Component<{ error: Error; reset: () => void }>;
   /** Route middleware */
   middleware?: RouteMiddleware[];
+  /**
+   * The route's data: runs when a navigation prepares the route (and on its
+   * first render), and the navigation waits for what it returns (a query(),
+   * an async value, a promise, or an array or object of them) before it
+   * commits. The page receives it as its `data` prop. Queries it makes are
+   * tagged with the route's path, so invalidatePath(path) refetches them.
+   */
+  preload?: (ctx: { params: Record<string, string>; query: Record<string, string>; url: string }) => any;
 }
 
 export interface RouteComponentProps {
   params: Record<string, string>;
   query: Record<string, string>;
   route: RouteConfig;
+  /** What the route's `preload` returned, undefined without one. */
+  data?: any;
 }
 
 export interface LayoutProps {
@@ -86,6 +112,7 @@ export interface FileRouteConfig {
   component: Component<RouteComponentProps>;
   layout?: Component<LayoutProps>;
   mode?: 'static' | 'server' | 'client' | 'hybrid';
+  preload?: RouteConfig['preload'];
 }
 
 export interface FileRouterProps {

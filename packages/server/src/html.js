@@ -12,6 +12,8 @@ import {
   SAFE_TAG_NAME,
   VOID_ELEMENTS,
   RAW_TEXT_ELEMENTS,
+  TEXT_ONLY_ELEMENTS,
+  LEADING_NEWLINE_ELEMENTS,
   attributeName,
   isEnumeratedAttr,
   isRefusedAttr,
@@ -446,8 +448,23 @@ function styleText(style) {
 // text. A function child is called, and renders nothing when it throws, as a
 // reactive child does anywhere else. The h() renderers and compiled markup
 // both write raw text through this, so their output is the same.
+// The text of a <script> or <style> (raw text, see rawTextContent), or of a
+// <textarea> or <title> in HTML (escaped text, no markers).
 function _rawText(tag, children, ns) {
-  return rawTextContent(tag, textOf(tag, children), ns);
+  const text = textOf(tag, children);
+  return RAW_TEXT_ELEMENTS.has(tag) ? rawTextContent(tag, text, ns) : escapeHtml(text);
+}
+
+// Whether `tag`'s children are written as text: raw text, or a text-only
+// element in HTML.
+function _isTextContent(tag, ns) {
+  return RAW_TEXT_ELEMENTS.has(tag) || (ns === null && TEXT_ONLY_ELEMENTS.has(tag));
+}
+
+// What follows `tag`'s start tag before its content: a newline for the
+// elements whose first newline the parser drops (LEADING_NEWLINE_ELEMENTS).
+function _afterOpen(tag, ns) {
+  return ns === null && LEADING_NEWLINE_ELEMENTS.has(tag) ? '\n' : '';
 }
 
 function textOf(tag, value) {
@@ -493,6 +510,8 @@ export {
   _resolveInnerHTML,
   _rethrowIfUnrenderable,
   _rawText,
+  _isTextContent,
+  _afterOpen,
   _plainText,
   assertSafeTag,
   renderAttrs,

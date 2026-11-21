@@ -3,18 +3,21 @@
  *
  * Single source of truth for identifying signal variables across all rules.
  * Tracks variables from useSignal, signal, useComputed, computed, useMemo,
- * the accessor useState and useReducer return first, useSWR destructured
- * fields, useFetch, useQuery, useInfiniteQuery, and createResource.
+ * the accessor useState, useReducer, createResource, useTransition and
+ * useOptimistic return first, useSWR destructured fields, useFetch, useQuery
+ * and useInfiniteQuery.
  */
 
-// Functions that return a signal or computed directly
+// Functions that return a signal or computed directly. (`memo` is React's
+// component memo, which returns a component.)
 export const SIGNAL_CREATORS = [
-  'signal', 'useSignal', 'computed', 'useComputed', 'useMemo', 'memo',
+  'signal', 'useSignal', 'computed', 'useComputed', 'useMemo',
 ];
 
-// Functions that return [accessor, setter]: a component runs once, so the
-// first element is the signal, not this render's value.
-export const ACCESSOR_PAIR_HOOKS = ['useState', 'useReducer', 'createResource'];
+// Functions that return [accessor, ...]: a component runs once, so the first
+// element is an accessor, not this render's value. useTransition's isPending
+// and useOptimistic's optimistic value are called like any signal.
+export const ACCESSOR_PAIR_HOOKS = ['useState', 'useReducer', 'createResource', 'useTransition', 'useOptimistic'];
 
 // Functions whose return value has signal-like getter properties
 export const SWR_LIKE_HOOKS = [
@@ -31,8 +34,9 @@ export const SWR_GETTER_FIELDS = new Set([
 ]);
 
 // Properties on signals/computeds that are safe to access without calling
+// (an async computed's pending() included)
 export const SIGNAL_METHODS = new Set([
-  'set', 'peek', 'subscribe', 'mutate', '_signal', '_debugName',
+  'set', 'peek', 'subscribe', 'mutate', 'pending', '_signal', '_debugName',
 ]);
 
 /**

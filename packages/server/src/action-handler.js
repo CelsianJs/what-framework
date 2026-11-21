@@ -86,6 +86,43 @@ function safeRedirectTarget(form, headers) {
   return '/';
 }
 
+// --- Where a request comes from ---
+//
+// CSRF is a browser sending a request the visitor did not mean to send, from
+// another site's page. Browsers say where a request comes from: every current
+// one sends Sec-Fetch-Site (Fetch Metadata) on a POST, and Origin before that.
+// A post they mark same-origin cannot have come from another site, token or
+// no token, which is how a form on a cached page (whose shared HTML can never
+// carry a visitor's token) posts. This is the scheme of Go's
+// CrossOriginProtection and OWASP's "verifying origin with standard headers".
+// A request that carries neither header (an old browser, or not a browser)
+// falls back to the double-submit token.
+//
+// Returns 'same', 'cross', or 'unknown' (neither header).
+export function requestSite(headers, url, trustedOrigins) {
+  const origin = headers.origin;
+  const trusted = typeof origin === 'string' && trustedOrigins.has(origin);
+  const site = headers['sec-fetch-site'];
+  if (site !== undefined) {
+    if (site === 'same-origin' || site === 'none') return 'same';
+    return trusted ? 'same' : 'cross';
+  }
+  if (origin === undefined || origin === null) return 'unknown';
+  if (trusted) return 'same';
+  // "null" is an opaque origin: a sandboxed frame, a data: URL, a privacy
+  // redirect. None of them is this site.
+  if (origin === 'null') return 'cross';
+  let host = headers.host;
+  if (!host && url) {
+    try { host = new URL(url).host; } catch { /* no host to compare */ }
+  }
+  try {
+    return host && new URL(origin).host === host ? 'same' : 'cross';
+  } catch {
+    return 'cross';
+  }
+}
+
 // Reserved form fields consumed by the framework (not passed to the action).
 // `what-csrf-token` is an alias for `_csrf` matching the <meta name="what-csrf-token">
 // tag SSR pages embed, so templates can reuse one name for both surfaces.
@@ -97,10 +134,17 @@ const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-c
  * options:
  *   - getCsrfToken(reqLike) -> sessionToken (sync or async). Omit + skipCsrf for none.
  *   - skipCsrf: bool — opt out of CSRF (e.g. token-authed APIs).
+ *   - trustedOrigins: string[] — other origins whose pages may post here
+ *     (another domain of the same app, behind the same login).
  *   - basePath: string — defaults to '/__what_action' (used by the adapters).
  *
+ * CSRF: a request the browser marks cross-site (Sec-Fetch-Site, or an Origin
+ * that is not this host and not trusted) is refused with 403. One it marks
+ * same-origin passes without a token; a token it carries anyway must match.
+ * A request with neither header must carry the double-submit token.
+ *
  * Returns: async (reqLike) -> { status, headers, body:string }
- *   reqLike: { method, headers, body, query? }
+ *   reqLike: { method, headers, body, query?, url? }
  *
  * Two request shapes are accepted:
  *
@@ -122,6 +166,7 @@ const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-c
  */
 export function createActionHandler(options = {}) {
   const { getCsrfToken, skipCsrf = false } = options;
+  const trustedOrigins = new Set(options.trustedOrigins || []);
 
   return async function handle(reqLike) {
     const method = (reqLike.method || 'POST').toUpperCase();
@@ -133,6 +178,11 @@ export function createActionHandler(options = {}) {
     const headerActionId = headers['x-what-action'];
     const contentType = headers['content-type'] || '';
     const isFormPost = !headerActionId && contentType.includes('application/x-www-form-urlencoded');
+
+    const site = skipCsrf ? 'same' : requestSite(headers, reqLike.url, trustedOrigins);
+    if (site === 'cross') {
+      return isFormPost ? htmlResponse(403, 'Cross-site request refused') : jsonResponse(403, { message: 'Cross-site request refused' });
+    }
 
     const sessionCsrfToken = skipCsrf
       ? undefined
@@ -152,8 +202,10 @@ export function createActionHandler(options = {}) {
       const formHeaders = { ...headers };
       const bodyToken = form._csrf ?? form['what-csrf-token'];
       if (bodyToken && !formHeaders['x-csrf-token']) formHeaders['x-csrf-token'] = String(bodyToken);
+      // A same-origin post with no token is a form on a cached page.
+      const byOrigin = site === 'same' && !formHeaders['x-csrf-token'];
 
-      if (!skipCsrf && getCsrfToken && !sessionCsrfToken) {
+      if (!skipCsrf && !byOrigin && getCsrfToken && !sessionCsrfToken) {
         // CSRF is configured but this client has no token (e.g. no cookie yet).
         return htmlResponse(403, 'Missing CSRF token');
       }
@@ -167,7 +219,7 @@ export function createActionHandler(options = {}) {
         { headers: formHeaders },
         actionId,
         [data],
-        { csrfToken: sessionCsrfToken, skipCsrf }
+        { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }
       );
 
       if (result.status === 200) {
@@ -185,7 +237,8 @@ export function createActionHandler(options = {}) {
       return jsonResponse(400, { message: 'Missing X-What-Action header' });
     }
 
-    if (!skipCsrf && getCsrfToken && !sessionCsrfToken) {
+    const byOrigin = site === 'same' && !headers['x-csrf-token'];
+    if (!skipCsrf && !byOrigin && getCsrfToken && !sessionCsrfToken) {
       // CSRF configured, but the client presented no session token (no cookie).
       return jsonResponse(403, { message: 'Missing CSRF token' });
     }
@@ -197,7 +250,7 @@ export function createActionHandler(options = {}) {
       { headers },
       headerActionId,
       args,
-      { csrfToken: sessionCsrfToken, skipCsrf }
+      { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }
     );
 
     return jsonResponse(result.status, result.body);
@@ -228,7 +281,7 @@ export function nodeActionMiddleware(options = {}) {
     }
 
     const query = Object.fromEntries(new URLSearchParams(search || ''));
-    const out = await handle({ method: req.method, headers: req.headers, body, query });
+    const out = await handle({ method: req.method, headers: req.headers, body, query, url: req.url });
     res.writeHead(out.status, out.headers);
     res.end(out.body);
   };
@@ -339,7 +392,7 @@ export function fetchActionHandler(options = {}) {
     try {
       query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
     } catch { /* no query */ }
-    const out = await handle({ method: request.method, headers: request.headers, body, query });
+    const out = await handle({ method: request.method, headers: request.headers, body, query, url: request.url });
     return new Response(out.body, { status: out.status, headers: out.headers });
   };
 }

@@ -69,3 +69,36 @@ test('unmounting releases a component computed subscribed to a module-level sign
   assert.equal(host.textContent, '');
   await assertCollected(weak, 'unmounted component payload');
 });
+
+test('unmounting a hydrated page releases a streamed boundary still waiting for its content', async () => {
+  const { Suspense, createResource, hydrate } = await import('../src/index.js');
+  const { __resetHydrationData } = await import('../src/hydration-data.js');
+  const server = await import('../../server/src/index.js');
+  let client = false;
+  const never = new Promise(() => {});
+  function Content() {
+    const [value] = createResource(() => (client ? 'client' : never), { key: 'content' });
+    return h('b', null, () => value());
+  }
+  function Page() { return h('main', null, h(Suspense, { fallback: h('i', null, 'waiting') }, h(Content))); }
+  const stream = server.renderToStream(h(Page), { noScripts: true })[Symbol.asyncIterator]();
+  const shell = Buffer.from((await stream.next()).value).toString();
+  assert.match(shell, /<template id="pl-/, 'precondition: the boundary is still streaming');
+  client = true;
+  const ref = (() => {
+    const host = document.body.appendChild(document.createElement('div'));
+    host.innerHTML = shell;
+    __resetHydrationData();
+    const stop = hydrate(h(Page), host);
+    const main = new WeakRef(host.firstElementChild);
+    stop();
+    host.remove();
+    __resetHydrationData();
+    return main;
+  })();
+  // jsdom's selector engine keeps the last node a query walked: move it off
+  // the unmounted tree, so only the framework could hold it.
+  document.body.appendChild(document.createElement('p')).querySelectorAll('x');
+  await assertCollected(ref, 'the unmounted boundary\'s DOM');
+  await stream.return?.();
+});

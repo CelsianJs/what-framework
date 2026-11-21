@@ -134,6 +134,17 @@ export function childNamespace(ns, tag, encoding) {
 // escaped (rawTextContent).
 export const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
 
+// Elements whose content the HTML parser reads as text that it decodes:
+// <textarea> and <title> in HTML. Nothing in it is markup, a comment included,
+// so a server writes their children as escaped text with no hydration
+// markers, and the client hydrates that text as one text node.
+export const TEXT_ONLY_ELEMENTS = new Set(['textarea', 'title']);
+
+// The HTML parser drops a newline that comes right after one of these start
+// tags, so a server writes one there: the parser drops that one, and content
+// that begins with a newline keeps its own.
+export const LEADING_NEWLINE_ELEMENTS = new Set(['pre', 'textarea', 'listing']);
+
 // The sequences that could end a raw-text element or change how the parser
 // reads it: `</` (which starts every closing tag, in any letter case) and, in
 // a script, `<!--`, which can switch the parser into a state where the real

@@ -93,7 +93,6 @@ export function __readHydrationData() {
 export function __resetHydrationData() {
   _data = undefined;
   _merged = null;
-  _roots = null;
 }
 
 export function getLoaderData() {
@@ -136,17 +135,51 @@ function formatId(prefix, index) {
   return prefix + (extra ? String.fromCharCode(64 + extra) : '') + digits;
 }
 
+// The step formatId wrote at `at` in `path`: its end and its index, or null.
+function stepAt(path, at) {
+  const c = path.charCodeAt(at);
+  const extra = c >= 65 && c <= 90 ? c - 64 : 0;
+  const start = extra ? at + 1 : at;
+  const end = start + extra + 1;
+  if (end > path.length) return null;
+  const index = parseInt(path.slice(start, end), 36);
+  return Number.isNaN(index) ? null : { end, index };
+}
+
+// The built-ins what-compiler lowers away (<Show>, <For>, <Switch>,
+// <Match>: compiled JSX renders them as a conditional or a list, with no
+// component of their own) take no step either when they run as components
+// (h(), the JSX runtime), so a subtree has the same owner paths whichever way
+// each side rendered it. Such a frame numbers its children as its parent's.
+function holderOf(frame, root) {
+  return frame === null ? root : frame._ownerHolder || frame;
+}
+
+/** The object that counts the children of `frame` (null: the root's). @internal */
+export function _ownerCounter(frame, root) {
+  return holderOf(frame, root);
+}
+
 /**
  * Give a component frame its owner path. `parent` is the frame it renders
  * under (null at the root); `root` is the object that counts root-level
  * components (the render context on the server). Server renderers call this
- * once per frame, in creation order.
+ * once per frame, in creation order. Returns whether the frame took a step
+ * (false for a built-in the compiler lowers away), and so has a hydration key
+ * of its own.
  */
 export function _assignOwnerPath(frame, parent, root) {
-  const holder = parent || root;
+  const holder = holderOf(parent, root);
+  const prefix = parent ? parent._ownerPath || '' : '';
+  if (frame.Component !== undefined && frame.Component._lowered === true) {
+    frame._ownerPath = prefix;
+    frame._ownerHolder = holder;
+    return false;
+  }
   const index = holder._ownerChildren || 0;
   holder._ownerChildren = index + 1;
-  frame._ownerPath = formatId(parent ? parent._ownerPath || '' : '', index);
+  frame._ownerPath = formatId(prefix, index);
+  return true;
 }
 
 /** The owner path of the component frame running now, or undefined outside one. */
@@ -157,7 +190,7 @@ export function _currentOwnerPath() {
 
 /** The owner key for the next keyless resource created in `frame` (or at the root). */
 export function _nextOwnerKey(frame, root) {
-  const holder = frame || root;
+  const holder = holderOf(frame || null, root);
   const index = holder._ownerResources || 0;
   holder._ownerResources = index + 1;
   return `${frame ? frame._ownerPath || '' : ''}:${index}`;
@@ -170,6 +203,18 @@ export function _nextOwnerKey(frame, root) {
 // by position, so a component the other side does not have (a <Portal>'s
 // content, a client-only widget, a branch that differs) can only miss, never
 // hand its value to a neighbour.
+//
+// A component whose output starts with an element the server keyed takes its
+// path from that key (the server put the innermost component's path there,
+// and this component's is the step of it right after its parent's), so it
+// finds its own values wherever the two sides' trees diverged before it: a
+// branch only one side rendered, the children a boundary tried before its
+// fallback. Its parent then counts on from there. A component with no key in
+// front of it is numbered in order, which holds only while the walk has
+// matched the server's structure: once it has not (a mismatch in the
+// structure: an element of another tag, one missing or left over, a key that
+// differs), or where the server rendered nothing at all, it is numbered under
+// a prefix no server key has, so its resources fetch.
 //
 // Numbering starts from the right place only for a hydrate() root that is the
 // server's render root, or that names the server owner path it starts at:
@@ -195,23 +240,14 @@ export function _nextOwnerKey(frame, root) {
 const UNANCHORED = '~';
 const OWNER_PATH = /^[0-9A-Za-z]*$/;
 
-/** @type {Map<any, { _ownerPath: string, _ownerChildren: number }> | null} */
-let _roots = null;
-
-// The counter for the root-level components hydrated into `container`. One
-// per container for the synchronous run of hydrate() calls; a later hydrate()
-// of the same container counts again.
-function rootFor(container) {
-  if (_roots === null) {
-    _roots = new Map();
-    queueMicrotask(() => { _roots = null; });
-  }
-  let root = _roots.get(container);
-  if (root === undefined) {
-    root = { _ownerPath: anchorPath(container), _ownerChildren: 0 };
-    _roots.set(container, root);
-  }
-  return root;
+/**
+ * The counter for the root-level components of one hydrate() call into
+ * `container`: each call counts from the container's anchor again, and work
+ * of that call that runs later (a boundary resuming) counts on it.
+ * @internal
+ */
+export function _hydrationRoot(container) {
+  return { _ownerPath: anchorPath(container), _ownerChildren: 0 };
 }
 
 function anchorPath(container) {
@@ -227,23 +263,42 @@ function anchorPath(container) {
 /**
  * Give a client component context its owner path while hydrating; outside a
  * hydration it does nothing. The hydration walk calls it once per component
- * context, right after creating it, with the DOM node the component hydrates
- * into.
+ * context, right after creating it, with its hydrate() call's root counter
+ * (_hydrationRoot) and what the server has where the component's output
+ * starts: the key of the element there (a string, '' for an element or text
+ * with none), or null when the server rendered nothing more there. `ordered`
+ * says whether the walk has matched the server's structure so far. Returns 0
+ * for a built-in that takes no step (see _assignOwnerPath), 2 when the
+ * server's key there cannot be this component's (it does not extend the
+ * parent's path), else 1.
  *
  * The parent is the nearest component owner above it (boundaries, effects
- * and list rows are owners without a `Component` and are skipped). A component built fresh while
- * hydrating (a compiled component, a mismatch's client render) has no owner
- * path, so nothing under it is numbered from the server's: it fetches.
+ * and list rows are owners without a `Component` and are skipped). A
+ * component built fresh while hydrating (a compiled component, a mismatch's
+ * client render) has no owner path, so nothing under it is numbered from the
+ * server's: it fetches.
  */
-export function _assignHydrationOwnerPath(ctx, container) {
-  if (!isHydrating()) return;
+export function _assignHydrationOwnerPath(ctx, root, key, ordered) {
+  if (!isHydrating()) return 1;
   let parent = ctx.owner;
   while (parent && parent.Component === undefined) parent = parent.owner;
   if (parent && parent._ownerPath === undefined) {
     ctx._ownerPath = UNANCHORED;
-    return;
+    return 1;
   }
-  _assignOwnerPath(ctx, parent || rootFor(container), null);
+  const frame = parent || root;
+  if (!_assignOwnerPath(ctx, frame, null)) return 0;
+  const prefix = frame._ownerPath;
+  // Under a prefix no server key has, nothing is the server's.
+  if (prefix[0] === UNANCHORED) return 1;
+  const step = key && key.startsWith(prefix) ? stepAt(key, prefix.length) : null;
+  if (step !== null) {
+    ctx._ownerPath = key.slice(0, step.end);
+    holderOf(frame, null)._ownerChildren = step.index + 1;
+    return 1;
+  }
+  if (key !== '' || !ordered) ctx._ownerPath = UNANCHORED + ctx._ownerPath;
+  return key ? 2 : 1;
 }
 
 function componentName(frame) {

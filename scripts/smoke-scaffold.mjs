@@ -45,6 +45,7 @@ import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { islandServerRender, stripHydrationMarkup } from './lib/hydration-markup.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT_BASE = Number(process.env.WHAT_SMOKE_PORT_BASE) || 4500; // 4500-4599 reserved for this script
@@ -518,7 +519,11 @@ async function smokeIslands(workDir, tarballs, browser) {
   log('--- islands template (static pages + island hydration) ---');
   const appDir = scaffoldApp(workDir, 'smoke-islands', tarballs, ['--template=islands']);
   const viteBin = join(appDir, 'node_modules', 'vite', 'bin', 'vite.js');
+  // The island's server render, read without the hydration protocol (data-hk
+  // keys, <!--$--> markers) that every hydratable renderer writes since 0.15
+  // (docs/UPGRADING.md, "Every hydratable server renderer writes one protocol").
   const serverRenderedCounter = '<output aria-live="polite">3</output>';
+  const rendersCounter = (html) => (islandServerRender(html, 'counter') || '').includes(serverRenderedCounter);
 
   // Dev server: pages are rendered on request by the scaffold's own plugin.
   const devPort = PORT_BASE + 30;
@@ -533,7 +538,7 @@ async function smokeIslands(workDir, tarballs, browser) {
   const devHome = await (await fetch(devBase + '/')).text();
   assert(devHome.includes('<title>Home | smoke-islands</title>'), 'dev: GET / renders the Home page with its <Head> title');
   assert(devHome.includes('data-island="counter"'), 'dev: the page carries the island marker');
-  assert(devHome.includes(serverRenderedCounter), 'dev: the island is server-rendered inside its marker');
+  assert(rendersCounter(devHome), 'dev: the island is server-rendered inside its marker');
   assert(devHome.includes('src="/src/entry-client.js"'), 'dev: the page loads the client entry');
   const devAbout = await fetch(devBase + '/about');
   assert(devAbout.status === 200 && (await devAbout.text()).includes('<title>About | smoke-islands</title>'), 'dev: GET /about renders the About page');
@@ -566,8 +571,8 @@ async function smokeIslands(workDir, tarballs, browser) {
   assert(!existsSync(join(appDir, '.ssr')) && !existsSync(join(appDir, 'dist', '.vite')), 'build removed its temporary server bundle and manifest');
   const homeHtml = readFileSync(homeFile, 'utf8');
   const aboutHtml = readFileSync(aboutFile, 'utf8');
-  assert(homeHtml.includes('<h1>A static site with islands</h1>'), 'built Home page contains its server-rendered content');
-  assert(homeHtml.includes(serverRenderedCounter), 'built Home page contains the island\'s server render');
+  assert(stripHydrationMarkup(homeHtml).includes('<h1>A static site with islands</h1>'), 'built Home page contains its server-rendered content');
+  assert(rendersCounter(homeHtml), 'built Home page contains the island\'s server render');
   assert(/<script type="module" src="\/assets\/[^"]+\.js"><\/script>/.test(homeHtml), 'built Home page loads the hashed client entry');
   assert(aboutHtml.includes('<h1>About</h1>') && !aboutHtml.includes('data-island'), 'built About page is static HTML with no island');
 

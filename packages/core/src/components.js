@@ -3,9 +3,11 @@
 
 import { h, _vnode } from './h.js';
 import {
-  signal, getOwner, runWithOwner, createRoot, onCleanup, _handleError, _isDisposed, HANDLED,
-  _heldOn, _trackWork, _retryErrors, _setUserEffectGate, _releaseUserEffect,
+  signal, untrack, getOwner, runWithOwner, createRoot, onCleanup, _handleError, _isDisposed, HANDLED,
+  _trackWork, _beginWork, _retryErrors, _errorSource, _setUserEffectGate, _releaseUserEffect,
+  _committingTransition, __DEV__, __devtools,
 } from './reactive.js';
+import { report, recordObservation } from './diagnostics.js';
 import { isServerRender } from './server-context.js';
 import { hydrate, insert, _enableSuspense } from './render.js';
 import { createDOM } from './dom.js';
@@ -85,14 +87,30 @@ function deferChildren(Component) {
   return Component;
 }
 
+// The built-ins what-compiler lowers away (compiled JSX renders <Show>,
+// <For>, <Switch> and <Match> as a conditional or a list, with no component
+// of its own) take no step in owner paths when they run as components, so a
+// subtree has the same paths and hydration keys whichever way each side
+// rendered it (hydration-data.js _assignOwnerPath).
+function lowered(Component) {
+  Component._lowered = true;
+  return Component;
+}
+
 // --- Suspense ---
 // <Suspense fallback>: shows `fallback` until its children have first shown.
 // The children are built once, out of the document, under an owner whose
 // `_onPending` handler hears of every binding or effect held on a value that
 // has not landed, and every component that suspended (threw a promise: lazy(),
 // use(), a not-ready read in its body, which render.js renders again in place
-// once it settles). While any of them waits, the fallback stands in; when none
-// does, the children's DOM is moved in and the boundary is revealed.
+// once it settles). A held binding counts until a run of it completes (a
+// value computed from another async value keeps it waiting through that
+// value's own fetch), fails, or it is disposed; a suspended component until it
+// has rendered again, or its place is gone. While any of them waits, the
+// fallback stands in; when none does, after the flush that let the last one
+// go, the children's DOM is moved in and the boundary is revealed. settled()
+// counts that reveal as work, so it resolves after the effects it releases
+// have run.
 //
 // After that, async values never bring the fallback back: a refresh keeps the
 // children mounted, their bindings hold what they show until the new value
@@ -139,8 +157,8 @@ function createSuspense(fallback) {
     fallback,
     revealed: false,
     hydrating: false,
-    /** @type {Map<any, any>} each held effect not run to completion since, and what it waits for */
-    waiting: new Map(),
+    /** @type {Set<any>} held effects and bindings that have not completed a run since */
+    waiting: new Set(),
     /** promises of suspended components not settled yet */
     thenables: 0,
     /** @type {any[]} user-phase effects waiting for the reveal */
@@ -150,11 +168,14 @@ function createSuspense(fallback) {
     /** @type {(() => void) | null} */
     conceal: null,
     attached: false,
+    queued: false,
     // `waiting` is a promise a component suspended on, or an effect or
-    // binding held on a value that is not ready.
+    // binding held on a value that is not ready. For an effect it counts,
+    // it returns the function the engine calls when the effect stops waiting.
     onPending(waiting) {
       if (b.revealed) {
-        if (waiting.showsFallback !== true) return;
+        if (waiting.showsFallback !== true) return null;
+        if (__DEV__ && _committingTransition()) report('ERR_SUSPEND_IN_TRANSITION', { data: { component: waiting.component } });
         b.revealed = false;
         unrevealed++;
         // The component is being built inside a region that is running; the
@@ -164,37 +185,48 @@ function createSuspense(fallback) {
           if (!b.revealed && b.conceal !== null) b.conceal();
         });
       }
+      if (__DEV__) recordObservation(__devtools, 'suspense:waiting', b, /** @type {any} */ (b).devOwner);
       if (typeof waiting.then !== 'function') {
-        b.watch(waiting);
-        return;
+        b.waiting.add(waiting);
+        return b.release;
       }
+      // It settles once the component has rendered again (or its place is
+      // gone): that render's own waits are counted by now.
       b.thenables++;
-      const settled = Promise.resolve(waiting);
-      _trackWork(settled);
+      _trackWork(waiting);
       const done = () => {
         b.thenables--;
         b.check();
       };
-      settled.then(done, done);
+      waiting.then(done, done);
+      return null;
     },
-    // Forget an effect that has run to completion; look again once one still
-    // held has run with what it waits for now (after the flush its landing
-    // schedules).
-    watch(e) {
-      const until = _heldOn(e);
-      if (until === null) b.waiting.delete(e);
-      else if (b.waiting.get(e) !== until) {
-        b.waiting.set(e, until);
-        until.then(() => queueMicrotask(b.check));
-      }
+    // A counted effect completed a run, failed, or was disposed. Look again
+    // after the flush that is running (or the current task), when every
+    // binding that runs in it has run, and count the look as work settled()
+    // waits for.
+    release(e) {
+      b.waiting.delete(e);
+      b.schedule();
+    },
+    schedule() {
+      if (b.queued || b.revealed) return;
+      b.queued = true;
+      const done = _beginWork();
+      queueMicrotask(() => {
+        b.queued = false;
+        b.check();
+        done();
+      });
     },
     check() {
       if (b.revealed || b.hydrating) return;
-      for (const e of b.waiting.keys()) b.watch(e);
+      for (const e of b.waiting) if (_isDisposed(e)) b.waiting.delete(e);
       if (b.waiting.size === 0 && b.thenables === 0) b.reveal();
     },
     reveal() {
       b.revealed = true;
+      if (__DEV__) recordObservation(__devtools, 'suspense:revealed', b, /** @type {any} */ (b).devOwner);
       unrevealed--;
       if (b.show !== null) b.show();
       const deferred = b.deferred;
@@ -214,6 +246,7 @@ function createSuspense(fallback) {
       runWithOwner(root.owner, () => onCleanup(() => {
         if (!b.revealed) {
           b.revealed = true;
+          if (__DEV__) recordObservation(__devtools, 'suspense:disposed', b);
           unrevealed--;
         }
       }));
@@ -231,6 +264,7 @@ function createSuspense(fallback) {
     },
     mount: mountSuspense,
   };
+  if (__DEV__) /** @type {any} */ (b).devOwner = getOwner();
   return b;
 }
 
@@ -293,11 +327,14 @@ function mountSuspense(vnode, parent) {
 
 export const ErrorBoundary = /* @__PURE__ */ deferChildren(function ErrorBoundary({ fallback, children, onError }) {
   const errorState = signal(null);
+  // The async computed runs that failed with the errors it caught.
+  /** @type {Array<{ node: any, run: number }>} */
   const caught = [];
 
   // Error handler that will be registered with the component tree
   const handleError = (error) => {
-    caught.push(error);
+    const source = _errorSource(error);
+    if (source !== null) caught.push(source);
     errorState.set(error);
     if (onError) {
       try {
@@ -336,13 +373,13 @@ export function reportError(error, owner) {
 // pipelines (the babel plugin lowers inline; the automatic `jsxImportSource`
 // runtime / h() route here via _$createComponent).
 
-export function Show({ when, fallback = null, children }) {
+export const Show = /* @__PURE__ */ lowered(function Show({ when, fallback = null, children }) {
   return () => {
     // `when` can be a signal getter, a plain thunk, or a static value.
     const condition = typeof when === 'function' ? when() : when;
     return condition ? children : fallback;
   };
-}
+});
 
 // --- For ---
 // List rendering. Returns a reactive thunk (see Show above) so the list
@@ -350,9 +387,11 @@ export function Show({ when, fallback = null, children }) {
 // framework's fn-child effect, tracking it. The preferred, keyed-efficient
 // pattern is `.map()` with a `key` prop (auto-lowered to _$mapArray by the
 // compiler) or `<For>` compiled by the fine-grained plugin; this runtime form
-// is the fallback for the automatic JSX runtime / h() path.
+// is the fallback for the automatic JSX runtime / h() path. With `key`, it
+// gives each row its item as an accessor, as the compiled <For> does: a row
+// is built once per key, and follows an item replaced under that key.
 
-export function For({ each, fallback = null, children }) {
+export const For = /* @__PURE__ */ lowered(function For({ each, key, fallback = null, children }) {
   // children should be a function (item, index) => vnode. Resolve/validate it
   // once at creation — it does not change across list updates.
   const renderFn = Array.isArray(children) ? children[0] : children;
@@ -360,6 +399,7 @@ export function For({ each, fallback = null, children }) {
     console.warn('[what] For: children must be a render function, e.g. <For each={items}>{(item) => ...}</For>');
     return fallback;
   }
+  if (typeof key === 'function') return keyedFor(each, key, fallback, renderFn);
 
   return () => {
     const list = typeof each === 'function' ? each() : each;
@@ -383,12 +423,44 @@ export function For({ each, fallback = null, children }) {
       return vnode;
     });
   };
+});
+
+// <For key>: the vnode of each key is made once, from an accessor of the
+// item, and handed back on every run, so the keyed rows keep it (and its DOM)
+// while the accessor follows the item.
+function keyedFor(each, key, fallback, renderFn) {
+  /** @type {Map<any, { item: any, vnode: any }>} */
+  let rows = new Map();
+  return () => {
+    const list = typeof each === 'function' ? each() : each;
+    /** @type {Map<any, { item: any, vnode: any }>} */
+    const next = new Map();
+    if (!list || list.length === 0) {
+      rows = next;
+      return fallback;
+    }
+    const out = list.map((item, index) => {
+      const k = key(item);
+      let row = rows.get(k);
+      if (row === undefined || next.has(k)) {
+        const cell = signal(item);
+        row = { item: cell, vnode: untrack(() => renderFn(() => cell(), index)) };
+        if (row.vnode && typeof row.vnode === 'object') row.vnode.key = k;
+      } else {
+        row.item(item);
+      }
+      next.set(k, row);
+      return row.vnode;
+    });
+    rows = next;
+    return out;
+  };
 }
 
 // --- Switch / Match ---
 // Multi-condition rendering (like switch statement).
 
-export function Switch({ fallback = null, children }) {
+export const Switch = /* @__PURE__ */ lowered(function Switch({ fallback = null, children }) {
   // The Match children are static, so resolve them once. The match loop, which
   // reads each Match's reactive `when`, must run inside a reactive thunk (see
   // Show/For above): components run once, so evaluating `when()` in the body
@@ -410,9 +482,9 @@ export function Switch({ fallback = null, children }) {
     }
     return fallback;
   };
-}
+});
 
-export function Match(props) {
+export const Match = /* @__PURE__ */ lowered(function Match(props) {
   // Executed rather than left as a marker, which is what a lone compiled
   // <Match> does. Returning a `{ tag: Match }` vnode here would send createDOM
   // straight back into Match forever, so return a reactive thunk that renders
@@ -421,12 +493,14 @@ export function Match(props) {
     const condition = typeof props.when === 'function' ? props.when() : props.when;
     return condition ? props.children : null;
   };
-}
+});
 
-// --- Island ---
+// --- _$Island ---
 // Islands architecture: the content ships as server-rendered HTML and only the
 // *interactivity* is deferred to a client trigger. The babel plugin compiles
-// `<Counter client:idle />` into h(Island, { component: Counter, mode: 'idle' }).
+// `<Counter client:idle />` into h(_$Island, { component: Counter, mode: 'idle' }),
+// importing it from what-framework/render. The public island component, which
+// hydrates through the island registry, is what-framework/server's Island.
 //
 // This used to render an empty marker div on every path, on the server AND the
 // client, in every mode: the SSR branch never rendered the component, and the
@@ -451,7 +525,7 @@ function serializeIslandProps(props) {
   }
 }
 
-export function Island({ component: Component, mode, mediaQuery, name, children, ...props }) {
+export const _$Island = /* @__PURE__ */ deferChildren(function Island({ component: Component, mode, mediaQuery, name, children, ...props }) {
   const islandName = name || Component?.name || 'Island';
   const resolvedMode = mode || 'idle';
 
@@ -576,4 +650,4 @@ export function Island({ component: Component, mode, mediaQuery, name, children,
   }
 
   return h('div', { ...marker, ref: (el) => { if (el) scheduleHydration(el); } });
-}
+});

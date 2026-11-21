@@ -54,12 +54,15 @@ export const h = /* @__PURE__ */ vnodeProducer(function h(tag, props) {
     flat = out;
   }
 
-  const key = props.key ?? null;
+  // A function that is not a signal is not a row's key but a prop:
+  // <For key={(item) => item.id}>.
+  const keyed = props.key !== undefined && (typeof props.key !== 'function' || props.key._signal === true);
+  const key = keyed ? props.key ?? null : null;
 
   // Strip key from the props passed to the component/element. A rest copy
   // rather than copy-then-delete: `delete` drops the object into dictionary
   // mode, and every later read of it pays for that.
-  if (props.key !== undefined) {
+  if (keyed) {
     const { key: _key, ...rest } = props;
     props = rest;
   }
