@@ -137,7 +137,7 @@ describe('enhanceForms posts what the action endpoint can parse', () => {
     // A textarea round-tripped different bytes with JS on than with JS off:
     // native sends CRLF, URLSearchParams passes LF straight through.
     const h = mountForm(`
-      <form method="post" action="/__what_action" data-enhance data-no-csrf="true">
+      <form method="post" action="/__what_action" data-enhance>
         <textarea name="body">line one\nline two</textarea>
       </form>`);
     await h.submit();
@@ -158,7 +158,7 @@ describe('enhanceForms honors the form encoding', () => {
     // the browser can write the multipart boundary. Setting it by hand produces
     // a body no server can parse.
     const h = mountForm(`
-      <form method="post" action="/upload" enctype="multipart/form-data" data-enhance data-no-csrf="true">
+      <form method="post" action="/upload" enctype="multipart/form-data" data-enhance>
         <input type="file" name="avatar">
         <input name="title" value="hi">
       </form>`);
@@ -177,7 +177,7 @@ describe('enhanceForms honors the form encoding', () => {
     // its filename. Matching that is right, but doing it silently would hide a
     // real mistake, so it warns.
     const h = mountForm(`
-      <form method="post" action="/upload" data-enhance data-no-csrf="true">
+      <form method="post" action="/upload" data-enhance>
         <input type="file" name="avatar">
         <input name="title" value="hi">
       </form>`);
@@ -192,7 +192,7 @@ describe('enhanceForms honors the form encoding', () => {
     // The fields were serialized and then thrown away: an enhanced GET form
     // fetched a bare URL with none of its data.
     const h = mountForm(`
-      <form method="get" action="/search" data-enhance data-no-csrf="true">
+      <form method="get" action="/search" data-enhance>
         <input name="q" value="mug">
         <input name="page" value="2">
       </form>`);
@@ -210,7 +210,7 @@ describe('enhanceForms matches a native submit', () => {
     // Without this a multi-button form cannot tell the server which button was
     // pressed, because FormData(form) never includes submit buttons.
     const h = mountForm(`
-      <form method="post" action="/__what_action" data-enhance data-no-csrf="true">
+      <form method="post" action="/__what_action" data-enhance>
         <input type="hidden" name="_action" value="enhanceTest">
         <button type="submit" name="intent" value="publish">Publish</button>
         <button type="submit" name="intent" value="delete">Delete</button>
@@ -228,7 +228,7 @@ describe('enhanceForms matches a native submit', () => {
     // TypeError after preventDefault, so the form did nothing at all: no fetch,
     // no error event, no native fallback.
     const h = mountForm(`
-      <form method="post" action="/__what_action" data-enhance data-no-csrf="true">
+      <form method="post" action="/__what_action" data-enhance>
         <input type="hidden" name="_action" value="enhanceTest">
         <input name="method" value="wire-transfer">
         <input name="action" value="refund">
@@ -263,18 +263,30 @@ describe('enhanceForms CSRF handling', () => {
     assert.equal(h.calls[0].init.headers['X-CSRF-Token'], 'cookie-token');
   });
 
-  it('blocks and reports when no token exists anywhere', async () => {
+  it('posts without a token when the page has none, which the endpoint accepts from the same origin', async () => {
+    // A form on a cached page: no meta tag, no field, no cookie. The endpoint
+    // accepts a same-origin post without a token (Fetch Metadata, or the
+    // Origin header) as it accepts the native submit, so the enhanced submit
+    // sends it and lets the endpoint decide.
     const h = mountForm(`
       <form method="post" action="/__what_action" data-enhance>
         <input type="hidden" name="_action" value="enhanceTest">
+        <input type="hidden" name="_redirect" value="/done">
       </form>`, { cookie: null });
 
     const errors = [];
     h.form.addEventListener('form:error', (e) => errors.push(e.detail.error.message));
     await h.submit();
 
-    assert.equal(h.calls.length, 0);
-    assert.deepEqual(errors, ['Missing CSRF token']);
+    assert.deepEqual(errors, []);
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.calls[0].init.headers['X-CSRF-Token'], undefined);
+    const body = parseActionBody(String(h.calls[0].init.body), 'application/x-www-form-urlencoded');
+    const handle = createActionHandler({ getCsrfToken: () => undefined });
+    const post = (headers) => handle({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, body, query: {}, url: 'http://localhost/__what_action' });
+    assert.equal((await post({ 'sec-fetch-site': 'same-origin' })).status, 303, 'same origin by Fetch Metadata');
+    assert.equal((await post({ origin: 'http://localhost', host: 'localhost' })).status, 303, 'same origin by the Origin header');
+    assert.equal((await post({ 'sec-fetch-site': 'cross-site' })).status, 403, 'a cross-site post is still refused');
   });
 
   it('never sends our CSRF token to another origin', async () => {

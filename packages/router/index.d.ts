@@ -4,6 +4,10 @@ import { VNode, VNodeChild, Component, Signal, Computed } from 'what-core';
 
 // --- Route State ---
 
+/**
+ * The route on screen. During a server render, the request being rendered: its
+ * URL (with its query and hash), and the params and query its <Router> matched.
+ */
 export interface RouteState {
   /** Current full URL */
   readonly url: string;
@@ -94,7 +98,13 @@ export interface LayoutProps {
   children?: VNodeChild;
 }
 
-/** Middleware is synchronous: allow with true/void, block with false, or redirect with a path. Use asyncGuard for async checks. */
+/**
+ * Middleware is synchronous: allow with true/void, block with false, or
+ * redirect with a path. Use asyncGuard for async checks. It runs before the
+ * route's `preload`, which never runs for a route it declines, and may run more
+ * than once for one navigation. On the server, a redirect redirects the
+ * render's response.
+ */
 export type RouteMiddleware = (props: RouteComponentProps & { path: string }) => boolean | string | void;
 
 // --- Router Component ---
@@ -217,14 +227,15 @@ export function useRoute(): UseRouteResult;
 
 // --- Route Accessors ---
 
-/** Current route params. Subscribes when read inside a tracking scope. */
+/** Current route params. Subscribes when read inside a tracking scope. During a server render, the params the render's own <Router> matched. */
 export function useParams<T = Record<string, string>>(): T;
 
 /**
  * Query string of the last successfully matched route, parsed. Subscribes when
  * read inside a tracking scope. Only the Router's match branch writes it, so on
  * an unmatched (404) route this is the previous route's query, not the current
- * URL's. Same value and same caveat as `route.query`.
+ * URL's. Same value and same caveat as `route.query`. During a server render,
+ * the query the render's own <Router> matched.
  */
 export function useSearch<T = Record<string, string>>(): T;
 
@@ -248,8 +259,9 @@ export function prefetchRoute(href: string): void;
  * first render reports the error, but on a later re-run the navigation simply
  * does not happen and the stale DOM stays, so prefer `navigate(to)` there.
  * A `try/catch` around the call also swallows it, so rethrow anything whose
- * `name` is `RouterRedirect`. On the server the signal escapes `renderToString`
- * to its caller: read `.to` and emit a 302.
+ * `name` is `RouterRedirect`. On the server, thrown from route middleware it
+ * redirects the render's response (getResponse().redirect); from a component
+ * body it escapes `renderToString` to its caller: read `.to` and emit a 302.
  */
 export function redirect(to: string, options?: NavigateOptions): never;
 

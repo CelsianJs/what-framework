@@ -195,6 +195,10 @@ export function __readHydrationData(): Record<string, any> | null;
 export function isVNode(value: unknown): value is VNode<any>;
 /** @internal Used by what-server. The keyed-array mapping `<For>` compiles down to. */
 export function _mapArrayToArray(...args: unknown[]): unknown;
+/** @internal Used by what-server. A keyed list row key's digest, as the server writes it and hydrate() compares it; null for a key that is not a string or a finite number. */
+export function _rowKeyDigest(key: unknown): string | null;
+/** @internal Used by what-server's <Form>. Resets a form as React 19 does after a successful action: uncontrolled fields to their defaults, controlled ones to what their props hold. */
+export function _resetForm(form: HTMLFormElement): void;
 /** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
 export function __installServerContextStorage(storage: unknown): void;
 /** @internal Used by what-server. Marks a process that renders on the server with no document: outside a render, the query cache shares nothing. */

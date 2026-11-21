@@ -562,15 +562,17 @@ export {
 /**
  * The keys comment of an array a reactive child returned, which hydrate()
  * adopts as keyed rows: a compiled list's rows (_mapArrayToArray gives them
- * their keys), or h() vnodes that all carry one. '' for any other array.
+ * their keys), or h() vnodes that carry one. Vnodes of which only some carry
+ * one are marked as keys hydrate() cannot compare (a compiled client keys
+ * them all). '' for any other array.
  */
 export function arrayKeys(rows) {
   if (rows._keys !== undefined) return rowKeys(rows._keys);
-  if (rows.length === 0) return '';
   const keys = [];
   for (const row of rows) {
-    if (!isVNode(row) || row.key == null) return '';
+    if (!isVNode(row)) return '';
     keys.push(row.key);
   }
-  return rowKeys(keys);
+  const keyed = keys.filter((key) => key != null).length;
+  return keyed === 0 ? '' : rowKeys(keyed === keys.length ? keys : [null]);
 }

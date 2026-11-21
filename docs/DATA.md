@@ -201,10 +201,15 @@ export function Rename() {
 - An action that throws reaches the nearest `<ErrorBoundary>`, and the
   dispatches queued behind it are dropped, as in React. (`action-state.test.js`)
 - `useFormStatus()` returns the submission of the `<Form>` around the
-  component: `pending()`, `data()` (its FormData), `method`, and `action`, the
-  form's action function (null for an action id, as React's is for a URL).
-  Outside a form, `pending()` is false and the rest is null.
-  (`action-state.test.js`, "useFormStatus")
+  component: `pending()` (any submission still pending), `data()` (the
+  FormData of the latest submission still pending: when a later submit commits
+  first, it is the earlier one's), `method`, and `action`, the form's action
+  function (null for an action id, as React's is for a URL). Outside a form,
+  `pending()` is false and the rest is null.
+  (`action-state.test.js`, "useFormStatus"; `actions-transition.test.js`)
+- A dispatch whose component unmounts stops: its state never commits, the
+  dispatches queued behind it never run, and an action's promise that stays
+  pending holds nothing of the component. (`dropped-work-retention.gc.test.js`)
 
 ### Server actions
 
@@ -241,13 +246,17 @@ JavaScript, posting to the action endpoint (for a server action) or to the
 dispatch's `permalink`. The endpoint answers 303 to `redirect`. On a mounted
 page the form runs its own submit instead: it calls the action with the form's
 data as a transition, `useFormStatus()` inside it shows the submission, and,
-as React 19 does for an uncontrolled form, the form is reset when that
-transition commits, only if the action succeeded: what the user typed stays
-while the action is pending, and after it fails (a server action that
-rejects, a `useActionState` action that throws). A server action receives the
+as React 19 does, the form is reset when that transition commits, only if the
+action succeeded: what the user typed stays while the action is pending, and
+after it fails (a server action that rejects, a `useActionState` action that
+throws). The reset clears the uncontrolled fields; a controlled one (a `value`
+or `checked` prop) shows what its prop holds, as React 19 keeps a controlled
+input's state. A control named `reset` or `elements` does not stop it, and a
+reset that throws is the form's `form:error`. A server action receives the
 fields as an object; a client action (`useActionState`'s dispatch) receives
 the FormData. (`packages/server/test/actions-transition.test.js`, "<Form> on a
-mounted page"; `packages/server/test/form.test.js`)
+mounted page" and "<Form> resets as React 19 resets a form";
+`packages/server/test/form.test.js`)
 
 ### Call an action from a buildless page
 
@@ -347,9 +356,13 @@ export const App = () => <Router routes={routes} />;
 - **On the server**, `<Router>` renders the URL of the request being rendered
   (`renderToStream(vnode, { request })`, `renderDocument(page, { request })`,
   the request handler), or its `url` prop, and runs that route's `preload` for
-  the render alone. The page server-renders with its data; the client hydrates
-  it and adopts the preloaded queries instead of fetching them.
-  (`packages/router/test/server-render.test.js`)
+  the render alone, after its middleware has admitted it (a declined route's
+  `preload` never runs, on the server or in a navigation). The page
+  server-renders with its data; the client hydrates it and adopts the
+  preloaded queries instead of fetching them. The route state the render reads
+  (`route.*`, `useParams()`, `useSearch()`) is its own request's, whatever
+  other requests render at the same time.
+  (`packages/router/test/server-render.test.js`, `server-request-state.test.js`)
 - **Data the page reads that `preload` does not return** is fetched after the
   commit: the page shows it pending (its bindings hold, or its `<Suspense>`
   shows its fallback). The navigation goes on until that first data has

@@ -49,7 +49,7 @@ import { initDomState, finishDomProgram, transformJsxRoot } from './babel/dom.js
 import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js';
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
 import { annotatePrimitive } from './babel/dev-metadata.js';
-import { resolveCallee } from './babel/reactivity.js';
+import { resolveCallees } from './babel/reactivity.js';
 
 export default function whatBabelPlugin({ types }) {
   setTypes(types);
@@ -143,6 +143,7 @@ export default function whatBabelPlugin({ types }) {
           // Before any JSX is lowered: forwarded children, server action ids,
           // development names and what each call's callee reads, all read
           // against the original source.
+          const calls = [];
           path.traverse({
             Function(fnPath) {
               deferForwardedChildren(fnPath);
@@ -150,12 +151,13 @@ export default function whatBabelPlugin({ types }) {
             CallExpression(callPath) {
               transformServerAction(callPath, state);
               annotatePrimitive(callPath, state);
-              resolveCallee(callPath, state.importedIdentifiers);
+              calls.push(callPath);
             },
             OptionalCallExpression(callPath) {
-              resolveCallee(callPath, state.importedIdentifiers);
+              calls.push(callPath);
             },
           });
+          resolveCallees(calls, state.importedIdentifiers);
         },
 
         exit(path, state) {

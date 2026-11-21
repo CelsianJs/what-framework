@@ -1785,6 +1785,9 @@ export function setProp(el, key, value) {
     _setSelectValue(el, value);
   } else if (key in el) {
     el[key] = value;
+    // What a controlled field's value prop holds, which a form reset keeps
+    // (dom.js _resetForm).
+    if (key === 'value') el._$value = String(value);
   } else {
     el.setAttribute(key, value);
   }
@@ -2163,7 +2166,25 @@ const TRANSPARENT = new Set([REGION_OPEN, REGION_CLOSE, ARRAY_OPEN, ARRAY_CLOSE]
 // So is a keyed list's keys comment (inServerOrder), where a client that renders
 // no keyed list there meets it.
 function transparent(data) {
-  return TRANSPARENT.has(data) || data.startsWith('k[');
+  return TRANSPARENT.has(data) || isRowKeys(data);
+}
+
+// The comment after a keyed list's opening marker (what-server rowKeys): its
+// rows' key digests, or `k!` when a key was one hydrate() cannot compare.
+function isRowKeys(data) {
+  return data.startsWith('k:') || data === 'k!';
+}
+
+// A keyed list's row key as the server writes it (what-server rowKeys) and
+// hydrate() compares it: a digest, 32-bit FNV-1a of the key's type and value
+// in base 36, so the page does not carry the key. Strings and finite numbers
+// only: null for any other key.
+export function _rowKeyDigest(key) {
+  if (typeof key !== 'string' && !(typeof key === 'number' && Number.isFinite(key))) return null;
+  const text = (typeof key === 'string' ? 's' : 'n') + key;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  return (hash >>> 0).toString(36);
 }
 
 // The walk's position: the parent (p), the next node to claim (n, null at the
@@ -3098,7 +3119,8 @@ function adoptVNodeRows(value, scope) {
   const c = cur;
   const at = nextOwn(c);
   const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;
-  const vnodes = close !== null ? inServerOrder(at, close, value, vnodeKey) : value;
+  const order = close !== null ? inServerOrder(at, close, value, vnodeKey) : null;
+  const vnodes = order === null ? value : order.map((i) => value[i]);
   const rows = [];
   const adoptRows = () => {
     const rc = cur;
@@ -3137,43 +3159,52 @@ function vnodeKey(vnode) {
 
 // --- Lists ---
 
-// The items the server's rows (after `open`, up to `close`) are the rows of,
-// in the server's order, read from the keys the server wrote after the list's
-// opening marker (what-server rowKeys), which come out of the DOM: `items`
-// when it wrote their keys in their order (or wrote none); the items of its
-// keys in its order, when every server row's key is among the client's (the
-// rows are adopted by key, then put in the client's order); else none, and
-// the server's rows go (the client builds the list). A row is never adopted
-// as the row of another key. Anything but `items` is reported: the two sides
-// rendered the list from different data.
+// The client indexes of the items the server's rows (after `open`, up to
+// `close`) are the rows of, in the server's order, read from the key digests
+// the server wrote after the list's opening marker (what-server rowKeys),
+// which come out of the DOM: null when they are the client's keys in the
+// client's order (or the server wrote none), and the rows are `items` in
+// order; the indexes of their keys' items in their order, when every server
+// row's key is among the client's (the rows are adopted by key, then put in
+// the client's order); else none, and the server's rows go (the client builds
+// the list), as they do when the server marked a key it could not write, or
+// when two different keys of the client have one digest. A row is never
+// adopted as the row of another key. Anything but null is reported: the two
+// sides rendered the list from different data, or with keys hydration cannot
+// compare.
 function inServerOrder(open, close, items, keyFn) {
   const n = open.nextSibling;
-  if (n === close || n.nodeType !== 8 || !n.data.startsWith('k[')) return items;
+  if (n === close || n.nodeType !== 8 || !isRowKeys(n.data)) return null;
   n.remove();
-  let keys;
-  try {
-    keys = JSON.parse(n.data.slice(1));
-  } catch {
-    return items;
-  }
-  if (keys.length === items.length && keys.every((key, i) => key === keyFn(items[i]))) return items;
-  const byKey = new Map();
-  for (const item of items) {
-    const key = keyFn(item);
-    byKey.set(key, [...(byKey.get(key) || []), item]);
-  }
+  const keys = items.map(keyFn);
+  const mine = keys.map(_rowKeyDigest);
+  const theirs = n.data === 'k!' ? null : n.data === 'k:' ? [] : n.data.slice(2).split(',');
+  // The client's rows of each digest, in order: none for a digest of two
+  // different keys, which cannot tell them apart.
+  const byDigest = new Map();
+  mine.forEach((digest, i) => {
+    const list = byDigest.get(digest);
+    if (list === undefined) byDigest.set(digest, [i]);
+    else if (list.length > 0 && keys[list[0]] === keys[i]) list.push(i);
+    else list.length = 0;
+  });
+  if (theirs !== null && theirs.length === mine.length && theirs.every((digest, i) => digest === mine[i] && byDigest.get(digest).length > 0)) return null;
   const order = [];
-  for (const key of keys) {
-    const list = byKey.get(key);
+  for (const digest of theirs || []) {
+    const list = byDigest.get(digest);
     if (list === undefined || list.length === 0) {
       order.length = 0;
-      while (open.nextSibling !== close) open.nextSibling.remove();
       break;
     }
     order.push(list.shift());
   }
-  const describeKeys = (list) => short(list.map(String).join());
-  mismatch('key', describeKeys(items.map(keyFn)), describeKeys(keys), open, order.length > 0 ? 'move' : 'client-render');
+  if (order.length === 0) {
+    while (open.nextSibling !== close) open.nextSibling.remove();
+  }
+  // The server's keys: those of the rows taken, in its order, when they all
+  // were.
+  const describeKeys = (list) => short(list.slice(0, 40).map(String).join());
+  mismatch('key', describeKeys(keys), order.length > 0 ? describeKeys(order.map((i) => keys[i])) : theirs === null ? 'keys it cannot compare' : 'rows of other keys', open, order.length > 0 ? 'move' : 'client-render');
   return order;
 }
 
@@ -3222,6 +3253,10 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
   /** @type {any} */
   let endMarker = close;
   let first = true;
+  // The client index of each adopted row, when the server's rows are in
+  // another order (inServerOrder): the row's callback is given that index.
+  /** @type {number[] | null} */
+  let order = null;
   const adoptRows = (newItems) => {
     const rc = cur;
     for (let i = 0; i < newItems.length; i++) {
@@ -3235,7 +3270,7 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
       const anchor = anchorOf(rc);
       _createItemScope((dispose) => {
         disposeFns[i] = dispose;
-        adopt(mapFn(cell === null ? item : keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), i, item));
+        adopt(mapFn(cell === null ? item : keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), order === null ? i : order[i], item));
       });
       if (cell !== null) {
         cell.building = false;
@@ -3267,7 +3302,8 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
         }
         throw error;
       }
-      const adopted = close !== null ? inServerOrder(at, close, newItems, keyFn) : newItems;
+      order = close !== null ? inServerOrder(at, close, newItems, keyFn) : null;
+      const adopted = order === null ? newItems : order.map((i) => newItems[i]);
       if (close !== null) within(at, close, adoptRows, adopted);
       else adoptRows(adopted);
       if (adopted !== newItems) {

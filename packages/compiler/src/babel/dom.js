@@ -181,8 +181,8 @@ function tryLowerMapCall(mapCall, state) {
   let optedOut = state._noSelector || state.opts?.autoSelector === false;
   while (!optedOut && leftmost) {
     optedOut = hasNoSelectorPragma(leftmost);
-    leftmost = t.isCallExpression(leftmost) ? leftmost.callee
-      : t.isMemberExpression(leftmost) ? leftmost.object : null;
+    leftmost = t.isCallExpression(leftmost) || t.isOptionalCallExpression(leftmost) ? leftmost.callee
+      : t.isMemberExpression(leftmost) || t.isOptionalMemberExpression(leftmost) ? leftmost.object : null;
   }
   if (!optedOut) lowerRowSelectors(returnExpr, mapFn, state);
 

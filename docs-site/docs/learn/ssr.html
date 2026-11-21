@@ -283,7 +283,7 @@ app.get(<span class="string">'/'</span>, <span class="keyword">async</span> (req
   );
 }</code></pre>
 
-          <p>A server action receives the fields as an object; a client function (the dispatch of <code>useActionState</code>) receives the <code>FormData</code>. The form is reset once the action has succeeded. Without JavaScript, the action endpoint answers <code>303</code> to <code>redirect</code>.</p>
+          <p>A server action receives the fields as an object; a client function (the dispatch of <code>useActionState</code>) receives the <code>FormData</code>. The form is reset once the action has succeeded: its uncontrolled fields clear, and a controlled one keeps what its <code>value</code> or <code>checked</code> prop holds, as in React 19. Without JavaScript, the action endpoint answers <code>303</code> to <code>redirect</code>.</p>
 
           <h3 id="use-optimistic">useOptimistic</h3>
           <p>Show the user an instant result while the server processes the real mutation. If the server call fails, the optimistic update is automatically rolled back:</p>

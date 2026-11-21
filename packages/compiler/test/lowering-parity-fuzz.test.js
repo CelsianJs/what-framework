@@ -1442,7 +1442,7 @@ async function runSemantics({ cases, seed }) {
       // A compiled keyed <For> writes its rows' keys (what-server rowKeys);
       // the h() program it stands for hands its rows over as plain values,
       // which carry none. Everything else is compared as written.
-      if (compiled.html.replace(/<!--k\[[^>]*-->/g, '') !== expected.html) {
+      if (compiled.html.replace(/<!--k(?::[^>]*|!)-->/g, '') !== expected.html) {
         divergent.push({ caseIndex, spec, detail: `${mode}\n  compiled: ${compiled.html}\n  h()     : ${expected.html}` });
       } else if (compiled.log !== expected.log) {
         divergent.push({ caseIndex, spec, detail: `${mode}: evaluation order\n  compiled: ${compiled.log}\n  h()     : ${expected.log}` });

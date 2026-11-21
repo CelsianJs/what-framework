@@ -142,9 +142,9 @@ export function useActionState<S, P = FormData>(
 ): [state: () => S, dispatch: ((payload: P) => void) & { permalink?: string }, isPending: () => boolean];
 /** What useFormStatus() returns: the submission of the <Form> around the component. */
 export interface FormStatus {
-  /** True from the submit until its transition commits. */
+  /** True from a submit until its transition commits, while any submission is pending. */
   pending: () => boolean;
-  /** The pending submission's FormData, or null. */
+  /** The FormData of the latest submission still pending, or null. */
   data: () => FormData | null;
   /** The form's method, or null outside a <Form>. */
   method: string | null;

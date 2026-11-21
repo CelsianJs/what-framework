@@ -53,7 +53,7 @@ export function isSignalIdentifier(name, signalNames) {
 // Walks the scope chain from the given path upward, collecting signals
 // defined in each lexical scope (function/block).
 export function collectSignalNamesFromScope(path) {
-  /** @type {Set<string> & { fromDestructuredProps?: Set<string>, scope?: any }} */
+  /** @type {Set<string> & { fromDestructuredProps?: Set<string>, scope?: any, calls?: any[] }} */
   const signalNames = new Set();
   // Names that came from a DESTRUCTURED PROP rather than a signal() call.
   //
@@ -75,6 +75,27 @@ export function collectSignalNamesFromScope(path) {
   // function it calls (see callReadsInside).
   signalNames.scope = path.scope;
 
+  // Walk up the scope chain using Babel's scope API.
+  let scope = path.scope;
+  while (scope) {
+    const own = scopeNamesCache !== null ? scopeNamesCache.get(scope) : undefined;
+    const { signals, props } = own || ownSignalNames(scope);
+    if (scopeNamesCache !== null && own === undefined) scopeNamesCache.set(scope, { signals, props });
+    for (const name of signals) signalNames.add(name);
+    for (const name of props) propNames.add(name);
+    scope = scope.parent;
+  }
+
+  return signalNames;
+}
+
+// The names one scope declares that may hold an accessor: its signal-creating
+// declarations (`signals`), and its function's destructured props (`props`,
+// also in `signals`).
+function ownSignalNames(scope) {
+  const signals = [];
+  const props = [];
+
   // Helper: extract signal names from a VariableDeclarator node
   function extractFromDeclarator(decl) {
     const init = decl.init;
@@ -91,15 +112,15 @@ export function collectSignalNamesFromScope(path) {
     if (SIGNAL_CREATORS.has(calleeName)) {
       const id = decl.id;
       if (t.isIdentifier(id)) {
-        signalNames.add(id.name);
+        signals.push(id.name);
       } else if (t.isArrayPattern(id)) {
         for (const el of id.elements) {
-          if (t.isIdentifier(el)) signalNames.add(el.name);
+          if (t.isIdentifier(el)) signals.push(el.name);
         }
       } else if (t.isObjectPattern(id)) {
         for (const prop of id.properties) {
           if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-            signalNames.add(prop.value.name);
+            signals.push(prop.value.name);
           }
         }
       }
@@ -110,40 +131,34 @@ export function collectSignalNamesFromScope(path) {
     if (!t.isObjectPattern(param)) return;
     for (const prop of param.properties) {
       if (t.isObjectProperty(prop) && t.isIdentifier(prop.value)) {
-        signalNames.add(prop.value.name);
-        propNames.add(prop.value.name);
+        signals.push(prop.value.name);
+        props.push(prop.value.name);
       } else if (t.isRestElement(prop) && t.isIdentifier(prop.argument)) {
-        signalNames.add(prop.argument.name);
-        propNames.add(prop.argument.name);
+        signals.push(prop.argument.name);
+        props.push(prop.argument.name);
       }
     }
   }
 
-  // Walk up the scope chain using Babel's scope API.
-  let scope = path.scope;
-  while (scope) {
-    // Check all variable bindings in this scope.
-    for (const binding of Object.values(scope.bindings)) {
-      if (binding.path.isVariableDeclarator()) {
-        extractFromDeclarator(binding.path.node);
-      }
+  // Check all variable bindings in this scope.
+  for (const binding of Object.values(scope.bindings)) {
+    if (binding.path.isVariableDeclarator()) {
+      extractFromDeclarator(binding.path.node);
     }
-    // Scan this scope's own function params (destructured props) ONCE per
-    // scope — not once per binding. The old per-binding rescan made this
-    // O(params × bindings) per scope per JSXElement. (AUDIT-2026-06-06 H2)
-    const fnNode = scope.path && scope.path.node;
-    if (fnNode) {
-      if (fnNode.params) {
-        for (const param of fnNode.params) extractFromPattern(param);
-      }
-      // deferForwardedChildren moved this pattern out of the parameter list;
-      // it is still the same props destructuring and classifies the same way.
-      if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
-    }
-    scope = scope.parent;
   }
-
-  return signalNames;
+  // Scan this scope's own function params (destructured props) ONCE per
+  // scope — not once per binding. The old per-binding rescan made this
+  // O(params × bindings) per scope per JSXElement. (AUDIT-2026-06-06 H2)
+  const fnNode = scope.path && scope.path.node;
+  if (fnNode) {
+    if (fnNode.params) {
+      for (const param of fnNode.params) extractFromPattern(param);
+    }
+    // deferForwardedChildren moved this pattern out of the parameter list;
+    // it is still the same props destructuring and classifies the same way.
+    if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
+  }
+  return { signals, props };
 }
 
 // A `collectSignalNames` wrapper lived here, commented "legacy wrapper for
@@ -160,22 +175,16 @@ function isPureBuiltinMethodCall(expr) {
     && PURE_BUILTIN_METHODS.has(expr.callee.property.name);
 }
 
-// Check if a call expression is a safe (non-reactive) global call
-function isSafeGlobalCall(expr) {
+// Check if a call expression is a safe (non-reactive) global call: the name
+// must be the global itself, not a binding of the module that shadows it.
+function isSafeGlobalCall(expr, fallbackScope) {
   if (!t.isCallExpression(expr)) return false;
   const callee = expr.callee;
-
-  // Math.max(), Number.parseInt(), etc.
-  if (t.isMemberExpression(callee) && t.isIdentifier(callee.object)) {
-    return SAFE_GLOBAL_CALLS.has(callee.object.name);
-  }
-
-  // parseInt(), isNaN(), etc.
-  if (t.isIdentifier(callee)) {
-    return SAFE_GLOBAL_CALLS.has(callee.name);
-  }
-
-  return false;
+  // Math.max(), Number.parseInt(), etc., or parseInt(), isNaN(), etc.
+  const root = t.isMemberExpression(callee) ? callee.object : callee;
+  if (!t.isIdentifier(root) || !SAFE_GLOBAL_CALLS.has(root.name)) return false;
+  const scope = scopeOf(expr, fallbackScope);
+  return !scope || !scope.getBinding(root.name);
 }
 
 // Check if an expression's reactivity is uncertain — e.g., a non-signal function call
@@ -199,7 +208,7 @@ export function isUncertainReactive(expr, signalNames, importedIds) {
       return false;
     }
     // Safe global call (Math.max, etc.) with reactive args — still deterministic, not uncertain
-    if (isSafeGlobalCall(expr)) return false;
+    if (isSafeGlobalCall(expr, signalNames.scope)) return false;
     // Unknown function call — if args are reactive, the wrapping is uncertain
     if (expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds))) {
       return true;
@@ -239,7 +248,7 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
       }
     }
     // Safe global calls like Math.max — only reactive if their args are
-    if (isSafeGlobalCall(expr)) {
+    if (isSafeGlobalCall(expr, signalNames.scope)) {
       return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
     }
     // A function argument the call may run at once reads for the call:
@@ -257,7 +266,7 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
     if (expr.arguments.length === 0 && !isPureBuiltinMethodCall(expr)) {
       return true;
     }
-    if (callReadsInside(expr.callee, signalNames.scope, importedIds)) return true;
+    if (callReadsInside(expr, signalNames, importedIds)) return true;
 
     // Unknown call — check if callee or args contain signal reads
     if (t.isIdentifier(expr.callee)) {
@@ -274,7 +283,7 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   // through their object, f?.() as a call.
   if (t.isOptionalCallExpression(expr)) {
     if (expr.arguments.length === 0) return true;
-    return callReadsInside(expr.callee, signalNames.scope, importedIds) ||
+    return callReadsInside(expr, signalNames, importedIds) ||
            isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
            expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds) ||
              readsInCallback(arg, signalNames, importedIds));
@@ -373,76 +382,199 @@ function statementReads(stmt, names, ids) {
   return false;
 }
 
-// Whether calling `callee` may read a signal that neither the callee
-// expression nor the arguments show. A function this module declares, or a
-// method of an object literal it declares, is read for it: `{format('x')}`
-// is as reactive as format's body. A function the compiler cannot see (a
-// parameter, a value some call returned, a method of an object it did not
-// see built) is assumed to read: only a body it has seen proves a call
-// static, and a wrong guess the other way freezes the text silently. Built-in
-// methods and globals are the environment's, not the app's.
-function callReadsInside(callee, scope, importedIds) {
+// Whether `call` may read a signal that neither its callee expression nor its
+// arguments show. A function this module declares, or a method of an object
+// literal it declares, is read for it: `{format('x')}` is as reactive as
+// format's body. A function the compiler cannot see (a parameter, a value
+// some call returned, a method of an object it did not see built, a function
+// that is reassigned) is assumed to read: only a body it has seen proves a
+// call static, and a wrong guess the other way freezes the text silently.
+// Built-in methods and globals are the environment's, not the app's.
+//
+// While a function's own body is being read (`signalNames.calls` set), a call
+// of another local function is recorded as an edge of the call graph instead
+// of being read through: see readsThrough.
+function callReadsInside(call, signalNames, importedIds) {
+  const scope = scopeOf(call, signalNames.scope);
   if (!scope) return false;
-  if (t.isIdentifier(callee)) return bindingReads(scope, callee.name, null, importedIds);
+  const target = calleeTarget(call.callee, scope, importedIds);
+  if (typeof target === 'boolean') return target;
+  if (signalNames.calls) {
+    signalNames.calls.push(target);
+    return false;
+  }
+  return readsThrough(target, importedIds);
+}
+
+// The scope each call of the module was written in, recorded before any is
+// read (see resolveCallees): a helper declared in a nested block resolves from
+// that block, not from the function around it. A call node made later (by
+// JSX lowering) resolves from the scope its reader names.
+const callScopes = new WeakMap();
+
+function scopeOf(call, fallbackScope) {
+  return callScopes.get(call) || fallbackScope;
+}
+
+// What a call of `callee` runs: true or false when that is known at once, or
+// the call-graph node of the local function it calls.
+function calleeTarget(callee, scope, importedIds) {
+  if (t.isIdentifier(callee)) {
+    const binding = scope.getBinding(callee.name);
+    if (!binding) return false;
+    // An import is as reactive as its source: one from What or from the app
+    // itself is decided by name (importedIds), a package's utility is not.
+    if (binding.kind === 'module') return !!importedIds && importedIds.has(callee.name);
+    return graphNode(binding, null);
+  }
   if ((t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) && !callee.computed &&
       t.isIdentifier(callee.property)) {
     const method = callee.property.name;
-    if (PURE_BUILTIN_METHODS.has(method) || BUILTIN_METHODS.has(method)) return false;
-    if (t.isIdentifier(callee.object)) return bindingReads(scope, callee.object.name, method, importedIds);
+    const builtin = PURE_BUILTIN_METHODS.has(method) || BUILTIN_METHODS.has(method);
+    if (!t.isIdentifier(callee.object)) return !builtin;
+    const binding = scope.getBinding(callee.object.name);
+    // An object literal of the module that may define the method runs its
+    // own, whatever the method is called.
+    if (binding && mayDefine(binding, method)) return graphNode(binding, method);
+    if (builtin || !binding) return false;
+    if (binding.kind === 'module') return !!importedIds && importedIds.has(callee.object.name);
+    return graphNode(binding, method);
   }
   return true;
 }
 
-// Every call's callee, resolved before any JSX is lowered (see the plugin's
-// Program visitor), so that a function's body is read as its author wrote it
-// whether it comes before or after the JSX that calls it.
-export function resolveCallee(callPath, importedIds) {
-  callReadsInside(callPath.node.callee, callPath.scope, importedIds);
+// Whether the object literal `binding` is declared with may have a `method`
+// of its own: a property of that name, or a spread or computed key.
+function mayDefine(binding, method) {
+  const path = binding.path;
+  if (!path.isVariableDeclarator() || !t.isObjectExpression(path.node.init)) return false;
+  return path.node.init.properties.some((prop) =>
+    t.isSpreadElement(prop) || prop.computed ||
+    t.isIdentifier(prop.key, { name: method }) || t.isStringLiteral(prop.key, { value: method }));
 }
 
-// `name` resolved from `scope`, then called (`method` null) or its `method`
-// called. Kept per declaration: a function being read counts as reading
-// nothing while it is, so a recursive one ends and the rest of its body
-// decides.
-const bindingReadsCache = new WeakMap();
-function bindingReads(scope, name, method, importedIds) {
-  const binding = scope.getBinding(name);
-  if (!binding) return false;
-  // An import is as reactive as its source: one from What or from the app
-  // itself is decided by name (importedIds), a package's utility is not.
-  if (binding.kind === 'module') return !!importedIds && importedIds.has(name);
-  let byMethod = bindingReadsCache.get(binding.identifier);
-  if (!byMethod) bindingReadsCache.set(binding.identifier, byMethod = new Map());
-  let reads = byMethod.get(method);
-  if (reads === undefined) {
-    byMethod.set(method, false);
-    const fn = boundFunction(binding, method);
-    reads = fn === null || bodyReads(fn.node, collectSignalNamesFromScope(fn), importedIds);
-    byMethod.set(method, reads);
+// Every call of the module, read before any JSX is lowered (see the plugin's
+// Program visitor), so that a function's body is read as its author wrote it
+// whether it comes before or after the JSX that calls it. Every call's scope
+// is recorded first, so the bodies read see each of them.
+export function resolveCallees(callPaths, importedIds) {
+  for (const callPath of callPaths) callScopes.set(callPath.node, callPath.scope);
+  scopeNamesCache = new WeakMap();
+  try {
+    for (const callPath of callPaths) callReadsInside(callPath.node, { scope: callPath.scope }, importedIds);
+  } finally {
+    scopeNamesCache = null;
   }
-  return reads;
+}
+
+// Each scope's own signal names, kept while resolveCallees reads the module,
+// before any JSX is lowered (lowering rewrites a row callback's parameters):
+// a module of thousands of functions reads its top-level bindings once, not
+// once per function.
+/** @type {WeakMap<object, { signals: string[], props: string[] }> | null} */
+let scopeNamesCache = null;
+
+// The call graph: a node per local function the module calls (a binding
+// called, or its `method`), kept per declaration. Its edges are the local
+// functions its body calls; `direct` says whether its body reads by itself.
+// A node reads when it reads directly or reaches one that does.
+const graphNodes = new WeakMap();
+
+function graphNode(binding, method) {
+  let byMethod = graphNodes.get(binding.identifier);
+  if (!byMethod) graphNodes.set(binding.identifier, byMethod = new Map());
+  let node = byMethod.get(method);
+  if (!node) byMethod.set(method, node = { binding, method, edges: null, direct: false, reads: undefined });
+  return node;
+}
+
+// Read a node's own body once: whether it reads, and which local functions it
+// calls.
+function expand(node, importedIds) {
+  const fn = boundFunction(node.binding, node.method);
+  if (fn === null) {
+    node.direct = true;
+    node.edges = [];
+    return;
+  }
+  const names = collectSignalNamesFromScope(fn);
+  names.calls = [];
+  node.direct = bodyReads(fn.node, names, importedIds);
+  node.edges = names.calls;
+}
+
+// Whether `start` reads, by a depth-first walk of the graph on a stack of its
+// own: a chain of thousands of helpers cannot overflow the JavaScript stack,
+// and a cycle is decided only once all of it has been seen. Reaching a reader
+// makes every node on the path to it a reader; exhausting the walk proves
+// every node it saw static, since each reaches only what the start reaches.
+function readsThrough(start, importedIds) {
+  if (start.reads !== undefined) return start.reads;
+  const stack = [start];
+  const nextEdge = [0];
+  const seen = new Set(stack);
+  const found = () => {
+    for (const node of stack) node.reads = true;
+    return true;
+  };
+  while (stack.length > 0) {
+    const top = stack.length - 1;
+    const node = stack[top];
+    if (node.edges === null) expand(node, importedIds);
+    if (node.direct) return found();
+    if (nextEdge[top] === node.edges.length) {
+      stack.pop();
+      nextEdge.pop();
+      continue;
+    }
+    const edge = node.edges[nextEdge[top]++];
+    if (edge.reads === true) return found();
+    if (edge.reads === false || seen.has(edge)) continue;
+    seen.add(edge);
+    stack.push(edge);
+    nextEdge.push(0);
+  }
+  for (const node of seen) node.reads = false;
+  return false;
 }
 
 // The path of the function a call of the binding (or of its `method`) runs,
 // or null when the declaration does not show one that stays put.
 function boundFunction(binding, method) {
+  if (!binding.constant) return null;
   const path = binding.path;
   if (path.isFunctionDeclaration()) return method === null ? path : null;
-  if (!binding.constant || !path.isVariableDeclarator()) return null;
+  if (!path.isVariableDeclarator()) return null;
   const init = path.get('init');
   if (method === null) return init.isArrowFunctionExpression() || init.isFunctionExpression() ? init : null;
-  if (!init.isObjectExpression()) return null;
+  if (!init.isObjectExpression() || !keepsItsMethods(binding)) return null;
+  // The last property that may be `method` is the one the object has.
+  /** @type {any} */
+  let last = null;
   for (const prop of init.get('properties')) {
-    if (prop.node.computed || !t.isIdentifier(prop.node.key, { name: method })) continue;
-    if (prop.isObjectMethod()) return prop;
-    if (!prop.isObjectProperty()) return null;
-    const value = prop.get('value');
-    if (value.isArrowFunctionExpression() || value.isFunctionExpression()) return value;
-    if (!value.isIdentifier()) return null;
-    const inner = prop.scope.getBinding(value.node.name);
-    return inner ? boundFunction(inner, null) : null;
+    if (prop.isSpreadElement() || prop.node.computed) last = null;
+    else if (t.isIdentifier(prop.node.key, { name: method }) || t.isStringLiteral(prop.node.key, { value: method })) last = prop;
   }
-  return null;
+  if (last === null) return null;
+  if (last.isObjectMethod()) return last.node.kind === 'method' ? last : null;
+  const value = last.get('value');
+  if (value.isArrowFunctionExpression() || value.isFunctionExpression()) return value;
+  if (!value.isIdentifier()) return null;
+  const inner = last.scope.getBinding(value.node.name);
+  return inner ? boundFunction(inner, null) : null;
+}
+
+// Whether the object `binding` names keeps the methods it was declared with:
+// every use reads one of its properties by name, so none is replaced and the
+// object reaches no code that could replace one.
+function keepsItsMethods(binding) {
+  return binding.referencePaths.every((ref) => {
+    const parent = ref.parentPath;
+    if (!parent || !parent.isMemberExpression({ object: ref.node }) || parent.node.computed) return false;
+    const use = parent.parentPath;
+    return !(use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() ||
+      use.isUnaryExpression({ operator: 'delete' }));
+  });
 }
 
 // A `when` prop's shape determines how the condition is formed:

@@ -42,5 +42,5 @@ export function settle(html) {
  * For assertions about what a page shows rather than how it hydrates.
  */
 export function content(html) {
-  return html.replace(/<!--(?:\$|\/\$|\[\]|\/\[\]|b|b!|\/b|k\[[^>]*)-->/g, '').replace(/ data-hk="[^"]*"/g, '');
+  return html.replace(/<!--(?:\$|\/\$|\[\]|\/\[\]|b|b!|\/b|k:[^>]*|k!)-->/g, '').replace(/ data-hk="[^"]*"/g, '');
 }

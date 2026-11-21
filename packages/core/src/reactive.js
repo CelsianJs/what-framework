@@ -3431,7 +3431,16 @@ export function _devCallSite(name, primitive, kind = 'effects') {
   const error = new Error();
   const capture = /** @type {{ captureStackTrace?: (error: Error, skip: Function) => void }} */ (Error).captureStackTrace;
   if (capture) capture(error, primitive);
-  const frames = error.stack?.split('\n') || [];
+  // A stack formatter of the app's (Error.prepareStackTrace) may return
+  // something else than a string, or throw.
+  let stack;
+  try {
+    stack = error.stack;
+  } catch {
+    return name;
+  }
+  if (typeof stack !== 'string') return name;
+  const frames = stack.split('\n');
   const caller = capture ? frames[1] : frames[frames.findIndex((line) => line.startsWith(primitive.name + '@')) + 1];
   const loc = caller?.trim().match(/(?:^at (?:.*? \()?|@)((?:https?:|file:|\/).+?:\d+:\d+)\)?$/)?.[1];
   if (!loc || /\/(?:node_modules|packages\/(?:core|router|server)\/src)\//.test(loc)) return name;

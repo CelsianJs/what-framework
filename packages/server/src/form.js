@@ -15,7 +15,9 @@
 // the form handles its own submit: it runs the action with the form's data as
 // a transition, the status useFormStatus() reads inside it shows the
 // submission, and the form is reset when that transition commits, if the
-// action succeeded (a useActionState dispatch included).
+// action succeeded (a useActionState dispatch included). As in React 19, the
+// reset clears the uncontrolled fields and leaves a controlled one (a `value`
+// or `checked` prop) showing what its prop holds.
 //
 // CSRF: the endpoint accepts a post the browser marks same-origin (Fetch
 // Metadata, or an Origin header), which is how a form on a cached page posts.
@@ -24,7 +26,7 @@
 // it as `csrfToken` and the form carries it.
 
 import { h } from 'what-core';
-import { _formStatusContext, _formStatus } from 'what-core/internal';
+import { _formStatusContext, _formStatus, _resetForm } from 'what-core/internal';
 import { _callAction } from './actions.js';
 import { addField } from './fields.js';
 
@@ -104,13 +106,19 @@ export function Form({
       event.stopImmediatePropagation();
       const form = event.currentTarget;
       const formData = new FormData(form, event.submitter || undefined);
+      const fail = (error) => form.dispatchEvent(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
       status.submit(formData, async (data) => {
         if (actionId === null) await action(data);
         else if (typeof action === 'function') await action(fieldsOf(data));
         else await _callAction(actionId, [fieldsOf(data)]);
-      }, () => form.reset()).catch((error) => {
-        form.dispatchEvent(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
-      });
+      }, () => {
+        // Inside the transition's commit, which a throw would cut short.
+        try {
+          _resetForm(form);
+        } catch (error) {
+          fail(error);
+        }
+      }).catch(fail);
     };
   }
 

@@ -75,7 +75,8 @@ returns `false` shows) and `globalLayout` (rendered once around every page).
 A navigation is a transition. `navigate()` and `<Link>` run the
 `beforeNavigate` guards, then prepare the destination while the old page
 stays on screen: they load a `lazy()` route's chunk and run its `preload`,
-and wait for both. Then the URL commits inside `startTransition`, so
+and wait for both. A route its `middleware` declines is not prepared, so its
+`preload` never runs for a page that does not show. Then the URL commits inside `startTransition`, so
 everything the new URL reaches (the page, and a layout's data keyed on the
 params) commits in one flush. A newer navigation supersedes one still
 preparing. Back/forward and redirects take the same path.
@@ -92,6 +93,7 @@ navigate('/page', { flushSync: true });   // commit at once, without holding for
 
 // Route state: getters on the global `route` object. Read inside a binding,
 // an effect or a computed, they subscribe, so the reader updates on navigation.
+// During a server render they answer for the request being rendered.
 route.path;         // current path
 route.params;       // { id: '123' }
 route.query;        // { page: '1' }
@@ -137,10 +139,26 @@ threw; a promise it returns that rejects is the page's to show when it reads
 On the server, `<Router>` renders the URL of the request being rendered (the
 `request` a render is given: `renderToStream(vnode, { request })`,
 `renderDocument(page, { request })`, the request handler), or its `url` prop,
-and runs that route's `preload` for the render. The page server-renders with
-its data, and the client hydrates it and adopts the data instead of fetching
-it again. See
+and runs that route's `preload` for the render, once its middleware has
+admitted it. The page server-renders with its data, and the client hydrates
+it and adopts the data instead of fetching it again. See
 [DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
+
+Route state on the server is the render's own: `route.url`, `route.path`,
+`route.hash`, `route.query`, `route.params`, `useParams()`, `useSearch()` and
+`useRoute()` read the request being rendered (the URL with its query and
+hash, and the params and query its `<Router>` matched), so overlapping
+requests never see each other's. Without an async context provider
+(AsyncLocalStorage; what-server installs one where the host has it), a read
+after an `await` in a component sees no route state at all (the root URL,
+empty params and query), never another request's. A middleware redirect (a
+path, or `redirect()`), `<Redirect>` and a `guard()` path fallback redirect
+the render's response (`getResponse().redirect(to)`, a same-origin path) on
+the server; `redirect()` thrown from a component body escapes the render.
+A `beforeNavigate` or `afterNavigate` a component subscribes while it renders
+on the server is not kept: the server does not navigate. The query string is
+parsed as `URL` parses it: a second `?` belongs to a value (`?q=a?b` is
+`{ q: 'a?b' }`).
 
 ## Link Component
 
@@ -243,7 +261,11 @@ Route middleware is **synchronous**: return `true` or nothing to continue,
 `false` to show the Router fallback (403 by default), or a path string to
 redirect. Returning a promise or thenable throws `ERR_ASYNC_MIDDLEWARE` before
 the protected component mounts. The Router observes rejections but does not
-await or use async middleware results.
+await or use async middleware results. Middleware runs before the route's
+`preload`, on the client and on the server, and a route it declines is never
+prepared. It may run more than once for one navigation (when the navigation
+prepares the route, and when the page renders), so keep it a check without
+side effects.
 
 For async authorization, wrap the route component instead:
 

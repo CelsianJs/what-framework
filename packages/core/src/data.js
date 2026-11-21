@@ -247,7 +247,11 @@ function startFlight(e) {
     /** @type {any} */ page: undefined,
     started: Date.now(),
     /** @type {(() => void) | null} */ onKill: null,
+    /** @type {any} */ at: null,
   };
+  // How the flight's own promises reach it and its entry (retrying, watch):
+  // kill() empties it.
+  f.at = { e, f };
   e.by = null;
   e.flight = f;
   e.fetchedAt = f.started;
@@ -266,13 +270,27 @@ function startFlight(e) {
     else record(e, f, err, true);
     throw err;
   }
-  f.promise = retrying(e, f, first);
+  f.promise = retrying(f.at, first);
+  watch(f.at, f.promise);
+  return f;
+}
+
+// A flight's landing, and its observer's callbacks after it. Its own scope,
+// holding the flight's link and nothing else: until its transport answers, the
+// flight's promise is reachable from it (retrying), and a dropped flight's
+// link is empty.
+function watch(at, promise) {
   // Before the engine lands the result: readers that re-run on the landing see
   // the new version, so they can tell it from a refresh.
-  f.promise.then((v) => landed(e, f, v, false), (err) => landed(e, f, err, true));
+  promise.then((v) => {
+    if (at.f !== null) landed(at.e, at.f, v, false);
+  }, (err) => {
+    if (at.f !== null) landed(at.e, at.f, err, true);
+  });
   // After it: callbacks see the value in the cache.
-  f.promise.then(noop, noop).then(() => deliver(e, f));
-  return f;
+  promise.then(noop, noop).then(() => {
+    if (at.f !== null) deliver(at.e, at.f);
+  });
 }
 
 function callFetcher(e, f) {
@@ -280,8 +298,10 @@ function callFetcher(e, f) {
   if (e.kind === PLAIN) return conf.run(e.key, f.ac.signal);
   const base = valueOf(e) ?? { pages: [], pageParams: [] };
   const op = f.op || { param: conf.initialPageParam, place: 'first' };
+  // Through the flight's link, as retrying() holds it (see there).
+  const at = f.at;
   return Promise.resolve(conf.run(e.key, op.param, f.ac.signal)).then((page) => {
-    f.page = page;
+    if (at.f !== null) at.f.page = page;
     if (op.place === 'next') return { pages: [...base.pages, page], pageParams: [...base.pageParams, op.param] };
     if (op.place === 'previous') return { pages: [page, ...base.pages], pageParams: [op.param, ...base.pageParams] };
     return { pages: [page], pageParams: [op.param] };
@@ -290,18 +310,20 @@ function callFetcher(e, f) {
 
 // The first attempt is called synchronously (what the fetcher reads before its
 // first await is tracked); a failed attempt is retried after retryDelay, up to
-// `retry` attempts in all, unless the flight is aborted meanwhile.
-async function retrying(e, f, first) {
+// `retry` attempts in all, unless the flight is aborted meanwhile. The entry and
+// the flight are read through the flight's link (`at`), which kill() empties: a
+// transport that ignores the abort and never answers holds this frame, and
+// through it nothing of the flight, its entry or the fetcher.
+async function retrying(at, first) {
   let pending = first;
   for (let tries = 1; ; tries++) {
     try {
       return await pending;
     } catch (err) {
-      const conf = f.conf;
-      if (f.dead || tries >= attemptsOf(conf.retry, tries, err)) throw err;
-      await wait(conf.retryDelay(tries), f.ac.signal);
-      if (f.dead) throw err;
-      pending = callFetcher(e, f);
+      if (at.f === null || tries >= attemptsOf(at.f.conf.retry, tries, err)) throw err;
+      await wait(at.f.conf.retryDelay(tries), at.f.ac.signal);
+      if (at.f === null) throw err;
+      pending = callFetcher(at.e, at.f);
     }
   }
 }
@@ -376,9 +398,20 @@ function kill(e, f, superseded) {
   if (f.dead) return;
   f.dead = true;
   f.superseded = superseded;
-  f.ac.abort();
+  f.at.e = f.at.f = null;
+  f.ac.abort(droppedReason());
   if (e.flight === f) e.flight = null;
   if (f.onKill !== null) f.onKill();
+}
+
+// What a dropped flight's signal aborts with. Its stack is read at once: until
+// then an error holds the functions of the stack it was made on (the
+// component code that dropped the flight), and a transport that ignores the
+// abort may keep the signal, and with it the reason.
+function droppedReason() {
+  const reason = new DOMException('The query was dropped.', 'AbortError');
+  void reason.stack;
+  return reason;
 }
 
 // The callbacks of the observer that asked for a flight, once its result is in
@@ -403,11 +436,8 @@ function deliver(e, f) {
 // page it fetched), the value of the flight that superseded it, or undefined
 // when its result was dropped.
 function outcome(e, f) {
-  const settled = f.promise.then(
-    (v) => (f.dead ? follow(e, f) : e.kind === INFINITE ? f.page : v),
-    (err) => (f.dead ? follow(e, f) : Promise.reject(err)),
-  );
-  if (f.dead) return settled;
+  if (f.dead) return Promise.resolve(follow(e, f));
+  const settled = flightValue(f.at, f.promise);
   // Dropped, it answers at once, without waiting for a transport that may
   // ignore the abort: the newer flight is in place by the time this runs.
   const dropped = new Promise((resolve) => {
@@ -422,6 +452,17 @@ function outcome(e, f) {
 
 function follow(e, f) {
   return f.superseded && e.flight !== null ? outcome(e, e.flight) : undefined;
+}
+
+// What a flight's promise gives the caller of outcome(): its value (an
+// infinite query's: the page it fetched) or its rejection, and never an answer
+// once it is dropped, which outcome()'s other branch gives. Its own scope, like
+// watch(), so it holds the flight's link and nothing else.
+function flightValue(at, promise) {
+  return promise.then(
+    (v) => (at.f === null ? new Promise(noop) : at.e.kind === INFINITE ? at.f.page : v),
+    (err) => (at.f === null ? new Promise(noop) : Promise.reject(err)),
+  );
 }
 
 // Fetch an entry now, superseding what is in flight. `by` is the observer

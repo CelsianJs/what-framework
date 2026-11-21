@@ -138,7 +138,7 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
 
 <!-- import-changes:end -->
 
@@ -478,8 +478,10 @@ The [what-server README](../packages/server/README.md) documents each of these.
   leaving the site is `response.redirectExternal(url, status)`, for an
   absolute `http:` or `https:` URL. A target that either method refuses
   redirects to `/` instead, and development logs `ERR_SSR_UNSAFE_REDIRECT`.
-  what-router's `redirect()` still escapes `renderToString()` as a
-  `RouterRedirect` error, as in 0.14. To redirect from a server render, call
+  what-router's `redirect()` thrown from a component body still escapes
+  `renderToString()` as a `RouterRedirect` error, as in 0.14; route middleware
+  that redirects (a path, or `redirect()`), `<Redirect>` and a `guard()` path
+  fallback redirect the render's response. To redirect from a server render, call
   `getResponse().redirect('/login')`; the deploy adapters answer with the
   3xx, and a custom server passes a `createResponse()` in and reads it back
   ([Loaders, status and redirects](../packages/server/README.md#loaders-status-and-redirects)).
@@ -604,15 +606,15 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 8878 B |
-| The create-what counter, runtime JSX | 6702 B | 8918 B |
+| A counter written with `h()` | 6601 B | 8889 B |
+| The create-what counter, runtime JSX | 6702 B | 8929 B |
 | The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 6386 B |
 
 The compiled counter, what the scaffold ships, is 1345 B (17%) smaller in
 0.15: compiled output no longer carries the vnode reconciler. 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 2277 B, for the new engine, the engine hooks async
+counter still grows by 2288 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, hydration, `<Suspense>` release and SVG animation URLs. The
 production build (`dist/*.min.js`, what the `production` export condition

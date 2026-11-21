@@ -39,8 +39,8 @@ export {
 } from '../server-context.js';
 export { beginHeadCollection, endHeadCollection } from '../head.js';
 export { escapeHtml as _escapeHtml } from '../markup-rules.js';
-export { _isAriaAttr, _beginComponentSSR, _endComponentSSR, _runInComponentSSR } from '../dom.js';
-export { _mapArrayToArray } from '../render.js';
+export { _isAriaAttr, _beginComponentSSR, _endComponentSSR, _runInComponentSSR, _resetForm } from '../dom.js';
+export { _mapArrayToArray, _rowKeyDigest } from '../render.js';
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';

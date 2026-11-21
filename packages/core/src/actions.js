@@ -24,13 +24,24 @@ export function useActionState(action, initialState, permalink) {
   const state = signal(initialState);
   const open = signal(0);
   const owner = getOwner();
-  /** @type {Set<any>} */
+  /** @type {Set<any>} the transition calls of the dispatches still running */
   const calls = new Set();
-  if (owner !== null) onCleanup(() => { for (const call of calls) call.abandon(); });
+  /** @type {Set<() => void>} how to stop waiting for each action still running */
+  const waits = new Set();
   let latest = initialState;
   /** @type {Promise<void> | null} the last dispatch still running, if any */
   let queue = null;
   let generation = 0;
+  // Once the owner is gone, every dispatch stops waiting: none of them
+  // commits, the queued ones never run, and an action's promise that stays
+  // pending holds nothing of the hook.
+  if (owner !== null) {
+    onCleanup(() => {
+      generation++;
+      for (const call of calls) call.abandon();
+      for (const leave of waits) leave();
+    });
+  }
 
   const dispatch = (payload) => {
     const gen = generation;
@@ -49,7 +60,10 @@ export function useActionState(action, initialState, permalink) {
           failedIn.add(tx);
           return;
         }
-        const next = await action(latest, payload);
+        const [settled, leave] = untilLeft(action(latest, payload));
+        waits.add(leave);
+        const next = await settled;
+        waits.delete(leave);
         if (gen !== generation) {
           failedIn.add(tx);
           return;
@@ -82,6 +96,26 @@ export function useActionState(action, initialState, permalink) {
   return [() => state(), dispatch, () => open() > 0];
 }
 
+// What `value` settles to, and how to stop waiting for it: `leave()` settles
+// the wait at once, and from then on the callbacks `value` holds reach
+// nothing (they hold `wait`, which leave empties), so a promise that never
+// settles keeps nothing of the dispatch waiting for it.
+/** @returns {[Promise<any>, () => void]} */
+function untilLeft(value) {
+  const wait = { resolve: (_v) => {}, reject: (_e) => {} };
+  const settled = new Promise((resolve, reject) => {
+    wait.resolve = resolve;
+    wait.reject = reject;
+  });
+  Promise.resolve(value).then((v) => wait.resolve(v), (err) => wait.reject(err));
+  const leave = () => {
+    const resolve = wait.resolve;
+    wait.resolve = wait.reject = () => {};
+    resolve(undefined);
+  };
+  return [settled, leave];
+}
+
 // The transitions a dispatch did not succeed in: its action threw, or was
 // dropped behind one that did. A <Form> it ran in is not reset at the commit.
 const failedIn = new WeakSet();
@@ -104,10 +138,10 @@ export function _formStatusContext() {
 
 /**
  * React 19's useFormStatus: the submission of the <Form> this component is
- * rendered in. `pending()` is true from the submit until its transition
- * commits; `data()` is that submission's FormData (null when none is
- * pending); `method` and `action` are the form's. Outside a <Form>,
- * `pending()` is false and the rest null.
+ * rendered in. `pending()` is true from a submit until its transition
+ * commits; `data()` is the FormData of the latest submission still pending
+ * (null when none is); `method` and `action` are the form's. Outside a
+ * <Form>, `pending()` is false and the rest null.
  */
 export function useFormStatus() {
   return formContext === null ? NO_FORM : useContext(formContext);
@@ -123,20 +157,18 @@ export function useFormStatus() {
  * failed. Returns the transition's promise.
  */
 export function _formStatus(method, action) {
-  const pending = signal(0);
-  const data = signal(/** @type {FormData | null} */ (null));
+  // The FormData of each submission still pending, oldest first.
+  const pending = signal(/** @type {FormData[]} */ ([]));
   return {
-    pending: () => pending() > 0,
-    data: () => data(),
+    pending: () => pending().length > 0,
+    data: () => pending().at(-1) ?? null,
     method,
     action: typeof action === 'function' ? action : null,
     submit(formData, run, reset) {
       return _startTransition(() => run(formData), (t, call) => {
-        pending((n) => n + 1);
-        data(formData);
+        pending((list) => [...list, formData]);
         _onCommit(t, () => {
-          pending((n) => n - 1);
-          if (pending.peek() === 0) data(null);
+          pending((list) => list.filter((entry) => entry !== formData));
           if (!call.failed && !failedIn.has(t)) reset();
         });
       });

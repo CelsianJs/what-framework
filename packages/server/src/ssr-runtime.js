@@ -257,13 +257,15 @@ export function ssrText(v) {
 
 /**
  * `{src.map(item => <li/>)}`: each row, whatever the callback returned,
- * through ssrText, so a row is markup only when it is Markup. `asArray` says
+ * through ssrText, so a row is markup only when it is Markup. A nullish
+ * source (`src?.map(...)`) is an empty list, as the client's is. `asArray` says
  * the list is what a reactive child returns, so the hydratable renderer
  * brackets it as the array it stands for; a plain child's rows are flattened
  * into the parent, as h() flattens an array child. A keyed list's `keyFn`
  * gives its rows' keys, written with its markers.
  */
 export function ssrList(list, fn, asArray, keyFn) {
+  if (list == null) list = [];
   const m = new Markup('', false, asArray);
   if (asArray && keyFn && Array.isArray(list)) m.keys = rowKeys(list.map((item) => keyFn(item)));
   if (Array.isArray(list)) {

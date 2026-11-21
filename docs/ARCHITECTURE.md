@@ -529,16 +529,22 @@ or mounting into a container that holds a root disposes that root first.
   effect adopts on its first run instead of rendering again. Markup without
   markers (`renderToString`, hand-written) is adopted too, the region making
   its two markers around what it claimed.
-- **A keyed list** (`<For>`, a keyed `.map()` of vnodes or compiled rows)
-  adopts each row's server nodes as that row, so the first reorder moves the
-  server's nodes rather than rebuilding them. The server writes the rows' keys
-  after the list's opening marker (`<!--k["a","b"]-->`, strings and finite
-  numbers only), and a server row is only ever adopted as the row of its own
-  key: rows the client has in another order are adopted by key and moved into
-  the client's order (reported as kind `key`, recovery `move`), and when a
-  server row's key is not among the client's, no server row is taken and the
-  client builds the list (recovery `client-render`). What was typed into a
-  row before hydration stays with that row's key. A compiled row of several nodes
+- **A keyed list** (`<For>`, a keyed `.map()` or `?.map()` of vnodes or
+  compiled rows, a nested one in a row included) adopts each row's server
+  nodes as that row, so the first reorder moves the server's nodes rather than
+  rebuilding them. The server writes a digest of each row's key after the
+  list's opening marker (`<!--k:1wzqjyo,1fx5nfu-->`: 32-bit FNV-1a of the
+  key's type and value in base 36, so the page carries no key itself; a digest
+  can still confirm a key someone guesses, so a key is not a secret), and a
+  server row is only ever adopted as the row of its own key: rows the client
+  has in another order are adopted by key and moved into the client's order
+  (reported as kind `key`, recovery `move`), and when a server row's key is
+  not among the client's, no server row is taken and the client builds the
+  list (recovery `client-render`). Keys are strings and finite numbers; a list
+  with any other key (NaN, an object, a boolean, null) writes `<!--k!-->`, and
+  the client builds it and reports it, as it does when two different keys of
+  its own share a digest. What was typed into a row before hydration stays
+  with that row's key. A compiled row's callback is given its client index. A compiled row of several nodes
   starts at the array marker the server bracketed it with, and a compiled
   `<For fallback>` adopts its rows, or its fallback, whichever the server
   rendered. A compiled keyed row's plain field of its item (`{row.label}`) is a

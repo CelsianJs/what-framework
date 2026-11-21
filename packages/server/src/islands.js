@@ -643,28 +643,15 @@ export function enhanceForms(selector = 'form[data-enhance]') {
 
         const entries = formEntries(form, submitter, multipart);
 
-        // CSRF is about protecting OUR endpoint. A form aimed at another origin
-        // must neither be blocked by our token policy nor be handed our token:
-        // attaching it would export the visitor's double-submit secret to a
-        // third party.
-        const sameOrigin = action.origin === location.origin;
+        // CSRF is about protecting OUR endpoint, which accepts a post the
+        // browser marks same-origin (Fetch Metadata, or an Origin header), as
+        // it accepts the native submit of a form on a cached page: a token is
+        // sent when the page has one, and the endpoint decides. A form aimed
+        // at another origin is never handed our token: attaching it would
+        // export the visitor's double-submit secret to a third party.
         const headers = { 'X-Requested-With': 'XMLHttpRequest' };
-
-        if (sameOrigin) {
+        if (action.origin === location.origin) {
           const csrfToken = readFormCsrfToken(form);
-          const noCsrf = form.getAttribute('data-no-csrf') === 'true';
-          if (!csrfToken && !noCsrf) {
-            console.warn(
-              '[what] Form submission blocked: no CSRF token found. ' +
-              'Add a <meta name="what-csrf-token"> tag (csrfMetaTag() emits it) ' +
-              'or set data-no-csrf="true" on the form to opt out.'
-            );
-            form.dispatchEvent(new CustomEvent('form:error', {
-              bubbles: true,
-              detail: { error: new Error('Missing CSRF token') },
-            }));
-            return;
-          }
           if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
         }
 

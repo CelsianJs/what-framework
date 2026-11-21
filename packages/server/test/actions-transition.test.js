@@ -233,6 +233,117 @@ describe('<Form> on a mounted page', () => {
   });
 });
 
+describe('<Form> resets as React 19 resets a form, after its action succeeded', () => {
+  const submit = (formEl) => formEl.dispatchEvent(new env.window.Event('submit', { bubbles: true, cancelable: true }));
+  const succeed = async () => {};
+
+  it('clears the uncontrolled fields; a controlled one keeps what its prop holds', async () => {
+    const text = core.signal('controlled');
+    const pick = core.signal('b');
+    const note = core.signal('kept note');
+    const el = mount(core.h(form.Form, { action: succeed },
+      core.h('input', { name: 'free' }),
+      core.h('input', { name: 'text', value: text }),
+      core.h('select', { name: 'pick', value: pick }, core.h('option', { value: 'a' }, 'a'), core.h('option', { value: 'b' }, 'b')),
+      core.h('textarea', { name: 'note', value: note })));
+    const [free, controlled] = el.querySelectorAll('input');
+    text('changed');
+    await core.settled();
+    free.value = 'draft';
+    controlled.value = 'typed over the prop';
+    submit(el.querySelector('form'));
+    await core.settled();
+    assert.deepEqual([free.value, controlled.value, el.querySelector('select').value, el.querySelector('textarea').value], ['', 'changed', 'b', 'kept note']);
+    text('after');
+    await core.settled();
+    assert.equal(controlled.value, 'after', 'the binding goes on');
+  });
+
+  it('the same for compiled fields: value, checked and a select', async () => {
+    const { loadCompiled } = await import('../../../test-utils/load-compiled.js');
+    const app = await loadCompiled(`
+      import { signal } from 'what-framework';
+      export const text = signal('controlled');
+      export const on = signal(true);
+      export const pick = signal('y');
+      export function View({ Form, act }) {
+        return <Form action={act}>
+          <input name="free" />
+          <input name="text" value={text()} />
+          <input type="checkbox" name="box" checked={on()} />
+          <select name="pick" value={pick()}><option value="x">x</option><option value="y">y</option></select>
+        </Form>;
+      }`);
+    const el = mount(core.h(app.View, { Form: form.Form, act: succeed }));
+    const [free, controlled, box] = el.querySelectorAll('input');
+    free.value = 'draft';
+    controlled.value = 'typed';
+    box.checked = false;
+    el.querySelector('select').value = 'x';
+    submit(el.querySelector('form'));
+    await core.settled();
+    assert.deepEqual([free.value, controlled.value, box.checked, el.querySelector('select').value], ['', 'controlled', true, 'y']);
+  });
+
+  it('resets a form whose controls are named reset and elements', async () => {
+    const el = mount(core.h(form.Form, { action: succeed }, core.h('input', { name: 'reset' }), core.h('input', { name: 'elements' })));
+    const formEl = el.querySelector('form');
+    const [reset, elements] = el.querySelectorAll('input');
+    // JSDOM has no [LegacyOverrideBuiltIns] named getter: model the browser's,
+    // where each control shadows the form's own member of its name.
+    Object.defineProperty(formEl, 'reset', { value: reset });
+    Object.defineProperty(formEl, 'elements', { value: elements });
+    const errors = [];
+    formEl.addEventListener('form:error', (event) => errors.push(event.detail.error));
+    reset.value = 'draft';
+    elements.value = 'draft';
+    submit(formEl);
+    await core.settled();
+    assert.deepEqual([reset.value, elements.value, errors], ['', '', []]);
+  });
+
+  it('a reset that throws is the form\'s form:error, and the commit still completes', async () => {
+    let status;
+    const text = core.signal('controlled');
+    const el = mount(core.h(form.Form, { action: succeed },
+      core.h('input', { name: 'text', value: text }),
+      core.h(() => { status = core.useFormStatus(); return null; })));
+    const formEl = el.querySelector('form');
+    const input = el.querySelector('input');
+    Object.defineProperty(input, 'value', { configurable: true, get: () => 'x', set() { throw new Error('cannot write'); } });
+    const errors = [];
+    formEl.addEventListener('form:error', (event) => errors.push(event.detail.error.message));
+    submit(formEl);
+    await core.settled();
+    assert.deepEqual(errors, ['cannot write']);
+    assert.deepEqual([status.pending(), status.data()], [false, null], 'the transition committed');
+  });
+
+  it('useFormStatus shows the submission still pending when a later one commits first', async () => {
+    const flights = [];
+    let status;
+    const el = mount(core.h(form.Form, { action: () => {
+      const work = Promise.withResolvers();
+      flights.push(work);
+      return work.promise;
+    } }, core.h('input', { name: 'title' }), core.h(() => { status = core.useFormStatus(); return null; })));
+    const formEl = el.querySelector('form');
+    const input = el.querySelector('input');
+    const seen = () => [status.pending(), status.data() && status.data().get('title')];
+    input.value = 'older';
+    submit(formEl);
+    input.value = 'newer';
+    submit(formEl);
+    assert.deepEqual(seen(), [true, 'newer']);
+    flights[1].resolve();
+    await tick();
+    assert.deepEqual(seen(), [true, 'older']);
+    flights[0].resolve();
+    await core.settled();
+    assert.deepEqual(seen(), [false, null]);
+  });
+});
+
 describe('<Form> in a server-rendered page', () => {
   it('hydrates with an <ErrorBoundary> after it: no mismatch, the server nodes are kept', async () => {
     const { renderToHydratableString } = await import('../src/index.js');

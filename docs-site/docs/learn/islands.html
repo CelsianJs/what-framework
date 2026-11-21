@@ -254,7 +254,7 @@
   });
 });</code></pre>
 
-          <p>Enhanced forms dispatch <code>form:response</code> and <code>form:error</code> custom events so you can react to the result without mounting a full component. A same-origin form needs a CSRF token before <code>enhanceForms</code> will submit it at all: put <code>&lt;meta name="what-csrf-token"&gt;</code> in the head (that is what <code>csrfMetaTag()</code> emits, and the deploy adapters emit it on uncached renders), or set <code>data-no-csrf="true"</code> on a form that posts somewhere with its own policy. Without one, the enhancer issues no request, warns on the console and dispatches <code>form:error</code> with "Missing CSRF token":</p>
+          <p>Enhanced forms dispatch <code>form:response</code> and <code>form:error</code> custom events so you can react to the result without mounting a full component. A same-origin form carries the page's CSRF token when it has one (the <code>&lt;meta name="what-csrf-token"&gt;</code> tag <code>csrfMetaTag()</code> emits and the deploy adapters emit on uncached renders, a <code>what-csrf-token</code> field, or the <code>what-csrf</code> cookie); without one it posts anyway, as its native submit would, and the action endpoint accepts it when the browser marks the request same-origin (Fetch Metadata, or the Origin header), which is how a form on a cached page posts. A form aimed at another origin is never given the token:</p>
 
 <pre><code><span class="comment">// In your HTML</span>
 <span class="comment">// &lt;meta name="what-csrf-token" content="abc-123..."&gt;</span>

@@ -26,6 +26,8 @@
 //   rootTag()       the name of the element it opens with, or null, read
 //                   without rendering anything (what-core's <Head> uses it).
 
+import { _rowKeyDigest } from 'what-core/internal';
+
 export class Html {
   #brand;
 
@@ -72,9 +74,11 @@ export function isHtml(value) {
 //                    element, the innermost owns it.
 //   <!--$-->…<!--/$-->     a reactive child (a thunk, a signal, a keyed list)
 //   <!--[]-->…<!--/[]-->   an array a reactive child or a component returned
-//   <!--k[…]-->            right after a keyed list's <!--[]-->: its rows' keys
-//                          (rowKeys), so hydrate() takes each server row as
-//                          the row of its key
+//   <!--k:…-->             right after a keyed list's <!--[]-->: a digest of
+//                          each row's key (rowKeys), so hydrate() takes each
+//                          server row as the row of its key; <!--k!--> when a
+//                          key is one hydrate() cannot compare, so it takes
+//                          none
 //   <!--b-->…<!--/b-->     an <ErrorBoundary> or <Suspense> showing its
 //                          children; <!--b!--> opens one showing its fallback
 //
@@ -91,17 +95,22 @@ export const BOUNDARY_FALLBACK = '<!--b!-->';
 export const BOUNDARY_CLOSE = '<!--/b-->';
 
 /**
- * The comment a keyed list writes after its opening marker: its rows' keys
- * as JSON, with what could end the comment escaped. Only strings and finite
- * numbers are written; a list with any other key writes nothing, and its
- * rows are adopted in order.
+ * The comment a keyed list writes after its opening marker: a digest of each
+ * row's key (what-core's _rowKeyDigest, which hydrate() computes for the
+ * client's keys), so the page carries no key itself, and a digest is a few
+ * characters of [0-9a-z] whatever the key. Keys are strings and finite
+ * numbers. A list with any other key (NaN, an object, a boolean, null) writes
+ * <!--k!--> instead: no server row can be told by its key, so hydrate() takes
+ * none of them and the client builds the list.
  */
 export function rowKeys(keys) {
+  const digests = [];
   for (const key of keys) {
-    if (typeof key !== 'string' && !(typeof key === 'number' && Number.isFinite(key))) return '';
+    const digest = _rowKeyDigest(key);
+    if (digest === null) return '<!--k!-->';
+    digests.push(digest);
   }
-  const json = JSON.stringify(keys).replace(/[<>]/g, (c) => (c === '<' ? '\\u003c' : '\\u003e')).replace(/--/g, '-\\u002d');
-  return `<!--k${json}-->`;
+  return `<!--k:${digests.join(',')}-->`;
 }
 
 /** @returns {{ key: string | null }} */

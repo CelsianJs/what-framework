@@ -110,17 +110,19 @@ function referencesAny(node, names) {
   return found;
 }
 
-// `source.map((item) => <Row key={...} />)`: the callback, the JSX it returns
-// and its key. Returns null for anything else. With `requireKey` (the DOM back
+// `source.map((item) => <Row key={...} />)`, or `source?.map(...)` (a nullish
+// source is an empty list): the callback, the JSX it returns and its key.
+// Returns null for anything else. With `requireKey` (the DOM back
 // end, which lowers only keyed lists) a missing or unusable key returns null
 // with a development warning; without it (the server back end, which renders
 // every JSX-returning callback the same way) the key is optional and nothing is
 // reported, because the client build of the same file already warned.
 export function findMappedJsx(mapCall, state, requireKey) {
-  // Check: something.map(fn)
-  if (!t.isCallExpression(mapCall)) return null;
-  if (!t.isMemberExpression(mapCall.callee)) return null;
-  if (!t.isIdentifier(mapCall.callee.property, { name: 'map' })) return null;
+  // Check: something.map(fn) or something?.map(fn)
+  if (!t.isCallExpression(mapCall) && !(t.isOptionalCallExpression(mapCall) && !mapCall.optional)) return null;
+  const callee = mapCall.callee;
+  if (!t.isMemberExpression(callee) && !t.isOptionalMemberExpression(callee)) return null;
+  if (callee.computed || !t.isIdentifier(callee.property, { name: 'map' })) return null;
   if (mapCall.arguments.length < 1) return null;
 
   const mapFn = mapCall.arguments[0];

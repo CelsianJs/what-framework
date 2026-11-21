@@ -16,6 +16,7 @@ const {
   renderToString, renderToHydratableString, renderToStream, renderToStringAsync, renderDocument,
 } = await import('../../server/src/index.js');
 const { h, createContext } = await import('../../core/src/index.js');
+const { _rowKeyDigest } = await import('../../core/src/render.js');
 
 const ssr = (source, options = {}) => compileJSX(source, { ...options, pluginOptions: { generate: 'ssr', ...options.pluginOptions } });
 const load = (source) => loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
@@ -342,7 +343,7 @@ describe('server target: control flow', () => {
     assert.equal(renderToString(flow.keyed([])), '<ul><li>empty</li></ul>');
     assert.equal(renderToString(flow.plain(['x', 'y'])), '<ul><li>0:x</li><li>1:y</li></ul>');
     assert.equal(renderToHydratableString(flow.plain(['x'])), '<ul><!--$--><!--[]--><li>0:x</li><!--/[]--><!--/$--></ul>');
-    assert.equal(await streamed(flow.keyed([{ id: 1, name: 'a' }])), '<ul><!--$--><!--[]--><!--k[1]--><li><!--$-->a<!--/$--></li><!--/[]--><!--/$--></ul>');
+    assert.equal(await streamed(flow.keyed([{ id: 1, name: 'a' }])), `<ul><!--$--><!--[]--><!--k:${_rowKeyDigest(1)}--><li><!--$-->a<!--/$--></li><!--/[]--><!--/$--></ul>`);
   });
 
   it('<Switch> renders the first matching arm or the fallback', () => {

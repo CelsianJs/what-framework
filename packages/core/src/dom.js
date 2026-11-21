@@ -510,6 +510,7 @@ function applyProps(el, newProps, oldProps, isSvg) {
 // immediately can fail if the matching <option> isn't in the DOM yet; the
 // microtask retry fixes up after the options are appended.
 export function _setSelectValue(el, value) {
+  el._$value = value;
   el.value = value;
   if (el.value !== String(value)) {
     queueMicrotask(() => { el.value = value; });
@@ -715,7 +716,31 @@ function setProp(el, key, value, isSvg) {
   // Default: property if exists, otherwise attribute
   if (key in el) {
     el[key] = value;
+    // What a controlled field's value prop holds, which a form reset keeps
+    // (_resetForm); render.js setValue and setChecked keep theirs too. A
+    // boolean checked is the default-checked attribute, which a reset restores.
+    if (key === 'value') el._$value = String(value);
   } else {
     el.setAttribute(key, value);
   }
+}
+
+// A form's reset after its action succeeded (what-server's <Form>), as React 19
+// resets one: its uncontrolled fields go back to their defaults, and a
+// controlled field (a value or checked prop) keeps the value its prop holds.
+// The form's own reset and elements, read from its prototype: a control named
+// "reset" or "elements" shadows them on the form itself.
+export function _resetForm(form) {
+  const proto = Object.getPrototypeOf(form);
+  const fields = [...Reflect.get(proto, 'elements', form)];
+  const held = fields.map((el) => [el._$value, el._$checked]);
+  proto.reset.call(form);
+  fields.forEach((el, i) => {
+    const [value, checked] = held[i];
+    if (value !== undefined) {
+      if (el.tagName === 'SELECT') _setSelectValue(el, value);
+      else el.value = value;
+    }
+    if (checked !== undefined) el.checked = checked;
+  });
 }

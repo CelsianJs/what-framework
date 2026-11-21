@@ -395,33 +395,55 @@ function childHole(expr, state) {
 
 // `{src.map(item => <li/>)}`: the rows rendered into one hole. A plain call
 // is read now and its rows flattened into the parent, as h() flattens an
-// array child; written as a reactive child (`{src().map(...)}` or
-// `{() => src.map(...)}`) it is the thunk, and its rows are a list, as they
-// are inside the content a control-flow arm returns (`inArray`).
+// array child; written as a reactive child (`{src().map(...)}`,
+// `{() => src.map(...)}`, or a list of a keyed row's item, `{row.children.map(...)}`,
+// which the DOM target reads through the row's item cell) it is the thunk,
+// and its rows are a list, as they are inside the content a control-flow arm
+// returns (`inArray`). The call may stand where the DOM target finds it
+// (dom.js tryLowerMapToMapArray): in either arm of a ternary, or on the right
+// of `&&` or `||`.
 function listHole(expr, state, inArray = false) {
-  let mapCall = expr;
+  let body = expr;
   let reactive;
   if (t.isArrowFunctionExpression(expr) && expr.params.length === 0 && t.isExpression(expr.body)) {
-    mapCall = expr.body;
+    body = expr.body;
     reactive = true;
   } else {
-    reactive = isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers);
+    reactive = isReactive(expr, state);
   }
+  const asArray = reactive || inArray;
+  let list;
+  if (t.isConditionalExpression(body)) {
+    const consequent = ssrListOf(body.consequent, state, asArray);
+    const alternate = ssrListOf(body.alternate, state, asArray);
+    list = consequent || alternate ? t.conditionalExpression(body.test, consequent || body.consequent, alternate || body.alternate) : null;
+  } else if (t.isLogicalExpression(body) && (body.operator === '&&' || body.operator === '||')) {
+    const right = ssrListOf(body.right, state, asArray);
+    list = right && t.logicalExpression(body.operator, body.left, right);
+  } else {
+    list = ssrListOf(body, state, asArray);
+  }
+  if (!list) return null;
+  return reactive ? thunk(list) : list;
+}
+
+// `src.map(fn)` (or `src?.map(fn)`) as the _$ssrList that renders its rows,
+// or null for anything else.
+function ssrListOf(mapCall, state, asArray) {
   const found = findMappedJsx(mapCall, state, false);
   if (!found) return null;
   const keyed = isKeyedRow(found);
   if (keyed) markRowItemReads(found.mapFn, found.keyValue);
   // A row that is the callback's whole result goes straight into the list.
   if (found.mapFn.body === found.returnExpr && !isComponentElement(found.returnExpr)) found.returnExpr._whatRow = true;
-  const args = [mapCall.callee.object, found.mapFn, t.booleanLiteral(reactive || inArray)];
+  const args = [mapCall.callee.object, found.mapFn, t.booleanLiteral(asArray)];
   // The key function the DOM target's list keys its rows with (dom.js
   // tryLowerMapCall), for the keys the hydratable markup carries.
   if (keyed) {
     const item = found.mapFn.params[0] ? t.cloneNode(found.mapFn.params[0], true) : t.identifier('_item');
     args.push(t.arrowFunctionExpression([item], t.cloneNode(found.keyValue, true)));
   }
-  const list = call(state, '_$ssrList', args);
-  return reactive ? thunk(list) : list;
+  return call(state, '_$ssrList', args);
 }
 
 // The children of a component, a fragment or a control-flow arm, as the

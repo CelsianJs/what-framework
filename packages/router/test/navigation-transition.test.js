@@ -263,3 +263,46 @@ describe('a navigation to a route with preload', () => {
     }
   });
 });
+
+describe('a navigation to a route with middleware', () => {
+  it('runs the middleware before the preload, and never prepares a route it declines', async () => {
+    const { signal } = await import('what-core');
+    const allowed = signal(false);
+    const calls = [];
+    const routes = [
+      { path: '/', component: () => h('h1', null, 'home') },
+      {
+        path: '/account',
+        middleware: [() => { calls.push('middleware'); return allowed(); }],
+        preload: () => { calls.push('preload'); return 'balance'; },
+        component: ({ data }) => h('h1', null, data),
+      },
+    ];
+    const el = show(h(Router, { routes }));
+    await navigate('/account', { transition: false });
+    assert.equal(el.textContent, '403Access denied');
+    assert.ok(calls.length > 0 && calls.every((call) => call === 'middleware'), calls.join());
+    calls.length = 0;
+    // Admitted once the page is on screen: the render prepares it then.
+    allowed(true);
+    await tick();
+    assert.equal(el.textContent, 'balance');
+    assert.deepEqual(calls, ['middleware', 'preload']);
+  });
+
+  it('gives the preload and the page the whole query value, a second "?" included', async () => {
+    const seen = [];
+    const routes = [
+      { path: '/', component: () => h('h1', null, 'home') },
+      {
+        path: '/find',
+        preload: ({ query }) => { seen.push(query.q); return query.q; },
+        component: ({ query, data }) => h('h1', null, `${query.q}|${data}|${route.query.q}|${route.hash}`),
+      },
+    ];
+    const el = show(h(Router, { routes }));
+    await navigate('/find?q=a?b#x?y#z', { transition: false });
+    assert.equal(el.textContent, 'a?b|a?b|a?b|#x?y#z');
+    assert.deepEqual(seen, ['a?b']);
+  });
+});

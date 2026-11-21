@@ -10,7 +10,7 @@
 // landed, so the old page stays on screen until the new one can show at once.
 // A newer navigation supersedes one still preparing.
 
-import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, onCleanup, h, ErrorBoundary } from 'what-core';
+import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
 import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, __DEV__, getServerContext } from 'what-core/internal';
 import { matchRoute, parseQuery } from './match.js';
 
@@ -48,9 +48,12 @@ export function isSafeUrl(url) {
   return true;
 }
 
-// --- Route State (global singleton) ---
-// The 'what-router:*' debug names let devtools report the router's state
-// (what_route, what_navigate) separately from the address bar.
+// --- Route State ---
+// In the browser, module signals: one tab, one URL. The 'what-router:*' debug
+// names let devtools report the router's state (what_route, what_navigate)
+// separately from the address bar. A server render never reads or writes them:
+// it has route state of its own (serverRoute below), so overlapping requests
+// cannot see each other's URL, params or query.
 
 const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/', 'what-router:url');
 const _params = signal({}, 'what-router:params');
@@ -71,30 +74,81 @@ const _navigationError = signal(null, 'what-router:error');
 const _pattern = signal(null, 'what-router:pattern');
 
 export const route = {
-  get url() { return readUrl(); },
-  get path() { return readUrl().split('?')[0].split('#')[0]; },
-  get params() { return _params(); },
-  get query() { return _query(); },
-  get hash() {
-    const h = readUrl().split('#')[1];
-    return h ? '#' + h : '';
+  get url() { return shownUrl(); },
+  get path() { return splitUrl(shownUrl()).path; },
+  get params() {
+    const server = serverRoute();
+    return server !== null ? server.params : _params();
   },
+  get query() {
+    const server = serverRoute();
+    return server !== null ? server.query : _query();
+  },
+  get hash() { return splitUrl(shownUrl()).hash; },
+  // Navigation state: a server render never navigates, so on a server these
+  // stay false and null.
   get isNavigating() { return _navigating(); },
   get error() { return _navigationError(); },
 };
 
+// The route state of each server render, by its render context: the URL it
+// shows, and the params and query its <Router> matched. A WeakMap, so it goes
+// with the render.
+const _serverRoutes = new WeakMap();
+
+/** The route state of the server render in progress, or null in the browser. */
+function serverRoute() {
+  const ctx = getServerContext();
+  if (ctx === null) return null;
+  let state = _serverRoutes.get(ctx);
+  if (state === undefined) {
+    state = { url: requestUrl(ctx), params: {}, query: {} };
+    _serverRoutes.set(ctx, state);
+  }
+  return state;
+}
+
+// The URL of the request a server render answers (path, search and hash), or
+// the root without one.
+function requestUrl(ctx) {
+  const request = ctx.request;
+  if (request == null || typeof request.url !== 'string') return '/';
+  const parsed = new URL(request.url, 'http://localhost');
+  return parsed.pathname + parsed.search + parsed.hash;
+}
+
+// The URL on screen: the server render's, else the window's.
+function shownUrl() {
+  const server = serverRoute();
+  return server !== null ? server.url : readUrl();
+}
+
+// A URL's path, search (without its '?') and hash (with its '#'), split as URL
+// splits them: the search runs from the first '?' to the first '#', so a
+// second '?' belongs to a query value, and the hash is all after the first '#'.
+function splitUrl(url) {
+  const hashAt = url.indexOf('#');
+  const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt);
+  const searchAt = beforeHash.indexOf('?');
+  return {
+    path: searchAt === -1 ? beforeHash : beforeHash.slice(0, searchAt),
+    search: searchAt === -1 ? '' : beforeHash.slice(searchAt + 1),
+    hash: hashAt === -1 || hashAt === url.length - 1 ? '' : url.slice(hashAt),
+  };
+}
+
 // --- Navigation Hooks ---
 // Subscriber lists consulted by navigate(). Guards run before the URL changes
 // and can cancel by returning false; afterNavigate runs once the URL committed.
-// Module singletons on purpose: this module is browser-only (it listens for
-// popstate and mutates history), so its scope is one tab, not one request. The
-// server adapters import what-router/match, never this file, so there is no
-// shared-process path here of the kind b066671 fixed for server actions.
+// Module lists, because navigation is the browser tab's. A server render never
+// navigates, so a hook a component subscribes while it renders on the server
+// is not kept: one request's closures must not accumulate in the process.
 
 const _beforeHooks = [];
 const _afterHooks = [];
 
 function subscribe(list, fn) {
+  if (getServerContext() !== null) return () => {};
   listenToHistory();
   list.push(fn);
   return () => {
@@ -126,7 +180,7 @@ let _shown = null;
 let _incoming = null;
 
 function pathOf(url) {
-  return url.split('?')[0].split('#')[0];
+  return splitUrl(url).path;
 }
 
 // A lazy() component's chunk, loading: calling the wrapper starts the load and
@@ -164,7 +218,7 @@ function waitsOf(data, out) {
 }
 
 function prepare(url, routes) {
-  const path = pathOf(url);
+  const { path, search } = splitUrl(url);
   const matched = routes ? matchRoute(path, routes) : null;
   const prep = { url, route: matched ? matched.route : null, data: undefined, failed: false, error: undefined, dispose: () => {}, ready: Promise.resolve() };
   if (!matched) return prep;
@@ -181,7 +235,7 @@ function prepare(url, routes) {
       // the error instead (see PreloadFailed). One that returns a promise
       // that rejects gives the page that promise, to show when it reads it.
       try {
-        prep.data = _tagQueries(path, () => r.preload({ params: matched.params, query: parseQuery(url.split('?')[1]?.split('#')[0] || ''), url }));
+        prep.data = _tagQueries(path, () => r.preload({ params: matched.params, query: parseQuery(search), url }));
       } catch (err) {
         prep.failed = true;
         prep.error = err;
@@ -193,11 +247,13 @@ function prepare(url, routes) {
   return prep;
 }
 
-// The preparation renderMatch shows `url` with: the one a navigation made, or
-// one made now (the first render, or a URL the router did not navigate to).
-function shownFor(url) {
-  if (_shown !== null && _shown.url === url) return _shown;
-  if (_incoming !== null && _incoming.url === url) {
+// The preparation renderMatch shows route `r` at `url` with: the one a
+// navigation made, or one made now (the first render, a URL the router did not
+// navigate to, or a route the navigation did not prepare because its
+// middleware declined it then).
+function shownFor(url, r) {
+  if (_shown !== null && _shown.url === url && _shown.route === r) return _shown;
+  if (_incoming !== null && _incoming.url === url && _incoming.route === r) {
     const prep = _incoming;
     show(prep);
     return prep;
@@ -306,8 +362,11 @@ export async function navigate(to, opts = {}) {
 
   _navigationError.set(null);
 
-  // Prepare the destination while the old page stays.
-  const prep = prepare(to, _routes);
+  // Prepare the destination while the old page stays, unless its middleware
+  // declines it: a preload must not run for a page that does not show. The
+  // render runs the middleware again, and prepares the route then if it admits
+  // it by that time.
+  const prep = prepare(to, admits(to, _routes) ? _routes : null);
   _incoming = prep;
   await prep.ready;
   if (nav !== _navigation) {
@@ -572,6 +631,13 @@ function loopScreen(message) {
 // instead would never catch a cycle between two route components, because each
 // hop matches successfully before its component throws the next redirect.
 function handleRedirect(target, options) {
+  // A server render answers with a redirect: it has no history to push, and
+  // the navigation state below is the browser tab's.
+  if (getServerContext() !== null) {
+    getResponse().redirect(target);
+    return null;
+  }
+
   // A navigation to this exact target is already in flight, so this is a
   // re-match of the same hop, not a second one.
   //
@@ -624,29 +690,79 @@ function handleRedirect(target, options) {
 // component, or it is the route already being rendered.
 function destinationLoading(pendingUrl, routes, currentRoute) {
   if (!pendingUrl) return null;
-  const destPath = pendingUrl.split('?')[0].split('#')[0];
-  const dest = matchRoute(destPath, routes);
+  const dest = matchRoute(pathOf(pendingUrl), routes);
   if (!dest || dest.route === currentRoute) return null;
   return dest.route.loading || null;
 }
 
-// The URL a server render shows: `url`, else the request being rendered, else
-// the root.
-function serverUrl(url) {
-  if (typeof url === 'string') return url;
-  const request = /** @type {any} */ (getServerContext()).request;
-  if (request == null || typeof request.url !== 'string') return '/';
-  const parsed = new URL(request.url, 'http://localhost');
-  return parsed.pathname + parsed.search;
+// The verdict of a route's middleware chain: true to show the route, false to
+// decline it (the Router fallback), or a path to redirect to. A redirect() it
+// throws propagates, and so does ERR_ASYNC_MIDDLEWARE.
+function middlewareVerdict(r, context) {
+  if (!r.middleware) return true;
+  for (const mw of r.middleware) {
+    const result = mw(context);
+    if (result != null && (typeof result === 'object' || typeof result === 'function')) {
+      // Read once: a then getter can throw or change on its next access.
+      // Getter failures propagate unchanged and cannot grant access.
+      const then = result.then;
+      if (typeof then === 'function') {
+        // Observe rejection without awaiting or assimilating fulfillment
+        // values (a thenable could resolve itself). Call the captured
+        // method once with its receiver, including cross-realm promises.
+        Promise.resolve().then(() => {
+          const ignore = () => {};
+          const returned = Reflect.apply(then, result, [ignore, ignore]);
+          // An async then method can itself return a rejected promise.
+          // The intrinsic brand-check handles native/cross-realm promises
+          // without reading returned.then or assimilating its fulfillment.
+          try {
+            Reflect.apply(Promise.prototype.then, returned, [ignore, ignore]);
+          } catch { /* Non-promise return values need no observation. */ }
+        }).catch(() => {});
+        throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), __DEV__ ? {
+          code: 'ERR_ASYNC_MIDDLEWARE',
+          suggestion: 'Return true, void, false or a redirect path synchronously. For async authorization, wrap the route component with asyncGuard(check)(Component); promises returned by middleware are not awaited.',
+          codeExample: `// Async authorization belongs on the component, not in middleware:
+{ path: '/private', component: asyncGuard(check)(Component) }`,
+        } : { code: 'ERR_ASYNC_MIDDLEWARE' });
+      }
+    }
+    if (result === false || typeof result === 'string') return result;
+  }
+  return true;
+}
+
+// Whether the middleware of the route `url` matches lets it show, asked before
+// a navigation prepares it. A middleware that throws (a redirect() included)
+// declines here; the render runs it again and acts on what it throws.
+function admits(url, routes) {
+  if (!routes) return true;
+  const { path, search } = splitUrl(url);
+  const matched = matchRoute(path, routes);
+  if (!matched || !matched.route.middleware) return true;
+  const context = { path, params: matched.params, query: parseQuery(search), route: matched.route };
+  try {
+    return untrack(() => middlewareVerdict(matched.route, context)) === true;
+  } catch {
+    return false;
+  }
 }
 
 export function Router({ routes, fallback, globalLayout, url = null }) {
-  _routes = routes;
-  // On the server, the render's own URL, prepared (its preload run) for this
-  // render alone: nothing of it outlives the render or reaches another one.
-  const onServer = getServerContext() !== null ? prepare(serverUrl(url), routes) : null;
-  if (onServer !== null) onCleanup(onServer.dispose);
-  const shownUrl = onServer !== null ? () => onServer.url : readUrl;
+  // On the server, the render's own route state: the URL it shows (`url`,
+  // else the request's), and the params and query matched below. The route
+  // is prepared (its preload run) for this render alone once its middleware
+  // admits it, and nothing of it outlives the render or reaches another one.
+  const server = serverRoute();
+  /** @type {any} */
+  let serverPrep = null;
+  if (server !== null) {
+    if (typeof url === 'string') server.url = url;
+    onCleanup(() => { if (serverPrep !== null) serverPrep.dispose(); });
+  } else {
+    _routes = routes;
+  }
   // The `loading:` component a navigation in flight shows instead of the page:
   // the destination's, or the departing route's when only it declares one.
   // A computed, so the page re-renders only when there is one to show, not
@@ -662,64 +778,38 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   // the matched page in place. The globalLayout is rendered ONCE around it (below)
   // so the app shell persists across navigations instead of re-instantiating.
   const renderMatch = () => {
-    const currentUrl = shownUrl();
-    const path = currentUrl.split('?')[0].split('#')[0];
-    const search = currentUrl.split('?')[1]?.split('#')[0] || '';
+    const currentUrl = server !== null ? server.url : readUrl();
+    const { path, search } = splitUrl(currentUrl);
     const loadingView = pendingView();
 
     const matched = matchRoute(path, routes);
 
     if (matched) {
-      batch(() => {
-        _params.set(matched.params);
-        _query.set(parseQuery(search));
-        _pattern.set(matched.route.path);
-      });
+      if (server !== null) {
+        server.params = matched.params;
+        server.query = parseQuery(search);
+      } else {
+        batch(() => {
+          _params.set(matched.params);
+          _query.set(parseQuery(search));
+          _pattern.set(matched.route.path);
+        });
+      }
 
       const { route: r, params } = matched;
       const queryObj = parseQuery(search);
 
       // Middleware is synchronous. Async authorization belongs in a component
       // wrapper: asyncGuard(check)(Component), not in this matching pass.
-      if (r.middleware && r.middleware.length > 0) {
-        for (const mw of r.middleware) {
-          const result = mw({ path, params, query: queryObj, route: r });
-          if (result != null && (typeof result === 'object' || typeof result === 'function')) {
-            // Read once: a then getter can throw or change on its next access.
-            // Getter failures propagate unchanged and cannot grant access.
-            const then = result.then;
-            if (typeof then === 'function') {
-              // Observe rejection without awaiting or assimilating fulfillment
-              // values (a thenable could resolve itself). Call the captured
-              // method once with its receiver, including cross-realm promises.
-              Promise.resolve().then(() => {
-                const ignore = () => {};
-                const returned = Reflect.apply(then, result, [ignore, ignore]);
-                // An async then method can itself return a rejected promise.
-                // The intrinsic brand-check handles native/cross-realm promises
-                // without reading returned.then or assimilating its fulfillment.
-                try {
-                  Reflect.apply(Promise.prototype.then, returned, [ignore, ignore]);
-                } catch { /* Non-promise return values need no observation. */ }
-              }).catch(() => {});
-              throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), __DEV__ ? {
-                code: 'ERR_ASYNC_MIDDLEWARE',
-                suggestion: 'Return true, void, false or a redirect path synchronously. For async authorization, wrap the route component with asyncGuard(check)(Component); promises returned by middleware are not awaited.',
-                codeExample: `// Async authorization belongs on the component, not in middleware:
-{ path: '/private', component: asyncGuard(check)(Component) }`,
-              } : { code: 'ERR_ASYNC_MIDDLEWARE' });
-            }
-          }
-          if (result === false) {
-            // Middleware rejected — show fallback
-            if (fallback) return h(fallback, {});
-            return h('div', { class: 'what-403' }, h('h1', null, '403'), h('p', null, 'Access denied'));
-          }
-          if (typeof result === 'string') {
-            // Middleware returned a redirect path
-            return handleRedirect(result);
-          }
-        }
+      const verdict = middlewareVerdict(r, { path, params, query: queryObj, route: r });
+      if (verdict === false) {
+        // Middleware rejected — show fallback
+        if (fallback) return h(fallback, {});
+        return h('div', { class: 'what-403' }, h('h1', null, '403'), h('p', null, 'Access denied'));
+      }
+      if (typeof verdict === 'string') {
+        // Middleware returned a redirect path
+        return handleRedirect(verdict);
       }
 
       // Build element with loading state support
@@ -732,7 +822,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       // `loading:` preserves the existing behaviour for the case where only the
       // page being left declares one. Without either, the page being left
       // stays until the new one can show.
-      const prep = loadingView ? null : onServer || shownFor(currentUrl);
+      const prep = loadingView ? null : server !== null ? (serverPrep ??= untrack(() => prepare(currentUrl, routes))) : shownFor(currentUrl, r);
       if (loadingView) {
         element = h(loadingView, {});
       } else if (prep.failed) {
@@ -761,7 +851,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     }
 
     // 404
-    _pattern.set(null);
+    if (server === null) _pattern.set(null);
     if (fallback) return h(fallback, {});
     return h('div', { class: 'what-404' },
       h('h1', null, '404'),
@@ -912,8 +1002,15 @@ export function routeGroup(name, routes, options = {}) {
 // --- Redirect ---
 
 export function Redirect({ to }) {
-  navigate(to, { replace: true });
+  replaceWith(to);
   return null;
+}
+
+// Go to `to` in place of the current page: on the server, the response of the
+// render redirects; in the browser, a navigation replaces the history entry.
+function replaceWith(to) {
+  if (getServerContext() !== null) getResponse().redirect(to);
+  else navigate(to, { replace: true });
 }
 
 // --- Route Guards / Middleware ---
@@ -934,7 +1031,7 @@ export function guard(check, fallback) {
       }
 
       if (typeof fallback === 'string') {
-        navigate(fallback, { replace: true });
+        replaceWith(fallback);
         return null;
       }
       return h(fallback, props);
@@ -981,7 +1078,7 @@ export function asyncGuard(check, options = {}) {
         }
 
         if (typeof fallback === 'string') {
-          navigate(fallback, { replace: true });
+          replaceWith(fallback);
           return null;
         }
         return h(fallback, props);

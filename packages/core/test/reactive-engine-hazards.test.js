@@ -663,6 +663,29 @@ describe('call sites for devtools', { skip: !__DEV__ || typeof WeakRef === 'unde
       if (!hadWindow) delete globalThis.window;
     }
   });
+
+  it('do not break a creation when the app\'s stack formatter returns no string, or throws', () => {
+    const hadWindow = 'window' in globalThis;
+    if (!hadWindow) globalThis.window = globalThis;
+    const previous = Error.prepareStackTrace;
+    try {
+      __setDevToolsHooks({});
+      for (const format of [(_error, frames) => frames, () => undefined, () => { throw new Error('formatter failed'); }]) {
+        Error.prepareStackTrace = format;
+        const s = signal('ready');
+        assert.equal(s(), 'ready');
+        assert.equal(s._devLoc, null, 'no location without a string stack');
+        let ran = 0;
+        effect(() => { ran++; })();
+        assert.equal(ran, 1);
+      }
+    } finally {
+      Error.prepareStackTrace = previous;
+      __setDevToolsHooks(null);
+      __drainPreinstallBuffer();
+      if (!hadWindow) delete globalThis.window;
+    }
+  });
 });
 
 describe('the public Owner type', () => {
