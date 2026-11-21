@@ -734,6 +734,62 @@ describe('reconcileKeyed: swap and single-move fast paths', () => {
     assert.deepEqual(labels, ['C2', 'B1', 'A2'], 'itemSig updated with new references');
   });
 
+  // A swap of rows 2 and 999 of 1,000 (krausest's swap) leaves 998 rows in the
+  // range between them with the same item: they cost no key read and, when
+  // rows follow their items, no second pass over the range.
+  for (const mode of ['raw', 'accessor']) {
+    it(`a swap among 1,000 rows reads only the swapped rows' keys (${mode} rows)`, async () => {
+      const container = getContainer();
+      let keyReads = 0;
+      const key = (i) => { keyReads++; return i.id; };
+      const Row = mode === 'raw'
+        ? (item) => { const el = document.createElement('div'); el.dataset.id = item.id; return el; }
+        : (item) => { const el = document.createElement('div'); el.dataset.id = item().id; return el; };
+      const initial = Array.from({ length: 1000 }, (_, i) => ({ id: String(i) }));
+      const items = signal(initial);
+      mapArray(items, Row, mode === 'raw' ? { key, raw: true } : { key })(container, null);
+      flushSync(); await flush();
+      const nodes = [...container.children];
+
+      keyReads = 0;
+      const swapped = initial.slice();
+      [swapped[1], swapped[998]] = [swapped[998], swapped[1]];
+      items(swapped);
+      flushSync(); await flush();
+
+      // A development build reads every key once to report duplicates; past
+      // that, the reconciler reads the swapped pair's keys only.
+      const reconcileReads = keyReads - initial.length;
+      assert.ok(reconcileReads <= 12, `the reconciler read ${reconcileReads} keys for a swap`);
+      const after = [...container.children];
+      assert.equal(after[1], nodes[998]);
+      assert.equal(after[998], nodes[1]);
+      assert.ok(after.every((n, i) => n === nodes[i === 1 ? 998 : i === 998 ? 1 : i]), 'every row kept its node');
+    });
+  }
+
+  it('a swap that also replaces an item between the pair gives that row its new item', async () => {
+    const container = getContainer();
+    function Row(item) {
+      const el = document.createElement('div');
+      el.dataset.id = item().id;
+      effect(() => { el.textContent = item().label; });
+      return el;
+    }
+    const initial = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, label: id.toUpperCase() }));
+    const items = signal(initial);
+    mapArray(items, Row, { key: (i) => i.id })(container, null);
+    flushSync(); await flush();
+    const c = container.querySelector('[data-id="c"]');
+
+    items([initial[0], initial[3], { id: 'c', label: 'C2' }, initial[1], initial[4]]);
+    flushSync(); await flush();
+
+    assert.deepEqual(ids(container), ['a', 'd', 'c', 'b', 'e']);
+    assert.equal(container.querySelector('[data-id="c"]'), c, 'the row kept its node');
+    assert.equal(c.textContent, 'C2');
+  });
+
   it('swap does not dispose: dispose count = 0 after pure swap', async () => {
     const container = getContainer();
     const { items, disposeLog } = setupKeyedList(container,

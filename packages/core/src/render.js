@@ -1286,16 +1286,22 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   // Detect swap (2 mismatches) or single-move (contiguous shift) cheaply
   // before falling through to the expensive LIS + backward-walk general case.
   if (midNewLen === midOldLen && midNewLen >= 2 && midNewLen <= Math.max(midOldLen, 200)) {
-    // Count positions where keys differ
+    // Count positions where keys differ. The same item has the same key, so
+    // only a position whose item changed reads keys; one whose key stayed is
+    // an item replaced under its key (`replaced`).
     let mismatchCount = 0;
     let mm1 = -1, mm2 = -1; // first two mismatch indices (relative to start)
+    let replaced = false;
     for (let i = 0; i < midNewLen && mismatchCount <= 4; i++) {
-      const oldKey = keyFn(oldItems[start + i]);
-      const newKey = keyFn(newItems[start + i]);
-      if (oldKey !== newKey) {
+      const oldItem = oldItems[start + i];
+      const newItem = newItems[start + i];
+      if (oldItem === newItem) continue;
+      if (keyFn(oldItem) !== keyFn(newItem)) {
         if (mismatchCount === 0) mm1 = i;
         else if (mismatchCount === 1) mm2 = i;
         mismatchCount++;
+      } else {
+        replaced = true;
       }
     }
 
@@ -1331,7 +1337,9 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
         }
 
         _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen);
-        if (keyedSignals) {
+        // The scan covered the whole range (two mismatches never stop it), so
+        // the rows between the pair have new items only if it saw one.
+        if (keyedSignals && (replaced || newItems[i1] !== oldItems[i2] || newItems[i2] !== oldItems[i1])) {
           for (let i = start; i <= newEnd; i++) {
             if (newItems[i] !== oldItems[i === i1 ? i2 : i === i2 ? i1 : i]) {
               renewItem(parent, endMarker, i, i, newItems[i], mapFn, mappedNodes, disposeFns, keyedSignals === FOLLOW);

@@ -535,21 +535,21 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B (ceiling 6656 B) | 8414 B |
-| The create-what counter, runtime JSX | ceiling 7987 B | 8457 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | not measured | 6302 B |
+| A counter written with `h()` | 6601 B (ceiling 6656 B) | 8710 B |
+| The create-what counter, runtime JSX | ceiling 7987 B | 8752 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | not measured | 6285 B |
 
 0.14's numbers include development-only code (872 B of the `h()` counter),
 which 0.15 leaves out of production builds; the `h()` counter still grows by
-1813 B, for the new engine and for fixes to keyed rows, class composition and
-delegated events. The production build (`dist/*.min.js`, what the
+2109 B, for the new engine, the engine hooks async values need, and for fixes
+to keyed rows, class composition and delegated events. The production build (`dist/*.min.js`, what the
 `production` export condition resolves) has one file per source module
 instead of one shared chunk, so an app bundled from it is as small as the
 same app bundled from source, and a compiled app with no `h()`, boundary or
 portal leaves the vnode renderer out. Loading the dist straight into a
 browser without a bundler fetches more, smaller files. This affects an app
 written with `h()` that has a size budget: compiled with what-compiler, the
-same counter is 6302 B.
+same counter is 6285 B.
 
 ### Companion packages
 
