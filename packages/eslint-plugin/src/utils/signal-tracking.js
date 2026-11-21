@@ -2,14 +2,19 @@
  * Shared signal-tracking utility for eslint-plugin-what rules.
  *
  * Single source of truth for identifying signal variables across all rules.
- * Tracks variables from useSignal, signal, useComputed, computed,
- * useSWR destructured fields, useFetch, useQuery, useInfiniteQuery, and createResource.
+ * Tracks variables from useSignal, signal, useComputed, computed, useMemo,
+ * the accessor useState and useReducer return first, useSWR destructured
+ * fields, useFetch, useQuery, useInfiniteQuery, and createResource.
  */
 
 // Functions that return a signal or computed directly
 export const SIGNAL_CREATORS = [
-  'signal', 'useSignal', 'computed', 'useComputed', 'memo',
+  'signal', 'useSignal', 'computed', 'useComputed', 'useMemo', 'memo',
 ];
+
+// Functions that return [accessor, setter]: a component runs once, so the
+// first element is the signal, not this render's value.
+export const ACCESSOR_PAIR_HOOKS = ['useState', 'useReducer', 'createResource'];
 
 // Functions whose return value has signal-like getter properties
 export const SWR_LIKE_HOOKS = [
@@ -27,7 +32,7 @@ export const SWR_GETTER_FIELDS = new Set([
 
 // Properties on signals/computeds that are safe to access without calling
 export const SIGNAL_METHODS = new Set([
-  'set', 'peek', 'subscribe', '_signal', '_subs', '_debugName',
+  'set', 'peek', 'subscribe', 'mutate', '_signal', '_debugName',
 ]);
 
 /**
@@ -85,11 +90,12 @@ export function createSignalTracker() {
         }
       }
 
-      // createResource returns [dataSignal, { loading, error, ... }]
+      // const [count, setCount] = useState(0); createResource returns
+      // [dataSignal, { loading, error, ... }]
       if (
         node.init.type === 'CallExpression' &&
         node.init.callee.type === 'Identifier' &&
-        node.init.callee.name === 'createResource' &&
+        ACCESSOR_PAIR_HOOKS.includes(node.init.callee.name) &&
         node.id.type === 'ArrayPattern'
       ) {
         const elements = node.id.elements;

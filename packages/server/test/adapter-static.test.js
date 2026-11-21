@@ -27,7 +27,7 @@ describe('exportStatic', () => {
       const inline = JSON.parse(html.match(/<script id="__what_data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
       const data = JSON.parse(await readFile(join(outDir, path, '__what_data.json'), 'utf8'));
       assert.equal(calls, 1);
-      assert.match(html, /<main>revision:1<\/main>/);
+      assert.match(html, /<main data-hk="0">revision:1<\/main>/);
       assert.deepEqual(data.loaderData, inline.loaderData);
     });
   }
@@ -116,7 +116,7 @@ describe('exportStatic', () => {
     const { pages } = await exportStatic({ routes, outDir });
     assert.deepEqual(pages, ['/']);
     const html = await readFile(join(outDir, 'index.html'), 'utf8');
-    assert.match(html, /<main>home<\/main>/);
+    assert.match(html, /<main data-hk="0">home<\/main>/);
     assert.match(html, /<!DOCTYPE html>/i);
   });
 

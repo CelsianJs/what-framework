@@ -1,0 +1,62 @@
+// The hydration key is placed by a linear scan (security review #6), and the
+// string renderers' output is byte for byte what the previous release wrote.
+//
+// injectHydrationKey matched /^((?:<!--.*?-->)*)<([a-zA-Z][a-zA-Z0-9-]*)/,
+// which backtracks over a run of comment markers with no element after it in
+// exponential time. A list whose rows all render nothing makes exactly that
+// run, from data: 10 rows took 21 ms, 14 rows 56 s.
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import * as core from 'what-core';
+import { renderToHydratableString, renderToString } from '../src/index.js';
+import { randomTree } from './fixtures/random-tree.js';
+
+const { h } = core;
+
+describe('the hydration key scan', () => {
+  it('a component whose rows all render nothing renders in linear time', () => {
+    const rows = Array.from({ length: 60 }, (_, i) => ({ id: i, visible: false }));
+    function List() {
+      return rows.map((row) => () => (row.visible ? h('li', null, row.id) : null));
+    }
+    const started = performance.now();
+    const html = renderToHydratableString(h('ul', null, h(List, {})));
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 500, `60 empty rows took ${elapsed.toFixed(0)} ms`);
+    assert.doesNotMatch(html, /data-hk/);
+  });
+
+  it('keys a component whose output opens with an element, with its owner path', () => {
+    function Shown() { return h('p', null, 'x'); }
+    function Hidden() { return [() => null, () => null, h('p', null, 'x')]; }
+    assert.equal(renderToHydratableString(h('div', null, h(Shown, {}), h(Shown, {}))), '<div><p data-hk="0">x</p><p data-hk="1">x</p></div>');
+    // Output that opens with a marker settles the key without placing it.
+    assert.equal(renderToHydratableString(h(Hidden, {})), '<!--[]--><!--$--><!--/$--><!--$--><!--/$--><p>x</p><!--/[]-->');
+  });
+});
+
+// The hashes are of renderToString output as the previous release wrote it,
+// and of renderToHydratableString output in the current hydration protocol
+// (compiled.js), which changed when keys became owner paths and boundaries
+// got markers.
+describe('string output is unchanged', () => {
+  it('renderToString matches the previous release, renderToHydratableString the protocol, on 300 seeded random trees', () => {
+    const expected = JSON.parse(readFileSync(new URL('./fixtures/string-render-hashes.json', import.meta.url), 'utf8'));
+    const sha = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);
+    const warn = console.warn;
+    console.warn = () => {};
+    const mismatches = [];
+    try {
+      for (const [seed, [plain, hydratable]] of Object.entries(expected)) {
+        if (sha(renderToString(randomTree(core, Number(seed)))) !== plain) mismatches.push(`renderToString seed ${seed}`);
+        if (sha(renderToHydratableString(randomTree(core, Number(seed)))) !== hydratable) mismatches.push(`renderToHydratableString seed ${seed}`);
+      }
+    } finally {
+      console.warn = warn;
+    }
+    assert.deepEqual(mismatches, []);
+  });
+});

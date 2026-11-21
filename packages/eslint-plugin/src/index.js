@@ -11,7 +11,7 @@
 
 import { createRequire } from 'node:module';
 
-import noSignalInEffectDeps from './rules/no-signal-in-effect-deps.js';
+import noSignalReadInEffectDeps from './rules/no-signal-read-in-effect-deps.js';
 import reactiveJsxChildren from './rules/reactive-jsx-children.js';
 import noSignalWriteInRender from './rules/no-signal-write-in-render.js';
 import noCamelcaseEvents from './rules/no-camelcase-events.js';
@@ -20,7 +20,12 @@ import noUncalledSignals from './rules/no-uncalled-signals.js';
 import noHInUserCode from './rules/no-h-in-user-code.js';
 import signalCallInJsx from './rules/signal-call-in-jsx.js';
 import noSetInComputed from './rules/no-set-in-computed.js';
-import noDestructuredProps from './rules/no-destructured-props.js';
+import noMovedImports from './rules/no-moved-imports.js';
+import noEffectSelfWrite from './rules/no-effect-self-write.js';
+import effectCleanup from './rules/effect-cleanup.js';
+import noUnsafeInnerhtml from './rules/no-unsafe-innerhtml.js';
+import signalDebugName from './rules/signal-debug-name.js';
+import preferComputed from './rules/prefer-computed.js';
 
 // Read the real version from package.json so plugin meta never goes stale.
 const require = createRequire(import.meta.url);
@@ -33,7 +38,7 @@ const plugin = {
   },
 
   rules: {
-    'no-signal-in-effect-deps': noSignalInEffectDeps,
+    'no-signal-read-in-effect-deps': noSignalReadInEffectDeps,
     'reactive-jsx-children': reactiveJsxChildren,
     'no-signal-write-in-render': noSignalWriteInRender,
     'no-camelcase-events': noCamelcaseEvents,
@@ -42,7 +47,12 @@ const plugin = {
     'no-h-in-user-code': noHInUserCode,
     'signal-call-in-jsx': signalCallInJsx,
     'no-set-in-computed': noSetInComputed,
-    'no-destructured-props': noDestructuredProps,
+    'no-moved-imports': noMovedImports,
+    'no-effect-self-write': noEffectSelfWrite,
+    'effect-cleanup': effectCleanup,
+    'no-unsafe-innerhtml': noUnsafeInnerhtml,
+    'signal-debug-name': signalDebugName,
+    'prefer-computed': preferComputed,
   },
 
   configs: {},
@@ -87,7 +97,7 @@ plugin.configs.recommended = {
   languageOptions: baseLanguageOptions,
   plugins: { what: plugin },
   rules: {
-    'what/no-signal-in-effect-deps': 'warn',
+    'what/no-signal-read-in-effect-deps': 'warn',
     'what/reactive-jsx-children': 'warn',
     'what/no-signal-write-in-render': 'warn',
     'what/no-camelcase-events': 'warn',
@@ -96,7 +106,12 @@ plugin.configs.recommended = {
     'what/no-h-in-user-code': 'warn',
     'what/signal-call-in-jsx': 'warn',
     'what/no-set-in-computed': 'error',
-    'what/no-destructured-props': 'warn',
+    'what/no-moved-imports': 'error',
+    'what/no-effect-self-write': 'error',
+    'what/effect-cleanup': 'warn',
+    'what/no-unsafe-innerhtml': 'warn',
+    'what/signal-debug-name': 'off',
+    'what/prefer-computed': 'off',
   },
 };
 
@@ -107,7 +122,7 @@ plugin.configs.strict = {
   languageOptions: baseLanguageOptions,
   plugins: { what: plugin },
   rules: {
-    'what/no-signal-in-effect-deps': 'error',
+    'what/no-signal-read-in-effect-deps': 'error',
     'what/reactive-jsx-children': 'error',
     'what/no-signal-write-in-render': 'error',
     'what/no-camelcase-events': 'error',
@@ -116,7 +131,12 @@ plugin.configs.strict = {
     'what/no-h-in-user-code': 'error',
     'what/signal-call-in-jsx': 'error',
     'what/no-set-in-computed': 'error',
-    'what/no-destructured-props': 'error',
+    'what/no-moved-imports': 'error',
+    'what/no-effect-self-write': 'error',
+    'what/effect-cleanup': 'error',
+    'what/no-unsafe-innerhtml': 'error',
+    'what/signal-debug-name': 'warn',
+    'what/prefer-computed': 'warn',
   },
 };
 
@@ -127,7 +147,7 @@ plugin.configs.compiler = {
   languageOptions: { ...baseLanguageOptions, globals: COMPILER_LOWERED_TAGS },
   plugins: { what: plugin },
   rules: {
-    'what/no-signal-in-effect-deps': 'warn',
+    'what/no-signal-read-in-effect-deps': 'warn',
     'what/reactive-jsx-children': 'off',       // compiler handles reactive wrapping
     'what/no-signal-write-in-render': 'warn',
     'what/no-camelcase-events': 'off',          // compiler normalizes events
@@ -136,7 +156,12 @@ plugin.configs.compiler = {
     'what/no-h-in-user-code': 'warn',
     'what/signal-call-in-jsx': 'off',          // compiler handles signal wrapping in JSX
     'what/no-set-in-computed': 'error',
-    'what/no-destructured-props': ['warn', { assumeNative: true }],
+    'what/no-moved-imports': 'error',
+    'what/no-effect-self-write': 'error',
+    'what/effect-cleanup': 'warn',
+    'what/no-unsafe-innerhtml': 'warn',
+    'what/signal-debug-name': 'off',
+    'what/prefer-computed': 'off',
   },
 };
 

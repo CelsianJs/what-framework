@@ -51,7 +51,7 @@ export default function ListsPage() {
 
         <Show when={items().length > 0} fallback={<p class="small-note">No items yet.</p>}>
           <ul class="stack-list">
-            <For each={items()}>
+            <For each={items}>
               {(item) => (
                 <li class="row" data-done={item.done ? 'true' : 'false'}>
                   <label class="row-main">

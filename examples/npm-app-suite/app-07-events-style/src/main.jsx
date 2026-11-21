@@ -1,4 +1,5 @@
-import { mount, useSignal, cls } from 'what-framework';
+import { mount, useSignal } from 'what-framework';
+import { cls } from 'what-framework/dom';
 
 function App() {
   const camel = useSignal(0);

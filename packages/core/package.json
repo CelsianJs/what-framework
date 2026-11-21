@@ -31,11 +31,59 @@
       "import": "./src/render.js",
       "default": "./src/render.js"
     },
+    "./a11y": {
+      "types": "./a11y.d.ts",
+      "production": "./dist/entries/a11y.min.js",
+      "import": "./src/entries/a11y.js",
+      "default": "./src/entries/a11y.js"
+    },
+    "./ui": {
+      "types": "./ui.d.ts",
+      "production": "./dist/entries/ui.min.js",
+      "import": "./src/entries/ui.js",
+      "default": "./src/entries/ui.js"
+    },
+    "./motion": {
+      "types": "./motion.d.ts",
+      "production": "./dist/entries/motion.min.js",
+      "import": "./src/entries/motion.js",
+      "default": "./src/entries/motion.js"
+    },
+    "./dom": {
+      "types": "./dom.d.ts",
+      "production": "./dist/entries/dom.min.js",
+      "import": "./src/entries/dom.js",
+      "default": "./src/entries/dom.js"
+    },
+    "./form": {
+      "types": "./form.d.ts",
+      "production": "./dist/entries/form.min.js",
+      "import": "./src/entries/form.js",
+      "default": "./src/entries/form.js"
+    },
+    "./data": {
+      "types": "./data.d.ts",
+      "production": "./dist/entries/data.min.js",
+      "import": "./src/entries/data.js",
+      "default": "./src/entries/data.js"
+    },
     "./testing": {
       "types": "./testing.d.ts",
       "production": "./dist/testing.min.js",
       "import": "./src/testing.js",
       "default": "./src/testing.js"
+    },
+    "./internal": {
+      "types": "./internal.d.ts",
+      "production": "./dist/entries/internal.min.js",
+      "import": "./src/entries/internal.js",
+      "default": "./src/entries/internal.js"
+    },
+    "./internal/markup-rules": {
+      "types": "./markup-rules.d.ts",
+      "production": "./dist/markup-rules.min.js",
+      "import": "./src/markup-rules.js",
+      "default": "./src/markup-rules.js"
     }
   },
   "files": [
@@ -45,6 +93,14 @@
     "jsx-runtime.d.ts",
     "jsx-dev-runtime.d.ts",
     "render.d.ts",
+    "a11y.d.ts",
+    "ui.d.ts",
+    "motion.d.ts",
+    "dom.d.ts",
+    "form.d.ts",
+    "data.d.ts",
+    "internal.d.ts",
+    "markup-rules.d.ts",
     "testing.d.ts"
   ],
   "sideEffects": false,

@@ -23,6 +23,8 @@ import {
   generateStaticPage,
   server,
 } from 'what-server';
+import { action, csrfMetaTag } from 'what-server/actions';
+import { matchRoute, parseQuery, type CompiledPath } from 'what-router/match';
 
 // The SSR guide's first example, verbatim.
 function Greeting({ name }: { name: string }) {
@@ -35,7 +37,7 @@ function Greeting({ name }: { name: string }) {
 const html: string = renderToString(h(Greeting, { name: 'Alice' }));
 const hydratable: string = renderToHydratableString(h(Greeting, { name: 'Alice' }));
 const withHead: { body: string; head: string } = renderToStringWithHead(h(Greeting, { name: 'Alice' }));
-const stream: AsyncGenerator<string> = renderToStream(h(Greeting, { name: 'Alice' }));
+const stream: AsyncIterable<string> = renderToStream(h(Greeting, { name: 'Alice' }));
 const resolved = renderToStringAsync(h(Greeting, { name: 'Alice' }));
 
 // A page module, the shape renderPage and renderDocument take.
@@ -60,4 +62,16 @@ const ServerOnly: (props: { name: string }) => unknown = server(Greeting);
 const Typed: Component<{ name: string }> = ({ name }) => h('span', {}, name);
 const typedHtml: string = renderToString(h(Typed, { name: 'Alice' }));
 
+// The subpaths server adapters and the compiler's action transform import.
+const save = action(async (title: string) => ({ saved: title.length }));
+const saving: Promise<{ saved: number }> = save('draft');
+const meta: string = csrfMetaTag('token');
+const routes = [{ path: '/posts/:id', title: 'Post' }];
+const matched = matchRoute('/posts/7', routes);
+const postTitle: string | undefined = matched?.route.title;
+const postId: string | undefined = matched?.params.id;
+const query: Record<string, string> = parseQuery('?page=2');
+const compiled: CompiledPath | null = null;
+
 export { html, hydratable, withHead, stream, resolved, rendered, document_, staticHtml, ServerOnly, typedHtml };
+export { saving, meta, postTitle, postId, query, compiled };

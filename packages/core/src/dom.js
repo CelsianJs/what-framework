@@ -2,9 +2,10 @@
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
-import { effect, untrack, signal, __DEV__, __devtools } from './reactive.js';
-import { reportError, _injectGetCurrentComponent } from './components.js';
-import { _setComponentRef } from './helpers.js';
+import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, runWithOwner, __DEV__ } from './reactive.js';
+import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, applyRef, setClassList, _writeClass } from './render.js';
+import { REFUSED_ATTRS, URL_ATTRS, isAriaAttr, isUnsafeUrl } from './markup-rules.js';
+import { isVNode } from './vnode-renderer.js';
 // SVG elements that need namespace
 const SVG_ELEMENTS = new Set([
   'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse',
@@ -19,36 +20,8 @@ const SVG_ELEMENTS = new Set([
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 // --- Attribute sanitization (shared by both setProp implementations) ---
-// Attributes whose value is a URL: reject javascript:, data:, vbscript:
-// protocols (case-insensitive, trimmed). xlink:href matters because SVG <a>
-// executes it, and ping/object[data] are fetched by the browser.
-const URL_ATTRS = new Set([
-  'href', 'src', 'action', 'formaction', 'formAction',
-  'data', 'ping', 'xlink:href', 'xlinkHref',
-]);
-
-// srcdoc is entity-decoded and parsed as a document by the browser, so HTML
-// escaping is not a defense. Refuse it outright rather than trying to clean it.
-const REFUSED_ATTRS = new Set(['srcdoc', 'srcDoc']);
-
-function isSafeUrl(url) {
-  if (url == null) return true;
-  // A boxed String or an object with toString() still stringifies into a live
-  // href, so coerce before the protocol check rather than trusting the type.
-  // A value with no usable toString (Object.create(null), { toString: null },
-  // both reachable from JSON) throws here, so refuse it rather than letting the
-  // TypeError abort the render.
-  let normalized;
-  try {
-    normalized = String(url).trim().replace(/[\s\x00-\x1f]/g, '').toLowerCase();
-  } catch {
-    return false;
-  }
-  if (normalized.startsWith('javascript:')) return false;
-  if (normalized.startsWith('data:')) return false;
-  if (normalized.startsWith('vbscript:')) return false;
-  return true;
-}
+// The refused props, the URL attributes and the scheme check are the markup
+// rules what-server and what-compiler apply too (markup-rules.js).
 
 // Event-handler prop test, case-insensitive. A case-sensitive `on` prefix lets
 // `ONCLICK` fall through to setAttribute, where the browser honours it as a live
@@ -65,9 +38,7 @@ export function _isEventProp(key) {
 // they enforce identical rules.
 export function _isUnsafeAttr(key, value) {
   const lower = key.toLowerCase();
-  if (REFUSED_ATTRS.has(key) || REFUSED_ATTRS.has(lower)) return true;
-  if (!URL_ATTRS.has(key) && !URL_ATTRS.has(lower)) return false;
-  return !isSafeUrl(value);
+  return REFUSED_ATTRS.has(lower) || (URL_ATTRS.has(lower) && isUnsafeUrl(value));
 }
 
 // ARIA attributes and `role` take ENUMERATED string values, never HTML boolean
@@ -85,14 +56,8 @@ export function _isUnsafeAttr(key, value) {
 // module is affected, since useAriaExpanded/useAriaSelected/useAriaChecked all
 // return booleans.
 export function _isAriaAttr(key) {
-  return key === 'role' || key.startsWith('aria-');
+  return isAriaAttr(key);
 }
-
-// Track all mounted component contexts for disposal
-const mountedComponents = new Set();
-
-// WeakMap: comment node → component context (for comment-node boundaries)
-const _commentCtxMap = new WeakMap();
 
 function isDomNode(value) {
   if (!value || typeof value !== 'object') return false;
@@ -100,103 +65,6 @@ function isDomNode(value) {
   return typeof value.nodeType === 'number' && typeof value.nodeName === 'string';
 }
 
-function isVNode(value) {
-  return !!value && typeof value === 'object' && (value._vnode === true || 'tag' in value);
-}
-
-// Dispose a component: run effect cleanups, hook cleanups, onCleanup callbacks
-function disposeComponent(ctx) {
-  if (ctx.disposed) return;
-  ctx.disposed = true;
-
-  // Run cleanup callbacks
-  if (ctx.cleanups) {
-    for (const cleanup of ctx.cleanups) {
-      try { cleanup(); } catch (e) { console.error('[what] cleanup error:', e); }
-    }
-  }
-
-  // Run effect disposals
-  if (ctx.effects) {
-    for (const dispose of ctx.effects) {
-      try { dispose(); } catch { /* already disposed */ }
-    }
-  }
-
-  // Run hook cleanups (useEffect return values)
-  if (ctx.hooks) {
-    for (const hook of ctx.hooks) {
-      if (hook && typeof hook.cleanup === 'function') {
-        try { hook.cleanup(); } catch (e) { console.error('[what] hook cleanup error:', e); }
-      }
-    }
-  }
-
-  // Run onCleanup callbacks
-  if (ctx._cleanupCallbacks) {
-    for (const fn of ctx._cleanupCallbacks) {
-      try { fn(); } catch (e) { console.error('[what] onCleanup error:', e); }
-    }
-  }
-
-  if (__DEV__ && __devtools?.onComponentUnmount) __devtools.onComponentUnmount?.(ctx);
-  mountedComponents.delete(ctx);
-}
-
-// Hydration has no wrapper fragment and no comment markers to hang a component
-// ctx or a reactive-child effect on, so it anchors them to the DOM node they
-// produced. Without an anchor disposeTree cannot reach them and every hydrated
-// component leaks its cleanups and effects.
-export function addHydrationDisposer(node, fn) {
-  if (!node || typeof fn !== 'function') return;
-  if (node._hydrationDisposers) node._hydrationDisposers.push(fn);
-  else node._hydrationDisposers = [fn];
-}
-
-export function addHydratedComponent(node, ctx) {
-  addHydrationDisposer(node, () => disposeComponent(ctx));
-}
-
-// Dispose all components and reactive effects attached to a DOM subtree.
-// Performance: checks _componentCtx / _dispose / _propEffects before walking
-// children, and only checks _commentCtxMap for comment nodes (nodeType 8).
-export function disposeTree(node) {
-  if (!node) return;
-  if (node._componentCtx) {
-    disposeComponent(node._componentCtx);
-  }
-  if (node._hydrationDisposers) {
-    const disposers = node._hydrationDisposers;
-    node._hydrationDisposers = null;
-    for (let i = 0; i < disposers.length; i++) {
-      try { disposers[i](); } catch { /* already disposed */ }
-    }
-  }
-  // Check comment node WeakMap for component context — only for comment nodes
-  if (node.nodeType === 8) {
-    const commentCtx = _commentCtxMap.get(node);
-    if (commentCtx) {
-      disposeComponent(commentCtx);
-    }
-  }
-  // Dispose reactive function child effects ({() => ...} wrappers)
-  if (node._dispose) {
-    try { node._dispose(); } catch { /* already disposed */ }
-  }
-  // Dispose reactive prop effects (value: () => ..., class: () => ..., etc.)
-  if (node._propEffects) {
-    for (const key in node._propEffects) {
-      try { node._propEffects[key](); } catch { /* already disposed */ }
-    }
-  }
-  // Recursively dispose children
-  const children = node.childNodes;
-  if (children && children.length > 0) {
-    for (let i = 0; i < children.length; i++) {
-      disposeTree(children[i]);
-    }
-  }
-}
 
 // --- _liveRegionNodes(tracked) ---
 //
@@ -261,19 +129,53 @@ export function _liveRegionNodes(tracked) {
   return out || tracked;
 }
 
-// Mount a component tree into a DOM container
-export function mount(vnode, container) {
+// Mount a tree into a DOM container: compiled DOM, a vnode from h() or the JSX
+// runtime, a thunk, or an array of them. Returns the unmount function.
+//
+// Realized through render.js, which hands vnodes to the renderer h.js installs,
+// so an app that only mounts compiled JSX does not pull createDOM in through
+// this function. The tree is built in a root that owns every component, effect
+// and binding it creates, so unmounting is disposing that root. A container
+// that already holds a mounted (or hydrated) root has that root disposed
+// first.
+export function mount(node, container) {
   if (typeof container === 'string') {
     container = document.querySelector(container);
   }
-  disposeTree(container); // Clean up any previous mount
-  container.textContent = '';
-  const node = createDOM(vnode, container);
-  if (node) container.appendChild(node);
-  return () => {
-    disposeTree(container);
+  /** @type {() => void} */
+  let unmount = () => {};
+  createRoot((dispose) => {
+    unmount = _trackRoot(container, dispose);
     container.textContent = '';
+    const nodes = _valuesToNodes(node, container, [], false);
+    _adoptDetached(nodes);
+    for (let i = 0; i < nodes.length; i++) container.appendChild(nodes[i]);
+  });
+  return unmount;
+}
+
+// The root mounted or hydrated into each container.
+const mountedRoots = /* @__PURE__ */ new WeakMap();
+
+/**
+ * Record `dispose` as the root of `container`, disposing the root it held
+ * before. Returns the unmount function: it disposes the root and, while that
+ * root is still the container's, empties the container.
+ */
+export function _trackRoot(container, dispose) {
+  const previous = mountedRoots.get(container);
+  const unmount = () => {
+    if (mountedRoots.get(container) === unmount) {
+      mountedRoots.delete(container);
+      dispose();
+      container.textContent = '';
+    } else {
+      dispose();
+    }
   };
+  mountedRoots.set(container, unmount);
+  if (previous !== undefined) previous();
+  return unmount;
 }
 
 // --- Create DOM from VNode ---
@@ -294,132 +196,13 @@ export function createDOM(vnode, parent, isSvg) {
     return vnode;
   }
 
-  // Self-managing list inserter (mapArray) — it owns its own end marker and
-  // reconciliation effect and expects to be called as (parent, marker), NOT as
-  // a zero-arg reactive accessor. Reached when a keyed `.map()` is the child of
-  // a fragment-as-root (e.g. `<>{items().map(...)}</>`), which the compiler
-  // lowers to a bare `_$mapArray(...)`. Without this special-case the generic
-  // function branch below would call vnode() with no parent and throw.
-  if (typeof vnode === 'function' && vnode._mapArray) {
-    const frag = document.createDocumentFragment();
-    // Open the list with a start marker, the same bracket shape the reactive
-    // region below uses, and for the same reason: whoever embeds this fragment
-    // has to be able to find the list's content LATER, not just now.
-    //
-    // A list reached through here is embedded in some other region's value —
-    // `{cond && <>{items.map(...)}<p/></>}` and every variation of it. That
-    // region records the nodes it inserted and reuses the record as its removal
-    // set on the next run. The record is a snapshot, and the list is not
-    // snapshot-shaped: it owns an effect and goes on inserting and removing rows
-    // for as long as it is mounted. Rows appended after mount were absent from
-    // the record, so switching the region off removed the mount-time rows and
-    // orphaned the rest — and switching it back on rendered a second, complete
-    // list beside the orphans.
-    //
-    // Two markers describe a moving target that a list of nodes cannot:
-    // everything the list ever inserts lands between them, so reconcileInsert
-    // (render.js) can sweep the live range at teardown instead of trusting the
-    // snapshot. `_rangeEnd` is the pairing it reads.
-    const startMarker = document.createComment('list');
-    frag.appendChild(startMarker);
-    // Passing a null marker makes the inserter APPEND its own `/list` end marker
-    // to `frag` (insertBefore(node, null) is an append) and insert every row
-    // before it, so the list closes the range itself and no second bookend is
-    // needed. Once `frag` is appended to the real DOM the markers and the rows
-    // between them carry over together.
-    /** @type {any} */ (startMarker)._rangeEnd = vnode(frag, null);
-    return frag;
-  }
-
-  // Deferred component children (compiled JSX). The value is static (the
-  // factory only exists so the owning component runs before its children are
-  // built), so realize it in place rather than through the reactive path below.
-  if (typeof vnode === 'function' && vnode._lazyChildren) {
-    return createDOM(vnode(), parent, isSvg);
-  }
-
-  // Reactive function child — use comment markers (no wrapper element)
-  // to avoid polluting the DOM and breaking CSS selectors like :first-child.
+  // A mapArray inserter is called as (parent, marker), never as a thunk; a
+  // deferred children factory is static and realized in place; any other
+  // function is a reactive region between comment markers (no wrapper element,
+  // so CSS selectors like :first-child keep working).
   if (typeof vnode === 'function') {
-    const startMarker = document.createComment('fn');
-    const endMarker = document.createComment('/fn');
-    let currentNodes = [];
-    // We need a parent to insert between markers. The caller (createElementFromVNode
-    // or createComponent) will appendChild both markers and the content. We return
-    // a document fragment containing start marker, then the effect will manage nodes
-    // between start and end markers once they're in the real DOM.
-    const frag = document.createDocumentFragment();
-    frag.appendChild(startMarker);
-    frag.appendChild(endMarker);
-
-    // Capture the owning component at CREATION time.
-    //
-    // This effect re-runs long after the synchronous render that created it,
-    // when the component stack is empty. Everything it builds on a re-run
-    // therefore got `parentCtx = null`, severing the owner chain, and the two
-    // things that walk that chain both went blind:
-    //   - suspend() found no Suspense boundary, so a lazy() component reached by
-    //     a signal update (any client-side navigation) threw its pending promise
-    //     as an uncaught error and left the region permanently empty.
-    //   - the ErrorBoundary lookup found nothing, so a throw from a component
-    //     rendered after any state change escaped the boundary wrapping it.
-    // Both worked on first paint and only failed once the app was interactive.
-    const owner = componentStack[componentStack.length - 1] || null;
-
-    const dispose = effect(() => {
-      // Already on top during the initial synchronous run; only re-push when the
-      // stack has since unwound.
-      const restoreOwner = owner !== null && componentStack[componentStack.length - 1] !== owner;
-      if (restoreOwner) componentStack.push(owner);
-      try {
-      const val = vnode();
-      const vnodes = (val == null || val === false || val === true)
-        ? []
-        : Array.isArray(val) ? val : [val];
-
-      const realParent = endMarker.parentNode;
-      if (!realParent) return; // not mounted yet — first run handled below
-
-      // Remove old nodes between markers. The removal set is the LIVE one: a
-      // list or a nested region inside this one has been replacing its own
-      // nodes since they were recorded, and what it produced late is just as
-      // much this region's to remove as what it produced at mount.
-      for (const old of _liveRegionNodes(currentNodes)) {
-        disposeTree(old);
-        if (old.parentNode === realParent) realParent.removeChild(old);
-      }
-      currentNodes = [];
-
-      // Add new nodes before endMarker
-      for (const v of vnodes) {
-        const node = createDOM(v, realParent, parent?._isSvg);
-        if (node) {
-          // If createDOM returned a DocumentFragment, track individual children
-          // since fragment nodes get absorbed into the DOM on insertion.
-          if (node.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */) {
-            const children = Array.from(node.childNodes);
-            realParent.insertBefore(node, endMarker);
-            for (const child of children) currentNodes.push(child);
-          } else {
-            realParent.insertBefore(node, endMarker);
-            currentNodes.push(node);
-          }
-        }
-      }
-      } finally {
-        if (restoreOwner) componentStack.pop();
-      }
-    });
-
-    startMarker._dispose = dispose;
-    // Also store dispose on endMarker so disposeTree can find it from either marker
-    endMarker._dispose = dispose;
-    // This region manages itself, so an OUTER region that embeds it cannot
-    // describe it with a list of nodes: everything between the markers is
-    // replaced whenever this effect re-runs. Pairing them lets the outer
-    // teardown sweep the live range. See _liveRegionNodes.
-    /** @type {any} */ (startMarker)._rangeEnd = endMarker;
-    return frag;
+    if (vnode._lazyChildren) return createDOM(vnode(), parent, isSvg);
+    return vnode._mapArray ? _listFragment(vnode) : _region(vnode, isSvg);
   }
 
   // Array of vnodes
@@ -432,122 +215,84 @@ export function createDOM(vnode, parent, isSvg) {
     return frag;
   }
 
+  // Anything that is not a vnode (by its brand, vnode-renderer.js) is text,
+  // whatever properties it carries.
+  if (!isVNode(vnode)) return document.createTextNode(String(vnode));
+
   // VNode with component tag — component runs ONCE
-  if (isVNode(vnode) && typeof vnode.tag === 'function') {
+  if (typeof vnode.tag === 'function') {
     return createComponent(vnode, parent, isSvg);
   }
 
   // VNode with special boundary tags — route to boundary handlers
-  if (isVNode(vnode) && typeof vnode.tag === 'string') {
-    if (vnode.tag === '__errorBoundary') return createErrorBoundary(vnode, parent);
-    if (vnode.tag === '__suspense') return createSuspenseBoundary(vnode, parent);
-    if (vnode.tag === '__portal') return createPortalDOM(vnode, parent);
-    return createElementFromVNode(vnode, parent, isSvg);
-  }
-
-  // Unknown — convert to text
-  return document.createTextNode(String(vnode));
+  if (vnode.tag === '__errorBoundary') return createErrorBoundary(vnode, parent);
+  if (vnode.tag === '__suspense') return vnode.props.boundary.mount(vnode, parent);
+  if (vnode.tag === '__portal') return createPortalDOM(vnode, parent);
+  return createElementFromVNode(vnode, parent, isSvg);
 }
 
 // --- Component Rendering ---
-// Components run ONCE. Props are passed as a signal for reactive access.
-
-// Shared Proxy handler for reactive props — defined once, reused by all components.
-// The Proxy target must be a plain object (not a function) so that ownKeys
-// invariants are satisfied. The propsSignal is stored as target._sig.
-const _propsProxyHandler = {
-  get(target, key) {
-    if (key === '_sig') return undefined; // hide internal property
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') return undefined;
-    return target._sig()[key];
-  },
-  has(target, key) {
-    if (key === '_sig') return false;
-    return key in target._sig();
-  },
-  ownKeys(target) {
-    return Reflect.ownKeys(target._sig());
-  },
-  getOwnPropertyDescriptor(target, key) {
-    if (key === '_sig') return undefined;
-    const current = target._sig();
-    if (key in current) {
-      return { value: current[key], writable: false, enumerable: true, configurable: true };
-    }
-    return undefined;
-  },
-  set(_target, _key) {
-    // Props are read-only from the component's perspective.
-    // Reject all writes — especially dangerous prototype-chain keys.
-    return false;
-  },
-};
-
-const componentStack = [];
+// Components run ONCE: render.js's _renderComponent holds the lifecycle that
+// compiled JSX and vnodes share. A component is an owner (reactive.js
+// _componentOwner); the component whose hooks run now is the nearest one above
+// the current owner.
 
 export function getCurrentComponent() {
-  return componentStack[componentStack.length - 1];
-}
-
-// Inject into components.js and helpers.js to avoid circular imports
-_injectGetCurrentComponent(getCurrentComponent);
-_setComponentRef(getCurrentComponent);
-
-export function getComponentStack() {
-  return componentStack;
+  return _currentComponent();
 }
 
 /**
- * Run a component during SSR under a real component context.
+ * Run a component during SSR under a real component owner.
  *
- * renderToString used to call `vnode.tag(props)` directly, with nothing on the
- * component stack. Every hook that needs a context (useState, useSignal,
- * useComputed, useEffect, useMemo, useCallback, useRef, useReducer, onMount,
- * onCleanup, and Context.Provider) resolves it through getCurrentComponent(),
- * so all of them threw on the server. A single useState anywhere in the tree
- * meant the component could not be server-rendered at all: the page failed at
- * render time, not with a hydration warning.
+ * Every hook that needs a component (useState, useSignal, useComputed,
+ * useMemo, useCallback, useRef, useReducer, onCleanup and Context.Provider)
+ * resolves it through the current owner, so the server renderers enter a
+ * frame for each component, under `parent` (the frame it renders in) or else
+ * the current owner, which during a server render is the render's own root
+ * (what-server's createRenderContext, entered by runWithServerContext): every
+ * frame, and everything its component creates, is disposed when the render is
+ * released. `_parentCtx` is the frame it renders in, for owner paths.
  *
- * The context is the same shape createComponent and the hydration path build,
- * for the same reason: `useContext` walks `_parentCtx`, so a Provider's context
- * has to stay on the stack while its children render. Hence the callback.
+ * Nothing here ever mounts, so nothing deferred may run: useEffect and onMount
+ * do nothing during a server render.
  *
- * Nothing here ever mounts, so nothing deferred may run. Every hook that defers
- * work (useEffect in all three of its dep shapes) re-checks `ctx.disposed`
- * inside its microtask, and onMount/onCleanup only collect callbacks that a
- * mount would later invoke. _endComponentSSR marks the context disposed, which
- * is what makes an SSR render leave no live effects behind.
+ * A frame is current only for a synchronous call. renderToStream interleaves
+ * with other requests at every await; it passes `parent` explicitly and
+ * re-enters a frame with _runInComponentSSR whenever later work in that
+ * frame's subtree needs it.
  *
- * Begin/end rather than a wrapper callback because one of the three SSR call
- * sites is a generator: renderToStream has to hold the frame open across yields
- * until the subtree has finished streaming.
- *
- * Always pair these in a try/finally.
+ * Always pair begin and end in a try/finally.
  */
-export function _beginComponentSSR(Component) {
-  const ctx = {
-    hooks: [],
-    hookIndex: 0,
-    /** @type {Array<() => void>} */
-    effects: [],
-    cleanups: [],
-    mounted: false,
-    disposed: false,
-    Component,
-    _parentCtx: componentStack[componentStack.length - 1] || null,
-    _errorBoundary: null,
-  };
-  componentStack.push(ctx);
-  return ctx;
+export function _beginComponentSSR(Component, parent) {
+  let frame;
+  if (parent != null) {
+    const saved = _enterOwner(parent);
+    frame = _componentOwner(Component);
+    _exitOwner(saved);
+  } else {
+    frame = _componentOwner(Component);
+  }
+  frame._parentCtx = parent !== undefined ? parent : parentFrame(frame);
+  frame._outer = _enterOwner(frame);
+  return frame;
 }
 
-export function _endComponentSSR(ctx) {
-  const top = componentStack[componentStack.length - 1];
-  // Defensive: an async component that interleaved with another render could
-  // otherwise pop someone else's frame and silently reparent every context
-  // lookup after it.
-  if (top === ctx) componentStack.pop();
-  ctx.disposed = true;
+function parentFrame(frame) {
+  for (let o = frame.owner; o != null; o = o.owner) {
+    if (o.Component !== undefined) return o;
+  }
+  return null;
+}
+
+// Restores the owner that was current before the frame began.
+export function _endComponentSSR(frame) {
+  _exitOwner(frame._outer);
+  frame._outer = null;
+}
+
+/** Run `fn` with an existing SSR frame as the current owner. */
+export function _runInComponentSSR(frame, fn) {
+  return runWithOwner(frame, fn);
 }
 
 // --- _installLazyChildren(Component, target, lazyChildren) ---
@@ -601,8 +346,8 @@ export function _installLazyChildren(Component, target, lazyChildren) {
 // ErrorBoundary, which would render error UI for a value that is not an error.
 // Returns true when the value was a signal and has been handled.
 //
-// Both component paths route through this (createComponent below and the
-// hydration branch in render.js) so the two cannot drift.
+// Both component paths route through this (_renderComponent and the hydration
+// branch, both in render.js) so the two cannot drift.
 const NAV_SIGNAL = Symbol.for('what.navigation.signal');
 
 export function _handleNavigationSignal(error) {
@@ -615,323 +360,76 @@ export function _handleNavigationSignal(error) {
 
 function createComponent(vnode, parent, isSvg) {
   let { tag: Component, props, children } = vnode;
+  const proto = Component.prototype;
+  if (proto && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
 
-  // Class component detection
-  if (typeof Component === 'function' &&
-      (Component.prototype?.isReactComponent || Component.prototype?.render)) {
-    const ClassComp = Component;
-    Component = function ClassComponentBridge(props) {
-      const instance = new ClassComp(props);
-      return instance.render();
-    };
-    Component.displayName = ClassComp.displayName || ClassComp.name || 'ClassComponent';
-  }
-
-  // Handle special boundary components
-  if (Component === '__errorBoundary' || vnode.tag === '__errorBoundary') {
-    return createErrorBoundary(vnode, parent);
-  }
-  if (Component === '__suspense' || vnode.tag === '__suspense') {
-    return createSuspenseBoundary(vnode, parent);
-  }
-  if (Component === '__portal' || vnode.tag === '__portal') {
-    return createPortalDOM(vnode, parent);
-  }
-
-  // Component context for hooks
-  // Error boundary lookup: walk the parent chain once, cache the result.
-  const parentCtx = componentStack[componentStack.length - 1] || null;
-  let errorBoundary = null;
-  if (parentCtx) {
-    // Fast path: if parent has an error boundary, use it directly
-    errorBoundary = parentCtx._errorBoundary || null;
-    if (!errorBoundary) {
-      let p = parentCtx._parentCtx;
-      while (p) {
-        if (p._errorBoundary) { errorBoundary = p._errorBoundary; break; }
-        p = p._parentCtx;
-      }
-    }
-  }
-  const ctx = {
-    hooks: [],
-    hookIndex: 0,
-    /** @type {Array<() => void>} */
-    effects: [],
-    cleanups: [],
-    mounted: false,
-    disposed: false,
-    Component,
-    _parentCtx: parentCtx,
-    _errorBoundary: errorBoundary,
-  };
-
-  // Component boundaries: use comment nodes instead of <span style="display:contents">
-  // to avoid DOM pollution, CSS selector breakage, and a11y issues.
-  const startComment = document.createComment('c:start');
-  const endComment = document.createComment('c:end');
-  _commentCtxMap.set(startComment, ctx);
-  ctx._startComment = startComment;
-  ctx._endComment = endComment;
-
-  // Fragment to hold comment boundaries + component output
-  const container = document.createDocumentFragment();
-  container._componentCtx = ctx;
-  ctx._wrapper = startComment; // Reference for context lookup
-
-  // Track for disposal
-  mountedComponents.add(ctx);
-  if (__DEV__ && __devtools?.onComponentMount) __devtools.onComponentMount?.(ctx);
-
-  // Props signal for reactive updates from parent
-  const propsChildren = children.length === 0 ? undefined : children.length === 1 ? children[0] : children;
-  // Merge children into props without spreading when possible
-  let mergedProps;
-  if (propsChildren !== undefined) {
-    mergedProps = props ? Object.assign({}, props, { children: propsChildren }) : { children: propsChildren };
-  } else {
-    mergedProps = props ? Object.assign({}, props) : {};
-  }
+  const mergedProps = Object.assign(Object.create(null), props);
+  if (children.length > 0) mergedProps.children = children.length === 1 ? children[0] : children;
   const lazyChildren = props && props._$lazyChildren;
   const endChildrenPass = lazyChildren ? _installLazyChildren(Component, mergedProps, lazyChildren) : null;
+  return _renderComponent(Component, mergedProps, endChildrenPass, isSvg);
+}
 
-  const propsSignal = signal(mergedProps);
-  ctx._propsSignal = propsSignal;
-
-  // Create a reactive props proxy: reading any prop inside an effect
-  // will auto-track the dependency on the propsSignal. This makes prop
-  // access reactive across re-renders without requiring the component
-  // to be re-executed.
-  // Reuse shared trap handlers to minimize per-component allocation.
-  // Store propsSignal on a plain object target (Proxy invariant: ownKeys must
-  // match non-configurable own properties of target; functions have 'prototype').
-  const reactiveProps = new Proxy({ _sig: propsSignal }, _propsProxyHandler);
-
-  // Component runs ONCE — not inside an effect.
-  // untrack() prevents the component's signal reads and effect creation
-  // from being captured by any parent effect (e.g., reconcileInsert).
-  // Without this, dynamically-rendered components leak their internal
-  // reactivity into the parent, causing infinite re-creation loops.
-  componentStack.push(ctx);
-
-  let result;
-  try {
-    result = untrack(() => Component(reactiveProps));
-  } catch (error) {
-    componentStack.pop();
-    // A thrown thenable is a suspension, not a failure: hand it to the nearest
-    // Suspense boundary, which swaps in its fallback and re-renders on resolve.
-    // A navigation signal is neither: it carries its own handler.
-    if (!_handleNavigationSignal(error)
-        && !(error && typeof error.then === 'function' && suspend(error, ctx))
-        && !reportError(error, ctx)) {
-      console.error('[what] Uncaught error in component:', Component.name || 'Anonymous', error);
-      throw error;
-    }
-    // Return fragment with just comment boundaries on error
-    container.appendChild(startComment);
-    container.appendChild(endComment);
-    return container;
-  }
-  // The component has run; anything that reads props.children from here on is a
-  // later render pass and must build its own children.
-  if (endChildrenPass) endChildrenPass();
-
-  ctx.mounted = true;
-
-  // Run onMount callbacks after DOM is ready
-  if (ctx._mountCallbacks) {
-    queueMicrotask(() => {
-      if (ctx.disposed) return;
-      for (const fn of ctx._mountCallbacks) {
-        try { fn(); } catch (e) { console.error('[what] onMount error:', e); }
-      }
-    });
-  }
-
-  // Build fragment: <!-- c:start --> [component output] <!-- c:end -->
-  // ctx stays on the stack while children are realized so that a child's
-  // parentCtx (and therefore useContext / error-boundary lookup) resolves to
-  // this component rather than to whatever rendered it.
-  container.appendChild(startComment);
-  const vnodes = Array.isArray(result) ? result : [result];
-  try {
-    for (const v of vnodes) {
-      const node = createDOM(v, container, isSvg);
-      if (node) container.appendChild(node);
-    }
-  } finally {
-    componentStack.pop();
-  }
-  container.appendChild(endComment);
-
+// --- Boundaries ---
+// <!--start--> arm <!--end-->: an effect shows the arm its state names and
+// rebuilds it when the state changes. Each arm is built in a root owned by the
+// run that builds it, so the next run, or the boundary's disposal, disposes
+// the arm before another takes its place. A boundary installs its handler on
+// the root of its children arm (`_onError`), which is how an error anywhere
+// under the children finds it, and why one in the fallback goes past it to the
+// boundary above. <Suspense> renders itself (components.js): the vnode carries
+// its boundary, whose `mount` builds it.
+function boundaryRegion(startText, endText, state, render) {
+  const start = document.createComment(startText);
+  const end = document.createComment(endText);
+  const container = document.createDocumentFragment();
+  container.appendChild(start);
+  container.appendChild(end);
+  effect(() => {
+    const value = state();
+    for (let n = start.nextSibling; n !== null && n !== end; n = start.nextSibling) n.remove();
+    untrack(() => render(value, end));
+  });
   return container;
 }
 
-// Walk up from ctx to the nearest Suspense boundary and notify it. Returns
-// false when nothing in the chain can handle the suspension.
-function suspend(promise, ctx) {
-  let c = ctx;
-  while (c) {
-    if (c._suspenseBoundary) {
-      c._suspenseBoundary.onSuspend(promise);
-      return true;
+// Build `vnodes` before `end` in a root of their own; `setup` gets the root
+// first.
+function buildArm(vnodes, parent, end, setup) {
+  createRoot(() => {
+    if (setup !== null) setup(getOwner());
+    for (const v of Array.isArray(vnodes) ? vnodes : [vnodes]) {
+      const node = createDOM(v, parent);
+      if (node) end.parentNode.insertBefore(node, end);
     }
-    c = c._parentCtx;
-  }
-  return false;
+  });
 }
 
-// Error boundary component handler
+// <ErrorBoundary>: an error thrown while its children are built, by an effect
+// or binding under them later, by a cleanup, a list row or a component created
+// later inside them reaches `handleError`, which flips `errorState` to show the
+// fallback; `reset` clears it, disposing the fallback and building the
+// children again.
 function createErrorBoundary(vnode, parent) {
   const { errorState, handleError, fallback, reset } = vnode.props;
   const children = vnode.children;
-
-  // Use comment node boundaries instead of <span style="display:contents">
-  // to avoid DOM pollution, CSS selector breakage, and a11y issues.
-  const startComment = document.createComment('eb:start');
-  const endComment = document.createComment('eb:end');
-
-  const boundaryCtx = {
-    hooks: /** @type {any[]} */ ([]), hookIndex: 0,
-    effects: /** @type {Array<() => void>} */ ([]),
-    cleanups: /** @type {Array<() => void>} */ ([]),
-    mounted: false, disposed: false,
-    _parentCtx: componentStack[componentStack.length - 1] || null,
-    _errorBoundary: handleError,
-    _startComment: startComment,
-    _endComment: endComment,
-  };
-  _commentCtxMap.set(startComment, boundaryCtx);
-
-  const container = document.createDocumentFragment();
-  container._componentCtx = boundaryCtx;
-  container.appendChild(startComment);
-  container.appendChild(endComment);
-
-  const dispose = effect(() => {
-    const error = errorState();
-
-    componentStack.push(boundaryCtx);
+  return boundaryRegion('eb:start', 'eb:end', errorState, (error, end) => {
+    if (error) {
+      buildArm(typeof fallback === 'function' ? fallback({ error, reset }) : fallback, parent, end, null);
+      return;
+    }
     try {
-      // Remove old content between comment boundaries
-      const openParent = startComment.parentNode;
-      if (openParent) {
-        while (startComment.nextSibling && startComment.nextSibling !== endComment) {
-          const old = startComment.nextSibling;
-          disposeTree(old);
-          openParent.removeChild(old);
-        }
-      }
-
-      let vnodes;
-      if (error) {
-        vnodes = typeof fallback === 'function' ? [fallback({ error, reset })] : [fallback];
-      } else {
-        vnodes = children;
-      }
-
-      vnodes = Array.isArray(vnodes) ? vnodes : [vnodes];
-
-      for (const v of vnodes) {
-        const node = createDOM(v, parent);
-        if (node) {
-          // Insert before endComment
-          if (endComment.parentNode) {
-            endComment.parentNode.insertBefore(node, endComment);
-          } else {
-            // Still in fragment before first mount
-            container.insertBefore(node, endComment);
-          }
-        }
-      }
-    } finally {
-      // A fallback may throw; later mounts must not inherit this boundary.
-      componentStack.pop();
+      buildArm(children, parent, end, (root) => { root._onError = handleError; });
+    } catch (err) {
+      if (_handleNavigationSignal(err)) return;
+      handleError(err);
     }
   });
-
-  boundaryCtx.effects.push(dispose);
-  return container;
 }
 
-// Suspense boundary component handler
-function createSuspenseBoundary(vnode, parent) {
-  const { boundary, fallback, loading } = vnode.props;
-  const children = vnode.children;
-
-  // Use comment node boundaries instead of <span style="display:contents">
-  // to avoid DOM pollution, CSS selector breakage, and a11y issues.
-  const startComment = document.createComment('sb:start');
-  const endComment = document.createComment('sb:end');
-
-  const boundaryCtx = {
-    hooks: /** @type {any[]} */ ([]), hookIndex: 0,
-    effects: /** @type {Array<() => void>} */ ([]),
-    cleanups: /** @type {Array<() => void>} */ ([]),
-    mounted: false, disposed: false,
-    _parentCtx: componentStack[componentStack.length - 1] || null,
-    _suspenseBoundary: boundary,
-    _startComment: startComment,
-    _endComment: endComment,
-  };
-  _commentCtxMap.set(startComment, boundaryCtx);
-
-  const container = document.createDocumentFragment();
-  container._componentCtx = boundaryCtx;
-  container.appendChild(startComment);
-  container.appendChild(endComment);
-
-  // A child suspending mid-render flips `loading` while this effect is still
-  // running, which can re-enter it. The generation counter lets the outer run
-  // detect that a newer run already replaced the content and bail out.
-  let generation = 0;
-
-  const dispose = effect(() => {
-    const isLoading = loading();
-    const vnodes = isLoading ? [fallback] : children;
-    const normalized = Array.isArray(vnodes) ? vnodes : [vnodes];
-    const gen = ++generation;
-
-    componentStack.push(boundaryCtx);
-
-    // Remove old content between comment boundaries
-    const openParent = startComment.parentNode;
-    if (openParent) {
-      while (startComment.nextSibling && startComment.nextSibling !== endComment) {
-        const old = startComment.nextSibling;
-        disposeTree(old);
-        openParent.removeChild(old);
-      }
-    }
-
-    try {
-      for (const v of normalized) {
-        const node = createDOM(v, parent);
-        if (gen !== generation) {
-          if (node) disposeTree(node);
-          break;
-        }
-        if (node) {
-          // Insert before endComment
-          if (endComment.parentNode) {
-            endComment.parentNode.insertBefore(node, endComment);
-          } else {
-            // Still in fragment before first mount
-            container.insertBefore(node, endComment);
-          }
-        }
-      }
-    } finally {
-      componentStack.pop();
-    }
-  });
-
-  boundaryCtx.effects.push(dispose);
-  return container;
-}
-
-// Portal component handler
+// <Portal>: its children are built into `container` under the portal's owner,
+// so context and boundaries reach them, and removed from it when that owner
+// is disposed.
 function createPortalDOM(vnode, _parent) {
   const { container } = vnode.props;
   const children = vnode.children;
@@ -941,34 +439,25 @@ function createPortalDOM(vnode, _parent) {
     return document.createComment('portal:empty');
   }
 
-  const portalCtx = {
-    hooks: /** @type {any[]} */ ([]), hookIndex: 0,
-    effects: /** @type {Array<() => void>} */ ([]),
-    cleanups: /** @type {Array<() => void>} */ ([]),
-    mounted: false, disposed: false,
-    _parentCtx: componentStack[componentStack.length - 1] || null,
-  };
-
-  const placeholder = document.createComment('portal');
-  placeholder._componentCtx = portalCtx;
-
+  // A component child arrives as a fragment, which inserting empties: track
+  // the nodes it carried, or the cleanup below finds nothing to remove.
   const portalNodes = [];
   for (const child of children) {
     const node = createDOM(child, container);
-    if (node) {
-      container.appendChild(node);
+    if (!node) continue;
+    if (node.nodeType === 11) {
+      for (let n = node.firstChild; n !== null; n = n.nextSibling) portalNodes.push(n);
+    } else {
       portalNodes.push(node);
     }
+    container.appendChild(node);
   }
-
-  portalCtx._cleanupCallbacks = [() => {
+  onCleanup(() => {
     for (const node of portalNodes) {
-      disposeTree(node);
       if (node.parentNode) node.parentNode.removeChild(node);
     }
-  }];
-
-  return placeholder;
+  });
+  return document.createComment('portal');
 }
 
 // --- Create Element from VNode ---
@@ -994,7 +483,6 @@ function createElementFromVNode(vnode, parent, isSvg) {
     if (node) el.appendChild(node);
   }
 
-  el._vnode = vnode;
   return el;
 }
 
@@ -1007,11 +495,8 @@ function applyProps(el, newProps, oldProps, isSvg) {
   for (const key in newProps) {
     if (key === 'key' || key === 'children') continue;
 
-    // Handle ref
     if (key === 'ref') {
-      const ref = newProps.ref;
-      if (typeof ref === 'function') ref(el);
-      else if (ref) ref.current = el;
+      applyRef(newProps.ref, el);
       continue;
     }
 
@@ -1030,28 +515,33 @@ export function _setSelectValue(el, value) {
 }
 
 // NOTE: there are intentionally TWO `setProp` implementations in this codebase:
-//   - dom.js setProp (this one) — h()/createDOM/diff-style path. Handles
-//     addEventListener bookkeeping (el._events with capture variants and the
-//     untrack wrapper), supports `isSvg` flag from the caller. Used by the
-//     legacy diff-driven update path.
+//   - dom.js setProp (this one) — h()/createDOM path. Handles addEventListener
+//     bookkeeping (el._events with capture variants and the untrack wrapper),
+//     supports `isSvg` flag from the caller.
 //   - render.js setProp — fine-grained-compiler output path. No event-handler
 //     bookkeeping (events go through delegation / direct addEventListener at
 //     compile time), but adds the innerHTML `{__html}` enforcement that the
 //     compiler relies on.
-// Both share the `el._propEffects[key]` disposer convention and both gate
-// attributes through _isUnsafeAttr() so URL sanitization cannot diverge. Do not
-// merge without consolidating the event/listener model: they have different callers.
+// Both gate attributes through _isUnsafeAttr() so URL sanitization cannot
+// diverge. Do not merge without consolidating the event/listener model: they
+// have different callers. hydrate() writes a vnode's props onto the element it
+// claims through this one too (render.js, from the renderer slot), so a
+// hydrated element behaves as a built one.
+export function _setVNodeProp(el, key, value, isSvg) {
+  setProp(el, key, value, isSvg);
+}
+
 function setProp(el, key, value, isSvg) {
+  // A function classList, or an object with function entries, is reactive in
+  // setClassList itself.
+  if (key === 'classList') {
+    setClassList(el, value);
+    return;
+  }
+
   // Reactive function props — wrap in effect for fine-grained updates
   if (typeof value === 'function' && !_isEventProp(key) && key !== 'ref') {
-    if (!el._propEffects) el._propEffects = {};
-    if (el._propEffects[key]) {
-      try { el._propEffects[key](); } catch { /* already disposed */ }
-    }
-    el._propEffects[key] = effect(() => {
-      const resolved = value();
-      setProp(el, key, resolved, isSvg);
-    });
+    effect(() => { setProp(el, key, value(), isSvg); });
     return;
   }
 
@@ -1095,11 +585,7 @@ function setProp(el, key, value, isSvg) {
 
   // className / class
   if (key === 'className' || key === 'class') {
-    if (isSvg) {
-      el.setAttribute('class', value || '');
-    } else {
-      el.className = value || '';
-    }
+    _writeClass(el, value, isSvg);
     return;
   }
 

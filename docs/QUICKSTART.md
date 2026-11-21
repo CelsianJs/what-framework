@@ -36,7 +36,7 @@ If you are an AI agent (Claude Code, Cursor, etc.), add the MCP servers for docu
 }
 ```
 
-This gives you 29 live debugging tools for inspecting signals, effects, components, DOM, and more.
+This gives you 24 live debugging tools for inspecting signals, effects, components, DOM, and more.
 
 And add the Vite plugin to your app:
 
@@ -109,12 +109,12 @@ Or:
 </ul>
 ```
 
-`<For>` is also available for keyed list rendering with LIS-based reconciliation.
+`<For each={items}>` (the accessor, not `items()`) is also available for keyed list rendering with LIS-based reconciliation.
 
 ## 5. Forms
 
 ```jsx
-import { useForm, ErrorMessage, rules, simpleResolver } from 'what-framework';
+import { useForm, ErrorMessage, rules, simpleResolver } from 'what-framework/form';
 
 function Login() {
   const { register, handleSubmit, formState } = useForm({
@@ -131,7 +131,7 @@ function Login() {
       <ErrorMessage name="email" formState={formState} />
 
       <input {...register('password')} type="password" />
-      {formState.errors.password && (
+      {() => formState.errors.password && (
         <span>{formState.errors.password.message}</span>
       )}
 
@@ -141,7 +141,7 @@ function Login() {
 }
 ```
 
-`formState.errors` is a getter object. Do not call `formState.errors()`.
+`formState.errors` is a getter object. Do not call `formState.errors()`. Read it inside a function child (`{() => …}`) so the message appears and clears as the field is validated.
 
 ## 6. Styling
 
@@ -152,8 +152,13 @@ Default to CSS-first:
 - `style={{ ... }}` for dynamic runtime values only
 
 ```jsx
-<button className="btn btn-primary">Save</button>
-<div style={{ opacity: loading() ? 0.5 : 1 }} />
+function SaveButton({ loading }) {
+  return (
+    <div style={{ opacity: loading() ? 0.5 : 1 }}>
+      <button className="btn btn-primary">Save</button>
+    </div>
+  );
+}
 ```
 
 Avoid per-element JS hover mutation handlers.
@@ -163,7 +168,8 @@ Avoid per-element JS hover mutation handlers.
 Use `FocusTrap` for dialogs and `useFocusRestore` in parent logic:
 
 ```jsx
-import { useSignal, useFocusRestore, FocusTrap } from 'what-framework';
+import { useSignal } from 'what-framework';
+import { useFocusRestore, FocusTrap } from 'what-framework/a11y';
 
 function DialogExample() {
   const open = useSignal(false);
@@ -199,17 +205,23 @@ function DialogExample() {
 Both props are supported:
 
 ```jsx
-<div innerHTML={{ __html: '<strong>Hello</strong>' }} />
-<div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
+function RawHtml() {
+  return (
+    <>
+      <div innerHTML={{ __html: '<strong>Hello</strong>' }} />
+      <div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
+    </>
+  );
+}
 ```
 
 If either prop is set, it owns that element's children.
 
 ## 9. Decision Matrix
 
-- `useComputed(fn)`: derived from signals in a component.
+- `useComputed(fn)`: derived from signals in a component; returns an accessor.
+- `useMemo(fn)`: the same under React's name; returns an accessor and ignores a dependency array.
 - `derived(fn)`: derived fields inside `createStore(...)`.
-- `useMemo(fn, deps)`: dependency-array memo for non-signal values.
 
 ## 10. TypeScript
 
@@ -237,7 +249,7 @@ See [TYPESCRIPT.md](./TYPESCRIPT.md) for the full guide.
 
 ## 12. Next Docs
 
-- `/.internal/Agents.md` -- Complete agent coding guide
+- `/CLAUDE.md` -- Agent coding guide
 - `/docs/API.md` -- Full API reference
 - `/docs/GOTCHAS.md` -- Common mistakes
 - `/docs/MCP-DEVTOOLS.md` -- MCP tools reference

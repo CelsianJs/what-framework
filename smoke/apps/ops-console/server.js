@@ -39,6 +39,12 @@ const importMap = {
   imports: {
     'what-framework': '/node_modules/what-framework/src/index.js',
     'what-core': '/node_modules/what-core/src/index.js',
+    // The domain kits, for both packages: what-framework/<kit> re-exports
+    // what-core/<kit>.
+    ...Object.fromEntries(['a11y', 'ui', 'motion', 'dom', 'form', 'data'].flatMap((kit) => [
+      [`what-framework/${kit}`, `/node_modules/what-framework/src/${kit}.js`],
+      [`what-core/${kit}`, `/node_modules/what-core/src/entries/${kit}.js`],
+    ])),
     'what-router': '/node_modules/what-router/src/index.js',
     // The client-safe half of the server package: useOptimistic lives in
     // actions.js, which imports nothing from node:*.

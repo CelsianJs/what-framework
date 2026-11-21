@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 import { packages as buildPackages } from './build.js';
 
@@ -139,19 +139,46 @@ console.log(
 );
 
 // ---------------------------------------------------------------------------
+// what-framework mirrors what-core
+//
+// Apps depend on what-framework alone, so every what-core subpath an app may
+// import (the root, the compiled-JSX runtime, the domain kits) must exist under
+// the same name in what-framework. what-core/internal is what-core's interface
+// to its sibling packages and is deliberately not mirrored, with its subpaths.
+// ---------------------------------------------------------------------------
+
+{
+  const coreExports = JSON.parse(readFileSync(join(repoRoot, 'packages/core/package.json'), 'utf8')).exports;
+  const whatExports = JSON.parse(readFileSync(join(repoRoot, 'packages/what/package.json'), 'utf8')).exports;
+  const isInternal = (subpath) => subpath === './internal' || subpath.startsWith('./internal/');
+  const unmirrored = Object.keys(coreExports).filter((subpath) => !isInternal(subpath) && !(subpath in whatExports));
+  if (unmirrored.length) {
+    console.error('\n[publish-surface] what-core subpaths missing from what-framework:');
+    for (const subpath of unmirrored) console.error(`  - what-core/${subpath.slice(2)}`);
+    process.exit(1);
+  }
+  console.log(`[publish-surface] OK: what-framework mirrors all ${Object.keys(coreExports).filter((subpath) => !isInternal(subpath)).length} app-facing what-core subpaths.`);
+}
+
+// ---------------------------------------------------------------------------
 // Dist-content allowlist
 //
 // scripts/build.js cleans dist/ on every run, so after a build the ONLY files
 // allowed in packages/<name>/dist are:
 //   - <entry>.js / <entry>.min.js (+ .map) for each build entry
-//   - chunk-<hash>(.min).js (+ .map) actually referenced by THIS build's
-//     entry files (followed transitively)
+//   - the modules (a per-module build) and chunks (a split build) that THIS
+//     build's entry files import, followed transitively
 //   - *.d.ts type declarations
 // Anything else is a stale artifact from a previous build (an "orphan") and
 // would ship to npm via the `files: ["dist…"]` globs — fail loudly.
 // ---------------------------------------------------------------------------
 
-const CHUNK_REF_RE = /chunk-[A-Za-z0-9]+(?:\.min)?\.js/g;
+const RELATIVE_IMPORT_RE = /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"']+\.js)["']/g;
+
+const filesUnder = (dir, base = dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const path = join(dir, entry.name);
+  return entry.isDirectory() ? filesUnder(path, base) : [relative(base, path)];
+});
 
 const distOrphans = [];
 const distMissing = [];
@@ -183,8 +210,8 @@ for (const pkg of buildPackages) {
     }
   }
 
-  // Follow chunk references transitively from this build's entry files so the
-  // allowlist only contains chunks that belong to the CURRENT build.
+  // Follow relative imports transitively from this build's entry files so the
+  // allowlist only contains modules and chunks that belong to the CURRENT build.
   const queue = [...entryFiles];
   const scanned = new Set();
   while (queue.length) {
@@ -192,16 +219,17 @@ for (const pkg of buildPackages) {
     if (scanned.has(file)) continue;
     scanned.add(file);
     const content = readFileSync(join(distDir, file), 'utf8');
-    for (const chunk of content.match(CHUNK_REF_RE) ?? []) {
-      if (!allowed.has(chunk)) {
-        allowed.add(chunk);
-        allowed.add(`${chunk}.map`);
-        if (existsSync(join(distDir, chunk))) queue.push(chunk);
+    for (const [, specifier] of content.matchAll(RELATIVE_IMPORT_RE)) {
+      const target = relative(distDir, resolve(distDir, dirname(file), specifier));
+      if (!allowed.has(target)) {
+        allowed.add(target);
+        allowed.add(`${target}.map`);
+        if (existsSync(join(distDir, target))) queue.push(target);
       }
     }
   }
 
-  for (const file of readdirSync(distDir).sort()) {
+  for (const file of filesUnder(distDir).sort()) {
     if (file.endsWith('.d.ts')) continue;
     if (!allowed.has(file)) {
       distOrphans.push(`packages/${pkg.name}/dist/${file}`);
@@ -343,6 +371,22 @@ try {
     // top-level \`types\` listed before \`node\` silently shadows them.
     import { createServer, toNodeListener, exportStatic } from 'what-server';
     import type { VNode } from 'what-core';
+
+    // The domain kits and the internal entry resolve, with their declarations,
+    // through what-core's exports map.
+    import { useTween, transitionClass } from 'what-core/motion';
+    import { useForm } from 'what-core/form';
+    import { useSWR } from 'what-core/data';
+    import { FocusTrap, useIds } from 'what-core/a11y';
+    import { Skeleton } from 'what-core/ui';
+    import { scheduleRead, cls } from 'what-core/dom';
+    import { getServerContext, IMPORT_CHANGES } from 'what-core/internal';
+
+    const progress: number = useTween({ duration: 1 }).progress();
+    const enter: string = transitionClass('fade', true).class;
+    const ids: string[] = useIds(2);
+    const moved: string | null = IMPORT_CHANGES[0].to;
+    void [progress, enter, ids, moved, useForm, useSWR, FocusTrap, Skeleton, scheduleRead, cls, getServerContext];
 
     const routes: RouteConfig[] = [];
     const vnode: VNode = Router({ routes });

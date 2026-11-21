@@ -16,7 +16,8 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { signal, effect, flushSync, __setDevToolsHooks } from '../src/index.js';
+import { signal, effect, flushSync } from '../src/index.js';
+import { __setDevToolsHooks } from '../src/entries/internal.js';
 // __devtools is a live binding on reactive.js and is not re-exported by the
 // public entry; read it from the module that owns it so the original hooks can
 // be put back.

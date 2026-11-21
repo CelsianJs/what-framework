@@ -23,6 +23,9 @@
     "signals",
     "reactive"
   ],
+  "dependencies": {
+    "what-core": "^0.14.0"
+  },
   "peerDependencies": {
     "eslint": ">=9.0.0"
   },

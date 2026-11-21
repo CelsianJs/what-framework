@@ -4,6 +4,7 @@
 import { signal, computed, batch, effect, __DEV__ } from './reactive.js';
 import { getCurrentComponent, _isEventProp } from './dom.js';
 import { h } from './h.js';
+import { report } from './diagnostics.js';
 
 // --- Registration plumbing ---
 
@@ -73,8 +74,9 @@ function _mergeRegistration(props, registered) {
 
 export function useForm(options = {}) {
   // Hook-stable behavior inside components
-  const ctx = getCurrentComponent?.();
+  const ctx = getCurrentComponent();
   if (ctx) {
+    if (ctx.hooks === null) ctx.hooks = [];
     const index = ctx.hookIndex++;
     if (!ctx.hooks[index]) {
       ctx.hooks[index] = createFormController(options);
@@ -251,12 +253,7 @@ function createFormController(options = {}) {
       // undefined, so calling the handler without an event quietly OVERWROTE the
       // field with undefined. Refuse instead — there is no value to apply.
       if (!target) {
-        if (__DEV__) {
-          console.warn(
-            `[what] register("${name}") change handler was called without an event. ` +
-            'Pass the DOM event through (or call form.setValue() directly). Ignoring.'
-          );
-        }
+        if (__DEV__) report('ERR_FORM_HANDLER_WITHOUT_EVENT', { data: { name } });
         return;
       }
       // options.type is the declared intent; target.type covers a bare
@@ -272,10 +269,7 @@ function createFormController(options = {}) {
           // Nothing identifies this radio, so any write would be a guess.
           if (__DEV__ && !warnedValuelessRadio) {
             warnedValuelessRadio = true;
-            console.warn(
-              `[what] register("${name}", { type: 'radio' }) cannot tell which value this radio ` +
-              'contributes: pass { value } or give the <input> a value attribute. Field left unchanged.'
-            );
+            report('ERR_FORM_RADIO_WITHOUT_VALUE', { data: { name } });
           }
           return;
         }
@@ -335,20 +329,13 @@ function createFormController(options = {}) {
         // screen. Writing the checked PROPERTY is what a controlled radio needs
         // (React and Solid do the same) and it also runs the DOM's radio-group
         // invariant that unchecks the siblings.
-        // Disposal rides on the el._propEffects convention that dom.js and
-        // render.js both walk on unmount; the ':property' suffix keeps it from
-        // colliding with setProp's own effect for the `checked` attribute.
-        if (!el._propEffects) el._propEffects = {};
-        const key = 'checked:property';
-        if (el._propEffects[key]) {
-          try { el._propEffects[key](); } catch { /* already disposed */ }
-        }
-        // radioValueOf(el) is re-read on every run rather than captured, so a
-        // registration without a declared value still binds correctly once the
-        // element's own value attribute is in place, and an unidentifiable radio
-        // is simply never checked instead of being checked alongside its
-        // siblings.
-        el._propEffects[key] = effect(() => {
+        // The effect belongs to the owner the ref runs under, like every
+        // binding of the element. radioValueOf(el) is re-read on every run
+        // rather than captured, so a registration without a declared value
+        // still binds correctly once the element's own value attribute is in
+        // place, and an unidentifiable radio is simply never checked instead of
+        // being checked alongside its siblings.
+        effect(() => {
           const own = radioValueOf(el);
           el.checked = own !== undefined && fieldSig() === own;
         });
@@ -387,13 +374,7 @@ function createFormController(options = {}) {
         // a radio's value.
         if (__DEV__ && !warnedUntypedRadio && el && el.type === 'radio') {
           warnedUntypedRadio = true;
-          console.warn(
-            `[what] register("${name}") was spread onto <input type="radio"> without a type. ` +
-            'Radios in a group share one field holding the SELECTED option, so the registration ' +
-            `must be told this radio's value: register("${name}", { type: 'radio', value: ... }), ` +
-            'or use <Radio name value register />. As written, the registration overwrote the ' +
-            "input's own value and the group cannot record a choice."
-          );
+          report('ERR_FORM_RADIO_UNTYPED', { data: { name } });
         }
       };
     }
@@ -811,13 +792,7 @@ export function Radio(props) {
   // form state and then check every radio in the group that reads it back.
   // Render a plain unregistered input instead: inert, but honest.
   if (radioValue === undefined) {
-    if (__DEV__) {
-      console.warn(
-        `[what] <Radio name="${props.name}"> is missing a \`value\` prop. Radios in a group share ` +
-        "one field holding the selected option's value, so a valueless radio has nothing to " +
-        'contribute and cannot be checked. Rendering it unregistered.'
-      );
-    }
+    if (__DEV__) report('ERR_FORM_RADIO_WITHOUT_VALUE', { data: { name: props.name } });
     return h('input', { type: 'radio', ...rest });
   }
 
@@ -847,21 +822,26 @@ export function Radio(props) {
 
 // --- Form Error Display ---
 
+// The component runs once, so what it renders is a reactive function: the
+// field's error is read inside it, and the message appears, changes and goes
+// away with the error.
 export function ErrorMessage({ name, formState, errors, render }) {
-  const error = formState && typeof formState.error === 'function'
-    ? formState.error(name)
-    : (
-      (
-        formState?.errors != null
-          ? formState.errors
-          : (typeof errors === 'function' ? errors() : errors)
-      )?.[name] || null
-    );
-  if (!error) return null;
+  return () => {
+    const fieldError = formState && typeof formState.error === 'function'
+      ? formState.error(name)
+      : (
+        (
+          formState?.errors != null
+            ? formState.errors
+            : (typeof errors === 'function' ? errors() : errors)
+        )?.[name] || null
+      );
+    if (!fieldError) return null;
 
-  if (render) {
-    return render({ message: error.message, type: error.type });
-  }
+    if (render) {
+      return render({ message: fieldError.message, type: fieldError.type });
+    }
 
-  return h('span', { class: 'what-error', role: 'alert' }, error.message);
+    return h('span', { class: 'what-error', role: 'alert' }, fieldError.message);
+  };
 }

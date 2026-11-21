@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 
 const production = process.env.WHAT_TEST_PRODUCTION === '1';
-const reactive = await import(production ? '../dist/index.min.js' : '../src/reactive.js');
-const { signal, computed, effect, flushSync, createRoot, getOwner } = reactive;
-const memo = production ? reactive.signalMemo : reactive.memo;
-const onCleanup = production ? reactive.onRootCleanup : reactive.onCleanup;
+const reactive = await import(production ? '../dist/reactive.min.js' : '../src/reactive.js');
+const { signal, computed, effect, flushSync, createRoot, getOwner, memo, onCleanup, __subsOf } = reactive;
 
 describe('late reactive dependencies', () => {
   it('settles ordinary writes on microtasks even after repeated one-dependency runs', async () => {
@@ -49,15 +47,24 @@ describe('late reactive dependencies', () => {
     });
   }
 
-  it('retains the explicitly stable compiler effect path', () => {
+  it('runs explicitly stable effects in the flush, on their first-run dependencies', () => {
     const value = signal(0);
+    const late = signal('a');
     let seen;
-    const dispose = effect(() => { seen = value(); }, { stable: true });
+    const dispose = effect(() => { seen = value() ? `${value()}${late()}` : value(); }, { stable: true });
     value(1);
-    assert.equal(seen, 1, 'explicitly stable effects still run inline');
+    // Stable effects are scheduled like every other effect: running inline in
+    // the write would let them observe computeds not yet marked stale.
+    assert.equal(seen, 0);
+    flushSync();
+    assert.equal(seen, '1a');
+    // A stable re-run is untracked: `late`, first read on a re-run, is not a
+    // dependency.
+    late('b'); flushSync();
+    assert.equal(seen, '1a');
     dispose();
-    value(2);
-    assert.equal(seen, 1);
+    value(2); flushSync();
+    assert.equal(seen, '1a');
   });
 
   it('updates a real text binding after a late branch opens', async () => {
@@ -89,7 +96,7 @@ describe('owned computed lifetime', () => {
       });
       dispose();
     }
-    if (!production) assert.equal(shared._subs.size, 0);
+    if (!production) assert.deepEqual(__subsOf(shared), []);
     shared(1);
     assert.deepEqual(derivedValues.map(read => read()), Array.from({ length: 100 }, (_, i) => i));
   });
@@ -108,7 +115,7 @@ describe('owned computed lifetime', () => {
     assert.equal(derived.peek(), 1);
     value(3);
     assert.equal(evaluations, 1);
-    if (!production) assert.equal(value._subs.size, 0);
+    if (!production) assert.deepEqual(__subsOf(value), []);
   });
 
   it('does not evaluate an unread computed after its owner is disposed', () => {
@@ -163,7 +170,8 @@ describe('failure-safe ownership disposal', () => {
       assert.equal(runs, 1);
       assert.ok(cleaned.includes('earlier'));
       if (kind === 'child') assert.ok(cleaned.includes('sibling'));
-      assert.equal(owner.children.length, 0);
+      assert.equal(owner.firstChild, null);
+      assert.equal(owner.lastChild, null);
       assert.equal(owner.disposals.length, 0);
       assert.doesNotThrow(dispose);
     });
@@ -179,7 +187,7 @@ describe('failure-safe ownership disposal', () => {
         runs++;
         throw error;
       }), err => err === error);
-      if (!production) assert.equal(value._subs.size, 0);
+      if (!production) assert.deepEqual(__subsOf(value), []);
       value(1); flushSync();
       assert.equal(runs, 1);
     });

@@ -16,7 +16,17 @@ const TOO_LARGE_RESPONSE = () => new Response(
   { status: 413, headers: { 'content-type': 'application/json' } },
 );
 
-async function nodeToWebRequest(req) {
+// The Request's signal aborts when the client goes away before the response is
+// finished, so the loader, the render and every server fetcher can stop.
+function disconnectSignal(res) {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) controller.abort();
+  });
+  return controller.signal;
+}
+
+async function nodeToWebRequest(req, res) {
   const host = req.headers.host || 'localhost';
   const url = `http://${host}${req.url}`;
   const headers = new Headers();
@@ -46,29 +56,84 @@ async function nodeToWebRequest(req) {
     if (tooLarge) return TOO_LARGE;
     if (chunks.length) body = Buffer.concat(chunks);
   }
-  return new Request(url, { method: req.method, headers, body });
+  return new Request(url, { method: req.method, headers, body, signal: disconnectSignal(res) });
 }
 
+/** @returns {Promise<void>} */
+function drained(res) {
+  return new Promise((resolve) => {
+    const done = () => {
+      res.off('drain', done);
+      res.off('close', done);
+      resolve();
+    };
+    res.on('drain', done);
+    res.on('close', done);
+  });
+}
+
+// Streams the body as it is produced. A streamed page reaches the client
+// shell-first instead of being buffered whole, and write() reporting a full
+// socket pauses reading until it drains.
 async function sendWebResponse(res, webRes) {
   res.statusCode = webRes.status;
-  webRes.headers.forEach((value, key) => res.setHeader(key, value));
-  const text = await webRes.text();
-  res.end(text);
+  // setHeader replaces, and a Headers object yields each Set-Cookie on its own,
+  // so copying them one by one kept only the last cookie.
+  webRes.headers.forEach((value, key) => {
+    if (key !== 'set-cookie') res.setHeader(key, value);
+  });
+  const cookies = webRes.headers.getSetCookie();
+  if (cookies.length) res.setHeader('set-cookie', cookies);
+  if (!webRes.body) {
+    res.end();
+    return;
+  }
+  const reader = webRes.body.getReader();
+  // A client that goes away cancels the body, which ends a pending read and
+  // lets a streaming renderer stop.
+  const onClose = () => {
+    if (!res.writableFinished) reader.cancel().catch(() => {});
+  };
+  res.on('close', onClose);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done || res.destroyed) break;
+      if (!res.write(value)) await drained(res);
+    }
+    if (!res.destroyed) res.end();
+  } finally {
+    res.off('close', onClose);
+  }
+}
+
+function isAbort(err) {
+  return !!err && (err.name === 'AbortError' || err.name === 'TimeoutError');
 }
 
 /** Convert a Web-Fetch handler into a Node (req, res) listener. */
 export function toNodeListener(handler) {
   return async function listener(req, res) {
     try {
-      const webReq = await nodeToWebRequest(req);
+      const webReq = await nodeToWebRequest(req, res);
       if (webReq === TOO_LARGE) return await sendWebResponse(res, TOO_LARGE_RESPONSE());
       const webRes = await handler(webReq);
       await sendWebResponse(res, webRes);
     } catch (err) {
-      if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/html; charset=utf-8' });
-      res.end('<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>');
+      // The client went away and the work stopped on purpose: nobody to answer.
+      if (res.destroyed && isAbort(err)) return;
       // eslint-disable-next-line no-console
       console.error('[what-server] request error:', err);
+      // Once the status line and part of the page are out, a second document
+      // cannot be appended to the first. Cutting the connection is the only
+      // honest signal left: the client (and any cache) sees a truncated
+      // response, not a complete-looking page with a 500 glued to its end.
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      res.writeHead(500, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>');
     }
   };
 }
@@ -77,9 +142,15 @@ export function toNodeListener(handler) {
 export function whatMiddleware(options = {}) {
   const handler = createRequestHandler(options);
   return async function middleware(req, res, next) {
-    const webReq = await nodeToWebRequest(req);
+    const webReq = await nodeToWebRequest(req, res);
     if (webReq === TOO_LARGE) return await sendWebResponse(res, TOO_LARGE_RESPONSE());
-    const webRes = await handler(webReq);
+    let webRes;
+    try {
+      webRes = await handler(webReq);
+    } catch (err) {
+      if (res.destroyed && isAbort(err)) return;
+      throw err;
+    }
     if (webRes.status === 404 && typeof next === 'function') return next();
     await sendWebResponse(res, webRes);
   };

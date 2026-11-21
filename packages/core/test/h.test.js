@@ -2,6 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h, Fragment } from '../src/h.js';
+import { isVNode } from '../src/vnode-renderer.js';
 
 describe('h()', () => {
   it('should create a VNode for an element', () => {
@@ -10,7 +11,7 @@ describe('h()', () => {
     assert.deepEqual(vnode.props, { class: 'test' });
     assert.deepEqual(vnode.children, ['Hello']);
     assert.equal(vnode.key, null);
-    assert.equal(vnode._vnode, true);
+    assert.equal(isVNode(vnode), true);
   });
 
   it('should handle null props', () => {

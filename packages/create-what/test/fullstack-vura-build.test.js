@@ -63,10 +63,14 @@ test('fullstack scaffold declares the Vura build', async () => {
     assert.match(build, /from '\.\/client-files\.js'/);
     assert.doesNotMatch(server, /new Set\(\['\/src\/entry-client\.js'/, 'server.js no longer hard-codes its own list');
 
-    // The Function reuses server.js's handler instead of re-wiring SSR + ISR.
+    // The Function reuses server.js's handler instead of re-wiring SSR + ISR,
+    // with the import map build.js derived (it has no node_modules to read).
     assert.match(fn, /import \{ createHandler \} from '\.\/server\.js'/);
-    assert.match(fn, /createVuraHandler\(createHandler\(\)\)/);
+    assert.match(fn, /import importMap from '\.\/import-map\.json'/);
+    assert.match(fn, /createVuraHandler\(createHandler\(\{ importMap \}\)\)/);
     assert.match(build, /buildVuraOutput/);
+    assert.match(build, /writeFileSync\(join\(projectRoot, 'import-map\.json'\)/);
+    assert.match(await read('.gitignore'), /^import-map\.json$/m, 'the generated map is not committed');
 
     assert.doesNotMatch(config, /`what build` \/ `what start` read this to pick a\s+\/\/ deploy adapter/, 'the false claim is gone');
     assert.match(config, /npm run build/);
@@ -99,7 +103,8 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
     assert.equal(manifest.api[0].filePath, 'function.js');
     assert.ok(existsSync(join(appDir, 'dist', 'functions', '_', 'index.js')));
 
-    // Static: exactly the client allowlist plus public/, never server code.
+    // Static: exactly the client allowlist, the client packages and public/,
+    // never the app's server code or the dev-only devtools.
     const s = join(appDir, 'dist', 'static');
     for (const f of [
       'favicon.svg',
@@ -113,9 +118,19 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
     ]) {
       assert.ok(existsSync(join(s, f)), `dist/static/${f} is published`);
     }
-    for (const f of ['src/db.js', 'src/routes.js', 'src/actions', 'server.js', 'function.js', 'node_modules/what-devtools', 'node_modules/what-devtools-mcp', 'node_modules/what-server']) {
+    for (const f of ['src/db.js', 'src/routes.js', 'src/actions', 'server.js', 'function.js', 'import-map.json', 'node_modules/what-devtools', 'node_modules/what-devtools-mcp']) {
       assert.equal(existsSync(join(s, f)), false, `dist/static/${f} must not be published`);
     }
+    // Every URL in the page's import map is a published file, what-framework's
+    // router and server subpaths among them.
+    const { imports } = JSON.parse(await readFile(join(appDir, 'import-map.json'), 'utf8'));
+    for (const specifier of ['what-framework/router', 'what-framework/server', 'what-framework/render', 'what-core/internal']) {
+      assert.ok(imports[specifier], `the import map names ${specifier}`);
+    }
+    for (const [specifier, url] of Object.entries(imports)) {
+      assert.ok(existsSync(join(s, url)), `${specifier} -> dist/static${url} is published`);
+    }
+    assert.equal(Object.keys(imports).some((k) => k.startsWith('what-devtools')), false, 'the production map has no devtools');
 
     // Run the Function the way the platform does: dist/ alone, NODE_ENV=production,
     // no WHAT_REVALIDATE_SECRET, behind the edge's forwarded headers.
@@ -136,8 +151,9 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
         const webhook = await fn.fetch(new Request('http://10.1.2.3:3001/__what_revalidate', {
           method: 'POST', headers: { ...edge, 'content-type': 'application/json' }, body: '{"paths":["/"]}',
         }), env);
+        const importMap = JSON.parse(html.match(/<script type="importmap">(.*?)<\\/script>/)[1]);
         console.log(JSON.stringify({
-          home: home.status, cookie: home.headers.get('set-cookie'), listsPosts: html.includes('/blog/hello-world'),
+          home: home.status, cookie: home.headers.get('set-cookie'), listsPosts: html.includes('/blog/hello-world'), importMap,
           post: post.status, missing: missing.status, webhook: webhook.status,
         }));
       `);
@@ -150,6 +166,7 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
       const got = JSON.parse(run.stdout.trim().split('\n').pop());
       assert.equal(got.home, 200);
       assert.ok(got.listsPosts, 'SSR lists the posts');
+      assert.deepEqual(got.importMap, { imports }, 'the Function renders the import map the build derived');
       assert.match(got.cookie || '', /what-csrf=[^;]+;.*Secure/);
       assert.equal(got.post, 200);
       assert.equal(got.missing, 404);

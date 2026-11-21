@@ -4,6 +4,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { signal, computed, effect, batch, untrack, flushSync } from '../src/reactive.js';
+import { capture } from '../src/diagnostics.js';
 
 // Helper: flush microtask queue
 async function flush() {
@@ -158,14 +159,14 @@ describe('effect cleanup', () => {
 // =========================================================================
 
 describe('flush loop guard', () => {
-  it('warns and stops on infinite effect loop', async () => {
+  it('stops an infinite effect loop and reports ERR_INFINITE_EFFECT with the re-runs it made', async () => {
     const s = signal(0);
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
+    let runs = 0;
+    const cap = capture({ quiet: true });
 
     // Create effect that writes to the signal it reads (infinite loop)
-    const dispose = effect(() => {
+    const dispose = effect(function countUp() {
+      runs++;
       const val = s();
       if (val < 200) {
         s.set(val + 1);
@@ -173,12 +174,14 @@ describe('flush loop guard', () => {
     });
 
     await flush();
+    cap.stop();
 
-    // Should have warned about infinite loop
-    const loopWarning = warnings.find(w => w.includes('infinite effect loop'));
-    assert.ok(loopWarning, 'should warn about infinite loop');
-
-    console.warn = originalWarn;
+    const loops = cap.events.filter((e) => e.code === 'ERR_INFINITE_EFFECT');
+    assert.equal(loops.length, 1);
+    assert.equal(loops[0].data.effectName, 'countUp');
+    assert.equal(loops[0].data.rounds, runs - 1, 'every run after the first belongs to the stopped flush');
+    assert.equal(loops[0].subject.kind, 'effect');
+    assert.ok(s() < 200, `the loop was stopped (s = ${s()})`);
     dispose();
   });
 });

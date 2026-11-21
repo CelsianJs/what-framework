@@ -5,14 +5,15 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  // `memo` from this barrel is the COMPONENT memo. The signal memo is
-  // `signalMemo`; see index.d.ts, which declares both. Importing the wrong one
-  // gives a no-op wrapper that silently re-evaluates on every read.
-  signal, computed, effect, signalMemo, batch, untrack, flushSync,
-  createRoot, h, Fragment,
+  signal, computed, effect, batch, untrack, flushSync,
+  createRoot, h, Fragment, getDiagnostics, clearDiagnostics,
 } from '../packages/core/src/index.js';
+// The eager, equality-gated memo the compiler emits for conditional branches
+// (`memo` in what-framework/render). `memo` from the root entry is the
+// component wrapper.
+import { memo as eagerMemo } from '../packages/core/src/render.js';
 
-import { renderToString, renderToStream } from '../packages/server/src/index.js';
+import { renderToString, renderToHydratableString, renderToStream } from '../packages/server/src/index.js';
 
 // ============================================================
 // 1. DEEPLY NESTED REACTIVE UPDATES
@@ -283,18 +284,38 @@ describe('cleanup and disposal', () => {
 // ============================================================
 
 describe('infinite loop protection', () => {
-  test('effect that writes to its own signal is capped at 25 iterations', () => {
+  test('effect that writes to its own signal forever is stopped after 100 rounds', () => {
     const s = signal(0);
     let runs = 0;
+    clearDiagnostics();
 
-    // Suppress the console.warn
-    const origWarn = console.warn;
-    let warningFired = false;
-    console.warn = (...args) => {
-      if (String(args[0]).includes('infinite effect loop')) {
-        warningFired = true;
-      }
-    };
+    // The report also prints to the console; keep it out of the test output.
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      createRoot(() => {
+        effect(function runaway() {
+          runs++;
+          s(s() + 1); // Write to the same signal we read, unconditionally
+        });
+      });
+
+      flushSync();
+      flushSync();
+    } finally {
+      console.error = origError;
+    }
+
+    // The first run plus 100 flush rounds, then the loop is dropped.
+    assert.equal(runs, 101);
+    const loops = getDiagnostics().events.filter((e) => e.code === 'ERR_INFINITE_EFFECT');
+    assert.deepEqual(loops.map((e) => [e.data.effectName, e.data.rounds]), [['runaway', 100]]);
+  });
+
+  test('a self-write cascade that converges within 100 rounds completes', () => {
+    const s = signal(0);
+    let runs = 0;
+    clearDiagnostics();
 
     createRoot(() => {
       effect(() => {
@@ -305,16 +326,11 @@ describe('infinite loop protection', () => {
       });
     });
 
-    // Allow microtask flush
-    flushSync();
-    flushSync();
     flushSync();
 
-    console.warn = origWarn;
-
-    // The framework should cap iterations at 25
-    assert.ok(runs <= 30, `Should cap iterations, got ${runs}`);
-    assert.ok(warningFired || runs <= 26, 'Should warn about infinite loop or cap iterations');
+    assert.equal(s(), 100);
+    assert.equal(runs, 101);
+    assert.deepEqual(getDiagnostics().events.filter((e) => e.code === 'ERR_INFINITE_EFFECT'), []);
   });
 });
 
@@ -474,14 +490,16 @@ describe('SSR correctness', () => {
 // ============================================================
 
 describe('SSR streaming', () => {
-  test('stream renders same output as string', async () => {
+  // A stream is hydratable output: the same markup as renderToHydratableString,
+  // hydration keys and markers included.
+  test('stream renders same output as the hydratable string', async () => {
     function App() {
       return h('div', { class: 'app' },
         h('h1', null, 'Hello'),
         h('p', null, 'World')
       );
     }
-    const stringResult = renderToString(h(App));
+    const stringResult = renderToHydratableString(h(App));
     let streamResult = '';
     for await (const chunk of renderToStream(h(App))) {
       streamResult += chunk;
@@ -497,7 +515,7 @@ describe('SSR streaming', () => {
     for await (const chunk of renderToStream(h(AsyncComponent))) {
       result += chunk;
     }
-    assert.equal(result, '<div>async content</div>');
+    assert.equal(result, '<div data-hk="0">async content</div>');
   });
 });
 
@@ -690,7 +708,7 @@ describe('memo edge cases', () => {
     let memoComputations = 0;
     let m;
     createRoot(() => {
-      m = signalMemo(() => {
+      m = eagerMemo(() => {
         memoComputations++;
         return sum() > 5;
       });

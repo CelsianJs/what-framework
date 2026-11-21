@@ -5,14 +5,33 @@
 //
 // The cache engine is OPTIONAL and injected (from what-isr) so what-server
 // stays standalone. Render is owned here (renderDocument) but overridable.
+//
+// A cached route and the response API. A render the cache may share sees a
+// view of the request whose `signal` is the cache's (a regeneration is shared
+// work: it stops only when every request waiting on it has gone) and which
+// records the request headers it reads. Reading a header the route's `vary`
+// does not name (a cookie, Authorization, Accept-Language) makes the render
+// per-visitor, so it is returned as private and never stored. The cache
+// engine (what-isr headers.js) decides the rest from the response the render
+// set: a Set-Cookie, a private/no-store/no-cache Cache-Control or a Vary makes
+// it private too; a redirect or any status but 200 goes to its own requester
+// only, with its Location; the page's other headers are stored and replayed.
+// A response a shared cache may store never carries a cookie: when the CSRF
+// cookie has to be set on one, that response is sent `private, no-store`.
 
 import { matchRoute, parseQuery } from 'what-router/match';
-import { renderDocument } from '../index.js';
+import { renderDocument, renderDocumentStream } from '../index.js';
 import { createActionHandler, parseActionBody, readFetchBodyCapped } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
 import { generateCsrfToken } from '../actions.js';
+import { createResponse } from '../response.js';
+import { _isDevMode } from '../html.js';
 
 const ACTION_PATH = '/__what_action';
+const HTML_HEADERS = { 'content-type': 'text/html; charset=utf-8' };
+const NO_STORE = { 'cache-control': 'private, no-store' };
+// Statuses whose response may not carry a body (the Response constructor throws).
+const NULL_BODY = new Set([101, 204, 205, 304]);
 const REVALIDATE_PATH = '/__what_revalidate';
 const CSRF_COOKIE = 'what-csrf';
 
@@ -20,6 +39,31 @@ function headersToObject(headers) {
   const out = {};
   if (headers && typeof headers.forEach === 'function') headers.forEach((v, k) => { out[k.toLowerCase()] = v; });
   return out;
+}
+
+// Fold every header source of a response into one Headers. Later sources win
+// for ordinary headers; Set-Cookie values are appended, never replaced, so a
+// route's cookies and the CSRF cookie all reach the client. A source is a
+// Headers or a plain object whose 'set-cookie' may be an array.
+function responseHeaders(...sources) {
+  const headers = new Headers();
+  for (const source of sources) {
+    if (!source) continue;
+    if (typeof source.getSetCookie === 'function') {
+      for (const cookie of source.getSetCookie()) headers.append('set-cookie', cookie);
+      source.forEach((value, name) => { if (name !== 'set-cookie') headers.set(name, value); });
+      continue;
+    }
+    for (const [name, value] of Object.entries(source)) {
+      if (value == null) continue;
+      if (name.toLowerCase() === 'set-cookie') {
+        for (const cookie of [].concat(value)) headers.append('set-cookie', String(cookie));
+      } else {
+        headers.set(name, Array.isArray(value) ? value.join(', ') : String(value));
+      }
+    }
+  }
+  return headers;
 }
 
 function readCookie(cookieHeader, name) {
@@ -51,32 +95,118 @@ async function readJsonBody(request) {
   try { return { json: JSON.parse(read.raw ?? '') }; } catch { return { json: {} }; }
 }
 
+// The page module, loader context and document options for one route request.
+function pageRequest(routeMatch, documentOptions) {
+  const { route, params, query, request, csrfToken } = routeMatch;
+  const pageModule = { default: route.component, loader: route.loader };
+  // The token goes to the LOADER as well as the document. A server-rendered
+  // <Form> has to put the per-visitor token in a hidden field, and the loader
+  // is the only per-request hook a page has before its component runs, so
+  // without this the token exists (as a cookie and a <meta> tag) and is still
+  // unreachable from the markup: the form ships an empty field and the no-JS
+  // submit dies on the double-submit check with a silent 403. The create-what
+  // scaffold already hand-rolled its own renderRoute to do exactly this.
+  //
+  // Only the direct-render branch below sets routeMatch.csrfToken, so a
+  // CACHED route's loader still sees no token. That is deliberate, not an
+  // omission: cached HTML is shared between visitors and must never carry one
+  // visitor's token.
+  const response = createResponse();
+  const reqCtx = csrfToken
+    ? { params, query, request, signal: request.signal, response, csrfToken }
+    : { params, query, request, signal: request.signal, response };
+  const opts = csrfToken
+    ? { ...documentOptions, csrfToken }
+    : documentOptions;
+  return { pageModule, reqCtx, opts, response };
+}
+
+// The status and headers the loader and the page set, with a redirect as a
+// real Location header.
+function committedHeaders(response) {
+  return response.location ? responseHeaders(response.headers, { location: response.location }) : response.headers;
+}
+
+// The request header names a route's declared `vary` covers ('cookie:session'
+// covers the Cookie header, 'accept-language' and 'header:x-tenant' name one).
+function variedHeaderNames(config) {
+  const names = new Set();
+  const vary = config && config.vary;
+  for (const raw of typeof vary === 'string' ? [vary] : Array.isArray(vary) ? vary : []) {
+    const name = String(raw);
+    const i = name.indexOf(':');
+    const kind = i < 0 ? 'header' : name.slice(0, i).toLowerCase();
+    names.add(kind === 'cookie' ? 'cookie' : (i < 0 ? name : name.slice(i + 1)).toLowerCase());
+  }
+  return names;
+}
+
+const ITERATING_METHODS = new Set(['forEach', 'entries', 'keys', 'values', Symbol.iterator]);
+
+// The request a shareable render sees: the cache's signal, and a record of the
+// header names read that the cache key does not vary on.
+function sharedRenderRequest(request, signal, varied) {
+  /** @type {Set<string>} */
+  const unvaried = new Set();
+  const read = (name) => {
+    const lower = String(name).toLowerCase();
+    if (!varied.has(lower)) unvaried.add(lower);
+  };
+  const headers = new Proxy(request.headers, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      if (property === 'get' || property === 'has') {
+        return (name) => {
+          read(name);
+          return value.call(target, name);
+        };
+      }
+      if (ITERATING_METHODS.has(property)) {
+        return (...args) => {
+          target.forEach((_value, name) => read(name));
+          return value.apply(target, args);
+        };
+      }
+      return value.bind(target);
+    },
+  });
+  const view = new Proxy(request, {
+    get(target, property) {
+      if (property === 'headers') return headers;
+      if (property === 'signal') return signal;
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return { request: view, unvaried };
+}
+
 function defaultRenderRoute(documentOptions) {
-  return async function renderRoute(routeMatch) {
-    const { route, params, query, request, csrfToken } = routeMatch;
-    const pageModule = { default: route.component, loader: route.loader };
-    // The token goes to the LOADER as well as the document. A server-rendered
-    // <Form> has to put the per-visitor token in a hidden field, and the loader
-    // is the only per-request hook a page has before its component runs, so
-    // without this the token exists (as a cookie and a <meta> tag) and is still
-    // unreachable from the markup: the form ships an empty field and the no-JS
-    // submit dies on the double-submit check with a silent 403. The create-what
-    // scaffold already hand-rolled its own renderRoute to do exactly this.
-    //
-    // Only the direct-render branch below sets routeMatch.csrfToken, so a
-    // CACHED route's loader still sees no token. That is deliberate, not an
-    // omission: cached HTML is shared between visitors and must never carry one
-    // visitor's token.
-    const reqCtx = csrfToken ? { params, query, request, csrfToken } : { params, query, request };
-    const opts = csrfToken
-      ? { ...documentOptions, csrfToken }
-      : documentOptions;
+  // `cacheCtx` is what the cache engine hands a render it may share; absent on
+  // the direct path.
+  return async function renderRoute(routeMatch, cacheCtx) {
+    const shared = cacheCtx && routeMatch.request
+      ? sharedRenderRequest(routeMatch.request, cacheCtx.signal, variedHeaderNames(routeMatch.config))
+      : null;
+    const match = shared ? { ...routeMatch, request: shared.request } : routeMatch;
+    const { pageModule, reqCtx, opts, response } = pageRequest(match, documentOptions);
     const html = await renderDocument(pageModule, reqCtx, opts);
+    const unvaried = shared ? [...shared.unvaried] : [];
+    if (unvaried.length && _isDevMode) {
+      console.warn(
+        `[what-server] ${routeMatch.path} is cached, and its render read the request header(s) ${unvaried.join(', ')}, ` +
+        'which its cache key does not vary on, so this render was not stored. Declare them in the route\'s `vary` ' +
+        '(page: { vary: [\'cookie:session\'] }) or render the page with mode: \'server\'.',
+      );
+    }
     return {
-      html,
-      status: 200,
+      html: response.location ? '' : html,
+      status: response.status,
+      headers: committedHeaders(response),
       tags: (routeMatch.config && routeMatch.config.tags) || [],
       path: routeMatch.path,
+      usedRequestHeaders: unvaried.length > 0,
     };
   };
 }
@@ -102,6 +232,8 @@ function defaultRenderRoute(documentOptions) {
  * /__what_action as application/x-www-form-urlencoded — see createActionHandler
  * in action-handler.js for the field contract (_action, _csrf/what-csrf-token,
  * _redirect).
+ *
+ * @param {import('what-server').RequestHandlerOptions} [options]
  */
 export function createRequestHandler(options = {}) {
   const {
@@ -113,6 +245,7 @@ export function createRequestHandler(options = {}) {
     notFound,
     basePath = '',
     csrf = true,
+    onError,
   } = options;
 
   // Auto-provisioning (cookie + meta tag) only applies to the built-in
@@ -124,7 +257,10 @@ export function createRequestHandler(options = {}) {
       : { skipCsrf: true }
   );
 
-  const renderRoute = render || defaultRenderRoute(documentOptions);
+  // `onError` hears the errors every built-in render contains or fails on,
+  // streamed or buffered.
+  const renderOptions = onError ? { ...documentOptions, onError } : documentOptions;
+  const renderRoute = render || defaultRenderRoute(renderOptions);
 
   // Bind the cache engine so server actions' revalidatePath/revalidateTag (and
   // any app code calling them from what-framework/server) purge this engine.
@@ -180,10 +316,7 @@ export function createRequestHandler(options = {}) {
           + (isHttps ? '; Secure' : '');
       }
     }
-    const withCsrfCookie = (headers) => {
-      if (csrfSetCookie) headers['set-cookie'] = csrfSetCookie;
-      return headers;
-    };
+    const csrfHeaders = csrfSetCookie ? { 'set-cookie': csrfSetCookie } : null;
 
     // On-demand revalidation webhook
     if (request.method === 'POST' && pathname === REVALIDATE_PATH && revalidateWebhook) {
@@ -205,7 +338,7 @@ export function createRequestHandler(options = {}) {
     const matched = matchRoute(pathname, routes);
     if (!matched) {
       const html = notFound ? notFound() : '<!DOCTYPE html><html><body><h1>404 — Not Found</h1></body></html>';
-      return new Response(html, { status: 404, headers: withCsrfCookie({ 'content-type': 'text/html; charset=utf-8' }) });
+      return new Response(html, { status: 404, headers: responseHeaders(HTML_HEADERS, csrfHeaders) });
     }
 
     const { route, params } = matched;
@@ -220,28 +353,52 @@ export function createRequestHandler(options = {}) {
       // these. Without them it fails closed: warns and bypasses on every
       // request, which is how the vary control shipped never executing.
       routeMatch.varyHeaders = headersToObject(request.headers);
-      const result = await cache.handle(routeMatch, () => renderRoute(routeMatch));
-      return new Response(result.html, {
-        status: result.status || 200,
-        headers: withCsrfCookie({ 'content-type': 'text/html; charset=utf-8', ...(result.headers || {}) }),
-      });
+      routeMatch.signal = request.signal;
+      const result = await cache.handle(routeMatch, (match, cacheCtx) => renderRoute(match, cacheCtx));
+      const status = result.status || 200;
+      const headers = responseHeaders(HTML_HEADERS, result.headers, csrfHeaders);
+      if (csrfHeaders && /\bpublic\b/i.test(headers.get('cache-control') || '')) headers.set('cache-control', 'private, no-store');
+      return new Response(NULL_BODY.has(status) ? null : result.html, { status, headers });
     }
 
     // Direct render (server mode, or no cache configured): per-request HTML,
     // safe to embed the CSRF token as a <meta> tag for forms/fetch clients.
     if (csrfToken) routeMatch.csrfToken = csrfToken;
+
+    // A server-mode route streams: the shell (and every <Suspense> fallback)
+    // goes out as soon as it is rendered and slow data follows. Cached routes
+    // above store whole documents, so they keep the buffered render; so does a
+    // route with `page.stream: false` or a custom `render`.
+    // The response is committed with the shell: a redirect made by then is a
+    // real redirect, and the stream is dropped.
+    if (!render && config.mode === 'server' && config.stream !== false) {
+      const { pageModule, reqCtx, opts, response } = pageRequest(routeMatch, renderOptions);
+      const stream = await renderDocumentStream(pageModule, reqCtx, opts);
+      await stream.shellReady;
+      if (response.location || NULL_BODY.has(response.status)) {
+        stream.abort();
+        return new Response(null, { status: response.status, headers: responseHeaders(committedHeaders(response), NO_STORE, csrfHeaders) });
+      }
+      return new Response(stream.readable, {
+        status: response.status,
+        headers: responseHeaders(HTML_HEADERS, response.headers, NO_STORE, csrfHeaders),
+      });
+    }
+
     const out = await renderRoute(routeMatch);
     // `out.headers` is honoured here exactly as it is on the cache path above.
     // It used to be dropped on this branch only, so a custom `render` could set
     // response headers for a cached route and not for an uncached one — which
     // meant a render returning a 302 produced a redirect with no Location, an
-    // empty page with nothing to say why. Spread before the CSRF cookie so a
-    // render cannot drop it.
-    const headers = withCsrfCookie({
-      'content-type': 'text/html; charset=utf-8',
-      ...(out.headers || {}),
-    });
-    if (config.mode === 'server') headers['Cache-Control'] = 'private, no-store';
-    return new Response(out.html, { status: out.status || 200, headers });
+    // empty page with nothing to say why. The CSRF cookie is appended after the
+    // render's own cookies, so neither can drop the other.
+    const headers = responseHeaders(
+      HTML_HEADERS,
+      out.headers,
+      config.mode === 'server' ? NO_STORE : null,
+      csrfHeaders,
+    );
+    const status = out.status || 200;
+    return new Response(NULL_BODY.has(status) ? null : out.html, { status, headers });
   };
 }

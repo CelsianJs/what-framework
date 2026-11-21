@@ -9,24 +9,22 @@
  * - Is always truthy in conditionals
  * - Produces wrong comparisons
  * - Coerces to the function source in template literals
- * - In JSX children it only works because the compiler auto-wraps it —
- *   explicit () reads don't depend on that
  *
  * Bad:  {isLoading && <Spinner />}  → always truthy
  * Bad:  `Total: ${count}`           → function source, not the value
- * Bad:  <span>{count}</span>        → implicit (relies on compiler auto-wrap)
- * Bad:  {swr.data}                  → implicit (relies on compiler auto-wrap)
  *
- * Good: <span>{count()}</span>
  * Good: {isLoading() && <Spinner />}
- * Good: {swr.data()}
  * Good: `Total: ${count()}`
+ * Good: <span>{count}</span>, <input value={count} />, {swr.data}: a signal
+ *       that is the whole JSX child or attribute value is a live binding, with
+ *       or without the compiler
  *
  * Does NOT warn when:
  * - Signal is passed as a callback argument: fn(count)
  * - Signal method is accessed: count.set(5), count.peek()
  * - Signal is on left side of assignment or in typeof
- * - Signal is used in an event handler attribute value: onClick={handler}
+ * - Signal is the whole expression of a JSX child or attribute
+ * - The name is being declared or exported: const [count] = useState(0), export { count }
  */
 
 import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
@@ -37,6 +35,7 @@ export default {
     docs: {
       description: 'Require calling signals to read their value — catch missing ()',
       recommended: true,
+      code: 'ERR_MISSING_SIGNAL_READ',
     },
     messages: {
       uncalledSignal:
@@ -124,16 +123,36 @@ export default {
     }
 
     /**
-     * Check if node is a JSX attribute value (event handler).
-     * e.g., onClick={handler} — not a value context.
+     * Check if node is the whole expression of a JSX child or attribute value:
+     * {count}, value={count}, onClick={handler}. A function there is a live
+     * binding (or a handler), not a value read once.
      */
-    function isJSXAttributeValue(node) {
-      // Walk up: Identifier -> JSXExpressionContainer -> JSXAttribute
-      const exprContainer = node.parent;
-      if (exprContainer?.type === 'JSXExpressionContainer') {
-        return exprContainer.parent?.type === 'JSXAttribute';
+    function isWholeJSXExpression(node) {
+      return node.parent?.type === 'JSXExpressionContainer' && node.parent.expression === node;
+    }
+
+    /**
+     * Check if node names a binding rather than reading one: a destructuring
+     * target (const [count] = useState(0)), a parameter, or an export.
+     */
+    function isBindingName(node) {
+      const parent = node.parent;
+      switch (parent.type) {
+        case 'ArrayPattern':
+        case 'RestElement':
+        case 'ExportSpecifier':
+          return true;
+        case 'AssignmentPattern':
+          return parent.left === node;
+        case 'Property':
+          return parent.value === node && parent.parent?.type === 'ObjectPattern';
+        case 'FunctionDeclaration':
+        case 'FunctionExpression':
+        case 'ArrowFunctionExpression':
+          return parent.params.includes(node);
+        default:
+          return false;
       }
-      return false;
     }
 
     function checkIdentifier(node) {
@@ -148,8 +167,8 @@ export default {
       // Skip pass-through positions
       if (isPassThrough(node)) return;
 
-      // Skip JSX attribute values (event handlers): onClick={handler}
-      if (isJSXAttributeValue(node)) return;
+      // Skip a live binding or a handler: {count}, value={count}, onClick={handler}
+      if (isWholeJSXExpression(node)) return;
 
       // Check: is this a direct signal variable?
       if (tracker.isSignalLike(name)) {
@@ -177,6 +196,9 @@ export default {
 
         // Skip pass-through positions on the parent
         if (isPassThrough(node)) return;
+
+        // Skip a live binding: {swr.data}
+        if (isWholeJSXExpression(node)) return;
 
         context.report({
           node,
@@ -207,6 +229,7 @@ export default {
         if (parent.type === 'Property' && parent.key === node && !parent.computed) return;
         if (parent.type === 'ImportSpecifier') return;
         if (parent.type === 'ImportDefaultSpecifier') return;
+        if (isBindingName(node)) return;
 
         // Skip: member expression property (count.set — we handle this separately)
         if (parent.type === 'MemberExpression' && parent.property === node && !parent.computed) return;

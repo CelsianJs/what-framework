@@ -1,7 +1,6 @@
-// Regression for the catalogue drift found in the 2026-08-09 parity audit:
-// what_connection_status is the tool agents are told to call FIRST, and it
-// answered with a hand-maintained array of 17 entries while 29 tools were
-// registered. The catalogue is now derived from registration itself.
+// The tool catalogue is derived from registration, and the registered set is
+// pinned here: docs, scaffold templates and the MCP prompt all name tools, so
+// a rename or removal has to show up as a test change, never as silent drift.
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +11,7 @@ import {
   describeToolAvailability,
   __resetToolRegistry,
 } from '../src/tool-registry.js';
+import { TOOL_CHANGES } from '../src/tool-changes.js';
 
 // Minimal stand-in for the MCP server surface the registry wraps.
 function fakeServer() {
@@ -55,7 +55,21 @@ describe('the tool catalogue is derived from registration, not hand-maintained',
   });
 });
 
-describe('the real server reports its real tool count', () => {
+// The 24 tools, after the 2026-11 consolidation.
+const TOOLS = [
+  'what_connection_status', 'what_signals', 'what_effects', 'what_components', 'what_snapshot',
+  'what_errors', 'what_events', 'what_cache', 'what_set_signal', 'what_invalidate_cache',
+  'what_dependency_graph', 'what_eval', 'what_dom_inspect', 'what_route', 'what_diagnose',
+  'what_navigate', 'what_explain', 'what_signal_trace', 'what_look', 'what_page_map', 'what_screenshot',
+  'what_lint', 'what_scaffold', 'what_fix',
+];
+
+// Removed in the consolidation: component_tree -> what_components {tree},
+// diff_snapshot -> what_snapshot {mode}, watch and record_window -> what_events,
+// validate -> what_lint {compile}, perf -> what_diagnose.
+const REMOVED = TOOL_CHANGES.removed.flatMap((change) => change.names);
+
+describe('the real server registers exactly the documented tool set', () => {
   // The literal this replaced said 17. If someone adds a tool and the reported
   // count does not move, the catalogue has been hand-maintained again.
   it('registers every tool through the instrumented surface', async () => {
@@ -70,16 +84,15 @@ describe('the real server reports its real tool count', () => {
     registerAgentTools(server, bridge);
 
     const names = getRegisteredTools().map((t) => t.name);
-    assert.ok(names.length >= 29, `expected at least 29 registered tools, got ${names.length}`);
+    assert.deepEqual([...names].sort(), [...TOOLS].sort());
     assert.equal(new Set(names).size, names.length, 'tool names must be unique');
-    assert.ok(names.every((n) => n.startsWith('what_')), 'every tool is namespaced what_*');
 
-    // The four documented offline tools must genuinely be registered, since
-    // CLAUDE.md promises they work with no browser attached.
-    for (const n of ['what_lint', 'what_scaffold', 'what_fix', 'what_validate']) {
-      assert.ok(names.includes(n), `${n} is documented as offline-capable but is not registered`);
+    for (const removed of REMOVED) {
+      assert.ok(!names.includes(removed), `${removed} was removed with no alias`);
     }
 
+    const { available } = describeToolAvailability(false);
+    assert.deepEqual(available.map((t) => t.name).sort(), ['what_connection_status', 'what_fix', 'what_lint', 'what_scaffold']);
     const { requiresBrowser } = describeToolAvailability(false);
     assert.ok(requiresBrowser.length > 0, 'most tools genuinely need a live page');
   });

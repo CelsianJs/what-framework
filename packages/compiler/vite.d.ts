@@ -16,6 +16,34 @@ export interface WhatVitePluginOptions {
   hot?: boolean;
   /** Resolve the `production` exports condition during build. Defaults to true. */
   prodBundles?: boolean;
+  /**
+   * Compile modules Vite transforms for the server (SSR, or the 'ssr'
+   * environment) with what-compiler's server target, which what-server renders.
+   * Defaults to true. With false, a server transform whose output would build
+   * DOM is refused with ERR_COMPILED_JSX_IN_SSR.
+   */
+  ssr?: boolean;
+  /**
+   * False compiles every server transform for the DOM, whatever `ssr` says,
+   * for a process that installs a DOM on purpose, such as a test runner
+   * applying SSR transforms. Defaults to true: server transforms use the
+   * server target, or with `ssr: false` one that would build DOM is refused.
+   */
+  ssrGuard?: boolean;
+  /**
+   * Rewrite `selected() === row.id` inside keyed `.map()` rows to a
+   * `createSelector` lookup, so a selection change re-runs two rows instead of
+   * every row. Defaults to true; false keeps every comparison as written.
+   */
+  autoSelector?: boolean;
+  /**
+   * Compile client JSX so that `hydrate()` adopts server-rendered markup
+   * (what-compiler's `hydratable` option). `'auto'`, the default, does when
+   * the config says the project renders on the server: `appType: 'custom'`,
+   * an SSR build, or a client build with `build.ssrManifest`. Set `true` when
+   * the client build has none of these.
+   */
+  hydratable?: boolean | 'auto';
 }
 
 // Structural Vite plugin shape — assignable to Vite's `PluginOption` without a

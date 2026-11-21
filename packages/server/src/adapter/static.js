@@ -6,6 +6,18 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { matchRoute } from 'what-router/match';
 import { renderDocument, serializeState } from '../index.js';
+import { createResponse } from '../response.js';
+import { escapeHtml } from '../html.js';
+
+// What a static host can do with a redirect: a page that sends the browser on
+// at once, and tells crawlers where the content lives.
+function redirectStub(location) {
+  const target = escapeHtml(location);
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+    + `<meta http-equiv="refresh" content="0; url=${target}">`
+    + `<link rel="canonical" href="${target}"><meta name="robots" content="noindex">`
+    + `<title>Redirecting</title></head><body><a href="${target}">${target}</a></body></html>`;
+}
 
 function isDynamic(path) {
   return path.includes(':') || path.includes('*') || path.includes('[');
@@ -37,6 +49,13 @@ function resolveInsideOutDir(outDir, urlPath) {
 }
 
 /**
+ * Each page's loader and components get a `response` (createResponse()), as on
+ * a server. A page that redirects is written as a redirect stub (a meta
+ * refresh to the target, with a canonical link) and listed in `redirects`. A
+ * page that sets any other status but 200 cannot be served with that status by
+ * a static host, so it is not written at all: it is listed in `skipped`, with
+ * a warning.
+ *
  * @param {object} [options]
  * @param {any[]} [options.routes]
  * @param {string} [options.outDir]
@@ -45,6 +64,10 @@ function resolveInsideOutDir(outDir, urlPath) {
  */
 export async function exportStatic({ routes = [], outDir, render, documentOptions = {} } = {}) {
   const written = [];
+  /** @type {Array<{ path: string, location: string, status: number }>} */
+  const redirects = [];
+  /** @type {Array<{ path: string, status: number }>} */
+  const skipped = [];
 
   for (const route of routes) {
     const mode = (route.page && route.page.mode) || route.mode;
@@ -61,7 +84,8 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
       const dirPath = resolveInsideOutDir(outDir, urlPath);
       const matched = matchRoute(urlPath, [route]);
       const params = matched ? matched.params : {};
-      const reqCtx = { params, query: {} };
+      const response = createResponse();
+      const reqCtx = { params, query: {}, response };
       const pageModule = { default: route.component, loader: route.loader };
       const hasLoader = typeof pageModule.loader === 'function';
       // One snapshot per concrete page, shared with default/custom renderers
@@ -77,8 +101,20 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
       const html = render
         ? await render(pageModule, reqCtx)
         : await renderDocument(pageModule, reqCtx, documentOptions);
-      const loaderData = hasLoader ? await pageModule.loader(reqCtx) : undefined;
 
+      if (response.location) {
+        await mkdir(dirPath, { recursive: true });
+        await writeFile(join(dirPath, 'index.html'), redirectStub(response.location));
+        redirects.push({ path: urlPath, location: response.location, status: response.status });
+        continue;
+      }
+      if (response.status !== 200) {
+        console.warn(`[what-server] exportStatic: ${urlPath} rendered with status ${response.status}, which a static host cannot send; it was not written.`);
+        skipped.push({ path: urlPath, status: response.status });
+        continue;
+      }
+
+      const loaderData = hasLoader ? await pageModule.loader(reqCtx) : undefined;
       await mkdir(dirPath, { recursive: true });
       await writeFile(join(dirPath, 'index.html'), html);
 
@@ -91,5 +127,5 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
     }
   }
 
-  return { pages: written };
+  return { pages: written, redirects, skipped };
 }

@@ -44,7 +44,7 @@ function Users() {
       <h2>Users</h2>
       <p>Click a user to see dynamic route params in action:</p>
       {users.map(u => (
-        <div class="card">
+        <div key={u.id} class="card">
           <h3>{u.name}</h3>
           <p>{u.role}</p>
           <a

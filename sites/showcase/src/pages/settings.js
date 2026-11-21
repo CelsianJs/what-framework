@@ -1,5 +1,7 @@
 // Settings — showcases: useForm, validation rules, stores, signals, theme toggle, accessibility, announce
-import { h, useState, useForm, rules, simpleResolver, announce } from 'what-framework';
+import { h, useState } from 'what-framework';
+import { useForm, rules, simpleResolver } from 'what-framework/form';
+import { announce } from 'what-framework/a11y';
 import { useAppStore } from '../app.js';
 
 // ─── Profile Form ───

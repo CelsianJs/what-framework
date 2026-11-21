@@ -38,24 +38,22 @@ const { mount } = await import('../src/dom.js');
 const { __DEV__ } = await import('../src/reactive.js');
 const { useForm, zodResolver, yupResolver, Radio } = await import('../src/form.js');
 
-// Capture console.warn for the dev-warning assertions. The warnings themselves
-// are gated on __DEV__ (they compile away in production builds), so the suites
-// below assert the BEHAVIOUR unconditionally and the warning text only when the
-// dev branch is live — otherwise a NODE_ENV=production test run would fail on
-// output that is supposed to be absent.
+// Capture diagnostics for the dev-warning assertions. The reports are gated on
+// __DEV__ (they compile away in production builds), so the suites below assert
+// the BEHAVIOUR unconditionally and the reported code only when the dev branch
+// is live — otherwise a NODE_ENV=production test run would fail on output that
+// is supposed to be absent.
+const { capture } = await import('../src/diagnostics.js');
 function spyOnWarnings() {
-  const warnings = [];
-  const original = console.warn;
-  console.warn = (...args) => warnings.push(args.join(' '));
+  const cap = capture({ quiet: true });
   return {
-    warnings,
-    restore() { console.warn = original; },
+    restore() { cap.stop(); },
     // Asserts nothing when the dev branch is compiled out; see above.
-    assertWarned(pattern, message) {
+    assertReported(code, data, message) {
       if (!__DEV__) return;
       assert.ok(
-        warnings.some((w) => pattern.test(w)),
-        `${message}\nGot: ${JSON.stringify(warnings, null, 2)}`,
+        cap.events.some((e) => e.code === code && Object.entries(data).every(([k, v]) => e.data[k] === v)),
+        `${message}\nGot: ${JSON.stringify(cap.events.map((e) => [e.code, e.data]))}`,
       );
     },
   };
@@ -375,7 +373,7 @@ describe('<Radio> with no value prop (#22b)', () => {
   });
 
   it('warns that the radio has nothing to contribute', () => {
-    warn.assertWarned(/<Radio name="pick">.*missing a `value` prop/s, 'a valueless radio must be called out');
+    warn.assertReported('ERR_FORM_RADIO_WITHOUT_VALUE', { name: 'pick' }, 'a valueless radio must be called out');
   });
 
   it('does not write the DOM default "on" into form state', async () => {
@@ -419,7 +417,7 @@ describe('register() change handler called without an event (#22c)', () => {
 
     assert.equal(form.getValue('nickname'), 'kirby', 'a handler with no event must not overwrite the field');
     assert.notEqual(form.getValue('nickname'), undefined);
-    warn.assertWarned(/called without an event/, 'the mistake must be loud in dev');
+    warn.assertReported('ERR_FORM_HANDLER_WITHOUT_EVENT', { name: 'nickname' }, 'the mistake must be loud in dev');
   });
 });
 
@@ -450,10 +448,7 @@ describe('register() spread onto a raw radio input (#22d)', () => {
       warn.restore();
     }
 
-    warn.assertWarned(
-      /register\("u"\) was spread onto <input type="radio"> without a type/,
-      'an untyped registration on a radio must not fail silently',
-    );
+    warn.assertReported('ERR_FORM_RADIO_UNTYPED', { name: 'u' }, 'an untyped registration on a radio must not fail silently');
   });
 
   it('lets the input\'s own value win when the registration is typed but has no value', async () => {

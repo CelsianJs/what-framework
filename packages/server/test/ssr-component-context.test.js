@@ -130,7 +130,7 @@ describe('context resolves through the tree on the server', () => {
     let html = '';
     const tree = h(Theme.Provider, { value: 'dark' }, h('div', {}, h(Consumer, {})));
     for await (const chunk of renderToStream(tree, {})) html += chunk;
-    assert.match(html, /<span>dark<\/span>/);
+    assert.match(html, /<span data-hk="00">dark<\/span>/);
   });
 });
 

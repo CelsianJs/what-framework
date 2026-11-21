@@ -1,4 +1,4 @@
-import { SkipLink } from 'what-framework';
+import { SkipLink } from 'what-framework/a11y';
 import { Link } from 'what-framework/router';
 
 const NAV_ITEMS = [
@@ -21,7 +21,7 @@ export default function RootLayout({ children }) {
         <div class="brand">What Framework npm review app</div>
         <nav class="nav-links" aria-label="Main navigation">
           {NAV_ITEMS.map((item) => (
-            <Link href={item.href} class="nav-link" activeClass="is-active">
+            <Link key={item.href} href={item.href} class="nav-link" activeClass="is-active">
               {item.label}
             </Link>
           ))}

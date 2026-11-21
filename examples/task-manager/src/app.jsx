@@ -2,7 +2,9 @@
 // Demonstrates: createStore, derived, useSignal, useEffect, useRef,
 // useMemo, mount, batch, spring animation, localStorage, JSX
 
-import { mount, createStore, derived, useSignal, useEffect, useRef, useMemo, spring, cls } from 'what-framework';
+import { mount, createStore, derived, useSignal, useEffect, useRef, useMemo } from 'what-framework';
+import { spring } from 'what-framework/motion';
+import { cls } from 'what-framework/dom';
 
 // --- Store ----------------------------------------
 // Global state with derived computeds and actions using `this`
@@ -169,7 +171,7 @@ function TaskItem({ task }) {
     if (hrs < 24) return `${hrs}h ago`;
     const days = Math.floor(hrs / 24);
     return `${days}d ago`;
-  }, [task.createdAt]);
+  });
 
   return (
     <div

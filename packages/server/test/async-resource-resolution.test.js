@@ -1,8 +1,11 @@
 // A keyless createResource() never resolved on the server.
 //
-// createResource assigns a key from a per-render-context counter:
+// createResource assigned a key from a per-render-context counter:
 //
 //   const key = options.key != null ? options.key : `__r${ctx.resourceCounter++}`;
+//
+// (keyless resources are now named by their component's owner path instead;
+// see what-core hydration-data.js).
 //
 // Both server resolve loops re-render the tree after awaiting the pending
 // promises, and neither reset that counter. So pass 0 stored `__r0` and
@@ -24,11 +27,14 @@ import assert from 'node:assert/strict';
 
 import { h, Suspense, createResource } from 'what-core';
 import { renderToString, renderToStream, renderToStringAsync } from '../src/index.js';
+import { settle } from './stream-helpers.js';
 
+// What the browser shows once the stream is in: the stream sends a waiting
+// boundary's fallback first and its content after it, out of order.
 async function collect(vnode) {
   let out = '';
   for await (const chunk of renderToStream(vnode)) out += chunk;
-  return out;
+  return settle(out);
 }
 
 /** A resource that takes a tick to arrive, with no explicit key. */
@@ -54,13 +60,13 @@ describe('server-side async resources resolve', () => {
       const [data] = createResource(slow('ASYNC-DATA'));
       return h('p', null, data());
     }
-    const { body, resources } = await renderToStringAsync(
+    const { body, owned } = await renderToStringAsync(
       h('div', null, h(Suspense, { fallback: h('p', null, 'loading') }, h(Slow))),
     );
     assert.match(body, /ASYNC-DATA/);
     assert.doesNotMatch(body, /loading/);
     // The hydration payload carries it too, so the client does not refetch.
-    assert.ok(Object.values(resources).includes('ASYNC-DATA'));
+    assert.ok(Object.values(owned).includes('ASYNC-DATA'));
   });
 
   it('resolves several keyless resources in one boundary', async () => {

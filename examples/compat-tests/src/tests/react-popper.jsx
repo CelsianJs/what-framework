@@ -19,7 +19,7 @@ function TestComponent() {
     <div style={{ position: 'relative', minHeight: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <button
         ref={setReferenceElement}
-        onclick={() => setShowPopper(s => !s)}
+        onClick={() => setShowPopper(s => !s)}
         style={{
           padding: '6px 14px',
           cursor: 'pointer',

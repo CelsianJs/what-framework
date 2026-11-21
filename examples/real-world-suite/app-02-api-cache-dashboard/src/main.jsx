@@ -1,4 +1,5 @@
-import { mount, useSignal, useSWR } from 'what-framework';
+import { mount, useSignal } from 'what-framework';
+import { useSWR } from 'what-framework/data';
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -50,6 +51,10 @@ function App() {
   const users = useSWR('dashboard:users', fetchUsers, { dedupingInterval: 200 });
   const stats = useSWR('dashboard:stats', fetchStats, { dedupingInterval: 200 });
 
+  // revalidate() rejects when the fetch fails. error() already renders that
+  // failure, so settle both instead of leaving an unhandled rejection.
+  const refreshAll = () => Promise.allSettled([users.revalidate(), stats.revalidate()]);
+
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -58,10 +63,7 @@ function App() {
           <button
             className="btn btn-primary"
             data-testid="refresh-btn"
-            onClick={() => {
-              users.revalidate();
-              stats.revalidate();
-            }}
+            onClick={refreshAll}
           >
             Refresh All
           </button>
@@ -71,8 +73,7 @@ function App() {
             onClick={() => {
               shouldError = true;
               errorMode.set(true);
-              users.revalidate();
-              stats.revalidate();
+              refreshAll();
             }}
           >
             {errorMode() ? 'Errors ON' : 'Simulate Errors'}
@@ -144,19 +145,25 @@ function App() {
 function UserDetailInner({ id }) {
   const detail = useSWR(`detail:${id}`, fetchDetail, { dedupingInterval: 200 });
 
-  if (detail.isLoading()) return <p data-testid="loading-indicator">Loading detail...</p>;
-  if (detail.error()) return <p className="error-box" data-testid="error-message">{String(detail.error())}</p>;
-
-  const d = detail.data();
-  if (!d) return <p>User not found</p>;
-
+  // The component runs once, so the loading/error/data branch is a reactive
+  // expression: early returns would keep the first state forever.
   return (
-    <div>
-      <h3>{d.name}</h3>
-      <p><strong>Email:</strong> {d.email}</p>
-      <p><strong>Role:</strong> {d.role}</p>
-      <p><strong>Bio:</strong> {d.bio}</p>
-    </div>
+    <>
+      {detail.isLoading() ? (
+        <p data-testid="loading-indicator">Loading detail...</p>
+      ) : detail.error() ? (
+        <p className="error-box" data-testid="error-message">{String(detail.error())}</p>
+      ) : detail.data() ? (
+        <div>
+          <h3>{detail.data().name}</h3>
+          <p><strong>Email:</strong> {detail.data().email}</p>
+          <p><strong>Role:</strong> {detail.data().role}</p>
+          <p><strong>Bio:</strong> {detail.data().bio}</p>
+        </div>
+      ) : (
+        <p>User not found</p>
+      )}
+    </>
   );
 }
 

@@ -189,19 +189,6 @@ describe('CSRF token generation', () => {
 });
 
 // =========================================================================
-// 1g. template() internal — _template alias exists
-// =========================================================================
-
-describe('template internal', () => {
-  it('should export _template as an alias', async () => {
-    const render = await import('../src/render.js');
-    assert.equal(typeof render.template, 'function');
-    assert.equal(typeof render._template, 'function');
-    assert.equal(render.template, render._template);
-  });
-});
-
-// =========================================================================
 // 1h. Object.create(null) for EMPTY_OBJ in h.js
 // =========================================================================
 

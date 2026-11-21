@@ -149,9 +149,11 @@ user.set({ name: <span class="string">'Alice'</span> });</code></pre>
             <li>For multiple conditions, use <code>&lt;Switch&gt;</code> and <code>&lt;Match&gt;</code> instead of nested <code>&lt;Show&gt;</code> components.</li>
             <li>When <code>when</code> is falsy and no <code>fallback</code> is provided, nothing is rendered.</li>
             <li>The compiler requires a <code>when</code> prop: <code>&lt;Show&gt;</code> without one fails the build. The message names the file and prints a code frame at the offending tag, wherever it appears in the file:
-<pre><code>SyntaxError: src/Nested.jsx: &lt;Show&gt; requires a "when" prop.
-Example: &lt;Show when={isOpen} fallback={null}&gt;...&lt;/Show&gt;
-
+<pre><code>$ npx vite build
+...
+error during build:
+[plugin vite-plugin-what] src/Nested.jsx
+SyntaxError: src/Nested.jsx: &lt;Show&gt; requires a "when" prop. Example: &lt;Show when={isOpen} fallback={null}&gt;...&lt;/Show&gt;
    6 |       &lt;section&gt;
 &gt;  7 |         &lt;Show&gt;
      |         ^

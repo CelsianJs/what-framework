@@ -1,28 +1,57 @@
 /**
  * Rule: what/no-signal-write-in-render
  *
- * Warn when writing to a signal outside of event handlers, effects, or callbacks.
- * Signal writes during render (the component function body) can cause infinite
- * re-render loops because the write triggers effects that re-run the component.
+ * Warn when a component writes a signal while it renders: in its run-once
+ * body, or in a callback that runs right there (an IIFE, untrack(), batch(),
+ * an array method like map/forEach). A write inside any other nested function
+ * (an event handler, inline or named, an effect, onMount, a timer) runs later
+ * and is fine, and so is a write in a function that is not a component, such
+ * as a store action.
  *
  * Bad:  function App() { count(count() + 1); return ... }
  * Good: function App() { return <button onclick={() => count(c => c + 1)} /> }
- * Good: useEffect(() => { count(0); })
+ * Good: function App() { function add() { count(1); } return <button onclick={add} /> }
+ * Good: effect(() => { count(0); })
  */
 
 import { createSignalTracker } from '../utils/signal-tracking.js';
+import { FUNCTION_TYPES, runsInPlace, signalWriteName } from '../utils/scopes.js';
+
+function functionName(fn) {
+  if (fn.id?.name) return fn.id.name;
+  const parent = fn.parent;
+  if (parent?.type === 'VariableDeclarator' && parent.id.type === 'Identifier') return parent.id.name;
+  return null;
+}
+
+function isComponent(fn) {
+  const name = functionName(fn);
+  if (name) return /^[A-Z]/.test(name);
+  return fn.parent?.type === 'ExportDefaultDeclaration';
+}
+
+/** The component whose render executes `node`, or null. */
+function renderingComponent(node) {
+  for (let n = node.parent; n; n = n.parent) {
+    if (!FUNCTION_TYPES.has(n.type)) continue;
+    if (isComponent(n)) return n;
+    if (!runsInPlace(n)) return null;
+  }
+  return null;
+}
 
 export default {
   meta: {
     type: 'problem',
     docs: {
-      description: 'Disallow signal writes in the render phase (component function body)',
+      description: 'Disallow signal writes while a component renders',
       recommended: true,
+      code: 'ERR_SIGNAL_WRITE_IN_RENDER',
     },
     messages: {
       signalWriteInRender:
-        'Signal write to "{{name}}" during render may cause infinite loops. ' +
-        'Move signal writes into event handlers, effects, or callbacks.',
+        'Signal write to "{{name}}" while {{component}} renders. ' +
+        'Move it into an event handler, an effect or onMount().',
     },
     schema: [],
   },
@@ -30,88 +59,20 @@ export default {
   create(context) {
     const tracker = createSignalTracker();
 
-    // Track whether we're inside a "safe" write context
-    function isInsideSafeContext(node) {
-      let current = node.parent;
-      while (current) {
-        // Inside event handler (arrow fn or function expression assigned to on* prop or as callback arg)
-        if (
-          current.type === 'ArrowFunctionExpression' ||
-          current.type === 'FunctionExpression'
-        ) {
-          // Check if it's an event handler prop: onclick={() => ...}
-          if (
-            current.parent?.type === 'JSXExpressionContainer' &&
-            current.parent?.parent?.type === 'JSXAttribute'
-          ) {
-            return true;
-          }
-          // Check if it's an event handler prop (object property): { onclick: () => ... }
-          if (
-            current.parent?.type === 'Property' &&
-            current.parent?.key?.type === 'Identifier' &&
-            /^on[a-z]/.test(current.parent.key.name)
-          ) {
-            return true;
-          }
-          // Callback passed to useEffect, effect, setTimeout, etc.
-          if (current.parent?.type === 'CallExpression') {
-            const callee = current.parent.callee;
-            if (
-              callee.type === 'Identifier' &&
-              ['useEffect', 'effect', 'setTimeout', 'setInterval', 'requestAnimationFrame',
-               'queueMicrotask', 'batch', 'onMount', 'onCleanup', 'addEventListener'].includes(callee.name)
-            ) {
-              return true;
-            }
-          }
-          // Generic arrow/function inside another arrow/function — assume nested callback is safe
-          if (
-            current.parent?.type === 'ArrowFunctionExpression' ||
-            current.parent?.type === 'FunctionExpression'
-          ) {
-            return true;
-          }
-        }
-        current = current.parent;
-      }
-      return false;
-    }
-
     return {
       VariableDeclarator(node) {
         tracker.visitors.VariableDeclarator(node);
       },
 
       CallExpression(node) {
-        // Check for signal writes: count(value), count.set(value)
-        let signalName = null;
-
-        // Direct call: count(value) — with at least one argument (0-arg is a read)
-        if (
-          node.callee.type === 'Identifier' &&
-          tracker.isSignal(node.callee.name) &&
-          node.arguments.length > 0
-        ) {
-          signalName = node.callee.name;
-        }
-
-        // Method call: count.set(value)
-        if (
-          node.callee.type === 'MemberExpression' &&
-          node.callee.object.type === 'Identifier' &&
-          tracker.isSignal(node.callee.object.name) &&
-          node.callee.property.type === 'Identifier' &&
-          node.callee.property.name === 'set'
-        ) {
-          signalName = node.callee.object.name;
-        }
-
-        if (signalName && !isInsideSafeContext(node)) {
+        const signalName = signalWriteName(node, tracker);
+        if (!signalName) return;
+        const component = renderingComponent(node);
+        if (component) {
           context.report({
             node,
             messageId: 'signalWriteInRender',
-            data: { name: signalName },
+            data: { name: signalName, component: functionName(component) || 'the component' },
           });
         }
       },

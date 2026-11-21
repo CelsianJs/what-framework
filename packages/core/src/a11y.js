@@ -1,25 +1,32 @@
 // What Framework - Accessibility Utilities
 // Focus management, ARIA helpers, screen reader announcements
 
-import { signal, effect } from './reactive.js';
+import { signal, effect, onCleanup } from './reactive.js';
 import { h } from './h.js';
-import { getCurrentComponent } from './dom.js';
 import { getServerContext } from './server-context.js';
 
 // --- Focus Management ---
 
-// Track currently focused element
-const focusedElement = signal(null);
+// The focused element, tracked from the first useFocus() call on. Until then
+// nothing listens, so a program that never asks pays nothing.
+/** @type {any} */
+let focusedElement = null;
 
-if (typeof document !== 'undefined') {
-  document.addEventListener('focusin', (e) => {
-    focusedElement.set(e.target);
-  });
+function trackFocus() {
+  if (focusedElement === null) {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    focusedElement = signal(active && active !== document.body ? active : null);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('focusin', (e) => focusedElement.set(e.target));
+    }
+  }
+  return focusedElement;
 }
 
 export function useFocus() {
+  const focused = trackFocus();
   return {
-    current: () => focusedElement(),
+    current: () => focused(),
     focus: (element) => element?.focus(),
     blur: () => /** @type {HTMLElement | null} */ (document.activeElement)?.blur(),
   };
@@ -140,8 +147,8 @@ export function FocusTrap({ children, active = true }) {
     refVersion.set(v => v + 1);
   };
 
-  // Scope the effect to the component lifecycle so it disposes on unmount
-  const dispose = effect(() => {
+  // The effect belongs to the component and is disposed on unmount.
+  effect(() => {
     // Re-run activation after the ref element is attached/updated.
     refVersion();
 
@@ -161,17 +168,11 @@ export function FocusTrap({ children, active = true }) {
     }
   });
 
-  // Register cleanup on component context
-  const ctx = getCurrentComponent?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => {
-      dispose();
-      trapCleanup?.();
-      trapCleanup = null;
-      trap.deactivate();
-    });
-  }
+  onCleanup(() => {
+    trapCleanup?.();
+    trapCleanup = null;
+    trap.deactivate();
+  });
 
   return h('div', { ref: setRef }, children);
 }
@@ -649,9 +650,9 @@ export function __resetIdCounter() {
   idCounter = 0;
 }
 
+// A string, as in React: the component runs once, so the id never changes.
 export function useId(prefix = 'what') {
-  const id = `${prefix}-${nextIdSuffix()}`;
-  return () => id;
+  return `${prefix}-${nextIdSuffix()}`;
 }
 
 export function useIds(count, prefix = 'what') {
@@ -671,14 +672,14 @@ export function useDescribedBy(description) {
   return {
     descriptionId: id,
     descriptionProps: () => ({
-      id: id(),
+      id,
       style: { display: 'none' },
     }),
     describedByProps: () => ({
-      'aria-describedby': id(),
+      'aria-describedby': id,
     }),
     Description: () => h('div', {
-      id: id(),
+      id,
       style: { display: 'none' },
     }, description),
   };
@@ -692,10 +693,10 @@ export function useLabelledBy(_label) {
   return {
     labelId: id,
     labelProps: () => ({
-      id: id(),
+      id,
     }),
     labelledByProps: () => ({
-      'aria-labelledby': id(),
+      'aria-labelledby': id,
     }),
   };
 }

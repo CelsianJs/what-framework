@@ -1,4 +1,4 @@
-import { mount, useSignal, useComputed } from 'what-framework';
+import { mount, signal, computed } from 'what-framework';
 import { useCartStore } from './cart-store.js';
 import { products, formatPrice } from './products.js';
 
@@ -74,18 +74,23 @@ function ProductCard({ product, onAdd }) {
   );
 }
 
-function App() {
-  const cartOpen = useSignal(false);
-  const search = useSignal('');
-  const addItem = useCartStore((s) => s.addItem);
+// App renders through what-react, so it is a React component: it re-renders
+// only when its React state changes, and What's hooks are not available in it.
+// Its UI state lives in signals outside it, and the parts that show that state
+// are function children, which What keeps up to date without a re-render.
+const cartOpen = signal(false, 'cartOpen');
+const search = signal('', 'search');
 
-  const filteredProducts = useComputed(() => {
-    const q = search().toLowerCase().trim();
-    if (!q) return products;
-    return products.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
-    );
-  });
+const filteredProducts = computed(() => {
+  const q = search().toLowerCase().trim();
+  if (!q) return products;
+  return products.filter(
+    (p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
+  );
+});
+
+function App() {
+  const addItem = useCartStore((s) => s.addItem);
 
   return (
     <main className="app-shell">
@@ -96,7 +101,6 @@ function App() {
             data-testid="search-input"
             type="text"
             placeholder="Search products..."
-            value={search()}
             onInput={(e) => search.set(e.target.value)}
             className="search-input"
           />
@@ -107,12 +111,12 @@ function App() {
       </header>
 
       <div data-testid="product-list" className="product-grid">
-        {filteredProducts().map((product) => (
+        {() => filteredProducts().map((product) => (
           <ProductCard key={product.id} product={product} onAdd={addItem} />
         ))}
       </div>
 
-      {cartOpen() ? <CartSidebar onClose={() => cartOpen.set(false)} /> : null}
+      {() => (cartOpen() ? <CartSidebar onClose={() => cartOpen.set(false)} /> : null)}
     </main>
   );
 }

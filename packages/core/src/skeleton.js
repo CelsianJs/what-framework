@@ -80,7 +80,7 @@ function injectStyles() {
  * @param {number|string} [props.height]
  * @param {'shimmer'|'pulse'|'wave'} [props.variant]
  * @param {boolean} [props.circle]
- * @param {string} [props.class]
+ * @param {string | (() => string)} [props.class]
  * @param {Record<string, any>} [props.style]
  * @param {number} [props.count]
  */
@@ -96,7 +96,10 @@ export function Skeleton({
   injectStyles();
 
   const baseClass = `what-skeleton ${variant === 'pulse' ? 'what-skeleton-pulse' : ''} ${variant === 'wave' ? 'what-skeleton-wave' : ''}`;
-  const finalClass = className ? `${baseClass} ${className}` : baseClass;
+  const withClass = (extra) => (extra ? `${baseClass} ${extra}` : baseClass);
+  // A reactive `class` (a signal or a getter) stays reactive: it is read in
+  // the binding, never coerced to a string here.
+  const finalClass = typeof className === 'function' ? () => withClass(className()) : withClass(className);
 
   const style = {
     width: typeof width === 'number' ? `${width}px` : width,

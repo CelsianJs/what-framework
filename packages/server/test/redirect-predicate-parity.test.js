@@ -1,6 +1,10 @@
 // The framework has two redirect-safety predicates on purpose:
 //   isSafeUrl      (packages/router/src/index.js)      client navigation target
 //   safeLocalPath  (packages/server/src/action-handler.js)  server Location: header
+// The server response API (response.js) uses the second: redirect() takes
+// exactly what safeLocalPath takes, and leaving the site is redirectExternal(),
+// a separate call that takes an absolute http(s) URL and nothing else
+// (security review #2: redirect() was gated by isSafeUrl, an open redirect).
 // They answer different questions, so they must not be unified. What must never
 // break is their ordering: the server predicate is strictly narrower, so a
 // target the client router refuses can never be emitted as a Location: header.
@@ -9,6 +13,7 @@ import assert from 'node:assert/strict';
 
 const { isSafeUrl } = await import('../../router/src/index.js');
 const { safeLocalPath } = await import('../src/action-handler.js');
+const { createResponse, localRedirectTarget, externalRedirectTarget } = await import('../src/response.js');
 
 // Targets spanning both predicates: open-redirect vectors, dangerous schemes,
 // absolute URLs the client allows, and ordinary local paths.
@@ -45,5 +50,71 @@ describe('redirect predicate parity', () => {
   it('both accept an ordinary same-origin path', () => {
     assert.equal(isSafeUrl('/a/b?x=1'), true);
     assert.equal(safeLocalPath('/a/b?x=1'), '/a/b?x=1');
+  });
+});
+
+describe('the response API follows safeLocalPath', () => {
+  const quietly = (fn) => {
+    const warn = console.warn;
+    console.warn = () => {};
+    try { return fn(); } finally { console.warn = warn; }
+  };
+
+  it('redirect() keeps a target exactly when safeLocalPath accepts it, and otherwise goes to "/"', () => {
+    for (const t of [...TARGETS, 'https://evil.example/phish', 'http://evil.example', 'HTTPS://evil.example']) {
+      const response = createResponse();
+      quietly(() => response.redirect(t));
+      if (safeLocalPath(t) === null) {
+        assert.equal(localRedirectTarget(t), null, JSON.stringify(t));
+        assert.equal(response.location, '/', `refused ${JSON.stringify(t)} must fall back to "/"`);
+      } else {
+        assert.equal(response.location, localRedirectTarget(t), JSON.stringify(t));
+        assert.equal(new URL(response.location, 'http://localhost').origin, 'http://localhost');
+      }
+      assert.equal(response.status, 302);
+    }
+  });
+
+  it('redirect() keeps the fragment of a local target', () => {
+    const response = createResponse();
+    response.redirect('/docs?x=1#install');
+    assert.equal(response.location, '/docs?x=1#install');
+  });
+
+  it('a target carrying CR/LF never reaches the Location header with them', () => {
+    const response = createResponse();
+    quietly(() => response.redirect('/ok\r\nSet-Cookie: pwn=1'));
+    assert.doesNotMatch(response.location, /[\r\n]/);
+    assert.doesNotThrow(() => new Headers({ location: response.location }));
+  });
+
+  it('redirectExternal() takes an absolute http(s) URL with no credentials, and nothing else', () => {
+    const accepted = ['https://example.com/checkout', 'http://example.com', 'HTTPS://EXAMPLE.com/a?b#c'];
+    const refused = ['/local', '//evil.example', 'javascript:alert(1)', 'data:text/html,x', 'mailto:a@b.c',
+      'https://trusted.example@evil.example/', 'ftp://example.com', '', 'not a url'];
+    for (const t of accepted) {
+      const response = createResponse();
+      response.redirectExternal(t, 303);
+      assert.equal(response.location, externalRedirectTarget(t));
+      assert.equal(new URL(response.location).href, response.location);
+      assert.equal(response.status, 303);
+    }
+    for (const t of refused) {
+      const response = createResponse();
+      quietly(() => response.redirectExternal(t));
+      assert.equal(response.location, '/', JSON.stringify(t));
+    }
+  });
+
+  it('a refused target is reported in development', () => {
+    const warn = console.warn;
+    const warnings = [];
+    console.warn = (message) => warnings.push(message);
+    try {
+      createResponse().redirect('https://evil.example');
+    } finally {
+      console.warn = warn;
+    }
+    assert.match(warnings.join('\n'), /ERR_SSR_UNSAFE_REDIRECT/);
   });
 });

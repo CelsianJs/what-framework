@@ -53,9 +53,9 @@ function App() {
       </form>
 
       <nav className="row">
-        <button className={store.filter === 'all' ? 'active' : ''} onClick={() => store.setFilter('all')}>All</button>
-        <button className={store.filter === 'active' ? 'active' : ''} onClick={() => store.setFilter('active')}>Active</button>
-        <button className={store.filter === 'done' ? 'active' : ''} onClick={() => store.setFilter('done')}>Done</button>
+        <button className={() => (store.filter === 'all' ? 'active' : '')} onClick={() => store.setFilter('all')}>All</button>
+        <button className={() => (store.filter === 'active' ? 'active' : '')} onClick={() => store.setFilter('active')}>Active</button>
+        <button className={() => (store.filter === 'done' ? 'active' : '')} onClick={() => store.setFilter('done')}>Done</button>
       </nav>
 
       <ul>
@@ -73,7 +73,7 @@ function App() {
         ))}
       </ul>
 
-      <footer>{store.remaining} remaining</footer>
+      <footer>{() => store.remaining} remaining</footer>
     </main>
   );
 }

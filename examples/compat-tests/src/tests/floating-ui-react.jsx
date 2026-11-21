@@ -16,7 +16,7 @@ function TestComponent() {
     <div style={{ position: 'relative' }}>
       <button
         ref={refs.setReference}
-        onclick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen(!isOpen)}
         style={{ padding: '4px 12px', background: '#333', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
       >
         Toggle Tooltip

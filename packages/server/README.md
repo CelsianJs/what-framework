@@ -31,16 +31,214 @@ const html = renderToString(h(App));
 // <div><h1>Hello from the server</h1><p>This page ships zero JavaScript.</p></div>
 ```
 
+Views written in JSX render on the server too. what-compiler/vite compiles a
+module Vite transforms for the server with the server target (its `ssr`
+option, on by default), and every renderer here accepts that output; with the
+Babel plugin, pass `generate: 'ssr'` for the server build.
+
+## Hydration
+
+A page the client will hydrate is rendered with `renderToHydratableString`, or
+any of the async and streaming renderers below, which all write the same
+hydratable markup: `data-hk="<owner path>"` on the first element of each
+component, `<!--$-->…<!--/$-->` around a reactive child, `<!--[]-->…<!--/[]-->`
+around an array, and `<!--b-->…<!--/b-->` around a `<Suspense>` or
+`<ErrorBoundary>` (`<!--b!-->` when it rendered its fallback). The protocol is
+described in [docs/ARCHITECTURE.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ARCHITECTURE.md#server-rendering).
+
+```js
+// server
+import { renderToHydratableString } from 'what-server';
+const body = renderToHydratableString(<App />);
+
+// client (what-framework)
+import { hydrate } from 'what-framework';
+const unmount = hydrate(<App />, document.getElementById('app'), {
+  onHydrationError: (mismatch) => report(mismatch), // optional; production too
+});
+```
+
+`hydrate()` adopts the server's nodes instead of creating new ones: where the
+markup matches, it adds no node, runs each reactive child once and fetches no
+resource or async `computed` the server already sent. It returns the unmount function, and
+hydrating the same container again disposes the first root.
+
+- **Compiled JSX** on the client must be compiled for hydration. The Vite
+  plugin (`what-compiler/vite`) does that when its config says the project
+  renders on the server (`appType: 'custom'`, an SSR build, or a client build
+  with `build.ssrManifest`); otherwise set `what({ hydratable: true })` for the
+  client build. JSX compiled without it renders the page again on the client and
+  reports an `ERR_HYDRATION_MISMATCH` of kind `not-hydratable` once.
+- **`h()` and the JSX runtime** (`jsxImportSource: 'what-framework'`) hydrate
+  as they are.
+- **Mismatches** (the client renders something the server did not) are reported
+  as `ERR_HYDRATION_MISMATCH` in development and to `onHydrationError` in every
+  build, with the kind, the component, its owner path and the DOM path; the one
+  element or text node that differs is rendered on the client, and nothing the
+  server wrote that the client does not render survives.
+- **Vnodes are branded.** Only `h()`, the JSX runtime and the boundaries make
+  vnodes: an object from JSON shaped like one renders as text on every server
+  path and on the client. An island prop that is a vnode is revived on the
+  client by the path the server recorded (`data-island-vnodes`).
+
 ## Streaming SSR
+
+`renderToStream` sends the shell first: everything outside a `<Suspense>` that
+is still waiting goes out in one chunk, with each fallback in place. Each
+boundary follows as soon as its data is ready, as a `<template>` and a small
+swap script, with its resolved data sent ahead of it so the client hydrates
+without fetching again.
 
 ```js
 import { renderToStream } from 'what-server';
+import { h } from 'what-core';
 
-for await (const chunk of renderToStream(h(App))) {
-  response.write(chunk);
+function App() {
+  return h('main', null, h('h1', null, 'Hello from the server'));
 }
-response.end();
+
+// Node: pipe into the response (honours backpressure, ends it when done).
+export async function handleNode(req, res) {
+  const stream = renderToStream(h(App), {
+    onError: (error, { phase }) => console.error(`[ssr ${phase}]`, error),
+  });
+  await stream.shellReady;          // status and headers are final from here
+  res.writeHead(200, { 'content-type': 'text/html' });
+  stream.pipe(res);
+}
+
+// Fetch-style hosts (Workers, Deno, Bun, Vercel): a pull-based ReadableStream.
+export function handleFetch(request) {
+  return new Response(renderToStream(h(App), { request }).readable, {
+    headers: { 'content-type': 'text/html' },
+  });
+}
+
+// Or iterate string chunks.
+export async function renderChunks(write) {
+  for await (const chunk of renderToStream(h(App))) write(chunk);
+}
 ```
+
+Consume a stream once, one way. It is not a promise: for the whole page as one
+settled string (caches, ISR, crawlers), use `renderDocument` or
+`renderToStringAsync`. Options: `nonce` (set on every script), `noScripts` (no
+inline scripts; the client entry calls what-core's `applyStreamedBoundaries()`
+before hydrating), `signal` (abort), `onError` (called for every error the
+render contains or fails on), `loaderData`, `request`, `response` (a
+`createResponse()`; the stream also exposes it as `stream.response`), `idPrefix`
+(a letter, then letters, digits, `_` or `-`; anything else throws
+`ERR_SSR_INVALID_ID_PREFIX`). `renderDocumentStream(pageModule, reqCtx,
+options)` streams a whole document; the deploy adapters use it for
+`mode: 'server'` routes unless the route sets `page.stream: false` or the
+handler has a custom `render`.
+
+The buffered forms (`renderToStringAsync`, `renderDocument`, and on top of them
+ISR, `exportStatic` and `page.stream: false`) run on the same engine: they wait
+for everything the stream waits for (a resource inside or outside a
+`<Suspense>`, an async component, `lazy()`), and their body is the streamed
+page once every boundary has been swapped in. A render that cannot complete
+rejects with the `Error` that failed it.
+
+How a stream ends:
+
+- `allReady` resolves when the last boundary has been sent. When the render
+  fails, or is aborted before then, it rejects with the reason.
+- Stopping a stream from the consumer side (`abort()`, a destroyed writable,
+  cancelling `readable`, leaving the loop) aborts the render's own signal: the
+  loader and every resource fetcher see it. After the shell, the document's
+  closing tags are still written and pending boundaries keep their fallbacks.
+- Ending a render, in any of these ways, removes its listener from the signal
+  you passed and disposes every `effect()` and `computed()` its components
+  created, so a finished request never runs code in a later one.
+- A boundary the server cannot render (its data never settled) keeps its
+  fallback: the stream sends its `failed` record and removes the placeholder,
+  so the fallback hydrates as one and the client renders the boundary itself.
+- `<Head>` tags set inside a boundary that streams after the shell travel with
+  that boundary and are applied to `document.head` (development warns once with
+  `ERR_SSR_LATE_HEAD`, since the HTML `<head>` does not carry them).
+- Boundary ids are `${idPrefix}${random}-${n}`, new for every stream, and the
+  swap finds its nodes as `<template>` elements, so page markup carrying any id
+  cannot take a boundary over.
+
+The client entry of a streamed page should run once the document has loaded (a
+`type="module"` script does) and call `applyStreamedBoundaries()` before
+`hydrate()` when the stream used `noScripts`; it is harmless to call it on any
+streamed page.
+
+Error details stay on the server unless `NODE_ENV` is exactly `development`: a
+resource's error record and a component's `<!-- SSR Error -->` comment carry a
+generic message otherwise (no `NODE_ENV`, `staging`, or a runtime without
+`process`), and only framework `ERR_*` codes travel as `code`.
+
+## Loaders, status and redirects
+
+A page's `loader` receives `{ params, query, request, signal, response }`.
+`signal` aborts when the client disconnects. `response` sets the status,
+headers and redirects; components reach the same object with what-core's
+`getResponse()`:
+
+```js
+export async function loader({ params, signal, response }) {
+  const post = await db.post(params.id, { signal });
+  if (!post) response.setStatus(404);
+  if (post?.movedTo) response.redirect(post.movedTo, 301);
+  response.setHeader('set-cookie', 'seen=1; Path=/');   // Set-Cookie appends
+  return post;
+}
+```
+
+The response is committed with the shell: until then a redirect is a real 3xx.
+A redirect from a streamed boundary, after the shell went out, is sent as a
+script. Server resource fetchers receive `{ signal, request }`; `signal` is the
+render's own, which aborts when the client goes away or the stream's consumer
+stops reading.
+
+`redirect(path, status = 302)` takes a same-origin path only (`/account?tab=2`,
+fragment kept), by the same rule as the action handler's `_redirect` field, so
+it is safe to hand request data (`redirect(query.next)`). Leaving the site is
+a separate, explicit call:
+
+```js
+response.redirectExternal('https://billing.example.com/portal', 303);
+```
+
+`redirectExternal` takes an absolute `http:` or `https:` URL with no
+credentials. A target either method refuses (`https://evil.example` through
+`redirect`, `//host`, `/\host`, `javascript:`) is not an error: the response
+redirects to `/` instead, and development logs `ERR_SSR_UNSAFE_REDIRECT`.
+A status that is not a redirect status throws a `RangeError`.
+
+### Cached routes and the response
+
+A `static` or `hybrid` route served through an ISR cache (`what-isr`) shares
+one render between visitors, so what a render sets decides what can be shared:
+
+- **Private renders are never stored.** A render is private when it sets a
+  cookie, sets `Cache-Control` with `private`, `no-store` or `no-cache`, sets
+  `Vary`, or reads a request header the route's `vary` does not name (a
+  cookie, `Authorization`, `Accept-Language`; development warns which). It is
+  sent to its own visitor only, with its own headers and cookies, as
+  `private, no-store` (or the private `Cache-Control` it set), and every
+  visitor waiting on the same regeneration renders for themselves.
+- **Redirects and other statuses go to their own visitor only**, with their
+  status and `Location`, and are never stored or shared.
+- **A stored page keeps its own headers.** On a public 200 render, the headers
+  it set (`Content-Language`, `Link`, an `X-*` header) are stored with the
+  entry and sent again on every HIT and STALE. The cache owns `Cache-Control`
+  (from the route's `revalidate`/`swr`), `Vary`, `X-What-Cache`, `Cache-Tag`
+  and `Surrogate-Key`. `Set-Cookie` is never stored or replayed.
+- **No public response carries a cookie.** When the CSRF cookie has to be set
+  on a cached page (a visitor without one), that response is sent
+  `private, no-store`, so no shared cache keeps one visitor's token.
+- **A regeneration is shared work.** Its loader and fetchers get a signal that
+  aborts only when every visitor waiting on it has gone (never for a background
+  refresh). A visitor who disconnects stops waiting at once; the others still
+  get the page.
+
+Declare per-visitor variation with `vary` (`page: { vary: ['cookie:session'] }`)
+to cache one entry per value, or use `mode: 'server'` for pages that are
+different for every visitor.
 
 ## Page Modes
 
@@ -81,23 +279,23 @@ const Header = server(({ title }) => h('header', null, title));
 ## Server Actions
 
 ```js
-import { action, useAction, formAction, useFormAction } from 'what-server/actions';
+import { action, useAction, formAction } from 'what-server/actions';
+import { h } from 'what-core';
 
 // Define a server action
 const addTodo = action(async (text) => {
   await db.todos.create({ text });
 });
 
-// Use in a component
+// Use in a component: trigger() calls it; isPending(), error() and data() read its state
 function TodoForm() {
-  const { execute, isPending } = useAction(addTodo);
-  return h('button', { onclick: () => execute('New todo') }, 'Add');
+  const { trigger, isPending } = useAction(addTodo);
+  return h('button', { onclick: () => trigger('New todo'), disabled: () => isPending() }, 'Add');
 }
 
-// Form action
-const submitForm = formAction(async (formData) => {
-  const email = formData.get('email');
-  await subscribe(email);
+// Form action: called with the form's fields as a plain object
+const submitForm = formAction(async (fields) => {
+  await subscribe(fields.email);
 });
 ```
 
@@ -192,7 +390,12 @@ const { pages } = await exportStatic({ routes, outDir: 'dist' });
 
 Renders every `static`/`hybrid` route to `dist/<path>/index.html` plus a
 `__what_data.json` per page (loader data for client-side navigation). Dynamic
-routes need `getStaticPaths`. Upload `dist/` to any static host — no special
+routes need `getStaticPaths`. Each page's loader and components get a
+`response` as on a server: a page that redirects is written as a redirect stub
+(a meta refresh to the target and a canonical link) and listed in
+`redirects`; a page that sets another status than 200 is not written (a static
+host cannot send it) and is listed in `skipped`, with a warning. The result is
+`{ pages, redirects, skipped }`. Upload `dist/` to any static host — no special
 server config required (the layout is plain `path/index.html`). Note: server
 actions and per-user CSRF need a runtime — pair a static export with one of
 the runtime adapters if you use actions.
@@ -323,13 +526,20 @@ covered by automated tests.
 | `what-server` | `renderToString`, `renderToStream`, `definePage`, `generateStaticPage`, `server` |
 | `what-server/islands` | Islands hydration runtime |
 | `what-server/actions` | Server actions and mutations |
+| `what-server/ssr-runtime` | The runtime half of what-compiler's server target (compiled output imports it as `what-framework/ssr-runtime`); not for application code |
 
 ## API
 
 | Export | Description |
 |---|---|
 | `renderToString(vnode)` | Render a component tree to an HTML string |
-| `renderToStream(vnode)` | Render as an async iterator for streaming |
+| `renderToHydratableString(vnode)` | The same, with the hydration keys and markers `hydrate()` reads |
+| `renderToStream(vnode, options?)` | Stream HTML shell-first; returns `{ shellReady, allReady, response, pipe, readable, abort }`, also async-iterable |
+| `renderToStringAsync(vnode, ctx?, options?)` | The settled page as a string: `{ body, head, loaderData, resources, owned, ctx }` |
+| `renderDocument(page, reqCtx?, options?)` | Run the loader and render a whole document, settled |
+| `renderDocumentStream(page, reqCtx?, options?)` | Run the loader and stream a whole document |
+| `createResponse()` | A response object to pass as `reqCtx.response` from a custom server |
+| `ensureServerRuntime()` | Install the async request context where the host has one (every render calls it) |
 | `definePage(config)` | Define page rendering mode and metadata |
 | `generateStaticPage(page, data?)` | Generate a full HTML document |
 | `server(Component)` | Mark a component as server-only |
@@ -337,7 +547,7 @@ covered by automated tests.
 | `formAction(fn)` | Define a form-based server action |
 | `useAction(action)` | Hook to call a server action |
 | `useFormAction(action)` | Hook for form server actions |
-| `useOptimistic(state)` | Optimistic UI updates |
+| `useOptimistic(state, update?)` | The root entry's `useOptimistic`, re-exported: `[optimistic, addOptimistic]` as in React 19; call `addOptimistic` inside `startTransition` and the overlay drops when the action's transition commits ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)) |
 | `useMutation(fn)` | Mutation with loading/error states |
 | `invalidatePath(path)` | Revalidate a page path |
 

@@ -160,7 +160,7 @@ function MyComponent() {
 ## Data Fetching with `useSWR`
 
 ```jsx
-import { useSWR, invalidateQueries } from 'what-framework';
+import { useSWR, invalidateQueries } from 'what-framework/data';
 
 function Dashboard() {
   const { data, error, isLoading, revalidate } = useSWR('users', fetchUsers);

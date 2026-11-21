@@ -3,23 +3,34 @@
 // with the LOCAL packages (not whatever is on npm):
 //
 //   1. `npm pack` every workspace package into a temp dir.
-//   2. Scaffold EVERY template (default SPA, --fullstack, --template=islands)
-//      with the local create-what, pointing all what-* deps at the local
-//      tarballs.
+//   2. Scaffold EVERY template (default SPA, SPA + React compat, SPA + StyleX,
+//      --fullstack, --template=islands) with the local create-what, pointing
+//      all what-* deps at the local tarballs.
 //   3. `npm install` each app, then run it like a user would:
 //        SPA       -> `npm run build` + `vite preview`  (production bundle)
+//        React     -> `vite` dev server, then `npm run build` + `vite preview`
+//        StyleX    -> `npm run build` + `vite preview`
 //        fullstack -> `node server.js`                  (real SSR + ISR server)
 //                     then `npm run build` (Vura output) and its Function
 //        islands   -> `vite` dev server, then `npm run build` + `vite preview`
 //   4. Assert over HTTP (and with a headless browser when available):
 //        SPA       -> prod page renders the counter and it increments on click
+//        React     -> dev and prod pages render, the signal counter and the
+//                     zustand store both update, with no errors or warnings
+//        StyleX    -> installs without --legacy-peer-deps, the built CSS has
+//                     the StyleX rules, and the counter increments
 //        fullstack -> / returns SSR HTML, /src/entry-client.js is served,
 //                     second request is an ISR HIT, and the page HYDRATES
 //                     (Like button increments; zero page errors)
 //        islands   -> dev and built pages are server-rendered HTML, the island
 //                     hydrates IN PLACE and increments, and a page with no
 //                     islands loads only the entry script
-//   5. `npm run lint` passes in every app (scaffolded eslint config works).
+//   5. `npm run lint` passes with no warnings in every app (the scaffolded
+//      eslint config works and the generated code is clean).
+//
+// Offline vs registry: packing and the what-* packages are local; `npm
+// install` fetches every other dependency (vite, eslint, typescript, zustand,
+// StyleX, ...) from the npm registry, or npm's cache when it has them.
 //
 // Usage:  node scripts/smoke-scaffold.mjs          (or `npm run smoke:scaffold`)
 // Ports:  4500-4599 (override base with WHAT_SMOKE_PORT_BASE)
@@ -52,6 +63,7 @@ const LOCAL_PACKAGES = {
   'packages/devtools': 'what-devtools',
   'packages/devtools-mcp': 'what-devtools-mcp',
   'packages/eslint-plugin': 'eslint-plugin-what',
+  'packages/react-compat': 'what-react',
 };
 
 const children = new Set();
@@ -135,8 +147,12 @@ function packLocalPackages(tarballDir) {
 
 // --- 2. Scaffold + install -----------------------------------------------
 
-function scaffoldApp(workDir, name, tarballs, extraFlags = []) {
-  run(process.execPath, [join(REPO, 'packages/create-what/index.js'), name, '--yes', ...extraFlags], { cwd: workDir });
+// `answers` are typed into create-what's prompts (one per line); without them
+// it scaffolds with --yes.
+function scaffoldApp(workDir, name, tarballs, extraFlags = [], answers = null) {
+  const createWhat = join(REPO, 'packages/create-what/index.js');
+  if (answers === null) run(process.execPath, [createWhat, name, '--yes', ...extraFlags], { cwd: workDir });
+  else run(process.execPath, [createWhat, name, ...extraFlags], { cwd: workDir, input: answers, stdio: ['pipe', 'pipe', 'inherit'] });
   const appDir = join(workDir, name);
 
   // Point every what-* dependency at the local tarballs. `overrides` covers
@@ -170,17 +186,35 @@ async function launchBrowser() {
   }
 }
 
-async function withPage(browser, url, fn) {
+// `warnings: true` also counts console warnings, where development
+// diagnostics are printed.
+async function withPage(browser, url, fn, { warnings = false } = {}) {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
+  page.on('console', (m) => {
+    if (m.type() === 'error' || (warnings && m.type() === 'warning')) errors.push(`console ${m.type()}: ${m.text()}`);
+  });
   try {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
     await fn(page, errors);
   } finally {
     await page.close();
   }
+}
+
+// The scaffold's own `npm run lint`, with a warning counted as a failure.
+function lintClean(appDir) {
+  run('npm', ['run', 'lint', '--', '--max-warnings', '0'], { cwd: appDir });
+  log('  ok - npm run lint passes with no warnings');
+}
+
+function distText(appDir) {
+  return readdirSync(join(appDir, 'dist'), { recursive: true })
+    .map((f) => join(appDir, 'dist', f))
+    .filter((p) => { try { return statSync(p).isFile(); } catch { return false; } })
+    .map((p) => readFileSync(p, 'utf8'))
+    .join('\n');
 }
 
 // --- 3a. Default (SPA) template -------------------------------------------
@@ -198,13 +232,9 @@ async function smokeSpa(workDir, tarballs, browser) {
   // past regression shipped the dev bootstrap into prod, so the page requested
   // `virtual:what-devtools-mcp/bootstrap` (500) and could follow a live local
   // dev server to localhost. Grep the whole built bundle to prove it's clean.
-  const distText = readdirSync(join(appDir, 'dist'), { recursive: true })
-    .map((f) => join(appDir, 'dist', f))
-    .filter((p) => { try { return statSync(p).isFile(); } catch { return false; } })
-    .map((p) => readFileSync(p, 'utf8'))
-    .join('\n');
+  const bundle = distText(appDir);
   for (const needle of ['what-devtools', 'virtual:what-devtools', '__x00__', 'connectDevToolsMCP', '__what_mcp']) {
-    assert(!distText.includes(needle), `prod bundle contains NO devtools leak ("${needle}")`);
+    assert(!bundle.includes(needle), `prod bundle contains NO devtools leak ("${needle}")`);
   }
 
   await assertPortFree(port);
@@ -235,13 +265,115 @@ async function smokeSpa(workDir, tarballs, browser) {
     assert(/counter/.test(js) && /signal|mount/.test(html + js), 'built bundle contains the counter app (marker check)');
   }
 
-  run('npm', ['run', 'lint'], { cwd: appDir });
-  log('  ok - npm run lint passes');
+  lintClean(appDir);
 
   child.kill('SIGTERM');
 }
 
-// --- 3b. Fullstack template ------------------------------------------------
+// --- 3b. SPA + React compat --------------------------------------------------
+//
+// what-react renders the JSX and What's mount() renders the result. The dev
+// server runs over real installs, which Vite pre-bundles unless told not to,
+// so a second what-core shows there; the production build keeps core's vnode
+// renderer only if what-react's own vnodes bring it in.
+
+async function checkReactCompatPage(browser, url, label) {
+  await withPage(browser, url, async (page, errors) => {
+    assert((await page.innerHTML('#app')).includes('zustand-demo'), `${label}: the page renders the app and the zustand demo`);
+    await page.click('.counter button:last-of-type');
+    await page.click('.counter button:last-of-type');
+    await page.getByRole('button', { name: 'Add bear' }).click();
+    await page.waitForFunction(() => document.querySelector('.zustand-count')?.textContent === '1 bears', null, { timeout: 5000 });
+    const count = await page.textContent('.counter output');
+    assert(count === '2', `${label}: the signal counter updates (0 -> ${count})`);
+    assert((await page.textContent('.zustand-count')) === '1 bears', `${label}: the zustand store updates its component`);
+    assert(errors.length === 0, `${label}: no browser errors or warnings (got: ${errors.join('; ') || 'none'})`);
+  }, { warnings: true });
+}
+
+async function smokeReactCompat(workDir, tarballs, browser) {
+  log('--- SPA + React compat (dev server, production build) ---');
+  // React compat is a prompt, not a flag: yes to it, then 1 (vanilla CSS).
+  const appDir = scaffoldApp(workDir, 'smoke-react', tarballs, ['--template=spa'], 'y\n1\n');
+  const pkg = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
+  assert(Boolean(pkg.dependencies['what-react'] && pkg.dependencies.zustand), 'the scaffold depends on what-react and zustand');
+  const viteBin = join(appDir, 'node_modules', 'vite', 'bin', 'vite.js');
+
+  const devPort = PORT_BASE + 40;
+  await assertPortFree(devPort);
+  const dev = startProcess(process.execPath, [viteBin, '--port', String(devPort), '--strictPort'], {
+    cwd: appDir,
+    env: { ...process.env, BROWSER: 'none' },
+  });
+  const devBase = `http://localhost:${devPort}`;
+  await waitForHttp(devBase + '/', { child: dev });
+  const bootstrap = await fetch(devBase + '/@id/__x00__virtual:what-devtools-mcp/bootstrap');
+  assert(bootstrap.ok, `dev: the devtools bootstrap is served (HTTP ${bootstrap.status})`);
+  if (browser) {
+    await checkReactCompatPage(browser, devBase + '/', 'dev');
+    await withPage(browser, devBase + '/', async (page) => {
+      const live = await page.waitForFunction(() => Boolean(globalThis.__WHAT_DEVTOOLS__), null, { timeout: 3000 }).then(() => true, () => false);
+      assert(live, 'dev: devtools bridge is installed (window.__WHAT_DEVTOOLS__)');
+    });
+  }
+  dev.kill('SIGTERM');
+
+  run('npm', ['run', 'build'], { cwd: appDir });
+  const bundle = distText(appDir);
+  for (const needle of ['what-devtools', 'virtual:what-devtools', '__x00__', 'connectDevToolsMCP', '__what_mcp']) {
+    assert(!bundle.includes(needle), `prod bundle contains NO devtools leak ("${needle}")`);
+  }
+
+  const previewPort = PORT_BASE + 41;
+  await assertPortFree(previewPort);
+  const preview = startProcess(process.execPath, [viteBin, 'preview', '--port', String(previewPort), '--strictPort'], { cwd: appDir });
+  const previewBase = `http://localhost:${previewPort}`;
+  await waitForHttp(previewBase + '/', { child: preview });
+  if (browser) {
+    await checkReactCompatPage(browser, previewBase + '/', 'prod');
+  } else {
+    // HTTP-only fallback: prove the bundle contains the compat app.
+    assert(bundle.includes('zustand-demo'), 'built bundle contains the compat app (marker check)');
+  }
+  preview.kill('SIGTERM');
+
+  lintClean(appDir);
+}
+
+// --- 3c. SPA + StyleX ---------------------------------------------------------
+
+async function smokeStylex(workDir, tarballs, browser) {
+  log('--- SPA + StyleX (install, production build) ---');
+  // No to React compat, then 3 (StyleX). scaffoldApp's plain `npm install`
+  // fails with ERESOLVE if the StyleX packages disagree on their peers.
+  const appDir = scaffoldApp(workDir, 'smoke-stylex', tarballs, ['--template=spa'], 'n\n3\n');
+  const viteBin = join(appDir, 'node_modules', 'vite', 'bin', 'vite.js');
+
+  run('npm', ['run', 'build'], { cwd: appDir });
+  const css = readdirSync(join(appDir, 'dist', 'assets')).filter((f) => f.endsWith('.css'))
+    .map((f) => readFileSync(join(appDir, 'dist', 'assets', f), 'utf8')).join('\n');
+  assert(/place-items:\s*center/.test(css), 'the built CSS carries the StyleX rules');
+
+  const port = PORT_BASE + 50;
+  await assertPortFree(port);
+  const preview = startProcess(process.execPath, [viteBin, 'preview', '--port', String(port), '--strictPort'], { cwd: appDir });
+  const base = `http://localhost:${port}`;
+  await waitForHttp(base + '/', { child: preview });
+  if (browser) {
+    await withPage(browser, base + '/', async (page, errors) => {
+      assert((await page.evaluate(() => getComputedStyle(document.querySelector('main')).display)) === 'grid', 'prod: StyleX styles apply');
+      await page.getByRole('button', { name: '+' }).click();
+      const after = await page.textContent('output');
+      assert(after === '1', `prod: the counter increments (0 -> ${after})`);
+      assert(errors.length === 0, `prod: no browser errors (got: ${errors.join('; ') || 'none'})`);
+    });
+  }
+  preview.kill('SIGTERM');
+
+  lintClean(appDir);
+}
+
+// --- 3d. Fullstack template ------------------------------------------------
 
 async function smokeFullstack(workDir, tarballs, browser) {
   log('--- fullstack template (SSR + ISR + hydration) ---');
@@ -365,13 +497,12 @@ async function smokeFullstack(workDir, tarballs, browser) {
     rmSync(isolated, { recursive: true, force: true });
   }
 
-  run('npm', ['run', 'lint'], { cwd: appDir });
-  log('  ok - npm run lint passes');
+  lintClean(appDir);
 
   child.kill('SIGTERM');
 }
 
-// --- 3c. Islands template -------------------------------------------------
+// --- 3e. Islands template -------------------------------------------------
 //
 // JSX pages prerendered to static HTML, with one island hydrated in place. The
 // claims that matter are only observable together: the page is complete HTML
@@ -440,13 +571,9 @@ async function smokeIslands(workDir, tarballs, browser) {
   assert(/<script type="module" src="\/assets\/[^"]+\.js"><\/script>/.test(homeHtml), 'built Home page loads the hashed client entry');
   assert(aboutHtml.includes('<h1>About</h1>') && !aboutHtml.includes('data-island'), 'built About page is static HTML with no island');
 
-  const distText = readdirSync(join(appDir, 'dist'), { recursive: true })
-    .map((f) => join(appDir, 'dist', f))
-    .filter((p) => { try { return statSync(p).isFile(); } catch { return false; } })
-    .map((p) => readFileSync(p, 'utf8'))
-    .join('\n');
+  const bundle = distText(appDir);
   for (const needle of ['what-devtools', 'virtual:what-devtools', '__x00__', 'connectDevToolsMCP', '__what_mcp', '/@vite/client']) {
-    assert(!distText.includes(needle), `static build contains NO dev-only code ("${needle}")`);
+    assert(!bundle.includes(needle), `static build contains NO dev-only code ("${needle}")`);
   }
 
   // Served the way a static host serves it.
@@ -500,8 +627,7 @@ async function smokeIslands(workDir, tarballs, browser) {
   }
   preview.kill('SIGTERM');
 
-  run('npm', ['run', 'lint'], { cwd: appDir });
-  log('  ok - npm run lint passes');
+  lintClean(appDir);
 }
 
 // --- Main -------------------------------------------------------------------
@@ -521,6 +647,8 @@ try {
   browser = await launchBrowser();
 
   await smokeSpa(workDir, tarballs, browser);
+  await smokeReactCompat(workDir, tarballs, browser);
+  await smokeStylex(workDir, tarballs, browser);
   await smokeFullstack(workDir, tarballs, browser);
   await smokeIslands(workDir, tarballs, browser);
 

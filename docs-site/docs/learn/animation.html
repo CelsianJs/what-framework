@@ -93,7 +93,7 @@
           <h2 id="spring">spring(initialValue, options)</h2>
           <p>Creates a physics-based spring animation. Springs produce natural, fluid motion by simulating a damped harmonic oscillator. Unlike time-based animations, springs respond dynamically when interrupted: you can redirect a spring mid-flight and it will smoothly change course.</p>
 
-<pre><code><span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="comment">// Create a spring starting at 0</span>
 <span class="keyword">const</span> position = <span class="function">spring</span>(<span class="number">0</span>, {
@@ -133,7 +133,8 @@ console.log(position.velocity());     <span class="comment">// current speed</sp
           <h3 id="spring-counter">Example: Animated Counter</h3>
           <p>A counter that springs smoothly between values instead of jumping:</p>
 
-<pre><code><span class="keyword">import</span> { signal, effect, spring } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal, effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { spring } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="keyword">function</span> <span class="function">AnimatedCounter</span>() {
   <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
@@ -155,7 +156,7 @@ console.log(position.velocity());     <span class="comment">// current speed</sp
 
           <p>A tween <strong>starts the moment it is created</strong>. There is no <code>play()</code> call: constructing it arms the first frame, and <code>isAnimating()</code> is already <code>true</code> before that frame runs. Create it at the point you want the motion to begin.</p>
 
-<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="comment">// Animate from 0 to 100 over 500ms, running as soon as this line executes</span>
 <span class="keyword">const</span> anim = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, {
@@ -184,7 +185,8 @@ anim.cancel();</code></pre>
           <h3 id="tween-progress">Example: Progress Bar</h3>
           <p>Animate a progress bar from 0% to 100% with a bounce easing:</p>
 
-<pre><code><span class="keyword">import</span> { tween, easings, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { tween, easings } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="keyword">function</span> <span class="function">ProgressBar</span>() {
   <span class="comment">// Starts filling immediately</span>
@@ -208,7 +210,7 @@ anim.cancel();</code></pre>
           <h2 id="easings">Easing Functions</h2>
           <p>The <code>easings</code> object provides a set of common easing curves. Each function maps an input <code>t</code> (0 to 1) to an output value:</p>
 
-<pre><code><span class="keyword">import</span> { easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { easings } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="comment">// Available easings:</span>
 easings.linear          <span class="comment">// constant speed</span>
@@ -222,7 +224,7 @@ easings.easeInElastic   <span class="comment">// elastic wind-up</span>
 easings.easeOutElastic  <span class="comment">// elastic overshoot</span>
 easings.easeOutBounce   <span class="comment">// bouncing settle</span></code></pre>
 
-          <p>Pass any easing to <code>tween()</code> or <code>useTransition()</code>:</p>
+          <p>Pass any easing to <code>tween()</code> or <code>useTween()</code>:</p>
 
 <pre><code><span class="keyword">const</span> anim = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, { easing: easings.easeOutBounce });
 
@@ -230,12 +232,12 @@ easings.easeOutBounce   <span class="comment">// bouncing settle</span></code></
 <span class="keyword">const</span> customEase = (t) =&gt; t * t * t;
 <span class="keyword">const</span> anim2 = <span class="function">tween</span>(<span class="number">0</span>, <span class="number">100</span>, { easing: customEase });</code></pre>
 
-          <h2 id="use-transition">useTransition</h2>
+          <h2 id="use-tween">useTween</h2>
           <p>Orchestrate state transitions with a progress signal. Useful for coordinating page transitions, view swaps, or multi-step animations where you need to know when the transition completes.</p>
 
-<pre><code><span class="keyword">import</span> { useTransition, easings } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useTween, easings } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
-<span class="keyword">const</span> transition = <span class="function">useTransition</span>({
+<span class="keyword">const</span> transition = <span class="function">useTween</span>({
   duration: <span class="number">400</span>,                  <span class="comment">// ms (default: 300)</span>
   easing: easings.easeOutCubic,   <span class="comment">// easing curve (default: easeOutQuad)</span>
 });
@@ -250,6 +252,8 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
   swapContent();
 });</code></pre>
 
+          <p>It was called <code>useTransition</code> before 0.15. <code>useTransition</code> and <code>startTransition</code> on the root entry are React's transition API (<code>const [isPending, startTransition] = useTransition()</code>, with <code>isPending()</code> an accessor), which holds the screen while async values load; see <a href="https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md">ASYNC.md</a>.</p>
+
           <div class="callout callout-warning">
             <p class="callout-title">progress() stays at 1 when the transition ends</p>
             <p><code>start()</code> resets <code>progress()</code> to 0, ramps it to 1, then resolves. Nothing runs it back down, so after the promise settles <code>progress()</code> is still 1. Binding an opacity to a bare <code>1 - progress()</code> therefore leaves the element permanently at 0. Gate the binding on <code>isTransitioning()</code>, which is already back to <code>false</code> by the time your callback runs.</p>
@@ -257,11 +261,12 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
           <h3 id="page-transition">Example: Page Transition</h3>
 
-<pre><code><span class="keyword">import</span> { signal, useTransition } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useTween } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="keyword">function</span> <span class="function">PageContainer</span>() {
   <span class="keyword">const</span> currentPage = <span class="function">signal</span>(<span class="string">'home'</span>);
-  <span class="keyword">const</span> fade = <span class="function">useTransition</span>({ duration: <span class="number">250</span> });
+  <span class="keyword">const</span> fade = <span class="function">useTween</span>({ duration: <span class="number">250</span> });
 
   <span class="keyword">async function</span> <span class="function">navigate</span>(page) {
     <span class="comment">// Fades out over 250ms, then swaps the page</span>
@@ -284,7 +289,8 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
           <p><code>useGesture</code> needs a <strong>live DOM element</strong>, not a ref placeholder. Capture the node with a callback ref and call the hook from <code>onMount</code>, which runs after the element exists:</p>
 
-<pre><code><span class="keyword">import</span> { useGesture, onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useGesture } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="keyword">function</span> <span class="function">Card</span>() {
   <span class="keyword">let</span> el;
@@ -325,7 +331,8 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
 
           <h3 id="draggable-card">Example: Draggable Card</h3>
 
-<pre><code><span class="keyword">import</span> { useGesture, spring, onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useGesture, spring } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="keyword">function</span> <span class="function">DraggableCard</span>() {
   <span class="keyword">let</span> el;
@@ -365,7 +372,7 @@ transition.progress();         <span class="comment">// 0 to 1 (eased)</span>
           <h2 id="use-animated-value">useAnimatedValue</h2>
           <p>A React Native-inspired API that wraps a signal with animation methods. Useful when you need to drive multiple animations from a single value or interpolate between ranges.</p>
 
-<pre><code><span class="keyword">import</span> { useAnimatedValue } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useAnimatedValue } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="keyword">const</span> progress = <span class="function">useAnimatedValue</span>(<span class="number">0</span>);
 
@@ -397,7 +404,7 @@ progress.subscribe((v) =&gt; {});
           <h2 id="css-transitions">CSS Transitions</h2>
           <p>For CSS-class-based animations, <code>createTransitionClasses()</code> generates the enter/exit class names used by CSS animation libraries, so the naming stays consistent between your JavaScript and your stylesheet.</p>
 
-<pre><code><span class="keyword">import</span> { createTransitionClasses } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { createTransitionClasses } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="comment">// Generate class names for a transition called "fade"</span>
 <span class="keyword">const</span> classes = <span class="function">createTransitionClasses</span>(<span class="string">'fade'</span>);
@@ -412,7 +419,7 @@ progress.subscribe((v) =&gt; {});
 
           <p><code>cssTransition()</code> drives those classes for you and returns a promise. It adds the start class, reads a layout property on the next frame so the browser commits that starting style, adds the active class to let the CSS transition run, then swaps both for the done class and resolves:</p>
 
-<pre><code><span class="keyword">import</span> { cssTransition, createTransitionClasses } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { cssTransition, createTransitionClasses } <span class="keyword">from</span> <span class="string">'what-framework/motion'</span>;
 
 <span class="keyword">const</span> classes = <span class="function">createTransitionClasses</span>(<span class="string">'fade'</span>);
 
@@ -528,7 +535,7 @@ el.classList.remove(classes.enterDone);
             <li><a href="#spring">spring()</a></li>
             <li><a href="#tween">tween()</a></li>
             <li><a href="#easings">Easing Functions</a></li>
-            <li><a href="#use-transition">useTransition</a></li>
+            <li><a href="#use-tween">useTween</a></li>
             <li><a href="#use-gesture">useGesture</a></li>
             <li><a href="#use-animated-value">useAnimatedValue</a></li>
             <li><a href="#css-transitions">CSS Transitions</a></li>

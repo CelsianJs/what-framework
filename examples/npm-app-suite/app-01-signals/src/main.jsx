@@ -3,13 +3,14 @@ import { mount, useSignal, batch } from 'what-framework';
 function App() {
   const count = useSignal(0);
   const step = useSignal(1);
-  const history = useSignal([0]);
+  const history = useSignal([{ id: 0, value: 0 }]);
+  let nextEntryId = 1;
 
   function applyDelta(delta) {
     batch(() => {
       const next = count() + delta * step();
       count(next);
-      history([...history(), next].slice(-8));
+      history([...history(), { id: nextEntryId++, value: next }].slice(-8));
     });
   }
 
@@ -37,8 +38,8 @@ function App() {
 
       <h2>Recent Values</h2>
       <ul>
-        {history().map((value, i) => (
-          <li key={`${i}-${value}`}>{value}</li>
+        {history().map((entry) => (
+          <li key={entry.id}>{entry.value}</li>
         ))}
       </ul>
     </main>

@@ -6,6 +6,7 @@
  * delegated to what-core automatically by the runtime.
  */
 
+import { h } from 'what-core';
 import {
   mountRoot,
   patchRoot,
@@ -81,15 +82,11 @@ export function unmountComponentAtNode(container) {
 // the target container while keeping context/ownership from the React tree.
 
 export function createPortal(children, container, key) {
-  return {
-    tag: '__portal',
+  return Object.assign(h('__portal', { container, key }), {
     type: '__portal',
-    props: { container, key },
     children: Array.isArray(children) ? children : [children],
-    key: key ?? null,
-    _vnode: true,
     _compat: true,
-  };
+  });
 }
 
 // ---- flushSync ----

@@ -47,7 +47,7 @@ The workflow rejects non-main refs before credential-bearing steps and runs
 the shared `release:verify:correctness` runner before publishing. The local
 `release:verify` uses the same list plus `bench:gate`, which runs as a separate non-blocking CI step
 because the perf baselines are recorded on local hardware. Run
-`npm run -s release:verify` locally to get the blocking perf gate.
+`npm run -s release:verify` locally to get the blocking perf gate. The DOM portion compares pooled script-only timings. Record that baseline with `npm run bench:dom` on the release benchmark machine.
 When packages are published, it also runs `npm run -s verify:registry` and uploads
 `artifacts/registry-smoke.json`. A release is not complete until this registry
 smoke passes against npm.

@@ -11,8 +11,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 
 installDOM();
 
-const { signal, effect, flushSync } = await import('../src/reactive.js');
-const { disposeTree } = await import('../src/dom.js');
+const { signal, effect, flushSync, onCleanup, createRoot } = await import('../src/reactive.js');
 const { mapArray, insert, setProp, spread } = await import('../src/render.js');
 const { h } = await import('../src/h.js');
 
@@ -269,8 +268,9 @@ describe('mapArray keyed: adjacent-item removal does not corrupt DOM', () => {
         effectRuns.set(cur.id, (effectRuns.get(cur.id) || 0) + 1);
       });
 
-      // Track teardown.
-      el._dispose = () => { disposeCount++; };
+      // Track teardown. A row is disposed through its scope, so a cleanup
+      // registered while the row is built is what removal must run.
+      onCleanup(() => { disposeCount++; });
       return el;
     }
 
@@ -349,12 +349,12 @@ describe('mapArray keyed: adjacent-item removal does not corrupt DOM', () => {
 });
 
 // --------------------------------------------------------------------------
-// P1-3: function-valued props create an effect — the effect must be tracked
-// on el._propEffects so disposeTree tears it down when the element unmounts.
+// P1-3: function-valued props create an effect, which belongs to the owner the
+// prop is applied under and stops when that owner is disposed.
 // --------------------------------------------------------------------------
 
-describe('setProp: reactive function props are torn down on disposeTree', () => {
-  it('reactive prop effect does not run after the element is disposed', async () => {
+describe('setProp: reactive function props stop with their owner', () => {
+  it('reactive prop effect does not run after its owner is disposed', async () => {
     const container = getContainer();
 
     const cls = signal('initial');
@@ -363,10 +363,12 @@ describe('setProp: reactive function props are torn down on disposeTree', () => 
     const el = document.createElement('div');
     container.appendChild(el);
 
-    // Pass a function value — setProp must wrap in effect AND register the disposer.
-    setProp(el, 'data-test', () => {
-      evaluations++;
-      return cls();
+    const dispose = createRoot((d) => {
+      setProp(el, 'data-test', () => {
+        evaluations++;
+        return cls();
+      });
+      return d;
     });
 
     flushSync();
@@ -375,11 +377,8 @@ describe('setProp: reactive function props are torn down on disposeTree', () => 
     assert.equal(el.getAttribute('data-test'), 'initial');
     const initialCount = evaluations;
     assert.ok(initialCount >= 1);
-    assert.ok(el._propEffects, 'effect disposer was registered on _propEffects');
-    assert.ok(typeof el._propEffects['data-test'] === 'function');
 
-    // Dispose the element subtree.
-    disposeTree(el);
+    dispose();
     container.removeChild(el);
 
     // Mutate the signal — the now-disposed effect must NOT re-evaluate.
@@ -387,18 +386,17 @@ describe('setProp: reactive function props are torn down on disposeTree', () => 
     flushSync();
     await flush();
 
-    assert.equal(evaluations, initialCount, 'effect did not re-run after disposeTree');
+    assert.equal(evaluations, initialCount, 'effect did not re-run after its owner was disposed');
   });
 });
 
 // --------------------------------------------------------------------------
-// spread(): reactive function props create effects (class / style / generic).
-// Same leak class as P1-3 setProp — disposers must be tracked on
-// el._propEffects so disposeTree tears them down on unmount.
+// spread(): reactive function props create effects (class / style / generic),
+// owned the same way.
 // --------------------------------------------------------------------------
 
-describe('spread: reactive props are torn down on disposeTree', () => {
-  it('spread()-installed effect does not run after the element is disposed', async () => {
+describe('spread: reactive props stop with their owner', () => {
+  it('spread()-installed effect does not run after its owner is disposed', async () => {
     const container = getContainer();
     const cls = signal('a');
     let evaluations = 0;
@@ -406,11 +404,14 @@ describe('spread: reactive props are torn down on disposeTree', () => {
     const el = document.createElement('div');
     container.appendChild(el);
 
-    spread(el, {
-      class: () => {
-        evaluations++;
-        return cls();
-      },
+    const dispose = createRoot((d) => {
+      spread(el, {
+        class: () => {
+          evaluations++;
+          return cls();
+        },
+      });
+      return d;
     });
 
     flushSync();
@@ -419,23 +420,18 @@ describe('spread: reactive props are torn down on disposeTree', () => {
     assert.equal(el.className, 'a');
     const initialCount = evaluations;
     assert.ok(initialCount >= 1);
-    assert.ok(el._propEffects, 'spread should register effect disposer on _propEffects');
-    assert.ok(
-      typeof el._propEffects['class'] === 'function',
-      'class-prop effect disposer was registered'
-    );
 
-    disposeTree(el);
+    dispose();
     container.removeChild(el);
 
     cls('after-dispose');
     flushSync();
     await flush();
 
-    assert.equal(evaluations, initialCount, 'spread effect did not re-run after disposeTree');
+    assert.equal(evaluations, initialCount, 'spread effect did not re-run after its owner was disposed');
   });
 
-  it('generic reactive prop installed via spread is also torn down', async () => {
+  it('generic reactive prop installed via spread stops too', async () => {
     const container = getContainer();
     const v = signal('one');
     let evaluations = 0;
@@ -443,11 +439,14 @@ describe('spread: reactive props are torn down on disposeTree', () => {
     const el = document.createElement('input');
     container.appendChild(el);
 
-    spread(el, {
-      'data-x': () => {
-        evaluations++;
-        return v();
-      },
+    const dispose = createRoot((d) => {
+      spread(el, {
+        'data-x': () => {
+          evaluations++;
+          return v();
+        },
+      });
+      return d;
     });
 
     flushSync();
@@ -455,16 +454,15 @@ describe('spread: reactive props are torn down on disposeTree', () => {
 
     assert.equal(el.getAttribute('data-x'), 'one');
     const before = evaluations;
-    assert.ok(el._propEffects['data-x'], 'generic prop effect disposer registered');
 
-    disposeTree(el);
+    dispose();
     container.removeChild(el);
 
     v('two');
     flushSync();
     await flush();
 
-    assert.equal(evaluations, before, 'generic spread effect did not re-run after disposeTree');
+    assert.equal(evaluations, before, 'generic spread effect did not re-run after its owner was disposed');
   });
 });
 

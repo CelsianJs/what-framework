@@ -92,7 +92,7 @@
 
           <p>What ships four data-fetching hooks that cover everything from a one-line fetch to full TanStack Query-style cache management. Every hook returns reactive signals, so your UI updates automatically when data arrives, errors occur, or background revalidation completes.</p>
 
-<pre><code><span class="keyword">import</span> { useFetch, useSWR, useQuery, useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;</code></pre>
+<pre><code><span class="keyword">import</span> { useFetch, useSWR, useQuery, useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;</code></pre>
 
           <div class="callout callout-warning">
             <p class="callout-title">These four hooks are client-side</p>
@@ -102,7 +102,8 @@
           <h2 id="use-fetch">useFetch</h2>
           <p><code>useFetch</code> is the simplest way to load data. It fires a request on mount, aborts it on unmount, and gives you reactive <code>data</code>, <code>error</code>, and <code>isLoading</code> signals.</p>
 
-<pre><code><span class="function">useFetch</span>(url, options?)</code></pre>
+<pre><code><span class="function">useFetch</span>(url)
+<span class="function">useFetch</span>(url, options)</code></pre>
 
           <p><strong>Options:</strong></p>
           <ul>
@@ -115,7 +116,7 @@
 
           <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>refetch()</code>, <code>mutate(newData)</code></p>
 
-<pre><code><span class="keyword">import</span> { useFetch } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useFetch } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">UserProfile</span>({ userId }) {
   <span class="keyword">const</span> { data, error, isLoading } = <span class="function">useFetch</span>(
@@ -135,7 +136,8 @@
           <h2 id="use-swr">useSWR</h2>
           <p><code>useSWR</code> adds a shared cache layer on top of fetching. Multiple components that read the same cache key share one set of signals, so a mutation in one component instantly updates every other component displaying that key.</p>
 
-<pre><code><span class="function">useSWR</span>(key, fetcher, options?)</code></pre>
+<pre><code><span class="function">useSWR</span>(key, fetcher)
+<span class="function">useSWR</span>(key, fetcher, options)</code></pre>
 
           <div class="callout callout-note">
             <p class="callout-title">The SWR Pattern</p>
@@ -163,7 +165,7 @@
 
           <p><strong>Returns:</strong> <code>data()</code>, <code>error()</code>, <code>isLoading()</code>, <code>isValidating()</code>, <code>mutate(newData, shouldRevalidate?)</code>, <code>revalidate(options?)</code></p>
 
-<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">Dashboard</span>() {
   <span class="keyword">const</span> { data, isValidating } = <span class="function">useSWR</span>(
@@ -229,7 +231,7 @@
 
           <p>That makes "disabled query, fetch on a button click" a first-class shape: keep <code>enabled: false</code>, branch on <code>isIdle()</code> for the not-yet-run state, and call <code>refetch()</code> from the handler.</p>
 
-<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">Report</span>() {
   <span class="keyword">const</span> report = <span class="function">useQuery</span>({
@@ -288,7 +290,7 @@
 
           <p>Most queries need none of this, and read like this:</p>
 
-<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">RepoList</span>({ org }) {
   <span class="keyword">const</span> repos = <span class="function">useQuery</span>({
@@ -345,7 +347,7 @@
 
           <p><code>invalidateQueries</code> reaches an infinite query, by string key, by array prefix, or through a predicate, and refetches it from page one. <code>setQueryData</code> and <code>getQueryData</code> do not: they only ever touch the shared cache, so a <code>useQuery</code> and a <code>useInfiniteQuery</code> that name the same key do not share data.</p>
 
-<pre><code><span class="keyword">import</span> { useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useInfiniteQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">Feed</span>() {
   <span class="keyword">const</span> feed = <span class="function">useInfiniteQuery</span>({
@@ -384,12 +386,9 @@
           <p>What provides standalone functions to read, write, and invalidate the shared query cache from anywhere in your application. There is one entry per key, shared by every hook that names it, and the fetcher is not part of the key: two components reading the same key with different fetchers overwrite each other's data, last write wins. Keep a key unique per pair of data and fetcher.</p>
 
 <pre><code><span class="keyword">import</span> {
-  invalidateQueries,
-  prefetchQuery,
-  setQueryData,
-  getQueryData,
+  invalidateQueries, prefetchQuery, setQueryData, getQueryData,
   clearCache,
-} <span class="keyword">from</span> <span class="string">'what-framework'</span>;</code></pre>
+} <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;</code></pre>
 
           <h3 id="invalidate"><code>invalidateQueries(keyOrPredicate, options?)</code></h3>
           <p>Tells every mounted subscriber of a key to fetch again now. It is a "re-fetch immediately" signal rather than a flag stored on the entry: it deliberately bypasses <code>staleTime</code> and <code>dedupingInterval</code>. Request coalescing is a <code>useSWR</code> feature only, so waking three <code>useSWR</code> hooks on one key sends one request, while waking three <code>useQuery</code> hooks on one key sends three. A key with nothing mounted on it is not re-fetched, and a soft invalidation leaves its cached value readable. A query whose <code>enabled</code> gate is currently closed is not woken either: an invalidation is automatic fetching, so call <code>refetch()</code> when you mean "even if it is disabled".</p>

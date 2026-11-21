@@ -3,7 +3,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { useLoaderData, runWithServerContext } from '../src/index.js';
+import { useLoaderData } from '../src/index.js';
+import { runWithServerContext } from '../src/entries/internal.js';
 
 describe('useLoaderData (server)', () => {
   it('returns loaderData from the active render context', () => {

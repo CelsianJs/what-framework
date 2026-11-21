@@ -2,9 +2,15 @@
 // Helpers for testing components, similar to @testing-library/react
 // Works with Node.js test runner or any test framework
 
-import { signal, effect, flushSync, createRoot, __DEV__, __devtools, __setDevToolsHooks } from './reactive.js';
+import { signal, effect, flushSync, createRoot, __DEV__, __devtools, __setDevToolsHooks, __depsOf, __subsOf, __ownerPath } from './reactive.js';
 import { mount } from './dom.js';
 import { h } from './h.js';
+import { capture } from './diagnostics.js';
+import { settled } from './async.js';
+
+// Resolves once nothing is queued, fetching or in a transition (async.js): act,
+// then `await settled()`, then read the DOM.
+export { settled };
 
 // Minimal DOM implementation for Node.js
 /** @type {HTMLDivElement | null} */
@@ -25,12 +31,21 @@ const mountedTrees = new Set();
 
 // Idempotent and re-entrant: renderTest's own unmount() calls cleanup() at the
 // end, so a disposer that is still in the set when cleanup() runs must not fire
-// twice.
-function trackMount(dispose) {
+// twice. Effect creations are watched from before the mount until after the
+// disposal, so a capture can tell which component each effect belongs to.
+function trackMount(mountTree) {
+  const stopWatching = watchCreations();
+  let dispose;
+  try {
+    dispose = mountTree();
+  } catch (err) {
+    stopWatching();
+    throw err;
+  }
   const unmount = () => {
     if (!mountedTrees.has(unmount)) return;
     mountedTrees.delete(unmount);
-    dispose();
+    try { dispose(); } finally { stopWatching(); }
   };
   mountedTrees.add(unmount);
   return unmount;
@@ -71,7 +86,7 @@ export function render(vnode, options = {}) {
     throw new Error('No DOM container available. Are you running in Node.js without jsdom?');
   }
 
-  const unmount = trackMount(mount(vnode, target));
+  const unmount = trackMount(() => mount(vnode, target));
 
   return {
     container: target,
@@ -111,7 +126,7 @@ export function renderTest(Component, props) {
   createRoot((dispose) => {
     rootDispose = dispose;
     const vnode = h(Component, props || {});
-    unmountFn = trackMount(mount(vnode, target));
+    unmountFn = trackMount(() => mount(vnode, target));
   });
 
   return {
@@ -152,9 +167,123 @@ export function flushEffects() {
   flushSync();
 }
 
-// --- trackSignals ---
-// Track signal reads and writes within a callback.
-// Returns { accessed: string[], written: string[] }
+// --- Development hook listeners ---
+//
+// trackSignals(), captureDiagnostics() and the effect owner record below listen
+// to the engine's development hooks, and several can be open at once
+// (overlapping async captures, a capture while a tree is mounted). So
+// each adds its own listener to one shared wrapper instead of swapping the
+// global hooks: a capture that ends removes only its own listener, and the
+// wrapper forwards to whatever hooks were installed underneath it, so installed
+// devtools keep working. The wrapper comes out when the last listener leaves.
+const hookListeners = {
+  onSignalUpdate: new Set(),
+  onEffectRun: new Set(),
+  onEffectCreate: new Set(),
+  onEffectDispose: new Set(),
+};
+/** @type {WhatDevToolsHooks | null} */
+let hookBase = null;
+/** @type {WhatDevToolsHooks | null} */
+let hookWrapper = null;
+
+// Installs the wrapper for the first listener, and again when other hooks were
+// installed over it (devtools, a test): the listeners have heard nothing since,
+// so it wraps those instead (the creations made meanwhile went unseen). Only
+// development reaches it; the guard lets the per-module production dist drop
+// its body.
+function ensureWrapper() {
+  if (!__DEV__) return;
+  if (hookWrapper !== null && __devtools === hookWrapper) return;
+  const base = __devtools;
+  /** @type {WhatDevToolsHooks} */
+  const wrapper = { ...(base || {}) };
+  // The wrapper is not the pre-install buffer, or the real devtools would
+  // later try to drain it a second time.
+  delete wrapper.__isPreinstallBuffer;
+  for (const hook of Object.keys(hookListeners)) {
+    wrapper[hook] = (...args) => {
+      for (const listener of hookListeners[hook]) listener(...args);
+      base?.[hook]?.(...args);
+    };
+  }
+  hookBase = base;
+  hookWrapper = wrapper;
+  __setDevToolsHooks(wrapper);
+}
+
+function listenToHook(name, fn) {
+  // Only its development-only callers reach this; production builds drop it.
+  if (!__DEV__) return () => {};
+  hookListeners[name].add(fn);
+  ensureWrapper();
+  return () => {
+    hookListeners[name].delete(fn);
+    if (Object.values(hookListeners).some((set) => set.size > 0)) return;
+    if (__devtools === hookWrapper) __setDevToolsHooks(hookBase);
+    hookWrapper = null;
+    hookBase = null;
+  };
+}
+
+// --- Effect owners ---
+//
+// Every effect and computed sits in the owner tree: under the component whose
+// body, output or region created it, under the effect whose run created it,
+// or under a root. Its owner is the components on its __ownerPath(), root
+// first, read from the tree when the capture ends (an owner stays readable
+// after it is disposed), so it is right however the node was created: in a
+// region or a row long after the body ran, in a useEffect or onMount callback,
+// or by an effect re-run. It is null when no component holds the node: module
+// scope, or a createRoot outside any component.
+//
+// Which effects exist is another matter: the engine keeps no list. The helpers
+// note each creation while they watch (while a tree render() or renderTest()
+// mounted is alive, and while a capture is open), so a capture can list the
+// effects that did not run. An effect created while nothing watched appears
+// only if it runs.
+
+/** The effects and computeds created while something watched. @type {Set<any>} */
+const created = new Set();
+let watchers = 0;
+let unwatch = () => {};
+
+function recordCreation(node) {
+  created.add(node);
+}
+
+function forgetCreation(node) {
+  created.delete(node);
+}
+
+// One watch per mounted tree and per open capture. The record is dropped with
+// the last watch: disposals after that go unseen, so it would turn stale.
+function watchCreations() {
+  if (!__DEV__) return () => {};
+  if (watchers++ === 0) {
+    const stopCreate = listenToHook('onEffectCreate', recordCreation);
+    const stopDispose = listenToHook('onEffectDispose', forgetCreation);
+    unwatch = () => {
+      stopCreate();
+      stopDispose();
+      created.clear();
+    };
+  } else {
+    ensureWrapper();
+  }
+  let watching = true;
+  return () => {
+    if (!watching) return;
+    watching = false;
+    if (--watchers === 0) unwatch();
+  };
+}
+
+// The owner path diagnostics print: component names, root first, or null.
+function componentPath(node) {
+  const path = __ownerPath(node).filter((scope) => scope[0] === '<');
+  return path.length ? path : null;
+}
 
 // --- trackSignals ---
 //
@@ -175,7 +304,7 @@ export function trackSignals(fn) {
   if (!__DEV__) {
     throw new Error(
       '[what] trackSignals() requires a development build. Signal debug names ' +
-      'and subscriber back-references are stripped in production, so there is ' +
+      'and the dependency graph API are stripped in production, so there is ' +
       'nothing to report. Run your tests with NODE_ENV !== "production".'
     );
   }
@@ -184,32 +313,15 @@ export function trackSignals(fn) {
   const written = [];
   const addOnce = (list, name) => { if (!list.includes(name)) list.push(name); };
 
-  // --- Writes ---
-  //
-  // Every signal write calls __devtools.onSignalUpdate(sig) in dev, and
-  // __devtools is consulted at write time rather than at creation time, so
-  // this catches writes to signals that existed long before this call.
-  // Chain the previous hooks rather than replacing them: otherwise running a
-  // test would silently disable installed devtools for the duration.
-  const previousHooks = __devtools;
-  const trackingHooks = {
-    ...(previousHooks || {}),
-    onSignalUpdate(sig) {
-      addOnce(written, sig?._debugName || UNNAMED);
-      previousHooks?.onSignalUpdate?.(sig);
-    },
-  };
-  // A chained hook must not claim to be the pre-install buffer, or the real
-  // devtools would later try to drain it a second time.
-  delete trackingHooks.__isPreinstallBuffer;
+  // Writes: every signal write calls the onSignalUpdate hook in development,
+  // so this sees writes to signals that existed long before this call.
+  const stopWrites = listenToHook('onSignalUpdate', (sig) => addOnce(written, sig?._debugName || UNNAMED));
 
-  // --- Reads ---
-  //
-  // Reading a signal inside an effect adds that effect to the signal's
-  // subscriber Set and pushes the Set onto effect.deps. effect() returns a
-  // dispose function rather than the effect, so the effect is reached through
-  // a probe signal: after the run, the probe's subscriber Set holds exactly
-  // the effect that read it.
+  // Reads: fn runs inside an effect, reached through a probe signal the effect
+  // also reads (effect() returns a disposer, not the node): after the run the
+  // probe's only subscriber is that effect, and __depsOf lists what it read.
+  // A dependency is a signal (its function) or a computed (its node), whose
+  // own dependencies are the sources to follow.
   const probe = signal(0, '__trackSignals_probe__');
   // Held in a box rather than a `let`: the assignment happens inside
   // createRoot's callback, and the finally below has to run it whether the
@@ -218,23 +330,18 @@ export function trackSignals(fn) {
   const root = { current: null };
   let thrown = null;
 
-  const collectReads = (depSets, seen) => {
-    for (const depSet of depSets || []) {
-      if (seen.has(depSet)) continue;
-      seen.add(depSet);
-      const sig = depSet._signalOwner;
-      if (sig) {
-        if (sig !== probe) addOnce(accessed, sig._debugName || UNNAMED);
-        continue;
+  const collectReads = (node, seen) => {
+    for (const dep of __depsOf(node)) {
+      if (seen.has(dep)) continue;
+      seen.add(dep);
+      if (typeof dep === 'function') {
+        addOnce(accessed, dep._debugName || UNNAMED);
+      } else {
+        collectReads(dep, seen);
       }
-      // Not a signal's Set, so it belongs to a computed. `_owner` is that
-      // computed's inner effect; its own deps are the sources to follow.
-      const owner = depSet._owner;
-      if (owner?.deps) collectReads(owner.deps, seen);
     }
   };
 
-  __setDevToolsHooks(trackingHooks);
   try {
     createRoot((disposeRoot) => {
       root.current = disposeRoot;
@@ -244,18 +351,238 @@ export function trackSignals(fn) {
       });
     });
 
-    const seen = new Set();
-    for (const tracked of probe._subs) collectReads(tracked.deps, seen);
+    // The probe itself is not one of fn's reads.
+    const seen = new Set([probe]);
+    for (const reader of __subsOf(probe)) collectReads(reader, seen);
   } catch (err) {
     thrown = err;
   } finally {
-    // Deps are read before this: disposal clears them.
+    // Dependencies are read before this: disposal clears them.
     root.current?.();
-    __setDevToolsHooks(previousHooks);
+    stopWrites();
   }
 
   if (thrown) throw thrown;
   return { accessed, written };
+}
+
+// --- captureDiagnostics ---
+//
+// Runs a callback and returns the diagnostics it reported plus how many times
+// each effect ran, so a test can fail on a new diagnostic code or on reactive
+// work it did not expect without scraping the console. Effects and computeds
+// are named by their function's name, '(anonymous)' otherwise; `effects` lists
+// each one with its owner, including the known ones that did not run, so an
+// assertion can tell an idle effect from a misspelled name.
+//
+// Reports are kept off the console while the capture is open; the events carry
+// the same message and fix the console would have printed.
+// Effect runs are counted through the shared hook listener above, so captures
+// that overlap (two async tests at once) each see every run made while they are
+// open, installed devtools keep working, and the hooks are restored even when
+// fn throws.
+
+function effectName(node) {
+  return node.fn?.name || '(anonymous)';
+}
+
+export function captureDiagnostics(fn) {
+  if (!__DEV__) {
+    throw new Error(
+      '[what] captureDiagnostics() requires a development build: production builds ' +
+      'report no diagnostics, so an empty result would look like a pass. Run your ' +
+      'tests with NODE_ENV !== "production".'
+    );
+  }
+
+  const cap = capture({ quiet: true });
+  const stopWatching = watchCreations();
+  // node -> runs: what existed when the capture opened, then each node as it
+  // is created or runs, kept when a disposal drops it from the watch.
+  const seen = new Map();
+  for (const node of created) seen.set(node, 0);
+  const stopRuns = listenToHook('onEffectRun', (node) => {
+    seen.set(node, (seen.get(node) ?? 0) + 1);
+  });
+
+  const finish = () => {
+    stopRuns();
+    for (const node of created) if (!seen.has(node)) seen.set(node, 0);
+    stopWatching();
+    const runs = {};
+    const effects = [];
+    for (const [node, ran] of seen) {
+      const name = effectName(node);
+      if (ran > 0) runs[name] = (runs[name] || 0) + ran;
+      effects.push({
+        name,
+        kind: 'subHead' in node ? 'computed' : 'effect',
+        owner: componentPath(node),
+        runs: ran,
+      });
+    }
+    return { events: cap.stop(), runs, effects };
+  };
+
+  let result;
+  try {
+    result = fn();
+  } catch (err) {
+    finish();
+    throw err;
+  }
+  if (result && typeof result.then === 'function') {
+    return result.then(
+      (value) => ({ ...finish(), result: value }),
+      (err) => { finish(); throw err; },
+    );
+  }
+  return { ...finish(), result };
+}
+
+function describeEvents(events) {
+  return events.map((e) => {
+    const lines = [`  ${e.code}${e.count > 1 ? ` ×${e.count}` : ''} ${e.message}`];
+    if (e.owner?.length) lines.push(`    in ${e.owner.join(' › ')}`);
+    if (e.loc) lines.push(`    at ${e.loc}`);
+    lines.push(`    fix: ${e.fix}`);
+    return lines.join('\n');
+  }).join('\n');
+}
+
+/**
+ * Fail unless the capture holds no diagnostics, other than codes in `allow`.
+ * @param {{ events: any[] }} captured result of captureDiagnostics()
+ * @param {{ allow?: string[] }} [options]
+ */
+export function expectNoDiagnostics(captured, { allow = [] } = {}) {
+  const unexpected = captured.events.filter((e) => !allow.includes(e.code));
+  if (unexpected.length) {
+    throw new Error(`Expected no diagnostics, got ${unexpected.length}:\n${describeEvents(unexpected)}`);
+  }
+}
+
+// expectDiagnostic() and expectRuns() take the same count options: `exact`, or
+// `min` and/or `max`. With none of them the count is "at least once".
+const COUNT_OPTIONS = ['exact', 'min', 'max'];
+
+function readCount(helper, options, names) {
+  if (options === null || typeof options !== 'object') {
+    throw new TypeError(`[what] ${helper}() takes an options object: { ${names.join(', ')} }.`);
+  }
+  for (const key of Object.keys(options)) {
+    if (!names.includes(key)) {
+      throw new TypeError(`[what] ${helper}(): unknown option "${key}". The options are ${names.join(', ')}.`);
+    }
+  }
+  for (const key of COUNT_OPTIONS) {
+    const n = options[key];
+    if (n !== undefined && !(Number.isInteger(n) && n >= 0)) {
+      throw new TypeError(`[what] ${helper}(): ${key} must be a whole number of 0 or more, got ${String(n)}.`);
+    }
+  }
+  const { exact, min, max } = options;
+  if (exact !== undefined && (min !== undefined || max !== undefined)) {
+    throw new TypeError(`[what] ${helper}(): exact cannot be combined with min or max.`);
+  }
+  if (min !== undefined && max !== undefined && min > max) {
+    throw new TypeError(`[what] ${helper}(): min (${min}) is greater than max (${max}).`);
+  }
+  const lo = exact ?? min ?? (max === undefined ? 1 : 0);
+  const hi = exact ?? max ?? Infinity;
+  let text = `between ${lo} and ${hi} times`;
+  if (lo === hi) text = `exactly ${lo} time(s)`;
+  else if (hi === Infinity) text = `at least ${lo} time(s)`;
+  else if (lo === 0) text = `at most ${hi} time(s)`;
+  return { lo, hi, text };
+}
+
+function readName(helper, key, value) {
+  if (value !== undefined && (typeof value !== 'string' || value === '')) {
+    throw new TypeError(`[what] ${helper}(): ${key} must be a non-empty string, got ${String(value)}.`);
+  }
+  return value;
+}
+
+/**
+ * Fail unless the capture holds `code` and no other code, reported the given
+ * number of times (at least once by default). A repeat on the same subject
+ * folds into one event's `count`, so the occurrences are the counts added up.
+ * @param {{ events: any[] }} captured result of captureDiagnostics()
+ * @param {{ code: string, exact?: number, min?: number, max?: number }} options
+ */
+export function expectDiagnostic(captured, options) {
+  const count = readCount('expectDiagnostic', options, ['code', ...COUNT_OPTIONS]);
+  const code = readName('expectDiagnostic', 'code', options.code);
+  if (code === undefined) throw new TypeError('[what] expectDiagnostic(): code, the ERR_* code to expect, is required.');
+  if (captured.events.some((e) => e.code !== code)) {
+    throw new Error(`Expected exactly ${code}, got:\n${describeEvents(captured.events)}`);
+  }
+  const reported = captured.events.reduce((sum, e) => sum + e.count, 0);
+  if (reported < count.lo || reported > count.hi) {
+    const got = reported ? `${reported}:\n${describeEvents(captured.events)}` : 'none.';
+    throw new Error(`Expected ${code} ${count.text}, got ${got}`);
+  }
+}
+
+function describeRuns(effects) {
+  const lines = new Map();
+  for (const e of effects) {
+    if (e.runs === 0) continue;
+    const where = e.owner === null ? ' · outside any component' : ` in ${e.owner.join(' › ')}`;
+    const label = `${e.name}${e.kind === 'computed' ? ' (computed)' : ''}`;
+    const key = `${label}\n${where}`;
+    const line = lines.get(key);
+    if (line) line.runs += e.runs;
+    else lines.set(key, { label, where, runs: e.runs });
+  }
+  if (lines.size === 0) return 'No effect ran during the capture.';
+  const sorted = [...lines.values()].sort((a, b) => b.runs - a.runs);
+  return `All runs:\n${sorted.map((l) => `  ${l.label}: ${l.runs}${l.where}`).join('\n')}`;
+}
+
+/**
+ * Fail unless the selected effects ran the given number of times during the
+ * capture (at least once by default). `effect` selects by function name,
+ * `component` by the component that created them, components inside it
+ * included; with neither, every effect and computed run of the capture counts.
+ * A name or component that matches no effect that ran or was known to exist
+ * throws, listing what did run. An effect outside any component (`owner`
+ * null) is in no component's count.
+ * @param {{ effects: Array<{ name: string, kind: string, owner: string[] | null, runs: number }> }} captured result of captureDiagnostics()
+ * @param {{ effect?: string, component?: string, exact?: number, min?: number, max?: number }} [options]
+ */
+export function expectRuns(captured, options = {}) {
+  const count = readCount('expectRuns', options, ['effect', 'component', ...COUNT_OPTIONS]);
+  const name = readName('expectRuns', 'effect', options.effect);
+  const component = readName('expectRuns', 'component', options.component);
+  const tag = component === undefined ? null : `<${component}>`;
+
+  let matched = name === undefined && tag === null;
+  let ran = 0;
+  for (const e of captured.effects) {
+    if (name !== undefined && e.name !== name) continue;
+    if (tag !== null && !e.owner?.includes(tag)) continue;
+    matched = true;
+    ran += e.runs;
+  }
+
+  const subject = name === undefined
+    ? (tag === null ? 'all effects together' : `effects in ${tag}`)
+    : `effect "${name}"${tag === null ? '' : ` in ${tag}`}`;
+  const they = name === undefined ? 'they' : 'it';
+  const runs = describeRuns(captured.effects);
+  if (!matched) {
+    const which = `${name === undefined ? '' : ` named "${name}"`}${tag === null ? '' : ` created in ${tag}`}`;
+    throw new Error(
+      `Expected ${subject} to run ${count.text}, but no effect${which} ran or was known to exist during ` +
+      'the capture. An effect that did not run is known only when it was created inside a ' +
+      `render()/renderTest() tree or the capture.\n${runs}`
+    );
+  }
+
+  if (ran >= count.lo && ran <= count.hi) return;
+  throw new Error(`Expected ${subject} to run ${count.text}, ${they} ran ${ran}.\n${runs}`);
 }
 
 // --- mockSignal ---
@@ -299,7 +626,6 @@ export function mockSignal(name, initialValue) {
   mock.set = s.set;
   mock.subscribe = s.subscribe;
   if (s._debugName) mock._debugName = s._debugName;
-  if (s._subs) mock._subs = s._subs;
 
   // Testing-specific properties
   Object.defineProperty(mock, 'history', {
@@ -476,16 +802,15 @@ export async function waitForElementToBeRemoved(callback, options = {}) {
 }
 
 // --- Act ---
-// Ensure all effects and updates are flushed
+// Run `callback`, then wait until what it started has landed and committed:
+// queued effects, async values it made fetch, transitions it opened.
 
 export async function act(callback) {
   const result = await callback();
-  // Synchronously flush all pending effects
   flushSync();
-  // Wait for microtasks to flush
   await /** @type {Promise<void>} */ (new Promise(r => queueMicrotask(() => r())));
-  // Wait for any scheduled effects
   await /** @type {Promise<void>} */ (new Promise(r => setTimeout(() => r(), 0)));
+  await settled();
   return result;
 }
 

@@ -67,6 +67,9 @@ jobs:
           WHAT_REQUIRE_BROWSER_TESTS: '1'
         run: npm run -s test
 
+      - name: Test heap retention with forced GC
+        run: npm run -s test:gc
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -143,6 +146,9 @@ jobs:
       - name: Error-code docs gate (published reference matches the catalogue)
         run: npm run -s check:error-docs
 
+      - name: Upgrade guide gate (import and MCP tool tables match their sources, the shipped copy matches)
+        run: npm run -s check:import-docs
+
       - name: Typecheck declarations
         run: npm run -s typecheck
 
@@ -152,6 +158,9 @@ jobs:
 
       - name: Production build smoke gate (no blank-screen regression)
         run: npm run -s test:prod
+
+      - name: Compiled runtime behavior using production exports
+        run: npm run -s test:prod:runtime
 
   scaffold-smoke:
     runs-on: ubuntu-latest
@@ -237,8 +246,21 @@ jobs:
       - name: Install Playwright system deps (browser cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
+      - name: Install the playground's and the compat tests' own dependencies
+        run: |
+          npm ci --prefix examples/playground --ignore-scripts
+          npm install --prefix examples/compat-tests --no-package-lock --ignore-scripts
       - name: App smoke suite
         run: npm run -s smoke:apps
+      - name: Server round trips in Chromium
+        if: success() || failure()
+        run: npm run -s test:browser:roundtrip
+      - name: Workspace examples and templates in production
+        if: success() || failure()
+        run: npm run -s smoke:workspace-apps
+      - name: App interaction effect and diagnostic budgets
+        if: success() || failure()
+        run: npm run -s smoke:app-budgets
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -389,6 +411,30 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=moderate
 
+  reactivity-correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: benchmark/reactivity/package-lock.json
+
+      - name: Install pinned reactivity harness dependencies
+        # npm's lockfile spells the public Git dependency's fallback URL as SSH.
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: url.https://github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: ssh://git@github.com/
+        run: npm ci --ignore-scripts --prefix benchmark/reactivity
+
+      - name: Check graph workloads and callback counts
+        run: npm run --prefix benchmark/reactivity bench -- --check
+
   bench-gate:
     runs-on: ubuntu-latest
     steps:
@@ -404,8 +450,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install krausest benchmark dependencies
-        run: npm ci --prefix benchmark/krausest
+      - name: Install krausest root and Solid 2 workspace dependencies
+        run: npm ci --prefix benchmark/krausest --workspaces --include-workspace-root
 
       - name: Resolve Playwright version (cache key)
         id: playwright-version

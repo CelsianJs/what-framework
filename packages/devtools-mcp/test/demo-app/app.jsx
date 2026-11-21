@@ -1,4 +1,4 @@
-import * as core from 'what-core';
+import * as core from 'what-core/internal';
 import { signal, effect, computed, h, mount } from 'what-core';
 import { installDevTools } from 'what-devtools';
 import { connectDevToolsMCP } from '../../src/client.js';

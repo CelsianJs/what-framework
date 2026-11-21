@@ -673,10 +673,9 @@ describe('#24 <For fallback> is not silently discarded', () => {
     // generic reactive branch, which is where the rebuild-per-flip came from.
     assert.equal(inserter._mapArray, true,
       'the fallback lowering stopped being a mapArray inserter');
-    assert.equal(typeof inserter._mapArraySource, 'function',
-      'server-side row rendering reads _mapArraySource');
-    assert.equal(typeof inserter._mapArrayFn, 'function',
-      'server-side row rendering reads _mapArrayFn');
+    const [source, mapFn] = inserter._list;
+    assert.equal(typeof source, 'function', 'server-side row rendering reads the list source (_list)');
+    assert.equal(typeof mapFn, 'function', 'server-side row rendering reads the row function (_list)');
   });
 
   it('swaps both ways when mounted through createDOM, not just as an element child', async () => {

@@ -46,8 +46,13 @@
     "release:minor": "node scripts/bump-version.mjs minor && npm run -s release:verify && npm run -s release:publish",
     "release:major": "node scripts/bump-version.mjs major && npm run -s release:verify && npm run -s release:publish",
     "test": "node scripts/run-all-tests.mjs && npm run -s test:stress",
+    "test:gc": "node scripts/run-all-tests.mjs --gc",
+    "test:prod:runtime": "NODE_ENV=production node --conditions=production --test scripts/qualification/production-runtime.test.mjs",
     "test:stress": "node --test stress-tests/*.js",
     "test:prod": "node --conditions=production scripts/check-prod-build.mjs",
+    "test:browser:roundtrip": "node --test smoke/storefront-roundtrip.mjs",
+    "smoke:workspace-apps": "node smoke/workspace-apps.mjs",
+    "smoke:app-budgets": "node smoke/workspace-apps.mjs --budgets",
     "smoke:scaffold": "node scripts/smoke-scaffold.mjs",
     "smoke:apps": "node smoke/run.mjs",
     "smoke:apps:npm": "node smoke/run.mjs --source=npm",
@@ -55,6 +60,9 @@
     "smoke:ports": "node smoke/clean.mjs",
     "docs:errors": "node scripts/generate-error-docs.mjs",
     "check:error-docs": "node scripts/generate-error-docs.mjs --check",
+    "docs:imports": "node scripts/generate-import-changes.mjs",
+    "check:import-docs": "node scripts/generate-import-changes.mjs --check",
+    "check:snippets": "node scripts/docs/check-snippets.mjs",
     "bench:record": "node benchmark/check-regressions.js --record"
   },
   "engines": {

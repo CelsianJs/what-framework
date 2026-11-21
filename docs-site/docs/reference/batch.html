@@ -74,14 +74,14 @@
             <tbody>
               <tr>
                 <td><code>fn</code></td>
-                <td><code>() =&gt; void</code></td>
+                <td><code>() =&gt; T</code></td>
                 <td>A function containing multiple signal writes. All dependent effects are deferred until the function completes.</td>
               </tr>
             </tbody>
           </table>
 
           <h2 id="returns">Returns</h2>
-          <p><code>void</code>. The function does not return a value.</p>
+          <p><code>T</code>: whatever <code>fn</code> returns, so <code>const total = batch(() =&gt; { a.set(1); b.set(2); return a() + b(); })</code> gives <code>3</code>.</p>
 
           <h2 id="usage">Usage</h2>
 

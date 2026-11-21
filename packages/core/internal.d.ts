@@ -1,0 +1,168 @@
+// what-core/internal: what what-core shares with its sibling packages and tools
+// (what-server, what-devtools, what-devtools-mcp). Not for applications, and
+// not covered by semver.
+import type { DiagnosticEvent, DiagnosticSubject, ErrorCodeDefinition, ServerResponse, VNode, WhatError } from './index.js';
+export { getDiagnostics, subscribeDiagnostics } from './index.js';
+
+// --- Devtools ---
+
+/** @internal Installs the devtools hooks the reactive engine calls in development. */
+export function __setDevToolsHooks(hooks: Record<string, unknown> | null): void;
+/** @internal Hands devtools what was created before they installed, then clears it. */
+export function __drainPreinstallBuffer(): { signals: unknown[]; effects: unknown[]; components: unknown[] };
+/** @internal The sources a computation reads (development only; empty in production). */
+export function __depsOf(node: unknown): unknown[];
+/** @internal The computations that read a source (development only; empty in production). */
+export function __subsOf(node: unknown): unknown[];
+/** @internal The effect running now, or null (development only). */
+export function __currentEffect(): unknown;
+/**
+ * @internal The owner of an effect or computed node (or computed function), of
+ * an owner, or of a DOM node: the component whose output holds it (development
+ * only; null in production).
+ */
+export function __ownerOf(node: unknown): unknown;
+/**
+ * @internal The scopes holding `node`, root first: `'<App>'`, `'<TodoRow>'`,
+ * `'effect "sync"'`. `loc` is the innermost source location the compiler
+ * supplied, else null (development only; empty in production).
+ */
+export function __ownerPath(node: unknown): string[] & { loc: string | null };
+/** @internal The query cache, for what-devtools-mcp's what_cache. */
+export function __getCacheSnapshot(): unknown[];
+
+export interface DiagnosticDetail {
+  data?: Record<string, any>;
+  subject?: DiagnosticSubject | null;
+  owner?: string[];
+  loc?: string | null;
+}
+
+/** Report a diagnostic by its ERR_* code. Call it only behind a development check. */
+export function reportDiagnostic(code: string, detail?: DiagnosticDetail): DiagnosticEvent;
+
+// --- Guardrails ---
+
+export interface GuardrailConfig {
+  importValidation: boolean;
+}
+
+export function configureGuardrails(overrides: Partial<GuardrailConfig>): void;
+export function getGuardrailConfig(): GuardrailConfig;
+
+export interface InvalidImport {
+  name: string;
+  message: string;
+  suggestion: string;
+}
+
+/** Report import names that are not valid exports of what-framework. Dev-mode only. */
+export function validateImports(importNames: readonly string[]): InvalidImport[];
+
+// --- Error catalogue ---
+
+export const ERROR_CODES: Record<string, ErrorCodeDefinition>;
+
+export function createWhatError(
+  errorCode: string | ErrorCodeDefinition,
+  context?: Record<string, any>,
+): WhatError;
+export function classifyError(err: unknown, context?: Record<string, any>): WhatError;
+
+// --- Import changes ---
+
+/** Where a name the root entry dropped in 0.15 went. `to` is null when it was removed. */
+export interface ImportChange {
+  name: string;
+  to: string | null;
+  as?: string;
+  note: string;
+  /** What an import of `name` from the root entry is told: the note, then the import to write. */
+  answer: string;
+  /** A name the root entry exports again with React's meaning: only an import of `as` from it is answered. */
+  onRoot?: true;
+  /** An internal interface new in 0.15 that the root entry never exported. */
+  neverOnRoot?: true;
+}
+export const IMPORT_CHANGES: readonly ImportChange[];
+
+// --- Server context ---
+
+/** Per-render head accumulator used by the SSR renderer. */
+export interface HeadSink {
+  title: string | null;
+  metas: Map<string, Record<string, string>>;
+  links: Map<string, Record<string, string>>;
+}
+
+export function beginHeadCollection(): HeadSink;
+export function endHeadCollection(sink: HeadSink | null): string;
+
+/** A resource's state in a render context: pending, settled with a value, or failed. */
+export type ServerResourceEntry =
+  | { status: 'pending'; promise: Promise<void>; owner?: string }
+  | { status: 'ready'; value: unknown; owner?: string }
+  | { status: 'error'; error: unknown; owner?: string };
+
+export interface ServerContext {
+  loaderData?: any;
+  head?: HeadSink;
+  /** Resources created with a `key`, by key. */
+  resources?: Map<string, ServerResourceEntry>;
+  /** Keyless resources, by owner key; `owner` names the component that made each. */
+  owned?: Map<string, ServerResourceEntry>;
+  /** Island stores of this render, by name. */
+  islandStores?: Map<string, any>;
+  /** Aborts when the render stops: the client went away or the stream's consumer stopped reading. */
+  signal?: AbortSignal;
+  request?: any;
+  response?: ServerResponse;
+  /** The reactive root that owns every effect and computed this render's components create. */
+  owner?: unknown;
+  [key: string]: any;
+}
+
+/** The active render context, or null on the client / outside a render. */
+export function getServerContext(): ServerContext | null;
+/** Set the active context and return the previous one so callers can restore it. */
+export function setServerContext(ctx: ServerContext | null): ServerContext | null;
+export function runWithServerContext<T>(ctx: ServerContext, fn: () => T): T;
+
+// --- Server rendering ---
+// Underscore-prefixed names are declared even though `hygiene:types` skips them
+// in its reverse direction, because what-server imports them across the package
+// boundary, and an undeclared cross-package import is exactly the rename that
+// ships broken.
+
+/** @internal Used by what-server. True for `role` and `aria-*` attribute names. */
+export function _isAriaAttr(name: string): boolean;
+/** @internal Used by what-server. Makes an SSR component frame (an owner) current and returns it. */
+export function _beginComponentSSR(...args: unknown[]): { _parentCtx: unknown; [key: string]: unknown };
+/** @internal Used by what-server. Restores the owner that was current before `_beginComponentSSR`. */
+export function _endComponentSSR(...args: unknown[]): unknown;
+/** @internal Used by what-server. Runs one synchronous call with an SSR component frame as the owner. */
+export function _runInComponentSSR(...args: unknown[]): unknown;
+/** @internal Used by what-server. Escapes `& < > " '` for HTML text and attribute values. */
+export function _escapeHtml(str: string): string;
+/** @internal Used by what-server. Gives an SSR component frame its owner path (hydration keys). */
+export function _assignOwnerPath(...args: unknown[]): unknown;
+/** @internal Used by what-server. The owner path of the component frame running now, or undefined. */
+export function _currentOwnerPath(): string | undefined;
+/** @internal Used by what-server. The hydration data merged from the page's data elements, or null. */
+export function __readHydrationData(): Record<string, any> | null;
+/**
+ * Whether `value` is a vnode made by h(), the JSX runtime or a boundary: the
+ * private brand those producers give it, which JSON, structuredClone and
+ * proxies cannot carry. Every renderer decides "element or text" by this.
+ */
+export function isVNode(value: unknown): value is VNode<any>;
+/** @internal Used by what-server. The keyed-array mapping `<For>` compiles down to. */
+export function _mapArrayToArray(...args: unknown[]): unknown;
+/** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
+export function __installServerContextStorage(storage: unknown): void;
+/** @internal Used by what-server. Runs waiting effect re-runs with no render context visible. */
+export function __flushOutsideServerContext(): void;
+/** @internal Used by what-server. Runs `fn` with no render context visible and no reactive owner. */
+export function __outsideServerContext<T>(fn: () => T): T;
+/** @internal Used by what-server's tests. Drops the cached hydration payload. */
+export function __resetHydrationData(): void;

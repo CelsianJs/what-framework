@@ -1,8 +1,9 @@
 // What Framework - Structured Error System
 // Agent-first error reporting with actionable codes, suggestions, and JSON output.
 // Every error tells an AI agent exactly what went wrong and how to fix it.
-
-import { __DEV__ } from './reactive.js';
+//
+// Import-free on purpose: diagnostics.js and the engine both depend on this
+// catalogue, and anything it imported would sit in their import graph.
 
 // --- Error Codes ---
 // Each code maps to a specific, well-documented mistake pattern.
@@ -11,9 +12,11 @@ export const ERROR_CODES = {
   INFINITE_EFFECT: {
     code: 'ERR_INFINITE_EFFECT',
     severity: 'error',
-    template: 'Effect "{{effectName}}" exceeded 25 flush iterations — likely an infinite loop.',
+    template: 'Effect "{{effectName}}" was stopped after {{rounds}} re-runs in one flush: it keeps re-triggering itself, likely an infinite loop.',
     suggestion: 'An effect is writing to a signal it also reads, creating a cycle. Use untrack() to read the signal without subscribing, or restructure so the write and read are in separate effects.',
-    codeExample: `// Bad — reads and writes count, creating a cycle:
+    codeExample: `const count = signal(0);
+
+// Bad — reads and writes count, creating a cycle:
 effect(() => { count(count() + 1); });
 
 // Good — use untrack() so the read doesn't subscribe:
@@ -23,48 +26,265 @@ effect(() => { count(untrack(count) + 1); });
 const doubled = computed(() => count() * 2);`,
   },
 
+  COMPUTED_CYCLE: {
+    code: 'ERR_COMPUTED_CYCLE',
+    severity: 'error',
+    template: 'Computed "{{name}}" reads its own value, directly or through computeds that read it.',
+    suggestion: 'A computed cannot depend on itself. Find which computed it reads that reads it back, and move the input they share into a signal or computed of its own that both read. A value that has to build on its own previous value is state: keep it in a signal and write it from an effect.',
+    codeExample: `// Bad - total reads itself through average:
+const average = computed(() => total() / items().length);
+const total = computed(() => average() * items().length + shipping());
+
+// Good - both read the inputs, never each other:
+const subtotal = computed(() => items().reduce((sum, item) => sum + item.price, 0));
+const total = computed(() => subtotal() + shipping());
+const average = computed(() => subtotal() / items().length);
+
+// Good - a running value keeps its previous value in a signal:
+const spent = signal(0);
+effect(() => { const price = lastPurchase(); spent((previous) => previous + price); });`,
+  },
+
+  SIGNAL_WRITE_IN_COMPUTED: {
+    code: 'ERR_SIGNAL_WRITE_IN_COMPUTED',
+    severity: 'warning',
+    template: 'Computed "{{computedName}}" wrote signal "{{signalName}}". A computed only derives a value; a write from it runs again on every recomputation and can loop.',
+    suggestion: 'A computed runs lazily, whenever it is read after an input changed, so a write inside it happens an unpredictable number of times and can re-trigger its own readers. Derive the second value as a computed of its own, or make the write in an effect or an event handler.',
+    codeExample: `// Bad - the computed writes count:
+const count = signal(0);
+const total = computed(() => {
+  count(items().length);
+  return items().reduce((sum, item) => sum + item.price, 0);
+});
+
+// Good - each derived value is its own computed:
+const count = computed(() => items().length);
+const total = computed(() => items().reduce((sum, item) => sum + item.price, 0));`,
+  },
+
+  NESTED_FLUSH_SYNC: {
+    code: 'ERR_NESTED_FLUSH_SYNC',
+    severity: 'warning',
+    template: 'flushSync() was called while {{context}} was running, so it did nothing: the effects it would run already run when the current flush reaches them.',
+    suggestion: 'flushSync() runs queued effects immediately, which is only safe when no effect, computed or flush is running; inside one it returns without running anything. Call it from an event handler, onMount or test code, or drop it: effects queued during an effect run later in the same flush.',
+    codeExample: `// Bad - inside an effect, flushSync() does nothing:
+effect(() => {
+  width(container().offsetWidth);
+  flushSync();
+  layout();
+});
+
+// Good - flush from the handler that made the write:
+button.addEventListener('click', () => {
+  open(true);
+  flushSync();
+  panel.focus();
+});`,
+  },
+
   MISSING_SIGNAL_READ: {
     code: 'ERR_MISSING_SIGNAL_READ',
     severity: 'warning',
-    template: 'Signal "{{signalName}}" used without calling () — renders as "[Function]" instead of its value.',
-    suggestion: 'Signals are functions. Call them to read: count() not count. In JSX: {count()} not {count}.',
-    codeExample: `// Bad — signal reference, not value:
-<span>{count}</span>       // renders "[Function]"
+    template: 'Signal "{{signalName}}" was converted to a string without being called, so the function\'s source text was used instead of its value.',
+    suggestion: 'Signals are functions, and so are the accessors useState, useReducer and useMemo return and computed() creates. Call them to read: count() not count, in a template literal (`${count()}`), in arithmetic (`count() + 1`) and in a comparison (`count() > 5`). On its own as a JSX child or attribute value (`<span>{count}</span>`) an accessor is a live binding and needs no call. Development renders exactly what production renders here, so the broken text you see is the bug.',
+    codeExample: `// Bad - the accessor itself is converted:
+const [count, setCount] = useState(3);
+const label = \`Total: \${count}\`;   // "Total: function sig(next) {..."
+if (count > 5) {}                  // compares the function's text: always false
 
-// Good — call the signal:
-<span>{count()}</span>     // renders the actual value`,
+// Good - call it:
+const label = \`Total: \${count()}\`;  // "Total: 3"
+if (count() > 5) {}`,
   },
 
   HYDRATION_MISMATCH: {
     code: 'ERR_HYDRATION_MISMATCH',
     severity: 'error',
-    template: 'Hydration mismatch in component "{{component}}": server rendered "{{serverHTML}}" but client expects "{{clientHTML}}".',
-    suggestion: 'Ensure server and client render identical initial HTML. Avoid reading browser-only APIs (window, localStorage) during the initial render. Use onMount() for client-only logic.',
-    codeExample: `// Bad — different on server vs client:
-function App() {
-  return <p>{window.innerWidth}</p>;
+    template: 'Hydration mismatch ({{kind}}) in <{{component}}> at {{path}}: the server rendered {{found}} where the client renders {{expected}}. Recovery: {{recovery}}.',
+    suggestion: 'hydrate() adopts the server\'s DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic\'s data in development, the argument of hydrate()\'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client\'s and the server\'s node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler\'s hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).',
+    codeExample: `// Bad — the client renders a value the server could not know:
+import { h, hydrate } from 'what-framework';
+
+function Width() {
+  return h('p', {}, \`\${window.innerWidth}px\`);
 }
 
-// Good — use onMount for client-only values:
-function App() {
+const page = document.createElement('main');
+page.innerHTML = '<p>1280px</p>'; // what the server sent
+document.body.append(page);
+hydrate(h(Width), page, { onHydrationError: (record) => console.log(record) });
+// { kind: 'text', component: 'Width', ownerPath: '~0', path: 'p>#text',
+//   expected: '"1024px"', found: '"1280px"', recovery: 'client-render' }
+
+// Good — the same on both sides, corrected after hydration:
+function Width() {
   const width = signal(0);
   onMount(() => width(window.innerWidth));
-  return <p>{width()}</p>;
+  return <p>{width()}px</p>;
 }`,
+  },
+
+  HYDRATION_OWNER_MISMATCH: {
+    code: 'ERR_HYDRATION_OWNER_MISMATCH',
+    severity: 'warning',
+    template: 'A keyless resource or async value at owner path {{path}} was rendered by <{{server}}> on the server and <{{client}}> on the client, so it fetches instead of adopting the server value.',
+    suggestion: 'While hydrating, a keyless createResource() or async computed() takes the value the server rendered with by its position in the tree (its owner path), and in development only when the component at that position is the same one on both sides. Here it is not: a component exists on one side only (a branch on isServerRender(), typeof window, localStorage or a feature flag) and moved its neighbours. In development the value fetches again; a production build cannot compare names, since its bundle renames every function, so there the component at this position takes the value the server rendered for the other one. Render the same components on both sides during hydration (decide client-only content in onMount), wrap the one-sided branch in a component that exists on both sides, or give the resource a key, which is adopted by that key wherever it is.',
+    codeExample: `// Bad — a branch that exists only on the client moves its siblings:
+<div>{showChat() && <ChatWidget />}<Account /></div>
+
+// Good — the same component on both sides; the widget decides after mount:
+<div><ChatSlot /><Account /></div>
+
+// Good — a keyed resource is adopted by its key, wherever it is:
+const [account] = createResource(loadAccount, { key: 'account' });`,
   },
 
   ORPHAN_EFFECT: {
     code: 'ERR_ORPHAN_EFFECT',
     severity: 'warning',
-    template: 'Effect "{{effectName}}" was created outside a reactive root — it will never be cleaned up.',
-    suggestion: 'Wrap effect creation in createRoot() or create effects inside component functions where they are automatically tracked.',
-    codeExample: `// Bad — orphaned, leaks memory:
-effect(() => console.log(count()));
+    template: 'Effect "{{effectName}}" was created after an await, where no owner is current: nothing will dispose it when the component that started the async work goes away.',
+    suggestion: 'Work created after an `await` belongs to no owner. Read getOwner() before the await and create the effect inside runWithOwner(owner, ...), so it is disposed with the component (or with the effect run) that started the work; or create it before the await.',
+    codeExample: `// Bad — the effect outlives the component:
+onMount(async () => {
+  const user = await loadUser();
+  effect(() => console.log(user.name, count()));
+});
 
-// Good — inside a root with cleanup:
-createRoot(dispose => {
-  effect(() => console.log(count()));
-  // later: dispose() cleans up
+// Good — attach the work to the owner that started it:
+onMount(async () => {
+  const owner = getOwner();
+  const user = await loadUser();
+  runWithOwner(owner, () => {
+    effect(() => console.log(user.name, count()));
+  });
+});`,
+  },
+
+  ASYNC_EFFECT: {
+    code: 'ERR_ASYNC_EFFECT',
+    severity: 'warning',
+    template: 'Effect "{{effectName}}" is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it.',
+    suggestion: 'Fetch in an async computed instead: computed(async () => ...) is a value in the graph that supersedes older runs, aborts them and shows as pending, and an effect or binding that reads it runs when the value lands. Keep effects synchronous; if one must start async work, start it inside and keep the effect itself sync, returning a cleanup that cancels it.',
+    codeExample: `// Bad — reads after the await are not tracked, and a slow old run can win:
+useEffect(async () => {
+  const res = await fetch('/api/users/' + id());
+  user(await res.json());
+});
+
+// Good — an async computed: one value, newest run wins, older runs aborted:
+function Profile() {
+  const user = computed(async ({ signal }) => {
+    const res = await fetch('/api/users/' + id(), { signal });
+    return res.json();
+  });
+  return <h1>{user().name}</h1>;
+}`,
+  },
+
+  PENDING_READ_UNTRACKED: {
+    code: 'ERR_PENDING_READ_UNTRACKED',
+    severity: 'warning',
+    template: '{{call}} was read in a component body. The body runs once, so this reads the pending state once and it never changes on screen.',
+    suggestion: 'Read pending state where it is tracked: in JSX (users.pending() is a zero-argument call the compiler wraps, so {users.pending() && <Spinner />} updates), or wrap the expression in a function: {() => isPending(() => users()) ? "Refreshing" : ""}. In an event handler, reading it once is what you want, and nothing is reported.',
+    codeExample: `// Bad — read once when the component is created:
+function Users() {
+  const refreshing = users.pending();
+  return <p>{refreshing ? 'Refreshing…' : ''}</p>;
+}
+
+// Good — read in JSX, where it is tracked:
+function Users() {
+  return <p>{users.pending() ? 'Refreshing…' : ''}</p>;
+}`,
+  },
+
+  WRITE_AFTER_AWAIT: {
+    code: 'ERR_WRITE_AFTER_AWAIT',
+    severity: 'warning',
+    template: 'Signal "{{signalName}}" was written outside a transition while the async function of a transition that also wrote it was still running: a write after an await is not part of the transition, so it shows before the transition commits.',
+    suggestion: 'startTransition holds what the writes made synchronously inside its function reach. After an await, the function runs on its own and its writes are ordinary writes (as in React). Make the writes that belong to the commit before the first await, or wrap the later ones in startTransition again; data that arrives later belongs in an async computed, which the transition waits for.',
+    codeExample: `// Bad — status('saved') shows at once, before the list commits:
+startTransition(async () => {
+  status('saving');
+  await save(item);
+  status('saved');
+  await refresh(list);
+});
+
+// Good — the later write is a transition of its own:
+startTransition(async () => {
+  status('saving');
+  await save(item);
+  startTransition(() => status('saved'));
+  await refresh(list);
+});`,
+  },
+
+  ASYNC_WITHOUT_SUSPENSE: {
+    code: 'ERR_ASYNC_WITHOUT_SUSPENSE',
+    severity: 'warning',
+    template: 'Component "{{component}}" suspended (lazy(), use() or a value that had not landed, read in its body) with no <Suspense> above it: it renders nothing until the promise settles.',
+    suggestion: 'A component that suspends waits for its promise and then renders in place. With a <Suspense fallback> above it, the fallback shows meanwhile on first load. Wrap the part of the page that loads in <Suspense>, or read the async value in JSX instead of in the component body: a binding that reads it renders nothing until it lands, and is not a suspension.',
+    codeExample: `// Bad — nothing on screen, and no fallback, until the chunk arrives:
+mount(<Settings />, '#app');   // Settings = lazy(() => import('./Settings.jsx'))
+
+// Good — a fallback while it loads:
+mount(<Suspense fallback={<Spinner />}><Settings /></Suspense>, '#app');`,
+  },
+
+  ASYNC_READ_IN_BODY: {
+    code: 'ERR_ASYNC_READ_IN_BODY',
+    severity: 'error',
+    template: 'Component "{{component}}" read an async value it made in its own body before the value landed: suspending would run it again, make the value again and fetch again, forever.',
+    suggestion: 'A component body runs once; reading an async value there before it lands suspends the component, and running it again makes a new computed with a new fetch. Read the value in JSX, where a binding waits for it (and a <Suspense> shows its fallback), or make the computed outside the component (a parent, a module) and pass it in.',
+    codeExample: `// Bad — read in the body that made it:
+function Profile() {
+  const user = computed(() => fetchUser());
+  const name = user().name;
+  return <h1>{name}</h1>;
+}
+
+// Good — read in JSX:
+function Profile() {
+  const user = computed(() => fetchUser());
+  return <h1>{user().name}</h1>;
+}`,
+  },
+
+  USE_UNCACHED_PROMISE: {
+    code: 'ERR_USE_UNCACHED_PROMISE',
+    severity: 'error',
+    template: 'Component "{{component}}" keeps suspending on a new promise: use() received a promise made in the component body, which is new on every attempt, so it never finishes.',
+    suggestion: 'A component that suspends on use(promise) runs again when the promise settles, and a promise created in its body is created again then. Pass use() a promise made outside the component (a prop, a module-level cache), or make the value an async computed, which is created once and suspends its readers until it lands.',
+    codeExample: `// Bad — a new promise on every attempt:
+function User(props) {
+  const user = use(fetch('/api/users/' + props.id).then((r) => r.json()));
+  return <h1>{user.name}</h1>;
+}
+
+// Good — an async computed, created once:
+function User(props) {
+  const user = computed(() => fetch('/api/users/' + props.id).then((r) => r.json()));
+  return <h1>{user().name}</h1>;
+}`,
+  },
+
+  OPTIMISTIC_OUTSIDE_TRANSITION: {
+    code: 'ERR_OPTIMISTIC_OUTSIDE_TRANSITION',
+    severity: 'warning',
+    template: 'addOptimistic() was called outside a transition, so the optimistic value drops at once instead of lasting until the action finishes.',
+    suggestion: 'An optimistic overlay lives as long as the transition it was added in. Call addOptimistic synchronously inside startTransition, before its first await (after an await the function is no longer inside the transition, as in React).',
+    codeExample: `// Bad — added after an await, or in a plain handler:
+const toggle = async (id) => {
+  await save(id);
+  addOptimistic(id);
+};
+
+// Good — added first, inside the transition:
+const toggle = (id) => startTransition(async () => {
+  addOptimistic(id);
+  await save(id);
+  await refresh(todos);
 });`,
   },
 
@@ -73,9 +293,11 @@ createRoot(dispose => {
     severity: 'error',
     template: 'Signal "{{signalName}}" written during render of component "{{component}}". This triggers re-execution.',
     suggestion: 'Move signal writes into event handlers, effects, or onMount(). The component body should only read signals, not write them.',
-    codeExample: `// Bad — write during render:
+    codeExample: `const count = signal(0);
+
+// Bad — write during render:
 function Counter() {
-  count(count() + 1);  // triggers infinite loop
+  count(count() + 1);  // a side effect of rendering: every mount writes it
   return <span>{count()}</span>;
 }
 
@@ -123,10 +345,22 @@ html\`<div>\${sanitizedContent}</div>\``,
     template: 'List rendered without key prop in component "{{component}}". Items may re-order incorrectly.',
     suggestion: 'Add a unique key prop to each item in a list. Use a stable identifier (like an ID), not the array index.',
     codeExample: `// Bad — no key:
-<For each={items()}>{item => <li>{item.name}</li>}</For>
+<ul>{items().map(item => <li>{item.name}</li>)}</ul>
 
 // Good — stable key:
-<For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
+<ul>{items().map(item => <li key={item.id}>{item.name}</li>)}</ul>`,
+  },
+
+  DUPLICATE_KEY: {
+    code: 'ERR_DUPLICATE_KEY',
+    severity: 'warning',
+    template: 'A keyed list has more than one item with the key {{key}}.',
+    suggestion: 'Every item with that key still gets a row of its own, and none is lost or leaked, but rows that share a key can only be told apart by their order: when the list is reordered, one item can be handed another item\'s DOM, focus and component state. Key each item by a value that is unique within the list, such as its id. A list of plain values that may repeat needs no key at all: an unkeyed list tracks each value by position among its equals.',
+    codeExample: `// Bad — two todos can share a title:
+{todos().map(todo => <li key={todo.title}>{todo.title}</li>)}
+
+// Good — key by a unique id:
+{todos().map(todo => <li key={todo.id}>{todo.title}</li>)}`,
   },
 
   ASYNC_MIDDLEWARE: {
@@ -135,13 +369,13 @@ html\`<div>\${sanitizedContent}</div>\``,
     template: 'Route middleware must be synchronous; received a promise or thenable.',
     suggestion: 'Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.',
     codeExample: `// Bad - an async middleware result cannot authorize a route:
-{ path: '/private', component: Component, middleware: [async () => check()] }
+const routes = [{ path: '/private', component: Component, middleware: [async () => check()] }];
 
 // Good - the component wrapper waits for the authorization check:
-{ path: '/private', component: asyncGuard(check)(Component) }
+const routes = [{ path: '/private', component: asyncGuard(check)(Component) }];
 
 // Optional denial redirect and loading UI:
-{ path: '/private', component: asyncGuard(check, { fallback: '/login', loading: Spinner })(Component) }`,
+const Private = asyncGuard(check, { fallback: '/login', loading: Spinner })(Component);`,
   },
 
   UNSAFE_REDIRECT: {
@@ -165,12 +399,157 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`,
 <div>{() => (loggedOut() ? redirect('/login') : <Dashboard />)}</div>
 
 // Good - navigate() from a thunk or a handler:
-<div>{() => (loggedOut() ? (navigate('/login'), null) : <Dashboard />)}</div>
-<button onclick={() => navigate('/login')}>Sign in</button>
+<div>{() => (loggedOut() ? (navigate('/login'), null) : <Dashboard />)}</div>;
+<button onclick={() => navigate('/login')}>Sign in</button>;
 
-// On the server, catch it instead of navigating:
+// On the server, catch it and answer with the redirect instead of navigating:
 try { html = renderToString(<App />); }
-catch (e) { if (e.name === 'RouterRedirect') return Response.redirect(e.to, 302); throw e; }`,
+catch (e) { if (e.name !== 'RouterRedirect') throw e; res.writeHead(302, { location: e.to }).end(); }`,
+  },
+
+  // --- Development checks in core ---
+  // Raised through diagnostics.js report(), so they reach devtools, the MCP
+  // bridge and what-framework/testing as coded events.
+
+  HOOK_OUTSIDE_COMPONENT: {
+    code: 'ERR_HOOK_OUTSIDE_COMPONENT',
+    severity: 'error',
+    template: '{{hookName}}() was called outside a component function.',
+    suggestion: 'A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.',
+    codeExample: `import { onMount, useState } from 'what-framework';
+
+// Bad - after the await nothing owns the call:
+function Profile() {
+  onMount(async () => {
+    await Promise.resolve();
+    const [user, setUser] = useState(null);   // throws
+  });
+}
+
+// Good - hooks at the top of the body, async work inside:
+function Profile() {
+  const [user, setUser] = useState(null);
+  onMount(async () => setUser(await fetchUser()));
+  return <p>{() => user()?.name}</p>;
+}`,
+  },
+
+  EFFECT_DEP_NOT_FUNCTION: {
+    code: 'ERR_EFFECT_DEP_NOT_FUNCTION',
+    severity: 'warning',
+    template: 'useEffect dependency at index {{index}} is a plain value, so the effect cannot re-run when it changes.',
+    suggestion: 'What tracks dependencies by calling them. A value in the deps array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal or a getter itself, not its current value. Omitting the array tracks whatever the effect reads.',
+    codeExample: `const [count, setCount] = useState(0);
+
+// Bad - count() is read once, the array holds a number:
+useEffect(() => save(count()), [count()]);
+
+// Good - pass the signal:
+useEffect(() => save(count()), [count]);
+
+// Good - or let the effect track what it reads:
+useEffect(() => save(count()));`,
+  },
+
+  CONTEXT_NOT_PROVIDED: {
+    code: 'ERR_CONTEXT_NOT_PROVIDED',
+    severity: 'warning',
+    template: '{{context}} was read with no provider above the component and has no default value, so useContext returned undefined.',
+    suggestion: 'createContext() called with no argument says the value must come from a provider. Render the reader inside <Ctx value={...}> (or <Ctx.Provider value={...}>), or pass createContext a default for the case with no provider. Set Ctx.displayName to name the context in this message.',
+    codeExample: `const Theme = createContext();
+Theme.displayName = 'Theme';
+
+// Bad - no provider above <Toolbar>:
+mount(<Toolbar />, '#app');
+
+// Good - provide a value:
+mount(<Theme value="dark"><Toolbar /></Theme>, '#app');
+
+// Good - or give the context a default:
+const Theme = createContext('light');`,
+  },
+
+  CLEANUP_WITHOUT_OWNER: {
+    code: 'ERR_CLEANUP_WITHOUT_OWNER',
+    severity: 'warning',
+    template: 'onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs.',
+    suggestion: 'onCleanup attaches to the component being rendered, or else to the reactive owner around the call: createRoot, a list row, a mount root, or the run of an effect. Code that runs later has none of these: an async callback after an await, a timer, an event handler. Register the cleanup while the component body runs, before anything awaits. For a subscription outside any component, create it inside createRoot and keep the dispose function it passes you.',
+    codeExample: `// Bad - after the await nothing owns the call, so the cleanup never runs:
+function Room({ id }) {
+  onMount(async () => {
+    const room = await joinRoom(id);
+    onCleanup(() => room.leave());
+  });
+}
+
+// Good - register the cleanup while the body runs, before anything awaits:
+function Room({ id }) {
+  const joined = joinRoom(id);
+  onCleanup(() => joined.then((room) => room.leave()));
+}`,
+  },
+
+  DERIVED_WITHOUT_STATE: {
+    code: 'ERR_DERIVED_WITHOUT_STATE',
+    severity: 'warning',
+    template: 'derived() for "{{key}}" takes no parameter, so it cannot read the store state.',
+    suggestion: 'createStore calls a derived function with the store state as its argument, and tracks the fields it reads through that argument. A function that declares no parameter reads nothing reactive and never updates.',
+    codeExample: `import { createStore, derived } from 'what-framework';
+
+// Bad - the function takes no state, so it never updates:
+const useCounter = createStore({ count: 0, doubled: derived(() => 0) });
+
+// Good:
+const useCounter = createStore({ count: 0, doubled: derived(state => state.count * 2) });`,
+  },
+
+  FORM_HANDLER_WITHOUT_EVENT: {
+    code: 'ERR_FORM_HANDLER_WITHOUT_EVENT',
+    severity: 'warning',
+    template: 'register("{{name}}") change handler was called without an event; the field was left unchanged.',
+    suggestion: 'The handler register() returns reads the new value from event.target. Pass the DOM event through, or set the value directly with form.setValue(name, value).',
+    codeExample: `// Bad - calls the handler with a value instead of an event:
+const field = register('email');
+field.oninput('a@b.co');
+
+// Good:
+<input {...register('email')} />
+form.setValue('email', 'a@b.co');`,
+  },
+
+  FORM_RADIO_WITHOUT_VALUE: {
+    code: 'ERR_FORM_RADIO_WITHOUT_VALUE',
+    severity: 'warning',
+    template: 'Radio for field "{{name}}" has no value, so it cannot record a choice.',
+    suggestion: 'Radios in a group share one field that holds the selected option\'s value. A radio with no value attribute reports "on", which identifies nothing, so the registration ignores it. Give every radio a value.',
+    codeExample: `// Bad:
+<Radio name="size" register={register} />
+
+// Good:
+<Radio name="size" value="small" register={register} />;
+<input type="radio" {...register('size', { type: 'radio', value: 'small' })} />;`,
+  },
+
+  FORM_RADIO_UNTYPED: {
+    code: 'ERR_FORM_RADIO_UNTYPED',
+    severity: 'warning',
+    template: 'register("{{name}}") was spread onto a radio without { type: \'radio\' }, which overwrote the radio\'s value.',
+    suggestion: 'A plain registration binds the input\'s value to the field, which for a radio replaces the option it stands for. Tell the registration it is a radio and which value it contributes, or use <Radio>.',
+    codeExample: `// Bad:
+<input type="radio" value="small" {...register('size')} />
+
+// Good:
+<input type="radio" {...register('size', { type: 'radio', value: 'small' })} />;
+<Radio name="size" value="small" register={register} />;`,
+  },
+
+  STORAGE_FAILED: {
+    code: 'ERR_STORAGE_FAILED',
+    severity: 'warning',
+    template: 'useLocalStorage("{{key}}") could not {{operation}} localStorage: {{reason}}.',
+    suggestion: 'A write fails when the quota is exhausted or storage is disabled (private browsing); a read fails when the stored text is not valid JSON, usually because something else wrote that key. The signal keeps working in memory either way. Use a key no other code writes, and keep stored values small.',
+    codeExample: `// Good - a namespaced key and a small value:
+const theme = useLocalStorage('myapp:theme', 'light');`,
   },
 
   // --- Outside core ---
@@ -226,11 +605,13 @@ export const save = action(async (data) => {
     severity: 'error',
     template: '[what-server] Refusing to write outside outDir: {{path}}.',
     suggestion: 'A route path resolved to a location outside the export directory, which a "../" segment in a route or a param can do. Sanitize the route path, or drop the route from the static export.',
-    codeExample: `// Bad — a param that can contain a slash escapes outDir:
-{ path: '/docs/:slug*', mode: 'static' }
+    codeExample: `// Bad — a slug from the CMS such as '../../x' resolves outside outDir:
+const docs = { path: '/docs/:slug', mode: 'static', component: Doc,
+  getStaticPaths: () => ({ paths: slugs.map((slug) => ({ params: { slug } })) }) };
 
-// Good — constrain the param, or precompute the exact paths:
-{ path: '/docs/:slug', mode: 'static', paths: () => slugs.map(slug => ({ slug })) }`,
+// Good — export only slugs that are one safe path segment:
+const docs = { path: '/docs/:slug', mode: 'static', component: Doc,
+  getStaticPaths: () => ({ paths: slugs.filter((s) => /^[a-z0-9-]+$/.test(s)).map((slug) => ({ params: { slug } })) }) };`,
   },
 
   INVALID_HTML_NESTING: {
@@ -242,41 +623,194 @@ export const save = action(async (data) => {
 <p>Intro<div>{body()}</div>Outro</p>
 
 // Good — a block container can hold block content:
-<div class="prose">Intro<div>{body()}</div>Outro</div>
+<div class="prose">Intro<div>{body()}</div>Outro</div>;
 
 // Good — or keep the paragraph and use phrasing content:
-<p>Intro<span>{body()}</span>Outro</p>`,
+<p>Intro<span>{body()}</span>Outro</p>;`,
+  },
+
+  TEMPLATE_NAMESPACE: {
+    code: 'ERR_TEMPLATE_NAMESPACE',
+    severity: 'error',
+    template: 'The compiled template for <{{tag}}> has no namespace flag, so its root would render as an unknown HTML element instead of SVG or MathML.',
+    suggestion: 'what-compiler marks every template whose root is an SVG or MathML element other than <svg> and <math>, and the runtime parses it in that namespace; the runtime no longer guesses the namespace from the tag. A template without the mark comes from a what-compiler older than the runtime, usually a library that ships precompiled output. Compiler and runtime versions move together: recompile the module with the what-compiler release that matches what-framework, and have a library declare what-framework at its own minor version as a peer dependency.',
+    codeExample: `// Bad — output of what-compiler 0.14, loaded by a newer runtime:
+const _tmpl$0 = _$template("<circle r='1'></circle>");
+
+// Good — the same component recompiled by the matching what-compiler:
+const _tmpl$0 = _$template("<svg><circle r='1'></circle></svg>", 2);`,
+  },
+
+  NO_VNODE_RENDERER: {
+    code: 'ERR_NO_VNODE_RENDERER',
+    severity: 'error',
+    template: '{{what}} reached the compiled-JSX runtime, but no vnode renderer is installed.',
+    suggestion: 'Compiled JSX builds DOM directly, so a program that only uses compiled JSX leaves the vnode renderer out of its bundle, and something handed the runtime a vnode anyway. The producers that make vnodes install the renderer as they do (h, Fragment and html from what-framework, the automatic JSX runtime, and the components that return vnodes: ErrorBoundary, Suspense, Portal, lazy, Island), so the vnode came from the compiled-JSX runtime itself: the form what-compiler gives JSX handed to hydrate(), passed somewhere else. Write the JSX where it is used. An object built by hand in the { tag, props, children } shape is not a vnode (vnodes carry a brand only those producers give) and renders as its text instead.',
+    codeExample: `// Bad — the compiled form of <App /> for hydrate(), given to mount():
+import { mount } from 'what-framework';
+import { _$componentVNode } from 'what-framework/render';
+
+const App = () => <p>Hello</p>;
+mount(_$componentVNode(App, null, []), document.body);
+
+// Good — mount the JSX itself, which the compiler builds directly:
+import { mount } from 'what-framework';
+
+const App = () => <p>Hello</p>;
+mount(<App />, document.body);`,
   },
 
   INVALID_SSR_TAG: {
     code: 'ERR_INVALID_SSR_TAG',
     severity: 'error',
     template: '[what-server] Invalid tag name in SSR: {{tag}}.',
-    suggestion: 'renderToString reached a vnode whose tag is neither a string nor a component function. This is almost always a component that returned a raw object, or a value interpolated where an element was expected.',
-    codeExample: `// Bad — returns a plain object, not a vnode:
-function Row() { return { name: 'a' }; }
+    suggestion: 'A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a "<" in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.',
+    codeExample: `// Bad — the tag is built from data, and is not an element name:
+function Heading({ level }) {
+  return h(\`h\${level} class="big"\`, {}, 'Title');
+}
 
-// Good — return elements, and interpolate values as children:
-function Row({ name }) { return <li>{name}</li>; }`,
+// Good — choose the tag from the ones you allow:
+const TAGS = { 1: 'h1', 2: 'h2', 3: 'h3' };
+function Heading({ level }) {
+  return h(TAGS[level] || 'h2', { class: 'big' }, 'Title');
+}`,
   },
 
   COMPILED_JSX_IN_SSR: {
     code: 'ERR_COMPILED_JSX_IN_SSR',
     severity: 'error',
-    template: 'what-compiler output cannot be server-rendered: {{file}}.',
-    suggestion: 'what-compiler lowers JSX to module-scope _$template() calls that run document.createElement() at import time, and to _$createComponent() which builds DOM. Neither has a server-rendered form, so a module it compiled throws "document is not defined" when a server imports it. Server-rendered views have two supported spellings: author them with h(), or compile them with the automatic JSX runtime (jsxImportSource: "what-framework"), which emits h() calls that renderToString understands. what-compiler stays on the client entry, where the fine-grained output is the point.',
-    codeExample: `// Bad — a server module compiled by what-compiler:
-// vite.config.js: plugins: [what()]  +  vite build --ssr
-export function Page() { return <h1>Hi</h1>; }   // throws on import
+    template: 'what-compiler client output cannot be server-rendered: {{file}}.',
+    suggestion: 'what-compiler has two targets. Its client output lowers JSX to _$template() calls, which parse their markup with document.createElement() the first time a template is used, and to _$createComponent(), which builds DOM, so it has no server-rendered form. Its server target (generate: "ssr") lowers the same JSX to string templates that what-server renders. The Vite plugin compiles server transforms with the server target unless the project sets ssr: false, which is when this error is raised for a module that builds DOM; at render time it means a module compiled for the client reached a server renderer. Remove ssr: false, or author the view with h(), or compile it with the automatic JSX runtime (jsxImportSource: "what-framework").',
+    codeExample: `// Bad — server transforms compiled as client output:
+// vite.config.js: plugins: [what({ ssr: false })]  +  vite build --ssr
+export function Page() { return <h1>Hi</h1>; }   // refused at build time
 
-// Good — h(), which renderToString understands:
+// Good — the default: server transforms use the server target:
+// vite.config.js: plugins: [what()]
+export function Page() { return <h1>Hi</h1>; }   // renders on the server
+
+// Good — or h(), which renderToString understands:
 import { h } from 'what-framework';
-export function Page() { return h('h1', null, 'Hi'); }
+export function Title() { return h('h1', null, 'Hi'); }`,
+  },
 
-// Good — the automatic JSX runtime for the server build:
-// vite.config.js (server): esbuild: { jsx: 'automatic',
-//                            jsxImportSource: 'what-framework' }
-export function Page() { return <h1>Hi</h1>; }   // lowers to h()`,
+  UNSAFE_STATIC_MARKUP: {
+    code: 'ERR_UNSAFE_STATIC_MARKUP',
+    severity: 'error',
+    template: '{{message}}',
+    suggestion: 'what-compiler writes static tags, attributes and text straight into markup (the DOM target\'s template strings, which the browser parses, and the server target\'s string templates), so it checks them when the module is compiled, by the same rules the runtime applies to a value on every path: a URL attribute (href, src, action, formaction, data, ping, xlink:href) must not use a javascript:, vbscript: or data: scheme, srcdoc and outerHTML are never written because escaping cannot make markup safe, innerHTML or dangerouslySetInnerHTML take { __html: trustedString }, never a string, the text of a <script> cannot contain "</" or "<!--" and that of a <style> cannot contain "</", and a tag cannot be a namespaced name such as <svg:rect>. The server target also checks that a tag or attribute name can be emitted verbatim. Fix the value in the source; a dynamic value is still checked at run time.',
+    codeExample: `// Bad — each of these fails the build:
+<a href="javascript:void 0">Open</a>;
+<iframe srcdoc="<p>hi</p>" />;
+<div innerHTML="<b>raw</b>" />;
+<script>{"document.write('</p>')"}</script>;
+<svg:rect />;
+
+// Good:
+<button type="button" onClick={open}>Open</button>;
+<iframe src="/preview.html" />;
+<div innerHTML={{ __html: trustedHtml }} />;
+<script>{"document.write('<\\\\/p>')"}</script>;
+<svg><rect /></svg>;`,
+  },
+
+  JSX_ISLAND_PROP: {
+    code: 'ERR_JSX_ISLAND_PROP',
+    severity: 'error',
+    template: '{{message}}',
+    suggestion: 'An island\'s props are serialized to JSON so the browser can hydrate it, and markup is not data: JSX in a prop would arrive as an empty object, or as a plain object pretending to be an element. what-compiler refuses it on both targets. Pass the markup as a child of the island, which renders on the server and hydrates with it, or pass the data and build the markup inside the island. A function prop (a render prop) is fine: functions are left out of the JSON, and the island makes its own when it hydrates.',
+    codeExample: `// Bad — the icon would reach the browser as {}:
+<Chart client:load icon={<StarIcon />} />;
+
+// Good — markup as a child:
+<Chart client:load><StarIcon /></Chart>;
+
+// Good — data, and the markup built inside the island:
+<Chart client:load icon="star" />;`,
+  },
+
+  SSR_SUSPENSE_TIMEOUT: {
+    code: 'ERR_SSR_SUSPENSE_TIMEOUT',
+    severity: 'error',
+    template: '[what-server] A resource was still pending after 12 attempts during streaming SSR.',
+    suggestion: 'A resource or async component inside <Suspense> never settled while the page streamed, so the renderer stopped waiting for it. Make every fetcher resolve or reject, or give it a timeout so that it does. The boundary keeps its fallback in the streamed HTML, and the client renders the boundary itself.',
+    codeExample: `// Bad — a fetch with no bound can leave the boundary waiting forever:
+const [posts] = createResource(() => fetch(API).then((r) => r.json()));
+
+// Good — a timeout, so the fetcher settles either way:
+const [posts] = createResource(() =>
+  fetch(API, { signal: AbortSignal.timeout(5000) }).then((r) => r.json()));`,
+  },
+
+  LATE_REDIRECT: {
+    code: 'ERR_LATE_REDIRECT',
+    severity: 'error',
+    template: '[what-server] redirect({{location}}) after the shell was sent needs an inline script, and this stream has noScripts.',
+    suggestion: 'Once the shell is sent, the status line has gone out, so a redirect from a streamed boundary can only be made by an inline script that navigates. With noScripts the stream may not write one, and the redirect is dropped. Redirect from the loader, or from anything that runs before the shell is sent, so the response is a real 3xx; or allow the script with a nonce instead of noScripts.',
+    codeExample: `// Bad — a redirect from inside a streamed <Suspense>, with noScripts:
+function Account() {
+  const [user] = createResource(loadUser);
+  if (!user()) getResponse().redirect('/login');
+  return <p>{() => user()?.name}</p>;
+}
+renderDocumentStream(page, req, { noScripts: true });
+
+// Good — redirect from the loader, before the shell: a real 3xx:
+export async function loader({ request, response }) {
+  if (!(await loadSession(request))) response.redirect('/login', 302);
+}
+
+// Good — or let the stream write the one script, under a CSP nonce:
+renderDocumentStream(page, req, { nonce });`,
+  },
+
+  SSR_UNSAFE_REDIRECT: {
+    code: 'ERR_SSR_UNSAFE_REDIRECT',
+    severity: 'warning',
+    template: '[what-server] redirect() refused the target {{target}} and redirected to "/" instead.',
+    suggestion: 'A server response redirect(), from a loader\'s `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler\'s _redirect field. An absolute URL, "//host", "/\\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to "/" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.',
+    codeExample: `// Bad — an absolute URL through redirect() is refused:
+export function loader({ query, response }) {
+  response.redirect(query.next);          // ?next=https://evil.example -> "/"
+}
+
+// Good — a local path from request data, checked by redirect() itself,
+// and leaving the site explicitly:
+export function loader({ query, response }) {
+  if (query.billing) response.redirectExternal('https://billing.example.com/portal');
+  else response.redirect(query.next ?? '/');   // "/account" is kept
+}`,
+  },
+
+  SSR_INVALID_ID_PREFIX: {
+    code: 'ERR_SSR_INVALID_ID_PREFIX',
+    severity: 'error',
+    template: '[what-server] idPrefix {{idPrefix}} is not a letter followed by letters, digits, "_" or "-".',
+    suggestion: 'The streaming renderer writes idPrefix into element ids, comments and an inline script, so it is validated rather than escaped: a letter, then letters, digits, "_" or "-". It only needs to differ between streams on one page; every stream already adds a random part after it.',
+    codeExample: `// Bad — characters that would end the attribute or the comment:
+renderToStream(app, { idPrefix: 'side"bar' });
+
+// Good:
+renderToStream(app, { idPrefix: 'sidebar' });`,
+  },
+
+  SSR_LATE_HEAD: {
+    code: 'ERR_SSR_LATE_HEAD',
+    severity: 'warning',
+    template: '[what-server] <Head> inside a streamed <Suspense> (boundary {{boundaryId}}) set head tags after the shell was sent.',
+    suggestion: 'A streamed document sends its <head> with the shell. Tags a <Head> sets inside a <Suspense> that streams later travel with that boundary and are applied to document.head by script (or by applyStreamedBoundaries() with noScripts), so the page gets them, but the HTML <head> does not carry them and a crawler that runs no scripts does not see them. Set the title and meta from data the shell already has (the loader\'s), or render the route buffered (page.stream: false), to have them in the server HTML.',
+    codeExample: `// Bad for crawlers — the title waits for a streamed resource:
+function Post() {
+  const [post] = createResource(loadPost, { key: 'post' });
+  return <><Head title={post().title} /><h1>{post().title}</h1></>;
+}
+
+// Good — the loader has the title before the shell is sent:
+export const loader = ({ params }) => loadPostMeta(params.id);
+function Page({ loaderData }) {
+  return <><Head title={loaderData.title} /><Suspense fallback="..."><Post /></Suspense></>;
+}`,
   },
 
   FORM_ACTION_NOT_REGISTERED: {
@@ -302,8 +836,8 @@ export const save = action(async (data) => {});
 <Form method="post" />
 
 // Good:
-<Form action={save} />
-<Form action="save-user" />`,
+<Form action={save} />;
+<Form action="save-user" />;`,
   },
 
   ISLAND_STORE_OUTSIDE_RENDER: {
@@ -347,8 +881,8 @@ cacheKey({ path, vary: { 'cookie:session': sessionId } });`,
     severity: 'error',
     template: '[what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache.',
     suggestion: 'The route varies its output per header, and the adapter called the engine without them. Caching anyway would serve one variant to every request. Forward the request headers from the adapter into the engine call.',
-    codeExample: `// In the adapter:
-await engine.handle(routeMatch, { headers: request.headers });`,
+    codeExample: `// In the adapter, the route match carries the request headers:
+await engine.handle({ ...routeMatch, headers: request.headers });`,
   },
 
   DUPLICATE_ACTION_ID: {
@@ -403,10 +937,13 @@ export default { plugins: [reactCompat()] };`,
     code: 'ERR_USE_INVALID_ARG',
     severity: 'error',
     template: '[what-react] use() expects a promise or a context.',
-    suggestion: 'use() reads either a thenable or a context object. Anything else has nothing to suspend on or subscribe to.',
-    codeExample: `// Good:
-const value = use(ThemeContext);
-const data = use(fetchUser(id));`,
+    suggestion: 'use() reads either a thenable or a context object. Anything else has nothing to suspend on or subscribe to. A promise read with use() must outlive the component: make it outside the component and pass it in, since one made in the body is a new promise every time the component runs.',
+    codeExample: `// Good — a context, and a promise made outside the component:
+function Profile({ userPromise }) {
+  const theme = use(ThemeContext);
+  const user = use(userPromise);
+  return <p className={theme}>{user.name}</p>;
+}`,
   },
 
   PRETEXT_NOT_INSTALLED: {
@@ -414,30 +951,24 @@ const data = use(fetchUser(id));`,
     severity: 'error',
     template: '[what-text] Failed to load @chenglou/pretext: {{message}}.',
     suggestion: 'what-text declares pretext as an optional peer so the package installs without it. Install it to use the text engine: npm install @chenglou/pretext',
-    codeExample: `npm install @chenglou/pretext`,
+    codeExample: `// Install the optional peer first: npm install @chenglou/pretext
+// Then load it up front, so a missing install fails at startup:
+import { ensurePretext } from 'what-text';
+await ensurePretext();`,
   },
 
-  DESTRUCTURED_PROPS: {
-    code: 'ERR_DESTRUCTURED_PROPS',
-    severity: 'warning',
-    template: "Destructuring '{{binding}}' in the component body snapshots props and loses reactivity.",
-    suggestion: "What components run ONCE, so the body is not re-run when a prop changes. Reading `props.foo` goes through the reactive proxy and tracks; `const { foo } = props` reads the value once and detaches it. Read through the proxy inside JSX and effects, or wrap each field in an accessor.",
-    codeExample: `// Bad - snapshots at first run, never updates:
-function Row(props) {
-  const { label } = props;
-  return <span>{label}</span>;
-}
+  MOVED_IMPORT: {
+    code: 'ERR_MOVED_IMPORT',
+    severity: 'error',
+    template: '"{{name}}" is not exported by {{source}}. {{answer}}',
+    suggestion: 'In 0.15 the root entry (what-framework, and what-core alike) kept the core API: the domain kits moved to subpaths such as what-framework/form and what-framework/ui, a few names were renamed, and some were removed. Each name has one answer, recorded in IMPORT_CHANGES (what-core/internal) and listed in UPGRADING.md. eslint --fix with eslint-plugin-what\'s no-moved-imports rule splits the import per destination; a removed name is left for you to replace as its answer says.',
+    codeExample: `// Bad - useForm and Spinner left the root entry in 0.15:
+import { signal, useForm, Spinner } from 'what-framework';
 
-// Good - reads through the proxy each time:
-function Row(props) {
-  return <span>{props.label}</span>;
-}
-
-// Good - an accessor keeps the destructured name:
-function Row(props) {
-  const label = () => props.label;
-  return <span>{label()}</span>;
-}`,
+// Good:
+import { signal } from 'what-framework';
+import { useForm } from 'what-framework/form';
+import { Spinner } from 'what-framework/ui';`,
   },
 
   // --- Fallbacks ---
@@ -471,12 +1002,12 @@ createWhatError('MISSING_KEY', { component: 'TodoList' });`,
     severity: 'error',
     template: 'Unknown tool: {{name}}.',
     suggestion: 'The MCP client called a tool this server does not expose. Call tools/list to enumerate what is available; a stale client cache is the usual cause.',
-    codeExample: `// List what the server actually exposes:
-{ "method": "tools/list" }`,
+    codeExample: `// List what the server actually exposes (tools/list), with the MCP SDK client:
+const { tools } = await client.listTools();`,
   },
 };
 
-// Reverse index: an error carries `code: 'ERR_X'`, and the catalogue is keyed
+// Reverse index: an error carries its full ERR_* code, and the catalogue is keyed
 // by its short name.
 //
 // Built on first use, NOT at module load. A top-level `new Map(...)` over
@@ -505,9 +1036,15 @@ export class WhatError extends Error {
   // there and `suggestion` had to carry the whole fix in prose. It matters more
   // here than in a framework aimed at humans: the audience reading toJSON() is
   // usually an agent, and a diff-shaped example is the part it can copy.
+  //
+  // The class never reads the catalogue: it is a root export that apps import
+  // for `instanceof`, and a lookup here kept all of ERROR_CODES (about 14 KB
+  // gzipped) in those bundles. createWhatError() and classifyError() fill
+  // severity, suggestion and codeExample from the entry.
   /**
    * @param {object} init
    * @param {string} init.code
+   * @param {'error' | 'warning'} [init.severity]
    * @param {string} [init.message]
    * @param {string} [init.suggestion]
    * @param {{ bad?: string, good?: string } | string} [init.codeExample]
@@ -517,10 +1054,11 @@ export class WhatError extends Error {
    * @param {string} [init.signal]
    * @param {string} [init.effect]
    */
-  constructor({ code, message, suggestion, codeExample, file, line, component, signal, effect }) {
+  constructor({ code, severity, message, suggestion, codeExample, file, line, component, signal, effect }) {
     super(message);
     this.name = 'WhatError';
     this.code = code;
+    this.severity = severity || 'error';
     this.suggestion = suggestion;
     this.codeExample = codeExample;
     this.file = file;
@@ -533,6 +1071,7 @@ export class WhatError extends Error {
   toJSON() {
     return {
       code: this.code,
+      severity: this.severity,
       message: this.message,
       suggestion: this.suggestion,
       codeExample: this.codeExample,
@@ -553,8 +1092,10 @@ export function createWhatError(errorCode, context = {}) {
   if (!def) {
     return new WhatError({
       code: 'ERR_UNKNOWN',
+      severity: /** @type {'error' | 'warning'} */ (ERROR_CODES.UNKNOWN.severity),
       message: `Unknown error: ${errorCode}`,
-      suggestion: 'Check the error code and try again.',
+      suggestion: ERROR_CODES.UNKNOWN.suggestion,
+      codeExample: ERROR_CODES.UNKNOWN.codeExample,
     });
   }
 
@@ -568,6 +1109,7 @@ export function createWhatError(errorCode, context = {}) {
 
   return new WhatError({
     code: def.code,
+    severity: def.severity,
     message,
     suggestion: def.suggestion,
     // Verbatim from the definition: codeExample is a worked bad/good pair, not
@@ -581,32 +1123,6 @@ export function createWhatError(errorCode, context = {}) {
   });
 }
 
-// --- Error Collector ---
-// Dev-mode error accumulator for agent retrieval.
-
-let collectedErrors = [];
-const MAX_COLLECTED = 200;
-
-export function collectError(whatError) {
-  if (!__DEV__) return;
-  collectedErrors.push({
-    ...whatError.toJSON(),
-    timestamp: Date.now(),
-  });
-  if (collectedErrors.length > MAX_COLLECTED) {
-    collectedErrors = collectedErrors.slice(-MAX_COLLECTED);
-  }
-}
-
-export function getCollectedErrors(since) {
-  if (since) return collectedErrors.filter(e => e.timestamp > since);
-  return collectedErrors.slice();
-}
-
-export function clearCollectedErrors() {
-  collectedErrors = [];
-}
-
 // --- Error Classification ---
 // Classify a raw Error into a structured WhatError if possible.
 
@@ -616,13 +1132,15 @@ export function classifyError(err, context = {}) {
   // An error the framework threw already says what it is. Every throw outside
   // core carries a `code` and nothing else — the suggestion and the worked
   // example live once, in ERROR_CODES — so resolving the code here is what
-  // makes them reachable at all. Message sniffing below is only for errors
-  // that predate the code, or that come from user code.
+  // makes them reachable at all. Framework checks report through
+  // diagnostics.js; nothing here guesses a code from message text, because a
+  // guessed code sends an agent to the wrong fix.
   if (err && typeof err.code === 'string') {
     const def = getErrorDefinition(err.code);
     if (def) {
       return new WhatError({
         code: def.code,
+        severity: def.severity,
         // The thrown message is the specific one; the template is generic.
         message: msg,
         suggestion: def.suggestion,
@@ -636,29 +1154,13 @@ export function classifyError(err, context = {}) {
     }
   }
 
-  // Infinite effect loop
-  if (msg.includes('infinite effect loop') || msg.includes('25 iterations')) {
-    return createWhatError('INFINITE_EFFECT', context);
-  }
-
-  // Hydration mismatch
-  if (msg.includes('hydration') || msg.includes('Hydration')) {
-    return createWhatError('HYDRATION_MISMATCH', context);
-  }
-
-  // Signal write in computed
-  if (msg.includes('Signal.set() called inside a computed')) {
-    return createWhatError('SIGNAL_WRITE_IN_RENDER', {
-      ...context,
-      signalName: msg.match(/signal: (\w+)/)?.[1] || context.signalName,
-    });
-  }
-
   // Fallback — return a generic WhatError with the original message
   return new WhatError({
     code: 'ERR_RUNTIME',
+    severity: /** @type {'error' | 'warning'} */ (ERROR_CODES.RUNTIME.severity),
     message: msg,
-    suggestion: 'Check the stack trace and component context for more details.',
+    suggestion: ERROR_CODES.RUNTIME.suggestion,
+    codeExample: ERROR_CODES.RUNTIME.codeExample,
     ...context,
   });
 }

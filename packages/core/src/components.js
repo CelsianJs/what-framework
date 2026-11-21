@@ -1,12 +1,14 @@
 // What Framework - Component Utilities
 // memo, lazy, Suspense, ErrorBoundary
 
-import { h } from './h.js';
-import { signal, __DEV__ } from './reactive.js';
+import { h, _vnode } from './h.js';
+import {
+  signal, getOwner, runWithOwner, createRoot, onCleanup, _handleError, _isDisposed, HANDLED,
+  _heldOn, _trackWork, _retryErrors, _setUserEffectGate, _releaseUserEffect,
+} from './reactive.js';
 import { isServerRender } from './server-context.js';
-
-// Legacy errorBoundaryStack removed — tree-based resolution via _parentCtx._errorBoundary
-// is now the only mechanism. See reportError() below.
+import { hydrate, insert, _enableSuspense } from './render.js';
+import { createDOM } from './dom.js';
 
 // --- memo ---
 // In the run-once model, components execute exactly once and never re-render.
@@ -23,11 +25,6 @@ export function memo(Component, _areEqual) {
   return MemoWrapper;
 }
 
-// Injected by dom.js
-/** @type {(() => any) | null} */
-let _getCurrentComponent = null;
-export function _injectGetCurrentComponent(fn) { _getCurrentComponent = fn; }
-
 export function shallowEqual(a, b) {
   if (a === b) return true;
   const keysA = Object.keys(a);
@@ -43,6 +40,7 @@ export function shallowEqual(a, b) {
 // Code-split a component. Returns a wrapper that loads on first render.
 
 export function lazy(loader) {
+  _enableSuspense();
   let Component = null;
   let loadPromise = null;
   let loadError = null;
@@ -76,62 +74,230 @@ export function lazy(loader) {
   return LazyWrapper;
 }
 
-// --- Suspense ---
-// Show fallback while children are loading (lazy components).
-// Works with lazy() and async components.
-
-export function Suspense({ fallback, children }) {
-  const loading = signal(false);
-  const pendingPromises = new Set();
-  let failed = false;
-
-  // Suspense boundary marker
-  const boundary = {
-    _suspense: true,
-    onSuspend(promise) {
-      if (failed) return;
-      loading.set(true);
-      pendingPromises.add(promise);
-      // Rejection is handled separately from fulfilment. Clearing the fallback
-      // on a rejection re-renders the child, which suspends on the same
-      // rejected thenable again, forever. Latch the failure and stay put.
-      promise.then(
-        () => {
-          pendingPromises.delete(promise);
-          if (pendingPromises.size === 0) {
-            loading.set(false);
-          }
-        },
-        (err) => {
-          failed = true;
-          pendingPromises.delete(promise);
-          console.error('[what] Suspense: a suspended child rejected:', err);
-        },
-      );
-    },
-  };
-
-  return {
-    tag: '__suspense',
-    props: { boundary, fallback, loading },
-    children: Array.isArray(children) ? children : [children],
-    _vnode: true,
-  };
+// A boundary's context only exists once the vnode renderer builds it
+// (createSuspenseBoundary / createErrorBoundary), so compiled children must
+// not be built while the boundary function runs: it receives the children
+// factory instead. See _installLazyChildren. Marked through a call rather than
+// a top-level statement so a bundle that never uses the boundary drops it, and
+// the vnode renderer with it.
+function deferChildren(Component) {
+  Component._deferChildren = true;
+  return Component;
 }
 
-// The boundary context only exists once createSuspenseBoundary runs, so
-// compiled children must not be built during this call. See createComponent.
-Suspense._deferChildren = true;
+// --- Suspense ---
+// <Suspense fallback>: shows `fallback` until its children have first shown.
+// The children are built once, out of the document, under an owner whose
+// `_onPending` handler hears of every binding or effect held on a value that
+// has not landed, and every component that suspended (threw a promise: lazy(),
+// use(), a not-ready read in its body, which render.js renders again in place
+// once it settles). While any of them waits, the fallback stands in; when none
+// does, the children's DOM is moved in and the boundary is revealed.
+//
+// After that, async values never bring the fallback back: a refresh keeps the
+// children mounted, their bindings hold what they show until the new value
+// lands, and a binding or component that waits on a value later renders
+// nothing in the meantime. A component that suspends on any other promise (a
+// lazy() chunk, use(promise)) does, as in React: the children's DOM is moved
+// out, still mounted, while the fallback shows, and back once what the
+// boundary waits for has settled. onMount and useEffect under a boundary that
+// is not showing its children first run when it does.
+//
+// The vnode carries the boundary, and the boundary its client renderer
+// (`mount`), so a bundle that never uses Suspense does not carry it. A
+// renderer sets `show` and `conceal`, which move the children in and out;
+// hydration (render.js hydrateSuspense) sets them too, and tells the boundary
+// when the walk of its children is over (`walked`).
+
+export const Suspense = /* @__PURE__ */ deferChildren(function Suspense({ fallback, children }) {
+  return _vnode('__suspense', { fallback, boundary: createSuspense(fallback) }, Array.isArray(children) ? children : [children]);
+});
+
+// Boundaries built and not revealed yet; the user-effect gate looks only while
+// there is one.
+let unrevealed = 0;
+
+// A user-phase effect created under a boundary that has not revealed waits for
+// it: the outermost such boundary, which hands it on to the next one that
+// still has not, if any, when it reveals.
+function gateUserEffect(e) {
+  if (unrevealed === 0) return false;
+  /** @type {any} */
+  let target = null;
+  for (let o = e.owner; o != null; o = o.owner) {
+    const b = o._suspense;
+    if (b !== undefined && !b.revealed) target = b;
+  }
+  if (target === null) return false;
+  target.deferred.push(e);
+  return true;
+}
+
+function createSuspense(fallback) {
+  _enableSuspense();
+  const b = {
+    fallback,
+    revealed: false,
+    hydrating: false,
+    /** @type {Map<any, any>} each held effect not run to completion since, and what it waits for */
+    waiting: new Map(),
+    /** promises of suspended components not settled yet */
+    thenables: 0,
+    /** @type {any[]} user-phase effects waiting for the reveal */
+    deferred: [],
+    /** @type {(() => void) | null} */
+    show: null,
+    /** @type {(() => void) | null} */
+    conceal: null,
+    attached: false,
+    // `waiting` is a promise a component suspended on, or an effect or
+    // binding held on a value that is not ready.
+    onPending(waiting) {
+      if (b.revealed) {
+        if (waiting.showsFallback !== true) return;
+        b.revealed = false;
+        unrevealed++;
+        // The component is being built inside a region that is running; the
+        // fallback goes in once that run is over, unless the boundary has
+        // shown its children again, or gone, by then.
+        queueMicrotask(() => {
+          if (!b.revealed && b.conceal !== null) b.conceal();
+        });
+      }
+      if (typeof waiting.then !== 'function') {
+        b.watch(waiting);
+        return;
+      }
+      b.thenables++;
+      const settled = Promise.resolve(waiting);
+      _trackWork(settled);
+      const done = () => {
+        b.thenables--;
+        b.check();
+      };
+      settled.then(done, done);
+    },
+    // Forget an effect that has run to completion; look again once one still
+    // held has run with what it waits for now (after the flush its landing
+    // schedules).
+    watch(e) {
+      const until = _heldOn(e);
+      if (until === null) b.waiting.delete(e);
+      else if (b.waiting.get(e) !== until) {
+        b.waiting.set(e, until);
+        until.then(() => queueMicrotask(b.check));
+      }
+    },
+    check() {
+      if (b.revealed || b.hydrating) return;
+      for (const e of b.waiting.keys()) b.watch(e);
+      if (b.waiting.size === 0 && b.thenables === 0) b.reveal();
+    },
+    reveal() {
+      b.revealed = true;
+      unrevealed--;
+      if (b.show !== null) b.show();
+      const deferred = b.deferred;
+      b.deferred = [];
+      for (const e of deferred) if (!gateUserEffect(e)) _releaseUserEffect(e);
+    },
+    // Start counting: the children are about to be built under `root`.
+    attach(root, hydrating) {
+      root._onPending = b.onPending;
+      root._suspense = b;
+      if (b.revealed || b.attached) return;
+      b.attached = true;
+      b.hydrating = hydrating;
+      unrevealed++;
+      _setUserEffectGate(gateUserEffect);
+      // Until the boundary itself goes: hydration replaces the arm `root` holds.
+      runWithOwner(root.owner, () => onCleanup(() => {
+        if (!b.revealed) {
+          b.revealed = true;
+          unrevealed--;
+        }
+      }));
+    },
+    // Hydration: the children have been walked. The server's content is on
+    // screen unless a component suspended, so that is the reveal; a binding
+    // waiting for a value only the client fetches keeps the server's content
+    // up meanwhile.
+    walked() {
+      b.hydrating = false;
+      if (b.thenables === 0) {
+        b.waiting.clear();
+        if (!b.revealed) b.reveal();
+      }
+    },
+    mount: mountSuspense,
+  };
+  return b;
+}
+
+// Build `vnodes` before `end` in a root of their own; returns its disposer.
+function buildArm(vnodes, end) {
+  return createRoot((dispose) => {
+    for (const v of Array.isArray(vnodes) ? vnodes : [vnodes]) {
+      const node = createDOM(v, end.parentNode);
+      if (node) end.parentNode.insertBefore(node, end);
+    }
+    return dispose;
+  });
+}
+
+// The client render of a boundary: <!--sb:start--> fallback or children <!--sb:end-->.
+function mountSuspense(vnode, parent) {
+  const b = vnode.props.boundary;
+  const owner = getOwner();
+  const start = document.createComment('sb:start');
+  const end = document.createComment('sb:end');
+  const container = document.createDocumentFragment();
+  container.appendChild(start);
+  container.appendChild(end);
+  const holder = document.createDocumentFragment();
+  createRoot(() => {
+    b.attach(getOwner(), false);
+    for (const v of vnode.children) {
+      const node = createDOM(v, parent);
+      if (node) holder.appendChild(node);
+    }
+  });
+  /** @type {(() => void) | null} */
+  let fallbackArm = null;
+  b.show = () => {
+    if (fallbackArm !== null) {
+      fallbackArm();
+      fallbackArm = null;
+      for (let n = start.nextSibling; n !== null && n !== end; n = start.nextSibling) n.remove();
+    }
+    /** @type {Node} */ (end.parentNode).insertBefore(holder, end);
+  };
+  b.conceal = () => {
+    for (let n = start.nextSibling; n !== null && n !== end; n = start.nextSibling) holder.appendChild(n);
+    fallbackArm = runWithOwner(owner, () => buildArm(b.fallback, end));
+  };
+  b.check();
+  if (!b.revealed) fallbackArm = buildArm(b.fallback, end);
+  onCleanup(() => { if (fallbackArm !== null) fallbackArm(); });
+  return container;
+}
 
 // --- ErrorBoundary ---
-// Catch errors in children and show fallback.
-// Uses a signal to track error state so it works with reactive rendering.
+// Catch errors in children and show fallback. The renderers install
+// `handleError` on the owner its children are built under (dom.js
+// createErrorBoundary, render.js hydrateErrorBoundary), so an error thrown while the
+// children are built, or later by an effect, a binding, a cleanup, a list row,
+// a component created inside them or an async value they read, reaches it.
+// `reset` fetches again the async values whose errors it caught, disposes the
+// fallback and builds the children again.
 
-export function ErrorBoundary({ fallback, children, onError }) {
+export const ErrorBoundary = /* @__PURE__ */ deferChildren(function ErrorBoundary({ fallback, children, onError }) {
   const errorState = signal(null);
+  const caught = [];
 
   // Error handler that will be registered with the component tree
   const handleError = (error) => {
+    caught.push(error);
     errorState.set(error);
     if (onError) {
       try {
@@ -143,36 +309,19 @@ export function ErrorBoundary({ fallback, children, onError }) {
   };
 
   // Reset function to recover from error
-  const reset = () => errorState.set(null);
-
-  return {
-    tag: '__errorBoundary',
-    props: { errorState, handleError, fallback, reset },
-    children: Array.isArray(children) ? children : [children],
-    _vnode: true,
+  const reset = () => {
+    _retryErrors(caught.splice(0));
+    errorState.set(null);
   };
+
+  return _vnode('__errorBoundary', { errorState, handleError, fallback, reset }, Array.isArray(children) ? children : [children]);
+});
+
+// Hand an error to the nearest error boundary above `owner` (the current owner
+// by default). Returns true when a boundary took it.
+export function reportError(error, owner) {
+  return _handleError(owner === undefined ? getOwner() : owner, error) === HANDLED;
 }
-
-// The boundary context only exists once createErrorBoundary runs, so compiled
-// children must not be built during this call. See createComponent.
-ErrorBoundary._deferChildren = true;
-
-// Helper to report error to nearest boundary
-// Walks the component context tree (not a runtime stack) so async errors are caught
-export function reportError(error, startCtx) {
-  // Walk up the _parentCtx chain to find the nearest _errorBoundary
-  let ctx = startCtx || _getCurrentComponent?.();
-  while (ctx) {
-    if (ctx._errorBoundary) {
-      ctx._errorBoundary(error);
-      return true;
-    }
-    ctx = ctx._parentCtx;
-  }
-  return false;
-}
-
-// _getCurrentComponent is already declared above and injected via _injectGetCurrentComponent
 
 // --- Show ---
 // Conditional rendering component. Cleaner than ternaries.
@@ -225,8 +374,10 @@ export function For({ each, fallback = null, children }) {
           if (item.id != null) vnode.key = item.id;
           else if (item.key != null) vnode.key = item.key;
         } else if (typeof item === 'string' || typeof item === 'number') {
-          // Primitive items can be their own key
+          // Primitive items can be their own key. Like the items of an unkeyed
+          // list they may repeat, which is not a duplicate-key mistake.
           vnode.key = item;
+          vnode._itemKey = true;
         }
       }
       return vnode;
@@ -282,17 +433,6 @@ export function Match(props) {
 // client branch read `hydrated()` once in a run-once component so the swap-in
 // never happened. Every `client:*` directive silently deleted its component.
 
-// Late-bound renderers, injected by render.js. components.js cannot import
-// render.js directly (render -> dom -> components is already a cycle), so the
-// same injection precedent as _injectGetCurrentComponent applies here.
-/** @type {{ hydrate?: Function, insert?: Function } | null} */
-let _islandRuntime = null;
-
-/** @internal */
-export function _injectIslandRuntime(runtime) {
-  _islandRuntime = runtime;
-}
-
 // Island props cross the server/client boundary as JSON, so anything that is not
 // representable is dropped rather than throwing mid-render. Functions in
 // particular are common (event handlers passed down) and are simply not
@@ -342,20 +482,25 @@ export function Island({ component: Component, mode, mediaQuery, name, children,
   }
 
   let hydrated = false;
+  // The island's content hydrates long after this body ran, under the island's
+  // owner, so it is disposed with the island and finds its context.
+  const owner = getOwner();
 
   function hydrateInto(el) {
-    if (hydrated) return;
+    if (hydrated || (owner !== null && _isDisposed(owner))) return;
     hydrated = true;
 
     const vnode = h(Component, props, ...childList);
 
     // Server-rendered children present => hydrate in place, reusing the DOM.
     // Nothing there => a client-only render, so build it from scratch.
-    if (el.childNodes.length > 0 && _islandRuntime?.hydrate) {
-      _islandRuntime.hydrate(vnode, el);
-    } else if (_islandRuntime?.insert) {
-      _islandRuntime.insert(el, vnode, null);
-    }
+    runWithOwner(owner, () => {
+      if (el.childNodes.length > 0) {
+        hydrate(vnode, el);
+      } else {
+        insert(el, vnode, null);
+      }
+    });
 
     el.removeAttribute('data-hydrate');
     el.removeAttribute('data-island-self');

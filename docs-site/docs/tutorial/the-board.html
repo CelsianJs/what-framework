@@ -82,7 +82,13 @@ mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'<
           <h2 id="understanding-square">Understanding the Square</h2>
           <p>Let's break down what we wrote:</p>
 
-<pre><code><span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {</code></pre>
+<pre><code><span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}</code></pre>
 
           <p>This is a component that receives two props:</p>
           <ul>

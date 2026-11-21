@@ -1,17 +1,8 @@
 // What Framework - Animation Primitives
 // Springs, tweens, gestures, and transition helpers
 
-import { signal, effect, untrack, batch } from './reactive.js';
-import { getCurrentComponent } from './dom.js';
+import { signal, effect, untrack, batch, onCleanup } from './reactive.js';
 import { scheduleRead, scheduleWrite } from './scheduler.js';
-
-// Create an effect scoped to the current component's lifecycle
-function scopedEffect(fn) {
-  const ctx = getCurrentComponent?.();
-  const dispose = effect(fn);
-  if (ctx) ctx.effects.push(dispose);
-  return dispose;
-}
 
 // --- Spring Animation ---
 // Physics-based animation with natural feel
@@ -106,12 +97,8 @@ export function spring(initialValue, options = {}) {
     });
   }
 
-  // Register stop() as cleanup if inside a component
-  const ctx = getCurrentComponent?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(stop);
-  }
+  // Stop when the owner (the component using the spring) goes away.
+  onCleanup(stop);
 
   return {
     current: () => current(),
@@ -205,10 +192,10 @@ export const easings = {
   },
 };
 
-// --- useTransition Hook ---
-// Animate between states
+// --- useTween ---
+// Progress from 0 to 1 over `duration`, eased, as a signal.
 
-export function useTransition(options = {}) {
+export function useTween(options = {}) {
   const { duration = 300, easing = easings.easeOutQuad } = options;
 
   const isTransitioning = signal(false);
@@ -414,14 +401,14 @@ export function useGesture(element, handlers = {}) {
   // Attach listeners
   if (typeof element === 'function') {
     // Ref function
-    scopedEffect(() => {
+    effect(() => {
       const el = untrack(element);
       if (!el) return;
       return attachListeners(el);
     });
   } else if (element?.current !== undefined) {
     // Ref object
-    scopedEffect(() => {
+    effect(() => {
       const el = element.current;
       if (!el) return;
       return attachListeners(el);

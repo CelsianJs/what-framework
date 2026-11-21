@@ -1,0 +1,5599 @@
+{
+  "metadata": {
+    "mode": "full",
+    "at": "2026-11-20T07:12:56.081Z",
+    "upstream": "56eb45e84b3f6fcfa867840725e66b59a9b7467a",
+    "node": "v22.13.1",
+    "v8": "12.4.254.21-node.22",
+    "machine": "Apple M3 Max (14 logical CPUs, 96 GiB), darwin 25.5.0 arm64",
+    "elapsedSeconds": 809.6520852909999,
+    "timeoutMs": 180000,
+    "heapMiB": 768,
+    "versions": {
+      "solid1": "1.9.20",
+      "solid2": "2.0.3",
+      "alien": "3.2.1",
+      "preact": "1.14.5",
+      "what": "4a63da947b3c83637bcb65375eb0123af8d6599d68a95a241b5eced720ced09f"
+    }
+  },
+  "tests": [
+    "avoidablePropagation",
+    "broadPropagation",
+    "deepPropagation",
+    "diamond",
+    "mux",
+    "repeatedObservers",
+    "triangle",
+    "unstable",
+    "molBench",
+    "createSignals",
+    "createComputations",
+    "updateSignals",
+    "cellx1000",
+    "cellx2500",
+    "2-10x5 - lazy80%",
+    "6-10x10 - dyn25% - lazy80%",
+    "4-1000x12 - dyn5%",
+    "25-1000x5",
+    "3-5x500",
+    "6-100x15 - dyn50%"
+  ],
+  "commonPassingTests": [
+    "avoidablePropagation",
+    "broadPropagation",
+    "deepPropagation",
+    "diamond",
+    "mux",
+    "repeatedObservers",
+    "triangle",
+    "unstable",
+    "molBench",
+    "createSignals",
+    "createComputations",
+    "updateSignals",
+    "2-10x5 - lazy80%",
+    "25-1000x5"
+  ],
+  "geometricMean": {
+    "what": 6.2615326676876855,
+    "solid1": 3.84560662687726,
+    "solid2": 5.847432877450203,
+    "alien": 1.0501007344868452,
+    "preact": 1.4601111965850972
+  },
+  "results": [
+    {
+      "id": "what",
+      "suite": "adapter",
+      "names": [],
+      "status": "failed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [
+        {
+          "label": "what | static graph",
+          "expected": 11,
+          "actual": 14,
+          "detail": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n14 !== 11\n\n    at Object.toEqual (file:///Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/assertions.mjs:10:35)\n    at <anonymous> (/Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/node_modules/js-reactivity-benchmark-root/packages/core/src/frameworks.test.ts:37:27)\n    at run (file:///Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/run-case.mjs:76:9)\n    at file:///Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/run-case.mjs:216:9\n    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)"
+        },
+        {
+          "label": "what | static graph, read 2/3 of leaves",
+          "expected": 41,
+          "actual": 44,
+          "detail": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n44 !== 41\n\n    at Object.toEqual (file:///Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/assertions.mjs:10:35)\n    at <anonymous> (/Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/node_modules/js-reactivity-benchmark-root/packages/core/src/frameworks.test.ts:49:29)\n    at run (file:///Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/run-case.mjs:76:9)\n    at file:///Users/macbookpro-kirby/Desktop/Coding/ZVN/WhatStack/what-fw/benchmark/reactivity/run-case.mjs:216:9\n    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)"
+        }
+      ],
+      "assertionFailures": 2
+    },
+    {
+      "id": "solid1",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            373.94895799999995,
+            168.54695900000002,
+            184.25962500000003,
+            223.20287499999995,
+            220.28929100000005,
+            166.82220900000016,
+            201.4052499999998,
+            166.75974999999994,
+            171.30324999999993,
+            169.94454200000018
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            320.41587499999997,
+            259.26316700000007,
+            245.08112499999993,
+            322.98533399999997,
+            559.111416,
+            517.1659160000002,
+            606.2628749999999,
+            729.2311669999999,
+            667.934792,
+            767.8828750000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            120.913458,
+            100.55012499999998,
+            142.23779199999996,
+            136.42733400000003,
+            135.71629099999996,
+            74.39224999999999,
+            84.73283300000003,
+            131.304084,
+            116.52283299999999,
+            118.89804200000003
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            113.61333300000001,
+            67.61012499999998,
+            61.199208999999996,
+            78.70462500000002,
+            83.10895800000003,
+            75.34591699999999,
+            55.68870800000002,
+            53.64583300000004,
+            52.55054199999995,
+            52.36225000000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            447.726458,
+            453.742167,
+            406.88712499999997,
+            401.05566699999986,
+            393.44900000000007,
+            483.283042,
+            397.37183300000015,
+            832.7166670000001,
+            1026.9297500000002,
+            1123.2219579999992
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5005,
+            "effects": 1001
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            933.68625,
+            867.707167,
+            862.1824589999999,
+            1028.7553750000002,
+            1081.7764579999998,
+            751.0262500000008,
+            645.5720000000001,
+            620.6289590000006,
+            626.0455000000002,
+            628.8756669999993
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            80.65804100000001,
+            79.083666,
+            77.04716700000003,
+            77.98637499999995,
+            78.27408300000002,
+            78.110209,
+            77.97995900000001,
+            81.26850000000002,
+            82.625541,
+            81.93087500000001
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            94.83787500000001,
+            89.97987500000002,
+            92.50995799999998,
+            92.700625,
+            93.53495799999996,
+            90.53870900000004,
+            90.13650000000007,
+            90.04199999999992,
+            89.13833299999999,
+            91.12595800000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            492.664083,
+            491.18320800000004,
+            501.38275,
+            493.2072919999998,
+            495.68508299999985,
+            630.9665,
+            1262.1472090000002,
+            863.4416660000006,
+            804.0110840000007,
+            676.3049169999995
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            405.51195800000005,
+            383.271166,
+            379.7277080000001,
+            383.993792,
+            383.2859169999999,
+            383.38766699999996,
+            381.7707909999999,
+            380.13316699999996,
+            379.34183299999995,
+            380.4876250000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            27.269916000000002,
+            24.51912499999999,
+            24.91729099999999,
+            25.106499999999997,
+            25.085125000000005,
+            25.373959000000013,
+            24.957416999999992,
+            29.484499999999997,
+            25.037042000000014,
+            24.726458000000036
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            44.37324999999999,
+            39.35049999999998,
+            39.74979099999999,
+            38.88491699999997,
+            39.18662499999999,
+            39.139290999999986,
+            39.29237499999999,
+            46.233667000000025,
+            46.29479199999997,
+            39.578750000000014
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            156.24154199999998,
+            151.600167,
+            158.501375,
+            147.05704100000003,
+            147.75099999999998,
+            147.740459,
+            147.13375000000008,
+            146.92483300000004,
+            161.440333,
+            149.24220800000012
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            154.5875,
+            154.104167,
+            156.07904200000002,
+            153.53662500000007,
+            153.433041,
+            151.87020800000005,
+            152.83554199999992,
+            153.88216699999998,
+            154.89754200000016,
+            152.107084
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            217.476,
+            209.13550000000004,
+            223.50633300000004,
+            271.76583300000004,
+            279.49141599999996,
+            288.8135829999999,
+            277.318708,
+            322.72445900000025,
+            313.5038330000002,
+            297.4690420000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            115.44399999999999,
+            107.53775000000002,
+            162.31737500000003,
+            117.27404200000001,
+            125.54037500000004,
+            144.58337499999993,
+            125.19145900000001,
+            104.333167,
+            115.68891600000006,
+            88.72399999999993
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            470.20174999999995,
+            479.04833299999996,
+            553.2054999999999,
+            553.741417,
+            516.3288749999997,
+            486.2230420000001,
+            445.7337090000001,
+            484.2361249999999,
+            406.3639579999999,
+            492.80762500000037
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            335.638917,
+            331.57495900000004,
+            293.996125,
+            296.4254169999999,
+            349.5671669999999,
+            256.53933400000005,
+            228.74987499999997,
+            235.71262499999966,
+            232.17512499999975,
+            224.61050000000023
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            396.402,
+            390.849166,
+            395.79437499999995,
+            376.8550419999999,
+            379.26683300000013,
+            384.16499999999974,
+            383.99024999999983,
+            384.32466699999986,
+            532.8927090000002,
+            583.5245
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            122.882084,
+            77.48241599999997,
+            74.61116699999997,
+            80.15954199999999,
+            71.10233399999998,
+            73.02150000000006,
+            68.32266700000002,
+            57.916000000000054,
+            52.610874999999965,
+            54.170208
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            521.060875,
+            511.15758300000005,
+            675.5396249999999,
+            505.87429199999997,
+            530.66725,
+            515.5355830000003,
+            520.920208,
+            573.4260839999997,
+            547.0207499999997,
+            541.766208
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3618,
+            "effects": 1800
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            242.69425,
+            286.2528750000001,
+            249.17025,
+            240.685875,
+            283.8994170000001,
+            250.3939580000001,
+            235.21629200000007,
+            258.6774170000001,
+            243.59604199999967,
+            232.2237909999999
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            259.23512500000004,
+            287.27104199999997,
+            251.97112500000003,
+            246.18383300000005,
+            249.14358300000004,
+            246.57837500000005,
+            239.01825000000008,
+            235.87333300000023,
+            241.47816699999976,
+            242.202542
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            117.447708,
+            120.17025000000001,
+            97.10029100000003,
+            96.010584,
+            105.05591600000002,
+            107.67641700000001,
+            106.41887500000007,
+            108.96350000000007,
+            110.5609169999999,
+            102.59633299999996
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            121.76712500000002,
+            116.35166699999999,
+            112.95304200000004,
+            112.89391599999999,
+            110.44383300000004,
+            108.97183299999995,
+            116.30900000000008,
+            109.58166599999993,
+            120.85704099999998,
+            120.10679100000016
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            39.4445,
+            33.16108399999999,
+            33.672708,
+            32.79762499999998,
+            32.434708,
+            33.52816600000003,
+            34.39408300000002,
+            32.069208,
+            32.38041700000002,
+            40.27750000000003
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            96.650166,
+            84.87087500000001,
+            72.774292,
+            78.01233300000001,
+            68.65424999999999,
+            69.35200000000003,
+            68.94999999999993,
+            70.02337499999999,
+            71.72195799999997,
+            72.73287499999992
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            13.728958000000006,
+            5.991958000000004,
+            6.523291999999998,
+            6.042500000000004,
+            6.364165999999997,
+            6.0582919999999945,
+            6.255375000000001,
+            6.055541000000005,
+            6.173041999999995,
+            6.325749999999999
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            13.389792,
+            7.375958000000004,
+            7.0874999999999915,
+            7.587625000000003,
+            7.957290999999998,
+            7.62337500000001,
+            7.588833999999991,
+            7.849790999999996,
+            7.541583000000003,
+            7.755417000000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            21.308708000000003,
+            16.455624999999998,
+            15.651208999999994,
+            15.731958000000006,
+            15.629000000000005,
+            15.825792000000007,
+            16.14408400000002,
+            17.932124999999985,
+            16.163125000000008,
+            16.133207999999996
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            142.955458,
+            130.95641700000002,
+            131.056667,
+            159.08645799999994,
+            137.663458,
+            129.37225,
+            131.99770799999988,
+            144.53754200000003,
+            138.59404199999994,
+            129.45520800000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            25.355958,
+            19.961957999999996,
+            19.885124999999988,
+            19.819417,
+            19.530666999999994,
+            20.32133300000001,
+            19.374416999999994,
+            19.64375000000001,
+            19.838583999999997,
+            19.445249999999987
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            38.884167,
+            61.88558299999998,
+            25.52000000000001,
+            25.305791,
+            23.530624999999986,
+            23.69474999999997,
+            23.645040999999992,
+            23.59975000000003,
+            23.43070899999998,
+            23.843916000000036
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            102.63345799999999,
+            100.89266700000002,
+            98.16529099999997,
+            99.86004199999996,
+            100.84937500000001,
+            105.62637500000005,
+            126.95612500000004,
+            111.66108299999996,
+            115.03141700000003,
+            110.15441700000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            131.131458,
+            89.05675,
+            101.70937499999997,
+            90.76666700000004,
+            101.94633299999998,
+            99.35816599999998,
+            101.64279199999999,
+            100.87041699999997,
+            97.82249999999999,
+            96.8577499999999
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1111,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            23.738708000000003,
+            15.476624999999999,
+            19.268375000000006,
+            16.622417,
+            15.481207999999981,
+            16.639125000000007,
+            15.812916999999999,
+            19.50437500000001,
+            15.913125000000008,
+            15.725625000000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 202,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            31.344750000000005,
+            24.860957999999997,
+            21.892250000000004,
+            24.63954100000001,
+            23.16995799999998,
+            18.61908299999999,
+            21.656292000000008,
+            17.12379199999998,
+            20.815707999999972,
+            18.877790999999945
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 202,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            91.37658400000001,
+            96.64179200000001,
+            94.29458300000005,
+            92.13341700000001,
+            93.18987500000003,
+            88.44129099999998,
+            84.535125,
+            86.56241699999998,
+            83.13987499999996,
+            98.49800000000005
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 402,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            67.23175,
+            59.67950000000002,
+            57.69816700000001,
+            61.372709000000015,
+            63.49250000000001,
+            64.00487499999997,
+            64.76499999999999,
+            63.379249999999956,
+            63.130250000000046,
+            59.62374999999997
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 303,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            158.333542,
+            138.158417,
+            146.99625000000003,
+            140.5045,
+            146.30816600000003,
+            165.24520900000005,
+            152.484917,
+            146.11520799999994,
+            150.54324999999994,
+            143.6082080000001
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 302,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            25.039500000000004,
+            21.18591600000002,
+            18.12633299999999,
+            21.67349999999999,
+            18.595208999999983,
+            21.427250000000015,
+            20.4795,
+            19.910916999999984,
+            18.700417000000016,
+            20.341000000000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 9,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            36.4155,
+            32.82137500000002,
+            36.903666999999984,
+            33.948417000000006,
+            32.097083999999995,
+            34.63733300000001,
+            32.870542,
+            31.524166999999977,
+            34.11704100000003,
+            33.17066700000004
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 11,
+            "effects": 6
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            27.799500000000002,
+            24.548584000000005,
+            23.18570800000002,
+            25.316625000000016,
+            24.871042000000017,
+            24.407291000000015,
+            21.85850000000002,
+            29.198624999999993,
+            23.433625000000006,
+            22.62733300000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 10,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            36.341291,
+            28.624624999999995,
+            28.734042000000017,
+            24.494709,
+            27.01483300000001,
+            25.191125,
+            24.72837499999997,
+            25.387125000000026,
+            24.517166999999972,
+            27.999167
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 10,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            21.416667000000004,
+            21.428750000000008,
+            22.08487500000001,
+            21.115959000000004,
+            18.234584000000012,
+            20.006624999999985,
+            20.719875000000002,
+            19.123916999999977,
+            21.879124999999988,
+            20.943083
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 9,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 26.981583999999998,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                52.75233400000002,
+                59.48754199999996,
+                26.981583999999998,
+                42.24520800000005,
+                51.016707999999994,
+                59.66104199999995,
+                37.14854200000002,
+                46.67650000000003,
+                50.04762500000004,
+                47.26920800000016
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 259.9405820000022,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                10.815374999999904,
+                3.89387499999998,
+                1.904207999999926,
+                1.972250000000031,
+                2.1736249999999018,
+                2.2697500000001583,
+                2.1137089999999716,
+                2.0599999999999454,
+                2.973124999999982,
+                2.685375000000022
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                81.31400000000008,
+                80.86533399999985,
+                64.19000000000005,
+                67.97891600000003,
+                42.759291000000076,
+                69.11887500000012,
+                85.16100000000006,
+                78.52975000000015,
+                82.63508300000012,
+                120.1446249999999
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                40.966249999999945,
+                28.052500000000236,
+                35.18604200000027,
+                36.491457999999966,
+                31.71875,
+                64.94141600000012,
+                57.67091699999992,
+                53.90870799999993,
+                28.59820899999977,
+                52.24920800000018
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                15.936417000000347,
+                20.645082999999886,
+                57.093415999999706,
+                22.05633399999988,
+                14.30920900000001,
+                20.766125000000102,
+                17.55929100000003,
+                15.798665999999685,
+                20.38520900000003,
+                19.706374999999753
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                12.626583999999639,
+                24.590250000000196,
+                21.814915999999357,
+                9.181625000000167,
+                12.085458000000472,
+                15.052625000000262,
+                13.162750000000415,
+                16.065625000000182,
+                9.74145899999985,
+                11.67133400000057
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                63.224874999999884,
+                63.48791700000038,
+                63.54979099999946,
+                47.39387500000066,
+                49.546958000000814,
+                55.90783300000021,
+                59.27520800000002,
+                63.65608299999985,
+                62.35916600000019,
+                62.66137499999968
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                53.92333299999973,
+                61.15558300000066,
+                66.47037499999988,
+                44.40133400000013,
+                50.41229199999998,
+                61.19300000000021,
+                54.019375000000764,
+                37.63354100000015,
+                43.24620799999957,
+                48.180875000000015
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                51.04141600000003,
+                64.26575000000048,
+                44.49512500000037,
+                50.21104199999991,
+                50.20008400000006,
+                64.14958300000035,
+                70.09054100000048,
+                62.95283399999971,
+                68.73070899999948,
+                61.23529199999939
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                41.71308299999964,
+                54.10112500000014,
+                62.80841599999985,
+                39.394499999999425,
+                34.211208000000624,
+                41.833834000000024,
+                35.40849999999955,
+                46.58466599999974,
+                45.18629199999941,
+                39.43025000000034
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 1275.4424999999956,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                66.55687500000022,
+                50.10545899999943,
+                46.56879200000003,
+                46.85291700000016,
+                47.28070899999966,
+                46.31279199999972,
+                45.26404100000036,
+                46.33429099999921,
+                48.06958300000042,
+                47.15024999999969
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                62.59545900000012,
+                32.69554100000005,
+                35.38250000000062,
+                31.917083000000275,
+                34.06462499999907,
+                33.436916000000565,
+                34.16733299999942,
+                35.81833299999926,
+                33.061250000000655,
+                30.56666700000096
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                56.09595900000022,
+                23.879832999999053,
+                27.421791999999186,
+                24.43816700000025,
+                23.033416999998735,
+                23.056249999999636,
+                23.539958000001207,
+                23.731165999999575,
+                23.414957999999388,
+                26.309500000001208
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                21.228958000001512,
+                19.550999999999476,
+                18.77966600000036,
+                20.027916999999434,
+                21.6752919999999,
+                21.04712499999914,
+                17.999832999999853,
+                24.16137499999968,
+                18.652165999999852,
+                20.29516700000022
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                25.932167000000845,
+                22.36058299999968,
+                21.63758400000006,
+                21.230125000000044,
+                20.130959000000075,
+                22.209333000000697,
+                22.58470800000032,
+                21.597042000001238,
+                20.114082999998573,
+                21.64666699999907
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                51.324125000001004,
+                43.58270799999991,
+                53.142791999998735,
+                42.28629100000035,
+                38.107624999998734,
+                40.313749999999345,
+                42.12937499999862,
+                47.93241599999965,
+                44.0450409999994,
+                40.59970799999974
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                1230.283125,
+                1230.0000830000008,
+                1199.5114169999997,
+                1148.744125000001,
+                1111.697583000001,
+                1139.0185409999995,
+                1113.653875,
+                1134.5391249999993,
+                1100.3568339999983,
+                1100.7285420000007
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 8.646000000000015,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                18.706917000000004,
+                17.168999999999983,
+                18.745542,
+                15.326249999999987,
+                8.646000000000015,
+                12.667916999999989,
+                9.496958000000006,
+                12.03020799999996,
+                12.41341600000004,
+                14.448083999999994
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 257.2474590000006,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                33.17795899999993,
+                27.454583999999954,
+                26.353624999999965,
+                31.775166000000013,
+                35.28641700000003,
+                23.761541999999963,
+                57.72849999999994,
+                33.17804100000001,
+                26.137207999999987,
+                30.664750000000026
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                63.91612500000008,
+                59.256041999999866,
+                38.05054200000018,
+                37.86258399999997,
+                43.079749999999876,
+                40.28591600000004,
+                40.04958399999987,
+                45.536292,
+                43.7818749999999,
+                39.517667000000074
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                29.58462499999996,
+                36.752915999999914,
+                30.715666000000056,
+                29.237167,
+                33.13841600000001,
+                51.05108300000006,
+                57.95304199999987,
+                44.56466699999987,
+                49.15241700000024,
+                42.3837080000003
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                33.969082999999955,
+                36.30595799999992,
+                14.711749999999938,
+                33.87329200000022,
+                34.184291999999914,
+                20.71474999999964,
+                18.87266600000021,
+                42.27945799999998,
+                15.809249999999793,
+                29.110999999999876
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                7.817500000000109,
+                17.644374999999854,
+                10.827250000000276,
+                11.464500000000044,
+                16.004667000000154,
+                9.697415999999976,
+                13.594333000000006,
+                21.63283300000012,
+                12.369124999999713,
+                9.59841600000027
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                55.32079199999998,
+                53.69750000000022,
+                41.10683300000028,
+                55.100167000000056,
+                54.53316700000005,
+                48.84225000000015,
+                45.393958999999995,
+                52.90049999999974,
+                47.600124999999935,
+                48.74162500000011
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                43.14837499999976,
+                38.24912499999982,
+                48.25608300000022,
+                42.27070900000035,
+                46.56058299999995,
+                47.50912500000004,
+                40.87304099999983,
+                35.94770800000015,
+                51.279083999999784,
+                52.600124999999935
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                53.53733300000022,
+                40.560333000000355,
+                51.01245800000015,
+                35.28974999999991,
+                40.97062499999993,
+                37.32783399999971,
+                41.88645799999995,
+                40.242584000000534,
+                43.26366700000017,
+                45.15441700000065
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                36.862082999999984,
+                43.3028749999994,
+                33.06016600000021,
+                46.22691699999996,
+                38.6820000000007,
+                34.252707999999984,
+                35.04979099999946,
+                31.5126250000003,
+                40.93516700000055,
+                35.76850000000013
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 854.8619169999993,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                61.8433329999998,
+                57.445708000000195,
+                62.396749999999884,
+                60.77720800000043,
+                63.29295899999943,
+                61.26141600000028,
+                60.29091700000026,
+                60.35149999999976,
+                60.34620900000027,
+                60.021749999999884
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                41.57020800000009,
+                38.38733400000001,
+                38.4788750000007,
+                39.42145900000014,
+                39.30799999999999,
+                41.05583300000035,
+                40.10962500000005,
+                39.6332910000001,
+                38.07208300000002,
+                37.84062499999982
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                32.422875000000204,
+                31.240582999999788,
+                30.80029099999956,
+                30.750957999999628,
+                30.525582999999642,
+                31.872290999999677,
+                30.70916699999998,
+                33.20183300000008,
+                30.33508299999994,
+                29.300500000000284
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                23.79529199999979,
+                23.24474999999984,
+                24.477708000000348,
+                25.114958000000115,
+                24.03004200000032,
+                24.76691699999992,
+                23.151709000000665,
+                23.2909580000005,
+                22.487625000000662,
+                24.737708999999995
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                43.05224999999973,
+                24.263417000000118,
+                19.553667000000132,
+                17.41254200000003,
+                20.170083999999406,
+                18.023415999999997,
+                18.098500000000058,
+                17.89875000000029,
+                17.364458999999442,
+                18.739458999999442
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                36.6727920000003,
+                35.51112499999999,
+                34.92329199999949,
+                33.84866599999987,
+                36.4399999999996,
+                33.894750000000386,
+                35.05058300000019,
+                34.796917000000576,
+                34.00016700000015,
+                36.30454100000043
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                663.9954159999998,
+                671.3303330000008,
+                667.6383330000008,
+                686.1782089999997,
+                679.9813749999994,
+                661.8752920000006,
+                658.2614169999997,
+                656.574333999999,
+                657.550459,
+                665.4776250000014
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 10.327374999999961,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                23.820416999999992,
+                19.17554100000001,
+                15.892334000000005,
+                16.12850000000003,
+                14.458082999999988,
+                21.930166999999983,
+                10.327374999999961,
+                21.11091700000003,
+                16.613625000000013,
+                13.40500000000003
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 247.00987500000042,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                45.98891699999996,
+                27.404540999999995,
+                37.81354099999999,
+                30.012458000000038,
+                29.444541000000072,
+                42.358749999999986,
+                24.08162500000003,
+                36.560416999999916,
+                25.495290999999952,
+                41.43937499999993
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                57.43220899999994,
+                45.352292000000034,
+                48.71970800000008,
+                43.85866699999997,
+                49.28662499999996,
+                47.72700000000009,
+                41.14329099999986,
+                41.58183299999996,
+                49.4630830000001,
+                50.99958300000003
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                28.722416000000067,
+                24.276624999999967,
+                23.887624999999844,
+                24.074666999999863,
+                28.866874999999936,
+                27.134000000000015,
+                19.314166999999998,
+                20.710417000000007,
+                25.497957999999926,
+                23.99116600000002
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                33.10416700000019,
+                13.651292000000012,
+                14.572583000000122,
+                14.586500000000342,
+                14.80099999999993,
+                13.848500000000058,
+                12.876458000000184,
+                16.165500000000065,
+                15.400166999999783,
+                23.862082999999984
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                5.884916999999859,
+                4.411916999999903,
+                6.238083000000188,
+                4.25683300000037,
+                4.6056250000001455,
+                4.61870799999997,
+                4.172875000000204,
+                4.623082999999951,
+                5.912708000000293,
+                4.367749999999887
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                41.16350000000011,
+                48.65620799999988,
+                49.00191700000005,
+                43.334249999999884,
+                41.85866699999997,
+                43.35966700000017,
+                41.500375000000076,
+                42.83970799999997,
+                42.59975000000031,
+                43.094916999999896
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                44.65729199999987,
+                41.591042000000016,
+                41.44033300000001,
+                42.347166000000016,
+                47.19329199999993,
+                53.24116600000025,
+                49.64041700000007,
+                40.31266599999981,
+                35.713874999999916,
+                44.39591700000028
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                41.85620899999958,
+                44.8012920000001,
+                35.55720799999972,
+                36.87208299999975,
+                38.98637499999995,
+                35.96016699999973,
+                31.403792000000067,
+                43.06741699999975,
+                45.41470799999979,
+                47.01525000000038
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                43.6779590000001,
+                38.657374999999774,
+                44.94016699999975,
+                43.64662500000031,
+                45.90016699999978,
+                45.684166999999434,
+                37.140292000000045,
+                43.35266700000011,
+                49.81420900000012,
+                40.34920899999997
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 1706.0712079999976,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                141.9669589999994,
+                138.88870899999984,
+                142.41429100000005,
+                140.31720799999948,
+                140.56054199999926,
+                144.55375000000004,
+                142.85608299999967,
+                142.92458400000032,
+                139.45866600000045,
+                141.6538329999994
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                98.38004100000035,
+                74.58533400000033,
+                76.1977909999996,
+                75.25725000000057,
+                76.36341700000048,
+                79.35854100000051,
+                76.87691600000016,
+                74.0566660000004,
+                77.70837500000016,
+                76.02820900000006
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                41.82237499999974,
+                42.672875000000204,
+                43.34941600000002,
+                39.51737500000036,
+                41.392791000000216,
+                40.768167000000176,
+                43.08191700000043,
+                42.072541999999885,
+                39.622709000000214,
+                40.934041000000434
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                9.809457999999722,
+                9.700125000000298,
+                9.950833999999304,
+                10.228416999999354,
+                9.438874999999825,
+                9.328457999999955,
+                9.286707999999635,
+                9.297207999999955,
+                9.280791000000136,
+                9.299250000000029
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                46.49225000000024,
+                47.94904199999928,
+                51.9561249999997,
+                47.15191700000014,
+                48.66874999999982,
+                47.29512499999964,
+                48.368875000000116,
+                49.4237090000006,
+                45.67383400000017,
+                47.445332999999664
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                75.73979099999997,
+                73.98183299999982,
+                74.38108300000022,
+                72.31195799999932,
+                73.34779199999957,
+                72.97816600000078,
+                72.27587499999936,
+                74.70916599999873,
+                75.66983299999993,
+                76.02991699999984
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                1353.2236670000002,
+                1362.8393749999996,
+                1402.337916999999,
+                1365.1075839999994,
+                1360.1599170000009,
+                1385.605875000001,
+                1401.5846249999995,
+                1370.329916999999,
+                1384.4243330000027,
+                1326.3779579999973
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 1.0138749999999845,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                9.607624999999999,
+                5.707125000000005,
+                1.6844580000000065,
+                1.265749999999997,
+                1.3038339999999948,
+                1.2761669999999867,
+                1.3252499999999827,
+                1.0343330000000037,
+                1.0158329999999864,
+                1.0138749999999845
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 74.1790410000001,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                21.169916,
+                19.623541999999986,
+                19.633708000000013,
+                17.688083000000006,
+                19.930624999999964,
+                21.067458999999985,
+                22.496999999999957,
+                23.23645799999997,
+                24.919584000000043,
+                9.702625000000012
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                21.026792,
+                17.755749999999978,
+                13.862375000000043,
+                12.208458999999948,
+                27.04866699999991,
+                19.20962499999996,
+                12.790917000000036,
+                27.509584000000018,
+                21.614625000000046,
+                12.51475000000005
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                14.158165999999937,
+                9.382875000000013,
+                5.974542000000042,
+                11.671917000000008,
+                5.91379100000006,
+                10.12341600000002,
+                7.714375000000018,
+                9.021792000000005,
+                7.617791000000011,
+                10.491833000000042
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                10.093999999999937,
+                4.22033399999998,
+                4.682166000000052,
+                7.368541999999934,
+                9.807708999999932,
+                4.087957999999844,
+                4.774792000000161,
+                8.47179099999994,
+                10.551459000000023,
+                4.238041000000067
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                4.40891600000009,
+                2.6551670000001195,
+                2.635250000000042,
+                5.872292000000016,
+                2.2318330000000515,
+                2.972500000000082,
+                5.9962920000000395,
+                2.523834000000079,
+                6.280083000000104,
+                2.4447500000001128
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                33.003917,
+                16.22237499999983,
+                14.476374999999962,
+                20.95966700000008,
+                14.02370800000017,
+                19.26537499999995,
+                9.68358400000011,
+                14.223957999999811,
+                18.699666999999863,
+                10.768084000000044
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                30.30404199999998,
+                12.419374999999945,
+                16.37974999999983,
+                14.971916999999848,
+                13.406541999999945,
+                15.134041999999909,
+                14.085791999999856,
+                14.483583999999837,
+                15.964083000000073,
+                17.55637499999989
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                9.547125000000051,
+                24.213792000000012,
+                11.810208999999986,
+                14.120791000000054,
+                14.067041999999901,
+                12.409542000000101,
+                14.435915999999906,
+                15.798041999999896,
+                13.223208000000113,
+                18.315708000000086
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                12.123333999999886,
+                11.429375000000164,
+                10.782375000000002,
+                12.089415999999801,
+                10.753207999999859,
+                9.158124999999927,
+                12.735165999999936,
+                11.201125000000047,
+                8.384291000000076,
+                12.50262500000008
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 302.2790420000006,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                19.453457999999955,
+                16.394999999999982,
+                18.093665999999985,
+                19.385500000000093,
+                18.822542000000112,
+                19.73208300000033,
+                19.21183400000018,
+                18.981583999999657,
+                19.34008300000005,
+                19.20504099999971
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                10.389874999999847,
+                10.019083000000137,
+                10.429250000000138,
+                11.301417000000129,
+                10.497584000000188,
+                10.021166999999878,
+                9.768165999999837,
+                10.229832999999871,
+                9.760167000000365,
+                10.385249999999814
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                6.915707999999995,
+                6.395375000000058,
+                6.18729200000007,
+                6.303417000000081,
+                6.476083999999901,
+                6.168165999999928,
+                6.556833999999981,
+                6.407333000000108,
+                6.650625000000218,
+                6.395958000000064
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                3.6432920000002014,
+                3.6322500000001128,
+                3.988709000000199,
+                3.6237089999999625,
+                4.190541999999823,
+                3.6762919999996484,
+                3.65945899999997,
+                3.5385000000001128,
+                3.611457999999857,
+                3.5290420000001177
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                7.995915999999852,
+                8.052415999999994,
+                7.120291000000179,
+                6.5121250000001965,
+                6.765083999999661,
+                6.652332999999999,
+                6.666083999999955,
+                6.652916000000005,
+                6.9259579999998095,
+                6.620416000000205
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                11.555541000000176,
+                11.43283399999973,
+                11.03583400000025,
+                11.1740420000001,
+                11.195874999999887,
+                10.987916999999925,
+                11.174082999999882,
+                11.021707999999762,
+                11.498375000000124,
+                11.49370799999997
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                251.33516599999984,
+                259.86079100000006,
+                248.92662500000006,
+                261.1412499999997,
+                261.95208300000013,
+                253.57429200000024,
+                253.01870899999994,
+                251.52537500000017,
+                250.17504199999985,
+                259.2136249999994
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 9.770166000000017,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                19.487957999999992,
+                13.700124999999986,
+                13.171458000000001,
+                11.163916999999998,
+                10.004958000000016,
+                9.770166000000017,
+                11.57454199999998,
+                11.131834000000026,
+                15.133375000000001,
+                11.367958999999985
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 124.82954100000023,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                20.64333399999998,
+                14.524125000000026,
+                21.394082999999966,
+                11.14183300000002,
+                16.122500000000002,
+                11.065125000000023,
+                11.366458000000023,
+                12.708291000000031,
+                11.134458999999993,
+                13.400792000000024
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                41.25258299999996,
+                31.11241700000005,
+                25.26916700000004,
+                39.97362499999997,
+                33.836708000000044,
+                35.04483399999992,
+                32.78366600000004,
+                30.72920799999997,
+                34.76441699999998,
+                34.28762500000005
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                33.307458,
+                13.113457999999923,
+                16.225874999999974,
+                16.541499999999814,
+                19.810083000000077,
+                22.908750000000055,
+                24.738292,
+                24.951291999999967,
+                26.681500000000142,
+                26.735957999999982
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                10.506832999999915,
+                13.055667000000085,
+                6.069707999999991,
+                9.130958999999848,
+                5.859375,
+                11.495957999999973,
+                5.8431250000001,
+                6.236750000000029,
+                7.661540999999943,
+                6.550334000000021
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                4.018374999999878,
+                3.883666999999832,
+                5.375834000000168,
+                7.357416999999941,
+                3.5217079999999896,
+                7.347375000000056,
+                3.41145900000015,
+                6.160125000000107,
+                3.188041000000112,
+                5.645291999999927
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                34.90516699999989,
+                20.124083000000155,
+                19.489749999999958,
+                21.431917000000112,
+                22.721874999999955,
+                26.230957999999873,
+                27.92729099999997,
+                25.265499999999975,
+                23.520249999999805,
+                22.9056250000001
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                32.829332999999906,
+                19.051541000000043,
+                21.475541999999905,
+                20.333333999999923,
+                19.58158400000002,
+                18.866665999999896,
+                20.5295000000001,
+                17.89412500000003,
+                19.502541000000065,
+                21.931417000000238
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                23.108166999999867,
+                21.923957999999857,
+                20.472584000000097,
+                19.73641600000019,
+                18.458000000000084,
+                14.085207999999966,
+                20.662459000000126,
+                15.586249999999836,
+                21.33750000000009,
+                18.228207999999995
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                24.656458000000384,
+                46.05274999999983,
+                14.881542000000081,
+                25.47854200000029,
+                15.313124999999673,
+                19.20824999999968,
+                16.52666700000009,
+                18.083040999999866,
+                17.060624999999618,
+                17.074916999999914
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 292.4679580000002,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                34.89291600000024,
+                24.008749999999964,
+                16.415584000000308,
+                18.238250000000335,
+                15.827624999999898,
+                15.644624999999905,
+                15.63983399999961,
+                15.578833000000031,
+                15.9084170000001,
+                15.88654200000019
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                11.115917000000081,
+                9.983416999999918,
+                9.787249999999858,
+                9.875291999999718,
+                10.39700000000039,
+                9.95416699999987,
+                11.078417000000172,
+                11.406667000000198,
+                9.590000000000146,
+                9.935165999999754
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                9.710041000000274,
+                6.631415999999717,
+                6.658167000000049,
+                6.65908300000001,
+                6.7822909999999865,
+                6.739875000000211,
+                6.726916999999958,
+                6.604084000000057,
+                6.745957999999973,
+                6.7618750000001455
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                5.336249999999836,
+                5.050542000000405,
+                5.137624999999844,
+                5.116083000000344,
+                5.0349999999998545,
+                5.225875000000087,
+                5.027125000000069,
+                4.867416000000048,
+                4.764416999999867,
+                4.698832999999922
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                9.588541000000077,
+                6.318083000000115,
+                6.180749999999989,
+                6.284499999999753,
+                6.403041999999914,
+                6.987500000000182,
+                6.421957999999904,
+                6.53145799999993,
+                6.467040999999881,
+                6.3133749999997235
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                13.577499999999873,
+                10.736958999999842,
+                10.538125000000036,
+                11.769832999999835,
+                11.233166999999867,
+                10.623000000000047,
+                10.639584000000013,
+                11.231124999999793,
+                10.881875000000036,
+                10.623459000000366
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                256.2977920000003,
+                242.25512500000013,
+                240.01733399999966,
+                239.80099999999993,
+                242.30716699999994,
+                242.15895799999998,
+                244.3516669999999,
+                240.1057090000004,
+                240.63816700000007,
+                239.277333
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            1.2397080000000074,
+            1.2430829999999986,
+            1.2275829999999956,
+            1.2162919999999957,
+            1.1244580000000042,
+            1.0939160000000072,
+            1.0849589999999978,
+            1.1182090000000073,
+            1.0947500000000048,
+            1.2185419999999993
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            1.7034170000000017,
+            1.7446659999999952,
+            1.6990420000000057,
+            1.7252500000000026,
+            2.279083,
+            1.8947080000000085,
+            1.6841249999999945,
+            1.5697090000000173,
+            1.7110830000000021,
+            2.2038749999999823
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            0.5090000000000003,
+            0.4484159999999946,
+            0.36862500000000153,
+            0.44916699999999565,
+            0.6705830000000006,
+            0.5798750000000013,
+            0.667082999999991,
+            0.393250000000009,
+            0.4013749999999874,
+            0.40808400000000233
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            0.4781250000000057,
+            0.43608300000001066,
+            0.4666250000000076,
+            0.3919999999999959,
+            0.4100830000000002,
+            0.4022499999999951,
+            0.4051250000000124,
+            0.4041250000000076,
+            0.395040999999992,
+            0.4754999999999967
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "heap limit",
+      "phase": "cellx1000 build and first update",
+      "code": null,
+      "signal": "SIGABRT",
+      "stderr": "\n<--- Last few GCs --->\n\n[87805:0x723800000]     1717 ms: Mark-Compact 969.8 (1003.1) -> 587.2 (620.3) MB, pooled: 2 MB, 238.92 / 0.00 ms  (average mu = 0.643, current mu = 0.590) allocation failure; scavenge might not succeed\n[87805:0x723800000]     2603 ms: Mark-Compact 1448.9 (1481.0) -> 873.3 (907.5) MB, pooled: 1 MB, 365.50 / 0.00 ms  (average mu = 0.607, current mu = 0.587) allocation failure; GC in old space requested\n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0x104b4d1fc node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 2: 0x104d78864 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 3: 0x104f62b04 v8::internal::Heap::stack() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 4: 0x104f60f10 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 5: 0x104f55c4c v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 6: 0x104f56488 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 7: 0x104f26c28 v8::internal::FactoryBase<v8::internal::Factory>::NewFixedArrayWithFiller(v8::internal::Handle<v8::internal::Map>, int, v8::internal::Handle<v8::internal::HeapObject>, v8::internal::AllocationType) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 8: 0x1052363b0 v8::internal::OrderedHashTable<v8::internal::OrderedHashSet, 1>::Allocate(v8::internal::Isolate*, int, v8::internal::AllocationType) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 9: 0x105238fd8 v8::internal::OrderedHashTable<v8::internal::OrderedHashSet, 1>::Rehash(v8::internal::Isolate*, v8::internal::Handle<v8::internal::OrderedHashSet>, int) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n10: 0x1052361f0 v8::internal::OrderedHashTable<v8::internal::OrderedHashSet, 1>::Shrink(v8::internal::Isolate*, v8::internal::Handle<v8::internal::OrderedHashSet>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n11: 0x1053336a0 v8::internal::Runtime_SetShrink(int, unsigned long*, v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n12: 0x1057bdaf4 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n13: 0x1057a1edc Builtins_SetPrototypeDelete [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n14: 0x110acc9e0 \n15: 0x110adca98 \n16: 0x105728ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n17: 0x105728ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n18: 0x105728ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n19: 0x105728ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n20: 0x105728ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n21: 0x1057651b0 Builtins_AsyncFunctionAwaitRejectClosure [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n22: 0x105830678 Builtins_PromiseRejectReactionJob [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n23: 0x105755644 Builtins_RunMicrotasks [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n24: 0x105726af4 Builtins_JSRunMicrotasksEntry [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n25: 0x104ebe848 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n26: 0x104ebf0ec v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n27: 0x104ebf224 v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n28: 0x104ee9dd0 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n29: 0x104eea5b4 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n30: 0x104a69994 node::InternalCallbackScope::Close() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n31: 0x104a69cac node::InternalMakeCallback(node::Environment*, v8::Local<v8::Object>, v8::Local<v8::Object>, v8::Local<v8::Function>, int, v8::Local<v8::Value>*, node::async_context, v8::Local<v8::Value>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n32: 0x104a69fac node::InternalMakeCallback(v8::Isolate*, v8::Local<v8::Object>, v8::Local<v8::Function>, int, v8::Local<v8::Value>*, node::async_context, v8::Local<v8::Value>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n33: 0x104add2d4 node::Environment::CheckImmediate(uv_check_s*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n34: 0x10570e0b4 uv__run_check [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n35: 0x105707348 uv_run [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n36: 0x104a6a4e4 node::SpinEventLoopInternal(node::Environment*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n37: 0x104b94790 node::NodeMainInstance::Run(node::ExitCode*, node::Environment*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n38: 0x104b9452c node::NodeMainInstance::Run() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n39: 0x104b0af88 node::Start(int, char**) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n40: 0x184d77e00 start [/usr/lib/dyld]\n"
+    },
+    {
+      "id": "solid2",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            6.133583000000016,
+            4.073709000000008,
+            5.0232090000000085,
+            10.092540999999983,
+            4.117165999999997,
+            3.8929159999999854,
+            5.930374999999998,
+            4.711749999999995,
+            4.920749999999998,
+            9.748291999999992
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            1.5022499999999894,
+            3.4399590000000018,
+            1.1738749999999953,
+            1.0611249999999899,
+            2.414459000000008,
+            1.0368749999999949,
+            1.412957999999989,
+            2.799959000000001,
+            1.1208330000000046,
+            1.3222920000000045
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            1.2759170000000069,
+            1.167625000000001,
+            1.0982079999999996,
+            1.1445420000000013,
+            1.614582999999996,
+            1.6328329999999909,
+            1.3696669999999926,
+            1.3800410000000056,
+            1.3502079999999808,
+            1.1749579999999753
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "heap limit",
+      "phase": "cellx2500 build and first update",
+      "code": null,
+      "signal": "SIGABRT",
+      "stderr": "\n<--- Last few GCs --->\n\n[87916:0x87b800000]     1748 ms: Mark-Compact 979.7 (1014.1) -> 596.4 (630.5) MB, pooled: 2 MB, 245.96 / 0.00 ms  (average mu = 0.601, current mu = 0.578) allocation failure; scavenge might not succeed\n[87916:0x87b800000]     2628 ms: Mark-Compact 1458.2 (1491.2) -> 883.0 (917.4) MB, pooled: 2 MB, 343.71 / 0.00 ms  (average mu = 0.606, current mu = 0.609) allocation failure; GC in old space requested\n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0x1006bd1fc node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 2: 0x1008e8864 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 3: 0x100ad2b04 v8::internal::Heap::stack() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 4: 0x100ad0f10 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 5: 0x100ac5c4c v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 6: 0x100ac6488 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 7: 0x100a96c28 v8::internal::FactoryBase<v8::internal::Factory>::NewFixedArrayWithFiller(v8::internal::Handle<v8::internal::Map>, int, v8::internal::Handle<v8::internal::HeapObject>, v8::internal::AllocationType) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 8: 0x100da63b0 v8::internal::OrderedHashTable<v8::internal::OrderedHashSet, 1>::Allocate(v8::internal::Isolate*, int, v8::internal::AllocationType) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 9: 0x100da8fd8 v8::internal::OrderedHashTable<v8::internal::OrderedHashSet, 1>::Rehash(v8::internal::Isolate*, v8::internal::Handle<v8::internal::OrderedHashSet>, int) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n10: 0x100da61f0 v8::internal::OrderedHashTable<v8::internal::OrderedHashSet, 1>::Shrink(v8::internal::Isolate*, v8::internal::Handle<v8::internal::OrderedHashSet>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n11: 0x100ea36a0 v8::internal::Runtime_SetShrink(int, unsigned long*, v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n12: 0x10132daf4 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n13: 0x101311edc Builtins_SetPrototypeDelete [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n14: 0x10c65da9c \n15: 0x10c65ca98 \n16: 0x101298ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n17: 0x101298ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n18: 0x101298ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n19: 0x101298ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n20: 0x101298ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n21: 0x1012d51b0 Builtins_AsyncFunctionAwaitRejectClosure [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n22: 0x1013a0678 Builtins_PromiseRejectReactionJob [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n23: 0x1012c5644 Builtins_RunMicrotasks [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n24: 0x101296af4 Builtins_JSRunMicrotasksEntry [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n25: 0x100a2e848 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n26: 0x100a2f0ec v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n27: 0x100a2f224 v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n28: 0x100a59dd0 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n29: 0x100a5a5b4 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n30: 0x1005d9994 node::InternalCallbackScope::Close() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n31: 0x1005d9cac node::InternalMakeCallback(node::Environment*, v8::Local<v8::Object>, v8::Local<v8::Object>, v8::Local<v8::Function>, int, v8::Local<v8::Value>*, node::async_context, v8::Local<v8::Value>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n32: 0x1005d9fac node::InternalMakeCallback(v8::Isolate*, v8::Local<v8::Object>, v8::Local<v8::Function>, int, v8::Local<v8::Value>*, node::async_context, v8::Local<v8::Value>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n33: 0x10064d2d4 node::Environment::CheckImmediate(uv_check_s*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n34: 0x10127e0b4 uv__run_check [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n35: 0x101277348 uv_run [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n36: 0x1005da4e4 node::SpinEventLoopInternal(node::Environment*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n37: 0x100704790 node::NodeMainInstance::Run(node::ExitCode*, node::Environment*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n38: 0x10070452c node::NodeMainInstance::Run() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n39: 0x10067af88 node::Start(int, char**) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n40: 0x184d77e00 start [/usr/lib/dyld]\n"
+    },
+    {
+      "id": "solid1",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            3.7789159999999953,
+            3.490667000000002,
+            3.426791999999992,
+            3.7978750000000048,
+            3.7297920000000033,
+            3.365250000000003,
+            3.6144160000000056,
+            3.3044999999999902,
+            3.2818750000000136,
+            3.694250000000011
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            164.22620800000004,
+            162.61058300000002,
+            165.7629169999999,
+            165.8842920000002,
+            163.30812500000002
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            227.9135,
+            226.0295000000001,
+            223.68162499999994,
+            225.16395799999987,
+            229.28674999999998
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            769.2810420000001,
+            776.2003329999998,
+            766.639917,
+            770.9959579999995,
+            774.4434160000001
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            1134.7184159999997,
+            1136.4479580000007,
+            1126.2272080000002,
+            1135.175542,
+            1131.1568749999997
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            }
+          ],
+          "computations": {
+            "computed": 8400000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 8400000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            1051.9177920000002,
+            1047.0065829999994,
+            1028.2957080000006,
+            1055.9934590000003,
+            1040.091375
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            161.964792,
+            161.20724999999993,
+            164.40770799999996,
+            163.82983400000012,
+            165.83912499999997
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          ],
+          "computations": {
+            "computed": 1155000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "timeout",
+      "phase": "dynamic graph warmup",
+      "code": null,
+      "signal": "SIGKILL",
+      "stderr": ""
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            391.5930000000001,
+            386.822459,
+            386.539,
+            386.1351249999998,
+            381.25374999999985
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            }
+          ],
+          "computations": {
+            "computed": 1290000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1290000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            556.4213749999999,
+            565.884708,
+            560.6997080000001,
+            558.3379999999997,
+            560.2038339999995
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          ],
+          "computations": {
+            "computed": 1155000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            116.54108399999996,
+            115.511708,
+            115.82583399999999,
+            121.58679200000006,
+            119.71516699999995
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          ],
+          "computations": {
+            "computed": 1155000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "timeout",
+      "phase": "dynamic graph warmup",
+      "code": null,
+      "signal": "SIGKILL",
+      "stderr": ""
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            977.9819170000001,
+            979.1315,
+            978.2104170000002,
+            976.8032919999996,
+            974.7728750000006
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            1145.2843750000002,
+            1149.2949169999993,
+            1158.7427499999994,
+            1150.5203330000004,
+            1153.0315420000006
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            296.5457499999999,
+            297.876125,
+            304.4395830000001,
+            295.34470799999986,
+            295.12087500000007
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            474.0970419999999,
+            495.1064160000001,
+            473.5195410000001,
+            483.298542,
+            480.24350000000004
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            971.6324589999999,
+            969.3466249999997,
+            962.2279580000004,
+            965.5797920000005,
+            976.8682500000004
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            1385.6624170000005,
+            1367.8251659999996,
+            1375.5530830000007,
+            1377.5331670000014,
+            1373.2342499999995
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            342.14650000000006,
+            338.9599579999999,
+            345.2907910000001,
+            345.5272090000003,
+            339.24020800000017
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            494.732041,
+            497.2634170000001,
+            495.6882089999999,
+            512.7362079999998,
+            496.5511670000001
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            24120.485750000007,
+            24703.645374999993,
+            20201.907625000007,
+            19161.002250000005,
+            20440.789583000005
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            426.9766669999999,
+            428.28874999999994,
+            411.7268329999997,
+            416.55733299999974,
+            425.0161250000001
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            93.62958399999997,
+            89.56399999999996,
+            90.04879200000005,
+            90.81979100000001,
+            87.95937499999991
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            129.395375,
+            125.99974999999995,
+            122.59891700000003,
+            122.71470800000009,
+            124.68058400000007
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "heap limit",
+      "phase": "dynamic graph warmup",
+      "code": null,
+      "signal": "SIGABRT",
+      "stderr": "\n<--- Last few GCs --->\n\n[11522:0xb65800000]     1688 ms: Mark-Compact 966.4 (999.6) -> 583.1 (616.3) MB, pooled: 2 MB, 288.79 / 0.00 ms  (average mu = 0.518, current mu = 0.493) allocation failure; scavenge might not succeed\n[11522:0xb65800000]     2539 ms: Mark-Compact 1444.5 (1477.0) -> 870.4 (903.7) MB, pooled: 1 MB, 404.71 / 0.00 ms  (average mu = 0.522, current mu = 0.525) allocation failure; GC in old space requested\n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0x1002ed1fc node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 2: 0x100518864 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 3: 0x100702b04 v8::internal::Heap::stack() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 4: 0x100700f10 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 5: 0x1006f5c4c v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 6: 0x1006f6488 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 7: 0x1006c6854 v8::internal::FactoryBase<v8::internal::Factory>::NewFixedArray(int, v8::internal::AllocationType) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 8: 0x1009f4f6c v8::internal::Handle<v8::internal::FixedArray> v8::internal::String::CalculateLineEnds<v8::internal::Isolate>(v8::internal::Isolate*, v8::internal::Handle<v8::internal::String>, bool) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 9: 0x1009ab968 void v8::internal::Script::InitLineEndsInternal<v8::internal::Isolate>(v8::internal::Isolate*, v8::internal::Handle<v8::internal::Script>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n10: 0x1009d0320 v8::internal::Script::GetLineNumber(v8::internal::Handle<v8::internal::Script>, int) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n11: 0x10082b408 v8::internal::CallSiteInfo::GetLineNumber(v8::internal::Handle<v8::internal::CallSiteInfo>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n12: 0x100570ad8 v8::internal::Builtin_CallSitePrototypeGetLineNumber(int, unsigned long*, v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n13: 0x100f5da14 Builtins_CEntry_Return1_ArgvOnStack_BuiltinExit [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n14: 0x100ec8ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n15: 0x100ec8ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n16: 0x100f8c65c Builtins_ArrayMap [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n17: 0x100ec8ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n18: 0x100ec8ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n19: 0x100ec8ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n20: 0x100ec6c0c Builtins_JSEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n21: 0x100ec68f4 Builtins_JSEntry [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n22: 0x10065e888 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n23: 0x10065e1cc v8::internal::Execution::Call(v8::internal::Isolate*, v8::internal::Handle<v8::internal::Object>, v8::internal::Handle<v8::internal::Object>, int, v8::internal::Handle<v8::internal::Object>*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n24: 0x10052efec v8::Function::Call(v8::Local<v8::Context>, v8::Local<v8::Value>, int, v8::Local<v8::Value>*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n25: 0x10020cb88 node::PrepareStackTraceCallback(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Array>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n26: 0x100684798 v8::internal::ErrorUtils::FormatStackTrace(v8::internal::Isolate*, v8::internal::Handle<v8::internal::JSObject>, v8::internal::Handle<v8::internal::Object>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n27: 0x100689070 v8::internal::ErrorUtils::GetFormattedStack(v8::internal::Isolate*, v8::internal::Handle<v8::internal::JSObject>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n28: 0x100566674 v8::internal::Accessors::ErrorStackGetter(v8::FunctionCallbackInfo<v8::Value> const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n29: 0x100ecaf98 Builtins_CallApiCallbackGeneric [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n30: 0x100ed6c04 Builtins_LoadIC_NoFeedback [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n31: 0x101033c98 Builtins_GetNamedPropertyHandler [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n32: 0x100ec9e60 Builtins_InterpreterEnterAtBytecode [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n33: 0x100f051b0 Builtins_AsyncFunctionAwaitRejectClosure [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n34: 0x100fd0678 Builtins_PromiseRejectReactionJob [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n35: 0x100ef5644 Builtins_RunMicrotasks [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n36: 0x100ec6af4 Builtins_JSRunMicrotasksEntry [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n37: 0x10065e848 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n38: 0x10065f0ec v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n39: 0x10065f224 v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n40: 0x100689dd0 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n41: 0x10068a5b4 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n42: 0x100209994 node::InternalCallbackScope::Close() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n43: 0x100209454 node::InternalCallbackScope::~InternalCallbackScope() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n44: 0x1002f19c8 node::fs::FileHandle::CloseReq::Resolve() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n45: 0x10030dd38 node::fs::FileHandle::ClosePromise()::$_0::__invoke(uv_fs_s*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n46: 0x1002e56d4 node::MakeLibuvRequestCallback<uv_fs_s, void (*)(uv_fs_s*)>::Wrapper(uv_fs_s*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n47: 0x100ea2f3c uv__work_done [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n48: 0x100ea6a60 uv__async_io [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n49: 0x100eba454 uv__io_poll [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n"
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            260.5653330000001,
+            250.71812499999987,
+            249.39041700000007,
+            260.91945899999996,
+            262.43845799999986
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            216.52183300000002,
+            232.91637500000013,
+            264.610958,
+            235.93504200000007,
+            262.43037500000014
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            254.03150000000005,
+            254.88091699999995,
+            365.46849999999995,
+            259.8450419999999,
+            266.21916699999974
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "heap limit",
+      "phase": "dynamic graph warmup",
+      "code": null,
+      "signal": "SIGABRT",
+      "stderr": "\n<--- Last few GCs --->\n\n[11870:0xad5400000]     1921 ms: Mark-Compact 965.2 (997.9) -> 582.6 (615.3) MB, pooled: 2 MB, 398.83 / 0.00 ms  (average mu = 0.493, current mu = 0.438) allocation failure; scavenge might not succeed\n[11870:0xad5400000]     2873 ms: Mark-Compact 1444.0 (1476.0) -> 869.2 (902.5) MB, pooled: 1 MB, 416.08 / 0.00 ms  (average mu = 0.538, current mu = 0.563) allocation failure; GC in old space requested\n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0x10299d1fc node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 2: 0x102bc8864 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 3: 0x102db2b04 v8::internal::Heap::stack() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 4: 0x102db0f10 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 5: 0x102da5c4c v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 6: 0x102da6488 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 7: 0x102d769b4 v8::internal::FactoryBase<v8::internal::Factory>::NewTrustedFixedArray(int) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 8: 0x103e4af34 v8::internal::compiler::CodeGenerator::GenerateDeoptimizationData() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n 9: 0x103e4ae64 v8::internal::compiler::CodeGenerator::FinalizeCode() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n10: 0x10405c5f8 auto v8::internal::compiler::PipelineImpl::Run<v8::internal::compiler::FinalizeCodePhase>() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n11: 0x10404ea14 v8::internal::compiler::PipelineImpl::FinalizeCode(bool) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n12: 0x10404e77c v8::internal::compiler::PipelineCompilationJob::FinalizeJobImpl(v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n13: 0x102c6fbe8 v8::internal::Compiler::FinalizeTurbofanCompilationJob(v8::internal::TurbofanCompilationJob*, v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n14: 0x102cab958 v8::internal::OptimizingCompileDispatcher::InstallOptimizedFunctions() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n15: 0x102d3c20c v8::internal::StackGuard::HandleInterrupts(v8::internal::StackGuard::InterruptLevel) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n16: 0x10318bd30 v8::internal::Runtime_StackGuard(int, unsigned long*, v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n17: 0x10360daf4 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n18: 0x103578fa0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n19: 0x103578ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n20: 0x103578ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n21: 0x10363c65c Builtins_ArrayMap [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n22: 0x103578ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n23: 0x103578ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n24: 0x103578ef0 Builtins_InterpreterEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n25: 0x103576c0c Builtins_JSEntryTrampoline [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n26: 0x1035768f4 Builtins_JSEntry [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n27: 0x102d0e888 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n28: 0x102d0e1cc v8::internal::Execution::Call(v8::internal::Isolate*, v8::internal::Handle<v8::internal::Object>, v8::internal::Handle<v8::internal::Object>, int, v8::internal::Handle<v8::internal::Object>*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n29: 0x102bdefec v8::Function::Call(v8::Local<v8::Context>, v8::Local<v8::Value>, int, v8::Local<v8::Value>*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n30: 0x1028bcb88 node::PrepareStackTraceCallback(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Array>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n31: 0x102d34798 v8::internal::ErrorUtils::FormatStackTrace(v8::internal::Isolate*, v8::internal::Handle<v8::internal::JSObject>, v8::internal::Handle<v8::internal::Object>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n32: 0x102d39070 v8::internal::ErrorUtils::GetFormattedStack(v8::internal::Isolate*, v8::internal::Handle<v8::internal::JSObject>) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n33: 0x102c16674 v8::internal::Accessors::ErrorStackGetter(v8::FunctionCallbackInfo<v8::Value> const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n34: 0x10357af98 Builtins_CallApiCallbackGeneric [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n35: 0x103586c04 Builtins_LoadIC_NoFeedback [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n36: 0x1036e3c98 Builtins_GetNamedPropertyHandler [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n37: 0x103579e60 Builtins_InterpreterEnterAtBytecode [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n38: 0x1035b51b0 Builtins_AsyncFunctionAwaitRejectClosure [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n39: 0x103680678 Builtins_PromiseRejectReactionJob [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n40: 0x1035a5644 Builtins_RunMicrotasks [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n41: 0x103576af4 Builtins_JSRunMicrotasksEntry [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n42: 0x102d0e848 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n43: 0x102d0f0ec v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n44: 0x102d0f224 v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n45: 0x102d39dd0 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n46: 0x102d3a5b4 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n47: 0x1028b9994 node::InternalCallbackScope::Close() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n48: 0x1028b9454 node::InternalCallbackScope::~InternalCallbackScope() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n49: 0x1029a19c8 node::fs::FileHandle::CloseReq::Resolve() [/Users/macbookpro-kirby/.nvm/versions/node/v22.13.1/bin/node]\n50: 0x1029bdd38 node::fs::FileHandle::ClosePromise()"
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            492.01099999999997,
+            536.8245419999998,
+            463.2720839999997,
+            488.132834,
+            476.5319169999998
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            695.84575,
+            699.5269159999998,
+            723.5887090000001,
+            707.5353750000004,
+            704.2776250000006
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    }
+  ]
+}

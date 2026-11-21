@@ -1,7 +1,8 @@
 /**
  * Unit tests (no browser) for devtools ↔ what-core wiring:
- *  - installDevTools captures core's installSignalReadGuardrail and applies
- *    it to every signal it registers (dev guardrail for `${count}` misuse).
+ *  - what-core reports ERR_MISSING_SIGNAL_READ by itself; once devtools has
+ *    registered the signal or computed, the report's subject carries the id
+ *    devtools gave it, so a tool can resolve it in the snapshot.
  *  - _suppressDevtools hides registrations from the registries (used by the
  *    DevPanel so it never tracks itself — see DevPanel.jsx docblock).
  *
@@ -10,6 +11,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as core from '../../core/src/entries/internal.js';
+import { signal, computed } from '../../core/src/reactive.js';
+import { captureDiagnostics } from '../../core/src/testing.js';
 import {
   installDevTools,
   getSnapshot,
@@ -26,25 +30,36 @@ function fakeSignal(name, value) {
 
 test('devtools wiring', async (t) => {
   let hooks = null;
-  const guarded = [];
-  const fakeCore = {
-    __setDevToolsHooks(h) { hooks = h; },
-    installSignalReadGuardrail(sig, name) { guarded.push(name); return sig; },
-  };
-  installDevTools(fakeCore);
+  installDevTools({
+    ...core,
+    __setDevToolsHooks(h) {
+      hooks = h;
+      core.__setDevToolsHooks(h);
+    },
+  });
 
   await t.test('captures hooks from the provided core module', () => {
     assert.ok(hooks, '__setDevToolsHooks should be called synchronously');
   });
 
-  await t.test('applies the signal-read guardrail to registered signals', () => {
-    hooks.onSignalCreate(fakeSignal('count', 42));
-    assert.deepEqual(guarded, ['count']);
+  await t.test('a coerced signal or computed is reported with the id devtools gave it', () => {
+    const count = signal(3, 'count');
+    const doubled = computed(function doubled() { return count() * 2; });
+    const forwarded = [];
+    const unsub = subscribe((event, data) => { if (event === 'diagnostic') forwarded.push(data); });
+    const cap = captureDiagnostics(() => `${count} ${doubled}`);
+    unsub();
     const snap = getSnapshot();
-    assert.ok(snap.signals.some((s) => s.name === 'count'));
+    const countId = snap.signals.find((s) => s.name === 'count').id;
+    const doubledId = snap.effects.find((e) => e.name === 'doubled').id;
+    assert.deepEqual(cap.events.map((e) => e.subject), [
+      { kind: 'signal', id: countId, name: 'count' },
+      { kind: 'computed', id: doubledId, name: 'doubled' },
+    ]);
+    assert.deepEqual(forwarded.map((e) => e.code), ['ERR_MISSING_SIGNAL_READ', 'ERR_MISSING_SIGNAL_READ']);
   });
 
-  await t.test('_suppressDevtools hides registrations and skips the guardrail', () => {
+  await t.test('_suppressDevtools hides registrations', () => {
     const events = [];
     const unsub = subscribe((event) => events.push(event));
     _suppressDevtools(() => {
@@ -52,7 +67,6 @@ test('devtools wiring', async (t) => {
       hooks.onEffectCreate({ fn: function panelEffect() {} });
     });
     unsub();
-    assert.equal(guarded.length, 1, 'guardrail must not run for suppressed signals');
     assert.equal(events.length, 0, 'suppressed registrations must not emit events');
     const snap = getSnapshot();
     assert.ok(!snap.signals.some((s) => s.name === 'panelInternal'));

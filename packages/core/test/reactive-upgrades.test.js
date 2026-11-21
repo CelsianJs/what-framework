@@ -102,25 +102,26 @@ describe('topological ordering', () => {
     dispose();
   });
 
-  it('effects at different levels execute in order', async () => {
+  it('effects at different depths run once, in notification order, on settled values', async () => {
     const s = signal(0);
     const c1 = computed(() => s() + 1);
     const c2 = computed(() => c1() + 1);
 
     const log = [];
-    // Effect depending on deep computed (level 3)
-    const d1 = effect(() => { c2(); log.push('deep'); });
-    // Effect depending on source signal (level 1)
-    const d2 = effect(() => { s(); log.push('shallow'); });
+    // Effect depending on a deep computed
+    const d1 = effect(() => { log.push('deep:' + c2()); });
+    // Effect depending on the source signal
+    const d2 = effect(() => { log.push('shallow:' + s()); });
 
     log.length = 0; // Clear initial runs
 
     s.set(1);
     await flush();
 
-    // Shallow effect (level 1) should run before deep effect (level 3)
-    assert.equal(log[0], 'shallow');
-    assert.equal(log[1], 'deep');
+    // Effects pull settled values whatever their depth, so there is no level
+    // sort: they run in the order the write reached them (s notifies c1, on
+    // d1's path, before d2).
+    assert.deepEqual(log, ['deep:3', 'shallow:1']);
 
     d1();
     d2();
@@ -388,10 +389,12 @@ describe('ownership tree', () => {
         childDispose = dispose;
       });
 
-      assert.equal(owner.children.length, 1);
+      assert.ok(owner.firstChild !== null);
+      assert.equal(owner.firstChild, owner.lastChild);
 
       childDispose();
-      assert.equal(owner.children.length, 0);
+      assert.equal(owner.firstChild, null);
+      assert.equal(owner.lastChild, null);
 
       disposeParent();
     });
@@ -449,7 +452,7 @@ describe('ownership tree', () => {
     createRoot(() => {
       const owner = getOwner();
       assert.ok(owner !== null);
-      assert.ok(Array.isArray(owner.children));
+      assert.equal(owner.firstChild, null);
       assert.ok(Array.isArray(owner.disposals));
     });
   });

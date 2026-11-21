@@ -4,7 +4,8 @@
 // only thing hydration adds is the smooth scroll and the current-chapter mark,
 // so it can wait until the browser has nothing better to do.
 
-import { h, smoothScrollTo } from 'what-framework';
+import { h } from 'what-framework';
+import { smoothScrollTo } from 'what-framework/dom';
 import { chapters } from '../story.js';
 import { activeChapter, bindEl, prefersReducedMotion } from '../motion.js';
 

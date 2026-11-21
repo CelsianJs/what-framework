@@ -15,7 +15,7 @@ export default function SignalsPage() {
 
   useEffect(() => {
     history.set((prev) => [...prev.slice(-6), count()]);
-  }, [count()]);
+  }, [count]);
 
   const increment = () => count(count() + step());
   const decrement = () => count(count() - step());

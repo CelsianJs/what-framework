@@ -63,23 +63,38 @@ All packages publish `.d.ts` files:
 ### Typed Signals
 
 ```tsx
-import { useSignal, signal } from 'what-framework';
+import { signal, useSignal } from 'what-framework';
+
+interface User {
+  id: number;
+  name: string;
+}
 
 // Type is inferred from the initial value
-const count = useSignal(0);           // Signal<number>
-const name = useSignal('');           // Signal<string>
-const user = useSignal<User | null>(null);  // Explicit generic
+const count = signal(0);                 // Signal<number>
+const user = signal<User | null>(null);  // Explicit generic
 
 // Read and write are type-safe
 count();           // number
-count.set(5);      // OK
-count.set('5');    // Type error
+count.set(5);      // OK; count.set('5') does not compile
+
+// useSignal is the same inside a component body (outside one, a hook throws)
+function Greeting() {
+  const name = useSignal('');            // Signal<string>
+  return <button onClick={() => name.set('Ada')}>{name() || 'Set name'}</button>;
+}
 ```
 
 ### Typed Stores
 
 ```tsx
 import { createStore, derived } from 'what-framework';
+
+interface Todo {
+  id: number;
+  text: string;
+  done: boolean;
+}
 
 interface TodoStore {
   items: Todo[];
@@ -97,7 +112,16 @@ const useTodos = createStore({
     this.items = [...this.items, { id: Date.now(), text, done: false }];
   },
 });
+
+function TodoCount() {
+  const todos = useTodos();
+  return <button onClick={() => todos.add('Write docs')}>{() => todos.filtered.length} shown</button>;
+}
 ```
+
+The hook's object reads state and derived fields as values (`todos.filtered` is
+a `Todo[]`, not a function); read them inside a reactive child or an effect to
+track them. Actions assign state through `this`, and each runs as one batch.
 
 ### Typed Components
 
@@ -106,23 +130,26 @@ Components are regular functions — TypeScript infers everything:
 ```tsx
 interface ButtonProps {
   label: string;
-  variant?: 'primary' | 'secondary';
+  /** Changes over time: the parent passes a signal or accessor. */
+  variant?: () => 'primary' | 'secondary';
   onclick?: () => void;
 }
 
 function Button(props: ButtonProps) {
   return (
-    <button class={() => `btn btn-${props.variant ?? 'primary'}`} onclick={props.onclick}>
-      {() => props.label}
+    <button class={() => `btn btn-${props.variant?.() ?? 'primary'}`} onclick={props.onclick}>
+      {props.label}
     </button>
   );
 }
 ```
 
-Native What components run once. Keep changing props as `props.label` / `props.variant`
-reads inside reactive callbacks; destructuring them in the parameter or component
-body captures their initial values. The compiler preset's `what/no-destructured-props` rule warns
-about this setup-time snapshot (React compatibility components use React semantics).
+Components run once and receive their props as the plain values the parent
+passed, so reading `props.label` and destructuring `{ label }` give the same
+thing. A prop that changes is typed and passed as an accessor
+(`variant={variant}`, not `variant={variant()}`), and the component calls it
+where it renders (`props.variant()`); `label` above is a value and never
+changes.
 
 ### Typed Context
 

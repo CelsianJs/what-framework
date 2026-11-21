@@ -6,6 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { DOM_TIMING } from './dom-gate.mjs';
 
 const ROOT = process.cwd();
 const BASELINE_DIR = join(ROOT, 'benchmark', 'baseline');
@@ -32,8 +33,7 @@ const coreTolerance = envNumber('WHAT_BENCH_TOLERANCE_CORE', 0.1);
 const dxTolerance = envNumber('WHAT_BENCH_TOLERANCE_DX', 0.15);
 const domTolerance = envNumber('WHAT_BENCH_TOLERANCE_DOM', 0.1);
 
-// The DOM aggregate is insensitive to the round count, so this trades runtime
-// for sample count only. 21 rounds is about 4 minutes.
+// More rounds give the pooled script percentile more samples at the cost of runtime.
 const domRounds = envNumber('WHAT_BENCH_DOM_ROUNDS', 21, { integer: true, min: 1 });
 
 // Core noise is one-sided: a descheduled process can only report fewer ops per
@@ -115,20 +115,27 @@ function toMap(report) {
   return map;
 }
 
-// The double-rAF timing floor makes a small absolute delta indistinguishable
-// from browser noise, so a DOM op is only failed on absolute movement as well
-// as percentage. The baseline records the floor it was measured with.
-const domNoiseFloorMs = (skipDom || RECORD) ? 0 : Number(loadJson(DOM_BASELINE).noiseFloorMs);
-if (!RECORD && !Number.isFinite(domNoiseFloorMs)) {
-  console.error(`Invalid noiseFloorMs in ${DOM_BASELINE}: ${JSON.stringify(loadJson(DOM_BASELINE).noiseFloorMs)}.`);
-  console.error('  Fix: re-record the baseline so it carries the floor it was measured with.');
-  console.error('  Example: npm run bench:dom');
+const domBaseline = (skipDom || RECORD) ? null : loadJson(DOM_BASELINE);
+const domNoiseFloorMs = domBaseline?.noiseFloorMs ?? 0;
+if (domBaseline && (
+  domBaseline.timing !== DOM_TIMING
+  || !Number.isFinite(domBaseline.noiseFloorMs) || domBaseline.noiseFloorMs < 0
+  || !Array.isArray(domBaseline.results)
+  || [...DOM_GUARD_OPS].some((op) => !domBaseline.results.some((row) =>
+    row.name === op && Number.isFinite(row.ms) && row.ms > 0))
+)) {
+  console.error(`Invalid script-only DOM baseline in ${DOM_BASELINE}. Re-record with npm run bench:dom.`);
+  rmSync(tmp, { recursive: true, force: true });
   process.exit(1);
 }
 
 function compareSet(name, baselinePath, currentPath, tolerance, guardOps, metric = 'opsPerSec') {
   const baseline = toMap(loadJson(baselinePath));
-  const current = toMap(loadJson(currentPath));
+  const report = loadJson(currentPath);
+  if (metric === 'ms' && report.timing !== domBaseline.timing) {
+    return [`${name}: timing metric ${report.timing} does not match baseline ${domBaseline.timing}`];
+  }
+  const current = toMap(report);
   const failures = [];
 
   for (const [benchName, base] of baseline.entries()) {
@@ -145,10 +152,10 @@ function compareSet(name, baselinePath, currentPath, tolerance, guardOps, metric
         failures.push(`${name}: ${benchName} produced no measurement (${JSON.stringify(now.ms)} ms)`);
         continue;
       }
-      const maxAllowed = base.ms * (1 + tolerance);
-      if (now.ms > maxAllowed && now.ms - base.ms > domNoiseFloorMs) {
+      const maxAllowed = Math.max(base.ms * (1 + tolerance), base.ms + domNoiseFloorMs);
+      if (now.ms > maxAllowed) {
         const delta = (((now.ms - base.ms) / base.ms) * 100).toFixed(1);
-        failures.push(`${name}: ${benchName} regressed +${delta}% (${now.ms} ms > ${maxAllowed.toFixed(2)} ms threshold)`);
+        failures.push(`${name}: ${benchName} regressed +${delta}% (${now.ms} ms > ${maxAllowed.toFixed(3)} ms threshold)`);
       }
       continue;
     }

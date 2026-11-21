@@ -12,7 +12,7 @@ What Framework is styling-agnostic. The recommended default is CSS-first.
 ## Class patterns
 
 ```jsx
-import { cls } from 'what-framework';
+import { cls } from 'what-framework/dom';
 
 function Button({ tone = 'primary', disabled = false }) {
   return (
@@ -121,7 +121,7 @@ Prefer CSS rules for interaction states. It is faster to author, easier to maint
 `style(obj)` is mainly useful for SSR/string-style output in lower-level runtime code.
 
 ```js
-import { style } from 'what-framework';
+import { style } from 'what-framework/dom';
 
 const cssText = style({ color: 'red', fontSize: '14px' });
 ```

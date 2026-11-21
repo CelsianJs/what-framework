@@ -18,7 +18,7 @@ function TestComponent() {
     <div>
       <style dangerouslySetInnerHTML={{ __html: transitionStyles }} />
       <button
-        onclick={() => setShow(prev => !prev)}
+        onClick={() => setShow(prev => !prev)}
         style={{
           padding: '6px 14px',
           background: '#1a1a2e',

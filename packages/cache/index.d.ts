@@ -55,6 +55,8 @@ export interface CacheEntry {
   partial?: boolean;
   /** Per-user render: never stored, never served from a shared cache. */
   private?: boolean;
+  /** The page's own response headers, replayed on HIT and STALE (never Set-Cookie or the engine's headers). */
+  headers?: Record<string, string>;
   /** Epoch ms when the entry was rendered. */
   renderedAt: number;
   /** Seconds until stale. 0 means "always revalidate" when `revalidate: 0` was declared. */
@@ -169,6 +171,8 @@ export interface RouteMatch {
   request?: Request;
   /** Request headers the route's `vary` names resolve against. */
   varyHeaders?: Record<string, string>;
+  /** This request's signal: when it aborts, the request stops waiting for a regeneration. */
+  signal?: AbortSignal;
 }
 
 export interface RenderResult {
@@ -177,9 +181,20 @@ export interface RenderResult {
   state?: unknown;
   status?: number;
   tags?: string[];
+  /**
+   * The response headers the render set. A Set-Cookie, a private/no-store/no-cache
+   * Cache-Control or a Vary makes the render private; the rest are stored with the entry.
+   */
+  headers?: Headers | Record<string, string | string[]>;
+  /** A render that read request headers its route does not vary on is per-user. */
+  usedRequestHeaders?: boolean;
+  private?: boolean;
 }
-/** The engine calls render(routeMatch, ctx); `ctx` is reserved and currently `{}`. */
-export type RenderFn = (routeMatch: RouteMatch, ctx?: Record<string, unknown>) => RenderResult | Promise<RenderResult>;
+/**
+ * The engine calls render(routeMatch, ctx). `ctx.signal` aborts only when every
+ * request waiting on this render has gone, and never for a background refresh.
+ */
+export type RenderFn = (routeMatch: RouteMatch, ctx?: { signal?: AbortSignal }) => RenderResult | Promise<RenderResult>;
 
 // --- ISR engine ---
 export interface ServeResult {
@@ -187,7 +202,8 @@ export interface ServeResult {
   head?: string;
   state?: unknown;
   status: number;
-  headers: Record<string, string>;
+  /** The engine's headers and the page's own; `set-cookie` (an array) only on a render made for this request. */
+  headers: Record<string, string | string[]>;
   cacheStatus: CacheStatus;
 }
 export interface RevalidateOptions {

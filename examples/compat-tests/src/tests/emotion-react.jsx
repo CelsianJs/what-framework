@@ -18,7 +18,7 @@ function TestComponent() {
 
   return (
     <div>
-      <div css={boxStyle} onclick={() => setActive(!active)}>
+      <div css={boxStyle} onClick={() => setActive(!active)}>
         {active ? 'Active! (click to toggle)' : 'Click me to toggle'}
       </div>
       <div style={{ marginTop: '6px', fontSize: '11px', color: '#888' }}>

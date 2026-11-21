@@ -1,30 +1,29 @@
 // What Framework - Core
-// The closest framework to vanilla JS.
+//
+// The root entry: what an app needs to write components, from React's names
+// (which mean what they mean in React) and What's signals. Domain kits are
+// subpaths (what-framework/a11y, /ui, /motion, /dom, /form, /data), the
+// compiled-JSX runtime is what-framework/render, and what sibling packages
+// share with what-core is what-core/internal. test/exports.test.js pins this
+// list, so growth is a decision. Names that left this entry, and where they
+// went, are in import-changes.js.
 
-// Reactive primitives
-export { signal, computed, effect, memo as signalMemo, batch, untrack, flushSync, createRoot, getOwner, runWithOwner, onCleanup as onRootCleanup, __setDevToolsHooks, __drainPreinstallBuffer } from './reactive.js';
+// Reactivity
+export { signal, effect, batch, untrack, flushSync, createRoot, getOwner, runWithOwner } from './reactive.js';
+// Async values in the graph: computed() may return a promise; transitions,
+// optimistic overlays and React 19's use() are built on it (docs/ASYNC.md).
+export { computed, refresh, isPending, startTransition, useTransition, useOptimistic, use, settled } from './async.js';
+// O(1) keyed selection: isSelected(key) re-runs only the readers of the keys a change involves.
+export { createSelector } from './selector.js';
 
-// Fine-grained rendering primitives
-export { template, _template, _$template, svgTemplate, insert, mapArray, spread, setProp, delegateEvents, on, classList, hydrate, isHydrating, _$createComponent } from './render.js';
-// Internal, underscore-prefixed: SSR has no DOM to run a mapArray inserter
-// against, so it renders the rows from the inserter's inputs instead.
-export { _mapArrayToArray } from './render.js';
-
-// JSX factory — Fragment and html tagged template are public APIs.
-// h is exported for internal package use only (jsx-runtime, server, router, react-compat).
-// It is NOT a public API — users should write JSX, which the compiler transforms directly.
+// Rendering. h, Fragment and Island are also compiler targets: compiled JSX
+// imports them from here.
 export { h, Fragment, html } from './h.js';
-
-// DOM mounting & rendering (fine-grained, no VDOM reconciler)
 export { mount } from './dom.js';
-// Internal, underscore-prefixed: shared so the client, compiled-JSX and SSR
-// attribute paths cannot disagree about ARIA serialization again.
-export { _isAriaAttr } from './dom.js';
-// Internal, underscore-prefixed: the component stack lives here, so SSR has to
-// borrow it rather than build a second one that hooks cannot see.
-export { _beginComponentSSR, _endComponentSSR } from './dom.js';
+export { hydrate } from './render.js';
+export { applyStreamedBoundaries } from './hydration-data.js';
 
-// Hooks (React-compatible API)
+// Hooks
 export {
   useState,
   useSignal,
@@ -33,179 +32,27 @@ export {
   useMemo,
   useCallback,
   useRef,
-  useContext,
   useReducer,
   createContext,
+  useContext,
   onMount,
   onCleanup,
   createResource,
   useLoaderData,
 } from './hooks.js';
+export { useId } from './a11y.js';
 
-// Component helpers
+// Components and boundaries
 export { memo, lazy, Suspense, ErrorBoundary, Show, For, Switch, Match, Island } from './components.js';
+export { Portal } from './helpers.js';
 
-// Store
-export { createStore, derived, storeComputed, atom } from './store.js';
+// Stores
+export { createStore, derived } from './store.js';
 
-// Head management
-export { Head, clearHead, beginHeadCollection, endHeadCollection } from './head.js';
+// Document head and the server response
+export { Head } from './head.js';
+export { getResponse } from './server-context.js';
 
-// SSR render-scoped context (keystone for head collection, loaders, resources)
-export {
-  getServerContext,
-  setServerContext,
-  runWithServerContext,
-  __installServerContextStorage,
-} from './server-context.js';
-
-// Client hydration payload reader (loader data + resources)
-export { __readHydrationData, __resetHydrationData, getLoaderData, getResource } from './hydration-data.js';
-
-// Utilities
-export {
-  each,
-  cls,
-  style,
-  debounce,
-  throttle,
-  useMediaQuery,
-  useLocalStorage,
-  useClickOutside,
-  Portal,
-  transition,
-} from './helpers.js';
-
-// DOM Scheduler (prevents layout thrashing)
-export {
-  scheduleRead,
-  scheduleWrite,
-  flushScheduler,
-  measure,
-  mutate,
-  useScheduledEffect,
-  nextFrame,
-  raf,
-  onResize,
-  onIntersect,
-  smoothScrollTo,
-} from './scheduler.js';
-
-// Testing utilities (import separately: 'what/testing')
-// export * from './testing.js';
-
-// Animation primitives
-export {
-  spring,
-  tween,
-  easings,
-  useTransition,
-  useGesture,
-  useAnimatedValue,
-  createTransitionClasses,
-  cssTransition,
-} from './animation.js';
-
-// Accessibility utilities
-export {
-  useFocus,
-  useFocusRestore,
-  useFocusTrap,
-  FocusTrap,
-  announce,
-  announceAssertive,
-  SkipLink,
-  useAriaExpanded,
-  useAriaSelected,
-  useAriaChecked,
-  useRovingTabIndex,
-  VisuallyHidden,
-  LiveRegion,
-  useId,
-  useIds,
-  useDescribedBy,
-  useLabelledBy,
-  Keys,
-  onKey,
-  onKeys,
-} from './a11y.js';
-
-// Skeleton loaders and loading states
-export {
-  Skeleton,
-  SkeletonText,
-  SkeletonAvatar,
-  SkeletonCard,
-  SkeletonTable,
-  IslandSkeleton,
-  useSkeleton,
-  Placeholder,
-  LoadingDots,
-  Spinner,
-} from './skeleton.js';
-
-// Data fetching (SWR-like)
-export {
-  useFetch,
-  useSWR,
-  useQuery,
-  useInfiniteQuery,
-  invalidateQueries,
-  prefetchQuery,
-  setQueryData,
-  getQueryData,
-  clearCache,
-  __getCacheSnapshot,
-} from './data.js';
-
-// Form utilities
-export {
-  useForm,
-  useField,
-  rules,
-  simpleResolver,
-  zodResolver,
-  yupResolver,
-  Input,
-  Textarea,
-  Select,
-  Checkbox,
-  Radio,
-  ErrorMessage,
-} from './form.js';
-
-// Structured error system (agent-first)
-export {
-  WhatError,
-  ERROR_CODES,
-  getErrorDefinition,
-  createWhatError,
-  classifyError,
-  collectError,
-  getCollectedErrors,
-  clearCollectedErrors,
-} from './errors.js';
-
-// Agent guardrails (dev-mode runtime checks)
-export {
-  configureGuardrails,
-  getGuardrailConfig,
-  installSignalReadGuardrail,
-  checkComponentName,
-  validateImports,
-} from './guardrails.js';
-
-// Generic text insertion hook (used by external text engines like what-text)
-export { _setTextInsertHook } from './render.js';
-
-// Agent context (global inspection API)
-export {
-  installAgentContext,
-  registerComponent,
-  unregisterComponent,
-  getMountedComponents,
-  registerSignal,
-  unregisterSignal,
-  getActiveSignals,
-  getHealth,
-} from './agent-context.js';
+// Diagnostics: what development checks reported, and what a code means
+export { getDiagnostics, subscribe as subscribeDiagnostics, clearDiagnostics } from './diagnostics.js';
+export { getErrorDefinition, WhatError } from './errors.js';

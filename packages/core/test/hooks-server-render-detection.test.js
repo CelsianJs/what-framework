@@ -34,7 +34,8 @@ installDOM(
     '</body></html>'
 );
 
-const { useLoaderData, createResource, runWithServerContext } = await import('../src/index.js');
+const { useLoaderData, createResource } = await import('../src/index.js');
+const { runWithServerContext } = await import('../src/entries/internal.js');
 
 // Mirrors what-server's createRenderContext(loaderData) closely enough for the
 // hooks that read it. Kept local so this file never imports what-server.

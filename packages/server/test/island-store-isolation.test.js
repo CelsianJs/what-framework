@@ -96,7 +96,12 @@ describe('SSR island store isolation', () => {
     for await (const chunk of renderToStream(h(() => h('p', {}, streamStore.value), {}))) {
       streamed += chunk;
     }
-    assert.equal(streamed, '<p>stream</p>');
+    // The stream also carries the store snapshot, so a streamed page's islands
+    // hydrate from it.
+    assert.equal(
+      streamed,
+      '<p data-hk="0">stream</p><script type="application/json" data-what-data>{"islandStores":{"stream-render-store":{"value":"stream"}}}</script>'
+    );
   });
 
   it('preserves request-local module stores across awaits in concurrent stream components', async () => {
@@ -153,10 +158,14 @@ describe('SSR island store isolation', () => {
     await Promise.resolve();
     bWrite.resolve();
     bFinish.resolve();
-    assert.equal(await requestB, '<p>request-b:1</p>');
+    const htmlB = await requestB;
+    assert.ok(htmlB.startsWith('<p data-hk="0">request-b:1</p>'), htmlB);
+    assert.match(htmlB, /"async-stream-request-store":\{"requestName":"request-b","visits":1\}/);
 
     aFinish.resolve();
-    assert.equal(await requestA, '<p>request-a:1</p>');
+    const htmlA = await requestA;
+    assert.ok(htmlA.startsWith('<p data-hk="0">request-a:1</p>'), htmlA);
+    assert.match(htmlA, /"async-stream-request-store":\{"requestName":"request-a","visits":1\}/);
   });
 
   it('snapshots only stores created by the current render', async () => {

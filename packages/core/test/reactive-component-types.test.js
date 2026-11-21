@@ -12,6 +12,8 @@ const positive = `
   const visible = signal(true);
   const title = signal<string | undefined>('Ready');
   const nullable = signal<string | null>('Ready');
+  const todos = signal<{ done: boolean }[]>([]);
+  todos.mutate((list) => { list.push({ done: false }); });
   const Gate: Component<{ label: string }> = ({ label }) =>
     () => visible() ? <div title={title}>{label}</div> : null;
   const Text = () => 'text';
@@ -51,6 +53,7 @@ const negative = {
   'event.tsx': `export const app = <button onClick="invalid" />;`,
   'async-middleware.tsx': `import type { RouteMiddleware } from 'what-framework/router'; export const guard: RouteMiddleware = async () => false;`,
   'async-core-middleware.tsx': `import type { RouteMiddleware } from 'what-router'; export const guard: RouteMiddleware = async () => false;`,
+  'mutate-type.tsx': `import { signal } from 'what-framework'; const counts = signal([1]); counts.mutate((list) => { list.push('two'); });`,
   'invalid-middleware.tsx': `import type { RouteMiddleware } from 'what-framework/router'; export const guard: RouteMiddleware = () => ({ redirect: '/login' });`,
 };
 

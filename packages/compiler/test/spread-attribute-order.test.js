@@ -140,7 +140,7 @@ describe('a spread and a static attribute on the same element', () => {
       configFile: false,
       babelrc: false,
     }).code;
-    assert.match(code, /_\$template\("<div id=\\"a\\" title=\\"t\\"><\/div>"\)/);
+    assert.match(code, /_\$template\("<div id=a title=t>"\)/);
     assert.doesNotMatch(code, /_\$setProp/, 'no spread means nothing has to be re-applied at runtime');
   });
 });

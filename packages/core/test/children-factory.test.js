@@ -179,7 +179,8 @@ describe('lazy component children', () => {
     host.innerHTML = '<div class="wrap"><span class="kid">hi</span></div>';
     document.body.appendChild(host);
 
-    hydrate({ tag: Wrapper, props, children: [], key: null, _vnode: true }, host);
+    const { VNode } = await import('../src/vnode-renderer.js');
+    hydrate(new VNode(Wrapper, props, [], null), host);
 
     assert.notEqual(seen, undefined, 'hydration must pass children to the component');
     assert.equal(seen.className, 'kid');

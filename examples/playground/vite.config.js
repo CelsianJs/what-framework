@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import { build } from 'esbuild';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -24,9 +23,13 @@ const frameworkBundlePlugin = () => {
 
       if (cachedBundle) return cachedBundle;
 
-      // Build what-framework as IIFE using esbuild
+      // Build what-framework as IIFE using esbuild: the root entry as __What,
+      // the compiled-JSX runtime (what-framework/render) as __What.render.
       const result = await build({
-        entryPoints: [path.join(coreRoot, 'index.js')],
+        stdin: {
+          contents: `export * from './index.js';\nexport * as render from './render.js';\n`,
+          resolveDir: coreRoot,
+        },
         bundle: true,
         format: 'iife',
         globalName: '__What',
@@ -45,32 +48,19 @@ const frameworkBundlePlugin = () => {
   };
 };
 
-// Virtual module for the babel plugin source (to register with @babel/standalone)
-const babelPluginModule = () => {
-  const virtualId = 'virtual:what-babel-plugin';
-  const resolvedId = '\0' + virtualId;
-
-  return {
-    name: 'what-babel-plugin-source',
-    resolveId(id) {
-      if (id === virtualId) return resolvedId;
-    },
-    async load(id) {
-      if (id !== resolvedId) return;
-
-      const pluginPath = path.resolve(__dirname, '../../packages/compiler/src/babel-plugin.js');
-      let source = fs.readFileSync(pluginPath, 'utf-8');
-
-      // Convert ESM export default to a plain function expression we can re-export
-      source = source.replace('export default function whatBabelPlugin(', 'function whatBabelPlugin(');
-      // Wrap in a module that exports
-      return source + '\nexport default whatBabelPlugin;\n';
-    },
-  };
-};
+// The compiler's Babel plugin, registered with @babel/standalone. It is a module
+// graph (babel-plugin.js and its babel/*.js modules, which import what-core's
+// markup rules), so it is resolved and bundled like any other module rather
+// than copied in as one file's source.
+const compilerRoot = path.resolve(__dirname, '../../packages/compiler/src');
 
 export default defineConfig({
-  plugins: [frameworkBundlePlugin(), babelPluginModule()],
+  plugins: [frameworkBundlePlugin()],
+  resolve: {
+    alias: { 'virtual:what-babel-plugin': path.join(compilerRoot, 'babel-plugin.js') },
+  },
+  // The compiler reads NODE_ENV to decide whether to print build warnings.
+  define: { 'process.env.NODE_ENV': '"production"' },
   server: {
     port: 5199,
   },

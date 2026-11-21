@@ -78,7 +78,7 @@ describe('STRESS: useState in run-once component', () => {
     function TestComp() {
       const [val, setVal] = useState(0);
       setter = setVal;
-      return h('div', null, String(val));
+      return h('div', null, String(val()));
     }
 
     const container = getContainer();
@@ -268,7 +268,7 @@ describe('STRESS: Multiple hooks in sequence (run-once invariant)', () => {
     function CountingComp() {
       runCount++;
       const [val] = useState(0);
-      return h('div', null, String(val));
+      return h('div', null, String(val()));
     }
 
     const container = getContainer();

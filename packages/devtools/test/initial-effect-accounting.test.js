@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 globalThis.__WHAT_DEV__ = true;
 const core = await import('../../core/src/index.js');
 const { installDevTools, getSnapshot, subscribe } = await import('../src/index.js');
-installDevTools(core);
+installDevTools(await import('../../core/src/entries/internal.js'));
 
 function findEffect(name) {
   return getSnapshot().effects.find(entry => entry.name === name);

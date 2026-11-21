@@ -3,31 +3,53 @@
 
 export {
   template,
+  svgTemplate,
   // Compiler-internal alias: identical to template() but never dev-warns.
   // Compiled output imports this so scaffolded apps don't log the
   // "template() is a compiler internal" guard (SPRINT v0.11 C5).
   _$template,
   insert,
   mapArray,
+  // Keyed-only list entry, imported instead of mapArray by modules whose every
+  // list is a keyed .map().
+  _$mapKeyed,
+  // A compiled keyed row's read of its item.
+  _$item,
+  // O(1) selection, emitted for `sel() === row.key` in keyed .map() rows.
+  createSelector,
   spread,
   setProp,
   // Specialized setters emitted by the compiler for statically-known
   // attribute names (SPRINT v0.11 C2).
   setClass,
+  className,
+  setClassList,
   setStyle,
   setAttr,
   setValue,
   setChecked,
+  applyRef,
   // Equality-gated eager memo — emitted for branch memoization of
   // conditional JSX (SPRINT v0.11 C1).
   memo,
   delegateEvents,
   on,
   classList,
+  isHydrating,
   effect,
   untrack,
   _$createComponent,
   // The unbuilt sibling of _$createComponent. Emitted for the JSX handed
   // straight to hydrate(), which needs a VNode rather than finished DOM.
   _$componentVNode,
+  // What what-compiler's `hydratable` output calls: templates that claim the
+  // server's nodes while hydrating and clone otherwise.
+  _$htemplate,
+  _$claim,
+  _$next,
+  _$skip,
+  _$hole,
+  _$exit,
+  _$hcreateComponent,
+  _$outside,
 } from 'what-core/render';

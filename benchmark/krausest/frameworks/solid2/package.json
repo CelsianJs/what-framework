@@ -1,0 +1,15 @@
+{
+  "name": "what-krausest-solid2",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Solid 2.0 implementation. A workspace of benchmark/krausest so solid-js@2 and its @solidjs/* peers resolve here, beside the Solid 1.9 install at the krausest root. Install from benchmark/krausest, not here.",
+  "dependencies": {
+    "@solidjs/web": "2.0.3",
+    "solid-js": "2.0.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@solidjs/babel-plugin": "2.0.2"
+  }
+}

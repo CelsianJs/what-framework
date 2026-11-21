@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { claudeMd, agentsMd } from './agent-instructions.js';
 
 // ---------------------------------------------------------------------------
 // CLI arguments
@@ -209,9 +210,10 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   // with .mcp.json, .cursor/mcp.json and an MCP-promising CLAUDE.md while
   // omitting the one package that makes any of it work is the worst combination,
   // because the agent is primed to call tools that cannot answer.
-  // The islands template renders every page on the server, so its JSX goes
-  // through What's automatic runtime (plain h() calls, which Vite's own JSX
-  // transform emits) rather than what-compiler, whose output is client-only.
+  // The islands template's JSX goes through What's automatic runtime (plain h()
+  // calls, which Vite's own JSX transform emits) rather than what-compiler: an
+  // island hydrates in place over its server-rendered markup, which takes an
+  // unbuilt vnode tree, and compiled JSX builds its DOM directly.
   const devDeps = template === 'fullstack'
     ? {
         esbuild: '^0.28.2',
@@ -263,8 +265,8 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   }
 
   if (cssApproach === 'stylex') {
-    devDeps['@stylexjs/stylex'] = '^0.10.0';
-    devDeps['vite-plugin-stylex'] = '^0.12.0';
+    devDeps['@stylexjs/stylex'] = '^0.19.2';
+    devDeps['@stylexjs/unplugin'] = '^0.19.2';
   }
 
   return JSON.stringify({
@@ -306,8 +308,8 @@ function generateViteConfig({ reactCompat, cssApproach }) {
   }
 
   if (cssApproach === 'stylex') {
-    imports.push(`import stylexPlugin from 'vite-plugin-stylex';`);
-    plugins.push('stylexPlugin()');
+    imports.push(`import stylex from '@stylexjs/unplugin/vite';`);
+    plugins.push('stylex()');
   }
 
   let config = `${imports.join('\n')}
@@ -604,9 +606,13 @@ function BearCounter() {
   );
 }
 
-function App() {
-  const count = signal(0);
+// App renders through what-react, so it is a React component: it re-renders
+// when its React state changes. The signal lives outside it, where a re-render
+// cannot recreate it, and is passed as a function child, which What keeps up
+// to date without re-rendering App.
+const count = signal(0, 'count');
 
+function App() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-lg">
@@ -620,7 +626,7 @@ function App() {
           >
             -
           </button>
-          <output className="min-w-[2ch] text-center font-bold">{count()}</output>
+          <output className="min-w-[2ch] text-center font-bold">{() => count()}</output>
           <button
             className="w-9 h-9 rounded-lg border border-slate-300 bg-white text-slate-900 hover:border-blue-600 cursor-pointer"
             onClick={() => count(c => c + 1)}
@@ -725,9 +731,13 @@ function BearCounter() {
   );
 }
 
-function App() {
-  const count = signal(0);
+// App renders through what-react, so it is a React component: it re-renders
+// when its React state changes. The signal lives outside it, where a re-render
+// cannot recreate it, and is passed as a function child, which What keeps up
+// to date without re-rendering App.
+const count = signal(0, 'count');
 
+function App() {
   return (
     <main {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.shell)}>
@@ -736,7 +746,7 @@ function App() {
 
         <section {...stylex.props(styles.counter)}>
           <button {...stylex.props(styles.button)} onClick={() => count(c => c - 1)}>-</button>
-          <output {...stylex.props(styles.output)}>{count()}</output>
+          <output {...stylex.props(styles.output)}>{() => count()}</output>
           <button {...stylex.props(styles.button)} onClick={() => count(c => c + 1)}>+</button>
         </section>
 
@@ -779,9 +789,13 @@ function BearCounter() {
   );
 }
 
-function App() {
-  const count = signal(0);
+// App renders through what-react, so it is a React component: it re-renders
+// when its React state changes. The signal lives outside it, where a re-render
+// cannot recreate it, and is passed as a function child, which What keeps up
+// to date without re-rendering App.
+const count = signal(0, 'count');
 
+function App() {
   return (
     <main className="app-shell">
       <h1>What Framework</h1>
@@ -789,7 +803,7 @@ function App() {
 
       <section className="counter">
         <button onClick={() => count(c => c - 1)}>-</button>
-        <output>{count()}</output>
+        <output>{() => count()}</output>
         <button onClick={() => count(c => c + 1)}>+</button>
       </section>
 
@@ -931,7 +945,7 @@ function generateReadme(packageName, { reactCompat, cssApproach, template }) {
 
   if (cssApproach === 'stylex') {
     notes += `
-- StyleX is configured via \`vite-plugin-stylex\`. Define styles with \`stylex.create()\` and apply with \`{...stylex.props()}\`.`;
+- StyleX is configured via \`@stylexjs/unplugin\`. Define styles with \`stylex.create()\` and apply with \`{...stylex.props()}\`.`;
   }
 
   if (template === 'islands') {
@@ -979,8 +993,9 @@ npm run preview   # serves dist/ the way a static host would
 
 ## Notes
 
-- JSX here uses What's automatic runtime (\`jsxImportSource: "what-framework"\`),
-  the setup that renders on the server. There is no compiler auto-wrapping, so
+- JSX here uses What's automatic runtime (\`jsxImportSource: "what-framework"\`):
+  an island hydrates over its server-rendered markup from an unbuilt vnode tree,
+  which compiled JSX does not produce. There is no compiler auto-wrapping, so
   reactive text is written as a function: \`{() => count()}\`.
 - An island's \`mode\` decides when it hydrates: \`load\`, \`idle\`, \`visible\`,
   \`action\` (first interaction), \`media\`, or \`static\` (never).
@@ -1019,12 +1034,13 @@ NODE_ENV=production npm start
 
 \`npm run build\` writes Vura's build output to \`dist/\`:
 
-- \`dist/static/\`: \`public/\` plus the client files listed in \`client-files.js\`,
-  served by the CDN at the same URL paths.
+- \`dist/static/\`: \`public/\`, the client files listed in \`client-files.js\` and
+  the framework modules, served by the CDN at the same URL paths.
 - \`dist/functions/_/index.js\`: \`function.js\` bundled by esbuild into one file. It
   is a single scale-to-zero Function that renders pages, runs server actions
   and answers the revalidate webhook, using the same \`createHandler()\` as
-  \`server.js\`.
+  \`server.js\`. It has no \`node_modules\`, so the build first writes the page's
+  import map to \`import-map.json\` (gitignored) for it to bundle.
 - \`dist/manifest.json\`: one catch-all serverless route, so the deploy fits the
   free tier (static files plus one Function, no dedicated server).
 
@@ -1339,13 +1355,12 @@ if (vnode) hydrate(vnode, document.body);
 // imports are dynamic, so a production page never fetches either module.
 if (globalThis.__WHAT_DEV__) {
   Promise.all([
-    import('what-core'),
+    import('what-core/internal'),
     import('what-devtools'),
   ]).then(async ([core, devtools]) => {
-    // installDevTools alone makes the app inspectable in the browser. Connecting
-    // to the MCP bridge is a second, optional step: it only happens once
-    // \\\`npx what-devtools-mcp\\\` has run and written a token, so an app started
-    // without the MCP server makes no connection attempts and logs nothing.
+    // installDevTools alone makes the app inspectable in the browser. The MCP
+    // bridge connection goes through server.js's discovery endpoint, which
+    // answers quietly when no bridge runs.
     devtools.installDevTools(core);
     if (globalThis.__WHAT_MCP__) {
       const mcp = await import('what-devtools-mcp/client');
@@ -1477,7 +1492,7 @@ textarea {
 
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { existsSync, statSync, createReadStream, readFileSync } from 'node:fs';
+import { existsSync, statSync, createReadStream } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequestHandler, renderDocument, toNodeListener } from 'what-framework/server';
@@ -1488,7 +1503,7 @@ import {
   createScheduler,
 } from 'what-isr';
 import { routes } from './src/routes.js';
-import { CLIENT_DIRS, CLIENT_FILES, DEV_CLIENT_DIRS } from './client-files.js';
+import { CLIENT_DIRS, CLIENT_FILES, clientPackages, importMapFor } from './client-files.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const isProd = process.env.NODE_ENV === 'production';
@@ -1542,53 +1557,40 @@ scheduler.register(
   { intervalMs: 5 * 60 * 1000 }
 );
 
-// The browser loads /src/entry-client.js as a native ES module; this import
-// map resolves its bare imports. Sources are served from node_modules below.
-const importMap = {
-  imports: {
-    'what-framework': '/node_modules/what-framework/src/index.js',
-    'what-core': '/node_modules/what-core/src/index.js',
-    // Dev only. This template is buildless, so there is no Vite plugin to inject
-    // the devtools bridge the way the SPA template gets it. Mapping the two
-    // specifiers here (and serving them below) is all it takes for the MCP
-    // \`what_*\` tools to see this app: entry-client.js dynamically imports them
-    // behind the __WHAT_DEV__ flag, so production never fetches either module.
-    ...(isProd ? {} : {
-      'what-devtools': '/node_modules/what-devtools/src/index.js',
-      'what-devtools-mcp/client': '/node_modules/what-devtools-mcp/src/client.js',
-    }),
-  },
-};
-
-// The MCP bridge writes its token here when \`npx what-devtools-mcp\` starts.
-// Read per render, not once at boot, so starting the bridge after the server is
-// already up only costs a page reload.
+// The browser loads /src/entry-client.js as a native ES module, and the page's
+// import map resolves its bare imports: every subpath the client packages
+// export (client-files.js), at the URLs this server serves them from. It is
+// read from node_modules on first use. The Vura Function has no node_modules,
+// so build.js writes the map to import-map.json and function.js passes it to
+// createHandler().
 //
-// The token is passed INLINE rather than via the Vite plugin's same-origin
-// discovery endpoint, which this server does not implement. That is deliberate:
-// the client only probes for a bridge when it has a token or a discovery URL, so
-// an app running without the MCP server makes no requests and logs nothing at
-// all. Handing it a discovery URL that 404s would put a red line in every
-// developer's console on every page load.
-function mcpToken() {
-  try {
-    return JSON.parse(readFileSync(join(ROOT, 'node_modules', '.cache', 'what-devtools-mcp', 'token'), 'utf8')).token || '';
-  } catch {
-    return '';
-  }
-}
+// In development the map also carries the devtools bridge. This template is
+// buildless, so there is no Vite plugin to inject it the way the SPA template
+// gets it: entry-client.js imports it behind the __WHAT_DEV__ flag, and
+// production never maps or serves it.
+let importMap = null;
+
+// Dev only: the page asks this server (same origin) for a bridge credential,
+// and the server pairs with the MCP bridge Node-side, exactly as the Vite
+// plugin does for the SPA template. The bridge only admits a page with a
+// credential issued for its own origin; with no bridge running, discovery
+// answers { bridge: false } and the page makes no other request.
+const MCP_DISCOVERY_PATH = '/__what_mcp_discovery';
+const mcpDiscovery = isProd ? null : await import('what-devtools-mcp/vite')
+  .then((m) => m.createDiscoveryHandler({ root: ROOT }))
+  .catch(() => null);
 
 function devToolsHead() {
   if (isProd) return '';
-  const token = mcpToken();
-  if (!token) return '<script>globalThis.__WHAT_DEV__=true</script>';
-  return \`<script>globalThis.__WHAT_DEV__=true;globalThis.__WHAT_MCP__=\${JSON.stringify({ port: 9229, token })}</script>\`;
+  if (!mcpDiscovery) return '<script>globalThis.__WHAT_DEV__=true</script>';
+  return \`<script>globalThis.__WHAT_DEV__=true;globalThis.__WHAT_MCP__=\${JSON.stringify({ discoveryUrl: MCP_DISCOVERY_PATH })}</script>\`;
 }
 
 const documentOptions = {
   clientEntry: '/src/entry-client.js',
   // A getter, so devToolsHead() re-reads the token on every render.
   get head() {
+    importMap ??= importMapFor(clientPackages({ dev: !isProd }));
     return \`<script type="importmap">\${JSON.stringify(importMap)}</script>\` +
       devToolsHead() +
       '<link rel="stylesheet" href="/src/styles.css">' +
@@ -1616,7 +1618,8 @@ async function renderRoute(routeMatch) {
   };
 }
 
-export function createHandler() {
+export function createHandler(options = {}) {
+  if (options.importMap) importMap = options.importMap;
   return createRequestHandler({
     routes,
     cache: appCache,
@@ -1643,22 +1646,27 @@ const MIME = {
 };
 
 // Deny-by-default static serving: ONLY the client files listed in
-// client-files.js are served from the project root (plus public/ at the root).
+// client-files.js are served from the project root (plus public/ at the root),
+// and the client packages from the directories their exports point into.
 // Server-only modules — src/db.js, src/actions/** and src/routes.js — are
 // importable by Node but 404 over HTTP, so DB code and mutation logic never
 // leak to the browser. \`npm run build\` publishes the same list, so a new
 // client-side file goes in client-files.js and nowhere else.
 const SERVED_FILES = new Set(CLIENT_FILES);
-// Dev-only devtools modules are gated on isProd so production never serves them.
-const SERVED_PREFIXES = [...CLIENT_DIRS, ...(isProd ? [] : DEV_CLIENT_DIRS)];
+let packageDirs = null;
 
 function resolveStaticFile(pathname) {
-  if (pathname.includes('..') || pathname.includes('\0')) return null;
-  const allowed = SERVED_FILES.has(pathname) || SERVED_PREFIXES.some((p) => pathname.startsWith(p));
-  const file = allowed
-    ? resolve(join(ROOT, pathname))
-    : resolve(join(ROOT, 'public', pathname));
-  if (!file.startsWith(resolve(ROOT))) return null;
+  if (pathname.includes('..') || pathname.includes('\\0')) return null;
+  packageDirs ??= clientPackages({ dev: !isProd }).flatMap((pkg) => pkg.dirs);
+  const pkgDir = packageDirs.find((d) => pathname.startsWith(d.url));
+  let file;
+  if (pkgDir) {
+    file = join(pkgDir.dir, pathname.slice(pkgDir.url.length));
+  } else {
+    const allowed = SERVED_FILES.has(pathname) || CLIENT_DIRS.some((p) => pathname.startsWith(p));
+    file = resolve(join(ROOT, allowed ? '' : 'public', pathname));
+    if (!file.startsWith(resolve(ROOT))) return null;
+  }
   if (!existsSync(file) || !statSync(file).isFile()) return null;
   return file;
 }
@@ -1683,6 +1691,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
         res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
         return res.end('Bad Request');
       }
+      if (mcpDiscovery && pathname === MCP_DISCOVERY_PATH) return mcpDiscovery(req, res);
       const file = resolveStaticFile(pathname);
       if (file) {
         res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
@@ -1712,18 +1721,105 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
 // absent. A new client-side file or folder goes here, or neither the dev
 // server nor a deploy will serve it.
 
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 export const CLIENT_FILES = ['/src/entry-client.js', '/src/styles.css'];
 
 export const CLIENT_DIRS = [
-  '/src/pages/',                       // page modules (hydrated by entry-client)
-  '/src/components/',                  // client-shared UI (create as needed)
-  '/node_modules/what-framework/src/', // the import map's targets (server.js)
-  '/node_modules/what-core/src/',
+  '/src/pages/',      // page modules (hydrated by entry-client)
+  '/src/components/', // client-shared UI (create as needed)
 ];
 
-// Dev only: the devtools bridge entry-client imports when __WHAT_DEV__ is set.
-// server.js stops serving these in production and the build never publishes them.
-export const DEV_CLIENT_DIRS = ['/node_modules/what-devtools/', '/node_modules/what-devtools-mcp/'];
+const ROOT = fileURLToPath(new URL('.', import.meta.url));
+
+// The packages the browser loads as ES modules: what-framework and the
+// packages its entries re-export, with every subpath they export, plus, in
+// development, the two devtools entries entry-client imports (the rest of
+// what-devtools-mcp is the Node MCP server). Each is found the way Node finds
+// it, wherever the package manager put it: the re-exported packages from
+// what-framework itself, since a package manager that does not hoist installs
+// them only there. Each one is served at /node_modules/<name>/.
+const DEVTOOLS = { 'what-devtools': ['.'], 'what-devtools-mcp': ['./client'] };
+
+export function clientPackages({ dev = false } = {}) {
+  const framework = clientPackage('what-framework', ROOT);
+  const packages = [framework, ...['what-core', 'what-router', 'what-server'].map((name) => clientPackage(name, framework.dir))];
+  if (dev) {
+    for (const [name, subpaths] of Object.entries(DEVTOOLS)) {
+      const pkg = installed(name, subpaths);
+      if (pkg) packages.push(pkg);
+    }
+  }
+  return packages;
+}
+
+export function importMapFor(packages) {
+  return { imports: Object.fromEntries(packages.flatMap((pkg) => pkg.imports)) };
+}
+
+// The devtools are devDependencies: absent from a production install.
+function installed(name, subpaths) {
+  try {
+    return clientPackage(name, ROOT, subpaths);
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') return null;
+    throw err;
+  }
+}
+
+// { name, dir, imports: [[specifier, url]], dirs: [{ url, dir }] }, mapping
+// the given subpaths, or every one the package exports. \`dir\` is where Node
+// found the package, which is where its own dependencies resolve from.
+function clientPackage(name, from, subpaths) {
+  let dir = dirname(createRequire(join(from, 'package.json')).resolve(name));
+  while (!isPackage(dir, name)) {
+    if (dirname(dir) === dir) throw new Error(\`no package.json names \${name}\`);
+    dir = dirname(dir);
+  }
+  // Served and published through the project's node_modules when that path
+  // leads to the same package (hoisted, or linked): the build publishes only
+  // from inside the project.
+  const local = join(ROOT, 'node_modules', name);
+  const home = existsSync(local) && realpathSync(local) === realpathSync(dir) ? local : dir;
+
+  const url = \`/node_modules/\${name}/\`;
+  const imports = [];
+  const tops = new Set();
+  for (const [subpath, target] of Object.entries(readPackage(dir).exports)) {
+    if (subpaths && !subpaths.includes(subpath)) continue;
+    const file = browserFile(target);
+    if (!file) continue;
+    imports.push([name + subpath.slice(1), url + file.slice(2)]);
+    tops.add(file.slice(2).split('/')[0]);
+  }
+  return { name, dir, imports, dirs: [...tops].map((top) => ({ url: \`\${url}\${top}/\`, dir: join(home, top) })) };
+}
+
+// The file a browser import of an export resolves to: its \`browser\`,
+// \`import\` or \`default\` condition, whichever the package lists first.
+// \`node\` is the server's, and \`production\` names a dist this template does
+// not serve.
+const BROWSER_CONDITIONS = new Set(['browser', 'import', 'default']);
+
+function browserFile(target) {
+  if (typeof target === 'string') return target;
+  for (const [condition, value] of Object.entries(target)) {
+    const file = BROWSER_CONDITIONS.has(condition) ? browserFile(value) : null;
+    if (file) return file;
+  }
+  return null;
+}
+
+function readPackage(dir) {
+  return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+}
+
+function isPackage(dir, name) {
+  return existsSync(join(dir, 'package.json')) && readPackage(dir).name === name;
+}
 `);
 
   // The Vura Function: the same handler server.js runs, nothing re-wired.
@@ -1739,29 +1835,43 @@ export const DEV_CLIENT_DIRS = ['/node_modules/what-devtools/', '/node_modules/w
 
 import { createVuraHandler } from 'what-framework/server';
 import { createHandler } from './server.js';
+// Written by build.js: the Function has no node_modules to derive the page's
+// import map from.
+import importMap from './import-map.json';
 
-export default createVuraHandler(createHandler());
+export default createVuraHandler(createHandler({ importMap }));
 `);
 
   // \`npm run build\`: Vura deploy output.
   writeFileSync(resolve(root, 'build.js'), `// \`npm run build\`: Vura deploy output in dist/.
-//   dist/static/**             public/ plus the files in client-files.js,
-//                              served by the CDN at the same URL paths
+//   dist/static/**             public/, the files in client-files.js and the
+//                              client packages, served by the CDN at the same
+//                              URL paths
+//   import-map.json            the page's import map, which function.js
+//                              bundles (the Function has no node_modules)
 //   dist/functions/_/index.js  function.js bundled into one file (esbuild)
 //   dist/manifest.json         one catch-all serverless route, nothing else
 // \`npm start\` does not need this step; it is only for deploying.
 
+import { writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildVuraOutput } from 'what-framework/server';
-import { CLIENT_DIRS, CLIENT_FILES } from './client-files.js';
+import { CLIENT_DIRS, CLIENT_FILES, clientPackages, importMapFor } from './client-files.js';
+
+const projectRoot = fileURLToPath(new URL('.', import.meta.url));
+const packages = clientPackages();
+writeFileSync(join(projectRoot, 'import-map.json'), JSON.stringify(importMapFor(packages), null, 2) + '\\n');
 
 const { copied } = await buildVuraOutput({
-  projectRoot: fileURLToPath(new URL('.', import.meta.url)),
+  projectRoot,
   entry: 'function.js',
   staticFiles: [
     { from: 'public', to: '/' },
     // A URL path in client-files.js is the project-relative path plus a leading '/'.
     ...[...CLIENT_FILES, ...CLIENT_DIRS].map((path) => path.slice(1)),
+    // The client packages, at the URLs the import map names.
+    ...packages.flatMap((pkg) => pkg.dirs).map(({ url, dir }) => ({ from: relative(projectRoot, dir), to: url })),
   ],
 });
 
@@ -1790,9 +1900,9 @@ export default {
 
 // ---------------------------------------------------------------------------
 // Islands template: JSX pages prerendered to static HTML, with interactive
-// islands hydrated by what-server's island registry. Every page is rendered on
-// the server, so JSX goes through What's automatic runtime (h() calls), which
-// renders with renderDocument() and hydrates in place in the browser.
+// islands hydrated by what-server's island registry. JSX goes through What's
+// automatic runtime (h() calls), which renders with renderDocument() and
+// hydrates in place in the browser.
 // ---------------------------------------------------------------------------
 function generateIslandsFiles(root, packageName) {
   for (const dir of ['pages', 'components', 'islands']) {
@@ -1804,10 +1914,11 @@ import { extname, join, posix, resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import whatDevTools from 'what-devtools-mcp/vite-plugin';
 
-// Every page is rendered to HTML by the server half (src/entry-server.js), so
-// JSX uses What's automatic runtime. It lowers to h() calls, which render on the
-// server and hydrate in place in the browser. (what-compiler's output is
-// client-only, which is why this template does not use it.)
+// Every page is rendered to HTML by the server half (src/entry-server.js), and
+// each island then hydrates in place over that HTML. JSX uses What's automatic
+// runtime: it lowers to h() calls, an unbuilt vnode tree that hydration can
+// match against the server's markup. what-compiler's client output builds DOM
+// directly, so it would replace that markup instead of adopting it.
 export default defineConfig({
   appType: 'custom',
   esbuild: { jsx: 'automatic', jsxImportSource: 'what-framework' },
@@ -2169,8 +2280,9 @@ async function main() {
   const isIslands = options.template === 'islands';
 
   // The templates have different authoring models: the SPA compiles JSX
-  // through Vite + what-compiler, the full-stack template is buildless and has
-  // neither, and the islands template writes JSX for the automatic runtime.
+  // through Vite + what-compiler (or what-react, with React compat), the
+  // full-stack template is buildless and has neither, and the islands template
+  // writes JSX for the automatic runtime.
   // An agent told the wrong one writes code that cannot run, or never updates.
   const authoringNotes = isFullstack
     ? `Components run ONCE. This is the buildless full-stack template: \`server.js\` renders
@@ -2204,7 +2316,22 @@ To add an island: create it in \`src/islands/\`, register it by name in
 \`<Island name="..." mode="..." props={p}><Component {...p} /></Island>\` (the \`Island\` from
 \`what-framework/server\`). The child is its server render and must match what the component
 renders in the browser. Pages are listed in \`routes\` in \`src/entry-server.js\`.`
-      : `Components run ONCE. This is the SPA template: Vite + \`what-compiler\` compile JSX into
+      : reactCompat
+        ? `This is the SPA template with React compat: JSX goes through \`what-react\`, not
+\`what-compiler\`, so a component written in JSX is a React component. React's hooks
+return values and the component re-renders when its React state changes; a component
+built with \`h()\` from \`what-framework\` still runs ONCE. A signal in a React component
+lives outside it (or in a ref), and renders as a function child, which What keeps up to
+date without a re-render.
+
+\`\`\`jsx
+const count = signal(0, 'count');
+function Counter() {
+  return <output>{() => count()}</output>;
+}
+\`\`\`
+`
+        : `Components run ONCE. This is the SPA template: Vite + \`what-compiler\` compile JSX into
 fine-grained DOM operations, so write JSX and use \`() => ...\` for reactive text.
 
 \`\`\`jsx
@@ -2220,199 +2347,10 @@ Run \`npm run dev\`, open the app, then use the live \`what_*\` tools below. \`w
 \`what_scaffold\` and \`what_fix\` also work offline with no browser at all.`
     : `This project includes MCP devtools that connect to the running app in the browser.`;
 
-  // CLAUDE.md — agent instructions for Claude Code (also useful for other AI tools)
-  writeFileSync(resolve(root, 'CLAUDE.md'), `# ${packageName}
-
-Built with What Framework — signal-based reactivity, components run once.
-
-## Writing Code
-
-\`\`\`js
-import { signal, effect, computed, batch, onMount, h, mount } from 'what-framework';
-
-const count = signal(0, 'count');  // state
-count()           // read
-count(5)          // write
-count(c => c + 1) // update
-
-const doubled = computed(() => count() * 2);  // derived
-effect(() => console.log(count()));           // side effect
-\`\`\`
-
-${authoringNotes}
-
-**Signal scope:** \`signal()\` works anywhere — module scope (shared state), component scope (local state). Components run once, so signal declarations execute exactly once.
-
-## MCP DevTools
-
-${mcpIntro}
-
-### Quick Start (First 5 Minutes)
-
-1. \`what_connection_status\` — am I connected? how big is the app?
-2. \`what_diagnose\` — any errors or issues?
-3. \`what_page_map\` — what's on the page?
-4. \`what_components\` -> \`what_explain\` on a leaf component — deep dive
-5. \`what_signals({filter: "name", named_only: true})\` — check key state
-
-### Decision Tree
-
-| I want to... | Use this |
-|---|---|
-| Get oriented / check connection | \`what_connection_status\` |
-| Health check (errors + perf + reactivity) | \`what_diagnose\` |
-| Find a component by name | \`what_components {filter}\` |
-| Understand one component deeply | \`what_explain {componentId}\` |
-| See the component hierarchy | \`what_component_tree\` |
-| Check a signal's current value | \`what_signals {filter, named_only: true}\` |
-| See all effects and their run counts | \`what_effects {minRunCount}\` |
-| Understand why a signal changed | \`what_signal_trace {signalId}\` |
-| See what depends on a signal | \`what_dependency_graph {signalId, direction: "downstream"}\` |
-| See what an effect depends on | \`what_dependency_graph {effectId, direction: "upstream"}\` |
-| Find runtime errors | \`what_errors\` |
-| Get component layout/styles (no image) | \`what_look {componentId}\` |
-| Get full page structure | \`what_page_map\` |
-| Get a visual screenshot | \`what_screenshot {componentId}\` (use after what_look) |
-| Inspect raw DOM | \`what_dom_inspect {componentId, depth}\` |
-| Find performance issues | \`what_perf {threshold}\` |
-| Compare before/after state | \`what_diff_snapshot {action: "save"}\` then \`{action: "diff"}\` |
-| Change a signal live | \`what_set_signal {signalId, value}\` |
-| Validate code before saving | \`what_lint {code}\` |
-| Generate boilerplate | \`what_scaffold {type, name}\` |
-| Diagnose an error code | \`what_fix {error}\` |
-
-### Workflows
-
-**Find and inspect a component:**
-\`what_components({filter:"Stats"})\` -> get ID -> \`what_explain({componentId: 4})\`
-
-**Debug a signal's reactive graph:**
-\`what_signals({filter:"count"})\` -> get ID -> \`what_dependency_graph({signalId: 1, direction: "downstream"})\`
-
-**Before/after comparison:**
-\`what_diff_snapshot({action:"save"})\` -> make change -> \`what_diff_snapshot({action:"diff"})\`
-
-**Performance audit:**
-\`what_perf({threshold: 3})\` -> \`what_effects({minRunCount: 2})\` -> \`what_dependency_graph({effectId: N})\`
-
-**Visual/layout audit:**
-\`what_page_map\` -> \`what_look({componentId: N})\` on key components -> \`what_screenshot\` only if needed
-
-**Disconnected reactivity (UI parts that should update together but don't):**
-\`what_dependency_graph({signalId: N, direction: "downstream"})\` -> check ALL expected effects appear. Missing edges = component won't react to that signal.
-
-**Multi-signal interaction (order-of-operations bugs):**
-\`what_diff_snapshot(save)\` -> set signal A -> \`diff\` -> save -> set signal B -> \`diff\`. Compare cascades.
-
-**Build & test new features:**
-\`what_look\` to match styling -> \`what_scaffold\` for structure -> write code -> \`what_lint\` -> \`what_diff_snapshot(save)\` -> \`what_set_signal\` to simulate trigger -> \`what_diff_snapshot(diff)\` to verify cascade.
-
-**Stale subscription (effect should fire but doesn't):**
-If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscription during a remount. Fix: move effect to module scope or use \`computed()\`.
-
-### Understanding Diagnostics
-
-- **"N signals with no subscribers"** — A signal may be unused or sampled during setup. Reactive text/attribute bindings do use tracked effects; check mounted bindings and dependency edges rather than assuming a separate renderer mechanism.
-- **"N effects with no signal dependencies"** — A successful one-shot setup effect can run once without dependencies. Initial runs are reported before a later signal write; lazy computeds remain unevaluated until read.
-- **Components with signalCount=0** — Module-scope signals (shared stores) don't appear on any component. Use \`what_signals\` directly.
-- **\`<!--fn-->\` in DOM** — Reactive function-child markers. Their tracked effects participate in the dependency graph.
-
-### Key Parameters
-
-| Param | Type | Notes |
-|---|---|---|
-| \`what_signals\` \`named_only\` | boolean | \`true\`/\`false\`, not a string |
-| \`what_effects\` \`minRunCount\` | number | Filter effects that ran >= N times |
-| \`what_dependency_graph\` \`direction\` | \`"upstream"\` \`"downstream"\` \`"both"\` | Default: both |
-| \`what_dom_inspect\` \`depth\` | number | DOM traversal depth (default: 3) |
-| \`what_perf\` \`threshold\` | number | Flag effects with >= N subscribers |
-
-### Efficiency
-
-**Parallel-safe (batch these):** \`what_perf\`, \`what_effects\`, \`what_signals\`, \`what_components\`, \`what_dependency_graph\`, \`what_explain\`, \`what_look\`, \`what_page_map\`, \`what_diagnose\`, \`what_lint\`, \`what_scaffold\`. NOT safe to parallelize: \`what_set_signal\` calls on signals that share effects.
-
-**Diff output:** \`effectsTriggered\` = re-ran. \`effectsAdded\` = new mounts. \`effectsRemoved\` = unmounts. \`what_perf\` includes \`largestSubscribers\` — skip \`what_signals\` if you only need hot signals.
-
-### Principles
-1. \`what_connection_status\` first — always orient before diving in
-2. \`what_explain\` over individual calls — replaces separate signals + effects + DOM lookups
-3. \`what_look\` before \`what_screenshot\` — 10x cheaper, usually sufficient
-4. \`what_signals\` with \`filter\` and \`named_only: true\` — never dump unfiltered
-5. \`what_lint\` before saving generated code
-6. Text tools before visual tools — orient with data, then confirm visually
-7. Re-fetch component IDs after state changes — IDs are ephemeral after mount/unmount cycles
-8. \`what_set_signal\` can cascade — use \`what_diff_snapshot\` to see full impact
-
-### Troubleshooting
-- **Not connected:** Open the app in a browser, wait 2-3s, retry. \`what_lint\`/\`what_scaffold\`/\`what_fix\` work offline.
-- **"Component N not found":** Re-fetch IDs with \`what_components\` after signal changes that alter the component tree.
-- **Screenshot fails:** Use \`what_look\` instead (usually sufficient without an image).
-- **\`what_lint\` false positive on \`signal-write-in-render\`:** Both named handlers and inline \`onClick={() => sig(val)}\` trigger this. Safe to ignore if signal write is inside an event handler. Re-run with \`rules\` excluding that rule to confirm.
-`);
-
-  // AGENTS.md — model-agnostic instructions for OpenCode, Codex, Gemini, Cursor, etc.
-  writeFileSync(resolve(root, 'AGENTS.md'), `# ${packageName} — Agent Instructions
-
-> Model-agnostic guide for AI agents using MCP DevTools with What Framework.
-
-## Framework Basics
-
-Signal-based reactivity. Components run **once**. \`signal()\` for state, \`() =>\` in JSX for reactive text.
-
-\`\`\`js
-import { signal, effect, computed, h, mount } from 'what-framework';
-const count = signal(0, 'count');
-count()           // read
-count(5)          // write
-count(c => c + 1) // update
-\`\`\`
-
-## MCP DevTools
-
-**Always start:** \`what_connection_status\` — returns app info, tool list, next steps.
-
-### Pick the Right Tool
-
-| Goal | Tool | Key params |
-|------|------|------------|
-| Orient / check connection | \`what_connection_status\` | none |
-| Health check | \`what_diagnose\` | none |
-| Find a component | \`what_components\` | \`filter\` (regex string) |
-| Deep-dive one component | \`what_explain\` | \`componentId\` (number) |
-| Check signal values | \`what_signals\` | \`filter\` (string), \`named_only\` (boolean) |
-| See effect run counts | \`what_effects\` | \`minRunCount\` (number) |
-| Signal dependency graph | \`what_dependency_graph\` | \`signalId\`/\`effectId\` (number), \`direction\` |
-| Page layout | \`what_page_map\` | none |
-| Component styling | \`what_look\` | \`componentId\` (number) |
-| Performance issues | \`what_perf\` | \`threshold\` (number) |
-| Before/after state | \`what_diff_snapshot\` | \`action\`: \`"save"\` then \`"diff"\` |
-| Change a signal | \`what_set_signal\` | \`signalId\` (number), \`value\` (any) |
-| Validate code | \`what_lint\` | \`code\` (string) |
-| Generate boilerplate | \`what_scaffold\` | \`type\`, \`name\` (strings) |
-
-### Recipes
-
-**Find component:** \`what_components({filter:"Name"})\` -> \`what_explain({componentId: N})\`
-**Debug signal:** \`what_signals({filter:"name"})\` -> \`what_dependency_graph({signalId: N, direction: "downstream"})\`
-**Before/after:** \`what_diff_snapshot({action:"save"})\` -> change -> \`what_diff_snapshot({action:"diff"})\`
-**Build feature:** \`what_look\` (match styling) -> \`what_scaffold\` -> write code -> \`what_lint\` -> \`what_diff_snapshot\` (save/set/diff)
-
-### Parameter Types (common mistakes)
-
-| Param | Correct | Wrong |
-|-------|---------|-------|
-| \`named_only\` | \`true\` (boolean) | \`"true"\` (string) |
-| \`componentId\` | \`4\` (number) | \`"4"\` (string) |
-| \`direction\` | \`"downstream"\` | \`downstream\` |
-
-### Pitfalls
-
-- **Not connected:** Open app in browser, wait 3s, retry
-- **Component IDs change** after signal mutations — re-fetch with \`what_components\`
-- **\`what_lint\` FP on \`signal-write-in-render\`:** Handlers in event callbacks are safe
-- **\`what_set_signal\` cascades:** Use \`what_diff_snapshot\` to see full impact
-- **"N signals with no subscribers":** Normal — reactive text bindings bypass tracked effects
-`);
+  // CLAUDE.md for Claude Code and AGENTS.md for every other agent: one text,
+  // shared with the skill what-framework ships (see agent-instructions.js).
+  writeFileSync(resolve(root, 'CLAUDE.md'), claudeMd({ packageName, authoringNotes, mcpIntro }));
+  writeFileSync(resolve(root, 'AGENTS.md'), agentsMd({ packageName, authoringNotes, mcpIntro }));
 
   // Also generate a .cursor/mcp.json for Cursor users
   mkdirSync(resolve(root, '.cursor'), { recursive: true });
@@ -2426,7 +2364,7 @@ count(c => c + 1) // update
   }, null, 2) + '\n');
 
   // .gitignore (.ssr is the islands build's temporary server bundle)
-  writeFileSync(resolve(root, '.gitignore'), `node_modules\ndist\n${isIslands ? '.ssr\n' : ''}.DS_Store\n`);
+  writeFileSync(resolve(root, '.gitignore'), `node_modules\ndist\n${isIslands ? '.ssr\n' : ''}${isFullstack ? 'import-map.json\n' : ''}.DS_Store\n`);
 
   // package.json
   writeFileSync(resolve(root, 'package.json'), generatePackageJson(packageName, options));

@@ -1,6 +1,6 @@
 // Tests for What Framework - Dev-mode warnings and error messages
 // Validates that hooks throw clear errors outside components,
-// signal.set inside computed warns, and useEffect dep validation works.
+// a signal write inside computed() is reported, and useEffect dep validation works.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
@@ -25,6 +25,13 @@ const {
   onMount,
   onCleanup,
 } = await import('../src/hooks.js');
+const { capture } = await import('../src/diagnostics.js');
+
+function depReports(run) {
+  const cap = capture({ quiet: true });
+  try { run(); } finally { cap.stop(); }
+  return cap.events.filter((e) => e.code === 'ERR_EFFECT_DEP_NOT_FUNCTION');
+}
 
 function getContainer() {
   const el = document.getElementById('app');
@@ -42,6 +49,7 @@ describe('hooks outside component context', () => {
       () => useSignal(0),
       (err) => {
         assert(err instanceof Error);
+        assert.equal(err.code, 'ERR_HOOK_OUTSIDE_COMPONENT');
         assert(err.message.includes('useSignal()'));
         assert(err.message.includes('can only be called inside a component function'));
         assert(err.message.includes('Did you call it outside of a component or in an async callback'));
@@ -146,16 +154,12 @@ describe('hooks outside component context', () => {
     );
   });
 
-  it('onCleanup throws with clear error mentioning the hook name', () => {
-    assert.throws(
-      () => onCleanup(() => {}),
-      (err) => {
-        assert(err instanceof Error);
-        assert(err.message.includes('onCleanup()'));
-        assert(err.message.includes('can only be called inside a component function'));
-        return true;
-      }
-    );
+  it('onCleanup with nothing to attach to reports ERR_CLEANUP_WITHOUT_OWNER instead of throwing', () => {
+    const cap = capture({ quiet: true });
+    try {
+      assert.doesNotThrow(() => onCleanup(() => {}));
+    } finally { cap.stop(); }
+    assert.deepEqual(cap.events.map((e) => e.code), ['ERR_CLEANUP_WITHOUT_OWNER']);
   });
 
   it('hooks inside a component do NOT throw', () => {
@@ -181,126 +185,97 @@ describe('hooks outside component context', () => {
 });
 
 // =========================================================================
-// Task 2: signal.set() inside computed() warns
+// Task 2: a signal write inside computed() is reported
 // =========================================================================
 
-describe('signal.set inside computed warns', () => {
-  it('should warn when signal.set() is called inside computed()', () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
+function writeReports(run) {
+  const cap = capture({ quiet: true });
+  try { run(); } finally { cap.stop(); }
+  return cap.events.filter((e) => e.code === 'ERR_SIGNAL_WRITE_IN_COMPUTED');
+}
 
-    try {
+describe('a signal write inside computed() is reported', () => {
+  it('reports other.set() inside computed() as ERR_SIGNAL_WRITE_IN_COMPUTED, naming both', () => {
+    const reports = writeReports(() => {
       const count = signal(0);
-      const other = signal(0);
-
-      // This computed calls other.set() which should trigger a warning
-      const bad = computed(() => {
+      const other = signal(0, 'other');
+      const bad = computed(function doubled() {
         other.set(count() * 2);
         return count();
       });
-
-      // Trigger the computed to evaluate
       bad();
-
-      assert(warnings.length > 0, 'Expected at least one warning');
-      const warningText = warnings.join(' ');
-      assert(
-        warningText.includes('Signal.set() called inside a computed function'),
-        `Expected warning about signal.set in computed, got: ${warningText}`
-      );
-      assert(
-        warningText.includes('infinite loops'),
-        `Expected warning to mention infinite loops, got: ${warningText}`
-      );
-      assert(
-        warningText.includes('effect()'),
-        `Expected warning to suggest effect(), got: ${warningText}`
-      );
-    } finally {
-      console.warn = originalWarn;
-    }
+    });
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].severity, 'warning');
+    assert.deepEqual(reports[0].data, { computedName: 'doubled', signalName: 'other' });
+    assert.match(reports[0].message, /Computed "doubled" wrote signal "other"/);
+    assert.match(reports[0].message, /can loop/);
+    assert.match(reports[0].fix, /effect/);
+    assert.equal(reports[0].subject.kind, 'computed');
   });
 
-  it('should warn when signal is written via unified getter/setter inside computed()', () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-
-    try {
+  it('reports a write through the unified getter/setter the same way', () => {
+    const reports = writeReports(() => {
       const count = signal(0);
-      const other = signal(0);
-
-      // Using the sig(value) write syntax inside computed
-      const bad = computed(() => {
+      const other = signal(0, 'other');
+      const bad = computed(function doubled() {
         other(count() * 2);
         return count();
       });
-
       bad();
-
-      assert(warnings.length > 0, 'Expected at least one warning');
-      const warningText = warnings.join(' ');
-      assert(
-        warningText.includes('Signal.set() called inside a computed function'),
-        `Expected warning about signal write in computed, got: ${warningText}`
-      );
-    } finally {
-      console.warn = originalWarn;
-    }
+    });
+    assert.equal(reports.length, 1);
+    assert.deepEqual(reports[0].data, { computedName: 'doubled', signalName: 'other' });
   });
 
-  it('should NOT warn when signal.set() is called inside effect()', () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
+  it('reports sig.mutate() inside computed() the same way', () => {
+    const reports = writeReports(() => {
+      const count = signal(0);
+      const list = signal([], 'list');
+      const bad = computed(function tracked() {
+        list.mutate((items) => { items.push(count()); });
+        return count();
+      });
+      bad();
+    });
+    assert.equal(reports.length, 1);
+    assert.deepEqual(reports[0].data, { computedName: 'tracked', signalName: 'list' });
+  });
 
-    try {
+  it('folds repeats of the same computed into one event with a count', () => {
+    const reports = writeReports(() => {
+      const count = signal(0);
+      const other = signal(0, 'other');
+      const bad = computed(function doubled() {
+        other(count() * 2);
+        return count();
+      });
+      bad();
+      count(1);
+      bad();
+    });
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].count, 2);
+  });
+
+  it('does not report signal.set() inside effect()', () => {
+    const reports = writeReports(() => {
       const count = signal(0);
       const other = signal(0);
-
       const dispose = effect(() => {
         other.set(count() * 2);
       });
-
-      // Filter for only the specific signal.set warning
-      const setInComputedWarnings = warnings.filter(w =>
-        w.includes('Signal.set() called inside a computed function')
-      );
-
-      assert.equal(
-        setInComputedWarnings.length,
-        0,
-        `Expected no signal.set-in-computed warnings in effect, got: ${setInComputedWarnings.join('; ')}`
-      );
-
       dispose();
-    } finally {
-      console.warn = originalWarn;
-    }
+    });
+    assert.deepEqual(reports, []);
   });
 
-  it('should NOT warn when signal.set() is called outside reactive context', () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-
-    try {
+  it('does not report signal.set() outside a reactive context', () => {
+    const reports = writeReports(() => {
       const count = signal(0);
       count.set(42);
-
-      const setInComputedWarnings = warnings.filter(w =>
-        w.includes('Signal.set() called inside a computed function')
-      );
-
-      assert.equal(
-        setInComputedWarnings.length,
-        0,
-        'Expected no warnings for signal.set outside computed'
-      );
-    } finally {
-      console.warn = originalWarn;
-    }
+    });
+    assert.deepEqual(reports, []);
   });
 });
 
@@ -309,120 +284,56 @@ describe('signal.set inside computed warns', () => {
 // =========================================================================
 
 describe('useEffect dep validation', () => {
-  it('should warn when deps contain non-function values', async () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-
-    try {
-      const container = getContainer();
-
+  it('reports ERR_EFFECT_DEP_NOT_FUNCTION for each plain-value dep, with its index', () => {
+    const reports = depReports(() => {
       function TestComponent() {
         const count = useSignal(0);
-        // Pass count() (a number) instead of count (a signal function)
-        // This is the common mistake — calling the signal in deps instead of passing the signal
+        // Pass count() (a number) instead of count (a signal function).
+        // This is the common mistake — calling the signal in deps instead of passing the signal.
         useEffect(() => {}, [count(), 'static', 42]);
         return h('div', null, 'test');
       }
+      mount(h(TestComponent), getContainer());
+    });
 
-      mount(h(TestComponent), container);
-
-      // Check for warnings about non-function deps
-      const depWarnings = warnings.filter(w =>
-        w.includes('useEffect dep at index')
-      );
-
-      // Should warn about index 0 (number 0), index 1 (string), index 2 (number 42)
-      assert(depWarnings.length >= 3, `Expected at least 3 dep warnings, got ${depWarnings.length}: ${depWarnings.join('; ')}`);
-
-      // Check that warnings include the index
-      assert(depWarnings.some(w => w.includes('index 0')), 'Expected warning about index 0');
-      assert(depWarnings.some(w => w.includes('index 1')), 'Expected warning about index 1');
-      assert(depWarnings.some(w => w.includes('index 2')), 'Expected warning about index 2');
-
-      // Check the suggestion
-      assert(depWarnings.some(w => w.includes('Did you mean to pass a signal')),
-        'Expected warning to suggest using a signal');
-    } finally {
-      console.warn = originalWarn;
-    }
+    assert.deepEqual(reports.map((e) => e.data.index).sort(), [0, 1, 2]);
+    assert.equal(reports[0].severity, 'warning');
+    assert.ok(reports[0].message.includes('index 0'), reports[0].message);
+    assert.ok(reports[0].fix.includes('Pass the signal'), reports[0].fix);
   });
 
-  it('should NOT warn when deps are signal functions', async () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-
-    try {
-      const container = getContainer();
-
+  it('does not report when deps are signal functions', () => {
+    const reports = depReports(() => {
       function TestComponent() {
         const count = useSignal(0);
         const name = useSignal('test');
-        // Passing signal functions directly — correct usage
         useEffect(() => {}, [count, name]);
         return h('div', null, 'test');
       }
-
-      mount(h(TestComponent), container);
-
-      const depWarnings = warnings.filter(w =>
-        w.includes('useEffect dep at index')
-      );
-
-      assert.equal(depWarnings.length, 0, `Expected no dep warnings, got: ${depWarnings.join('; ')}`);
-    } finally {
-      console.warn = originalWarn;
-    }
+      mount(h(TestComponent), getContainer());
+    });
+    assert.equal(reports.length, 0);
   });
 
-  it('should NOT warn when deps is empty array', async () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-
-    try {
-      const container = getContainer();
-
+  it('does not report when deps is an empty array', () => {
+    const reports = depReports(() => {
       function TestComponent() {
         useEffect(() => {}, []);
         return h('div', null, 'test');
       }
-
-      mount(h(TestComponent), container);
-
-      const depWarnings = warnings.filter(w =>
-        w.includes('useEffect dep at index')
-      );
-
-      assert.equal(depWarnings.length, 0, 'Expected no dep warnings for empty deps');
-    } finally {
-      console.warn = originalWarn;
-    }
+      mount(h(TestComponent), getContainer());
+    });
+    assert.equal(reports.length, 0);
   });
 
-  it('should NOT warn when deps is undefined (auto-tracking mode)', async () => {
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-
-    try {
-      const container = getContainer();
-
+  it('does not report when deps is undefined (auto-tracking mode)', () => {
+    const reports = depReports(() => {
       function TestComponent() {
         useEffect(() => {});
         return h('div', null, 'test');
       }
-
-      mount(h(TestComponent), container);
-
-      const depWarnings = warnings.filter(w =>
-        w.includes('useEffect dep at index')
-      );
-
-      assert.equal(depWarnings.length, 0, 'Expected no dep warnings for undefined deps');
-    } finally {
-      console.warn = originalWarn;
-    }
+      mount(h(TestComponent), getContainer());
+    });
+    assert.equal(reports.length, 0);
   });
 });

@@ -7,11 +7,8 @@ import {
   effect,
   hydrate,
   useLoaderData,
-  getServerContext,
-  getHealth,
-  configureGuardrails,
-  createWhatError,
-  ERROR_CODES,
+  getDiagnostics,
+  type DiagnosticEvent,
   WhatError,
   Show,
   For,
@@ -20,6 +17,12 @@ import {
   ErrorBoundary,
   type Component,
 } from 'what-framework';
+import {
+  getServerContext,
+  configureGuardrails,
+  createWhatError,
+  ERROR_CODES,
+} from 'what-core/internal';
 
 // The two-arg signal(initial, debugName) form is what every doc teaches.
 const count = signal(0, 'count');
@@ -55,6 +58,7 @@ export function boot(container: Element) {
   const data = useLoaderData<{ id: string }>();
   const ctx = getServerContext();
   const err: WhatError = createWhatError(ERROR_CODES.MISSING_SIGNAL_READ, { signalName: 'count' });
-  configureGuardrails({ signalReadDetection: false });
-  return { data, ctx, err, health: getHealth() };
+  configureGuardrails({ importValidation: false });
+  const { events, seq }: { events: DiagnosticEvent[]; seq: number } = getDiagnostics({ since: 0 });
+  return { data, ctx, err, codes: events.map((e) => e.code), seq };
 }

@@ -1,25 +1,9 @@
 // What Framework - Helpers & Utilities
 // Commonly needed patterns, zero overhead.
 
-import { signal, effect, __DEV__ } from './reactive.js';
-
-// --- each(list, fn) --- [DEPRECATED: use <For> component or .map() instead]
-// Keyed list rendering. Optimized for reconciliation.
-let _eachWarned = false;
-export function each(list, fn, keyFn) {
-  if (!_eachWarned) {
-    _eachWarned = true;
-    console.warn('[what] each() is deprecated. Use the <For> component or Array.map() instead.');
-  }
-  if (!list || list.length === 0) return [];
-  return list.map((item, index) => {
-    const vnode = fn(item, index);
-    if (keyFn && vnode && typeof vnode === 'object') {
-      vnode.key = keyFn(item, index);
-    }
-    return vnode;
-  });
-}
+import { signal, effect, onCleanup, __DEV__ } from './reactive.js';
+import { _vnode } from './h.js';
+import { report } from './diagnostics.js';
 
 // --- cls(...args) ---
 // Conditional class names. Like clsx but tiny.
@@ -75,11 +59,6 @@ export function throttle(fn, ms) {
   };
 }
 
-// Component context ref — injected by dom.js to avoid circular imports
-/** @type {(() => any) | null} */
-let _getCurrentComponentRef = null;
-export function _setComponentRef(fn) { _getCurrentComponentRef = fn; }
-
 // --- useMediaQuery ---
 // Reactive media query. Returns a signal. Cleans up listener on component unmount.
 export function useMediaQuery(query) {
@@ -89,12 +68,8 @@ export function useMediaQuery(query) {
   const handler = (e) => s.set(e.matches);
   mq.addEventListener('change', handler);
 
-  // Register cleanup if inside a component context
-  const ctx = _getCurrentComponentRef?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => mq.removeEventListener('change', handler));
-  }
+  // Stop listening when the owner (the component using it) goes away.
+  onCleanup(() => mq.removeEventListener('change', handler));
 
   return s;
 }
@@ -113,11 +88,11 @@ export function useLocalStorage(key, initial) {
   const s = signal(stored);
 
   // Sync to localStorage on changes
-  const dispose = effect(() => {
+  effect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(s()));
     } catch (e) {
-      if (__DEV__) console.warn('[what] localStorage write failed (quota exceeded?):', e);
+      if (__DEV__) report('ERR_STORAGE_FAILED', { data: { key, operation: 'write', reason: e?.message || String(e) } });
     }
   });
 
@@ -128,22 +103,18 @@ export function useLocalStorage(key, initial) {
     storageHandler = (e) => {
       if (e.key === key && e.newValue !== null) {
         try { s.set(JSON.parse(e.newValue)); } catch (err) {
-          if (__DEV__) console.warn('[what] localStorage parse failed:', err);
+          if (__DEV__) report('ERR_STORAGE_FAILED', { data: { key, operation: 'read', reason: err?.message || String(err) } });
         }
       }
     };
     window.addEventListener('storage', storageHandler);
   }
 
-  // Register cleanup if inside a component context
-  const ctx = _getCurrentComponentRef?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => {
-      dispose();
-      if (storageHandler) window.removeEventListener('storage', storageHandler);
-    });
-  }
+  // The sync effect belongs to the owner it is created under; the listener
+  // goes with that owner too.
+  onCleanup(() => {
+    if (storageHandler) window.removeEventListener('storage', storageHandler);
+  });
 
   return s;
 }
@@ -158,7 +129,7 @@ export function Portal({ target, children }) {
     : target;
   if (!container) return null;
   // The DOM reconciler will mount children here
-  return { tag: '__portal', props: { container }, children: Array.isArray(children) ? children : [children], _vnode: true };
+  return _vnode('__portal', { container }, Array.isArray(children) ? children : [children]);
 }
 
 // --- useClickOutside ---
@@ -175,19 +146,15 @@ export function useClickOutside(ref, handler) {
   document.addEventListener('mousedown', listener);
   document.addEventListener('touchstart', listener);
 
-  const ctx = _getCurrentComponentRef?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => {
-      document.removeEventListener('mousedown', listener);
-      document.removeEventListener('touchstart', listener);
-    });
-  }
+  onCleanup(() => {
+    document.removeEventListener('mousedown', listener);
+    document.removeEventListener('touchstart', listener);
+  });
 }
 
-// --- Transition helper ---
-// Animate elements in/out. Returns props to spread on the element.
-export function transition(name, active) {
+// --- transitionClass(name, active) ---
+// Enter/leave classes for a CSS transition, as props to spread on the element.
+export function transitionClass(name, active) {
   return {
     class: active ? `${name}-enter ${name}-enter-active` : `${name}-leave ${name}-leave-active`,
   };

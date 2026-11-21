@@ -1,4 +1,8 @@
 // What Framework - TypeScript Definitions
+//
+// The root entry. Domain kits are declared beside it (a11y.d.ts, ui.d.ts,
+// motion.d.ts, dom.d.ts, form.d.ts, data.d.ts), the compiled-JSX runtime in
+// render.d.ts, and what sibling packages share in internal.d.ts.
 
 export type Updater<T> = T | ((prev: T) => T);
 
@@ -15,6 +19,15 @@ export interface Signal<T> {
   peek(): T;
   /** Subscribe to value changes */
   subscribe(fn: (value: T) => void): () => void;
+  /**
+   * Change the value in place: `fn` receives the current value (an array or
+   * object to modify), then every reader is notified as a write would notify
+   * them, batched the same way, although the reference did not change. A
+   * computed that returns the value itself, or anything else equal to its last
+   * result, recomputes but does not notify its own readers: derive a new value
+   * (a copy, a length, a field) where a computed must see the change.
+   */
+  mutate(fn: (value: T) => void): void;
   _signal: true;
 }
 
@@ -24,30 +37,142 @@ export interface Computed<T> {
   _signal: true;
 }
 
-export function signal<T>(initial: T, debugName?: string): Signal<T>;
-export function computed<T>(fn: () => T): Computed<T>;
-export function effect(fn: () => void | (() => void), opts?: { stable?: boolean }): () => void;
-export function signalMemo<T>(fn: () => T): Computed<T>;
 /**
- * Group signal writes so effects run once at the end. The callback's return
- * value is DISCARDED: batch() returns undefined. It was declared as `<T>(fn: ()
- * => T) => T`, so `const rows = batch(() => compute())` typechecked and handed
- * back undefined at runtime.
+ * What computed() returns: a computed that may be async (its function returned
+ * a promise or an async iterable).
  */
-export function batch(fn: () => unknown): void;
+export interface AsyncComputed<T> extends Computed<T> {
+  /**
+   * Read the value. For an async computed: in a binding, an effect or a
+   * computed, a value that has not landed, or is being fetched again, holds
+   * the reader, which keeps what it shows and runs again when the value lands;
+   * elsewhere (a handler, a component body) it is the last value that landed,
+   * and a read before the first one suspends the component.
+   */
+  (): T;
+  /**
+   * The value without subscribing. For an async computed: the last value that
+   * landed, or undefined before the first; it never throws or suspends.
+   */
+  peek(): T;
+  /**
+   * True while this value, or an async value it is computed from, has a value
+   * and is fetching a new one (a changed input, or refresh()). False on first
+   * load. Reactive: read it in JSX, `{users.pending() && <Spinner />}`.
+   */
+  pending(): boolean;
+}
+
+/** What a computed's function receives when it takes an argument. */
+export interface ComputedRun {
+  /** Aborted when a newer run supersedes this one, or the computed is disposed. */
+  signal: AbortSignal;
+}
+
+/** A value an async computed's function may return. */
+export type AsyncResult<T> = PromiseLike<T> | AsyncIterable<T>;
+
+export function signal<T>(initial: T, debugName?: string): Signal<T>;
+/**
+ * A derived value, recomputed when read after what it reads changed. Its
+ * function may return a promise, a thenable or an async iterable: the
+ * computed is then an async value. It starts when created (an async function,
+ * or one that takes `{ signal }`) or when first read, keeps its last value
+ * while a newer run is in flight, supersedes and aborts older runs, and its
+ * readers hold until it lands. See docs/ASYNC.md.
+ */
+export function computed<T>(fn: (run: ComputedRun) => AsyncResult<T>): AsyncComputed<T>;
+export function computed<T>(fn: (run: ComputedRun) => T): AsyncComputed<T>;
+/**
+ * Run an async computed again now, superseding a run in flight. Its readers
+ * see it as pending (once it has a value) until the new value lands. Resolves
+ * with the value when it lands, rejects with its error.
+ */
+export function refresh<T>(computed: AsyncComputed<T>): Promise<T>;
+/**
+ * True while an async value `fn` reads (directly or through computeds) has a
+ * value and is fetching a new one; false on first load. Tracked like a read.
+ */
+export function isPending(fn: () => unknown): boolean;
+/**
+ * Hold everything the writes inside `fn` reach until the async work they
+ * started has landed, then commit it in one flush. Writes outside `fn` commit
+ * as usual; writes after an `await` in `fn` are ordinary writes, as in React.
+ * Resolves when the transition commits; rejects with an async `fn`'s error.
+ */
+export function startTransition(fn: () => void | Promise<unknown>): Promise<void>;
+/**
+ * React's useTransition. `isPending` is an ACCESSOR, not a boolean: call it,
+ * `isPending()`, true from the call to `startTransition` until that
+ * transition commits. `{isPending() && <Spinner />}` in JSX updates;
+ * `{isPending && ...}` is always truthy.
+ */
+export function useTransition(): [isPending: () => boolean, startTransition: (fn: () => void | Promise<unknown>) => Promise<void>];
+/**
+ * React 19's useOptimistic. `optimistic` is an ACCESSOR: `optimistic()` is
+ * `state` with the overlays added by `addOptimistic(value)` applied through
+ * `update` (or replacing it, without `update`). Each overlay lasts as long as
+ * the transition it was added in and drops when that commits, in the same
+ * flush as the real result. Call `addOptimistic` synchronously inside
+ * startTransition.
+ */
+export function useOptimistic<S>(state: S | (() => S)): [optimistic: () => S, addOptimistic: (value: S) => void];
+export function useOptimistic<S, A>(state: S | (() => S), update: (current: S, value: A) => S): [optimistic: () => S, addOptimistic: (value: A) => void];
+/**
+ * React 19's use(). A context reads like useContext. A promise returns its
+ * value once settled, or suspends the component until it settles: it must be
+ * made outside the component. An accessor (an async computed) is read like
+ * an untracked read, suspending the component while it has no value.
+ */
+export function use<T>(value: Context<T> | PromiseLike<T> | (() => T)): T;
+/**
+ * Resolves once nothing is queued to run, no async computed is fetching, no
+ * transition is open and no <Suspense> waits on a promise. For tests and
+ * agents: act, `await settled()`, then read the DOM.
+ */
+export function settled(): Promise<void>;
+export interface EffectOptions {
+  /** Re-runs skip dependency tracking and keep the first run's dependencies. */
+  stable?: boolean;
+  /**
+   * `'render'` (default) or `'user'`. In a flush, user-phase effects re-run
+   * only once no render-phase effect is queued, so they observe settled
+   * bindings. The first run is synchronous either way.
+   */
+  phase?: 'render' | 'user';
+}
+
+export function effect(fn: () => void | (() => void), opts?: EffectOptions): () => void;
+/**
+ * O(1) keyed selection. `isSelected(key)` is `key === source()`, but a reader
+ * depends on its key rather than on `source`: when the source moves from a to b,
+ * only the readers that asked about a or b re-run. The compiler rewrites
+ * `sel() === row.id` inside keyed `.map()` rows to use one automatically.
+ */
+export function createSelector<T>(source: () => T): (key: T) => boolean;
+/**
+ * Group signal writes so effects run once, when the outermost batch ends.
+ * Returns the callback's value.
+ */
+export function batch<T>(fn: () => T): T;
 export function untrack<T>(fn: () => T): T;
 export function flushSync(): void;
 export function createRoot<T>(fn: (dispose: () => void) => T): T;
 
-/** Opaque ownership scope handle. Pair with runWithOwner() for async work. */
+declare const ownerBrand: unique symbol;
+
+/**
+ * Opaque ownership scope handle: getOwner() is the only way to obtain one.
+ * Pair with runWithOwner() for async work. `disposals` holds what the scope
+ * disposes: cleanup functions and internal effect and computed nodes.
+ */
 export interface Owner {
-  disposals: Array<() => void>;
+  readonly [ownerBrand]: true;
+  disposals: unknown[];
 }
 
 export function getOwner(): Owner | null;
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T;
-/** Register a cleanup with the current owner/root (root-level onCleanup). */
-export function onRootCleanup(fn: () => void): void;
 
 // --- Virtual DOM ---
 
@@ -77,12 +202,17 @@ export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNode
   _deferChildren?: boolean;
 };
 
+/**
+ * An element or component description made by h(), the JSX runtime or a
+ * boundary. Renderers recognise one by a private brand only those producers
+ * give, so an object of this shape built any other way (from JSON, say)
+ * renders as text.
+ */
 export interface VNode<P = Record<string, any>> {
   tag: string | Component<P>;
   props: P;
   children: VNodeChild[];
   key: string | number | null;
-  _vnode: true;
 }
 
 export function h<P extends Record<string, any>>(
@@ -98,24 +228,17 @@ export function html(strings: TemplateStringsArray, ...values: any[]): VNode | V
 
 export function mount(vnode: VNodeChild, container: string | Element | DocumentFragment): () => void;
 
-/** Attach reactive bindings to server-rendered DOM instead of creating it. */
-export function hydrate(vnode: VNodeChild, container: Element): Node | null;
-export function isHydrating(): boolean;
-
-// Fine-grained rendering primitives
-export function template(html: string): () => Element;
-export function svgTemplate(html: string): () => Element;
-export function insert(parent: Node, child: any, marker?: Node | null): any;
-export function mapArray<T>(
-  source: () => T[],
-  mapFn: (item: T | Signal<T>, index: number) => Node,
-  options?: { key?: (item: T) => string | number; raw?: boolean },
-): (parent: Node, marker?: Node | null) => Node;
-export function spread(el: Element, props: Record<string, any>): void;
-export function setProp(el: Element, key: string, value: any): void;
-export function delegateEvents(eventNames: string[]): void;
-export function on(el: Element, event: string, handler: (e: Event) => void): () => void;
-export function classList(el: Element, classes: Record<string, boolean | (() => boolean)>): void;
+/**
+ * Adopt server-rendered DOM as the DOM of `vnode`: bindings, events and
+ * components attach to the nodes the server wrote. Returns the unmount
+ * function, as mount() does. `options.onHydrationError` is called for every
+ * mismatch, in production too.
+ */
+export function hydrate(
+  vnode: VNodeChild,
+  container: string | Element,
+  options?: { onHydrationError?: (mismatch: { kind: string; component: string; ownerPath: string | null; path: string; expected: string; found: string; recovery: string }) => void },
+): () => void;
 
 // --- Hooks ---
 
@@ -130,7 +253,9 @@ export function classList(el: Element, classes: Record<string, boolean | (() => 
  */
 export function useState<T>(initial: T | (() => T)): [Signal<T>, (value: Updater<T>) => void];
 export function useSignal<T>(initial: T | (() => T)): Signal<T>;
-export function useComputed<T>(fn: () => T): Computed<T>;
+/** computed() as a hook: it may be async, like computed(). */
+export function useComputed<T>(fn: (run: ComputedRun) => AsyncResult<T>): AsyncComputed<T>;
+export function useComputed<T>(fn: (run: ComputedRun) => T): AsyncComputed<T>;
 export function useEffect(fn: () => void | (() => void), deps?: unknown[]): void;
 /**
  * Returns a COMPUTED ACCESSOR, not the value. Same reason as useState: the
@@ -141,6 +266,9 @@ export function useEffect(fn: () => void | (() => void), deps?: unknown[]): void
  * `deps` is accepted for React familiarity and ignored at runtime: computed()
  * tracks whatever signals the callback actually reads.
  *
+ * A promise the callback returns stays a promise, as in React: read it with
+ * use(), or make the value an async computed with computed().
+ *
  * It was declared as `T`, which inverted both halves: `useMemo(...) * 2`
  * type-checked and produced NaN, while the correct `useMemo(...)()` was the
  * type error.
@@ -149,12 +277,24 @@ export function useMemo<T>(fn: () => T, deps?: unknown[]): Computed<T>;
 export function useCallback<T extends (...args: any[]) => any>(fn: T, deps?: unknown[]): T;
 export function useRef<T>(initial: T): { current: T };
 
-export interface Context<T> {
+/**
+ * A context is its own provider, as in React 19: `<Ctx value={v}>` and
+ * `<Ctx.Provider value={v}>` render the same component. `displayName` names it
+ * in diagnostics.
+ */
+export interface Context<T> extends Component<{ value: T; children?: VNodeChild }> {
   _defaultValue: T;
-  Provider: Component<{ value: T; children?: VNodeChild }>;
+  Provider: Context<T>;
+  Consumer: Component<{ children: (value: T) => VNodeChild }>;
+  displayName?: string;
 }
 
+/**
+ * Called with no argument, the value must come from a provider: in development,
+ * reading it with none above reports ERR_CONTEXT_NOT_PROVIDED.
+ */
 export function createContext<T>(defaultValue: T): Context<T>;
+export function createContext<T>(): Context<T | undefined>;
 export function useContext<T>(context: Context<T>): T;
 /**
  * Returns [signal, dispatch]. The first element is the SIGNAL ITSELF, exactly
@@ -170,16 +310,32 @@ export function useReducer<S, A>(
   init?: (initial: S) => S,
 ): [Signal<S>, (action: A) => void];
 export function onMount(fn: () => void): void;
+/**
+ * Run `fn` when the current scope goes away: the component being rendered, on
+ * unmount, or else the reactive owner around the call (createRoot, a list row,
+ * a mount root). With neither, development reports ERR_CLEANUP_WITHOUT_OWNER;
+ * an effect's per-run cleanup is the function the effect returns.
+ */
 export function onCleanup(fn: () => void): void;
+/** A string, stable for the component's life: the component runs once. */
+export function useId(prefix?: string): string;
 
+/**
+ * `data` is an async computed: reading it before its first value lands holds
+ * the reader (a <Suspense> above shows its fallback), and in a server render
+ * the component suspends until it settles. `loading()` is true while it has
+ * no value or is fetching; `error()` is the last run's error or null;
+ * `refetch(source)` fetches again (it never rejects); `mutate(value)` sets the
+ * value now, superseding a fetch in flight.
+ */
 export function createResource<T = any, S = any>(
-  fetcher: (source?: S, ctx?: { signal: AbortSignal }) => Promise<T> | T,
-  options?: { initialValue?: T; source?: S },
-): [Signal<T | null>, {
-  loading: Signal<boolean>;
-  error: Signal<any>;
-  refetch: (source?: S) => Promise<any>;
-  mutate: (value: Updater<T | null>) => void;
+  fetcher: (source: S, ctx: { signal: AbortSignal }) => Promise<T> | T,
+  options?: { initialValue?: T; source?: S; key?: string },
+): [AsyncComputed<T>, {
+  loading: () => boolean;
+  error: () => any;
+  refetch: (source?: S) => Promise<void>;
+  mutate: (value: T | ((current: T | undefined) => T)) => void;
 }];
 
 // --- Components ---
@@ -189,11 +345,26 @@ export function lazy<P>(
 ): Component<P>;
 export function memo<P>(component: Component<P>, areEqual?: (prev: P, next: P) => boolean): Component<P>;
 
+/**
+ * Shows `fallback` until its children have first shown: while a binding under
+ * it waits for an async value that has not landed, or a component under it
+ * has suspended (lazy(), use()). After that an async value never brings the
+ * fallback back: a refresh keeps the children mounted, their bindings holding
+ * what they show until the new value lands. A component that suspends again
+ * (a lazy() chunk, use(promise)) does, and the children stay mounted behind
+ * it. onMount and useEffect under it first run when its children first show.
+ * A server-rendered one is adopted by hydrate() as it is.
+ */
 export function Suspense(props: {
   fallback: VNodeChild;
   children?: VNodeChild;
 }): VNode;
 
+/**
+ * Shows `fallback` when its children throw, while they are built or later
+ * (an effect, a binding, an async value that rejected). `reset()` fetches
+ * again the async values whose errors it caught and builds the children again.
+ */
 export function ErrorBoundary(props: {
   fallback: VNodeChild | ((args: { error: Error; reset: () => void }) => VNodeChild);
   onError?: (error: Error) => void;
@@ -231,13 +402,13 @@ export interface IslandProps {
 
 export function Island(props: IslandProps): VNode;
 
+export function Portal(props: { target: string | Element; children?: VNodeChild }): VNode | null;
+
 // --- State ---
 
 /** `_storeComputed` is the marker createStore() actually reads to tell a derived value from an action. */
 export type DerivedFn<T> = ((state: any) => T) & { _storeComputed: true };
 export function derived<T>(fn: (state: any) => T): DerivedFn<T>;
-/** @deprecated Use derived(). Warns once at runtime. */
-export function storeComputed<T>(fn: (state: any) => T): DerivedFn<T>;
 export type StoreDefinition = Record<string, any>;
 /**
  * The store hook resolves every derived key to its VALUE. State and derived
@@ -250,617 +421,76 @@ export type Store<T extends StoreDefinition> = {
   [K in keyof T]: T[K] extends DerivedFn<infer U> ? U : T[K];
 };
 export function createStore<T extends StoreDefinition>(definition: T): () => Store<T>;
-export function atom<T>(initial: T): Signal<T>;
-
-// --- Helpers / Utilities ---
-
-export function each<T>(
-  list: T[],
-  fn: (item: T, index: number) => VNodeChild,
-  keyFn?: (item: T, index: number) => string | number,
-): VNodeChild[];
-
-export function cls(...args: Array<string | false | null | undefined | Record<string, boolean>>): string;
-export function style(obj: string | Record<string, string | number | null | undefined>): string;
-export function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T;
-export function throttle<T extends (...args: any[]) => any>(fn: T, ms: number): T;
-export function useMediaQuery(query: string): Signal<boolean>;
-export function useLocalStorage<T>(key: string, initial: T): Signal<T>;
-export function useClickOutside(ref: { current?: Element | null } | Element, handler: (e: Event) => void): void;
-export function Portal(props: { target: string | Element; children?: VNodeChild }): VNode | null;
-export function transition(name: string, active: boolean): { class: string };
 
 // --- Head ---
 
+/**
+ * Set document head tags from any component, on the client and in a server
+ * render. `<title>`, `<meta>` and `<link>` children set the same tags as the
+ * props: `<Head><title>Docs</title></Head>` is `<Head title="Docs" />`. A meta
+ * is keyed by `name`, `property` or `httpEquiv`, a link by `rel` + `href`; the
+ * later of two with one key wins, and within one Head a child wins over a prop.
+ * Any other child renders in place.
+ */
 export function Head(props: {
   title?: string;
-  meta?: Array<Record<string, string>>;
-  link?: Array<Record<string, string>>;
-  script?: Array<Record<string, string>>;
+  meta?: Record<string, string> | Array<Record<string, string>>;
+  link?: Record<string, string> | Array<Record<string, string>>;
   children?: VNodeChild;
 }): null;
-export function clearHead(): void;
-
-/** Per-render head accumulator used by the SSR renderer. */
-export interface HeadSink {
-  title: string | null;
-  metas: Map<string, Record<string, string>>;
-  links: Map<string, Record<string, string>>;
-}
-
-export function beginHeadCollection(): HeadSink;
-export function endHeadCollection(sink: HeadSink | null): string;
 
 // --- Loader Data ---
 
 export function useLoaderData<T = any>(): T | undefined;
-export function getLoaderData<T = any>(): T | undefined;
-export function getResource<T = any>(key: string): T | undefined;
-
-// --- Server Context ---
-
-export interface ServerContext {
-  loaderData?: any;
-  head?: HeadSink;
-  resources?: Record<string, any>;
-  [key: string]: any;
-}
-
-/** The active render context, or null on the client / outside a render. */
-export function getServerContext(): ServerContext | null;
-/** Set the active context and return the previous one so callers can restore it. */
-export function setServerContext(ctx: ServerContext | null): ServerContext | null;
-export function runWithServerContext<T>(ctx: ServerContext, fn: () => T): T;
-
-// --- Scheduler ---
-
-export function scheduleRead(fn: () => void): () => void;
-export function scheduleWrite(fn: () => void): () => void;
-export function flushScheduler(): void;
-export function measure<T>(fn: () => T): Promise<T>;
-export function mutate(fn: () => void): Promise<void>;
-export function useScheduledEffect(readFn: () => any, writeFn?: (data: any) => void): () => void;
-export function nextFrame(): Promise<void> & { cancel: () => void };
-export function raf(key: string, fn: () => void): void;
-export function onResize(element: Element, callback: (rect: DOMRectReadOnly) => void): () => void;
-export function onIntersect(
-  element: Element,
-  callback: (entry: IntersectionObserverEntry) => void,
-  options?: IntersectionObserverInit,
-): () => void;
-export function smoothScrollTo(
-  element: Element,
-  options?: { duration?: number; easing?: (t: number) => number },
-): Promise<void>;
-
-// --- Animation ---
-//
-// Every accessor below is a plain getter function, NOT a Signal: the objects
-// these factories return expose reads through closures and offer writes as
-// named methods (set/snap/setValue), so nothing here carries .set/.peek. The
-// declarations used to promise Signal<number> and a single shared SpringValue
-// shape for both spring() and tween(), which are two different objects.
-
-export interface SpringConfig {
-  stiffness?: number;
-  damping?: number;
-  mass?: number;
-  precision?: number;
-}
-
-/** Physics-based value. `set()` retargets and animates; `snap()` jumps without animating. */
-export interface SpringValue {
-  current(): number;
-  target(): number;
-  velocity(): number;
-  isAnimating(): boolean;
-  set(target: number): void;
-  stop(): void;
-  snap(value: number): void;
-  subscribe(fn: (value: number) => void): () => void;
-}
-
-export interface TweenConfig {
-  duration?: number;
-  easing?: (t: number) => number;
-  onUpdate?: (value: number, progress: number) => void;
-  onComplete?: () => void;
-}
-
 /**
- * Easing-based interpolation from `from` to `to`. Starts immediately on
- * creation and runs to completion, so it exposes `cancel()` rather than the
- * spring's retargeting `set()`/`stop()`.
+ * Swap streamed boundaries whose content has arrived into place. Call it from
+ * the client entry, before hydrating, on a page streamed with `noScripts`.
+ * Returns the number of boundaries swapped.
  */
-export interface TweenValue {
-  progress(): number;
-  value(): number;
-  isAnimating(): boolean;
-  cancel(): void;
-  subscribe(fn: (value: number) => void): () => void;
-}
+export function applyStreamedBoundaries(): number;
 
-export function spring(initialValue: number, config?: SpringConfig): SpringValue;
-/**
- * Both endpoints are required and positional. This was declared as
- * `tween(initialValue?, config?)` returning a SpringValue, so the documented
- * call `tween(0, 100, { duration: 300 })` was a type error, while
- * `tween(0).current()` type-checked and threw (`current` does not exist, and a
- * missing `to` interpolates toward undefined).
- */
-export function tween(from: number, to: number, config?: TweenConfig): TweenValue;
-export const easings: Record<string, (t: number) => number>;
-/**
- * Drives a 0..1 progress value over `duration`. This is NOT React's
- * useTransition, and it never had the mounted/styles/show/hide members that
- * were declared here, and all four were undefined at runtime.
- */
-export function useTransition(options?: { duration?: number; easing?: (t: number) => number }): {
-  isTransitioning: () => boolean;
-  progress: () => number;
-  start: (callback?: () => void) => Promise<void>;
-};
+// --- Server response ---
 
-/** Live gesture state. `startX`/`startY` are plain numbers rewritten in place at gesture start. */
-export interface GestureState {
-  isDragging: Signal<boolean>;
-  startX: number;
-  startY: number;
-  currentX: Signal<number>;
-  currentY: Signal<number>;
-  deltaX: Signal<number>;
-  deltaY: Signal<number>;
-  velocity: Signal<GestureVelocity>;
-}
 
-export interface GestureVelocity {
-  x: number;
-  y: number;
-}
-
-/**
- * `preventDefault` is why this cannot be a `Record<string, (payload) => void>`:
- * it sits in the same object as the callbacks and is a boolean.
- */
-export interface GestureHandlers {
-  onDragStart?: (payload: { x: number; y: number }) => void;
-  onDrag?: (payload: {
-    x: number; y: number; deltaX: number; deltaY: number; velocity: GestureVelocity;
-  }) => void;
-  onDragEnd?: (payload: { deltaX: number; deltaY: number; velocity: GestureVelocity }) => void;
-  onPinch?: (payload: { scale: number; centerX: number; centerY: number }) => void;
-  onSwipe?: (payload: { direction: 'up' | 'down' | 'left' | 'right'; velocity: GestureVelocity }) => void;
-  onTap?: (payload: { x: number; y: number }) => void;
-  onLongPress?: (payload: { x: number; y: number }) => void;
-  /** Opt in to e.preventDefault() in the touch handlers (listeners become non-passive). */
-  preventDefault?: boolean;
-}
-
-/** Returns the gesture state. It was declared `void`, so the state was unreachable from TypeScript. */
-export function useGesture(
-  ref: { current?: Element | null } | Element | (() => Element | null),
-  handlers?: GestureHandlers,
-): GestureState;
-
-/** Handle for one running animation started by useAnimatedValue. */
-export interface AnimationHandle {
-  stop: () => void;
-}
-
-/**
- * `animateTo` and `stop` were declared here and have never existed. Animations
- * are started with spring()/timing(), each returning its own handle to stop.
- */
-export function useAnimatedValue(initialValue: number): {
-  value: () => number;
-  setValue: (value: number) => void;
-  spring: (toValue: number, config?: SpringConfig) => AnimationHandle;
-  timing: (toValue: number, config?: TweenConfig) => AnimationHandle;
-  interpolate: (inputRange: number[], outputRange: number[]) => () => number;
-  subscribe: (fn: (value: number) => void) => () => void;
-};
-
-export interface TransitionClasses {
-  enter: string;
-  enterActive: string;
-  enterDone: string;
-  exit: string;
-  exitActive: string;
-  exitDone: string;
-}
-
-/** Returns the six class NAMES for `name`, not a single string. */
-export function createTransitionClasses(name: string): TransitionClasses;
-/**
- * Applies the enter/exit class sequence to an element and resolves when the
- * transition is done. It was declared as a synchronous `(config) => object`.
- */
-export function cssTransition(
-  element: Element,
-  name: string,
-  type?: 'enter' | 'exit',
-  duration?: number,
-): Promise<void>;
-
-// --- Accessibility ---
-
-export function useFocus(): {
-  current: () => Element | null;
-  focus: (element?: Element | null) => void;
-  blur: () => void;
-};
-
-export function useFocusRestore(): {
-  capture: (target?: Element | null) => void;
-  restore: (fallbackTarget?: Element | null) => void;
-  previous: () => Element | null;
-};
-
-export function useFocusTrap(containerRef: { current?: Element | null } | Element): {
-  activate: () => void | (() => void);
-  deactivate: () => void;
-};
-
-export function FocusTrap(props: { children?: VNodeChild; active?: boolean }): VNode;
-export function announce(message: string, options?: { priority?: 'polite' | 'assertive'; timeout?: number }): void;
-export function announceAssertive(message: string): void;
-export function SkipLink(props: { href?: string; children?: VNodeChild }): VNode;
-
-export function useAriaExpanded(initialExpanded?: boolean): {
-  expanded: () => boolean;
-  toggle: () => void;
-  open: () => void;
-  close: () => void;
-  buttonProps: () => Record<string, any>;
-  panelProps: () => Record<string, any>;
-};
-
-export function useAriaSelected<T = any>(initialSelected?: T): {
-  selected: () => T;
-  select: (value: T) => void;
-  isSelected: (value: T) => boolean;
-  itemProps: (value: T) => Record<string, any>;
-};
-
-export function useAriaChecked(initialChecked?: boolean): {
-  checked: () => boolean;
-  toggle: () => void;
-  set: (value: boolean) => void;
-  checkboxProps: () => Record<string, any>;
-};
-
-export interface RovingTabIndexOptions {
+/** The HTTP response of a server render, as components see it. */
+export interface ServerResponse {
+  /** The status the response will be sent with. */
+  readonly status: number;
+  /** Where redirect() pointed, or null. */
+  readonly location: string | null;
+  /** True once the shell has been sent: status and headers are final. */
+  readonly committed: boolean;
+  /** Set the status code. No effect once committed. */
+  setStatus(code: number): void;
+  /** Set (or with `append`, add) a header. Set-Cookie always appends. No effect once committed. */
+  setHeader(name: string, value: string, options?: { append?: boolean }): void;
   /**
-   * Container role, emitted by containerProps(). The hook emits NO role by
-   * default: roving tabindex is the shared keyboard mechanic of toolbars,
-   * menus, trees, grids, tablists, radiogroups and listboxes, and a default
-   * spread last would silently overwrite the role the caller wrote beside it.
+   * Redirect to a same-origin path such as "/login" (302 by default). Before
+   * the shell is sent this is a real 3xx; after it, the browser is sent a script
+   * that replaces the location. Any other target (an absolute URL, "//host",
+   * "/\\host", javascript:) is refused: the response redirects to "/" instead,
+   * and development logs ERR_SSR_UNSAFE_REDIRECT. Throws a RangeError for a
+   * status that is not a redirect status.
    */
-  role?: string;
-}
-
-/**
- * Props for one roving item. `ref` is the item's REGISTRATION (the hook holds
- * the node through it and cannot move focus without it), so a `ref` passed via
- * `overrides` is chained rather than replaced. `tabIndex` is an accessor, not a
- * number: exactly one item is tabbable at a time and which one changes as focus
- * roves, so a resolved value could not survive the spread.
- */
-export interface RovingItemProps {
-  ref: { current: Element | null };
-  tabIndex: () => number;
-  onKeyDown: (e: KeyboardEvent) => void;
-  onFocus: (e: Event) => void;
-  [prop: string]: any;
-}
-
-export function useRovingTabIndex(
-  itemCountOrSignal: number | (() => number),
-  options?: RovingTabIndexOptions,
-): {
-  /** Active index, clamped to the current count so the group is never untabbable. */
-  focusIndex: () => number;
+  redirect(location: string, status?: 301 | 302 | 303 | 307 | 308): void;
   /**
-   * Set the active index. Out-of-range indexes are REFUSED, not clamped. Moves
-   * real focus only when the group already owns it, so syncing from application
-   * state cannot steal focus from elsewhere on the page.
+   * Redirect off the site, to an absolute http: or https: URL with no
+   * credentials. A target that is not one is refused like redirect()'s.
    */
-  setFocusIndex: (index: number) => void;
-  /**
-   * Explicitly move focus to an item (a menu focusing its first item on open).
-   * Returns the element it focused, or null when the index is out of range or
-   * the item is not in the DOM.
-   */
-  focusItem: (index: number) => Element | null;
-  getItemProps: (index: number, overrides?: Record<string, any>) => RovingItemProps;
-  containerProps: (overrides?: Record<string, any>) => Record<string, any>;
-};
-
-export function VisuallyHidden(props: { children?: VNodeChild; as?: string }): VNode;
-export function LiveRegion(props: { children?: VNodeChild; priority?: 'polite' | 'assertive'; atomic?: boolean }): VNode;
-export function useId(prefix?: string): () => string;
-export function useIds(count: number, prefix?: string): string[];
-export function useDescribedBy(description: VNodeChild): {
-  descriptionId: () => string;
-  descriptionProps: () => Record<string, any>;
-  describedByProps: () => Record<string, any>;
-  Description: () => VNode;
-};
-export function useLabelledBy(label: VNodeChild): {
-  labelId: () => string;
-  labelProps: () => Record<string, any>;
-  labelledByProps: () => Record<string, any>;
-};
-
-export const Keys: {
-  Enter: 'Enter';
-  Space: ' ';
-  Escape: 'Escape';
-  ArrowUp: 'ArrowUp';
-  ArrowDown: 'ArrowDown';
-  ArrowLeft: 'ArrowLeft';
-  ArrowRight: 'ArrowRight';
-  Home: 'Home';
-  End: 'End';
-  Tab: 'Tab';
-};
-
-export function onKey(key: string, handler: (e: KeyboardEvent) => void): (e: KeyboardEvent) => void;
-export function onKeys(keys: string[], handler: (e: KeyboardEvent) => void): (e: KeyboardEvent) => void;
-
-// --- Skeleton ---
-
-export function Skeleton(props?: Record<string, any>): VNode;
-export function SkeletonText(props?: Record<string, any>): VNode;
-export function SkeletonAvatar(props?: Record<string, any>): VNode;
-export function SkeletonCard(props?: Record<string, any>): VNode;
-export function SkeletonTable(props?: Record<string, any>): VNode;
-export function IslandSkeleton(props?: Record<string, any>): VNode;
-export function useSkeleton<T>(asyncFn: () => Promise<T> | T, deps?: unknown[]): {
-  isLoading: () => boolean;
-  data: () => T | null;
-  error: () => any;
-  Skeleton: (props?: Record<string, any>) => VNode;
-};
-export function Placeholder(props?: Record<string, any>): VNode;
-export function LoadingDots(props?: Record<string, any>): VNode;
-export function Spinner(props?: Record<string, any>): VNode;
-
-// --- Data Fetching ---
-
-export function useFetch<T = any>(url: string, options?: Record<string, any>): {
-  /** null until the first response lands. It was declared as bare `T`, so strict-mode callers skipped the check they need. */
-  data: () => T | null;
-  error: () => any;
-  isLoading: () => boolean;
-  refetch: () => Promise<void>;
-  mutate: (newData: T) => void;
-};
-
-export function useSWR<T = any>(key: string | null | false, fetcher: (key: string, ctx?: { signal: AbortSignal }) => Promise<T>, options?: Record<string, any>): {
-  data: () => T | null;
-  error: () => any;
-  isLoading: () => boolean;
-  isValidating: () => boolean;
-  mutate: (newData: T | ((prev: T | null) => T), shouldRevalidate?: boolean) => void;
-  revalidate: () => Promise<T | void>;
-};
-
-/**
- * 'idle' is a real state, not a placeholder: a query with `enabled: false` and
- * nothing cached is idle, and reporting it as loading is what renders a spinner
- * that never comes down.
- */
-export type QueryStatus = 'idle' | 'loading' | 'success' | 'error';
-/** Whether a request is on the wire, independent of whether data exists. */
-export type FetchStatus = 'idle' | 'fetching';
-
-/**
- * Any array key is joined into a single normalized string, so an array and its
- * normalization address the same cache entry everywhere a key is accepted.
- */
-export type QueryKey = string | readonly unknown[];
-
-export function useQuery<T = any>(options: Record<string, any>): {
-  data: () => T | null;
-  error: () => any;
-  status: () => QueryStatus;
-  fetchStatus: () => FetchStatus;
-  isLoading: () => boolean;
-  isFetching: () => boolean;
-  isError: () => boolean;
-  isSuccess: () => boolean;
-  isIdle: () => boolean;
-  /** Whether the `enabled` gate is currently open. */
-  isEnabled: () => boolean;
-  refetch: () => Promise<T | void>;
-};
-
-/**
- * Pages, plus the param each was fetched with. `pageParams[i]` names `pages[i]`.
- */
-export interface InfiniteData<T> {
-  pages: T[];
-  pageParams: unknown[];
+  redirectExternal(url: string, status?: 301 | 302 | 303 | 307 | 308): void;
 }
 
 /**
- * `data()` hands back the page CONTAINER, not a flat array. It was declared as
- * `T[]`, so `data().map(...)` type-checked and threw. The rows are in
- * `data().pages`. A `select` option replaces the container wholesale, and that
- * transformation is not expressible here.
+ * The response of the server render in progress. On the client, or outside a
+ * render, an inert object whose methods do nothing.
  */
-export function useInfiniteQuery<T = any>(options: Record<string, any>): {
-  data: () => InfiniteData<T>;
-  error: () => any;
-  status: () => QueryStatus;
-  isLoading: () => boolean;
-  isError: () => boolean;
-  isSuccess: () => boolean;
-  isIdle: () => boolean;
-  isFetching: () => boolean;
-  isEnabled: () => boolean;
-  hasNextPage: () => boolean;
-  hasPreviousPage: () => boolean;
-  isFetchingNextPage: () => boolean;
-  isFetchingPreviousPage: () => boolean;
-  fetchNextPage: () => Promise<void>;
-  fetchPreviousPage: () => Promise<void>;
-  refetch: () => Promise<void>;
-};
+export function getResponse(): ServerResponse;
 
-/**
- * Synchronous. It was declared as returning Promise<void>, so `await
- * invalidateQueries(...)` awaited undefined and read as "the refetches are
- * done" when they had only been kicked off. The subscribers it wakes fetch on
- * their own.
- *
- * An array key is a PREFIX unless `exact` is set: invalidateQueries(['todos'])
- * also invalidates ['todos', 1]. `hard` clears the cached value immediately
- * (loading state); the default keeps stale data on screen while it refetches.
- */
-export function invalidateQueries(
-  keyOrPredicate: QueryKey | ((key: string) => boolean),
-  options?: { exact?: boolean; hard?: boolean },
-): void;
-
-export function prefetchQuery<T = any>(key: QueryKey, fetcher: (key: string) => Promise<T>): Promise<T>;
-export function setQueryData<T = any>(key: QueryKey, updater: T | ((prev: T | null) => T)): void;
-/** `undefined` for a key the cache has never held; `null` for one that was emptied. */
-export function getQueryData<T = any>(key: QueryKey): T | null | undefined;
-export function clearCache(): void;
-
-// --- Forms ---
-
-export interface FieldError {
-  type?: string;
-  message?: string;
-  [key: string]: any;
-}
-
-/**
- * What register() actually hands back, which varies by control type. The event
- * handlers are LOWERCASE (`oninput`, `onchange`), because that is the key the
- * DOM binding and the merge in <Input>/<Radio> look for; `onInput` was declared
- * here and register() has never defined it, so `register('email').onInput(e)`
- * type-checked and threw at the first keystroke.
- *
- * `value` and `checked` are reactive rather than snapshots: `value` and the
- * checkbox `checked` are getters, and the radio `checked` is a thunk, so that a
- * spread (`{...register('email')}`) binds instead of freezing the value at
- * mount.
- *
- * A closed type alias rather than an interface: the key set really is closed
- * (this is the whole object register() builds), and closing it is what makes
- * the phantom `onInput` an error again instead of an `any` off an index
- * signature. It must stay a `type`, not an `interface`, because only a type
- * alias gets the implicit index signature that `h('input', register(name))`
- * needs to be assignable to Record<string, any>.
- */
-export type RegisterProps = {
-  name: string;
-  onBlur: () => void;
-  onFocus: () => void;
-  ref?: any;
-  /** text/select/textarea, and the option's own value on a radio. */
-  value?: any;
-  /** checkbox/radio only. */
-  checked?: boolean | (() => boolean);
-  /** text/select/textarea only. */
-  oninput?: (e: any) => void;
-  /** checkbox/radio only. */
-  onchange?: (e: any) => void;
-};
-
-export interface FormState {
-  readonly values: Record<string, any>;
-  readonly errors: Record<string, FieldError>;
-  error: (name: string) => FieldError | null;
-  readonly touched: Record<string, boolean>;
-  isDirty: () => boolean;
-  isValid: Computed<boolean>;
-  /** True while the resolver is running. Present since resolvers went async; never declared. */
-  isValidating: () => boolean;
-  isSubmitting: () => boolean;
-  isSubmitted: () => boolean;
-  submitCount: () => number;
-  dirtyFields: Computed<Record<string, boolean>>;
-}
-
-export interface UseFormReturn {
-  register: (name: string, options?: Record<string, any>) => RegisterProps;
-  handleSubmit: (
-    onValid: (values: Record<string, any>) => void | Promise<void>,
-    onInvalid?: (errors: Record<string, FieldError>) => void,
-  ) => (e?: Event) => Promise<void>;
-  setValue: (name: string, value: any, options?: Record<string, any>) => void;
-  getValue: (name: string) => any;
-  setError: (name: string, error: FieldError | null) => void;
-  clearError: (name: string) => void;
-  clearErrors: () => void;
-  reset: (newValues?: Record<string, any>) => void;
-  watch: (name?: string) => Computed<any>;
-  validate: (fieldName?: string) => Promise<boolean>;
-  formState: FormState;
-}
-
-export function useForm(options?: {
-  defaultValues?: Record<string, any>;
-  mode?: 'onSubmit' | 'onChange' | 'onBlur';
-  reValidateMode?: 'onChange' | 'onBlur';
-  resolver?: (values: Record<string, any>) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
-}): UseFormReturn;
-
-export function useField(name: string, options?: {
-  validate?: (value: any) => string | null | Promise<string | null>;
-  defaultValue?: any;
-}): {
-  name: string;
-  value: () => any;
-  error: () => string | null;
-  isTouched: () => boolean;
-  isDirty: () => boolean;
-  setValue: (value: any) => void;
-  setError: (error: string | null) => void;
-  validate: () => Promise<boolean>;
-  reset: () => void;
-  inputProps: () => Record<string, any>;
-};
-
-export const rules: {
-  required: (message?: string) => (value: any) => string | void;
-  minLength: (min: number, message?: string) => (value: any) => string | void;
-  maxLength: (max: number, message?: string) => (value: any) => string | void;
-  min: (min: number, message?: string) => (value: any) => string | void;
-  max: (max: number, message?: string) => (value: any) => string | void;
-  pattern: (regex: RegExp, message?: string) => (value: any) => string | void;
-  email: (message?: string) => (value: any) => string | void;
-  url: (message?: string) => (value: any) => string | void;
-  match: (field: string, message?: string) => (value: any, values: Record<string, any>) => string | void;
-  custom: <T extends (...args: any[]) => any>(validator: T) => T;
-};
-
-export function simpleResolver(ruleMap: Record<string, Array<(value: any, values: Record<string, any>) => string | void>>):
-  (values: Record<string, any>) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
-
-export function zodResolver(schema: { parseAsync: (values: any) => Promise<any> }):
-  (values: Record<string, any>) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
-
-export function yupResolver(schema: { validate: (values: any, options?: any) => Promise<any> }):
-  (values: Record<string, any>) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
-
-export function Input(props: Record<string, any>): VNode;
-export function Textarea(props: Record<string, any>): VNode;
-export function Select(props: Record<string, any>): VNode;
-export function Checkbox(props: Record<string, any>): VNode;
-export function Radio(props: Record<string, any>): VNode;
-
-export function ErrorMessage(props: {
-  name: string;
-  formState?: FormState;
-  errors?: Record<string, FieldError> | (() => Record<string, FieldError>);
-  render?: (args: { message?: string; type?: string }) => VNodeChild;
-}): VNode;
+// The context of one server render (loader data, head sink, resources, the
+// response), which what-server's renderToStringAsync takes and returns. It is
+// public from here; what-core/internal declares it beside the functions that
+// read and set it.
+export type { ServerContext } from './internal.js';
 
 // --- Structured Errors ---
 
@@ -872,7 +502,6 @@ export interface ErrorCodeDefinition {
   codeExample?: string;
 }
 
-export const ERROR_CODES: Record<string, ErrorCodeDefinition>;
 
 /**
  * Look up a catalogue entry by its `ERR_*` code.
@@ -885,6 +514,7 @@ export function getErrorDefinition(code: string): ErrorCodeDefinition | undefine
 
 export interface WhatErrorJSON {
   code: string;
+  severity: 'error' | 'warning';
   message: string;
   suggestion?: string;
   file?: string;
@@ -897,6 +527,8 @@ export interface WhatErrorJSON {
 export class WhatError extends Error {
   constructor(init: {
     code: string;
+    /** Defaults to `'error'`: the class does not read the catalogue (see getErrorDefinition). */
+    severity?: 'error' | 'warning';
     message: string;
     suggestion?: string;
     file?: string;
@@ -906,6 +538,7 @@ export class WhatError extends Error {
     effect?: string;
   });
   code: string;
+  severity: 'error' | 'warning';
   suggestion?: string;
   file?: string;
   line?: number;
@@ -915,90 +548,42 @@ export class WhatError extends Error {
   toJSON(): WhatErrorJSON;
 }
 
-export function createWhatError(
-  errorCode: string | ErrorCodeDefinition,
-  context?: Record<string, any>,
-): WhatError;
-export function classifyError(err: unknown, context?: Record<string, any>): WhatError;
-export function collectError(error: WhatError): void;
-export function getCollectedErrors(since?: number): Array<WhatErrorJSON & { timestamp: number }>;
-export function clearCollectedErrors(): void;
+// --- Diagnostics channel ---
+// Development checks report coded events here; this is the read side.
 
-// --- Guardrails ---
-
-export interface GuardrailConfig {
-  signalReadDetection: boolean;
-  componentNaming: boolean;
-  importValidation: boolean;
+export interface DiagnosticSubject {
+  kind: string;
+  id?: string | number;
+  name?: string;
 }
 
-export function configureGuardrails(overrides: Partial<GuardrailConfig>): void;
-export function getGuardrailConfig(): GuardrailConfig;
-export function installSignalReadGuardrail<T>(signalFn: T, debugName?: string): T;
-
-// --- Agent Context ---
-
-export interface HealthReport {
-  effectCycleRisk: boolean;
-  orphanEffects: number;
-  signalLeaks: number;
-  memoryPressure: 'low' | 'medium' | 'high';
-  recentErrorCount: number;
-  totalSignals: number;
-  totalComponents: number;
-}
-
-export function getHealth(): HealthReport;
-/** Expose globalThis.__WHAT_AGENT__ for agent tooling (dev mode only). */
-export function installAgentContext(): void;
-
-/** Warn when a component function is not PascalCase. Dev-mode only; returns null in production. */
-export function checkComponentName(name: string): GuardrailWarning | null;
-
-export interface GuardrailWarning {
+export interface DiagnosticEvent {
+  /** Monotonic sequence number; a repeat moves the event to a newer seq. */
+  seq: number;
   code: string;
-  name: string;
-  suggestion: string;
-}
-
-export interface InvalidImport {
-  name: string;
+  severity: 'error' | 'warning';
   message: string;
-  suggestion: string;
+  /** The catalogue suggestion for this code. */
+  fix: string;
+  /** Owner path, root first, e.g. ['<App>', '<TodoRow>', 'effect "sync"']. Empty when unknown. */
+  owner: string[];
+  /** Source location 'file:line:col' when the compiler supplied one. */
+  loc: string | null;
+  subject: DiagnosticSubject | null;
+  data: Record<string, any>;
+  /** Repeats of this code on this subject, folded into one event. */
+  count: number;
 }
 
-/** Report import names that are not valid exports of what-framework. Dev-mode only. */
-export function validateImports(importNames: readonly string[]): InvalidImport[];
 
-// --- Agent registries ---
-// The devtools bridge and MCP server read these to enumerate the live graph.
-// Registration is a no-op in production builds; the getters always return a copy.
+/** Listen to every report, repeats included. Returns an unsubscribe function. */
+export function subscribeDiagnostics(listener: (event: DiagnosticEvent) => void): () => void;
+/** Events with seq greater than `since`, oldest first; pass the returned seq back as the next `since`. */
+export function getDiagnostics(options?: { since?: number }): { events: DiagnosticEvent[]; seq: number; dropped: number };
+/** Forget buffered events and console pointers. */
+export function clearDiagnostics(): void;
 
-export function registerComponent(component: unknown): void;
-export function unregisterComponent(component: unknown): void;
-export function getMountedComponents(): unknown[];
-
-export function registerSignal(sig: unknown): void;
-export function unregisterSignal(sig: unknown): void;
-export function getActiveSignals(): unknown[];
-
-// --- Internal cross-package exports ---
-// Underscore-prefixed names are not public API and carry no compatibility
-// promise. They are declared here because sibling packages in this repo import
-// them across the package boundary (what-server, what-text), and an
-// undeclared cross-package import is exactly the rename that ships broken:
-// `hygiene:types` skips `_`-prefixed names in its reverse direction, so
-// nothing else would have caught it. Application code should not use these.
-
-/** @internal Used by what-server. True for `aria-*` and `data-*` attribute names. */
-export function _isAriaAttr(name: string): boolean;
-/** @internal Used by what-server. Opens an SSR component scope. */
-export function _beginComponentSSR(...args: unknown[]): unknown;
-/** @internal Used by what-server. Closes the scope opened by `_beginComponentSSR`. */
-export function _endComponentSSR(...args: unknown[]): unknown;
-/** @internal Used by what-server. The keyed-array mapping `<For>` compiles down to. */
-export function _mapArrayToArray(...args: unknown[]): unknown;
-/** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
-export function __installServerContextStorage(storage: unknown): void;
-/** @internal Used by what-text. Lets the text engine intercept text-node insertion. */
-export function _setTextInsertHook(hook: unknown): void;
+// Only what is exported above is public. Without this, a declaration file
+// exports every top-level declaration, `ownerBrand` included, and an Owner
+// could be forged.
+export {};

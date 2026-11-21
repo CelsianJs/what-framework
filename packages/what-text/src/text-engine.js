@@ -2,8 +2,7 @@
 // Powered by @chenglou/pretext. Registers a text insertion hook with what-core.
 // All Pretext access flows through this module.
 
-import { _setTextInsertHook } from 'what-core';
-import { isHydrating } from 'what-core/render';
+import { _setTextInsertHook, isHydrating } from 'what-core/render';
 
 // --- Configuration ---
 

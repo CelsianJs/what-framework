@@ -40,7 +40,9 @@ describe('shop e2e', () => {
   it('ISR: product page MISS then HIT with s-maxage', async () => {
     const first = await get('/product/tee');
     assert.equal(first.cache, 'MISS');
-    const second = await get('/product/tee');
+    // A returning browser sends the CSRF cookie back; a response that has to
+    // set it is never public, so no shared cache keeps one visitor's token.
+    const second = await get('/product/tee', { cookie: 'what-csrf=returning-visitor' });
     assert.equal(second.cache, 'HIT');
     assert.match(second.cc, /s-maxage=60/);
     assert.match(second.body, /No-VDOM Tee/);

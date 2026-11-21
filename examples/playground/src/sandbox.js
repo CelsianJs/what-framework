@@ -40,9 +40,9 @@ export function run(compiledCode, css = '') {
   // Recreate iframe to get a clean state (prevents leaking state between runs)
   recreateIframe();
 
-  // The compiled code uses imports from 'what-core' — we need to rewrite those
-  // to use the globals provided by the IIFE bundle.
-  // The babel plugin outputs: import { template, insert, ... } from "what-core";
+  // The compiled code imports from 'what-framework' and 'what-framework/render';
+  // we rewrite those to use the globals provided by the IIFE bundle.
+  // The babel plugin outputs: import { insert as _$insert, ... } from "what-framework/render";
   // We strip those imports and prepend destructuring from the __What global.
   const processedCode = rewriteImports(compiledCode);
 
@@ -83,23 +83,22 @@ var onCleanup = __What.onCleanup;
 var h = __What.h;
 var mount = __What.mount;
 var Fragment = __What.Fragment;
-var template = __What.template;
-var _template = __What._template;
-var _$template = __What._$template;
-var insert = __What.insert;
-var spread = __What.spread;
-var setProp = __What.setProp;
-var delegateEvents = __What.delegateEvents;
-var on = __What.on;
-var classList = __What.classList;
-var mapArray = __What.mapArray;
+var template = __What.render.template;
+var _$template = __What.render._$template;
+var insert = __What.render.insert;
+var spread = __What.render.spread;
+var setProp = __What.render.setProp;
+var delegateEvents = __What.render.delegateEvents;
+var on = __What.render.on;
+var classList = __What.render.classList;
+var mapArray = __What.render.mapArray;
 var memo = __What.memo;
 var lazy = __What.lazy;
 var Show = __What.Show;
 var For = __What.For;
 var Switch = __What.Switch;
 var Match = __What.Match;
-var _$createComponent = __What._$createComponent;
+var _$createComponent = __What.render._$createComponent;
 var createRoot = __What.createRoot;
 var untrack = __What.untrack;
 
@@ -150,18 +149,18 @@ try {
 }
 
 /**
- * Rewrite ES module imports from "what-core" to use global destructuring.
+ * Rewrite ES module imports from what-framework / what-core to use global destructuring.
  * The babel plugin emits:
- *   import { template as _$template, insert as _$insert, ... } from "what-core";
+ *   import { _$template, insert as _$insert, ... } from "what-framework/render";
  * We convert these to:
- *   const { template: _$template, insert: _$insert, ... } = __What;
+ *   const { _$template, insert: _$insert, ... } = __What.render;
  */
 function rewriteImports(code) {
   // Match import statements from what-core or what-framework (including subpaths)
   // The [^}] needs the `s` (dotAll) flag to match across newlines inside braces
   return code.replace(
-    /import\s*\{([\s\S]*?)\}\s*from\s*["'](?:what-core(?:\/[\w-]+)?|what-framework(?:\/[\w-]+)?|what-compiler\/runtime)["']\s*;?/g,
-    (_, specifiers) => {
+    /import\s*\{([\s\S]*?)\}\s*from\s*["'](what-core(?:\/[\w-]+)?|what-framework(?:\/[\w-]+)?|what-compiler\/runtime)["']\s*;?/g,
+    (_, specifiers, source) => {
       // Parse specifiers: "template as _$template, insert" -> destructuring
       const parts = specifiers.split(',').map(s => s.trim()).filter(Boolean);
       const destructured = parts.map(part => {
@@ -170,7 +169,7 @@ function rewriteImports(code) {
         if (asMatch) return `${asMatch[1]}: ${asMatch[2]}`;
         return part;
       }).join(', ');
-      return `const { ${destructured} } = __What;`;
+      return `const { ${destructured} } = ${source.endsWith('/render') ? '__What.render' : '__What'};`;
     }
   );
 }

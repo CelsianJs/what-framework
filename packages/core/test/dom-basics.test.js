@@ -296,11 +296,11 @@ describe('reactive function child disposal', () => {
     assert.equal(effectRuns, runsBeforeCleanup, 'effect did not run after disposal');
   });
 
-  it('_dispose is stored on reactive function comment markers', async () => {
+  it('brackets a region with paired comment markers, and stops it with its owner', async () => {
     const items = signal(['a']);
     const container = getContainer();
 
-    mount(
+    const unmount = mount(
       h('div', null, () => items().map(i => h('em', null, i))),
       container
     );
@@ -318,7 +318,16 @@ describe('reactive function child disposal', () => {
     }
     assert.ok(startMarker, 'start comment marker exists');
     assert.ok(endMarker, 'end comment marker exists');
-    assert.ok(typeof startMarker._dispose === 'function', '_dispose is stored on start marker');
+    assert.equal(startMarker._rangeEnd, endMarker, 'the start marker names the end of its range');
+
+    // The region belongs to the mount's root, not to its markers.
+    items(['a', 'b']);
+    await flush();
+    assert.equal(div.querySelectorAll('em').length, 2);
+    unmount();
+    items(['a', 'b', 'c']);
+    await flush();
+    assert.equal(div.querySelectorAll('em').length, 2, 'the region stopped with its owner');
   });
 });
 

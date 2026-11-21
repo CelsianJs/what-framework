@@ -95,7 +95,7 @@
 
           <p>Everything on this page is the <strong>in-browser query cache</strong>: it lives in the tab, it is keyed by query key, and it disappears on reload. The server-side render cache is a separate system with its own vocabulary (<code>revalidatePath</code>, <code>revalidateTag</code>, CDN headers) and is documented in <a href="./caching-isr.html">Caching &amp; ISR</a>.</p>
 
-<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">UserProfile</span>({ userId }) {
   <span class="keyword">const</span> { data, error, isLoading, isValidating } = <span class="function">useSWR</span>(
@@ -174,7 +174,7 @@
           <h2 id="invalidation">Cache Invalidation</h2>
           <p>After a mutation (create, update, delete), invalidate related queries to trigger a re-fetch:</p>
 
-<pre><code><span class="keyword">import</span> { invalidateQueries } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { invalidateQueries } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">async function</span> <span class="function">createPost</span>(data) {
   <span class="keyword">await</span> fetch(<span class="string">'/api/posts'</span>, {
@@ -211,7 +211,7 @@
           <h2 id="manual-cache">Manual Cache Control</h2>
           <p>Read and write cache entries directly for advanced scenarios:</p>
 
-<pre><code><span class="keyword">import</span> { setQueryData, getQueryData, clearCache } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { setQueryData, getQueryData, clearCache } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="comment">// Read from cache without triggering a fetch</span>
 <span class="keyword">const</span> cached = <span class="function">getQueryData</span>(<span class="string">'/api/user'</span>);
@@ -272,7 +272,7 @@
           <h2 id="prefetching">Prefetching</h2>
           <p>Pre-populate the cache before a component mounts. Useful for hover-to-prefetch patterns:</p>
 
-<pre><code><span class="keyword">import</span> { prefetchQuery } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { prefetchQuery } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">PostLink</span>({ id, title }) {
   <span class="keyword">return</span> (
@@ -328,7 +328,7 @@
 
           <p>To customize, clear stale data on logout or route transitions:</p>
 
-<pre><code><span class="keyword">import</span> { clearCache } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { clearCache } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 <span class="keyword">import</span> { navigate } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
 
 <span class="keyword">function</span> <span class="function">logout</span>() {
@@ -350,7 +350,7 @@
           <h2 id="error-handling">Error Handling</h2>
           <p>Errors are captured and available via the <code>error()</code> signal. Use the <code>onError</code> and <code>onSuccess</code> callbacks for side effects:</p>
 
-<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useSWR } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
 
 <span class="keyword">function</span> <span class="function">DataView</span>() {
   <span class="keyword">const</span> { data, error, revalidate } = <span class="function">useSWR</span>(<span class="string">'/api/data'</span>, fetcher, {

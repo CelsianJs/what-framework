@@ -15,51 +15,62 @@ npm install what-core
 ```js
 import { signal, computed, effect, batch, untrack } from 'what-core';
 
-const count = signal(0);
+const count = signal(0, 'count');
 
 // Read
 count();          // 0
 
-// Write
+// Write: count(5) and count((c) => c + 1) do the same
 count.set(5);
-count.set(c => c + 1);
+count.set((c) => c + 1);
 
-// Derived value
+// Derived value: recomputed when read after count changes
 const doubled = computed(() => count() * 2);
 
-// Side effects
+// Side effect: runs now, then again after count or doubled changes. A write
+// outside batch() runs the effects it affects on the next microtask.
 effect(() => {
-  console.log('Count:', count());
+  console.log('Count:', count(), 'doubled:', doubled());
 });
 
-// Batch updates (effects run once at the end)
-batch(() => {
-  a.set(1);
-  b.set(2);
+// Batch writes: the effects run once, synchronously, when the outermost batch
+// ends; batch() returns what the function returns
+const first = signal('Ada', 'first');
+const last = signal('Lovelace', 'last');
+const full = batch(() => {
+  first.set('Grace');
+  last.set('Hopper');
+  return `${first()} ${last()}`;
 });
 
 // Read without subscribing
-untrack(() => someSignal());
+untrack(() => count());
 count.peek();
 ```
 
 ## Hooks
 
-React-compatible hooks backed by signals internally.
+The hooks keep React's names and call shapes, but a component runs once, so
+they hand you signals: `useState` and `useReducer` return `[accessor, setter]`,
+`useMemo` returns an accessor (its dependency array is ignored), and
+`useEffect` re-runs when a signal it reads changes, or with a dependency array
+only for the accessors listed (`[count]`, never `[count()]`); `[]` runs it once
+after mount. Call hooks in a component body.
 
-```js
-import {
-  useState, useEffect, useMemo, useCallback,
-  useRef, useReducer, useContext, createContext,
-  onMount, onCleanup,
-} from 'what-core';
+```jsx
+import { useState, useEffect, useMemo } from 'what-core';
 
-const [count, setCount] = useState(0);
+function Clock() {
+  const [seconds, setSeconds] = useState(0);
+  const minutes = useMemo(() => Math.floor(seconds() / 60));
 
-useEffect(() => {
-  const id = setInterval(tick, 1000);
-  return () => clearInterval(id);
-}, []);
+  useEffect(() => {
+    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return <p>{minutes()}:{seconds() % 60}</p>;
+}
 ```
 
 ## Components
@@ -81,34 +92,47 @@ mount(<Counter />, '#app');
 
 | Export path | Contents |
 |---|---|
-| `what-core` | Signals, hooks, components, store, forms, data fetching, animation, a11y, skeleton loaders |
-| `what-core/render` | Fine-grained rendering primitives (`template`, `insert`, `spread`, `delegateEvents`) |
+| `what-core` | Signals, hooks, components and boundaries, context, store, `Head`, `mount`/`hydrate`, diagnostics |
+| `what-core/render` | Fine-grained rendering primitives (`template`, `insert`, `spread`, `delegateEvents`, `on`) |
+| `what-core/form` | Forms: `useForm`, `useField`, `rules`, resolvers, bound inputs |
+| `what-core/data` | Data fetching: `useSWR`, `useQuery`, `useFetch`, the query cache |
+| `what-core/a11y` | Focus management, ARIA helpers, announcements |
+| `what-core/ui` | Skeleton loaders and spinners |
+| `what-core/motion` | Springs, tweens, `useTween`, gestures, CSS transitions |
+| `what-core/dom` | The DOM read/write scheduler and DOM utilities |
+| `what-core/internal` | What sibling packages (what-server, what-devtools) share with core; not for apps |
 | `what-core/jsx-runtime` | JSX automatic runtime |
 | `what-core/testing` | Test utilities |
 
+`what-framework` re-exports each of these (except `internal`) under the same subpath.
+
 ## API Overview
 
-**Reactivity** -- `signal`, `computed`, `effect`, `batch`, `untrack`, `flushSync`, `createRoot`
+**Reactivity** -- `signal`, `computed`, `effect`, `batch`, `untrack`, `flushSync`, `createRoot`, `getOwner`, `runWithOwner`, `createSelector`
 
-**Rendering** -- `Fragment`, `html`, `mount`, `template`, `insert`, `spread`, `delegateEvents`
+**Async values** -- an async `computed`, `refresh`, `isPending`, `startTransition`, `useTransition`, `useOptimistic`, `use`, `settled` ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md))
 
-**Hooks** -- `useState`, `useSignal`, `useComputed`, `useEffect`, `useMemo`, `useCallback`, `useRef`, `useContext`, `useReducer`, `createContext`, `onMount`, `onCleanup`, `createResource`
+**Rendering** -- `h`, `Fragment`, `html`, `mount`, `hydrate`, `applyStreamedBoundaries`
+
+**Hooks** -- `useState`, `useSignal`, `useComputed`, `useEffect`, `useMemo`, `useCallback`, `useRef`, `useContext`, `useReducer`, `useId`, `createContext`, `onMount`, `onCleanup`, `createResource`, `useLoaderData`
 
 **Components** -- `memo`, `lazy`, `Suspense`, `ErrorBoundary`, `Show`, `For`, `Switch`, `Match`, `Island`, `Portal`
 
-**Store** -- `createStore`, `derived`, `atom`
+**Store** -- `createStore`, `derived`
 
-**Data Fetching** -- `useSWR`, `useQuery`, `useInfiniteQuery`, `invalidateQueries`, `prefetchQuery`
+**Head** -- `Head`, `getResponse`
 
-**Forms** -- `useForm`, `useField`, `rules`, `zodResolver`, `Input`, `Select`, `Checkbox`, `ErrorMessage`
+**Diagnostics** -- `getDiagnostics`, `subscribeDiagnostics`, `clearDiagnostics`, `getErrorDefinition`, `WhatError`
 
-**Animation** -- `spring`, `tween`, `easings`, `useGesture`, `useTransition`
+**Data Fetching** (`what-core/data`) -- `useSWR`, `useQuery`, `useInfiniteQuery`, `invalidateQueries`, `prefetchQuery`
 
-**Accessibility** -- `useFocusTrap`, `FocusTrap`, `announce`, `SkipLink`, `useRovingTabIndex`, `VisuallyHidden`, `useId`
+**Forms** (`what-core/form`) -- `useForm`, `useField`, `rules`, `zodResolver`, `Input`, `Select`, `Checkbox`, `ErrorMessage`
 
-**Scheduler** -- `scheduleRead`, `scheduleWrite`, `measure`, `mutate`, `onResize`, `onIntersect`
+**Animation** (`what-core/motion`) -- `spring`, `tween`, `easings`, `useGesture`, `useTween`
 
-**Head** -- `Head`, `clearHead`
+**Accessibility** (`what-core/a11y`) -- `useFocusTrap`, `FocusTrap`, `announce`, `SkipLink`, `useRovingTabIndex`, `VisuallyHidden`, `useIds`
+
+**Scheduler** (`what-core/dom`) -- `scheduleRead`, `scheduleWrite`, `measure`, `mutate`, `onResize`, `onIntersect`, `clearHead`
 
 ## Links
 

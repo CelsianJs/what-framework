@@ -37,13 +37,13 @@ function TestComponent() {
       </div>
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
         <button
-          onclick={scrollPrev}
+          onClick={scrollPrev}
           style={{ padding: '4px 10px', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
         >
           Prev
         </button>
         <button
-          onclick={scrollNext}
+          onClick={scrollNext}
           style={{ padding: '4px 10px', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
         >
           Next

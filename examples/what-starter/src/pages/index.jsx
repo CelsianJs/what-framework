@@ -20,12 +20,12 @@ export default function Home() {
           class="input search-input"
           type="text"
           placeholder="Search contacts..."
-          value={store.search}
+          value={() => store.search}
           onInput={e => store.setSearch(e.target.value)}
         />
         <select
           class="select"
-          value={store.sortBy}
+          value={() => store.sortBy}
           onChange={e => store.setSortBy(e.target.value)}
         >
           <option value="name">Sort by Name</option>
@@ -33,7 +33,7 @@ export default function Home() {
         </select>
       </div>
 
-      <p class="count">{store.count} contact{store.count !== 1 ? 's' : ''}</p>
+      <p class="count">{() => `${store.count} contact${store.count !== 1 ? 's' : ''}`}</p>
 
       <div class="card-list">
         {store.filtered.length > 0

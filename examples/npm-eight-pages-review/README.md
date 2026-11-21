@@ -23,14 +23,9 @@ npm run smoke
 
 ## Stack
 
-- `what-framework@0.4.2`
-- `what-compiler@0.4.2`
+- `what-framework`
+- `what-compiler` (its Vite plugin compiles the JSX)
 - `vite`
-
-## JSX Runtime Mode
-
-This project uses Vite `esbuild` JSX runtime with `jsxImportSource: "what-framework"` for stability while reviewing npm consumer DX.
-It intentionally avoids `what-compiler/vite` in this sample because that path produced blocker-level issues in this review cycle.
 
 ## Purpose
 

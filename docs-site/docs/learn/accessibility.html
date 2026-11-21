@@ -96,7 +96,7 @@
           <h3 id="use-focus">useFocus()</h3>
           <p>Track the currently focused element and move focus programmatically:</p>
 
-<pre><code><span class="keyword">import</span> { useFocus } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useFocus } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">const</span> focus = <span class="function">useFocus</span>();
 
@@ -111,7 +111,8 @@ focus.blur();</code></pre>
 
           <p>Inside a component, capture the node with a callback ref and focus it from <code>onMount</code>, once the element exists:</p>
 
-<pre><code><span class="keyword">import</span> { useFocus, onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { onMount } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useFocus } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">function</span> <span class="function">SearchBox</span>() {
   <span class="keyword">let</span> input;
@@ -125,7 +126,8 @@ focus.blur();</code></pre>
           <h3 id="use-focus-restore">useFocusRestore()</h3>
           <p>Capture trigger focus before opening overlays, then restore it after close:</p>
 
-<pre><code><span class="keyword">import</span> { signal, useFocusRestore } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useFocusRestore } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">const</span> isOpen = <span class="function">signal</span>(<span class="keyword">false</span>);
 <span class="keyword">const</span> focusRestore = <span class="function">useFocusRestore</span>();
@@ -143,7 +145,8 @@ focus.blur();</code></pre>
           <h3 id="use-focus-trap">useFocusTrap(containerRef)</h3>
           <p>Trap focus within a container element. When active, pressing Tab at the last focusable element wraps to the first, and Shift+Tab at the first wraps to the last. Essential for modals, dialogs, and dropdown menus.</p>
 
-<pre><code><span class="keyword">import</span> { useFocusTrap, onMount, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { onMount, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useFocusTrap } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">function</span> <span class="function">Modal</span>({ onClose, onConfirm }) {
   <span class="keyword">const</span> ref = { current: <span class="keyword">null</span> };
@@ -177,7 +180,8 @@ focus.blur();</code></pre>
           <h3 id="focus-trap-component">FocusTrap Component</h3>
           <p>Wrap the dialog subtree and conditionally mount it while open:</p>
 
-<pre><code><span class="keyword">import</span> { signal, FocusTrap } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { FocusTrap } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">function</span> <span class="function">AccountMenu</span>({ onLogout }) {
   <span class="keyword">const</span> isOpen = <span class="function">signal</span>(<span class="keyword">false</span>);
@@ -206,7 +210,7 @@ focus.blur();</code></pre>
           <h2 id="screen-reader">Screen Reader Announcements</h2>
           <p>Announce dynamic content changes to screen readers using an ARIA live region managed by the framework.</p>
 
-<pre><code><span class="keyword">import</span> { announce, announceAssertive } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { announce, announceAssertive } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="comment">// Polite announcement (waits for screen reader to finish current speech)</span>
 <span class="function">announce</span>(<span class="string">'3 new items loaded'</span>, {
@@ -220,7 +224,7 @@ focus.blur();</code></pre>
           <h3 id="live-region">LiveRegion Component</h3>
           <p>For content that updates continuously, wrap it in a <code>LiveRegion</code>:</p>
 
-<pre><code><span class="keyword">import</span> { LiveRegion } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { LiveRegion } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 &lt;LiveRegion priority=<span class="string">"polite"</span> atomic={<span class="keyword">true</span>}&gt;
   {() =&gt; <span class="string">`${itemCount()} items in cart`</span>}
@@ -234,7 +238,7 @@ focus.blur();</code></pre>
           <h3 id="use-aria-expanded">useAriaExpanded</h3>
           <p>Manage expandable UI like accordions, menus, and collapsible panels. The hook owns the open/closed signal and hands you the button and panel props:</p>
 
-<pre><code><span class="keyword">import</span> { useAriaExpanded } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useAriaExpanded } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">function</span> <span class="function">Accordion</span>({ title, children }) {
   <span class="keyword">const</span> disclosure = <span class="function">useAriaExpanded</span>(<span class="keyword">false</span>);
@@ -261,7 +265,7 @@ disclosure.close();     <span class="comment">// force closed</span></code></pre
           <h3 id="use-aria-selected">useAriaSelected</h3>
           <p>Track selection state for tab lists, listboxes, and similar patterns. <code>itemProps(value)</code> carries that item's <code>aria-selected</code> and an <code>onClick</code> that selects it, and it writes no <code>role</code>, so the one you set stays yours:</p>
 
-<pre><code><span class="keyword">import</span> { useAriaSelected } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useAriaSelected } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">const</span> tabs = <span class="function">useAriaSelected</span>(<span class="string">'home'</span>);
 
@@ -278,7 +282,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h3 id="use-aria-checked">useAriaChecked</h3>
           <p>Build accessible custom checkboxes with proper keyboard support (Space and Enter toggle). <code>checkboxProps()</code> carries the role, the tab stop, <code>aria-checked</code>, and both handlers:</p>
 
-<pre><code><span class="keyword">import</span> { useAriaChecked } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useAriaChecked } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">const</span> checkbox = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
 
@@ -291,7 +295,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
 
           <p>This is the one helper that writes a <code>role</code>, and it is always <code>"checkbox"</code>. Whether writing <code>role</code> beside the spread can override it depends on how the file is built, which is the reason not to try. Compiled, it cannot: the compiler folds static attributes into the element's template and applies the spread over the top, so <code>&lt;div role="switch" {...checkbox.checkboxProps()}&gt;</code> and <code>&lt;div {...checkbox.checkboxProps()} role="switch"&gt;</code> emit identical code and the helper wins both. Uncompiled, <code>h()</code> and the server renderer receive an ordinary object literal, so the last key wins and <code>h('div', { ...checkbox.checkboxProps(), role: 'switch' })</code> really does render <code>role="switch"</code>. A widget whose role changes when you turn the compiler on is not a widget worth shipping. For a switch, a menu item checkbox, or anything else that is checkable but not a checkbox, bind the pieces yourself:</p>
 
-<pre><code><span class="keyword">import</span> { useAriaChecked, Keys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useAriaChecked, Keys } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">const</span> sw = <span class="function">useAriaChecked</span>(<span class="keyword">false</span>);
 
@@ -313,7 +317,7 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h2 id="keyboard-navigation">Keyboard Navigation</h2>
           <p>The <code>useRovingTabIndex</code> hook implements the roving tabindex pattern for a composite widget like a toolbar, menu, tablist, or listbox: exactly one item is tabbable at a time, and the arrow keys move both that tab stop and real DOM focus. Spread <code>getItemProps(i)</code> onto each item and you are done.</p>
 
-<pre><code><span class="keyword">import</span> { useRovingTabIndex } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useRovingTabIndex } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">function</span> <span class="function">Toolbar</span>() {
   <span class="keyword">const</span> items = [<span class="string">'Bold'</span>, <span class="string">'Italic'</span>, <span class="string">'Underline'</span>, <span class="string">'Link'</span>];
@@ -344,7 +348,11 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
 <span class="keyword">const</span> roving = <span class="function">useRovingTabIndex</span>(items.length, { role: <span class="string">'menu'</span> });
 
 <span class="comment">// Or per call site, which wins over the hook option</span>
-&lt;div {...roving.<span class="function">containerProps</span>({ role: <span class="string">'menu'</span>, <span class="string">'aria-label'</span>: <span class="string">'Actions'</span> })}&gt;</code></pre>
+&lt;div {...roving.<span class="function">containerProps</span>({ role: <span class="string">'menu'</span>, <span class="string">'aria-label'</span>: <span class="string">'Actions'</span> })}&gt;
+  {items.map((label, i) =&gt; (
+    &lt;button key={label} role=<span class="string">"menuitem"</span> {...roving.<span class="function">getItemProps</span>(i)}&gt;{label}&lt;/button&gt;
+  ))}
+&lt;/div&gt;</code></pre>
 
           <p>Move focus yourself with <code>focusItem(index)</code>, which is what a menu wants when it opens. It returns the element it focused, or <code>null</code> when the index is out of range or the item is not in the DOM. <code>setFocusIndex(index)</code> moves the tab stop and follows it with focus only when focus is already inside the group, so syncing the index from application state cannot yank focus off an unrelated widget. Both refuse an index that does not exist rather than leaving the widget with no tabbable item.</p>
 
@@ -359,13 +367,14 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h3 id="skip-link">SkipLink</h3>
           <p>Renders a link that is hidden until focused. When activated, it moves focus to the target element. A childless <code>&lt;SkipLink /&gt;</code> falls back to the label <code>Skip to content</code>, and it does so identically on the client and in server-rendered HTML, so the link ships with its accessible name rather than gaining it at hydration.</p>
 
-<pre><code><span class="keyword">import</span> { SkipLink } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { SkipLink } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="comment">// Default target is #main</span>
-&lt;SkipLink&gt;Skip to content&lt;/SkipLink&gt;
+&lt;SkipLink&gt;Skip to content&lt;/SkipLink&gt;</code></pre>
 
-<span class="comment">// Custom target and label</span>
-&lt;SkipLink href=<span class="string">"#content"</span>&gt;Skip to main content&lt;/SkipLink&gt;</code></pre>
+          <p>Pass <code>href</code> for another target, and children for another label:</p>
+
+<pre><code>&lt;SkipLink href=<span class="string">"#content"</span>&gt;Skip to main content&lt;/SkipLink&gt;</code></pre>
 
           <p>Give the target a <code>tabindex="-1"</code> as well. <code>SkipLink</code> calls <code>focus()</code> on whatever the href matches, and a plain <code>&lt;main id="main"&gt;</code> is not focusable, so without it the page scrolls but keyboard focus stays on the link:</p>
 
@@ -374,23 +383,25 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h3 id="visually-hidden">VisuallyHidden</h3>
           <p>Hides content visually while keeping it accessible to screen readers. Uses the standard clip/overflow technique:</p>
 
-<pre><code><span class="keyword">import</span> { VisuallyHidden } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { VisuallyHidden } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 &lt;button&gt;
   &lt;IconTrash /&gt;
   &lt;VisuallyHidden&gt;Delete item&lt;/VisuallyHidden&gt;
-&lt;/button&gt;
+&lt;/button&gt;</code></pre>
 
-<span class="comment">// Renders as a span by default, use `as` for other elements</span>
-&lt;VisuallyHidden as=<span class="string">"div"</span>&gt;Loading complete&lt;/VisuallyHidden&gt;</code></pre>
+          <p>It renders a <code>&lt;span&gt;</code> by default. Use <code>as</code> for another element:</p>
+
+<pre><code>&lt;VisuallyHidden as=<span class="string">"div"</span>&gt;Loading complete&lt;/VisuallyHidden&gt;</code></pre>
 
           <h2 id="id-generation">ID Generation</h2>
           <p>Generate unique, stable IDs for connecting ARIA attributes across elements. One counter is shared by every prefix and by both helpers, so the number in an id reflects its position in the render's allocation order, not a per-prefix sequence. On the server the counter is scoped to the render and <code>hydrate()</code> restarts the sequence, so the ids the client produces reproduce the server's and <code>for</code> / <code>aria-labelledby</code> links survive hydration.</p>
 
-<pre><code><span class="keyword">import</span> { useId, useIds, useDescribedBy, useLabelledBy } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useId } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useIds, useDescribedBy, useLabelledBy } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="comment">// Single unique ID, the first allocation in this render</span>
-<span class="keyword">const</span> id = <span class="function">useId</span>(<span class="string">'dialog'</span>);  <span class="comment">// () => 'dialog-1'</span>
+<span class="keyword">const</span> id = <span class="function">useId</span>(<span class="string">'dialog'</span>);  <span class="comment">// 'dialog-1', a string as in React</span>
 
 <span class="comment">// Multiple IDs at once, continuing the same shared counter</span>
 <span class="keyword">const</span> [titleId, bodyId] = <span class="function">useIds</span>(<span class="number">2</span>, <span class="string">'section'</span>);
@@ -399,24 +410,41 @@ tabs.select(<span class="string">'about'</span>);        <span class="comment">/
           <h3 id="described-by">useDescribedBy</h3>
           <p>Connect a description to an element via <code>aria-describedby</code>:</p>
 
-<pre><code><span class="keyword">const</span> desc = <span class="function">useDescribedBy</span>(<span class="string">'Password must be 8+ characters'</span>);
+<pre><code><span class="keyword">import</span> { useDescribedBy } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
-&lt;input type=<span class="string">"password"</span> {...desc.describedByProps()} /&gt;
-&lt;desc.Description /&gt;
-<span class="comment">// Renders a hidden div with the description text, linked by ID</span></code></pre>
+<span class="keyword">function</span> <span class="function">PasswordField</span>() {
+  <span class="keyword">const</span> desc = <span class="function">useDescribedBy</span>(<span class="string">'Password must be 8+ characters'</span>);
+
+  <span class="keyword">return</span> (
+    &lt;&gt;
+      &lt;input type=<span class="string">"password"</span> {...desc.<span class="function">describedByProps</span>()} /&gt;
+      {<span class="comment">/* Renders a hidden div with the description text, linked by id */</span>}
+      &lt;desc.Description /&gt;
+    &lt;/&gt;
+  );
+}</code></pre>
 
           <h3 id="labelled-by">useLabelledBy</h3>
           <p>Connect a visible label to an element via <code>aria-labelledby</code>:</p>
 
-<pre><code><span class="keyword">const</span> label = <span class="function">useLabelledBy</span>(<span class="string">'Email Address'</span>);
+<pre><code><span class="keyword">import</span> { useLabelledBy } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
-&lt;h3 {...label.labelProps()}&gt;Email Address&lt;/h3&gt;
-&lt;input type=<span class="string">"email"</span> {...label.labelledByProps()} /&gt;</code></pre>
+<span class="keyword">function</span> <span class="function">EmailField</span>() {
+  <span class="keyword">const</span> label = <span class="function">useLabelledBy</span>(<span class="string">'Email Address'</span>);
+
+  <span class="keyword">return</span> (
+    &lt;&gt;
+      &lt;h3 {...label.<span class="function">labelProps</span>()}&gt;Email Address&lt;/h3&gt;
+      &lt;input type=<span class="string">"email"</span> {...label.<span class="function">labelledByProps</span>()} /&gt;
+    &lt;/&gt;
+  );
+}</code></pre>
 
           <h2 id="keyboard-helpers">Keyboard Helpers</h2>
           <p>Utility functions and constants for keyboard event handling.</p>
 
-<pre><code><span class="keyword">import</span> { signal, Keys, onKey, onKeys } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { Keys, onKey, onKeys } <span class="keyword">from</span> <span class="string">'what-framework/a11y'</span>;
 
 <span class="keyword">const</span> isOpen = <span class="function">signal</span>(<span class="keyword">true</span>);
 
@@ -430,14 +458,20 @@ Keys.Tab        <span class="comment">// 'Tab'</span>
 Keys.Home       <span class="comment">// 'Home'</span>
 Keys.End        <span class="comment">// 'End'</span>
 
-<span class="comment">// Handle a single key</span>
-&lt;input onKeyDown={<span class="function">onKey</span>(Keys.Escape, () =&gt; isOpen.set(<span class="keyword">false</span>))} /&gt;
+<span class="keyword">function</span> <span class="function">Panel</span>() {
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      {<span class="comment">/* Handle a single key */</span>}
+      &lt;input onKeyDown={<span class="function">onKey</span>(Keys.Escape, () =&gt; isOpen.set(<span class="keyword">false</span>))} /&gt;
 
-<span class="comment">// Handle multiple keys</span>
-&lt;div onKeyDown={<span class="function">onKeys</span>(
-  [Keys.Enter, Keys.Space],
-  (e) =&gt; { e.preventDefault(); isOpen.set(o =&gt; !o); }
-)} /&gt;</code></pre>
+      {<span class="comment">/* Handle multiple keys */</span>}
+      &lt;div tabIndex={<span class="number">0</span>} onKeyDown={<span class="function">onKeys</span>(
+        [Keys.Enter, Keys.Space],
+        (e) =&gt; { e.preventDefault(); isOpen.set(o =&gt; !o); }
+      )} /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
 
           <h2 id="live-demo">Live Demo</h2>
           <p>An accessible accordion built with <code>aria-expanded</code> attributes. Try using your keyboard, each button correctly announces its expanded state to screen readers.</p>

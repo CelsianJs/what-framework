@@ -19,7 +19,7 @@
   ],
   "sideEffects": false,
   "peerDependencies": {
-    "what-core": ">=0.7.0",
+    "what-core": "^0.14.0",
     "@chenglou/pretext": ">=0.0.5"
   },
   "peerDependenciesMeta": {

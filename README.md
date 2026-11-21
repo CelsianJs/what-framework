@@ -18,7 +18,7 @@
 - **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
 - **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast**: fine-grained, no VDOM. Measured by `npm run check:size` (production build, min+gzip): a counter app is 6.38KB, and the same app from the scaffold is 6.48KB. Minimal dependencies, fully tree-shakeable
+- **Small & Fast**: fine-grained, no VDOM. `npm run check:size` bundles counter apps for production (the `production` export condition), minified and gzipped with Node's zlib at level 9 (1 KB = 1024 B): written with `h()` and bundled by esbuild, a counter app is 8.22KB (8414 B); the create-what counter compiled from JSX by what-compiler/vite in a production `vite build`, the way the scaffold builds it, is 6.15KB (6302 B) of JavaScript, not counting the modulepreload polyfill Vite adds to a build from the scaffold's `index.html`. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
@@ -38,10 +38,12 @@ bridge the MCP server talks to, and wire it up for you. Add it by hand only when
 you are setting a project up manually:
 
 ```bash
-npm install -D what-devtools
+npm install -D what-devtools what-devtools-mcp
 ```
 
-Then connect your AI agent to a running What app:
+Add `whatDevToolsMCP()` from `what-devtools-mcp/vite-plugin` to the Vite
+plugins ([setup](packages/devtools-mcp/README.md#setup)), then connect your AI
+agent to a running What app:
 
 ```json
 {
@@ -54,7 +56,7 @@ Then connect your AI agent to a running What app:
 }
 ```
 
-Add to `.claude/mcp_servers.json` (Claude Code) or `.cursor/mcp.json` (Cursor).
+Add to `.mcp.json` in the project root (Claude Code) or `.cursor/mcp.json` (Cursor).
 
 ## Example Component
 
@@ -87,8 +89,8 @@ The 13 maintained packages publish together at the same version. The table also 
 
 | Package | Description |
 |---|---|
-| `what-framework` | Umbrella package — re-exports core, router, server, etc. |
-| `what-core` | Signals, components, reactivity, forms, data fetching |
+| `what-framework` | Umbrella package: the core API on its root entry; router, server and the kits (forms, data, motion, a11y, …) on subpaths |
+| `what-core` | Signals, components, reactivity, hooks, stores; forms, data fetching and the other kits on subpaths |
 | `what-compiler` | JSX transform and optimizing compiler (`what-compiler/vite`, `/babel`) |
 | `what-router` | File-based & programmatic routing with View Transitions |
 | `what-server` | SSR, islands architecture, static generation, server actions |
@@ -97,13 +99,15 @@ The 13 maintained packages publish together at the same version. The table also 
 | `create-what` | Project scaffolder (`npm create what@latest`) |
 | `what-framework-cli` | CLI — dev server, build, deploy tools (`what dev/build/start`) |
 | `what-devtools` | Browser dev panel (signal inspector, component tree) |
-| `what-devtools-mcp` | MCP server bridging AI agents to live app state — 29 live debugging tools |
+| `what-devtools-mcp` | MCP server bridging AI agents to live app state — 24 tools |
 | `what-mcp` | **Deprecated** — docs/assistance MCP server, superseded by `what-devtools-mcp` |
 | `what-react` | React compatibility layer (use React-ecosystem packages) |
 | `eslint-plugin-what` | ESLint rules — catch signal bugs, enforce patterns |
 
 The umbrella `what-framework` exposes subpaths: `what-framework/router`, `/server`,
-`/jsx-runtime`, etc.
+`/form`, `/data`, `/motion`, `/a11y`, `/ui`, `/dom`, `/render`, `/testing`,
+`/jsx-runtime`. [docs/UPGRADING.md](docs/UPGRADING.md) lists which names moved
+off the root entry in 0.15.
 
 ## Manual Setup
 
@@ -137,7 +141,7 @@ Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## MCP DevTools (AI Agent Debugging)
 
-What Framework ships an MCP server for AI-assisted development. 29 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See [docs/MCP-DEVTOOLS.md](docs/MCP-DEVTOOLS.md).
+What Framework ships an MCP server for AI-assisted development. 24 tools: inspect signals, effects, components, DOM, cache, dependency graphs and diagnostics in a live app, plus offline lint, scaffolding and error fixes. See [docs/MCP-DEVTOOLS.md](docs/MCP-DEVTOOLS.md).
 
 ## React Compatibility
 

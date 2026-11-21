@@ -71,7 +71,7 @@ describe('useId is stable per render, not per process', () => {
   // exactly the relationships useId exists to create.
   function Field({ label }) {
     const id = useId('fld');
-    return h('div', {}, h('label', { for: id() }, label), h('input', { id: id() }));
+    return h('div', {}, h('label', { for: id }, label), h('input', { id }));
   }
   const Page = () => h('form', {}, h(Field, { label: 'A' }), h(Field, { label: 'B' }));
 

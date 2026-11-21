@@ -189,15 +189,19 @@ describe('what-server: compiled-body diagnosis, negative controls', () => {
     // Widening the DOM-node branch far enough to swallow this would trade one
     // wrong diagnosis for another, and lose a security-relevant guard: tag names
     // are emitted verbatim into the HTML.
-    const err = capture(() => renderToString({ tag: 'div onload=alert(1) x', props: {}, children: [] }));
+    const err = capture(() => renderToString(h('div onload=alert(1) x', {})));
     assert.ok(err);
     assert.equal(err.code, 'ERR_INVALID_SSR_TAG');
   });
 
-  it('a component returning a plain object still reports ERR_INVALID_SSR_TAG', () => {
-    const err = capture(() => renderToString(h(() => ({ name: 'a' }), {})));
-    assert.ok(err);
-    assert.equal(err.code, 'ERR_INVALID_SSR_TAG');
+  // An object is an element only when it is a vnode (what-core's brand): one
+  // shaped like a vnode, from data, is text.
+  it('an object shaped like a vnode with a bad tag is text, never markup', () => {
+    assert.equal(renderToString({ tag: 'div onload=alert(1) x', props: {}, children: [] }), '[object Object]');
+  });
+
+  it('a component returning a plain object renders it as text', () => {
+    assert.equal(renderToString(h(() => ({ name: 'a' }), {})), '[object Object]');
   });
 
   it('an h()-authored equivalent still renders', () => {

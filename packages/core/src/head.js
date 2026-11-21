@@ -8,7 +8,9 @@
 // The server and client use IDENTICAL dedup keys so the rendered head matches
 // what the client would produce — no hydration mismatch.
 
-import { getServerContext } from './server-context.js';
+import { getServerContext, isServerRender } from './server-context.js';
+import { SAFE_ATTR_NAME, escapeHtml } from './markup-rules.js';
+import { isVNode } from './vnode-renderer.js';
 
 const headState = {
   title: null,
@@ -19,8 +21,13 @@ const headState = {
 // --- Head component ---
 // Use in any component to set head tags. Last one wins for title/meta.
 
-export function Head({ title, meta, link, children }) {
-  if (typeof document === 'undefined') {
+export function Head(props) {
+  const { title, meta, link, children } = readHeadChildren(props);
+  // Decided by the render scope, not by `typeof document`: under a DOM shim
+  // (jsdom, happy-dom, a Workers polyfill) a server render would otherwise
+  // write one request's title into the process-wide document and send a page
+  // with no <title>.
+  if (isServerRender()) {
     // Server: collect into the active render context's sink (if a render is
     // collecting head). No active context => no-op (renderToString body-only).
     const ctx = getServerContext();
@@ -48,6 +55,110 @@ export function Head({ title, meta, link, children }) {
   }
 
   return children || null;
+}
+
+// --- Head children ---
+// <title>, <meta> and <link> children are the props they spell, as React 19
+// hoists the same three: <Head><title>Hi</title></Head> sets the title, and a
+// child shares the props' dedup keys (later wins, so a child beats a prop of
+// the same Head). Any other child renders in place. A child is an h() or
+// JSX-runtime vnode, a DOM element (compiled JSX), or in a server render the
+// markup of what-compiler's server target (what-server's ssr-runtime).
+
+function readHeadChildren({ title, meta, link, children }) {
+  const found = { title, meta: toList(meta), link: toList(link), rest: [] };
+  collectHeadChildren(children, found);
+  const { rest } = found;
+  return { title: found.title, meta: found.meta, link: found.link, children: rest.length > 1 ? rest : rest[0] };
+}
+
+function toList(value) {
+  return value == null ? [] : Array.isArray(value) ? [...value] : [value];
+}
+
+function collectHeadChildren(child, found) {
+  if (child == null || typeof child === 'boolean') return;
+  if (Array.isArray(child)) {
+    for (const c of child) collectHeadChildren(c, found);
+    return;
+  }
+  const tag = readHeadTag(child);
+  if (tag === null) found.rest.push(child);
+  else if (tag.name === 'title') found.title = tag.text;
+  else found[tag.name].push(tag.attrs);
+}
+
+/** @returns {{ name: string, attrs: Record<string, any>, text: string } | null} */
+function readHeadTag(child) {
+  if (typeof child !== 'object') return null;
+  if (isServerMarkup(child)) return readHeadMarkup(child.parts(null));
+  if (isVNode(child) && typeof child.tag === 'string') {
+    if (!isHeadTag(child.tag)) return null;
+    const attrs = {};
+    for (const [k, v] of Object.entries(child.props || {})) {
+      if (k !== 'children' && k !== 'ref') attrs[propName(k)] = typeof v === 'function' ? v() : v;
+    }
+    return { name: child.tag, attrs, text: textOf(child.children) };
+  }
+  if (child.nodeType === 1 && isHeadTag(child.localName)) {
+    const attrs = {};
+    for (const a of child.attributes) attrs[propName(a.name)] = a.value;
+    return { name: child.localName, attrs, text: child.textContent };
+  }
+  return null;
+}
+
+function isHeadTag(name) {
+  return name === 'title' || name === 'meta' || name === 'link';
+}
+
+// The props spell http-equiv as httpEquiv, and metaKey() reads that spelling.
+function propName(name) {
+  return name === 'http-equiv' ? 'httpEquiv' : name;
+}
+
+function textOf(value) {
+  if (value == null || typeof value === 'boolean') return '';
+  if (typeof value === 'function') return textOf(value());
+  if (Array.isArray(value)) return value.map(textOf).join('');
+  return String(value);
+}
+
+// Markup is compiled JSX only when one of what-server's brand checks
+// recognises it (packages/server/src/compiled.js keeps them in this
+// process-wide set), so an object that merely looks like markup is a child.
+const HTML_CHECKS = Symbol.for('what-server.html.v2');
+
+function isServerMarkup(value) {
+  const checks = /** @type {any} */ (globalThis)[HTML_CHECKS];
+  if (checks === undefined) return false;
+  for (const is of checks) if (is(value)) return true;
+  return false;
+}
+
+// The server target compiles <title>, <meta> and <link> to markup it escaped
+// and quoted itself, so one tag with double-quoted attributes is all there is
+// to read. Its parts are one string unless it holds something rendered on
+// placement (a reactive child, a component), which renders in place.
+const TITLE_MARKUP = /^<title>([^<]*)<\/title>$/;
+const VOID_MARKUP = /^<(meta|link)((?:\s[^>]*)?)>$/;
+const ATTR_MARKUP = /\s([^\s="'>/]+)(?:="([^"]*)")?/g;
+
+function readHeadMarkup(markup) {
+  if (typeof markup !== 'string') return null;
+  const title = TITLE_MARKUP.exec(markup);
+  if (title) return { name: 'title', attrs: {}, text: unescapeHtml(title[1]) };
+  const tag = VOID_MARKUP.exec(markup);
+  if (!tag) return null;
+  const attrs = {};
+  for (const [, name, value] of tag[2].matchAll(ATTR_MARKUP)) attrs[propName(name)] = unescapeHtml(value ?? '');
+  return { name: tag[1], attrs, text: '' };
+}
+
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
+
+function unescapeHtml(str) {
+  return str.replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ENTITIES[e]);
 }
 
 // --- Server-side head collection ---
@@ -87,11 +198,9 @@ export function endHeadCollection(sink) {
 
 // Head attributes usually come from CMS/SEO data, so attribute NAMES must be
 // validated, not merely escaped: a key of `x" onload="alert(1)` would otherwise
-// break out of the quoted value and inject a live handler. Mirrors
-// what-server's SAFE_ATTR_NAME, plus a case-insensitive `on*` refusal so
-// `onLoad` cannot slip past an uppercase-tolerant name pattern.
-const SAFE_ATTR_NAME = /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/;
-
+// break out of the quoted value and inject a live handler. what-server's name
+// rule, plus a case-insensitive `on*` refusal so `onLoad` cannot slip past an
+// uppercase-tolerant name pattern.
 function isSafeAttrName(name) {
   if (!SAFE_ATTR_NAME.test(name)) return false;
   const lower = name.toLowerCase();
@@ -113,15 +222,6 @@ function renderHeadTag(tag, attrs) {
   return s + '>';
 }
 
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 // --- Client DOM helpers ---
 
 // Dedup keys come from user-supplied attrs (and fall back to JSON.stringify,
@@ -135,8 +235,10 @@ function escapeSelectorValue(key) {
 }
 
 function setHeadTag(tag, key, attrs) {
-  const existing = document.head.querySelector(`[data-what-head="${escapeSelectorValue(key)}"]`);
+  const existing = document.head.querySelector(`[data-what-head="${escapeSelectorValue(key)}"]`)
+    || serverTag(tag, attrs);
   if (existing) {
+    existing.setAttribute('data-what-head', key);
     updateElement(existing, attrs);
     return;
   }
@@ -148,6 +250,34 @@ function setHeadTag(tag, key, attrs) {
     el.setAttribute(attrName(k), v);
   }
   document.head.appendChild(el);
+}
+
+// The tag the server already wrote for these attributes, if it did: a
+// server-rendered document (renderToStringWithHead, renderDocument) and a
+// streamed boundary's late head carry no data-what-head, so a client <Head>
+// that only looked for it added a second copy of every tag when the page
+// hydrated. The identity is the one the server deduplicates by (writeToSink)
+// and the streamed head is applied with: a meta's name, property or
+// http-equiv, a link's rel and href, and for any other meta all of its
+// attributes.
+function serverTag(tag, attrs) {
+  for (let el = document.head.firstElementChild; el; el = el.nextElementSibling) {
+    if (el.localName === tag && !el.hasAttribute('data-what-head') && sameTag(tag, el, attrs)) return el;
+  }
+  return null;
+}
+
+function sameTag(tag, el, attrs) {
+  if (tag === 'link') {
+    return el.getAttribute('rel') === String(attrs.rel)
+      && el.getAttribute('href') === (attrs.href == null ? null : String(attrs.href));
+  }
+  if (attrs.name) return el.getAttribute('name') === String(attrs.name);
+  if (attrs.property) return el.getAttribute('property') === String(attrs.property);
+  if (attrs.httpEquiv) return el.getAttribute('http-equiv') === String(attrs.httpEquiv);
+  const written = Object.entries(attrs).filter(([k, v]) => v != null && v !== false && isSafeAttrName(attrName(k)));
+  return el.attributes.length === written.length
+    && written.every(([k, v]) => el.getAttribute(attrName(k)) === String(v));
 }
 
 function updateElement(el, attrs) {

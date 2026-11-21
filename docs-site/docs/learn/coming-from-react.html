@@ -105,45 +105,86 @@
             <p style="margin-top:8px;">Static parts are never recreated. Only the specific text nodes or attributes that depend on a signal are updated when that signal changes.</p>
           </div>
 
+          <h2 id="hooks">React's Hooks, in a Component That Runs Once</h2>
+
+          <p>The hooks keep React's names and call shapes: <code>const [count, setCount] = useState(0)</code>, <code>useReducer(reducer, initial)</code>, <code>useMemo(fn)</code>, <code>useEffect(fn, deps)</code> returning a cleanup, <code>useRef(initial).current</code>, <code>useContext(Ctx)</code>, <code>useId()</code> (a string). What differs is that a component runs once, so a hook cannot hand you this render's value. It hands you the signal:</p>
+
+          <ul>
+            <li><code>useState</code> and <code>useReducer</code> return <code>[accessor, setter]</code>. <code>count</code> is a function: read the value by calling it, <code>count()</code> or <code>state().items</code>. <code>setCount(5)</code> and <code>setCount((c) =&gt; c + 1)</code> write, as in React.</li>
+            <li><code>useMemo(fn)</code> returns an accessor too (<code>total()</code>), recomputed when a signal <code>fn</code> reads changes. Its dependency array is ignored, and so is <code>useCallback</code>'s, which returns your function unchanged.</li>
+            <li><code>useEffect(fn)</code> runs after the component mounts and re-runs when a signal it reads changes; the cleanup it returns runs before the next run and on unmount. With a dependency array it re-runs only for the accessors listed (<code>[count]</code>, never <code>[count()]</code>: a plain value reports <code>ERR_EFFECT_DEP_NOT_FUNCTION</code>), and <code>[]</code> runs it once.</li>
+            <li><code>useContext(Ctx)</code> returns what the nearest provider passed. Provide a signal for a value that changes (<code>&lt;Theme value={theme}&gt;</code>) and call it where you read it.</li>
+            <li>The rules that exist because React re-renders do not apply: no stale closures (a handler that calls <code>count()</code> reads the current value), no exhaustive dependency lists, nothing to memoize for a stable identity. Hooks still run only in a component body.</li>
+          </ul>
+
+          <p>The habit that makes React-trained code correct: <strong>whatever a hook or <code>signal()</code> returns, call it to read it.</strong> In development, a signal used as a value without the call (<code>`${count}`</code>, <code>count + 1</code>) reports <code>ERR_MISSING_SIGNAL_READ</code>.</p>
+
+<pre><code><span class="keyword">import</span> { mount, useState, useEffect, useMemo } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> [count, setCount] = <span class="function">useState</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> doubled = <span class="function">useMemo</span>(() =&gt; count() * <span class="number">2</span>);
+  <span class="function">useEffect</span>(() =&gt; {
+    document.title = <span class="string">`Count: ${count()}`</span>;
+  });
+  <span class="keyword">return</span> &lt;button onClick={() =&gt; setCount((c) =&gt; c + <span class="number">1</span>)}&gt;{() =&gt; <span class="string">`${count()} doubled is ${doubled()}`</span>}&lt;/button&gt;;
+}
+
+<span class="function">mount</span>(&lt;Counter /&gt;, <span class="string">'#app'</span>);</code></pre>
+
           <h2 id="state">State: useState vs useSignal</h2>
 
-          <p>To ease the transition, What ships <code>useSignal</code>, a thin shim that mirrors React's <code>use*</code> naming. It's used throughout this page so the React↔What mapping stays one-to-one. The canonical API is plain <a href="#signal-vs-usesignal"><code>signal()</code></a>, which works everywhere and returns the same object; reach for it once the hook habit fades.</p>
+          <p>What's <code>useState</code> hands you the signal's accessor and its setter. What also ships <code>useSignal</code>, which hands you the signal itself: you read it the same way and write it with <code>.set()</code>. The rest of this page uses <code>useSignal</code>; with <code>useState</code> the samples read the same and write through the setter. The canonical API is plain <a href="#signal-vs-usesignal"><code>signal()</code></a>, which works everywhere and returns the same object as <code>useSignal</code>; reach for it once the hook habit fades.</p>
 
           <table>
             <thead>
               <tr>
                 <th>React</th>
-                <th>What</th>
+                <th>What: <code>useState</code></th>
+                <th>What: <code>useSignal</code></th>
               </tr>
             </thead>
             <tbody>
               <tr>
+                <td><code>const [x, setX] = useState(0)</code></td>
                 <td><code>const [x, setX] = useState(0)</code></td>
                 <td><code>const x = useSignal(0)</code></td>
               </tr>
               <tr>
                 <td><code>x</code> (read)</td>
                 <td><code>x()</code> (read, call it like a function)</td>
+                <td><code>x()</code></td>
               </tr>
               <tr>
+                <td><code>setX(5)</code></td>
                 <td><code>setX(5)</code></td>
                 <td><code>x.set(5)</code></td>
               </tr>
               <tr>
+                <td><code>setX(prev =&gt; prev + 1)</code></td>
                 <td><code>setX(prev =&gt; prev + 1)</code></td>
                 <td><code>x.set(prev =&gt; prev + 1)</code></td>
               </tr>
             </tbody>
           </table>
 
-<pre><code><span class="comment">// React</span>
-<span class="keyword">function</span> <span class="function">Counter</span>() {
+          <p>In React:</p>
+
+<pre><code><span class="keyword">function</span> <span class="function">Counter</span>() {
   <span class="keyword">const</span> [count, setCount] = useState(<span class="number">0</span>);
   <span class="keyword">return</span> &lt;button onClick={() =&gt; setCount(c =&gt; c + <span class="number">1</span>)}&gt;{count}&lt;/button&gt;;
+}</code></pre>
+
+          <p>In What, with either hook:</p>
+
+<pre><code><span class="keyword">import</span> { useState, useSignal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Counter</span>() {
+  <span class="keyword">const</span> [count, setCount] = <span class="function">useState</span>(<span class="number">0</span>);
+  <span class="keyword">return</span> &lt;button onClick={() =&gt; setCount(c =&gt; c + <span class="number">1</span>)}&gt;{count()}&lt;/button&gt;;
 }
 
-<span class="comment">// What</span>
-<span class="keyword">function</span> <span class="function">Counter</span>() {
+<span class="keyword">function</span> <span class="function">SignalCounter</span>() {
   <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
   <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set(c =&gt; c + <span class="number">1</span>)}&gt;{count()}&lt;/button&gt;;
 }</code></pre>
@@ -196,7 +237,7 @@
               </tr>
               <tr>
                 <td><code>useMemo(() =&gt; expensive(), [dep])</code></td>
-                <td><code>useComputed(() =&gt; expensive(dep()))</code></td>
+                <td><code>useComputed(() =&gt; expensive(dep()))</code>, or <code>useMemo(() =&gt; expensive(dep()))</code>: both return an accessor, and <code>useMemo</code> ignores a dependency array</td>
               </tr>
               <tr>
                 <td><code>{count * 2}</code> in JSX</td>
@@ -253,8 +294,22 @@ useEffect(() =&gt; {
 
           <div class="callout callout-info">
             <p class="callout-title">What about useEffect?</p>
-            <p>What provides <code>useEffect(fn, deps)</code> for React compatibility, but the idiomatic approach is <code>effect(fn)</code> with auto-tracking. You'll never have a stale closure or missing dependency bug again.</p>
+            <p>What has <code>useEffect</code> too. Without a dependency array it auto-tracks, like <code>effect(fn)</code>: it runs after the component mounts and re-runs when a signal it reads changes, and the cleanup it returns runs before the next run and on unmount. With a dependency array it re-runs only for the accessors listed: <code>[count]</code>, never <code>[count()]</code>, which is a plain value and reports <code>ERR_EFFECT_DEP_NOT_FUNCTION</code>. <code>[]</code> runs it once, after mount. Either way, you'll never have a stale closure or missing dependency bug again.</p>
           </div>
+
+<pre><code><span class="keyword">import</span> { useSignal, useEffect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Title</span>() {
+  <span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
+  <span class="keyword">const</span> step = <span class="function">useSignal</span>(<span class="number">1</span>);
+
+  <span class="comment">// Re-runs when count changes, and not when step changes</span>
+  <span class="function">useEffect</span>(() =&gt; {
+    document.title = <span class="string">`Count: ${count()} (step ${step()})`</span>;
+  }, [count]);
+
+  <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set((c) =&gt; c + step())}&gt;{count()}&lt;/button&gt;;
+}</code></pre>
 
           <h3>Opting out of tracking</h3>
 
@@ -276,7 +331,7 @@ useEffect(() =&gt; {
 
           <h2 id="lifecycle">Lifecycle: onMount vs useEffect(fn, [])</h2>
 
-          <p>In React, "run once on mount" is <code>useEffect(() =&gt; {}, [])</code>. In What, use <code>onMount</code>:</p>
+          <p>In React, "run once on mount" is <code>useEffect(() =&gt; {}, [])</code>. That works in What too, and runs once after mount, but the idiomatic form is <code>onMount</code>:</p>
 
           <table>
             <thead>
@@ -296,7 +351,7 @@ useEffect(() =&gt; {
               </tr>
               <tr>
                 <td><code>useEffect(fn, [dep])</code></td>
-                <td><code>effect(fn)</code> (auto-tracks)</td>
+                <td><code>effect(fn)</code> (auto-tracks), or <code>useEffect(fn, [dep])</code> with <code>dep</code> the accessor</td>
               </tr>
               <tr>
                 <td>Cleanup on unmount</td>
@@ -339,7 +394,7 @@ useEffect(() =&gt; {
               <tr>
                 <td><code>signal(value)</code></td>
                 <td>Anywhere: module scope, components, stores</td>
-                <td><strong>Canonical.</strong> Read with <code>count()</code>, write with <code>count(v)</code> (or the explicit <code>count.set(v)</code>)</td>
+                <td><strong>Canonical.</strong> Read with <code>count()</code>, write with <code>count.set(v)</code> (or the shorthand <code>count(v)</code>)</td>
               </tr>
               <tr>
                 <td><code>useSignal(value)</code></td>
@@ -374,23 +429,28 @@ useEffect(() =&gt; {
             <tbody>
               <tr>
                 <td><code>useState</code></td>
-                <td><code>useSignal</code></td>
-                <td>Read with <code>()</code>, write with <code>.set()</code></td>
+                <td><code>useState</code> or <code>useSignal</code></td>
+                <td><code>useState</code> returns <code>[accessor, setter]</code>: read with <code>count()</code>, write with <code>setCount(v)</code>. <code>useSignal</code> returns the signal: read with <code>()</code>, write with <code>.set()</code></td>
+              </tr>
+              <tr>
+                <td><code>useReducer</code></td>
+                <td><code>useReducer</code></td>
+                <td>Returns <code>[accessor, dispatch]</code>: read with <code>state()</code></td>
               </tr>
               <tr>
                 <td><code>useMemo</code></td>
-                <td><code>useComputed</code></td>
-                <td>Auto-tracks, no deps array</td>
+                <td><code>useMemo</code> or <code>useComputed</code></td>
+                <td>Returns an accessor (<code>total()</code>) that tracks what it reads; <code>useMemo</code>'s dependency array is ignored</td>
               </tr>
               <tr>
                 <td><code>useEffect(fn, [deps])</code></td>
-                <td><code>effect(fn)</code></td>
-                <td>Auto-tracks signals, no deps array</td>
+                <td><code>effect(fn)</code> or <code>useEffect(fn)</code></td>
+                <td>Auto-tracks the signals it reads. <code>useEffect(fn, [count])</code> re-runs only for the accessors listed</td>
               </tr>
               <tr>
                 <td><code>useEffect(fn, [])</code></td>
-                <td><code>onMount(fn)</code></td>
-                <td>Runs once after first render</td>
+                <td><code>onMount(fn)</code> or <code>useEffect(fn, [])</code></td>
+                <td>Runs once after mount</td>
               </tr>
               <tr>
                 <td><code>useRef</code></td>
@@ -400,7 +460,7 @@ useEffect(() =&gt; {
               <tr>
                 <td><code>useCallback</code></td>
                 <td>Not needed</td>
-                <td>No re-renders means no stale closures</td>
+                <td>No re-renders means no stale closures. <code>useCallback</code> exists and returns your function unchanged</td>
               </tr>
               <tr>
                 <td><code>React.memo</code></td>
@@ -432,7 +492,7 @@ useEffect(() =&gt; {
 
           <h3>Context: two rules the run-once model adds</h3>
 
-          <p>The names match React, but the run-once model changes how you feed and read a context. A <code>Provider</code> body also runs once, so a <code>value</code> computed from a signal is captured at that moment and never refreshed. Pass the <strong>signal itself</strong> and let the consumer call it. And read the context during the component body: <code>useContext</code> called inside an event handler has no component to walk up from, so it returns the context's default value and logs a warning.</p>
+          <p>The names match React, but the run-once model changes how you feed and read a context. A <code>Provider</code> body also runs once, so a <code>value</code> computed from a signal is captured at that moment and never refreshed. Pass the <strong>signal itself</strong> and let the consumer call it. And read the context during the component body: <code>useContext</code> called inside an event handler has no component to walk up from, so it returns the context's default value, and development reports <code>ERR_HOOK_OUTSIDE_COMPONENT</code>.</p>
 
 <pre><code><span class="comment">// BROKEN: value is read once, consumers never see a change</span>
 &lt;Theme.Provider value={theme()}&gt;&lt;Panel /&gt;&lt;/Theme.Provider&gt;;
@@ -449,18 +509,21 @@ useEffect(() =&gt; {
 
           <h2 id="common-mistakes">Common Mistakes from React Habits</h2>
 
-          <h3>1. Forgetting to call the signal</h3>
+          <h3>1. Using the signal as a value</h3>
+          <p>On its own as a JSX child or attribute value, <code>{count}</code> is a live binding and needs no call. Anywhere else, the accessor is the function, not its value: in a template literal, in arithmetic or in a comparison it is converted to the function's source text, and development reports <code>ERR_MISSING_SIGNAL_READ</code>.</p>
+<!-- snippet: bad lint=ERR_MISSING_SIGNAL_READ -->
 <pre><code><span class="comment">// React habit: count is already a value</span>
-&lt;p&gt;{count}&lt;/p&gt;
+<span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
+&lt;p&gt;{<span class="string">`Count: ${count}`</span>}&lt;/p&gt;</code></pre>
 
-<span class="comment">// What: count is a function, call it</span>
-&lt;p&gt;{count()}&lt;/p&gt;</code></pre>
+<pre><code><span class="comment">// What: count is a function, call it</span>
+&lt;p&gt;{<span class="string">`Count: ${count()}`</span>}&lt;/p&gt;</code></pre>
 
           <h3>2. Inline math without useComputed</h3>
-<pre><code><span class="comment">// React habit: works because component re-runs</span>
-<span class="keyword">const</span> doubled = count * <span class="number">2</span>;
+<pre><code><span class="comment">// React habit: works because the component re-runs</span>
+<span class="keyword">const</span> doubled = count() * <span class="number">2</span>;  <span class="comment">// computed once, never updates</span></code></pre>
 
-<span class="comment">// What: need useComputed for derived values</span>
+<pre><code><span class="comment">// What: need useComputed (or useMemo) for derived values</span>
 <span class="keyword">const</span> doubled = <span class="function">useComputed</span>(() =&gt; count() * <span class="number">2</span>);</code></pre>
 
           <h3>3. Writing a signal in the component body</h3>
@@ -477,16 +540,24 @@ useEffect(() =&gt; {
   <span class="keyword">return</span> &lt;p&gt;{x()}&lt;/p&gt;;
 }</code></pre>
 
-          <h3>4. Adding unnecessary dependency arrays</h3>
-<pre><code><span class="comment">// React habit: manually listing deps</span>
-<span class="function">effect</span>(() =&gt; {
-  document.title = count();
-}, [count]);  <span class="comment">// ← Not needed, and doesn't do what you think</span>
+          <h3>4. Listing values in a dependency array</h3>
+          <p><code>effect()</code> takes no dependency array: its second argument is options, so an array there is ignored and the effect tracks what it reads. <code>useEffect</code> takes one, and it lists accessors. <code>[count()]</code> passes the number read once at setup, which never changes, so the effect never re-runs for it, and development reports <code>ERR_EFFECT_DEP_NOT_FUNCTION</code>.</p>
+<!-- snippet: bad lint=ERR_EFFECT_DEP_NOT_FUNCTION -->
+<pre><code><span class="comment">// React habit: list the values the effect reads</span>
+<span class="keyword">const</span> count = <span class="function">useSignal</span>(<span class="number">0</span>);
+<span class="function">useEffect</span>(() =&gt; {
+  document.title = <span class="string">`Count: ${count()}`</span>;
+}, [count()]);</code></pre>
 
-<span class="comment">// What: just use the signal, tracking is automatic</span>
-<span class="function">effect</span>(() =&gt; {
-  document.title = count();
-});</code></pre>
+<pre><code><span class="comment">// What: leave the array out, and the effect tracks what it reads</span>
+<span class="function">useEffect</span>(() =&gt; {
+  document.title = <span class="string">`Count: ${count()}`</span>;
+});
+
+<span class="comment">// Or list the accessor itself</span>
+<span class="function">useEffect</span>(() =&gt; {
+  document.title = <span class="string">`Count: ${count()}`</span>;
+}, [count]);</code></pre>
 
           <h2 id="react-compat">Using React Libraries in What</h2>
 
@@ -543,6 +614,7 @@ useEffect(() =&gt; {
           <div class="toc-title">On This Page</div>
           <ul class="toc-links">
             <li><a href="#the-big-difference">The Big Difference</a></li>
+            <li><a href="#hooks">React's Hooks</a></li>
             <li><a href="#state">useState vs useSignal</a></li>
             <li><a href="#derived-values">Why useComputed Exists</a></li>
             <li><a href="#set-in-body">.set() in the Body</a></li>

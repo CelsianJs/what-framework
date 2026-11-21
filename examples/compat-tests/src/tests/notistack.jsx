@@ -17,25 +17,25 @@ function NotificationButtons() {
     <div>
       <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
         <button
-          onclick={() => showNotification('success')}
+          onClick={() => showNotification('success')}
           style={{ padding: '3px 8px', cursor: 'pointer', background: '#166534', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '11px' }}
         >
           Success
         </button>
         <button
-          onclick={() => showNotification('error')}
+          onClick={() => showNotification('error')}
           style={{ padding: '3px 8px', cursor: 'pointer', background: '#991b1b', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '11px' }}
         >
           Error
         </button>
         <button
-          onclick={() => showNotification('warning')}
+          onClick={() => showNotification('warning')}
           style={{ padding: '3px 8px', cursor: 'pointer', background: '#854d0e', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '11px' }}
         >
           Warning
         </button>
         <button
-          onclick={() => showNotification('info')}
+          onClick={() => showNotification('info')}
           style={{ padding: '3px 8px', cursor: 'pointer', background: '#1e40af', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '11px' }}
         >
           Info

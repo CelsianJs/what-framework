@@ -6,6 +6,7 @@ import path from 'path';
 const compatPath = path.resolve(import.meta.dirname, '../../packages/react-compat/src');
 const corePath = path.resolve(import.meta.dirname, '../../packages/core/src/index.js');
 const coreRenderPath = path.resolve(import.meta.dirname, '../../packages/core/src/render.js');
+const coreInternalPath = path.resolve(import.meta.dirname, '../../packages/core/src/entries/internal.js');
 
 export default defineConfig({
   plugins: [tailwindcss()],
@@ -30,6 +31,9 @@ export default defineConfig({
       'what-framework/render': coreRenderPath,
       'what-framework': corePath,
       'what-core/render': coreRenderPath,
+      // what-react recognises vnodes with what-core/internal's isVNode; without
+      // this entry the 'what-core' prefix would map it to index.js/internal.
+      'what-core/internal': coreInternalPath,
       'what-core': corePath,
     },
     dedupe: ['what-core'],

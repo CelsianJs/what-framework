@@ -1,0 +1,23 @@
+// What Framework - Development flag
+//
+// What has two tiers, and __DEV__ is the only switch between them.
+//
+// - Production: scripts/build.js (dist/*.min.js) and what-compiler/vite (a
+//   production `vite build`, whether it resolves the dist or the source) define
+//   `__WHAT_DEV__` as `false`. The expression below then folds to `false` and
+//   the minifier removes every `if (__DEV__)` branch: dev code costs nothing.
+// - Development: everything unbuilt (Node, the test suite, dev servers) and the
+//   readable dist/*.js. Here `__WHAT_DEV__` is an ordinary global, so setting
+//   `globalThis.__WHAT_DEV__ = true` or `false` before the framework loads
+//   forces a tier. Without it, Vite's import.meta.env.DEV decides, then
+//   process.env.NODE_ENV, and a browser with neither gets production behaviour.
+//
+// This module imports nothing, so every module can read the flag from here
+// without risking an import cycle.
+
+/* global __WHAT_DEV__ */
+export const __DEV__ =
+  typeof __WHAT_DEV__ === 'boolean' ? __WHAT_DEV__
+    : import.meta.env ? !!import.meta.env.DEV
+      : typeof process !== 'undefined' && process.env ? process.env.NODE_ENV !== 'production'
+        : false;

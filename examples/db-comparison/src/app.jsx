@@ -1,4 +1,4 @@
-import { mount, signal, computed, onMount, onCleanup, mapArray } from 'what-framework';
+import { mount, signal, computed, onMount, onCleanup } from 'what-framework';
 import { createPrismaAdapter } from './adapters/prisma-mock.js';
 import { createBatadataAdapter } from './adapters/batadata-mock.js';
 
@@ -20,9 +20,10 @@ batadata._collections.set('categories', new Map(categories.map(c => [c.id, c])))
 // --- Shared State ---
 const activeTab = signal('crud', 'activeTab');
 const perfLog = signal([], 'perfLog');
+let perfSeq = 0;
 
 function logPerf(adapter, op, ms) {
-  perfLog(prev => [...prev.slice(-19), { adapter, op, ms, ts: Date.now() }]);
+  perfLog(prev => [...prev.slice(-19), { id: ++perfSeq, adapter, op, ms, ts: Date.now() }]);
 }
 
 // --- Timing helper ---
@@ -182,7 +183,7 @@ function CrudPanel({ adapter, type }) {
           style="flex:1"
         />
         <select value={categoryId} onChange={(e) => categoryId(e.target.value)}>
-          {categories.map(c => <option value={c.id}>{c.name}</option>)}
+          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <button type="submit">Add</button>
       </form>
@@ -206,13 +207,14 @@ function CrudPanel({ adapter, type }) {
 }
 
 // =============================================================================
-// TaskList — keyed mapArray for efficient reorder
+// TaskList — keyed .map(), which the compiler lowers to keyed reconciliation
 // =============================================================================
 function TaskList({ items, editingId, editTitle, onToggle, onDelete, onStartEdit, onSaveEdit }) {
   return (
     <div>
-      {mapArray(items, (item) => (
+      {items().map((item) => (
         <TaskRow
+          key={item.id}
           item={item}
           editingId={editingId}
           editTitle={editTitle}
@@ -221,7 +223,7 @@ function TaskList({ items, editingId, editTitle, onToggle, onDelete, onStartEdit
           onStartEdit={onStartEdit}
           onSaveEdit={onSaveEdit}
         />
-      ), { key: item => item.id, raw: true })}
+      ))}
     </div>
   );
 }
@@ -284,7 +286,7 @@ function PerfTab() {
         {() => perfLog().length === 0
           ? <div class="text-muted" style="padding:12px">No operations yet. Use the CRUD panels above.</div>
           : perfLog().slice().reverse().map(entry => (
-              <div class="item-row">
+              <div key={entry.id} class="item-row">
                 <span class="badge" style={() => entry.adapter === 'Prisma/Neon' ? 'background:#6366f130;color:#6366f1' : 'background:#22c55e30;color:#22c55e'}>
                   {entry.adapter}
                 </span>
@@ -459,6 +461,7 @@ function App() {
       <div class="tab-bar">
         {tabs.map(tab => (
           <button
+            key={tab.id}
             class={() => activeTab() === tab.id ? 'active' : ''}
             onClick={() => activeTab(tab.id)}
           >

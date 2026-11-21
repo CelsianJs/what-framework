@@ -53,7 +53,13 @@ describe('what-framework/server browser bundle', () => {
     const output = result.outputFiles.map((file) => file.text).join('\n');
     const bundledInputs = Object.keys(result.metafile.inputs);
 
-    assert.doesNotMatch(output, /\bnode:[a-z_/-]+|AsyncLocalStorage/);
+    // The error catalogue is import-free data the development tier carries for
+    // its reports, and one fix in it names node:crypto as text. Every other
+    // module of the bundle is checked as written.
+    const code = output.split(/^(?=\/\/ packages\/)/m)
+      .filter((chunk) => !/^\/\/ packages\/core\/(?:src|dist)\/errors(?:\.min)?\.js\n/.test(chunk))
+      .join('');
+    assert.doesNotMatch(code, /\bnode:[a-z_/-]+|AsyncLocalStorage/);
     assert.equal(
       bundledInputs.some((input) =>
         /packages[/\\]server[/\\](?:src[/\\](?:node\.js|adapter[/\\](?:node|static|vercel)\.js)|dist[/\\]node(?:\.min)?\.js)$/.test(input)

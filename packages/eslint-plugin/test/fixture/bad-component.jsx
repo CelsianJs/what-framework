@@ -9,9 +9,9 @@ const isLoading = signal(false, 'isLoading');
 export function Counter() {
   return (
     <div>
-      {/* what/signal-call-in-jsx — bare signal reference */}
+      {/* not a finding: a signal as the whole child is a live binding */}
       <span>{count}</span>
-      {/* what/signal-call-in-jsx (logical) — signal fn always truthy */}
+      {/* what/signal-call-in-jsx — a signal function is always truthy */}
       <p>{isLoading && <em>loading…</em>}</p>
       {/* what/no-camelcase-events — What uses lowercase DOM events */}
       <button onClick={() => count(count() + 1)}>Add</button>

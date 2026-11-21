@@ -149,7 +149,7 @@ function TestStore() {
       </button>
       <button onClick={() => store.clearNotifications()}>Clear</button>
       {() => store.notifications.map(n => (
-        <div style="padding:2px 0;font-size:13px">{n.message}</div>
+        <div key={n.id} style="padding:2px 0;font-size:13px">{n.message}</div>
       ))}
     </section>
   );
@@ -173,7 +173,7 @@ function TestHooks() {
       clearInterval(intervalRef.current);
     }
     return () => clearInterval(intervalRef.current);
-  }, [running()]);
+  }, [running]);
 
   return (
     <section>

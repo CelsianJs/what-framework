@@ -5,7 +5,7 @@ import { installDOM, flushMicrotasks } from '../../../test-utils/dom.js';
 installDOM();
 const { mount, ErrorBoundary, useState } = await import('../src/index.js');
 const { jsx } = await import('../src/jsx-runtime.js');
-const { getCurrentComponent, getComponentStack } = await import('../src/dom.js');
+const { getCurrentComponent } = await import('../src/dom.js');
 
 const originalError = console.error;
 let errors;
@@ -15,10 +15,15 @@ beforeEach(() => {
 });
 afterEach(() => {
   mount(null, '#app');
-  // Keep failed red runs independent: a broken boundary leaves this stack dirty.
-  getComponentStack().length = 0;
   console.error = originalError;
 });
+
+// The nearest component owner above a component's own owner.
+function parentComponent(owner) {
+  let o = owner.owner;
+  while (o && o.Component === undefined) o = o.owner;
+  return o || null;
+}
 
 function BrokenChild() { throw new Error('child failure'); }
 function brokenBoundary() {
@@ -34,7 +39,7 @@ describe('a throwing ErrorBoundary fallback restores render scope', () => {
     await flushMicrotasks();
     let parent;
     function Independent() {
-      parent = getCurrentComponent()._parentCtx;
+      parent = parentComponent(getCurrentComponent());
       return jsx('p', { children: 'independent' });
     }
     mount(jsx(Independent, {}), '#app');
@@ -48,7 +53,7 @@ describe('a throwing ErrorBoundary fallback restores render scope', () => {
     mount(brokenBoundary(), '#app');
     await flushMicrotasks();
     assert.throws(() => mount(jsx(BrokenChild, {}), '#app'), /child failure/);
-    assert.equal(getCurrentComponent(), undefined);
+    assert.equal(getCurrentComponent(), null);
   });
 
   it('unwinds nested boundaries without changing which boundary catches children', async () => {
@@ -63,8 +68,11 @@ describe('a throwing ErrorBoundary fallback restores render scope', () => {
       }),
     }), '#app');
     await flushMicrotasks();
-    assert.deepEqual(caught, ['inner:child failure']);
-    assert.equal(getCurrentComponent(), undefined);
+    // The inner fallback throws while the inner boundary's effect builds it, so
+    // that error goes to the boundary above, the outer one.
+    assert.deepEqual(caught, ['inner:child failure', 'outer:nested fallback failure']);
+    assert.equal(document.getElementById('app').textContent, 'outer');
+    assert.equal(getCurrentComponent(), null);
 
     mount(jsx(ErrorBoundary, {
       onError: error => caught.push(`new:${error.message}`),
@@ -72,8 +80,8 @@ describe('a throwing ErrorBoundary fallback restores render scope', () => {
       children: jsx(BrokenChild, {}),
     }), '#app');
     await flushMicrotasks();
-    assert.deepEqual(caught, ['inner:child failure', 'new:child failure']);
+    assert.deepEqual(caught, ['inner:child failure', 'outer:nested fallback failure', 'new:child failure']);
     assert.equal(document.getElementById('app').textContent, 'recovered');
-    assert.equal(getCurrentComponent(), undefined);
+    assert.equal(getCurrentComponent(), null);
   });
 });

@@ -5,11 +5,13 @@
 // in browser and non-Node edge bundles, including client server-action builds.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { __installServerContextStorage } from 'what-core';
+import { __installServerContextStorage } from 'what-core/internal';
 
 // Async components may access loader/resource/island state after an `await`.
 // One process-local provider keeps those reads bound to the request that
-// invoked the component even when multiple streams interleave.
+// invoked the component even when multiple streams interleave. Every render
+// also calls ensureServerRuntime(), which finds the same provider at run time;
+// this import is what covers Node releases without process.getBuiltinModule.
 __installServerContextStorage(new AsyncLocalStorage());
 
 export * from './index.js';

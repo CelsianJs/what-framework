@@ -109,7 +109,9 @@ describe('what babel plugin fine-grained output', () => {
     assert.match(code, /<input>/);
   });
 
-  it('injects expression markers and emits insert(parent, value, marker) calls', () => {
+  // An expression followed by an element is inserted before that element: the
+  // template needs no comment marker for it.
+  it('inserts an expression before the next element, with no marker comment', () => {
     const source = `
       function App() {
         const content = signal('x');
@@ -118,7 +120,8 @@ describe('what babel plugin fine-grained output', () => {
     `;
 
     const code = compileJSX(source, { filename: 'test.jsx' });
-    assert.match(code, /<!--\$-->/);
+    assert.match(code, /_\$template\("<main><p>before<\/p><p>after"\)/);
+    assert.doesNotMatch(code, /<!/);
 
     const ast = compileAst(source);
     const insertArgCounts = collectInsertArgCounts(ast);
@@ -369,7 +372,7 @@ describe('component output', () => {
     `);
 
     assert.match(code, /Hello /, 'text children must survive the directive');
-    assert.match(code, /<b>world<\/b>/, 'element children must survive the directive');
+    assert.match(code, /<b>world/, 'element children must survive the directive');
   });
 
   it('keeps island spread props, with explicit attributes winning', () => {
@@ -650,12 +653,15 @@ describe('event delegation', () => {
 // =========================================================================
 
 describe('issue #1: marker pre-capture for multiple dynamic children', () => {
+  // Three adjacent expressions need two placeholder markers (the last one
+  // appends), and inserting before the first would shift the second if it were
+  // read afterwards from firstChild.
   it('pre-captures markers when 2+ dynamic children exist', () => {
     const code = compileJSX(`
       import { signal } from 'what-framework';
       function App() {
         const items = signal([]);
-        return <div>{items().length === 0 ? "empty" : null}{items().map(i => i)}</div>;
+        return <div>{items().length === 0 ? "empty" : null}{items().map(i => i)}{items().length}</div>;
       }
     `);
 
@@ -716,11 +722,9 @@ describe('issue #4: ref prop handling in compiled output', () => {
     assert.ok(!code.includes('_$setProp') || !code.includes('"ref"'),
       'should not use setProp for ref');
 
-    // Should generate ref.current = el (or typeof check)
-    assert.ok(
-      code.includes('.current =') || code.includes('typeof'),
-      'should generate ref assignment (either .current = or typeof check)'
-    );
+    // A ref object or callback held in a binding goes through applyRef,
+    // which evaluates the expression once.
+    assert.match(code, /_\$applyRef\(boxRef, _el\$\d+\)/);
   });
 
   it('handles callback refs', () => {
@@ -731,11 +735,7 @@ describe('issue #4: ref prop handling in compiled output', () => {
       }
     `);
 
-    // Should generate typeof check for function vs object ref
-    assert.ok(
-      code.includes('typeof') || code.includes('.current'),
-      'should handle both function and object refs'
-    );
+    assert.match(code, /_\$applyRef\(refFn, _el\$\d+\)/);
   });
 });
 

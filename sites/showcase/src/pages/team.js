@@ -1,5 +1,7 @@
 // Team — showcases: useSWR, search with signals, skeleton loaders, For, Show, effects, useRef
-import { h, useState, useEffect, useRef, useMemo, useSWR, announce } from 'what-framework';
+import { h, useState, useEffect, useRef, useMemo } from 'what-framework';
+import { useSWR } from 'what-framework/data';
+import { announce } from 'what-framework/a11y';
 import { useAppStore } from '../app.js';
 import { fetchPeople } from '../data.js';
 

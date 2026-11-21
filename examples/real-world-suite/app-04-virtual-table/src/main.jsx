@@ -1,4 +1,5 @@
-import { mount, useSignal, useComputed, useEffect, useRef, onResize, batch } from 'what-framework';
+import { mount, useSignal, useComputed, useEffect, useRef, batch } from 'what-framework';
+import { onResize } from 'what-framework/dom';
 import { generateRows } from './data.js';
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ export {
 } from './file-router.js';
 
 export type { WhatVitePluginOptions, WhatVitePlugin } from './vite.js';
-export type { BabelPluginPass } from './babel.js';
+export type { BabelPluginPass, WhatBabelPluginOptions, ServerActionIdMetadata } from './babel.js';
 export type {
   ScannedRoutes,
   ScannedPage,

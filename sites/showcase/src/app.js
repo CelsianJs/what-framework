@@ -1,5 +1,6 @@
 // Flux — What Framework Showcase App
-import { h, mount, useState, useEffect, useRef, createStore, derived, announce } from 'what-framework';
+import { h, mount, useState, useEffect, useRef, createStore, derived } from 'what-framework';
+import { announce } from 'what-framework/a11y';
 import { Router, Link, defineRoutes, route, navigate, useRoute } from 'what-framework/router';
 
 import { Dashboard } from './pages/dashboard.js';

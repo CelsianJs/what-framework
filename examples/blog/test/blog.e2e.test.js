@@ -16,8 +16,8 @@ before(async () => {
 });
 after(() => server.close());
 
-async function get(path) {
-  const res = await fetch(base + path);
+async function get(path, headers) {
+  const res = await fetch(base + path, { headers });
   return { status: res.status, cache: res.headers.get('x-what-cache'), cc: res.headers.get('cache-control'), body: await res.text() };
 }
 
@@ -35,7 +35,9 @@ describe('blog e2e', () => {
     await get('/blog/why-signals');             // prime
     const first = await get('/blog/hello-world'); // distinct key -> MISS
     assert.equal(first.cache, 'MISS');
-    const second = await get('/blog/hello-world');
+    // A returning browser sends the CSRF cookie back; a response that has to
+    // set it is never public, so no shared cache keeps one visitor's token.
+    const second = await get('/blog/hello-world', { cookie: 'what-csrf=returning-visitor' });
     assert.equal(second.cache, 'HIT');
     assert.match(second.cc, /s-maxage=60/);
     assert.match(second.body, /The first post/);

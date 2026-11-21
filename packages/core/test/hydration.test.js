@@ -8,8 +8,8 @@ const { dom } = installDOM();
 
 const { h } = await import('../src/h.js');
 const { hydrate, isHydrating, delegateEvents } = await import('../src/render.js');
-const { mount, disposeTree } = await import('../src/dom.js');
-const { signal } = await import('../src/reactive.js');
+const { mount } = await import('../src/dom.js');
+const { signal, createRoot } = await import('../src/reactive.js');
 const { __setDevToolsHooks } = await import('../src/reactive.js');
 const { useEffect, onCleanup } = await import('../src/hooks.js');
 const { createContext, useContext } = await import('../src/hooks.js');
@@ -193,13 +193,7 @@ describe('renderToHydratableString()', () => {
   });
 
   it('should add dynamic content markers for reactive functions', () => {
-    const vnode = {
-      tag: 'div',
-      props: {},
-      children: [() => 'dynamic'],
-      key: null,
-      _vnode: true,
-    };
+    const vnode = h('div', {}, () => 'dynamic');
     const hydratable = renderToHydratableString(vnode);
     assert.ok(hydratable.includes('<!--$-->'), `Expected <!--$--> in: ${hydratable}`);
     assert.ok(hydratable.includes('<!--/$-->'), `Expected <!--/$--> in: ${hydratable}`);
@@ -286,8 +280,8 @@ describe('Context during hydration', () => {
 });
 
 // =========================================================================
-// A hydrated component's ctx has to be reachable from the DOM, or disposeTree
-// can never run its cleanups and every hydration leaks its effects.
+// A hydrated component belongs to the root hydrate() builds in: disposing it
+// runs the component's cleanups and disposes every effect hydration created.
 // =========================================================================
 
 describe('hydrated component disposal', () => {
@@ -325,11 +319,11 @@ describe('hydrated component disposal', () => {
       }
 
       const before = state.live;
-      hydrate(h(App), container);
+      const dispose = createRoot((d) => { hydrate(h(App), container); return d; });
       await flush();
       assert.ok(state.live > before, 'hydration must create effects for this tree');
 
-      disposeTree(container);
+      dispose();
       assert.equal(cleanedUp, 1, 'onCleanup must run for a hydrated component');
       assert.equal(effectCleanups, 1, 'useEffect cleanup must run for a hydrated component');
       assert.equal(state.live, before, 'every effect created during hydration must be disposed');
@@ -345,9 +339,9 @@ describe('hydrated component disposal', () => {
     function App() {
       return h('span', null, () => String(count()));
     }
-    hydrate(h(App), container);
+    const dispose = createRoot((d) => { hydrate(h(App), container); return d; });
     await flush();
-    disposeTree(container);
+    dispose();
     count(1);
     await flush();
     assert.equal(container.querySelector('span').textContent, '0');

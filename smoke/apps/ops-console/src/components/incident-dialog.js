@@ -5,16 +5,9 @@
 // destructures `active` once and components run once, so flipping that prop
 // would do nothing. Mount/unmount is the supported way to open and close.
 
-import {
-  FocusTrap,
-  Portal,
-  h,
-  rules,
-  signal,
-  simpleResolver,
-  useForm,
-  useId,
-} from 'what-framework';
+import { Portal, h, signal, useId } from 'what-framework';
+import { FocusTrap } from 'what-framework/a11y';
+import { rules, simpleResolver, useForm } from 'what-framework/form';
 
 export function IncidentDialog({ services, severities, onClose, onCreate }) {
   const titleId = useId('dialog-title');
@@ -70,12 +63,12 @@ export function IncidentDialog({ services, severities, onClose, onCreate }) {
     class: 'dialog',
     role: 'dialog',
     'aria-modal': 'true',
-    'aria-labelledby': titleId(),
+    'aria-labelledby': titleId,
     'data-dialog': '',
     onkeydown: (event) => { if (event.key === 'Escape') onClose(); },
   },
     h('div', { class: 'dialog-head' },
-      h('h2', { id: titleId() }, 'Declare incident'),
+      h('h2', { id: titleId }, 'Declare incident'),
       h('button', {
         type: 'button',
         class: 'icon-button',
@@ -94,7 +87,7 @@ export function IncidentDialog({ services, severities, onClose, onCreate }) {
           placeholder: 'checkout-api: 5xx on POST /orders',
           autocomplete: 'off',
           'data-dialog-title': '',
-          'aria-describedby': errorId(),
+          'aria-describedby': errorId,
           ...textField('title'),
         }),
       ),
@@ -117,7 +110,7 @@ export function IncidentDialog({ services, severities, onClose, onCreate }) {
       // One error slot, reactive text. `role="alert"` so the message is
       // announced the moment validation writes it.
       h('p', {
-        id: errorId(),
+        id: errorId,
         class: 'field-error',
         role: 'alert',
         'data-dialog-error': '',

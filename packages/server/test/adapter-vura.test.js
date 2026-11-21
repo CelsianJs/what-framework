@@ -53,7 +53,7 @@ describe('createVuraHandler', () => {
     const res = await fn.fetch(new Request('http://10.0.0.7:3001/'), Object.freeze({}));
     assert.ok(res instanceof Response);
     assert.equal(res.status, 200);
-    assert.match(await res.text(), /<main>vura<\/main>/);
+    assert.match(await res.text(), /<main data-hk="0">vura<\/main>/);
   });
 
   it('rebuilds request.url from x-forwarded-host/proto, keeping path and query', async () => {

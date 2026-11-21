@@ -17,6 +17,8 @@ const {
   Keys,
   useId,
   useIds,
+  useDescribedBy,
+  useLabelledBy,
   onKey,
   onKeys,
   useFocusRestore,
@@ -49,22 +51,28 @@ describe('accessibility utilities', () => {
   });
 
   describe('useId', () => {
-    it('should generate unique IDs', () => {
-      const getId1 = useId();
-      const getId2 = useId();
+    it('returns a string, as React does, and a new one per call', () => {
+      const id1 = useId();
+      const id2 = useId();
 
-      const id1 = getId1();
-      const id2 = getId2();
-
+      assert.equal(typeof id1, 'string');
       assert.notEqual(id1, id2);
       assert.ok(id1.startsWith('what-'));
       assert.ok(id2.startsWith('what-'));
     });
 
     it('should support custom prefix', () => {
-      const getId = useId('custom');
-      const id = getId();
+      const id = useId('custom');
       assert.ok(id.startsWith('custom-'));
+    });
+
+    it('useDescribedBy and useLabelledBy hand back the id as a string', () => {
+      const { descriptionId, describedByProps } = useDescribedBy('help');
+      const { labelId, labelledByProps } = useLabelledBy('name');
+      assert.equal(typeof descriptionId, 'string');
+      assert.equal(describedByProps()['aria-describedby'], descriptionId);
+      assert.equal(typeof labelId, 'string');
+      assert.equal(labelledByProps()['aria-labelledby'], labelId);
     });
   });
 

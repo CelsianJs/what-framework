@@ -13,6 +13,7 @@
       "default": "./src/index.js"
     },
     "./match": {
+      "types": "./match.d.ts",
       "production": "./dist/match.min.js",
       "import": "./src/match.js",
       "default": "./src/match.js"
@@ -21,7 +22,8 @@
   "files": [
     "src",
     "dist/**/*.min.js",
-    "index.d.ts"
+    "index.d.ts",
+    "match.d.ts"
   ],
   "sideEffects": false,
   "keywords": [

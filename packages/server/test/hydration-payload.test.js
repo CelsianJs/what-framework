@@ -16,7 +16,7 @@ describe('renderDocument', () => {
     const html = await renderDocument(mod, {});
     const scripts = html.match(/id="__what_data"/g) || [];
     assert.equal(scripts.length, 1);
-    assert.match(html, /<main>hi<\/main>/);
+    assert.match(html, /<main data-hk="0">hi<\/main>/);
     const json = html.match(/id="__what_data"[^>]*>([^<]*)</)[1];
     assert.deepEqual(JSON.parse(json).loaderData, { message: 'hi' });
   });

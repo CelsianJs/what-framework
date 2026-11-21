@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
 // What Framework - Build Script
-// Uses esbuild to produce proper ESM bundles per package.
-// Outputs both .js (ESM) and .min.js (minified) with source maps.
+// Uses esbuild to produce proper ESM bundles per package, in What's two tiers
+// (see packages/core/src/env.js):
+//   <entry>.js      development: readable, dev checks and devtools hooks kept,
+//                   __DEV__ resolved at runtime exactly as in src/.
+//   <entry>.min.js  production: minified, the flag folded to false so every
+//                   dev-only branch, and the code only they reach, is
+//                   removed (PRODUCTION below). This is what the
+//                   `production` export condition resolves to.
 
 import { build } from 'esbuild';
-import { mkdirSync, existsSync, statSync, rmSync } from 'fs';
-import { join, resolve } from 'path';
+import { mkdirSync, existsSync, statSync, rmSync, readdirSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { join, resolve, relative } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -19,22 +26,40 @@ const root = resolve(__dirname, '..');
 export const packages = [
   {
     name: 'core',
+    // The export map's targets. Every other module under src/ is built too:
+    // see `modules` below.
     entries: [
       { input: 'src/index.js', outputBase: 'index' },
       { input: 'src/render.js', outputBase: 'render' },
       { input: 'src/jsx-runtime.js', outputBase: 'jsx-runtime' },
       { input: 'src/jsx-dev-runtime.js', outputBase: 'jsx-dev-runtime' },
       { input: 'src/testing.js', outputBase: 'testing' },
+      { input: 'src/entries/a11y.js', outputBase: 'entries/a11y' },
+      { input: 'src/entries/ui.js', outputBase: 'entries/ui' },
+      { input: 'src/entries/motion.js', outputBase: 'entries/motion' },
+      { input: 'src/entries/dom.js', outputBase: 'entries/dom' },
+      { input: 'src/entries/form.js', outputBase: 'entries/form' },
+      { input: 'src/entries/data.js', outputBase: 'entries/data' },
+      { input: 'src/entries/internal.js', outputBase: 'entries/internal' },
+      { input: 'src/markup-rules.js', outputBase: 'markup-rules' },
     ],
     external: [],
-    // CRITICAL: build all entries together with code-splitting so shared
-    // stateful modules (dom.js's componentStack, reactive.js's tracking
-    // context) become ONE shared chunk imported by every entry. Without this,
-    // esbuild inlines a separate copy of dom.js/reactive.js into index.min.js
-    // and render.min.js, producing two component stacks — `useSignal` reads one
-    // while the compiler's `_$createComponent` pushes the other, blanking every
-    // production build. See AUDIT-2026-06-06.md C1.
-    split: true,
+    // One output file per source module, importing its siblings exactly as the
+    // source does (buildModules below). Two requirements decide this layout:
+    //
+    // - Shared state exists once. dom.js's component stack and reactive.js's
+    //   tracking context must be the same instance for every entry, or
+    //   `useSignal` reads one stack while the compiler's `_$createComponent`
+    //   pushes the other and every production build renders blank
+    //   (AUDIT-2026-06-06.md C1).
+    // - An app bundled from dist/ is as small as the same app bundled from
+    //   src/. A bundler drops whole modules an app never reaches only across
+    //   module boundaries, trusting `sideEffects: false`; inside one shared
+    //   chunk it must prove every statement removable, and the whole vnode
+    //   renderer once hung off a single kept statement. With the source's
+    //   module graph, dist/ tree-shakes exactly like src/ under esbuild, Rollup
+    //   and Rolldown (scripts/check-size.mjs measures both).
+    modules: true,
   },
   {
     name: 'router',
@@ -54,6 +79,7 @@ export const packages = [
       { input: 'src/node.js', outputBase: 'node' },
       { input: 'src/islands.js', outputBase: 'islands' },
       { input: 'src/actions.js', outputBase: 'actions' },
+      { input: 'src/ssr-runtime.js', outputBase: 'ssr-runtime' },
     ],
     // what-router/what-isr are optional peers (kept external, not inlined); the
     // deploy adapters lazy-import Node builtins which must not be bundled.
@@ -74,9 +100,16 @@ export const packages = [
       { input: 'src/render.js', outputBase: 'render' },
       { input: 'src/router.js', outputBase: 'router' },
       { input: 'src/server.js', outputBase: 'server' },
+      { input: 'src/ssr-runtime.js', outputBase: 'ssr-runtime' },
       { input: 'src/jsx-runtime.js', outputBase: 'jsx-runtime' },
       { input: 'src/jsx-dev-runtime.js', outputBase: 'jsx-dev-runtime' },
       { input: 'src/testing.js', outputBase: 'testing' },
+      { input: 'src/a11y.js', outputBase: 'a11y' },
+      { input: 'src/ui.js', outputBase: 'ui' },
+      { input: 'src/motion.js', outputBase: 'motion' },
+      { input: 'src/dom.js', outputBase: 'dom' },
+      { input: 'src/form.js', outputBase: 'form' },
+      { input: 'src/data.js', outputBase: 'data' },
     ],
     external: ['what-core', 'what-router', 'what-server', 'what-compiler'],
   },
@@ -96,6 +129,92 @@ export const packages = [
   },
 ];
 
+// The production tier. esbuild inlines an imported constant only while
+// linking, after dead-code elimination and tree shaking, so `if (__DEV__)
+// report()` would lose the call but keep report() and everything it imports.
+// Instead, each module's `__DEV__` import is blanked out (same length, so the
+// source maps stay exact) and the identifier, now free, is defined as `false`,
+// which esbuild folds while parsing: dev branches go, then whatever only they
+// used. Modules must import the flag as `__DEV__`, unrenamed.
+const DEV_IMPORT = /\bimport\s*\{([^}]*)\}\s*from\b/g;
+const foldDevFlag = {
+  name: 'what-production-dev-flag',
+  setup(build) {
+    build.onLoad({ filter: /[\\/]packages[\\/][^\\/]+[\\/]src[\\/].*\.js$/ }, async (args) => {
+      const source = await readFile(args.path, 'utf8');
+      if (!source.includes('__DEV__')) return undefined;
+      const contents = source.replace(DEV_IMPORT, (statement, specifiers) => statement.replace(
+        specifiers,
+        specifiers.replace(/\b__DEV__\b(?!\s+as\b)(\s*,)?/, (match) => ' '.repeat(match.length)),
+      ));
+      return { contents, loader: 'js' };
+    });
+  },
+};
+export const PRODUCTION = { define: { __WHAT_DEV__: 'false', __DEV__: 'false' }, plugins: [foldDevFlag] };
+
+// Every file under `dir`, as paths relative to it.
+function filesUnder(dir, base = dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? filesUnder(path, base) : [relative(base, path)];
+  });
+}
+
+// A relative import between source modules stays an import, of the sibling's
+// output in the same tier. `sideEffects: false` lets esbuild drop an import
+// whose bindings the folded production code no longer uses, instead of
+// keeping it as a bare `import "./x.min.js"`.
+function siblingModules(srcDir, extension) {
+  return {
+    name: 'what-sibling-modules',
+    setup(build) {
+      build.onResolve({ filter: /^\.\.?\/.*\.js$/ }, (args) => {
+        if (args.kind === 'entry-point' || !args.importer.startsWith(srcDir)) return undefined;
+        return { path: args.path.replace(/\.js$/, extension), external: true, sideEffects: false };
+      });
+    },
+  };
+}
+
+// The production tier keeps its whitespace: esbuild drops `/* @__PURE__ */`
+// annotations when it minifies whitespace, and they are what lets an app's
+// bundler remove an unused definition such as `Suspense` (components.js) or a
+// vnode producer and the renderer it installs (h.js). Every app bundler
+// minifies again, so the whitespace never reaches an app.
+export async function buildModules(pkgDir, distDir) {
+  const srcDir = join(pkgDir, 'src');
+  const common = {
+    entryPoints: existsSync(srcDir)
+      ? filesUnder(srcDir).filter((file) => file.endsWith('.js')).map((file) => join(srcDir, file))
+      : [],
+    outbase: srcDir,
+    outdir: distDir,
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    logLevel: 'silent',
+  };
+  await build({ ...common, sourcemap: true, plugins: [siblingModules(srcDir, '.js')] });
+  await build({
+    ...common,
+    ...PRODUCTION,
+    plugins: [...PRODUCTION.plugins, siblingModules(srcDir, '.min.js')],
+    minifySyntax: true,
+    minifyIdentifiers: true,
+    sourcemap: 'external',
+    entryNames: '[dir]/[name].min',
+  });
+}
+
+// Bytes of one tier: `.min.js` files, or the readable `.js` files beside them.
+function distBytes(distDir, minified) {
+  return filesUnder(distDir)
+    .filter((file) => file.endsWith('.js') && file.endsWith('.min.js') === minified)
+    .reduce((total, file) => total + statSync(join(distDir, file)).size, 0);
+}
+
 async function runBuild() {
 console.log('\n  Building What Framework with esbuild...\n');
 
@@ -114,50 +233,21 @@ for (const pkg of packages) {
   let pkgBundle = 0;
   let pkgMinified = 0;
 
-  if (pkg.split) {
-    // Build every entry in ONE esbuild call with splitting so shared internal
-    // modules are emitted as a single shared chunk (one runtime instance).
-    const entryPoints = pkg.entries
-      .map((e) => join(pkgDir, e.input))
-      .filter((p) => existsSync(p));
+  if (pkg.modules) {
     try {
-      const common = {
-        entryPoints,
-        bundle: true,
-        format: 'esm',
-        platform: 'browser',
-        splitting: true,
-        sourcemap: true,
-        treeShaking: true,
-        external: pkg.external,
-        target: 'es2022',
-        logLevel: 'silent',
-        outdir: distDir,
-      };
-      // Readable bundle: dist/<name>.js + shared chunk-<hash>.js
-      await build({ ...common, minify: false, entryNames: '[name]', chunkNames: 'chunk-[hash]' });
-      // Minified bundle: dist/<name>.min.js + shared chunk-<hash>.min.js
-      // sourcemap 'external': emit .map locally but no sourceMappingURL comment —
-      // only *.min.js ships to npm (package.json `files`), so a linked map would
-      // be a dangling 404 for CDN consumers.
-      await build({ ...common, minify: true, sourcemap: 'external', entryNames: '[name].min', chunkNames: 'chunk-[hash].min' });
-
-      for (const entry of pkg.entries) {
-        const bundlePath = join(distDir, `${entry.outputBase}.js`);
-        const minPath = join(distDir, `${entry.outputBase}.min.js`);
-        pkgBundle += existsSync(bundlePath) ? statSync(bundlePath).size : 0;
-        pkgMinified += existsSync(minPath) ? statSync(minPath).size : 0;
-      }
+      await buildModules(pkgDir, distDir);
+      pkgBundle = distBytes(distDir, false);
+      pkgMinified = distBytes(distDir, true);
     } catch (err) {
       failed = true;
-      console.error(`  ERROR building ${pkg.name} (split): ${err.message}`);
+      console.error(`  ERROR building ${pkg.name} (modules): ${err.message}`);
     }
 
     totalBundle += pkgBundle;
     totalMinified += pkgMinified;
     const ratio = pkgBundle > 0 ? ((1 - pkgMinified / pkgBundle) * 100).toFixed(0) : 0;
     console.log(
-      `  @what/${pkg.name}  bundle ${formatSize(pkgBundle)}  min ${formatSize(pkgMinified)}  (${ratio}% minification, split)`
+      `  @what/${pkg.name}  bundle ${formatSize(pkgBundle)}  min ${formatSize(pkgMinified)}  (${ratio}% minification, per module)`
     );
     continue;
   }
@@ -195,6 +285,7 @@ for (const pkg of packages) {
         treeShaking: true,
         external: pkg.external,
         minify: true,
+        ...PRODUCTION,
         target: 'es2022',
         logLevel: 'silent',
       });

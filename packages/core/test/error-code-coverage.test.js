@@ -16,12 +16,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  ERROR_CODES,
-  getErrorDefinition,
-  classifyError,
-  createWhatError,
-} from '../src/index.js';
+import { getErrorDefinition } from '../src/index.js';
+import { ERROR_CODES, classifyError, createWhatError } from '../src/entries/internal.js';
 
 describe('error code catalogue', () => {
   it('gives every entry a code, severity, template and suggestion', () => {
@@ -71,9 +67,9 @@ describe('classifyError resolves a thrown code', () => {
     assert.equal(classified.line, 12);
   });
 
-  it('falls through to message sniffing for an unknown code', () => {
+  it('does not guess a catalogue code for a foreign code, even when the text looks familiar', () => {
     const raw = Object.assign(new Error('hydration mismatch at <li>'), { code: 'ENOENT' });
-    assert.equal(classifyError(raw).code, 'ERR_HYDRATION_MISMATCH');
+    assert.equal(classifyError(raw).code, 'ERR_RUNTIME');
   });
 
   it('still returns ERR_RUNTIME for an error with no code and no pattern', () => {
@@ -103,7 +99,7 @@ describe('the errors packages actually throw', () => {
     'ERR_USE_INVALID_ARG',
     'ERR_PRETEXT_NOT_INSTALLED',
     'ERR_UNKNOWN_TOOL',
-    'ERR_DESTRUCTURED_PROPS',
+    'ERR_MOVED_IMPORT',
   ];
 
   for (const code of RAISED_OUTSIDE_CORE) {

@@ -1,4 +1,5 @@
-import { Show, VisuallyHidden, announce, useEffect, useFocus, useFocusTrap, useSignal } from 'what-framework';
+import { Show, useEffect, useSignal } from 'what-framework';
+import { VisuallyHidden, announce, useFocus, useFocusTrap } from 'what-framework/a11y';
 
 export const page = {
   mode: 'client',
@@ -49,7 +50,7 @@ export default function FocusPage() {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen()]);
+  }, [isOpen]);
 
   return (
     <section>

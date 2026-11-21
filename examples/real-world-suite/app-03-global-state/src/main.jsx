@@ -53,7 +53,7 @@ function Header() {
         data-testid="search-input"
         type="text"
         className="search-input"
-        value={store.searchQuery}
+        value={() => store.searchQuery}
         onInput={(e) => store.setSearch(e.target.value)}
         placeholder="Search tasks..."
       />
@@ -63,21 +63,21 @@ function Header() {
           <span className="label">Filter:</span>
           <button
             data-testid="filter-all"
-            className={store.filter === 'all' ? 'active' : ''}
+            className={() => (store.filter === 'all' ? 'active' : '')}
             onClick={() => store.setFilter('all')}
           >
             All
           </button>
           <button
             data-testid="filter-active"
-            className={store.filter === 'active' ? 'active' : ''}
+            className={() => (store.filter === 'active' ? 'active' : '')}
             onClick={() => store.setFilter('active')}
           >
             Active
           </button>
           <button
             data-testid="filter-done"
-            className={store.filter === 'done' ? 'active' : ''}
+            className={() => (store.filter === 'done' ? 'active' : '')}
             onClick={() => store.setFilter('done')}
           >
             Done
@@ -88,14 +88,14 @@ function Header() {
           <span className="label">Sort:</span>
           <button
             data-testid="sort-date"
-            className={store.sortBy === 'date' ? 'active' : ''}
+            className={() => (store.sortBy === 'date' ? 'active' : '')}
             onClick={() => store.setSort('date')}
           >
             Date
           </button>
           <button
             data-testid="sort-priority"
-            className={store.sortBy === 'priority' ? 'active' : ''}
+            className={() => (store.sortBy === 'priority' ? 'active' : '')}
             onClick={() => store.setSort('priority')}
           >
             Priority
@@ -113,7 +113,7 @@ function TaskList() {
 
   return (
     <ul className="task-list">
-      {store.filteredTasks.length === 0 && (
+      {() => store.filteredTasks.length === 0 && (
         <li className="empty-state">No tasks match your criteria.</li>
       )}
       {store.filteredTasks.map((task) => (
@@ -144,23 +144,25 @@ function TaskList() {
 }
 
 // --- Footer ---
-// Shows task counts and a "Clear Completed" button.
+// Shows task counts and a "Clear Completed" button. The component runs once,
+// so counts is an accessor: reading store.taskCounts in the body would keep
+// the first value forever.
 function Footer() {
   const store = useTaskStore();
-  const counts = store.taskCounts;
+  const counts = () => store.taskCounts;
 
   return (
     <footer className="footer">
       <span data-testid="task-count">
-        {counts.active} active / {counts.done} done / {counts.total} total
+        {counts().active} active / {counts().done} done / {counts().total} total
       </span>
-      {counts.done > 0 && (
+      {counts().done > 0 && (
         <button
           data-testid="clear-completed-btn"
           className="clear-btn"
           onClick={() => store.clearCompleted()}
         >
-          Clear Completed ({counts.done})
+          Clear Completed ({counts().done})
         </button>
       )}
     </footer>

@@ -1,0 +1,24 @@
+{
+  "name": "what-ssr-benchmark",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Server-rendering benchmark: what vs solid 1.9 vs solid 2.0 vs react 19 on the krausest table page. Deps are isolated here: run `npm install` IN THIS DIRECTORY, never at the repo root.",
+  "workspaces": [
+    "frameworks/solid1",
+    "frameworks/solid2"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "bench": "node build.mjs && node bench.mjs",
+    "bench:quick": "node build.mjs && node bench.mjs --quick",
+    "bench:hydrate": "node hydrate.mjs",
+    "bench:hydrate:quick": "node hydrate.mjs --quick"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.13",
+    "esbuild": "0.28.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

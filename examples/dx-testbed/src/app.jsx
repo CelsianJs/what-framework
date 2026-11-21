@@ -1,4 +1,5 @@
-import { mount, signal, effect, computed, onMount, onCleanup, useRef, batch, ErrorBoundary, createResource, mapArray, untrack } from 'what-framework';
+import { mount, signal, effect, computed, onMount, onCleanup, useRef, batch, ErrorBoundary, createResource, untrack } from 'what-framework';
+import { mapArray } from 'what-framework/render';
 // devtools bootstrap is now injected by the what-devtools-mcp Vite plugin
 // (see vite.config.js). No manual install needed.
 import { filter, newText, filteredTodos, counts, addTodo, toggleTodo, removeTodo, clearDone } from './store.js';
@@ -297,7 +298,7 @@ function ListTest() {
       </div>
       <div class="mt">
         {() => items().map(item => (
-          <div class="flex" style="padding:4px 0;border-bottom:1px solid var(--border)">
+          <div key={item.id} class="flex" style="padding:4px 0;border-bottom:1px solid var(--border)">
             <span style="font-variant-numeric:tabular-nums;min-width:30px;color:var(--muted)">#{item.id}</span>
             <span style="flex:1">{item.name}</span>
           </div>
@@ -551,7 +552,7 @@ function StressTest() {
       </div>
       <div class="mt" style="max-height:200px;overflow-y:auto">
         {() => items().map(item => (
-          <div style="padding:2px 0;font-size:12px;border-bottom:1px solid var(--border)">
+          <div key={item.id} style="padding:2px 0;font-size:12px;border-bottom:1px solid var(--border)">
             #{item.id}: {item.label}
           </div>
         ))}
@@ -912,7 +913,7 @@ function InlineExprTest() {
       </div>
       <div class="mt">
         {() => items().length > 0
-          ? items().map(n => <span class="tag" style="background:var(--border);margin:2px">{n}</span>)
+          ? items().map(n => <span key={n} class="tag" style="background:var(--border);margin:2px">{n}</span>)
           : <p class="text-muted">Empty</p>
         }
       </div>
@@ -1247,8 +1248,8 @@ function NestedMapTest() {
           <button onClick={() => removeGroup(group().id)} style="font-size:10px;padding:2px 6px;background:var(--danger)">x</button>
         </div>
         <div style="margin-top:4px;padding-left:12px">
-          {() => group().items.map((item, _i) => (
-            <span class="tag" style="margin:2px;background:var(--border)">{item}</span>
+          {() => group().items.map((item) => (
+            <span key={item} class="tag" style="margin:2px;background:var(--border)">{item}</span>
           ))}
         </div>
       </div>
@@ -1426,6 +1427,7 @@ function MiniAppTest() {
       <div class="flex" style="border-bottom:2px solid var(--border);margin-bottom:8px">
         {tabs.map((tab, i) => (
           <button
+            key={tab}
             onClick={() => activeTab(i)}
             style={() => `border-radius:4px 4px 0 0;border-bottom:2px solid ${activeTab() === i ? 'var(--accent)' : 'transparent'};background:${activeTab() === i ? 'var(--accent)' : 'transparent'};color:${activeTab() === i ? 'white' : 'inherit'}`}
           >
@@ -1951,7 +1953,7 @@ function FormControlsTest() {
         <div>
           <strong style="font-size:11px">Radio:</strong>
           {['red', 'green', 'blue'].map(c => (
-            <label class="flex" style="gap:4px;font-size:12px">
+            <label key={c} class="flex" style="gap:4px;font-size:12px">
               <input type="radio" name="color53" value={c}
                 checked={() => color() === c}
                 onChange={() => color(c)} />
@@ -1962,7 +1964,7 @@ function FormControlsTest() {
         <div>
           <strong style="font-size:11px">Checkboxes:</strong>
           {['cheese', 'peppers', 'onions'].map(t => (
-            <label class="flex" style="gap:4px;font-size:12px">
+            <label key={t} class="flex" style="gap:4px;font-size:12px">
               <input type="checkbox"
                 checked={() => toppings()[t]}
                 onChange={() => toggleTopping(t)} />
@@ -2184,7 +2186,7 @@ function InlineFilterMapTest() {
       <h2>Test 58: Computed Filter + mapArray</h2>
       <div class="flex">
         {['all', 'fruit', 'veggie'].map(c => (
-          <button class={() => showCat() === c ? '' : 'ghost'} onClick={() => showCat(c)}>
+          <button key={c} class={() => showCat() === c ? '' : 'ghost'} onClick={() => showCat(c)}>
             {c}
           </button>
         ))}

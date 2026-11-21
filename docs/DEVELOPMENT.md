@@ -66,18 +66,20 @@ npm run bench:gate
 
 This runs:
 
-1. Core benchmark suite (`benchmark/run.js`, best of 3 runs)
+1. Core benchmark suite (`benchmark/run.js`, best of 6 runs)
 2. DX microbenchmarks (`benchmark/dx-microbench.js`)
-3. Real DOM operations in Chromium (`benchmark/dom-gate.mjs`, 21 rounds)
+3. Script time from click until microtasks drain, with DOM verification in Chromium (`benchmark/dom-gate.mjs`, 21 rounds)
 4. Baseline comparison from `benchmark/baseline/*.json`
 
-Tolerances are 10% for core and DOM and 15% for DX (`WHAT_BENCH_TOLERANCE_CORE`, `WHAT_BENCH_TOLERANCE_DOM`, `WHAT_BENCH_TOLERANCE_DX`). A regression beyond tolerance fails the command. A DOM op must also move by more than the `noiseFloorMs` recorded in its baseline (0.5 ms), which is below 10% of every guarded op, so all nine are gated by the percentage rather than by the floor.
+Tolerances are 10% for core and DOM and 15% for DX (`WHAT_BENCH_TOLERANCE_CORE`, `WHAT_BENCH_TOLERANCE_DOM`, `WHAT_BENCH_TOLERANCE_DX`). A regression beyond tolerance fails the command. A DOM op must also move by more than the `noiseFloorMs` recorded in its baseline (0.005 ms, one tick of the isolated Chromium clock).
 
-Both benchmark harnesses are contaminated in one direction only: a descheduled process reports fewer ops per second, and a late frame reports more milliseconds. So core takes the best of three runs, and the DOM stage takes the 25th percentile of the pooled samples rather than a median.
+Core takes the best of six runs to reduce scheduling noise. The DOM stage uses the 25th percentile of the pooled script samples and records each round’s raw samples, browser provenance, and how often the frame callback provided the stop point.
 
 The DOM stage needs a Chromium and an install inside `benchmark/krausest`. CI's `bench-gate` job provisions both and runs it as a non-blocking gross-regression signal (50% tolerance, 5 rounds), because the baselines are recorded on local hardware and shared runners are slower. Set `WHAT_BENCH_SKIP_DOM=1` to skip the stage; nothing in `release:verify` sets it.
 
-Re-record the DOM baseline with `npm run bench:dom` (63 rounds), on an idle machine.
+Re-record the DOM baseline with `npm run bench:dom` (63 rounds) on an idle machine. The gate requires a script-only baseline stamped with `click-to-microtasks`.
+
+CI runs the What-only reactivity correctness gate with `npm ci --ignore-scripts --prefix benchmark/reactivity` followed by `npm run --prefix benchmark/reactivity bench -- --check`.
 
 To reduce flaky failures from machine jitter, the gate re-runs benchmarks once when an initial regression is detected.
 

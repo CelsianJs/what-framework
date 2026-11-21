@@ -113,5 +113,18 @@ export interface ExportStaticOptions {
   documentOptions?: DocumentOptions;
 }
 
-/** Pre-render every `static` and `hybrid` route to files under `outDir`. */
-export function exportStatic(options?: ExportStaticOptions): Promise<string[]>;
+export interface ExportStaticResult {
+  /** URL paths written as pages. */
+  pages: string[];
+  /** Pages whose loader or components redirected, written as redirect stubs. */
+  redirects: Array<{ path: string; location: string; status: number }>;
+  /** Pages that set a status other than 200; nothing was written for them. */
+  skipped: Array<{ path: string; status: number }>;
+}
+
+/**
+ * Pre-render every `static` and `hybrid` route to files under `outDir`. Each
+ * page gets a `response` as on a server: a redirect is written as a redirect
+ * stub, any other status but 200 skips the page.
+ */
+export function exportStatic(options?: ExportStaticOptions): Promise<ExportStaticResult>;

@@ -16,7 +16,8 @@
  * in native What trees render through a run-once bridge component.
  */
 
-import { Fragment as WhatFragment } from 'what-core';
+import { h, Fragment as WhatFragment } from 'what-core';
+import { isVNode } from 'what-core/internal';
 import { getBridge, _getCurrentInstance, flushUpdates, _drainAll } from './runtime.js';
 import {
   useState,
@@ -247,29 +248,14 @@ export function createElement(type, props, ...children) {
     }
   }
 
-  const key = props.key !== undefined ? props.key : null;
-  let finalProps = props;
-  if (props.key !== undefined) {
-    finalProps = { ...props };
-    delete finalProps.key;
-  }
-
   // Mirror children into props.children — React libraries read element.props.children
-  if (kids.length > 0) {
-    if (finalProps === props) finalProps = { ...props };
-    finalProps.children = kids.length === 1 ? kids[0] : kids;
-  }
+  if (kids.length > 0) props = { ...props, children: kids.length === 1 ? kids[0] : kids };
 
-  return {
-    $$typeof: REACT_ELEMENT_TYPE,
-    tag,
-    type,
-    props: finalProps,
-    children: kids,
-    key,
-    _vnode: true,
-    _compat: true,
-  };
+  // Core's producer makes the vnode (taking `key` out of the props) and
+  // installs core's vnode renderer in any bundle that creates one. Its
+  // children are replaced with this module's list, which keeps the holes the
+  // runtime reconciles by position and h() would drop.
+  return Object.assign(h(tag, props), { $$typeof: REACT_ELEMENT_TYPE, type, children: kids, _compat: true });
 }
 
 // ---- forwardRef ----
@@ -436,7 +422,7 @@ export function isValidElement(object) {
   return (
     typeof object === 'object' &&
     object !== null &&
-    (object._vnode === true || object.$$typeof !== undefined)
+    (isVNode(object) || object.$$typeof !== undefined)
   );
 }
 

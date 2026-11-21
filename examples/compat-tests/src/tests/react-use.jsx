@@ -11,7 +11,7 @@ function TestComponent() {
     <div ref={mouseRef}>
       <div style={{ marginBottom: '6px' }}>
         <button
-          onclick={toggle}
+          onClick={toggle}
           style={{ padding: '4px 10px', cursor: 'pointer', background: on ? '#22c55e' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
         >
           Toggle: {on ? 'ON' : 'OFF'}

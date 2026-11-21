@@ -97,9 +97,10 @@ function App() {
   const count = useSignal(0);
   const doubled = useComputed(() => count() * 2);
 
+  // Re-runs whenever count changes (it reads count())
   useEffect(() => {
     document.title = `Count: ${count()}`;
-  }, []);
+  });
 
   return (
     <main>
@@ -173,7 +174,7 @@ npm install zustand
 ```
 
 ```jsx
-import { mount, useSignal } from 'what-framework';
+import { mount, signal } from 'what-framework';
 import { create } from 'zustand';
 
 // Zustand store — works exactly like normal, no changes needed
@@ -183,14 +184,18 @@ const useStore = create((set) => ({
   reset: () => set({ count: 0 }),
 }));
 
+// You can mix What signals with React libraries. With reactCompat(), App
+// renders through what-react, so it is a React component that re-renders when
+// its React state changes: keep the signal outside it, where a re-render
+// cannot recreate it, and render it as a function child, which What keeps up
+// to date without re-rendering App.
+const localCount = signal(0, 'localCount');
+
 function App() {
-  // Zustand hook works inside a What component
+  // Zustand's hooks work here: what-react runs App with React semantics
   const count = useStore((s) => s.count);
   const increment = useStore((s) => s.increment);
   const reset = useStore((s) => s.reset);
-
-  // You can mix What signals with React libraries
-  const localCount = useSignal(0);
 
   return (
     <main>
@@ -205,7 +210,7 @@ function App() {
 
       <section>
         <h2>What Signal</h2>
-        <p>Local: {localCount()}</p>
+        <p>Local: {() => localCount()}</p>
         <button onClick={() => localCount.set(c => c + 1)}>+1</button>
       </section>
     </main>
@@ -215,7 +220,7 @@ function App() {
 mount(<App />, '#app');
 ```
 
-Under the hood, zustand internally imports `react` and calls `useState`/`useEffect`. The compat plugin redirects those to What's signals engine. Zustand never knows the difference — but your app is still a What app with `mount()`, signals, and the compiler.
+Under the hood, zustand internally imports `react` and calls `useState`/`useEffect`. The compat plugin redirects those to what-react, which runs them on What's signals engine. Zustand never knows the difference — but your app is still a What app with `mount()` and signals. The plugin compiles JSX with what-react's automatic runtime in place of what-compiler, so your components run with React semantics: they re-render, and hooks return values ([REACT-COMPAT.md](../REACT-COMPAT.md)).
 
 ---
 
@@ -289,7 +294,7 @@ function App() {
 
   return (
     <div>
-      <h1>Todos ({store.items.length})</h1>
+      <h1>Todos ({() => store.items.length})</h1>
       <button onClick={() => store.add('New task')}>Add</button>
       {store.filtered.map(t => (
         <div key={t.id} onClick={() => store.toggle(t.id)}>
@@ -303,12 +308,19 @@ function App() {
 mount(<App />, '#app');
 ```
 
+`store.items` and `store.filtered` read as values, and a read tracks only inside
+a reactive child or an effect: `{() => store.items.length}` updates, while a
+bare `{store.items.length}` would render the first count forever. The keyed
+`.map()` is a reactive list already. Actions assign through `this` and run as
+one batch.
+
 ---
 
 ## 8. Forms
 
 ```jsx
-import { mount, useForm, rules, simpleResolver, ErrorMessage } from 'what-framework';
+import { mount } from 'what-framework';
+import { useForm, rules, simpleResolver, ErrorMessage } from 'what-framework/form';
 
 function Signup() {
   const { register, handleSubmit, formState } = useForm({
@@ -345,15 +357,12 @@ mount(<Signup />, '#app');
 ## 9. Animation
 
 ```jsx
-import { mount, useSignal, useRef } from 'what-framework';
-import { spring } from 'what-framework';
+import { mount } from 'what-framework';
+import { spring } from 'what-framework/motion';
 
 function App() {
-  const ref = useRef(null);
-  if (!ref.current) {
-    ref.current = spring(0, { stiffness: 200, damping: 15 });
-  }
-  const x = ref.current;
+  // The component runs once, so the spring is created once
+  const x = spring(0, { stiffness: 200, damping: 15 });
 
   return (
     <div>
@@ -372,7 +381,7 @@ mount(<App />, '#app');
 
 | Package | What it does |
 |---------|-------------|
-| `what-framework` | Main package — signals, hooks, components, forms, animation, a11y |
+| `what-framework` | Main package — signals, hooks, components, stores, `Head`; the kits on subpaths (`/form`, `/data`, `/motion`, `/a11y`, `/dom`, `/ui`) |
 | `what-core` | Internal engine (most users use `what-framework` instead) |
 | `what-router` | Client-side routing, Link, navigate, guards |
 | `what-server` | SSR, streaming, islands, static generation |

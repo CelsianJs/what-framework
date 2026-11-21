@@ -13,7 +13,7 @@
 //   // Call from client
 //   const result = await saveUser({ name: 'John' });
 
-import { signal, batch } from 'what-core';
+import { signal } from 'what-core';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
 // Registry of server actions
@@ -295,73 +295,11 @@ export function useFormAction(actionFn, options = {}) {
 }
 
 // --- Optimistic updates ---
+// One implementation: what-core's, React 19's shape. An overlay added inside
+// startTransition (a server action called from it, say) lasts until that
+// transition commits, and drops with the real result in the same flush.
 
-export function useOptimistic(initialValue, reducer) {
-  const value = signal(initialValue);
-  const pending = signal(/** @type {any[]} */ ([]));
-  const baseValue = signal(initialValue); // Track the confirmed server value
-
-  function addOptimistic(action) {
-    const optimisticValue = reducer(value.peek(), action);
-    batch(() => {
-      pending.set([...pending.peek(), action]);
-      value.set(optimisticValue);
-    });
-  }
-
-  function resolve(action, serverValue) {
-    batch(() => {
-      pending.set(pending.peek().filter(a => a !== action));
-      if (serverValue !== undefined) {
-        baseValue.set(serverValue);
-        // Recompute optimistic state from new base + remaining pending actions
-        let current = serverValue;
-        for (const a of pending.peek()) {
-          current = reducer(current, a);
-        }
-        value.set(current);
-      }
-    });
-  }
-
-  function rollback(action, realValue) {
-    batch(() => {
-      const newPending = pending.peek().filter(a => a !== action);
-      pending.set(newPending);
-      const base = realValue !== undefined ? realValue : baseValue.peek();
-      baseValue.set(base);
-      // Recompute from base + remaining pending actions
-      let current = base;
-      for (const a of newPending) {
-        current = reducer(current, a);
-      }
-      value.set(current);
-    });
-  }
-
-  // Auto-rollback helper: wraps an async action with automatic rollback on error
-  async function withOptimistic(action, asyncFn) {
-    addOptimistic(action);
-    try {
-      const result = await asyncFn();
-      resolve(action, result);
-      return result;
-    } catch (e) {
-      rollback(action);
-      throw e;
-    }
-  }
-
-  return {
-    value: () => value(),
-    isPending: () => pending().length > 0,
-    addOptimistic,
-    resolve,
-    rollback,
-    withOptimistic,
-    set: (v) => { value.set(v); baseValue.set(v); },
-  };
-}
+export { useOptimistic } from 'what-core';
 
 // --- Path revalidation ---
 

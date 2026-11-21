@@ -33,7 +33,8 @@
  * - Errors thrown inside effects are logged, not routed to error boundaries.
  */
 
-import { untrack, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
+import { h, untrack, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
+import { isVNode } from 'what-core/internal';
 
 // ---- VNode kinds ----
 const KIND_HOLE = 0;      // null / undefined / boolean — placeholder comment (slot stability)
@@ -230,17 +231,13 @@ export function _drainAll() {
 // VNode classification & normalization
 // =====================================================================
 
-function isVNodeLike(v) {
-  return v !== null && typeof v === 'object' && (v._vnode === true || 'tag' in v);
-}
-
 function kindOf(v) {
   if (v == null || typeof v === 'boolean') return KIND_HOLE;
   const t = typeof v;
   if (t === 'string' || t === 'number' || t === 'bigint') return KIND_TEXT;
   if (t === 'function') return KIND_OPAQUE; // reactive accessor (What interop)
   if (t === 'object') {
-    if (isVNodeLike(v)) {
+    if (isVNode(v)) {
       const tag = v.tag;
       if (typeof tag === 'string') {
         if (tag === '__portal') return KIND_PORTAL;
@@ -249,7 +246,7 @@ function kindOf(v) {
         return KIND_ELEMENT;
       }
       if (typeof tag === 'function') {
-        return (tag._compatType || v._compat) ? KIND_COMPONENT : KIND_OPAQUE;
+        return (/** @type {any} */ (tag)._compatType || /** @type {any} */ (v)._compat) ? KIND_COMPONENT : KIND_OPAQUE;
       }
       return KIND_OPAQUE;
     }
@@ -301,7 +298,7 @@ function canPatch(rn, v, kind) {
       // parents to What components will NOT propagate (pass signals instead).
       if (typeof v === 'function' && typeof rn.vnode === 'function') return true;
       if (
-        isVNodeLike(v) && isVNodeLike(rn.vnode) &&
+        isVNode(v) && isVNode(rn.vnode) &&
         typeof v.tag === 'function' && rn.vnode.tag === v.tag &&
         (v.key ?? null) === rn.key
       ) return true;
@@ -597,7 +594,8 @@ function mountPortal(v, container, owner) {
 // Opaque subtree: delegate to what-core's renderer. We mount into a detached
 // fragment via core's public mount() (which returns a disposer), move the
 // nodes inline between our own markers, and on unmount move them BACK into the
-// holder fragment so core's disposer can run full disposeTree cleanup.
+// holder fragment, so core's disposer, which disposes the tree's root and
+// empties its container, removes them too.
 function mountOpaque(v, container) {
   const start = document.createComment('w:o');
   const end = document.createComment('/w:o');
@@ -624,8 +622,8 @@ function mountOpaque(v, container) {
   return {
     kind: KIND_OPAQUE, vnode: v, key: null, start, end,
     dispose: dispose && (() => {
-      // Move everything between the markers back into the holder so core's
-      // disposer (disposeTree + clear) tears down effects/components fully.
+      // Move everything between the markers back into the holder, which
+      // core's disposer empties after disposing the tree's root.
       let n = start.nextSibling;
       while (n && n !== end) {
         const next = n.nextSibling;
@@ -984,18 +982,12 @@ export function getBridge(renderFn) {
 
   bridge = function CompatBridge(coreProps) {
     // Snapshot core's reactive props proxy into a plain object.
-    const props = Object.assign({}, coreProps);
-    const vnode = {
-      tag: bridge, type: renderFn, props,
-      children: [], key: null, _vnode: true, _compat: true,
-    };
+    const vnode = Object.assign(h(bridge, Object.assign({}, coreProps)), { type: renderFn, _compat: true });
     const frag = document.createDocumentFragment();
     const rn = runInCommit(() => mountRNode(vnode, KIND_COMPONENT, frag, false, null));
-    try {
-      whatOnCleanup(() => unmountRNode(rn, false));
-    } catch {
-      // Not inside a core component (unusual) — leak-free unmount unavailable.
-    }
+    // Core runs the bridge as a component, so the cleanup belongs to the
+    // bridge's own component and runs when core unmounts it.
+    whatOnCleanup(() => unmountRNode(rn, false));
     return frag;
   };
   bridge._compatType = renderFn;

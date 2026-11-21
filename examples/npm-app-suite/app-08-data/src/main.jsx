@@ -1,4 +1,5 @@
-import { mount, useSWR } from 'what-framework';
+import { mount } from 'what-framework';
+import { useSWR } from 'what-framework/data';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

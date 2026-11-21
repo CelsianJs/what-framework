@@ -24,7 +24,14 @@
       "import": "./src/islands.js",
       "default": "./src/islands.js"
     },
+    "./ssr-runtime": {
+      "types": "./ssr-runtime.d.ts",
+      "production": "./dist/ssr-runtime.min.js",
+      "import": "./src/ssr-runtime.js",
+      "default": "./src/ssr-runtime.js"
+    },
     "./actions": {
+      "types": "./actions.d.ts",
       "production": "./dist/actions.min.js",
       "import": "./src/actions.js",
       "default": "./src/actions.js"
@@ -35,7 +42,9 @@
     "dist/**/*.min.js",
     "index.d.ts",
     "node.d.ts",
-    "islands.d.ts"
+    "islands.d.ts",
+    "actions.d.ts",
+    "ssr-runtime.d.ts"
   ],
   "sideEffects": [
     "./src/node.js",

@@ -167,8 +167,42 @@ describe('.map() lowering to _$mapArray', () => {
       }
     `);
     assert.match(code, /_\$mapArray/, 'should emit _$mapArray');
-    assert.match(code, /key:/, 'should include a key option');
-    // `raw: true` is required so the user's map callback receives the raw item.
+    assert.match(code, /key: item => item\.id/, 'should include a key option');
+    // The row reads the item for more than its key, so it reads it through an
+    // accessor and follows an item replaced under the same key.
+    assert.match(code, /follow:\s*true/);
+    assert.match(code, /\(_item\$0, _i\$0, item\) =>/);
+    assert.match(code, /\(\) => _\$item\(_item\$0\)\.name/, 'the read is a binding');
+  });
+
+  it('hands a row that reads only its key the raw item', () => {
+    const code = compileJSX(`
+      function App() {
+        return <ul>{ids().map(id => <Row key={id} id={id} />)}</ul>;
+      }
+    `);
+    assert.match(code, /raw:\s*true/);
+    assert.doesNotMatch(code, /follow/);
+  });
+
+  it('reads the item through its cell inside template literals and nested callbacks', () => {
+    const code = compileJSX(`
+      function App() {
+        return <ul>{items().map(item => <li key={item.id} title={\`#\${item.id}: \${item.name}\`} onClick={() => pick(item)}>{item.tags.map((tag) => <b>{tag}</b>)}</li>)}</ul>;
+      }
+    `);
+    assert.match(code, /follow:\s*true/);
+    assert.match(code, /\$\{_\$item\(_item\$0\)\.name\}/);
+    assert.match(code, /pick\(_\$item\(_item\$0\)\)/);
+    assert.match(code, /#\$\{item\.id\}/, 'the key expression reads the raw item');
+  });
+
+  it('keeps the raw item where the callback binds the name again', () => {
+    const code = compileJSX(`
+      function App() {
+        return <ul>{items().map(item => <li key={item.id} onClick={() => [1].forEach((item) => use(item))}>{item.name}</li>)}</ul>;
+      }
+    `);
     assert.match(code, /raw:\s*true/);
   });
 

@@ -14,7 +14,7 @@ describe('Cloudflare adapter', () => {
     const worker = createCloudflareHandler({ routes });
     const res = await worker.fetch(new Request('http://x/'), {}, { waitUntil() {} });
     assert.equal(res.status, 200);
-    assert.match(await res.text(), /<main>edge<\/main>/);
+    assert.match(await res.text(), /<main data-hk="0">edge<\/main>/);
   });
 });
 

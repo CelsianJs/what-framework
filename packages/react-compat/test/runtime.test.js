@@ -768,6 +768,32 @@ test('compat component works inside a native What tree (bridge)', async () => {
   assert.equal(container.querySelector('#bridged'), null);
 });
 
+test('a bridged compat component is unmounted with the What component that renders it', async () => {
+  const { h: whatH, mount: whatMount, signal, flushSync: whatFlush, getDiagnostics, clearDiagnostics } = await import('what-core');
+  clearDiagnostics();
+  const log = [];
+  function Leaf({ name }) {
+    useEffect(() => () => log.push(`${name} cleanup`), [name]);
+    return h('i', null, name);
+  }
+  const shown = signal(true, 'shownLeaf');
+  const container = makeContainer();
+  const unmount = whatMount(whatH('div', {}, h(Leaf, { name: 'root' }), () => (shown() ? h(Leaf, { name: 'region' }) : null)), container);
+  await tick();
+  assert.equal(container.textContent, 'rootregion');
+
+  shown(false);
+  whatFlush();
+  await tick();
+  assert.deepEqual(log, ['region cleanup'], 'the reactive region disposed its bridged child');
+
+  unmount();
+  await tick();
+  assert.deepEqual(log, ['region cleanup', 'root cleanup'], 'unmounting the tree disposed the rest');
+  const orphaned = getDiagnostics().events.filter((d) => d.code === 'ERR_CLEANUP_WITHOUT_OWNER');
+  assert.deepEqual(orphaned, [], 'every bridge registered its cleanup on its own component');
+});
+
 // ---------------------------------------------------------------
 // Misc API
 // ---------------------------------------------------------------

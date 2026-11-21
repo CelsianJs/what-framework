@@ -155,14 +155,14 @@ describe('a defaulted children prop applies on the server, as it does on the cli
   it('renderToHydratableString', async () => {
     assert.equal(
       await asServer(() => renderToHydratableString(h(SkipLink, {}))),
-      '<a data-hk="h0" href="#main">Skip to content</a>'
+      '<a data-hk="0" href="#main">Skip to content</a>'
     );
   });
 
   it('renderToStream', async () => {
     assert.equal(
       await asServer(() => streamToString(h(SkipLink, {}))),
-      '<a href="#main">Skip to content</a>'
+      '<a data-hk="0" href="#main">Skip to content</a>'
     );
   });
 
@@ -218,7 +218,7 @@ describe('a defaulted children prop applies on the server, as it does on the cli
     );
     assert.equal(
       await asServer(() => streamToString(vnode)),
-      '<a href="#main">Jump to content</a>'
+      '<a data-hk="0" href="#main">Jump to content</a>'
     );
     const host = document.getElementById('app');
     const unmount = mount(vnode, host);
@@ -240,7 +240,7 @@ describe('a defaulted children prop applies on the server, as it does on the cli
     );
     assert.equal(
       await asServer(() => streamToString(vnode)),
-      '<a href="#main">From props</a>'
+      '<a data-hk="0" href="#main">From props</a>'
     );
     const host = document.getElementById('app');
     const unmount = mount(vnode, host);
@@ -254,14 +254,15 @@ describe('a defaulted children prop applies on the server, as it does on the cli
   // A hand-built vnode (what a non-h() producer may hand the server) with no
   // children array at all must not crash the renderers.
   it('survives a vnode with no children array', async () => {
-    const vnode = { tag: SkipLink, props: {}, children: undefined, key: null, _vnode: true };
+    const { VNode } = await import('../../core/src/vnode-renderer.js');
+    const vnode = new VNode(SkipLink, {}, undefined, null);
     assert.equal(
       await asServer(() => renderToString(vnode)),
       '<a href="#main">Skip to content</a>'
     );
     assert.equal(
       await asServer(() => streamToString(vnode)),
-      '<a href="#main">Skip to content</a>'
+      '<a data-hk="0" href="#main">Skip to content</a>'
     );
   });
 });

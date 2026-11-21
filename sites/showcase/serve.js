@@ -29,6 +29,7 @@ function transformImports(code) {
     .replace(/from\s+['"]what-framework['"]/g, `from '/framework/core/src/index.js'`)
     .replace(/from\s+['"]what-framework\/router['"]/g, `from '/framework/router/src/index.js'`)
     .replace(/from\s+['"]what-framework\/server['"]/g, `from '/framework/server/src/index.js'`)
+    .replace(/from\s+['"]what-(?:framework|core)\/(a11y|ui|motion|dom|form|data|internal)['"]/g, `from '/framework/core/src/entries/$1.js'`)
     // Legacy aliases
     .replace(/from\s+['"]@what\/core['"]/g, `from '/framework/core/src/index.js'`)
     .replace(/from\s+['"]@what\/router['"]/g, `from '/framework/router/src/index.js'`)

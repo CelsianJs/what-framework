@@ -64,8 +64,8 @@ function handleSignals({ filter, id }, snapshot) {
 }
 ```
 
-The Node.js MCP server wraps these with `bridge.getOrRefreshSnapshot()`.
-The browser WebMCP server wraps them with `window.__WHAT_DEVTOOLS__.getSnapshot()`.
+The Node.js MCP server wraps these with a state read over the bridge (`fetchState`, which asks the page for `__WHAT_DEVTOOLS__.getState()`).
+The browser WebMCP server would call `window.__WHAT_DEVTOOLS__.getState()` directly.
 Same handlers, different plumbing.
 
 ## Implementation Path

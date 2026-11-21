@@ -424,6 +424,9 @@ function formatValue(value) {
       return '[Object]';
     }
   }
+  // A value can itself be a signal or computed; stringifying one would be the
+  // coercion ERR_MISSING_SIGNAL_READ reports.
+  if (typeof value === 'function') return `[Function: ${value.name || 'anonymous'}]`;
   return String(value);
 }
 

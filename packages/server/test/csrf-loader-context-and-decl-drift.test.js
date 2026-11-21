@@ -498,16 +498,17 @@ describe('#29 core declarations match the reactive runtime', () => {
     assert.equal(diags.length, 0, `expected no diagnostics, got:\n${summarize(diags)}`);
   });
 
-  it('types batch() as returning nothing, because it returns undefined', () => {
+  it('types batch() as returning its callback value, as the runtime does', async () => {
+    const { batch } = await import('what-core');
+    assert.equal(batch(() => 42), 42);
     const diags = diagnose('__probe-batch.ts', `
       import { batch, signal } from 'what-core';
       const a = signal(0);
       export const value: number = batch(() => { a(1); return 42; });
+      // @ts-expect-error the result is the callback's type, not any
+      export const wrong: string = batch(() => 42);
     `);
-    assert.ok(
-      diags.some((d) => d.code === 2322),
-      `batch() returns undefined at runtime, so its result must not be assignable to number. Got:\n${summarize(diags) || '(no diagnostics)'}`,
-    );
+    assert.equal(diags.length, 0, `expected no diagnostics, got:\n${summarize(diags)}`);
   });
 
   it('still accepts batch() as a statement', () => {

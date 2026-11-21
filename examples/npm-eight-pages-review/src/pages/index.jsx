@@ -24,7 +24,7 @@ export default function HomePage() {
 
       <div class="card-grid">
         {FEATURE_ROUTES.map((item) => (
-          <Link href={item.href} class="card card-link">
+          <Link key={item.href} href={item.href} class="card card-link">
             <h2>{item.title}</h2>
             <p>{item.desc}</p>
             <span class="inline-link">Open page</span>

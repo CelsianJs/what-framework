@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const repo = fileURLToPath(new URL('../../../', import.meta.url));
+import { join } from 'node:path';
+import { installPacked, packPackages, repo } from '../pack.mjs';
 
 test('a standalone packed what-server consumer installs required peers and renders SSR', () => {
   const manifest = JSON.parse(readFileSync(join(repo, 'packages/server/package.json'), 'utf8'));
@@ -20,21 +18,13 @@ test('a standalone packed what-server consumer installs required peers and rende
     const app = join(work, 'app');
     mkdirSync(tarDir);
     mkdirSync(app);
-    const packs = {};
-    for (const name of ['core', 'router', 'server']) {
-      const output = execFileSync('npm', [
-        'pack', resolve(repo, 'packages', name), '--pack-destination', tarDir, '--ignore-scripts', '--silent',
-      ], { encoding: 'utf8', timeout: 30000 });
-      packs[`what-${name}`] = `file:${join(tarDir, output.trim().split('\n').pop())}`;
-    }
+    const packs = packPackages(tarDir, ['core', 'router', 'server']);
     writeFileSync(join(app, 'package.json'), JSON.stringify({
       private: true, type: 'module',
       dependencies: { 'what-server': packs['what-server'] },
       overrides: { 'what-core': packs['what-core'], 'what-router': packs['what-router'] },
     }));
-    execFileSync('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], {
-      cwd: app, encoding: 'utf8', timeout: 30000,
-    });
+    installPacked(app);
     for (const name of ['what-core', 'what-router']) {
       const installed = JSON.parse(readFileSync(join(app, 'node_modules', name, 'package.json'), 'utf8'));
       assert.equal(installed.version, manifest.version, `${name} must be installed from this tree`);

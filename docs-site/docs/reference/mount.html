@@ -96,7 +96,7 @@
               <tr>
                 <td><code>unmount</code></td>
                 <td><code>() =&gt; void</code></td>
-                <td>Walks the container's subtree and disposes everything anchored to it: component contexts, <code>useEffect</code> / query / animation disposers, <code>onCleanup</code> callbacks, reactive child effects and reactive prop effects. Then empties the container element.</td>
+                <td>Disposes the root the tree was built in, and with it everything the tree created: its components, their effects (<code>useEffect</code>, <code>onMount</code> and a bare <code>effect()</code> alike), computeds, bindings, list rows and <code>onCleanup</code> callbacks. Then empties the container element.</td>
               </tr>
             </tbody>
           </table>
@@ -139,17 +139,17 @@ unmount();</code></pre>
 
           <h2 id="how-it-works">How It Works</h2>
           <ol>
-            <li>Disposes any existing component tree in the container (via <code>disposeTree</code>)</li>
+            <li>Disposes the tree already mounted or hydrated in the container, if there is one</li>
             <li>Clears the container's content</li>
-            <li>Converts the element tree into real DOM nodes (via <code>createDOM</code>)</li>
+            <li>Builds the element tree into real DOM nodes inside a new root, the owner of everything the tree creates</li>
             <li>Appends the resulting DOM to the container</li>
           </ol>
-          <p>The returned <code>unmount</code> function reverses this: it walks the container's subtree, disposes every effect and cleanup callback anchored to a node in it, then empties the container. Being anchored to a node is what makes something reachable, so a bare <code>effect()</code> in a component body, which is anchored to nothing, survives and must be disposed by hand.</p>
+          <p>The returned <code>unmount</code> function reverses this: it disposes that root, which disposes every component, effect, binding and cleanup the tree created, then empties the container. Components are owners, so a bare <code>effect()</code> in a component body goes with its component like everything else.</p>
 
           <h2 id="notes">Notes</h2>
           <ul>
             <li><code>mount()</code> clears the container before rendering. Existing content is removed.</li>
-            <li>If a previous component tree was mounted in the same container, its component contexts, hook cleanups and <code>onCleanup</code> callbacks are disposed before the new tree is created. A bare <a href="./effect.html">effect()</a> written in a component body is not among them: it is not registered with the component, so pair it with <code>onCleanup(dispose)</code> yourself.</li>
+            <li>If a previous component tree was mounted or hydrated in the same container, it is disposed before the new tree is created: its components, their effects (a bare <a href="./effect.html">effect()</a> in a component body included) and their <code>onCleanup</code> callbacks.</li>
             <li>The string selector form uses <code>document.querySelector()</code>. Make sure the element exists in the DOM before calling <code>mount()</code>. If the selector matches nothing, <code>mount()</code> throws <code>TypeError: Cannot set properties of null (setting 'textContent')</code> from inside the DOM layer, which points at the framework rather than at your selector.</li>
             <li>This is the primary entry point for What applications. Every app calls <code>mount()</code> once in its entry file.</li>
             <li>For a server-rendered page use <code>hydrate(element, container)</code> from <code>what-framework</code> instead. It reuses the server's DOM rather than clearing it. The server half is <code>renderToString</code> / <code>renderToHydratableString</code> / <code>renderToStream</code> from <code>what-framework/server</code>. See the <a href="../learn/ssr.html">SSR guide</a>.</li>

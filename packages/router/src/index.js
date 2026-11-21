@@ -40,26 +40,30 @@ export function isSafeUrl(url) {
 }
 
 // --- Route State (global singleton) ---
+// The 'what-router:*' debug names let devtools report the router's state
+// (what_route, what_navigate) separately from the address bar.
 
-const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/');
-const _params = signal({});
-const _query = signal({});
-const _isNavigating = signal(false);
+const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/', 'what-router:url');
+const _params = signal({}, 'what-router:params');
+const _query = signal({}, 'what-router:query');
+const _isNavigating = signal(false, 'what-router:navigating');
 // The URL a navigation is heading TO, live for the duration of the navigation.
 // _url only commits at the very end, so during an awaited guard the router still
 // matches the route being LEFT. Without this, a destination route's `loading:`
 // component could never be shown: the only `loading:` in scope belonged to the
 // page the user was leaving.
-const _pendingUrl = signal(null);
-const _navigationError = signal(null);
+const _pendingUrl = signal(null, 'what-router:pendingUrl');
+const _navigationError = signal(null, 'what-router:error');
+// The route pattern a mounted <Router> matched last ('/users/:id'), or null.
+const _pattern = signal(null, 'what-router:pattern');
 
 export const route = {
-  get url() { return _url(); },
-  get path() { return _url().split('?')[0].split('#')[0]; },
+  get url() { return readUrl(); },
+  get path() { return readUrl().split('?')[0].split('#')[0]; },
   get params() { return _params(); },
   get query() { return _query(); },
   get hash() {
-    const h = _url().split('#')[1];
+    const h = readUrl().split('#')[1];
     return h ? '#' + h : '';
   },
   get isNavigating() { return _isNavigating(); },
@@ -78,6 +82,7 @@ const _beforeHooks = [];
 const _afterHooks = [];
 
 function subscribe(list, fn) {
+  listenToHistory();
   list.push(fn);
   return () => {
     const i = list.indexOf(fn);
@@ -115,7 +120,7 @@ export async function navigate(to, opts = {}) {
 
   // Handle same-page hash links — use replaceState and scroll directly
   if (typeof window !== 'undefined' && to.startsWith('#')) {
-    const currentUrl = _url();
+    const currentUrl = readUrl();
     const basePath = currentUrl.split('#')[0];
     const newUrl = basePath + to;
     history.replaceState(state, '', newUrl);
@@ -126,7 +131,7 @@ export async function navigate(to, opts = {}) {
   }
 
   // Don't navigate if already on the same URL
-  if (to === _url()) return;
+  if (to === readUrl()) return;
 
   // Prevent concurrent navigations: wait for the current one to finish. The
   // flag is claimed in the same tick as the check, because an awaited
@@ -135,7 +140,7 @@ export async function navigate(to, opts = {}) {
   _isNavigating.set(true);
   _pendingUrl.set(to);
 
-  const from = _url();
+  const from = readUrl();
 
   // A popstate has already moved the browser URL, so cancelling one means
   // pushing the previous entry back to keep the address bar in sync. That entry
@@ -170,7 +175,7 @@ export async function navigate(to, opts = {}) {
       // Full URL as the key, { x, y } as the value: see scrollPositions below,
       // every writer and the reader must agree on both.
       if (typeof window !== 'undefined') {
-        scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
+        scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
       }
       if (replace) {
         history.replaceState(state, '', to);
@@ -264,8 +269,18 @@ function Private() {
   throw sig;
 }
 
-// Back/forward support — route through navigate() so middleware runs
-if (typeof window !== 'undefined') {
+// Back/forward support — route through navigate() so middleware runs.
+//
+// The listener is added when the router is first used, not at import: the
+// package declares `sideEffects: false`, so a bundler may drop the import of a
+// module whose only effect is this listener, and importing it must do nothing.
+// Everything that uses the router reads the URL through readUrl() or
+// subscribes a navigation hook, and both start listening.
+let _listening = false;
+
+function listenToHistory() {
+  if (_listening || typeof window === 'undefined') return;
+  _listening = true;
   window.addEventListener('popstate', () => {
     // Save scroll position for the URL we're leaving
     scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
@@ -280,6 +295,11 @@ if (typeof window !== 'undefined') {
       }
     });
   });
+}
+
+function readUrl() {
+  listenToHistory();
+  return _url();
 }
 
 // --- Route Matching ---
@@ -407,7 +427,7 @@ export function Router({ routes, fallback, globalLayout }) {
   // the matched page in place. The globalLayout is rendered ONCE around it (below)
   // so the app shell persists across navigations instead of re-instantiating.
   const renderMatch = () => {
-    const currentUrl = _url();
+    const currentUrl = readUrl();
     const path = currentUrl.split('?')[0].split('#')[0];
     const search = currentUrl.split('?')[1]?.split('#')[0] || '';
     const isNavigating = _isNavigating();
@@ -418,6 +438,7 @@ export function Router({ routes, fallback, globalLayout }) {
       batch(() => {
         _params.set(matched.params);
         _query.set(parseQuery(search));
+        _pattern.set(matched.route.path);
       });
 
       const { route: r, params } = matched;
@@ -504,6 +525,7 @@ export function Router({ routes, fallback, globalLayout }) {
     }
 
     // 404
+    _pattern.set(null);
     if (fallback) return h(fallback, {});
     return h('div', { class: 'what-404' },
       h('h1', null, '404'),
@@ -562,7 +584,9 @@ export function Link({
   const hrefPath = safeHref.split('?')[0].split('#')[0];
 
   // Use a reactive function for class so active states update on navigation.
-  // In the run-once model, reading route.path directly would snapshot it.
+  // In the run-once model, reading route.path directly would snapshot it. A
+  // class passed as an accessor is read here too, so it stays live.
+  const baseClass = cls || className;
   const reactiveClass = () => {
     const currentPath = route.path;
     const isActive = hrefPath === '/'
@@ -571,7 +595,7 @@ export function Link({
     const isExactActive = currentPath === hrefPath;
 
     return [
-      cls || className,
+      typeof baseClass === 'function' ? baseClass() : baseClass,
       isActive && activeClass,
       isExactActive && exactActiveClass,
     ].filter(Boolean).join(' ') || undefined;

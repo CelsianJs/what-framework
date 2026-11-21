@@ -5,7 +5,9 @@
 // that prefix. The prefix behaviour is the part worth proving, because passing
 // an array key used to silently do nothing at all.
 
-import { h, Head, signal, useQuery, invalidateQueries, debounce } from 'what-framework';
+import { h, Head, signal } from 'what-framework';
+import { useQuery, invalidateQueries } from 'what-framework/data';
+import { debounce } from 'what-framework/dom';
 import { Header, Footer } from '../components/chrome.js';
 import { formatPrice } from '../store/cart.js';
 

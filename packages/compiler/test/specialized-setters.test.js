@@ -8,16 +8,35 @@ import assert from 'node:assert/strict';
 import { compileJSX } from '../../../test-utils/compile.js';
 
 describe('C2: specialized attribute setters', () => {
-  it('class / className → _$setClass', () => {
+  // The template fixes each element's namespace, so the setter is chosen at
+  // compile time: `className` for HTML, the attribute (setClass) for SVG.
+  it('class / className → _$className on HTML elements', () => {
     const code = compileJSX(`
       function App() {
         const on = signal(false);
         return <div class={on() ? 'a' : 'b'}><span className={on() ? 'x' : 'y'} /></div>;
       }
     `);
-    const calls = code.match(/_\$setClass\(/g) || [];
-    assert.equal(calls.length, 2, `expected 2 _$setClass calls:\n${code}`);
+    const calls = code.match(/_\$className\(/g) || [];
+    assert.equal(calls.length, 2, `expected 2 _$className calls:\n${code}`);
+    assert.doesNotMatch(code, /_\$setClass\(/);
     assert.doesNotMatch(code, /_\$setProp\([^)]*["']class/);
+  });
+
+  it('class → _$setClass on SVG elements, including an SVG root outside <svg>', () => {
+    const code = compileJSX(`
+      function Icon() {
+        const on = signal(false);
+        return <svg class={on() ? 'a' : 'b'}><g class={on() ? 'x' : 'y'} /></svg>;
+      }
+      function Part() {
+        const on = signal(false);
+        return <path class={on() ? 'p' : 'q'} />;
+      }
+    `);
+    const calls = code.match(/_\$setClass\(/g) || [];
+    assert.equal(calls.length, 3, `expected 3 _$setClass calls:\n${code}`);
+    assert.doesNotMatch(code, /_\$className\(/);
   });
 
   it('style → _$setStyle', () => {
@@ -122,7 +141,7 @@ describe('C2: specialized attribute setters', () => {
         return <div class={c()} />;
       }
     `);
-    assert.match(code, /setClass as _\$setClass/);
-    assert.doesNotMatch(code, /setStyle as|setAttr as|setValue as/);
+    assert.match(code, /className as _\$className/);
+    assert.doesNotMatch(code, /setStyle as|setAttr as|setValue as|setClass as/);
   });
 });

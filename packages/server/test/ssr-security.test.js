@@ -282,6 +282,24 @@ describe('SSR srcdoc rejection', () => {
   });
 });
 
+// The client refuses every prop its browser would parse as markup, in any
+// letter case; the server must refuse the same set, or an outerHTML prop the
+// client drops is still sent to the page as an attribute.
+describe('SSR/client refused prop parity', () => {
+  for (const key of ['srcdoc', 'SRCDOC', 'srcDoc', 'outerHTML', 'outerhtml', 'OUTERHTML']) {
+    it(`refuses ${key} in SSR and on the client`, () => {
+      const html = silenceWarnings(() => renderToString(h('iframe', { [key]: '<img src=x onerror=alert(1)>' }, '')));
+      assert.equal(html, '<iframe></iframe>');
+      assert.equal(_isUnsafeAttr(key, '<b>x</b>'), true, `client applied ${key}`);
+    });
+  }
+
+  it('still renders a prop that only resembles one', () => {
+    assert.equal(renderToString(h('div', { 'data-outerhtml': 'x', title: 'outerHTML' }, '')), '<div data-outerhtml="x" title="outerHTML"></div>');
+    assert.equal(_isUnsafeAttr('data-outerhtml', 'x'), false);
+  });
+});
+
 describe('SSR tag name validation', () => {
   it('throws on a tag name carrying injected attributes', () => {
     assert.throws(

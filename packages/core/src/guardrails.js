@@ -3,14 +3,13 @@
 // Designed for AI agents: structured warnings with fix suggestions.
 
 import { __DEV__ } from './reactive.js';
-import { createWhatError, collectError } from './errors.js';
+import { IMPORT_CHANGES } from './import-changes.js';
+import * as rootEntry from './index.js';
 
 // --- Guardrail Registry ---
 // Each guardrail can be enabled/disabled independently.
 
 const guardrails = {
-  signalReadDetection: true,
-  componentNaming: true,
   importValidation: true,
 };
 
@@ -22,44 +21,6 @@ export function getGuardrailConfig() {
   return { ...guardrails };
 }
 
-// --- Guardrail 1: Signal Read Detection ---
-// Detect when a signal function reference is used where its value was intended.
-// This catches patterns like `Total: ${count}` or `count > 5` (should be count()).
-//
-// At runtime, we detect this when a signal is coerced to a string or number
-// (via toString/valueOf) and warn that it should be called.
-//
-// Wiring: what-devtools calls this for every signal it registers (dev only),
-// so any app with devtools installed gets the guardrail automatically.
-// It can also be called manually: installSignalReadGuardrail(sig, 'name').
-
-export function installSignalReadGuardrail(signalFn, debugName) {
-  if (!__DEV__ || !guardrails.signalReadDetection) return signalFn;
-
-  // Override toString to catch template literal coercion
-  signalFn.toString = function () {
-    const err = createWhatError('MISSING_SIGNAL_READ', {
-      signalName: debugName || '(unnamed)',
-    });
-    console.warn(`[what] ${err.message}\n  Suggestion: ${err.suggestion}`);
-    collectError(err);
-    // Still return the value so the app doesn't crash
-    return String(signalFn());
-  };
-
-  // Override valueOf for numeric coercion contexts
-  signalFn.valueOf = function () {
-    const err = createWhatError('MISSING_SIGNAL_READ', {
-      signalName: debugName || '(unnamed)',
-    });
-    console.warn(`[what] ${err.message}\n  Suggestion: ${err.suggestion}`);
-    collectError(err);
-    return signalFn();
-  };
-
-  return signalFn;
-}
-
 // NOTE: an "effect cycle detection" guardrail (trackEffectSignalWrite /
 // checkEffectCycle) used to live here, exported but never called by anything
 // — it was removed in v0.11 rather than shipped as a dead API. Reviving it
@@ -69,103 +30,63 @@ export function installSignalReadGuardrail(signalFn, debugName) {
 // reads with writes). reactive.js already detects runaway cascades at flush
 // time (iteration cap), which covers the practical failure mode.
 
-// --- Guardrail 2: Component Naming ---
-// Warn if a component function is not PascalCase.
+// --- Import Validation ---
+// Verify that all named imports from 'what-framework' are valid exports. A name
+// in import-changes.js gets the answer recorded there (where it went, or what
+// replaces it), the one what-compiler's Vite plugin and the no-moved-imports
+// lint rule give, instead of a guess.
 
-export function checkComponentName(name) {
-  if (!__DEV__ || !guardrails.componentNaming) return null;
-  if (!name) return null;
+/** @type {{ valid: Set<string>, changed: Map<string, any> } | null} */
+let exportIndex = null;
 
-  // PascalCase: starts with uppercase letter
-  if (/^[A-Z]/.test(name)) return null;
-
-  const suggestion = `Component "${name}" should use PascalCase (e.g., "${capitalize(name)}"). ` +
-    'PascalCase distinguishes components from HTML elements in JSX and is required by the What Framework compiler.';
-
-  console.warn(`[what] ${suggestion}`);
-  return { code: 'WARN_COMPONENT_NAMING', name, suggestion };
+function exportsIndex() {
+  if (exportIndex === null) {
+    // Keyed by the old name and by the new one, so `useTween` imported from
+    // the root entry is pointed at what-framework/motion too.
+    const changed = new Map();
+    for (const change of IMPORT_CHANGES) {
+      changed.set(change.name, change);
+      if (change.as) changed.set(change.as, change);
+    }
+    exportIndex = { valid: new Set(Object.keys(rootEntry)), changed };
+  }
+  return exportIndex;
 }
-
-function capitalize(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-// --- Guardrail 3: Import Validation ---
-// Verify that all named imports from 'what-framework' are valid exports.
-
-const VALID_EXPORTS = new Set([
-  // Reactive primitives
-  'signal', 'computed', 'effect', 'signalMemo', 'batch', 'untrack', 'flushSync',
-  'createRoot', 'getOwner', 'runWithOwner', 'onRootCleanup', '__setDevToolsHooks',
-  // Rendering
-  'template', '_template', 'svgTemplate', 'insert', 'mapArray', 'spread',
-  'setProp', 'delegateEvents', 'on', 'classList', 'hydrate', 'isHydrating',
-  '_$createComponent',
-  // JSX
-  'h', 'Fragment', 'html',
-  // DOM
-  'mount',
-  // Hooks
-  'useState', 'useSignal', 'useComputed', 'useEffect', 'useMemo', 'useCallback',
-  'useRef', 'useContext', 'useReducer', 'createContext', 'onMount', 'onCleanup',
-  'createResource',
-  // Components
-  'memo', 'lazy', 'Suspense', 'ErrorBoundary', 'Show', 'For', 'Switch', 'Match', 'Island',
-  // Store
-  'createStore', 'derived', 'storeComputed', 'atom',
-  // Head
-  'Head', 'clearHead',
-  // Utilities
-  'each', 'cls', 'style', 'debounce', 'throttle', 'useMediaQuery',
-  'useLocalStorage', 'useClickOutside', 'Portal', 'transition',
-  // Scheduler
-  'scheduleRead', 'scheduleWrite', 'flushScheduler', 'measure', 'mutate',
-  'useScheduledEffect', 'nextFrame', 'raf', 'onResize', 'onIntersect', 'smoothScrollTo',
-  // Text insertion hook (for external text engines)
-  '_setTextInsertHook',
-  // Animation
-  'spring', 'tween', 'easings', 'useTransition', 'useGesture', 'useAnimatedValue',
-  'createTransitionClasses', 'cssTransition',
-  // Accessibility
-  'useFocus', 'useFocusRestore', 'useFocusTrap', 'FocusTrap', 'announce',
-  'announceAssertive', 'SkipLink', 'useAriaExpanded', 'useAriaSelected',
-  'useAriaChecked', 'useRovingTabIndex', 'VisuallyHidden', 'LiveRegion',
-  'useId', 'useIds', 'useDescribedBy', 'useLabelledBy', 'Keys', 'onKey', 'onKeys',
-  // Skeleton
-  'Skeleton', 'SkeletonText', 'SkeletonAvatar', 'SkeletonCard', 'SkeletonTable',
-  'IslandSkeleton', 'useSkeleton', 'Placeholder', 'LoadingDots', 'Spinner',
-  // Data fetching
-  'useFetch', 'useSWR', 'useQuery', 'useInfiniteQuery', 'invalidateQueries',
-  'prefetchQuery', 'setQueryData', 'getQueryData', 'clearCache', '__getCacheSnapshot',
-  // Form
-  'useForm', 'useField', 'rules', 'simpleResolver', 'zodResolver', 'yupResolver',
-  'Input', 'Textarea', 'Select', 'Checkbox', 'Radio', 'ErrorMessage',
-]);
 
 export function validateImports(importNames) {
   if (!__DEV__ || !guardrails.importValidation) return [];
 
+  const { valid, changed } = exportsIndex();
   const invalid = [];
   for (const name of importNames) {
-    if (!VALID_EXPORTS.has(name)) {
+    if (valid.has(name)) continue;
+    const change = changed.get(name);
+    if (change) {
+      invalid.push({
+        name,
+        message: `"${name}" is not exported by what-framework.`,
+        suggestion: change.answer,
+      });
+    } else {
+      const closest = findClosest(name);
       invalid.push({
         name,
         message: `"${name}" is not a valid export from what-framework.`,
-        suggestion: `Check the API reference. Did you mean: ${findClosest(name)}?`,
+        suggestion: closest ? `Check the API reference. Did you mean ${closest}?` : 'Check the API reference.',
       });
     }
   }
   return invalid;
 }
 
-// Simple Levenshtein-based closest match
+// Simple Levenshtein-based closest match, or null when nothing is close.
 function findClosest(input) {
   const lower = input.toLowerCase();
   /** @type {string | null} */
   let best = null;
   let bestDist = Infinity;
 
-  for (const name of VALID_EXPORTS) {
+  for (const name of exportsIndex().valid) {
     const dist = levenshtein(lower, name.toLowerCase());
     if (dist < bestDist) {
       bestDist = dist;
@@ -173,7 +94,7 @@ function findClosest(input) {
     }
   }
 
-  return bestDist <= 3 ? best : '(no close match found)';
+  return bestDist <= 3 ? best : null;
 }
 
 function levenshtein(a, b) {

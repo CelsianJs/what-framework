@@ -93,7 +93,7 @@
           <h2 id="use-form">useForm</h2>
           <p><code>useForm</code> provides complete form state management, field registration, validation, and submission handling in a single hook. It uses per-field signals internally so that updating one input never causes unrelated fields to re-render.</p>
 
-<pre><code><span class="keyword">import</span> { useForm } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useForm } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 <span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
   defaultValues: { email: <span class="string">''</span>, password: <span class="string">''</span> },
@@ -158,7 +158,7 @@
           <h3 id="complete-example">Complete Example</h3>
           <p>A registration form with email, password, and password confirmation:</p>
 
-<pre><code><span class="keyword">import</span> { useForm, simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useForm, simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 <span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
   defaultValues: { email: <span class="string">''</span>, password: <span class="string">''</span>, confirmPassword: <span class="string">''</span> },
@@ -195,12 +195,14 @@
 <span class="comment">//   { name, value, checked, onchange, onBlur, onFocus, ref }</span>
 
 <span class="comment">// Spread onto any input element</span>
-&lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> /&gt;
-&lt;<span class="tag">textarea</span> {...<span class="function">register</span>(<span class="string">'bio'</span>)} /&gt;
-&lt;<span class="tag">select</span> {...<span class="function">register</span>(<span class="string">'role'</span>)}&gt;
-  &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"admin"</span>&gt;Admin&lt;/<span class="tag">option</span>&gt;
-  &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"user"</span>&gt;User&lt;/<span class="tag">option</span>&gt;
-&lt;/<span class="tag">select</span>&gt;</code></pre>
+&lt;&gt;
+  &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> /&gt;
+  &lt;<span class="tag">textarea</span> {...<span class="function">register</span>(<span class="string">'bio'</span>)} /&gt;
+  &lt;<span class="tag">select</span> {...<span class="function">register</span>(<span class="string">'role'</span>)}&gt;
+    &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"admin"</span>&gt;Admin&lt;/<span class="tag">option</span>&gt;
+    &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"user"</span>&gt;User&lt;/<span class="tag">option</span>&gt;
+  &lt;/<span class="tag">select</span>&gt;
+&lt;/&gt;</code></pre>
 
           <p>Each registered field gets its own internal signal. This means typing into the email field only updates components that read the email value, not every field in the form.</p>
 
@@ -216,7 +218,7 @@
 
           <div class="callout callout-note">
             <p class="callout-title">Checkbox and radio handling</p>
-            <p><code>register</code> automatically detects <code>type="checkbox"</code> inputs and reads <code>e.target.checked</code> instead of <code>e.target.value</code>, so boolean fields work out of the box. Radios work differently, because every radio in a group shares one field that holds the <em>selected</em> option's value. Tell the registration which value this radio contributes, <code>register('plan', { type: 'radio', value: 'pro' })</code>, or let <a href="#form-components"><code>Radio</code></a> do it for you. A bare <code>register('plan')</code> spread onto an <code>&lt;input type="radio"&gt;</code> warns at mount in development, because the registration's own <code>value</code> binding overwrites the input's value and the group is then unable to record a choice.</p>
+            <p><code>register</code> automatically detects <code>type="checkbox"</code> inputs and reads <code>e.target.checked</code> instead of <code>e.target.value</code>, so boolean fields work out of the box. Radios work differently, because every radio in a group shares one field that holds the <em>selected</em> option's value. Tell the registration which value this radio contributes, <code>register('plan', { type: 'radio', value: 'pro' })</code>, or let <a href="#form-components"><code>Radio</code></a> do it for you. A bare <code>register('plan')</code> spread onto an <code>&lt;input type="radio"&gt;</code> reports <code>ERR_FORM_RADIO_UNTYPED</code> at mount in development, because the registration's own <code>value</code> binding overwrites the input's value and the group is then unable to record a choice.</p>
           </div>
 
           <h2 id="validation">Validation</h2>
@@ -249,7 +251,7 @@
 
           <h3 id="validation-example">Example with Multiple Rules</h3>
 
-<pre><code><span class="keyword">import</span> { simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { simpleResolver, rules } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 <span class="keyword">const</span> resolver = <span class="function">simpleResolver</span>({
   username: [
@@ -271,9 +273,9 @@
 });</code></pre>
 
           <h3 id="error-display">Displaying Errors</h3>
-          <p>Errors appear after the component has already run, and a component body runs exactly once. So the error has to be read inside a reactive thunk, <code>{() =&gt; ...}</code>: the thunk is the part that re-runs. Read <code>formState.errors</code> there and render the message yourself, or let <code>ErrorMessage</code> render it from inside the same thunk.</p>
+          <p>Errors appear after the component has already run, and a component body runs exactly once. So the error has to be read inside a reactive thunk, <code>{() =&gt; ...}</code>: the thunk is the part that re-runs. Read <code>formState.errors</code> there and render the message yourself, or drop in <code>ErrorMessage</code>, which does exactly that for you.</p>
 
-<pre><code><span class="keyword">import</span> { ErrorMessage } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { ErrorMessage } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 &lt;<span class="tag">form</span> <span class="attr">onSubmit</span>={<span class="function">handleSubmit</span>(onValid)}&gt;
   &lt;<span class="tag">input</span> {...<span class="function">register</span>(<span class="string">'email'</span>)} <span class="attr">type</span>=<span class="string">"email"</span> /&gt;
@@ -282,12 +284,11 @@
   {() =&gt; formState.errors.email &amp;&amp;
     &lt;<span class="tag">span</span> <span class="attr">class</span>=<span class="string">"field-error"</span>&gt;{formState.errors.email.message}&lt;/<span class="tag">span</span>&gt;}
 
-  {<span class="comment">/* or hand it to ErrorMessage, from inside the same kind of thunk */</span>}
-  {() =&gt; formState.errors.email &amp;&amp;
-    &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"email"</span> <span class="attr">formState</span>={formState} /&gt;}
+  {<span class="comment">/* or let ErrorMessage keep it current */</span>}
+  &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"email"</span> <span class="attr">formState</span>={formState} /&gt;
 &lt;/<span class="tag">form</span>&gt;</code></pre>
 
-          <p><code>ErrorMessage</code> renders <code>&lt;span class="what-error" role="alert"&gt;</code> with the message, or calls a <code>render={({ message, type }) =&gt; ...}</code> prop when you want the markup to be yours. What it does not do is subscribe on its own: dropped straight into the form, it reads the error once during the single run of its body, finds none, and renders nothing forever.</p>
+          <p><code>ErrorMessage</code> renders <code>&lt;span class="what-error" role="alert"&gt;</code> with the message, or calls a <code>render={({ message, type }) =&gt; ...}</code> prop when you want the markup to be yours. It renders a reactive thunk of its own, so the message appears when the field gets an error, changes with it, and goes away when the field is valid again.</p>
 
           <h2 id="schema-validation">Schema Validation</h2>
           <p>For complex forms, use <code>zodResolver</code> or <code>yupResolver</code> to validate against a schema. This keeps validation logic declarative and co-located with your type definitions.</p>
@@ -300,7 +301,7 @@
           <h3 id="zod-example">Zod Example</h3>
 
 <pre><code><span class="keyword">import</span> { z } <span class="keyword">from</span> <span class="string">'zod'</span>;  <span class="comment">// zod 3 or 4</span>
-<span class="keyword">import</span> { useForm, zodResolver } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useForm, zodResolver } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 <span class="keyword">const</span> schema = z.<span class="function">object</span>({
   email: z.<span class="function">string</span>().<span class="function">email</span>(<span class="string">'Invalid email'</span>),
@@ -316,7 +317,7 @@
           <h3 id="yup-example">Yup Example</h3>
 
 <pre><code><span class="keyword">import</span> * <span class="keyword">as</span> yup <span class="keyword">from</span> <span class="string">'yup'</span>;
-<span class="keyword">import</span> { useForm, yupResolver } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { useForm, yupResolver } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 <span class="keyword">const</span> schema = yup.<span class="function">object</span>({
   email: yup.<span class="function">string</span>().<span class="function">email</span>().<span class="function">required</span>(),
@@ -335,7 +336,7 @@
           <h2 id="use-field">useField</h2>
           <p><code>useField</code> gives you standalone control over a single field without a parent <code>useForm</code>. This is useful for isolated inputs like search bars, inline edits, or fields managed outside a form context.</p>
 
-<pre><code><span class="keyword">import</span> { useField } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { useField } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 <span class="keyword">const</span> username = <span class="function">useField</span>(<span class="string">'username'</span>, {
   defaultValue: <span class="string">''</span>,
@@ -399,7 +400,7 @@
               <tr><td><code>Select</code></td><td><code>&lt;select&gt;</code></td><td>Pass <code>&lt;option&gt;</code> elements as children</td></tr>
               <tr><td><code>Checkbox</code></td><td><code>&lt;input type="checkbox"&gt;</code></td><td>Takes its initial <code>checked</code> from the registered value; toggling writes back</td></tr>
               <tr><td><code>Radio</code></td><td><code>&lt;input type="radio"&gt;</code></td><td>Needs its own <code>value</code>. Writes that value to the shared field and keeps <code>checked</code> in sync in both directions</td></tr>
-              <tr><td><code>ErrorMessage</code></td><td><code>&lt;span role="alert"&gt;</code></td><td>Shows error text or uses a custom <code>render</code> prop. Place it inside a thunk (see <a href="#error-display">Displaying Errors</a>)</td></tr>
+              <tr><td><code>ErrorMessage</code></td><td><code>&lt;span role="alert"&gt;</code></td><td>Shows error text or uses a custom <code>render</code> prop. Reactive on its own: it renders nothing until the field has an error (see <a href="#error-display">Displaying Errors</a>)</td></tr>
             </tbody>
           </table>
 
@@ -409,34 +410,41 @@
 
           <p>Reach for <code>Radio</code> when you need a radio group. Every radio in the group shares one field, and that field holds the selected option's value, so each one declares the value it contributes:</p>
 
-<pre><code><span class="keyword">import</span> { Radio } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { Radio } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
-&lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"free"</span> <span class="attr">register</span>={register} /&gt; Free&lt;/<span class="tag">label</span>&gt;
-&lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"pro"</span> <span class="attr">register</span>={register} /&gt; Pro&lt;/<span class="tag">label</span>&gt;
-&lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"team"</span> <span class="attr">register</span>={register} /&gt; Team&lt;/<span class="tag">label</span>&gt;</code></pre>
+&lt;<span class="tag">fieldset</span>&gt;
+  &lt;<span class="tag">legend</span>&gt;Plan&lt;/<span class="tag">legend</span>&gt;
+  &lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"free"</span> <span class="attr">register</span>={register} /&gt; Free&lt;/<span class="tag">label</span>&gt;
+  &lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"pro"</span> <span class="attr">register</span>={register} /&gt; Pro&lt;/<span class="tag">label</span>&gt;
+  &lt;<span class="tag">label</span>&gt;&lt;<span class="component">Radio</span> <span class="attr">name</span>=<span class="string">"plan"</span> <span class="attr">value</span>=<span class="string">"team"</span> <span class="attr">register</span>={register} /&gt; Team&lt;/<span class="tag">label</span>&gt;
+&lt;/<span class="tag">fieldset</span>&gt;</code></pre>
 
           <p>Picking one writes its value into <code>plan</code>, and the binding runs the other way too, so <code>setValue('plan', 'pro')</code>, <code>reset()</code>, and a <code>defaultValues</code> entry all move the selection on screen.</p>
 
           <p>To wire a radio by hand, register it with its own value and keep <code>type="radio"</code> on the element. The <code>type</code> option tells the <em>registration</em> how to behave and does not set the element's type, so an input without the attribute is a text box that no click will ever change:</p>
 
-<pre><code>&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> {...<span class="function">register</span>(<span class="string">'plan'</span>, { type: <span class="string">'radio'</span>, value: <span class="string">'free'</span> })} /&gt;
-&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> {...<span class="function">register</span>(<span class="string">'plan'</span>, { type: <span class="string">'radio'</span>, value: <span class="string">'pro'</span> })} /&gt;
+<pre><code>&lt;<span class="tag">fieldset</span>&gt;
+  &lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> {...<span class="function">register</span>(<span class="string">'plan'</span>, { type: <span class="string">'radio'</span>, value: <span class="string">'free'</span> })} /&gt;
+  &lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> {...<span class="function">register</span>(<span class="string">'plan'</span>, { type: <span class="string">'radio'</span>, value: <span class="string">'pro'</span> })} /&gt;
+&lt;/<span class="tag">fieldset</span>&gt;</code></pre>
 
-<span class="comment">// Client-only alternative: leave the value option off and let each input</span>
-<span class="comment">// carry its own, the way a plain HTML radio group already works.</span>
-&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> <span class="attr">value</span>=<span class="string">"sm"</span> {...<span class="function">register</span>(<span class="string">'size'</span>, { type: <span class="string">'radio'</span> })} /&gt;
-&lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> <span class="attr">value</span>=<span class="string">"lg"</span> {...<span class="function">register</span>(<span class="string">'size'</span>, { type: <span class="string">'radio'</span> })} /&gt;</code></pre>
+          <p>A client-only alternative leaves the <code>value</code> option off and lets each input carry its own, the way a plain HTML radio group already works:</p>
+
+<pre><code>&lt;<span class="tag">fieldset</span>&gt;
+  &lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> <span class="attr">value</span>=<span class="string">"sm"</span> {...<span class="function">register</span>(<span class="string">'size'</span>, { type: <span class="string">'radio'</span> })} /&gt;
+  &lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"radio"</span> <span class="attr">value</span>=<span class="string">"lg"</span> {...<span class="function">register</span>(<span class="string">'size'</span>, { type: <span class="string">'radio'</span> })} /&gt;
+&lt;/<span class="tag">fieldset</span>&gt;</code></pre>
 
           <p>Those two forms behave identically in the browser: mount, <code>setValue</code>, <code>reset</code>, and a real click move the selection the same way either way. They are <em>not</em> the same on the server. A declared <code>value</code> gives the registration something to compare the field against, so the selected radio ships already checked, <code>&lt;input type="radio" name="plan" value="pro" checked&gt;</code>. Without one the registration has no value until an element hands it one through the <code>ref</code>, and the server renderer skips <code>ref</code> entirely, so every radio in the group serializes unchecked: a server-rendered page paints an empty radio group and only fills it in at hydration. Declare the <code>value</code> on anything you render on the server.</p>
 
-          <p>A radio that cannot say which value it stands for is treated as a mistake rather than given a default, since the DOM reports <code>"on"</code> for all of them and a group of those cannot record a choice. A <code>Radio</code> with no <code>value</code> warns in development and renders an unregistered input, so it never touches form state. A <code>register(name, { type: 'radio' })</code> on an input carrying no <code>value</code> attribute warns when it changes and leaves the field alone.</p>
+          <p>A radio that cannot say which value it stands for is treated as a mistake rather than given a default, since the DOM reports <code>"on"</code> for all of them and a group of those cannot record a choice. A <code>Radio</code> with no <code>value</code> reports <code>ERR_FORM_RADIO_WITHOUT_VALUE</code> in development and renders an unregistered input, so it never touches form state. A <code>register(name, { type: 'radio' })</code> on an input carrying no <code>value</code> attribute reports the same code when it changes and leaves the field alone.</p>
 
           <h3 id="components-example">Building a Form with Components</h3>
 
 <pre><code><span class="keyword">import</span> {
-  useForm, Input, Textarea, Select,
-  Checkbox, ErrorMessage, simpleResolver, rules
-} <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+  useForm, Input, Textarea, Select, Checkbox, ErrorMessage,
+  simpleResolver, rules,
+} <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
 
 <span class="keyword">function</span> <span class="function">ContactForm</span>() {
   <span class="keyword">const</span> { register, handleSubmit, formState } = <span class="function">useForm</span>({
@@ -450,8 +458,7 @@
   <span class="keyword">return</span> (
     &lt;<span class="tag">form</span> <span class="attr">onSubmit</span>={<span class="function">handleSubmit</span>(data =&gt; console.log(data))}&gt;
       &lt;<span class="component">Input</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">register</span>={register} <span class="attr">placeholder</span>=<span class="string">"Your name"</span> /&gt;
-      {() =&gt; formState.errors.name &amp;&amp;
-        &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">formState</span>={formState} /&gt;}
+      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"name"</span> <span class="attr">formState</span>={formState} /&gt;
 
       &lt;<span class="component">Select</span> <span class="attr">name</span>=<span class="string">"topic"</span> <span class="attr">register</span>={register}&gt;
         &lt;<span class="tag">option</span> <span class="attr">value</span>=<span class="string">"general"</span>&gt;General&lt;/<span class="tag">option</span>&gt;
@@ -460,8 +467,7 @@
       &lt;/<span class="component">Select</span>&gt;
 
       &lt;<span class="component">Textarea</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">register</span>={register} <span class="attr">rows</span>={<span class="number">4</span>} /&gt;
-      {() =&gt; formState.errors.message &amp;&amp;
-        &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">formState</span>={formState} /&gt;}
+      &lt;<span class="component">ErrorMessage</span> <span class="attr">name</span>=<span class="string">"message"</span> <span class="attr">formState</span>={formState} /&gt;
 
       &lt;<span class="tag">label</span>&gt;
         &lt;<span class="component">Checkbox</span> <span class="attr">name</span>=<span class="string">"subscribe"</span> <span class="attr">register</span>={register} /&gt;

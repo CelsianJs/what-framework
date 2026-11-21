@@ -1016,6 +1016,11 @@ const RUNTIME_ENTRIES = {
   'jsx-dev-runtime.js': "export * from './core/jsx-dev-runtime.js';",
 };
 
+// what-core's subpath entries, which live in src/entries/ rather than src/:
+// the domain kits apps import, and the internal entry what-server imports.
+const KITS = ['a11y', 'ui', 'motion', 'dom', 'form', 'data'];
+const CORE_ENTRIES = [...KITS, 'internal'];
+
 // App-facing specifier -> served URL. 'what' is the pre-0.11 package name, kept
 // so older apps keep building.
 const IMPORT_MAP = {
@@ -1024,6 +1029,10 @@ const IMPORT_MAP = {
   'what-framework/server': '/@what/server.js',
   'what-framework/jsx-runtime': '/@what/jsx-runtime.js',
   'what-framework/jsx-dev-runtime': '/@what/jsx-dev-runtime.js',
+  ...Object.fromEntries(KITS.flatMap((kit) => [
+    [`what-framework/${kit}`, `/@what/core/entries/${kit}.js`],
+    [`what-core/${kit}`, `/@what/core/entries/${kit}.js`],
+  ])),
   'what-core': '/@what/core.js',
   'what-router': '/@what/router.js',
   'what-server': '/@what/server.js',
@@ -1066,15 +1075,20 @@ function rewriteRuntimeImports(code, depth) {
   });
 }
 
+function coreTarget(sub) {
+  return CORE_ENTRIES.includes(sub) ? `core/entries/${sub}.js` : `core/${sub}.js`;
+}
+
 function runtimeTarget(spec) {
   if (spec === 'what-framework') return 'core/index.js';
   if (spec.startsWith('what-framework/')) {
     const sub = spec.slice('what-framework/'.length);
     if (sub === 'router' || sub === 'server') return `${sub}/index.js`;
-    return `core/${sub}.js`;
+    return coreTarget(sub);
   }
   const m = /^what-(core|router|server)(?:\/(.+))?$/.exec(spec);
-  return m ? `${m[1]}/${m[2] || 'index'}.js` : null;
+  if (!m) return null;
+  return m[1] === 'core' && m[2] ? coreTarget(m[2]) : `${m[1]}/${m[2] || 'index'}.js`;
 }
 
 function findBareSpecifiers(dir) {

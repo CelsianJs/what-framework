@@ -3,7 +3,9 @@
 // Client-safe: nothing here touches `window` at module scope, so the server can
 // import it while rendering and simply never call the browser halves.
 
-import { cssTransition, effect, flushScheduler, onIntersect, raf, signal } from 'what-framework';
+import { effect, signal } from 'what-framework';
+import { cssTransition } from 'what-framework/motion';
+import { flushScheduler, onIntersect, raf } from 'what-framework/dom';
 import { chapters } from './story.js';
 
 /** 0..1 for the whole document. Drives the bar under the header. */

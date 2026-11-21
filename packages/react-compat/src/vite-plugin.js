@@ -12,6 +12,7 @@
 import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 // Common React ecosystem packages that import 'react' internally.
 // These must be excluded from Vite's optimizeDeps to prevent pre-bundling
@@ -139,6 +140,19 @@ function detectInstalledReactPackages(projectRoot) {
   return installed;
 }
 
+// The packages an app reaches the engine through: what-framework's entries
+// re-export what-core, what-router and what-server. They are served as ES
+// modules rather than pre-bundled, so all of them share one what-core.
+const FRAMEWORK_PACKAGES = ['what-framework', 'what-core', 'what-router', 'what-server'];
+
+// Vite matches a string alias as a prefix, so 'react-dom' would also capture
+// 'react-dom/server' and rewrite it to `<dir>/dom.js/server`. Each alias here
+// names one module.
+function exactAlias(specifier, replacement) {
+  const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { find: new RegExp(`^${escaped}$`), replacement };
+}
+
 /**
  * @param {object} [options]
  * @param {string[]} [options.exclude] - Additional packages to exclude from pre-bundling
@@ -148,41 +162,17 @@ function detectInstalledReactPackages(projectRoot) {
 export function reactCompat(options = {}) {
   const { exclude = [], autoDetect = true } = options;
 
-  let compatDir;
-  let whatCorePath;
-  let whatCoreRenderPath;
-
   return {
     name: 'what-react-compat',
     enforce: 'pre',
 
-    config(config, { }) {
-      const root = config.root || process.cwd();
+    config(config) {
+      const root = path.resolve(config.root || process.cwd());
 
-      // Resolve what-react and what-core paths from installed packages
-      compatDir = resolvePackageDir('what-react', root);
-      // compatSrc = the directory containing index.js, jsx-runtime.js, dom.js, etc.
-      let compatSrc;
-      if (compatDir) {
-        compatSrc = path.join(compatDir, 'src');
-      } else {
-        // Fallback: this plugin file lives in src/ — use its directory directly
-        compatSrc = path.dirname(new URL(import.meta.url).pathname);
-        compatDir = path.dirname(compatSrc);
-      }
-
-      const whatCoreDir = resolvePackageDir('what-core', root);
-      if (whatCoreDir) {
-        whatCorePath = path.join(whatCoreDir, 'src', 'index.js');
-        whatCoreRenderPath = path.join(whatCoreDir, 'src', 'render.js');
-      } else {
-        // Fallback: resolve from what-react's peer dep
-        const whatCoreFromCompat = resolvePackageDir('what-core', compatDir);
-        if (whatCoreFromCompat) {
-          whatCorePath = path.join(whatCoreFromCompat, 'src', 'index.js');
-          whatCoreRenderPath = path.join(whatCoreFromCompat, 'src', 'render.js');
-        }
-      }
+      // The directory holding index.js, jsx-runtime.js, dom.js, ...: the
+      // installed what-react, else the one this plugin file belongs to.
+      const compatDir = resolvePackageDir('what-react', root) || path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+      const compatSrc = path.join(compatDir, 'src');
 
       // Auto-detect installed React ecosystem packages
       const autoExclude = autoDetect ? detectInstalledReactPackages(root) : [];
@@ -194,7 +184,7 @@ export function reactCompat(options = {}) {
       const includeSet = new Set(interopInclude);
 
       const allExclude = [
-        'what-core', 'what-react',
+        ...FRAMEWORK_PACKAGES, 'what-react',
         'react', 'react-dom',
         ...autoExclude,
         ...exclude,
@@ -204,29 +194,21 @@ export function reactCompat(options = {}) {
       const uniqueExclude = [...new Set(allExclude)].filter((p) => !includeSet.has(p));
       const uniqueInclude = [...includeSet];
 
-      // Build alias map
-      const aliases = {
-        'react/jsx-runtime': path.join(compatSrc, 'jsx-runtime.js'),
-        'react/jsx-dev-runtime': path.join(compatSrc, 'jsx-dev-runtime.js'),
-        'react-dom/client': path.join(compatSrc, 'dom.js'),
-        'react-dom': path.join(compatSrc, 'dom.js'),
-        'react': path.join(compatSrc, 'index.js'),
+      const withSelector = path.join(compatSrc, 'use-sync-external-store-with-selector.js');
+      const alias = [
+        exactAlias('react/jsx-runtime', path.join(compatSrc, 'jsx-runtime.js')),
+        exactAlias('react/jsx-dev-runtime', path.join(compatSrc, 'jsx-dev-runtime.js')),
+        exactAlias('react-dom/client', path.join(compatSrc, 'dom.js')),
+        exactAlias('react-dom', path.join(compatSrc, 'dom.js')),
+        exactAlias('react', path.join(compatSrc, 'index.js')),
         // use-sync-external-store shims (needed by react-redux, zustand internals)
-        'use-sync-external-store/with-selector.js': path.join(compatSrc, 'use-sync-external-store-with-selector.js'),
-        'use-sync-external-store/with-selector': path.join(compatSrc, 'use-sync-external-store-with-selector.js'),
-        'use-sync-external-store/shim/with-selector.js': path.join(compatSrc, 'use-sync-external-store-with-selector.js'),
-        'use-sync-external-store/shim/with-selector': path.join(compatSrc, 'use-sync-external-store-with-selector.js'),
-        'use-sync-external-store/shim/index.js': path.join(compatSrc, 'index.js'),
-        'use-sync-external-store/shim': path.join(compatSrc, 'index.js'),
-      };
-
-      // Add what-core aliases if resolved
-      if (whatCorePath) {
-        aliases['what-framework/render'] = whatCoreRenderPath;
-        aliases['what-framework'] = whatCorePath;
-        aliases['what-core/render'] = whatCoreRenderPath;
-        aliases['what-core'] = whatCorePath;
-      }
+        exactAlias('use-sync-external-store/with-selector.js', withSelector),
+        exactAlias('use-sync-external-store/with-selector', withSelector),
+        exactAlias('use-sync-external-store/shim/with-selector.js', withSelector),
+        exactAlias('use-sync-external-store/shim/with-selector', withSelector),
+        exactAlias('use-sync-external-store/shim/index.js', path.join(compatSrc, 'index.js')),
+        exactAlias('use-sync-external-store/shim', path.join(compatSrc, 'index.js')),
+      ];
 
       return {
         esbuild: {
@@ -234,8 +216,15 @@ export function reactCompat(options = {}) {
           jsxImportSource: 'react', // aliased to what-react
         },
         resolve: {
-          alias: aliases,
-          dedupe: ['what-core'],
+          alias,
+          // what-framework and what-core are not aliased: each import,
+          // subpaths included, resolves through the package's own exports
+          // under the active conditions (`production` in a build). Deduping
+          // what-core gives the app, what-react and every kit one engine. A
+          // deduped package is resolved from the root, so this applies only
+          // when the root can resolve it (under pnpm an indirect what-core is
+          // reachable only from the packages that depend on it).
+          dedupe: resolvePackageDir('what-core', root) ? ['what-core'] : [],
         },
         optimizeDeps: {
           exclude: uniqueExclude,

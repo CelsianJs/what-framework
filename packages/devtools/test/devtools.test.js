@@ -191,6 +191,24 @@ browserDescribe('what-devtools', () => {
     assert.ok(hasSignalText, 'Panel should show signal entries (signal_N names)');
   });
 
+  test('DevPanel previews a signal held in a signal without stringifying it', async () => {
+    const warnings = [];
+    const onConsole = (msg) => { if (msg.text().includes('ERR_MISSING_SIGNAL_READ')) warnings.push(msg.text()); };
+    page.on('console', onConsole);
+    try {
+      await page.goto(URL);
+      await page.waitForSelector('#title');
+      await page.locator('button:has-text("W")').first().click();
+      await page.locator('button:has-text("Signals")').first().click();
+      await page.waitForTimeout(300);
+      const shown = await page.evaluate(() => document.body.textContent.includes('[Function: sig]'));
+      assert.ok(shown, 'the held signal is previewed as a function');
+    } finally {
+      page.off('console', onConsole);
+    }
+    assert.deepEqual(warnings, []);
+  });
+
   test('DevPanel close button hides panel', async () => {
     await page.goto(URL);
     await page.waitForSelector('#title');

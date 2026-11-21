@@ -1,5 +1,6 @@
 // Projects — showcases: createStore, spring, batch, For, Show, Switch, effect, announce
-import { h, useState, useEffect, useRef, useMemo, spring } from 'what-framework';
+import { h, useState, useEffect, useRef, useMemo } from 'what-framework';
+import { spring } from 'what-framework/motion';
 import { useAppStore } from '../app.js';
 import { TASKS, PEOPLE } from '../data.js';
 

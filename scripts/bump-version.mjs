@@ -11,7 +11,9 @@
 //   node scripts/bump-version.mjs 0.12.3       # explicit version
 //   node scripts/bump-version.mjs minor --dry  # print plan, write nothing
 //
-// Loose ranges (`>=x`, `*`, `workspace:*`) are left untouched on purpose.
+// Loose ranges (`>=x`, `*`, `workspace:*`) are left untouched on purpose. A What
+// package never declares one on another What package: the packages move in
+// lockstep, and packages/core/test/compiler-runtime-lockstep.test.js fails on it.
 
 import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -207,15 +209,16 @@ for (const manifest of EXTERNAL_MANIFESTS) {
   }
 }
 
-// Keep the hardcoded VERSION constant in agent-context.js in sync (guarded by a
-// version-match test in packages/core/test/guardrails.test.js — would fail CI otherwise).
-const agentCtx = join(pkgsDir, 'core', 'src', 'agent-context.js');
-if (existsSync(agentCtx)) {
-  const src = readFileSync(agentCtx, 'utf8');
+// Keep the hardcoded VERSION constant in diagnostics.js in sync: it pins the
+// console docs link to the running release (guarded by a version-match test in
+// packages/core/test/diagnostics.test.js — would fail CI otherwise).
+const diagnosticsSrc = join(pkgsDir, 'core', 'src', 'diagnostics.js');
+if (existsSync(diagnosticsSrc)) {
+  const src = readFileSync(diagnosticsSrc, 'utf8');
   const updated = src.replace(/const VERSION = '[^']*';/, `const VERSION = '${next}';`);
   if (updated !== src) {
-    if (!dry) writeFileSync(agentCtx, updated);
-    console.log(`  ${'agent-context.js VERSION'.padEnd(24)} -> ${next}`);
+    if (!dry) writeFileSync(diagnosticsSrc, updated);
+    console.log(`  ${'diagnostics.js VERSION'.padEnd(24)} -> ${next}`);
   }
 }
 

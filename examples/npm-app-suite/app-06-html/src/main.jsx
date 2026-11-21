@@ -23,12 +23,12 @@ function App() {
       </div>
 
       {mode() === 'inner' ? (
-        <section className="panel" innerHTML={htmlSnippet()} />
+        <section className="panel" innerHTML={{ __html: htmlSnippet() }} />
       ) : (
         <section className="panel" dangerouslySetInnerHTML={{ __html: htmlSnippet() }} />
       )}
 
-      <svg className="swatch" width="64" height="64" viewBox="0 0 64 64" innerHTML={svgSnippet()} />
+      <svg className="swatch" width="64" height="64" viewBox="0 0 64 64" innerHTML={{ __html: svgSnippet() }} />
     </main>
   );
 }

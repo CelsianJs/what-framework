@@ -21,7 +21,7 @@ export default function StorePage() {
 
       <div class="card">
         <p>
-          Total: <strong>{store.total}</strong> | Online: <strong>{store.onlineCount}</strong>
+          Total: <strong>{() => store.total}</strong> | Online: <strong>{() => store.onlineCount}</strong>
         </p>
 
         <div class="button-row">
@@ -42,7 +42,7 @@ export default function StorePage() {
 
         <ul class="stack-list">
           {store.visible.map((person) => (
-            <li class="row">
+            <li key={person.id} class="row">
               <span>{person.name}</span>
               <div class="button-row">
                 <span class="badge">{person.online ? 'online' : 'offline'}</span>

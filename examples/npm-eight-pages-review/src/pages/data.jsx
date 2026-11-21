@@ -1,4 +1,4 @@
-import { invalidateQueries, useSWR } from 'what-framework';
+import { invalidateQueries, useSWR } from 'what-framework/data';
 
 export const page = {
   mode: 'client',
@@ -40,7 +40,7 @@ export default function DataPage() {
     dedupingInterval: 250,
   });
 
-  const rows = data() || [];
+  const rows = () => data() || [];
 
   const addOptimisticRow = () => {
     mutate((current = []) => [
@@ -71,8 +71,8 @@ export default function DataPage() {
         {error() && <p class="warn-note">{String(error().message || error())}</p>}
 
         <ul class="stack-list">
-          {rows.map((row) => (
-            <li class="row">
+          {rows().map((row) => (
+            <li key={row.id} class="row">
               <span>{row.name}</span>
               <span class="meta">{row.source} @ {row.fetchedAt}</span>
             </li>

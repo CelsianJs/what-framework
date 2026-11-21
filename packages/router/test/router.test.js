@@ -516,6 +516,29 @@ describe('Link component', () => {
     // The class prop is a reactive function — the DOM runtime resolves it via effect
     // In jsdom with our runtime, the class should contain 'active' and 'exact-active'
   });
+
+  it('reads a class passed as an accessor, and follows it', async () => {
+    const { signal, flushSync } = await import('../../core/src/reactive.js');
+    const { capture } = await import('../../core/src/diagnostics.js');
+    const container = getContainer();
+    await navigate('/elsewhere', { replace: true, transition: false });
+    await flush();
+
+    const tone = signal('primary', 'tone');
+    const cap = capture({ quiet: true });
+    try {
+      mount(h(Link, { href: '/about', class: tone }, 'About'), container);
+      await flush();
+      const a = container.querySelector('a');
+      assert.equal(a.getAttribute('class'), 'primary');
+      tone('secondary');
+      flushSync();
+      assert.equal(a.getAttribute('class'), 'secondary');
+    } finally {
+      cap.stop();
+    }
+    assert.deepEqual(cap.events.map((e) => e.code), [], 'the accessor is read, never stringified');
+  });
 });
 
 // =========================================================================

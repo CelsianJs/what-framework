@@ -1,5 +1,8 @@
 // Dashboard — showcases: signals, computed, spring animation, useSWR, skeleton, Show/For, effect
-import { h, useState, useEffect, useMemo, useRef, spring, useSWR, announce } from 'what-framework';
+import { h, useState, useEffect, useMemo, useRef } from 'what-framework';
+import { spring } from 'what-framework/motion';
+import { useSWR } from 'what-framework/data';
+import { announce } from 'what-framework/a11y';
 import { useAppStore } from '../app.js';
 import { fetchStats, fetchActivity, CHART_DATA } from '../data.js';
 

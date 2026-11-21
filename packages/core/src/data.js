@@ -1,8 +1,7 @@
 // What Framework - Data Fetching
 // SWR-like data fetching with caching, revalidation, and optimistic updates
 
-import { signal, effect, batch, computed, untrack, __DEV__ } from './reactive.js';
-import { getCurrentComponent } from './dom.js';
+import { signal, effect, batch, computed, untrack, onCleanup, __DEV__ } from './reactive.js';
 
 // --- Reactive Cache ---
 // Each cache key maps to shared signals so all components reading the same key
@@ -159,26 +158,11 @@ function unrefTimer(timer) {
 // Reading everything unconditionally fixes it whatever the promotion rule is:
 // the dependency set never varies, so there is nothing left to lose.
 
-// Create an effect scoped to the current component's lifecycle.
-// When the component unmounts, the effect is automatically disposed.
-function scopedEffect(fn) {
-  const ctx = getCurrentComponent?.();
-  const dispose = effect(fn);
-  if (ctx) ctx.effects.push(dispose);
-  return dispose;
-}
-
-// Register a teardown with the component that owns this hook.
-//
-// scopedEffect's cleanup is not the right home for all of it: that cleanup runs
-// before every RE-RUN of the effect as well as on disposal, and some teardown
-// (cancelling a request the application explicitly asked for) must happen only
-// when the component actually goes away. Outside a component there is nothing
-// to unmount and the effect is never disposed either, so the two agree.
-function onComponentDispose(fn) {
-  const ctx = getCurrentComponent?.();
-  if (ctx) ctx.effects.push(fn);
-}
+// An effect a hook creates belongs to the owner it is created under (the
+// component, when a hook runs in a component body) and is disposed with it.
+// Teardown that must happen only when that owner goes away, not before every
+// re-run of an effect (cancelling a request the application explicitly asked
+// for), is registered with onCleanup when the hook runs.
 
 // `enabled` as a READABLE gate rather than a value captured once.
 //
@@ -207,7 +191,7 @@ function onComponentDispose(fn) {
 function createGate(enabled) {
   const read = typeof enabled === 'function' ? enabled : () => enabled;
   const gate = signal(untrack(() => !!read()));
-  scopedEffect(() => { gate.set(!!read()); });
+  effect(() => { gate.set(!!read()); });
   return gate;
 }
 
@@ -269,7 +253,7 @@ export function useFetch(url, options = {}) {
   }
 
   // Fetch on mount, abort on unmount
-  scopedEffect(() => {
+  effect(() => {
     fetchData();
     return () => {
       if (abortController) abortController.abort();
@@ -434,7 +418,7 @@ export function useSWR(rawKey, fetcher, options = {}) {
   // refetch unsubscribed the key and never resubscribed: from then on
   // invalidateQueries() had no subscriber to call and silently did nothing.
   // Re-subscribing per run keeps the two halves in the same lifecycle.
-  scopedEffect(() => {
+  effect(() => {
     const unsubscribe = subscribeToKey(key, () => revalidate({ force: true }).catch(() => {}));
     // clearCache() empties this key's shared signals, but the request already on
     // the wire is not in any Map it can walk: it landed after the clear and put
@@ -459,7 +443,7 @@ export function useSWR(rawKey, fetcher, options = {}) {
 
   // Revalidate on focus
   if (revalidateOnFocus && typeof window !== 'undefined') {
-    scopedEffect(() => {
+    effect(() => {
       const handler = () => {
         if (document.visibilityState === 'visible') {
           revalidate().catch(() => {});
@@ -472,7 +456,7 @@ export function useSWR(rawKey, fetcher, options = {}) {
 
   // Revalidate on reconnect
   if (revalidateOnReconnect && typeof window !== 'undefined') {
-    scopedEffect(() => {
+    effect(() => {
       const handler = () => revalidate().catch(() => {});
       window.addEventListener('online', handler);
       return () => window.removeEventListener('online', handler);
@@ -481,7 +465,7 @@ export function useSWR(rawKey, fetcher, options = {}) {
 
   // Polling
   if (refreshInterval > 0) {
-    scopedEffect(() => {
+    effect(() => {
       const interval = unrefTimer(setInterval(() => {
         revalidate().catch(() => {});
       }, refreshInterval));
@@ -573,7 +557,7 @@ export function useQuery(options) {
   // the cache only in the success branch, so a re-run that finds any other
   // status reads rawStatus alone -- one dependency -- and the reactive core
   // promotes it to a stable effect that can never subscribe to anything new.
-  // See the note on conditional reads above scopedEffect.
+  // See the note on conditional reads above the ownership note.
   //
   // A query created with `enabled: false` takes exactly that path and an
   // enabled one does not, which is why this looked fixed: 'idle' -> 'loading'
@@ -752,7 +736,7 @@ export function useQuery(options) {
   // useSWR above. A query whose queryFn reads a signal re-runs this effect, and
   // a subscription created once outside it was cancelled by the first such
   // re-run, leaving the query permanently deaf to invalidateQueries().
-  scopedEffect(() => {
+  effect(() => {
     const unsubscribe = subscribeToKey(key, () => fetchQuery({ force: true }).catch(() => {}));
     const releaseHandler = registerClearCacheHandler(resetOnClearCache);
     // Tracked read of the MIRRORED gate, so this effect re-runs when the gate
@@ -785,7 +769,7 @@ export function useQuery(options) {
 
   // Unmount cancels everything, including the manual request the effect's own
   // cleanup deliberately spares.
-  onComponentDispose(() => {
+  onCleanup(() => {
     if (inFlight) {
       inFlight.controller.abort();
       inFlight = null;
@@ -794,7 +778,7 @@ export function useQuery(options) {
 
   // Refetch on focus
   if (refetchOnWindowFocus && typeof window !== 'undefined') {
-    scopedEffect(() => {
+    effect(() => {
       const handler = () => {
         if (document.visibilityState === 'visible') {
           fetchQuery().catch(() => {});
@@ -807,7 +791,7 @@ export function useQuery(options) {
 
   // Polling
   if (refetchInterval) {
-    scopedEffect(() => {
+    effect(() => {
       const interval = unrefTimer(setInterval(() => {
         fetchQuery().catch(() => {});
       }, refetchInterval));
@@ -1060,7 +1044,7 @@ export function useInfiniteQuery(options) {
   // Initial fetch, plus the invalidation subscription for this key. See the
   // matching comment in useQuery for why the subscription lives INSIDE the
   // effect.
-  scopedEffect(() => {
+  effect(() => {
     // The normalized key was computed and then never used, so an infinite query
     // was invisible to invalidateQueries(). Refetching from the first page is
     // the only coherent answer for a list whose later pages may no longer exist
@@ -1103,7 +1087,7 @@ export function useInfiniteQuery(options) {
 
   // Unmount cancels everything, including a page fetch the application asked
   // for that the effect's own cleanup spares.
-  onComponentDispose(() => {
+  onCleanup(() => {
     if (inFlight) {
       inFlight.controller.abort();
       inFlight = null;

@@ -3,13 +3,12 @@ import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 
 installDOM();
-const { signal, flushSync } = await import('../src/reactive.js');
+const { signal, flushSync, createRoot } = await import('../src/reactive.js');
 const { jsx } = await import('../src/jsx-runtime.js');
 const { hydrate } = await import('../src/render.js');
-const { disposeTree } = await import('../src/dom.js');
 const { renderToString } = await import('what-server');
 
-describe('hydrated reactive props belong to their DOM element', () => {
+describe('hydrated reactive props belong to the hydrated tree', () => {
   for (const key of ['class', 'className', 'style', 'data-value']) {
     it(`stops ${key} updates when the hydrated element is disposed`, () => {
       const source = signal(0);
@@ -19,20 +18,21 @@ describe('hydrated reactive props belong to their DOM element', () => {
       host.innerHTML = renderToString(vnode);
       document.body.appendChild(host);
       const existing = host.firstElementChild;
+      let dispose = () => {};
       try {
-        hydrate(vnode, host);
+        dispose = createRoot((d) => { hydrate(vnode, host); return d; });
         assert.equal(host.firstElementChild, existing, 'hydration must adopt the existing element');
         source.set(1);
         flushSync();
         const beforeDisposal = existing.outerHTML;
         assert.match(beforeDisposal, key === 'style' ? /opacity:\s*1/ : /value-1/);
-        disposeTree(host);
-        disposeTree(host);
+        dispose();
+        dispose();
         source.set(2);
         flushSync();
         assert.equal(existing.outerHTML, beforeDisposal);
       } finally {
-        disposeTree(host);
+        dispose();
         host.remove();
       }
     });

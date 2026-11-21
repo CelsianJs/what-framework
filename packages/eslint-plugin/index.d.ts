@@ -12,7 +12,8 @@
 export interface WhatRuleModule {
   meta: {
     type?: 'problem' | 'suggestion' | 'layout';
-    docs?: { description?: string; recommended?: boolean; url?: string };
+    /** `code`: the ERR_* catalogue code the rule finds, when it has one. */
+    docs?: { description?: string; recommended?: boolean; url?: string; code?: string };
     fixable?: 'code' | 'whitespace';
     schema?: unknown[];
     messages?: Record<string, string>;
@@ -24,7 +25,7 @@ export interface WhatRuleModule {
 /** The rules this plugin ships, keyed exactly as they are referenced in config. */
 export interface WhatRules {
   /** Signals are read by calling them; listing one in a deps array compares functions, not values. */
-  'no-signal-in-effect-deps': WhatRuleModule;
+  'no-signal-read-in-effect-deps': WhatRuleModule;
   /** A signal passed as a JSX child renders once unless it stays reactive. */
   'reactive-jsx-children': WhatRuleModule;
   /** Writing a signal during render re-enters render. */
@@ -41,6 +42,18 @@ export interface WhatRules {
   'signal-call-in-jsx': WhatRuleModule;
   /** A computed that writes a signal is a side effect pretending to be a value. */
   'no-set-in-computed': WhatRuleModule;
+  /** A name that left the root entry in 0.15 is imported from where it lives now (autofix). */
+  'no-moved-imports': WhatRuleModule;
+  /** An effect that reads and writes one signal re-triggers itself forever. */
+  'no-effect-self-write': WhatRuleModule;
+  /** An effect that adds a listener or an interval must return a cleanup. */
+  'effect-cleanup': WhatRuleModule;
+  /** innerHTML takes the { __html } marker, never a raw value. */
+  'no-unsafe-innerhtml': WhatRuleModule;
+  /** Module-scope signals get a debug name (hint). */
+  'signal-debug-name': WhatRuleModule;
+  /** An effect that only writes one signal should be a computed (hint). */
+  'prefer-computed': WhatRuleModule;
 }
 
 /**
@@ -69,7 +82,11 @@ export interface WhatFlatConfig {
 }
 
 export interface WhatConfigs {
-  /** Everything on as warnings, except no-set-in-computed, which is always an error. */
+  /**
+   * Warnings, except the rules whose findings are broken code wherever they
+   * appear (no-set-in-computed, no-effect-self-write, no-moved-imports), which
+   * are errors.
+   */
   recommended: WhatFlatConfig;
   /** Everything on as errors, plus prefer-set as a warning. */
   strict: WhatFlatConfig;

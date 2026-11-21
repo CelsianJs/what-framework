@@ -13,7 +13,7 @@ function TestComponent() {
     <div>
       <Toaster position="bottom-right" />
       <button
-        onclick={handleClick}
+        onClick={handleClick}
         style={{ padding: '6px 12px', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
       >
         Show Toast ({count} sent)

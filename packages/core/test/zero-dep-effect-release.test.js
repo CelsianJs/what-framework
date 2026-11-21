@@ -6,7 +6,10 @@
 //
 // MUST-KEEP semantics verified here:
 //  - effects that RETURN a cleanup fn stay registered (cleanup runs on dispose)
-//  - onCleanup() callbacks register with the root directly — unaffected
+//  - an effect owns what its run creates, so one that registered an
+//    onCleanup() or created an effect stays registered with the root, and what
+//    it owns is disposed with the root (before effect-scoped ownership, the
+//    onCleanup went to the root directly and the effect itself was released)
 //  - untrack()/peek() reads produce zero deps by design — released, and the
 //    (already impossible) re-fire stays impossible
 //  - effects WITH deps behave exactly as before
@@ -49,13 +52,28 @@ describe('zero-dep effect auto-release (C4)', () => {
     assert.equal(cleaned, 1, 'cleanup must run on root disposal');
   });
 
-  it('onCleanup() inside a zero-dep effect still runs on root disposal', () => {
+  it('onCleanup() inside a zero-dep effect belongs to the effect, which stays registered and runs it on root disposal', () => {
     let ran = 0;
     createRoot((dispose) => {
       effect(() => { onCleanup(() => { ran++; }); });
+      assert.equal(getOwner().disposals.length, 1,
+        'the effect owns the cleanup, so it is retained for the root to dispose');
       dispose();
     });
     assert.equal(ran, 1);
+  });
+
+  it('a zero-dep effect that created an effect stays registered, and disposing the root stops both', () => {
+    const s = signal(0);
+    let runs = 0;
+    createRoot((dispose) => {
+      effect(() => { effect(() => { s(); runs++; }); });
+      assert.equal(getOwner().disposals.length, 1);
+      dispose();
+    });
+    s(1);
+    flushSync();
+    assert.equal(runs, 1);
   });
 
   it('untrack() reads → released; signal writes never re-run it (unchanged semantics)', () => {

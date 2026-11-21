@@ -38,6 +38,7 @@ export default defineConfig({
       'what-core/jsx-runtime': pkgs('core', 'src', 'jsx-runtime.js'),
       'what-core/jsx-dev-runtime': pkgs('core', 'src', 'jsx-dev-runtime.js'),
       'what-core/testing': pkgs('core', 'src', 'testing.js'),
+      'what-core/internal': pkgs('core', 'src', 'entries', 'internal.js'),
       'what-core': pkgs('core', 'src', 'index.js'),
       'what-devtools/panel': pkgs('devtools', 'src', 'DevPanel.jsx'),
       'what-devtools': pkgs('devtools', 'src', 'index.js'),

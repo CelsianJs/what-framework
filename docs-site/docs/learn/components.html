@@ -131,11 +131,17 @@
   );
 }
 
-<span class="comment">// Uses defaults</span>
-&lt;Button&gt;Click me&lt;/Button&gt;
+<span class="keyword">function</span> <span class="function">Actions</span>() {
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      {<span class="comment">/* Uses defaults */</span>}
+      &lt;Button&gt;Click me&lt;/Button&gt;
 
-<span class="comment">// Override defaults</span>
-&lt;Button variant=<span class="string">"secondary"</span> size=<span class="string">"large"</span>&gt;Submit&lt;/Button&gt;</code></pre>
+      {<span class="comment">/* Override defaults */</span>}
+      &lt;Button variant=<span class="string">"secondary"</span> size=<span class="string">"large"</span>&gt;Submit&lt;/Button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
 
           <h3 id="spread-props">Spreading Props</h3>
           <p>Pass remaining props to child elements:</p>
@@ -280,14 +286,18 @@
 
           <p>Here is what the compiler actually emits:</p>
 <pre><code><span class="comment">// Your JSX:</span>
-&lt;div className="card"&gt;
-  &lt;p&gt;Count: {count()}&lt;/p&gt;
-&lt;/div&gt;
+<span class="keyword">export function</span> <span class="function">Card</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"card"</span>&gt;
+      &lt;p&gt;Count: {count()} items&lt;/p&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
 
-<span class="comment">// Compiler output:</span>
+<pre><code><span class="comment">// Compiler output:</span>
 <span class="keyword">import</span> { _$template, insert <span class="keyword">as</span> _$insert } <span class="keyword">from</span> <span class="string">"what-framework/render"</span>;
 
-<span class="keyword">const</span> _tmpl$0 = <span class="function">_$template</span>(<span class="string">'&lt;div class="card"&gt;&lt;p&gt;Count: &lt;!--$--&gt;&lt;/p&gt;&lt;/div&gt;'</span>);
+<span class="keyword">const</span> _tmpl$0 = <span class="function">_$template</span>(<span class="string">"&lt;div class=card&gt;&lt;p&gt;Count: &lt;!&gt; items"</span>);
 
 <span class="keyword">export function</span> <span class="function">Card</span>() {
   <span class="keyword">const</span> _el$0 = <span class="function">_tmpl$0</span>();
@@ -296,7 +306,7 @@
   <span class="keyword">return</span> _el$0;
 }</code></pre>
 
-          <p>Two details are worth reading closely. <code>_$template(...)</code> returns a <em>factory</em>, so <code>_tmpl$0()</code> hands back a fresh clone each time. And the <code>&lt;!--$--&gt;</code> in the template string is the anchor: it marks the exact position the dynamic child occupies, which is the third argument to <code>_$insert</code>, so the effect can update that one spot without touching its siblings. There is no separate <code>render()</code> function, the component body <em>is</em> the render.</p>
+          <p>Three details are worth reading closely. <code>_$template(...)</code> returns a <em>factory</em>, so <code>_tmpl$0()</code> hands back a fresh clone each time. The template string is minified HTML: the closing tags and attribute quotes the HTML parser restores are left out. And the <code>&lt;!&gt;</code> in it is the anchor: it marks the exact position the dynamic child occupies, which is the third argument to <code>_$insert</code>, so the effect can update that one spot without touching its siblings. A dynamic child that comes last needs no anchor, and the third argument is <code>null</code>. There is no separate <code>render()</code> function, the component body <em>is</em> the render.</p>
 
           <div class="callout callout-info">
             <p class="callout-title">Fine-Grained Rendering</p>
@@ -333,19 +343,21 @@
           <h3 id="attributes">Attributes</h3>
           <p>Some differences from HTML:</p>
 
-<pre><code><span class="comment">// className instead of class</span>
-&lt;div className=<span class="string">"container"</span>&gt;
+<pre><code>&lt;div&gt;
+  {<span class="comment">/* class or className: both set the element's class */</span>}
+  &lt;div className=<span class="string">"container"</span> /&gt;
 
-<span class="comment">// camelCase for multi-word attributes</span>
-&lt;input tabIndex={<span class="number">1</span>} autoFocus /&gt;
+  {<span class="comment">/* camelCase for multi-word attributes */</span>}
+  &lt;input tabIndex={<span class="number">1</span>} autoFocus /&gt;
 
-<span class="comment">// style as an object</span>
-&lt;div style={{ color: <span class="string">'red'</span>, fontSize: <span class="string">'16px'</span> }}&gt;
+  {<span class="comment">/* style as an object */</span>}
+  &lt;div style={{ color: <span class="string">'red'</span>, fontSize: <span class="string">'16px'</span> }} /&gt;
 
-<span class="comment">// boolean attributes</span>
-&lt;input disabled /&gt;
-&lt;input disabled={<span class="keyword">true</span>} /&gt;
-&lt;input disabled={isDisabled()} /&gt;</code></pre>
+  {<span class="comment">/* boolean attributes */</span>}
+  &lt;input disabled /&gt;
+  &lt;input disabled={<span class="keyword">true</span>} /&gt;
+  &lt;input disabled={isDisabled()} /&gt;
+&lt;/div&gt;</code></pre>
 
           <p>Two things to watch. A numeric attribute value has to be an expression, so <code>tabIndex={1}</code>, not <code>tabIndex=1</code>, which is a JSX syntax error. And unlike React, What does not append <code>px</code> to numbers in a style object: <code>fontSize: 16</code> is rejected by the CSSOM and silently dropped, so write the unit yourself. Genuinely unitless properties such as <code>opacity</code> and <code>zIndex</code> take numbers fine.</p>
 

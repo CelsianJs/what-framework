@@ -61,6 +61,7 @@ function scaffold(dir) {
 // (a leak would then surface as real devtools code in the bundle, not a build
 // error that masks the check).
 const ALIASES = {
+  'what-core/internal': join(HERE, '..', '..', 'core', 'src', 'entries', 'internal.js'),
   'what-core': join(HERE, '..', '..', 'core', 'src', 'index.js'),
   'what-devtools': join(HERE, '..', '..', 'devtools', 'src', 'index.js'),
   'what-devtools-mcp/client': join(PKG_SRC, 'client.js'),

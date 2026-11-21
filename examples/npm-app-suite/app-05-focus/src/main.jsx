@@ -1,4 +1,5 @@
-import { mount, useSignal, FocusTrap, useFocusRestore } from 'what-framework';
+import { mount, useSignal } from 'what-framework';
+import { FocusTrap, useFocusRestore } from 'what-framework/a11y';
 
 function App() {
   const open = useSignal(false);

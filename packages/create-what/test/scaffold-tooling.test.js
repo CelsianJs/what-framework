@@ -23,6 +23,46 @@ async function scaffold(name, args = []) {
   return { cwd, root: join(cwd, name) };
 }
 
+// React compat and the CSS approach are SPA prompts; `answers` types them.
+async function scaffoldSpa(name, answers) {
+  const cwd = await mkdtemp(join(tmpdir(), 'create-what-tooling-'));
+  const result = spawnSync(process.execPath, [createWhat, name, '--template=spa'], { cwd, input: answers, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  return { cwd, root: join(cwd, name) };
+}
+
+test('the StyleX scaffold uses a StyleX plugin npm installs next to its Vite', async () => {
+  const { cwd, root } = await scaffoldSpa('stylex-app', 'n\n3\n');
+  try {
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    // Every vite-plugin-stylex release peers on vite ^5, so npm refused it next
+    // to the scaffold's Vite (ERESOLVE) without --legacy-peer-deps.
+    assert.equal(pkg.devDependencies['vite-plugin-stylex'], undefined);
+    assert.ok(pkg.devDependencies['@stylexjs/unplugin'], 'the official StyleX plugin');
+    assert.equal(pkg.devDependencies['@stylexjs/unplugin'], pkg.devDependencies['@stylexjs/stylex'], 'plugin and runtime on one StyleX release');
+    assert.match(await readFile(join(root, 'vite.config.js'), 'utf8'), /import stylex from '@stylexjs\/unplugin\/vite';[\s\S]*plugins: \[.*stylex\(\)/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('the React-compat scaffold renders its signal as a function child the React component cannot reset', async () => {
+  const { cwd, root } = await scaffoldSpa('compat-app', 'y\n1\n');
+  try {
+    const main = await readFile(join(root, 'src', 'main.jsx'), 'utf8');
+    assert.match(main, /^const count = signal\(0, 'count'\);$/m, 'the signal lives outside the React component');
+    assert.match(main, /<output>\{\(\) => count\(\)\}<\/output>/, 'and renders as a function child');
+    assert.doesNotMatch(main, /\{count\(\)\}/, 'a value read once by a React component never updates');
+    for (const doc of ['CLAUDE.md', 'AGENTS.md']) {
+      const text = await readFile(join(root, doc), 'utf8');
+      assert.match(text, /JSX goes through `what-react`/, `${doc} describes the compat authoring model`);
+      assert.doesNotMatch(text, /This is the SPA template: Vite \+ `what-compiler`/, `${doc} does not claim the compiler`);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('the SPA scaffold installs the devtools bridge the MCP vite plugin needs', async () => {
   const { cwd, root } = await scaffold('spa-app');
   try {
@@ -86,6 +126,29 @@ test('the islands CLAUDE.md describes the automatic runtime, not the compiler', 
     assert.match(doc, /automatic runtime, NOT\s+`what-compiler`/);
     assert.match(doc, /<output>\{\(\) => count\(\)\}<\/output>/);
     assert.doesNotMatch(doc, /no compiler and no JSX/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('CLAUDE.md and AGENTS.md point at the skills and catalogue what-framework ships', async () => {
+  const { cwd, root } = await scaffold('agent-docs');
+  try {
+    const whatPkg = JSON.parse(await readFile(resolve(repoRoot, 'packages/what/package.json'), 'utf8'));
+    for (const doc of ['CLAUDE.md', 'AGENTS.md']) {
+      const text = await readFile(join(root, doc), 'utf8');
+      const paths = [...text.matchAll(/node_modules\/what-framework\/([\w./-]+[\w])/g)].map((m) => m[1]);
+      assert.deepEqual(
+        [...new Set(paths)].sort(),
+        ['UPGRADING.md', 'diagnostics.json', 'skills/what-diagnostics/SKILL.md', 'skills/what/SKILL.md'],
+        `${doc} must name each shipped reference`,
+      );
+      for (const rel of paths) {
+        await readFile(resolve(repoRoot, 'packages/what', rel), 'utf8');
+        assert.ok(whatPkg.files.includes(rel.split('/')[0]), `${rel} must be in what-framework's published files`);
+      }
+      assert.match(text, /`what_connection_status`: one call orients you/, `${doc} teaches the one-call orientation`);
+    }
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

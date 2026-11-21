@@ -6,12 +6,17 @@
  *
  * Usage:
  *   import { installDevTools } from 'what-devtools';
- *   installDevTools();  // Call once at app entry
+ *   installDevTools();  // Call once at app entry, before app code
  *
  * Then inspect in console:
- *   __WHAT_DEVTOOLS__.signals      // Map of all live signals
- *   __WHAT_DEVTOOLS__.components   // Map of mounted components
- *   __WHAT_DEVTOOLS__.effects      // Map of active effects
+ *   __WHAT_DEVTOOLS__.signals          // Map of all live signals
+ *   __WHAT_DEVTOOLS__.components       // Map of mounted components
+ *   __WHAT_DEVTOOLS__.effects          // Map of active effects
+ *   __WHAT_DEVTOOLS__.getDiagnostics() // coded diagnostics, cursor read
+ *
+ * The reactive graph is read through what-core's development API
+ * (__depsOf, __currentEffect) and the engine's hooks; nothing here reaches
+ * into engine internals.
  */
 
 let installed = false;
@@ -19,19 +24,26 @@ let signalId = 0;
 let effectId = 0;
 let componentId = 0;
 
-// what-core's installSignalReadGuardrail, captured when the core module is
-// wired up in installDevTools(). Dev-only: warns when a signal is coerced
-// to a string/number without being called (e.g. `Total: ${count}`).
-/** @type {((sig: any, name: string) => void) | null} */
-let coreSignalReadGuardrail = null;
+// The what-core module installDevTools() was wired to: the development graph
+// API and the diagnostics channel are read from it.
+/** @type {Record<string, any> | null} */
+let core = null;
+
+const EMPTY_DIAGNOSTICS = { events: [], seq: 0, dropped: 0 };
+
+/**
+ * Coded diagnostics what-core reported, oldest first. Pass the returned `seq`
+ * back as `since` to read only newer ones.
+ * @param {{ since?: number }} [opts]
+ */
+export function getDiagnostics(opts) {
+  return typeof core?.getDiagnostics === 'function' ? core.getDiagnostics(opts) : EMPTY_DIAGNOSTICS;
+}
 
 // Registries
-const signals = new Map();    // id → { name, ref, createdAt, internal }
-const effects = new Map();    // id → { name, createdAt, depSignalIds, runCount, lastRunAt }
-const components = new Map(); // id → { name, element, mountedAt, parentId }
-
-// Reverse lookup: subscriber Set → signal ID (O(1) dep resolution)
-const subsToSignalId = new WeakMap();
+const signals = new Map();    // id → { id, name, ref, rev, createdAt, internal, componentId }
+const effects = new Map();    // id → { id, name, node, kind, depSignalIds, depComputedIds, runCount, lastRunAt, causes, componentId }
+const components = new Map(); // id → { id, name, element, mountedAt, parentId }
 
 // Set of known component function names (added on registerComponent, kept
 // forever even after unmount so post-mortem signals still attribute).
@@ -46,18 +58,10 @@ const componentsByName = new Map();
  * Heuristic attribution: parse new Error().stack to find the most recently
  * called component frame. Returns a componentId or null.
  *
- * Why a stack heuristic instead of a hook:
- *   - We cannot add bracketing hooks to packages/core (compiler agent owns it).
- *   - `onComponentMount` fires before the component body runs; there's no
- *     `onComponentRendered` paired event.
- *   - Signal/effect creation happens DURING the component body, so its
- *     stack always contains a frame named after the component function.
- *
- * Limitations:
- *   - Anonymous components (no function name) cannot be matched.
- *   - Arrow components bound to a const get the const name in V8 stacks.
- *   - In production builds without source maps, function names may be mangled
- *     — but installDevTools should only run in dev anyway.
+ * Signal and effect creation happens during the component body, so its stack
+ * contains a frame named after the component function. Anonymous components
+ * cannot be matched, and an arrow component bound to a const gets the const's
+ * name in V8 stacks. Component ownership from the engine will replace this.
  */
 function attributeToComponent() {
   if (knownComponentNames.size === 0) return null;
@@ -126,93 +130,133 @@ function emit(event, data) {
   }
 }
 
-/**
- * Safely serialize a value for transport (WS, JSON).
- * Handles DOM nodes, functions, circular refs, Maps, Sets, large collections.
- */
-export function safeSerialize(value, depth = 0, seen) {
-  if (depth > 6) return '[max depth]';
-  if (value === null || value === undefined) return value;
+// --- Previews ---------------------------------------------------------------
 
+const MAX_PREVIEW_DEPTH = 6;
+
+function describeNode(node) {
+  // id/className live on Element, not Node; a text or comment node has neither.
+  const el = /** @type {Element} */ (/** @type {unknown} */ (node));
+  const tag = node.nodeName?.toLowerCase() || 'node';
+  const id = el.id ? `#${el.id}` : '';
+  const cls = typeof el.className === 'string' && el.className ? `.${el.className.split(' ')[0]}` : '';
+  return `[DOM: <${tag}${id}${cls}>]`;
+}
+
+function walkPreview(value, depth, state) {
+  if (value === null) { state.left -= 4; return null; }
   const type = typeof value;
-  if (type === 'string' || type === 'number' || type === 'boolean') return value;
-  if (type === 'function') return `[Function: ${value.name || 'anonymous'}]`;
-  if (type === 'symbol') return `[Symbol: ${value.description || ''}]`;
-  if (type === 'bigint') return value.toString() + 'n';
-
-  // DOM nodes
-  if (typeof Node !== 'undefined' && value instanceof Node) {
-    // id/className live on Element, not Node; a text or comment node has neither.
-    const el = /** @type {Element} */ (/** @type {unknown} */ (value));
-    const tag = value.nodeName?.toLowerCase() || 'node';
-    const id = el.id ? `#${el.id}` : '';
-    const cls = el.className ? `.${String(el.className).split(' ')[0]}` : '';
-    return `[DOM: <${tag}${id}${cls}>]`;
+  if (type === 'undefined') { state.left -= 9; return undefined; }
+  if (type === 'boolean') { state.left -= 5; return value; }
+  if (type === 'number') {
+    state.left -= 8;
+    return Number.isFinite(value) ? value : String(value);
   }
-
-  if (!seen) seen = new Set();
-  if (seen.has(value)) return '[Circular]';
-  seen.add(value);
-
-  // Map
-  if (value instanceof Map) {
-    if (value.size > 50) return `[Map: ${value.size} entries]`;
-    const obj = {};
-    for (const [k, v] of value) {
-      obj[String(k)] = safeSerialize(v, depth + 1, seen);
-    }
-    return { __type: 'Map', entries: obj };
+  if (type === 'string') {
+    if (value.length + 2 <= state.left) { state.left -= value.length + 2; return value; }
+    const keep = Math.max(0, state.left - 2);
+    state.left = 0;
+    return `${value.slice(0, keep)}…(+${value.length - keep} chars)`;
   }
+  if (type === 'bigint') { state.left -= 12; return `${value}n`; }
+  if (type === 'symbol') { state.left -= 12; return `[Symbol: ${value.description || ''}]`; }
+  if (type === 'function') { state.left -= 16; return `[Function: ${value.name || 'anonymous'}]`; }
 
-  // Set
-  if (value instanceof Set) {
-    if (value.size > 50) return `[Set: ${value.size} items]`;
-    return { __type: 'Set', values: [...value].map(v => safeSerialize(v, depth + 1, seen)) };
-  }
-
-  // Array
-  if (Array.isArray(value)) {
-    if (value.length > 100) {
-      return [...value.slice(0, 100).map(v => safeSerialize(v, depth + 1, seen)), `... (${value.length} total)`];
-    }
-    return value.map(v => safeSerialize(v, depth + 1, seen));
-  }
-
-  // Error
+  if (typeof Node !== 'undefined' && value instanceof Node) { state.left -= 24; return describeNode(value); }
+  if (state.seen.has(value)) { state.left -= 10; return '[Circular]'; }
+  if (depth >= MAX_PREVIEW_DEPTH) { state.left -= 10; return '[max depth]'; }
   if (value instanceof Error) {
-    return { __type: 'Error', name: value.name, message: value.message, stack: value.stack };
+    state.left -= 30;
+    return { __type: 'Error', name: value.name, message: walkPreview(String(value.message), depth + 1, state) };
+  }
+  if (value instanceof Date) { state.left -= 26; return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString(); }
+  if (value instanceof RegExp) { state.left -= 10; return String(value); }
+  if (typeof Promise !== 'undefined' && value instanceof Promise) { state.left -= 10; return '[Promise]'; }
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    state.left -= 20;
+    return `[${value.constructor?.name || 'Binary'}: ${value.byteLength} bytes]`;
   }
 
-  // Date
-  if (value instanceof Date) return { __type: 'Date', iso: value.toISOString() };
-
-  // RegExp
-  if (value instanceof RegExp) return value.toString();
-
-  // Plain object
-  if (type === 'object') {
-    const keys = Object.keys(value);
-    if (keys.length > 100) {
-      const obj = {};
-      for (const k of keys.slice(0, 100)) {
-        obj[k] = safeSerialize(value[k], depth + 1, seen);
+  state.seen.add(value);
+  try {
+    if (Array.isArray(value) || value instanceof Set) {
+      const items = Array.isArray(value) ? value : [...value];
+      const out = [];
+      state.left -= 2;
+      for (let i = 0; i < items.length; i++) {
+        if (state.left <= 0) { out.push(`…(+${items.length - i} items)`); break; }
+        out.push(walkPreview(items[i], depth + 1, state));
+        state.left -= 1;
       }
-      obj['...'] = `(${keys.length} total keys)`;
-      return obj;
+      return value instanceof Set ? { __type: 'Set', size: value.size, values: out } : out;
     }
-    const obj = {};
-    for (const k of keys) {
-      obj[k] = safeSerialize(value[k], depth + 1, seen);
+    if (value instanceof Map) {
+      const entries = {};
+      let i = 0;
+      state.left -= 20;
+      for (const [k, v] of value) {
+        if (state.left <= 0) { entries['…'] = `+${value.size - i} entries`; break; }
+        const key = typeof k === 'string' ? k : String(walkPreview(k, depth + 1, state));
+        state.left -= key.length + 3;
+        entries[key] = walkPreview(v, depth + 1, state);
+        i++;
+      }
+      return { __type: 'Map', size: value.size, entries };
     }
-    return obj;
+    const keys = Object.keys(value);
+    const out = {};
+    state.left -= 2;
+    for (let i = 0; i < keys.length; i++) {
+      if (state.left <= 0) { out['…'] = `+${keys.length - i} keys`; break; }
+      const key = keys[i];
+      state.left -= key.length + 3;
+      let item;
+      try { item = value[key]; } catch (err) { item = `[getter threw: ${err?.message || err}]`; }
+      out[key] = walkPreview(item, depth + 1, state);
+    }
+    return out;
+  } finally {
+    state.seen.delete(value);
   }
+}
 
-  return String(value);
+/**
+ * A JSON-safe preview of any value, about `budget` characters of JSON at most.
+ * Long strings, collections and objects are cut with an explicit marker
+ * (`…(+12 chars)`, `…(+3 items)`, `"…": "+4 keys"`); circular references,
+ * DOM nodes, functions and getters that throw become descriptive strings.
+ * A preview is for reading; change detection uses the signal revision.
+ * @param {unknown} value
+ * @param {number} [budget]
+ */
+export function preview(value, budget = 300) {
+  try {
+    return walkPreview(value, 0, { left: budget, seen: new Set() });
+  } catch (err) {
+    return `[unserializable: ${err?.message || err}]`;
+  }
+}
+
+/**
+ * Convert a value to something JSON-safe and bounded, for sending over the
+ * MCP bridge. A larger-budget preview().
+ * @param {unknown} value
+ * @param {number} [budget]
+ */
+export function safeSerialize(value, budget = 2000) {
+  return preview(value, budget);
+}
+
+// --- Signals ----------------------------------------------------------------
+
+function signalIdOf(sig) {
+  const id = sig?._devId;
+  return id != null && signals.has(id) ? id : null;
 }
 
 /**
  * Register a signal with the devtools.
- * Called from reactive.js __DEV__ hooks.
+ * Called from the engine's onSignalCreate hook.
  */
 export function registerSignal(sig, name) {
   if (!installed || suppressDepth > 0) return;
@@ -221,40 +265,35 @@ export function registerSignal(sig, name) {
     id,
     name: sig._debugName || name || `signal_${id}`,
     ref: sig,
+    rev: 0,
     createdAt: Date.now(),
     internal: false,
-    // P1-6: attribute to the component currently executing, so what_explain
-    // can show component-local signals instead of always returning [].
     componentId: attributeToComponent(),
   };
   signals.set(id, entry);
   sig._devId = id;
-  // Reverse lookup for O(1) effect dep resolution
-  if (sig._subs) subsToSignalId.set(sig._subs, id);
-  // Dev guardrail: warn when this signal is string/number-coerced without
-  // being called (catches `Total: ${count}` — should be `${count()}`).
-  if (coreSignalReadGuardrail) {
-    try { coreSignalReadGuardrail(sig, entry.name); } catch {}
-  }
-  emit('signal:created', entry);
+  emit('signal:created', { id, name: entry.name, componentId: entry.componentId });
   return id;
 }
 
 /**
- * Notify devtools that a signal value changed.
+ * Notify devtools that a signal was written, with the new and previous value
+ * from the engine hook. The writer is the effect running at write time
+ * (null for a write from an event handler or other plain code).
  */
-export function notifySignalUpdate(sig) {
+export function notifySignalUpdate(sig, next, prev) {
   if (!installed) return;
-  const id = sig._devId;
+  const id = signalIdOf(sig);
   if (id == null) return;
   const entry = signals.get(id);
-  if (entry) {
-    emit('signal:updated', { id, name: entry.name, value: sig.peek() });
-  }
+  entry.rev++;
+  const writer = typeof core?.__currentEffect === 'function' ? core.__currentEffect() : null;
+  const writerEffectId = writer?._devId != null && effects.has(writer._devId) ? writer._devId : null;
+  emit('signal:updated', { id, name: entry.name, value: next, prev, rev: entry.rev, writerEffectId });
 }
 
 /**
- * Unregister a signal (when disposed via createRoot cleanup).
+ * Unregister a signal.
  */
 export function unregisterSignal(sig) {
   if (!installed) return;
@@ -264,50 +303,84 @@ export function unregisterSignal(sig) {
   emit('signal:disposed', { id });
 }
 
+// --- Effects and computeds --------------------------------------------------
+
+// The engine hands a computed out as its node, which has a subscriber list;
+// an effect node has none.
+function kindOf(node) {
+  return node && 'subHead' in node ? 'computed' : 'effect';
+}
+
 /**
- * Register an effect with the devtools.
+ * Register an effect (or a computed) with the devtools.
  */
 export function registerEffect(e, name) {
   if (!installed || suppressDepth > 0) return;
   const id = ++effectId;
+  const kind = kindOf(e);
   const entry = {
     id,
-    name: name || e.fn?.name || `effect_${id}`,
+    name: name || e.fn?.name || `${kind}_${id}`,
+    node: e,
+    kind,
     createdAt: Date.now(),
     depSignalIds: [],
+    depComputedIds: [],
     runCount: 0,
     lastRunAt: null,
-    // P1-6: attribute to the component currently executing.
+    causes: null,
     componentId: attributeToComponent(),
   };
   effects.set(id, entry);
   e._devId = id;
-  emit('effect:created', entry);
+  emit('effect:created', { id, name: entry.name, kind, componentId: entry.componentId });
   return id;
 }
 
+// Dependencies (signals by signal id, computeds by effect id) of a node, read
+// through the engine's development API.
+function splitHandles(handles) {
+  const signalIds = [];
+  const computedIds = [];
+  for (const h of handles || []) {
+    if (typeof h === 'function') {
+      const id = signalIdOf(h);
+      if (id != null) signalIds.push(id);
+    } else if (h?._devId != null && effects.has(h._devId)) {
+      computedIds.push(h._devId);
+    }
+  }
+  return { signalIds, computedIds };
+}
+
+function readDeps(entry) {
+  if (typeof core?.__depsOf !== 'function') return;
+  const { signalIds, computedIds } = splitHandles(core.__depsOf(entry.node));
+  entry.depSignalIds = signalIds;
+  entry.depComputedIds = computedIds;
+}
+
 /**
- * Track effect dependencies and run count after an effect runs.
+ * Track dependencies, run count and the cause of a run. `info.causes` lists
+ * the dependencies whose value changed since the node's previous run (absent
+ * for a first run).
  */
-function trackEffectRun(e) {
+function trackEffectRun(e, info) {
   const id = e._devId;
   if (id == null) return;
   const entry = effects.get(id);
   if (!entry) return;
-
-  // Resolve deps via WeakMap reverse lookup — O(m) where m = number of deps
-  const depSignalIds = [];
-  if (e.deps) {
-    for (const subSet of e.deps) {
-      const sigId = subsToSignalId.get(subSet);
-      if (sigId != null) depSignalIds.push(sigId);
-    }
-  }
-
-  entry.depSignalIds = depSignalIds;
-  entry.runCount = (entry.runCount || 0) + 1;
+  readDeps(entry);
+  entry.runCount++;
   entry.lastRunAt = Date.now();
-  emit('effect:run', { id, depSignalIds: entry.depSignalIds, runCount: entry.runCount });
+  const causes = info?.causes ? splitHandles(info.causes) : null;
+  entry.causes = causes ? { signalIds: causes.signalIds, computedIds: causes.computedIds } : null;
+  emit('effect:run', {
+    id,
+    runCount: entry.runCount,
+    depSignalIds: entry.depSignalIds,
+    ...(causes ? { causeSignalIds: causes.signalIds, causeComputedIds: causes.computedIds } : {}),
+  });
 }
 
 /**
@@ -321,15 +394,27 @@ export function unregisterEffect(e) {
   emit('effect:disposed', { id });
 }
 
+// --- Errors -----------------------------------------------------------------
+
+// The engine can hand the same thrown error to onError from two places (the
+// effect's own catch and the flush loop), and an error an effect re-throws can
+// also surface as uncaught. Record each thrown object once.
+const capturedErrors = new WeakSet();
+
 /**
- * Capture a runtime error.
+ * Capture a runtime error, once per thrown object.
  */
 function captureError(err, context) {
+  if (err !== null && typeof err === 'object') {
+    if (capturedErrors.has(err)) return;
+    capturedErrors.add(err);
+  }
   const entry = {
     message: err?.message || String(err),
     stack: err?.stack || null,
     type: context?.type || 'unknown',
     effectId: context?.effect?._devId || null,
+    ...(typeof err?.code === 'string' ? { code: err.code } : {}),
     timestamp: Date.now(),
   };
   errors.push(entry);
@@ -337,25 +422,24 @@ function captureError(err, context) {
   emit('error:captured', entry);
 }
 
+// Errors that escape to the window: a coded hook error thrown in an event
+// handler, or an effect error re-thrown by an error boundary, never pass
+// through the engine's onError hook.
+function captureUncaught() {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  window.addEventListener('error', (event) => {
+    captureError(event.error ?? event.message, { type: 'uncaught' });
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    captureError(event.reason, { type: 'unhandled-rejection' });
+  });
+}
+
+// --- Components -------------------------------------------------------------
+
 /**
- * Register a component mount.
- *
- * TODO(P2-7) — stable component IDs across remounts.
- * Currently `componentId` is a monotonic counter, so a view switch (or any
- * conditional render) produces fresh IDs even when the same component
- * remounts in the same slot. Agents that cache IDs across calls get burned.
- *
- * A stable scheme would key by (parent stable id + position + name), but
- * that requires:
- *   - Tracking position within parent (currently only parentDevId is known).
- *   - Resolving collisions when two siblings have the same name.
- *   - Deciding how recursion (component-renders-itself) is handled.
- *   - Migrating every code path that assumes monotonic numeric IDs (devtools
- *     panel, registries, MCP bridge serialization, snapshot diffing).
- *
- * Verdict: the registry rewrite is invasive enough to warrant a dedicated
- * change. For now, the MCP tool descriptions document the ephemerality
- * (see what_components / what_explain) so agents re-query before using IDs.
+ * Register a component mount. Ids are a monotonic counter, so a remount gets a
+ * fresh id; the MCP tool descriptions tell agents to re-query.
  */
 export function registerComponent(name, element, parentDevId) {
   if (!installed || suppressDepth > 0) return;
@@ -375,7 +459,7 @@ export function registerComponent(name, element, parentDevId) {
     if (!set) { set = new Set(); componentsByName.set(name, set); }
     set.add(id);
   }
-  emit('component:mounted', entry);
+  emit('component:mounted', { id, name: entry.name, parentId: entry.parentId });
   return id;
 }
 
@@ -387,13 +471,9 @@ export function unregisterComponent(id) {
   const entry = components.get(id);
   components.delete(id);
   if (entry?.name) {
-    const set = componentsByName.get(entry.name);
-    if (set) {
-      set.delete(id);
-      // Keep knownComponentNames populated even after unmount — a re-mount
-      // of the same component should still attribute correctly, and
-      // attribution costs nothing when no live components match.
-    }
+    // knownComponentNames stays populated: a re-mount of the same component
+    // still attributes, and attribution costs nothing when no live one matches.
+    componentsByName.get(entry.name)?.delete(id);
   }
   emit('component:unmounted', { id });
 }
@@ -408,7 +488,7 @@ export function subscribe(fn) {
 }
 
 /**
- * Get a snapshot of all tracked state.
+ * Get a snapshot of all tracked state, with live values.
  * @param {object} [opts] - Options
  * @param {boolean} [opts.includeInternal=false] - Include framework-internal signals
  */
@@ -422,6 +502,7 @@ export function getSnapshot(opts = {}) {
       id,
       name: entry.name,
       value: entry.ref.peek(),
+      rev: entry.rev,
       componentId: entry.componentId || null,
     });
   }
@@ -431,9 +512,11 @@ export function getSnapshot(opts = {}) {
     effectList.push({
       id,
       name: entry.name,
-      depSignalIds: entry.depSignalIds || [],
-      runCount: entry.runCount || 0,
-      lastRunAt: entry.lastRunAt || null,
+      kind: entry.kind,
+      depSignalIds: entry.depSignalIds,
+      depComputedIds: entry.depComputedIds,
+      runCount: entry.runCount,
+      lastRunAt: entry.lastRunAt,
       componentId: entry.componentId || null,
     });
   }
@@ -452,6 +535,38 @@ export function getSnapshot(opts = {}) {
 }
 
 /**
+ * The whole registry, JSON-safe, for the MCP bridge. Lists are never cut: ids,
+ * names, revisions, run counts and dependencies are exact, and only each
+ * signal's `value` is a bounded preview().
+ * @param {{ budget?: number }} [opts]
+ */
+export function getState({ budget = 300 } = {}) {
+  const signalList = [];
+  for (const [id, entry] of signals) {
+    if (entry.internal) continue;
+    let value;
+    try { value = preview(entry.ref.peek(), budget); } catch (err) { value = `[unreadable: ${err?.message || err}]`; }
+    signalList.push({ id, name: entry.name, rev: entry.rev, value, componentId: entry.componentId || null });
+  }
+  const effectList = [];
+  for (const [id, entry] of effects) {
+    effectList.push({
+      id,
+      name: entry.name,
+      kind: entry.kind,
+      runCount: entry.runCount,
+      depSignalIds: entry.depSignalIds,
+      depComputedIds: entry.depComputedIds,
+      ...(entry.causes ? { causeSignalIds: entry.causes.signalIds, causeComputedIds: entry.causes.computedIds } : {}),
+      componentId: entry.componentId || null,
+    });
+  }
+  const componentList = [];
+  for (const [id, entry] of components) componentList.push({ id, name: entry.name, parentId: entry.parentId });
+  return { signals: signalList, effects: effectList, components: componentList };
+}
+
+/**
  * Get captured errors.
  * @param {object} [opts]
  * @param {number} [opts.since] - Only errors after this timestamp
@@ -463,21 +578,23 @@ export function getErrors(opts = {}) {
 }
 
 /**
- * Install devtools. Call once at app startup.
- * Wires into what-core's __DEV__ hooks and exposes `window.__WHAT_DEVTOOLS__`.
+ * Install devtools. Call once at app startup, before app code: checks that
+ * fire while modules load (an uncalled signal at module scope) are only seen
+ * once the hooks are in. Wires into what-core's development hooks and exposes
+ * `window.__WHAT_DEVTOOLS__`.
  *
- * @param {any} [core] - Optional what-core module. If not provided, attempts dynamic import.
+ * @param {any} [coreModule] - Optional what-core module. If not provided, attempts dynamic import.
  */
-export function installDevTools(core) {
+export function installDevTools(coreModule) {
   if (installed) return;
   installed = true;
 
   const hooks = {
     onSignalCreate: (sig) => registerSignal(sig),
-    onSignalUpdate: (sig) => notifySignalUpdate(sig),
+    onSignalUpdate: (sig, next, prev) => notifySignalUpdate(sig, next, prev),
     onEffectCreate: (e) => registerEffect(e),
     onEffectDispose: (e) => unregisterEffect(e),
-    onEffectRun: (e) => trackEffectRun(e),
+    onEffectRun: (e, info) => trackEffectRun(e, info),
     onError: (err, context) => captureError(err, context),
     onComponentMount: (ctx) => {
       const name = ctx.Component?.displayName || ctx.Component?.name || 'Anonymous';
@@ -490,47 +607,35 @@ export function installDevTools(core) {
     },
   };
 
-  // Wire into what-core's reactive system
   function installInto(mod) {
     if (!mod) return;
-    // Capture the guardrail BEFORE hooks go live so the very first
-    // registrations (and the pre-install drain below) get wrapped too.
-    if (typeof mod.installSignalReadGuardrail === 'function') {
-      coreSignalReadGuardrail = mod.installSignalReadGuardrail;
+    core = mod;
+    if (typeof mod.subscribeDiagnostics === 'function') {
+      mod.subscribeDiagnostics((ev) => emit('diagnostic', ev));
     }
     if (mod.__setDevToolsHooks) mod.__setDevToolsHooks(hooks);
     if (typeof window !== 'undefined') window.__WHAT_CORE__ = mod;
 
-    // P1-9: drain anything created BEFORE installDevTools was called
-    // (e.g. module-scope signals in store.js imported before app.js).
-    // The placeholder hooks in reactive.js buffered creations; we now
-    // register them with the live devtools so what_signals can see them.
+    // Register what was created before installDevTools ran (module-scope
+    // signals in a store imported before the devtools entry): the engine's
+    // placeholder hooks buffered those creations.
     if (typeof mod.__drainPreinstallBuffer === 'function') {
       try {
         const drained = mod.__drainPreinstallBuffer();
         for (const sig of drained.signals || []) {
-          // Avoid double-register if the placeholder somehow already passed
-          // through to hooks (defensive — should be impossible given the
-          // ordering in reactive.js).
           if (sig._devId == null) registerSignal(sig);
         }
         for (const e of drained.effects || []) {
-          if (e._devId == null) {
-            registerEffect(e);
-            // The effect already ran once before install; populate its deps
-            // now so what_dependency_graph shows the edges immediately,
-            // instead of waiting for the next run to re-track.
-            const entry = effects.get(e._devId);
-            if (entry && Array.isArray(e.deps)) {
-              const depSignalIds = [];
-              for (const subSet of e.deps) {
-                const sigId = subsToSignalId.get(subSet);
-                if (sigId != null) depSignalIds.push(sigId);
-              }
-              entry.depSignalIds = depSignalIds;
-              entry.runCount = 1;
-              entry.lastRunAt = Date.now();
-            }
+          if (e._devId != null) continue;
+          registerEffect(e);
+          const entry = effects.get(e._devId);
+          if (!entry) continue;
+          // An effect ran once when it was created; a computed only if it was
+          // read. Fill in what the missed runs would have recorded.
+          readDeps(entry);
+          if (entry.kind === 'effect' || entry.depSignalIds.length || entry.depComputedIds.length) {
+            entry.runCount = 1;
+            entry.lastRunAt = Date.now();
           }
         }
         for (const ctx of drained.components || []) {
@@ -545,11 +650,13 @@ export function installDevTools(core) {
     }
   }
 
-  if (core && core.__setDevToolsHooks) {
-    installInto(core);
+  captureUncaught();
+
+  if (coreModule && coreModule.__setDevToolsHooks) {
+    installInto(coreModule);
   } else {
     try {
-      import('what-core').then(installInto).catch(() => {});
+      import('what-core/internal').then(installInto).catch(() => {});
     } catch {}
   }
 
@@ -560,8 +667,11 @@ export function installDevTools(core) {
       get components() { return getSnapshot().components; },
       get errors() { return getErrors(); },
       getSnapshot,
+      getState,
       getErrors,
+      getDiagnostics,
       subscribe,
+      preview,
       safeSerialize,
       _registries: { signals, effects, components, errors },
     };

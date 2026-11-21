@@ -1,11 +1,5 @@
-import {
-  mount,
-  useSignal,
-  useForm,
-  simpleResolver,
-  rules,
-  ErrorMessage,
-} from 'what-framework';
+import { mount, useSignal } from 'what-framework';
+import { useForm, simpleResolver, rules, ErrorMessage } from 'what-framework/form';
 
 function App() {
   const submitted = useSignal(null);
@@ -65,7 +59,7 @@ function App() {
       <section className="state-grid">
         <article>
           <h2>Errors</h2>
-          <pre>{JSON.stringify(form.formState.errors, null, 2)}</pre>
+          <pre>{() => JSON.stringify(form.formState.errors, null, 2)}</pre>
         </article>
         <article>
           <h2>Submitted</h2>

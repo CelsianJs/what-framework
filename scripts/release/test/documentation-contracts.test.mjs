@@ -33,7 +33,7 @@ test('release checklist names the maintained cohort and preserves the frozen pac
 });
 
 test('agent guides describe function bindings as tracked effects', () => {
-  for (const path of ['CLAUDE.md', 'packages/create-what/index.js']) {
+  for (const path of ['CLAUDE.md', 'packages/create-what/agent-instructions.js']) {
     const guide = read(path).replace(/\s+/g, ' ');
     assert.doesNotMatch(guide, /bypassing tracked effects|without going through tracked effects|more common than tracked effects/, path);
     assert.match(guide, /Initial (?:runs|execution) (?:are|is) reported/, path);

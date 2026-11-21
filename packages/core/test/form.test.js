@@ -252,7 +252,9 @@ describe('form utilities', () => {
       const form = useForm();
       form.setError('email', { type: 'required', message: 'Email required' });
 
-      const vnode = ErrorMessage({ name: 'email', formState: form.formState });
+      const view = ErrorMessage({ name: 'email', formState: form.formState });
+      assert.equal(typeof view, 'function');
+      const vnode = view();
       assert.ok(vnode);
       assert.equal(vnode.tag, 'span');
       assert.equal(vnode.children[0], 'Email required');
@@ -262,7 +264,7 @@ describe('form utilities', () => {
       const vnode = ErrorMessage({
         name: 'email',
         errors: () => ({ email: { type: 'custom', message: 'Legacy source' } }),
-      });
+      })();
 
       assert.ok(vnode);
       assert.equal(vnode.tag, 'span');
@@ -271,7 +273,7 @@ describe('form utilities', () => {
 
     it('should return null from ErrorMessage when no error exists', () => {
       const form = useForm();
-      const vnode = ErrorMessage({ name: 'email', formState: form.formState });
+      const vnode = ErrorMessage({ name: 'email', formState: form.formState })();
       assert.equal(vnode, null);
     });
   });

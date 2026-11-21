@@ -217,7 +217,7 @@ describe('compiled JSX: user components that forward children', () => {
       '}'
     );
     assert.match(out, /_props\.children/, 'the rewrite must have fired for this to prove anything');
-    assert.match(out, /_\$effect\(\(\) => _\$setClass\(/, 'a sibling attribute keeps its effect');
+    assert.match(out, /_\$effect\(\(\) => _\$className\(/, 'a sibling attribute keeps its effect');
     assert.match(out, /_\$effect\(\(\) => _\$setAttr\(/, 'a sibling attribute keeps its effect');
     assert.match(out, /_\$insert\(_el\$\d+, \(\) => title/, 'a sibling expression child keeps its thunk');
   });
@@ -229,7 +229,9 @@ describe('compiled JSX: user components that forward children', () => {
       const forwarded = compileJSX(`function Card({ name, children }) { return <div>{${expr}}<Panel>{children}</Panel></div>; }`);
       const control = compileJSX(`function Card({ name }) { return <div>{${expr}}</div>; }`);
       assert.match(forwarded, /_props\.children/, 'the rewrite must have fired');
-      const inserted = (out) => out.match(/_\$insert\(_el\$0, ([\s\S]*?), _el\$/)[1];
+      // The value argument, whether or not a marker follows it (a sole child
+      // takes none).
+      const inserted = (out) => out.match(/_\$insert\(_el\$0, ([\s\S]*?)(?:, (?:_el\$[\w.$]*|null))?\);/)[1];
       assert.equal(inserted(forwarded), inserted(control), 'the moved props must classify as they did');
     });
   }

@@ -17,6 +17,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Before the bare alias, which prefix-matches subpaths.
+      'what-core/internal': new URL('../../../core/src/entries/internal.js', import.meta.url).pathname,
       'what-core': new URL('../../../core/src/index.js', import.meta.url).pathname,
       'what-devtools': new URL('../../../devtools/src/index.js', import.meta.url).pathname,
     },

@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 
-const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4318';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();

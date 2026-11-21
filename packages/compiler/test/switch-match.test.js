@@ -397,13 +397,13 @@ describe('host-element codegen', () => {
     `);
 
     assert.ok(
-      code.includes('const _tmpl$0 = /* @__PURE__ */_$template("<div class=\\"card\\" id=\\"c1\\"><h2 class=\\"t\\"><!--$--></h2><p>static text</p><button>Pick</button></div>");'),
+      code.includes('const _tmpl$0 = /* @__PURE__ */_$template("<div class=card id=c1><h2 class=t></h2><p>static text</p><button>Pick");'),
       `template literal changed:\n${code}`
     );
     assert.ok(code.includes('const _el$0 = _tmpl$0();'), code);
     assert.ok(code.includes('const _el$1 = _el$0.firstChild;'), code);
     assert.ok(code.includes('const _el$2 = _el$1.nextSibling.nextSibling;'), code);
-    assert.ok(code.includes('_$insert(_el$1, () => title, _el$1.firstChild);'), code);
+    assert.ok(code.includes('_$insert(_el$1, () => title);'), code);
     assert.ok(code.includes('_el$2.$$click = onPick;'), code);
     assert.doesNotMatch(code, /_\$createComponent/);
   });

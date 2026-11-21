@@ -158,7 +158,7 @@ describe('renderToStream', () => {
       return h('span', null, 'child');
     }
     const html = await collectStream(h('div', null, h(Child, {})));
-    assert.ok(html.includes('<span>child</span>'));
+    assert.ok(html.includes('<span data-hk="0">child</span>'));
   });
 
   it('streams arrays', async () => {

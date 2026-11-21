@@ -1,15 +1,17 @@
 # What Framework
 
-> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (29 tools) lets agents inspect every signal, effect, and component in a running app, and its `what_fix` tool returns a diagnosis, fix, and worked example for any What error code offline.
+> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (24 tools) lets agents inspect every signal, effect, and component in a running app, and its `what_fix` tool returns a diagnosis, fix, and worked example for any What error code offline.
 
 Key facts an agent should know before writing code:
 
 - State is a `signal(initialValue, 'debugName')`. Read with `count()`, write with `count(5)` or `count(c => c + 1)` (also `count.set(...)`).
 - Components run **once**. The function body never re-executes, signals create fine-grained DOM effects instead of re-rendering.
-- `computed()` is lazy, cached derived state. `effect()` auto-tracks signal reads (no dependency array). `batch()` flushes effects once and returns nothing.
+- `computed()` is cached derived state, recomputed when read after an input changed. `effect()` auto-tracks signal reads (no dependency array). `batch(fn)` runs the effects its writes queued once, synchronously when it ends, and returns `fn`'s value.
+- Fetched data is an async value: `computed(async ({ signal }) => …)`, read by calling it under a `<Suspense fallback>` (shown on first load only). `refresh(c)` fetches again, `c.pending()` says so, `startTransition(fn)`/`useTransition()` and `useOptimistic()` have React's shapes with accessors (`isPending()`, `optimistic()`), `use(promise)` reads a promise in a component, and a test acts, then `await settled()`. Do not fetch in `useEffect`.
+- `hydrate(<App />, el)` adopts server-rendered markup (no node created where it matches, nothing the server sent fetched again) and returns the unmount function. Compiled JSX hydrates when built with what-compiler's `hydratable` option (`what-compiler/vite` turns it on for a project that renders on the server).
 - Import the core from `'what-framework'` (the umbrella package re-exports it). SSR and server actions live on `'what-framework/server'`, routing on `'what-framework/router'`; those names are not on the umbrella.
 - Native What APIs are preferred. `what-react` is a secondary compatibility layer for the React ecosystem.
-- **Compiled JSX cannot be server-rendered.** The compiler lowers JSX to a module-level `_$template()` that calls `document.createElement` at MODULE LOAD TIME, so importing a compiled module in Node throws `ReferenceError: document is not defined` before any render function runs. Write server-rendered components with `h()` or the automatic JSX runtime (`jsx`/`jsxs`, which build vnodes at call time), and keep the template compiler for client-only bundles. The full-stack `create-what` scaffold is buildless and uses `h()` for this reason. The static-site scaffold (`--template=islands`) writes JSX for the automatic runtime for the same reason: every page is rendered on the server.
+- **Compiled JSX renders on the server too.** `what-compiler/vite` compiles the modules Vite transforms for the server (`vite build --ssr`, SSR in the dev server) with its server target, string templates every `what-framework/server` renderer accepts, so the same components render on both sides. That is the compiler's `ssr` option, on by default; with `ssr: false` a server transform that would build DOM fails with `ERR_COMPILED_JSX_IN_SSR`. `h()` and the automatic JSX runtime (`jsx`/`jsxs`) render on the server without any compiler, which is why the buildless full-stack `create-what` scaffold uses `h()` and the static-site scaffold (`--template=islands`) writes JSX for the automatic runtime.
 
 ## Start here
 
@@ -33,7 +35,7 @@ Key facts an agent should know before writing code:
 - [Starter build status](https://whatfw.com/templates/status): Planned and in-progress products are labeled separately from verified releases; each has a status/reference journal.
 - [Starter status index](https://whatfw.com/templates/status/llms.txt): Current phases, recorded checks, lessons and limitations for every starter.
 - [Agent patterns](https://github.com/CelsianJs/what-framework/blob/main/docs/AGENT-PATTERNS.md): Ten copy-paste patterns for writing, debugging, and maintaining What code.
-- [MCP DevTools](https://github.com/CelsianJs/what-framework/blob/main/docs/MCP-DEVTOOLS.md): The 29-tool MCP server for inspecting a running app in real time.
+- [MCP DevTools](https://github.com/CelsianJs/what-framework/blob/main/docs/MCP-DEVTOOLS.md): The 24-tool MCP server for inspecting a running app in real time.
 - [Gotchas](https://github.com/CelsianJs/what-framework/blob/main/docs/GOTCHAS.md): Common mistakes and how to avoid them.
 - [Migration from React](https://github.com/CelsianJs/what-framework/blob/main/docs/MIGRATION-FROM-REACT.md): Mapping React idioms to What.
 

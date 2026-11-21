@@ -16,7 +16,8 @@
 //   'media'   - Hydrate when media query matches (e.g., mobile-only)
 //   'action'  - Hydrate on first user interaction (click, focus, hover)
 
-import { mount, hydrate, signal, batch, getServerContext } from 'what-core';
+import { h, mount, hydrate, signal, batch } from 'what-core';
+import { getServerContext, _currentOwnerPath, __readHydrationData, isVNode } from 'what-core/internal';
 import { serializeState } from './serialize.js';
 
 const islandRegistry = new Map();
@@ -27,8 +28,13 @@ let isProcessingQueue = false;
 // --- Shared Island State ---
 // Browser stores intentionally persist across islands and client navigations.
 // Server stores belong to the active render context so one request can never
-// observe another request's state. Module-scoped server declarations receive a
-// lightweight handle that resolves to the current request's concrete store.
+// observe another request's state. Which one a call gets is decided by the
+// render scope, never by whether a `document` exists: under a DOM shim (jsdom,
+// happy-dom) a server render sees one, and deciding by it put every request's
+// stores in the one process-global browser map. A store obtained outside a
+// render (a module-scope declaration) is a handle that resolves on every
+// access: to the current request's store during a render, to the browser's
+// outside one.
 
 const browserStores = new Map();
 const serverStoreDefinitions = new Map();
@@ -102,7 +108,15 @@ function activeServerStoreMap(context) {
   return ctx && ctx.islandStores instanceof Map ? ctx.islandStores : null;
 }
 
-function serverStoreHandle(name, initialState) {
+// The map a store access resolves against right now: the render's during a
+// server render, the browser's on a page, none on a server outside a render.
+function currentStoreMap(context) {
+  const storeMap = activeServerStoreMap(context);
+  if (storeMap) return storeMap;
+  return typeof document === 'undefined' || getServerContext() ? null : browserStores;
+}
+
+function storeHandle(name, initialState) {
   if (serverStoreDefinitions.has(name)) {
     return serverStoreDefinitions.get(name).handle;
   }
@@ -113,7 +127,7 @@ function serverStoreHandle(name, initialState) {
   };
 
   const resolve = () => {
-    const storeMap = activeServerStoreMap();
+    const storeMap = currentStoreMap();
     if (!storeMap) {
       // ERROR_CODES.ISLAND_STORE_OUTSIDE_RENDER
       throw Object.assign(
@@ -151,32 +165,17 @@ function serverStoreHandle(name, initialState) {
 }
 
 export function createIslandStore(name, initialState) {
-  if (typeof document !== 'undefined') {
-    return createConcreteStore(browserStores, name, initialState);
-  }
-
   const storeMap = activeServerStoreMap();
   if (storeMap) {
     const definition = serverStoreDefinitions.get(name);
     return createConcreteStore(storeMap, name, definition?.initialState ?? initialState);
   }
-
-  return serverStoreHandle(name, initialState);
+  return storeHandle(name, initialState);
 }
 
 // Get or create a shared store
 export function useIslandStore(name, fallbackInitial = {}) {
-  if (typeof document !== 'undefined') {
-    return createConcreteStore(browserStores, name, fallbackInitial);
-  }
-
-  const storeMap = activeServerStoreMap();
-  if (storeMap) {
-    const definition = serverStoreDefinitions.get(name);
-    return createConcreteStore(storeMap, name, definition?.initialState ?? fallbackInitial);
-  }
-
-  return serverStoreHandle(name, fallbackInitial);
+  return createIslandStore(name, fallbackInitial);
 }
 
 // Serialize all shared stores for SSR.
@@ -190,9 +189,7 @@ export function serializeIslandStores() {
 // Raw (unserialized) snapshot of all shared island stores, so renderDocument can
 // merge it into the single consolidated #__what_data payload (one serialize pass).
 export function getIslandStoresSnapshot(context) {
-  const storeMap = typeof document !== 'undefined'
-    ? browserStores
-    : activeServerStoreMap(context);
+  const storeMap = currentStoreMap(context);
   const data = {};
   for (const [name, store] of storeMap || []) {
     data[name] = store._getSnapshot();
@@ -225,29 +222,91 @@ export function island(name, loader, opts = {}) {
   });
 }
 
+// --- Island props ---
+// Props cross to the client as JSON, and a vnode carries no brand through
+// JSON (what-core's isVNode), so an element passed as a prop
+// (`props: { icon: h('svg', ...) }`) would arrive as a plain object and render
+// as text. The server records where it wrote one: data-island-vnodes lists the
+// paths of the props that were vnodes, and the client turns exactly those
+// back into vnodes with h(). Nothing is revived by its shape, so an object a
+// prop got from data, whatever it looks like, stays data. A component vnode
+// has no JSON form and is left out, as a function prop is.
+
+function encodeIslandValue(value, path, vnodes) {
+  if (Array.isArray(value)) return value.map((item, i) => encodeIslandValue(item, [...path, i], vnodes));
+  if (isVNode(value)) {
+    if (typeof value.tag !== 'string') return undefined;
+    vnodes.push(path);
+    return {
+      tag: value.tag,
+      props: encodeIslandValue(value.props || {}, [...path, 'props'], vnodes),
+      children: encodeIslandValue(value.children || [], [...path, 'children'], vnodes),
+    };
+  }
+  if (value === null || typeof value !== 'object' || typeof value.toJSON === 'function') return value;
+  const out = {};
+  for (const key of Object.keys(value)) out[key] = encodeIslandValue(value[key], [...path, key], vnodes);
+  return out;
+}
+
+/** Island props as JSON, and the paths in it that the client revives as vnodes. */
+function serializeIslandProps(props) {
+  const vnodes = [];
+  const json = JSON.stringify(encodeIslandValue(props, [], vnodes));
+  return { json, vnodes };
+}
+
+/**
+ * The props an island was rendered with: `json` parsed, and the value at each
+ * path in `vnodePaths` (deepest first) made a vnode again. A path that does
+ * not lead to an element description is left as it is.
+ */
+function reviveIslandProps(json, vnodePaths) {
+  const props = JSON.parse(json || '{}');
+  const paths = vnodePaths ? JSON.parse(vnodePaths) : [];
+  if (!Array.isArray(paths)) return props;
+  for (let i = paths.length - 1; i >= 0; i--) {
+    const path = paths[i];
+    if (!Array.isArray(path) || path.length === 0) continue;
+    let holder = props;
+    for (let j = 0; j < path.length - 1 && holder != null; j++) holder = holder[path[j]];
+    const key = path[path.length - 1];
+    if (holder == null || typeof holder !== 'object' || !Object.hasOwn(holder, key)) continue;
+    const element = holder[key];
+    if (element === null || typeof element !== 'object' || typeof element.tag !== 'string') continue;
+    const children = Array.isArray(element.children) ? element.children : [];
+    holder[key] = h(element.tag, element.props && typeof element.props === 'object' ? element.props : null, ...children);
+  }
+  return props;
+}
+
 // --- Island wrapper for SSR ---
-// Renders the static HTML with a marker the client can find.
+// Renders the static HTML with a marker the client can find. Rendered as a
+// component, it also writes its own owner path as data-what-owner: the island
+// component it wraps is its first child there, and the client, hydrating that
+// component into this element, numbers it from the same path, so the island's
+// keyless resources adopt their server values (what-core hydration-data.js).
 
 export function Island({ name, props = {}, children, mode, priority, stores }) {
   const entry = islandRegistry.get(name);
   const resolvedMode = mode || entry?.mode || 'idle';
   const resolvedPriority = priority ?? entry?.priority ?? 0;
   const resolvedStores = stores || entry?.stores || [];
+  const ownerPath = getServerContext() ? _currentOwnerPath() : undefined;
 
   // Server: render as a div with data attributes for hydration
-  return {
-    tag: 'div',
-    props: {
-      'data-island': name,
-      'data-island-mode': resolvedMode,
-      'data-island-props': JSON.stringify(props),
-      'data-island-priority': resolvedPriority,
-      'data-island-stores': JSON.stringify(resolvedStores),
-    },
-    children: children || [],
-    key: null,
-    _vnode: true,
+  const { json, vnodes } = serializeIslandProps(props);
+  /** @type {Record<string, any>} */
+  const markerProps = {
+    'data-island': name,
+    'data-island-mode': resolvedMode,
+    'data-island-props': json,
+    'data-island-priority': resolvedPriority,
+    'data-island-stores': JSON.stringify(resolvedStores),
   };
+  if (vnodes.length > 0) markerProps['data-island-vnodes'] = JSON.stringify(vnodes);
+  if (ownerPath !== undefined) markerProps['data-what-owner'] = ownerPath;
+  return h('div', markerProps, children);
 }
 
 // --- Priority Hydration Queue ---
@@ -300,17 +359,10 @@ export function boostIslandPriority(name, newPriority = 100) {
 // --- Client-side hydration ---
 
 export function hydrateIslands() {
-  // First, hydrate any shared stores from the page. renderDocument emits them
-  // inside the consolidated #__what_data payload.
-  const dataScript = document.getElementById('__what_data');
-  if (dataScript) {
-    try {
-      const payload = JSON.parse(dataScript.textContent || '{}');
-      if (payload && payload.islandStores) hydrateIslandStores(payload.islandStores);
-    } catch (e) {
-      console.warn('[what] Failed to parse hydration payload:', e);
-    }
-  }
+  // First, hydrate any shared stores from the page's hydration data (the
+  // #__what_data payload, plus any streamed data elements).
+  const payload = __readHydrationData();
+  if (payload && payload.islandStores) hydrateIslandStores(payload.islandStores);
 
   const islands = document.querySelectorAll('[data-island]');
 
@@ -322,7 +374,7 @@ export function hydrateIslands() {
 
     const name = el.dataset.island;
     const mode = el.dataset.islandMode || 'idle';
-    const props = JSON.parse(el.dataset.islandProps || '{}');
+    const props = reviveIslandProps(el.dataset.islandProps, el.dataset.islandVnodes);
     const priority = parseInt(el.dataset.islandPriority || '0', 10);
     const stores = JSON.parse(el.dataset.islandStores || '[]');
     const entry = islandRegistry.get(name);
@@ -353,8 +405,10 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
       storeProps[storeName] = useIslandStore(storeName);
     }
 
-    // Use hydrate() to reuse server-rendered DOM instead of destroying/recreating
-    const vnode = Component({ ...props, ...storeProps });
+    // Use hydrate() to reuse server-rendered DOM instead of destroying/recreating.
+    // As a component vnode, so it runs in a component context (its hooks work)
+    // and is numbered from the island's owner path.
+    const vnode = h(Component, { ...props, ...storeProps });
     if (el.childNodes.length > 0) {
       hydrate(vnode, el);
     } else {
@@ -365,8 +419,10 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
     el.removeAttribute('data-island');
     el.removeAttribute('data-island-mode');
     el.removeAttribute('data-island-props');
+    el.removeAttribute('data-island-vnodes');
     el.removeAttribute('data-island-priority');
     el.removeAttribute('data-island-stores');
+    el.removeAttribute('data-what-owner');
 
     // Dispatch event for analytics/debugging
     el.dispatchEvent(new CustomEvent('island:hydrated', {
@@ -666,9 +722,7 @@ export function enhanceForms(selector = 'form[data-enhance]') {
 // --- Debugging ---
 
 export function getIslandStatus() {
-  const stores = typeof document !== 'undefined'
-    ? [...browserStores.keys()]
-    : [...(activeServerStoreMap()?.keys() || serverStoreDefinitions.keys())];
+  const stores = [...(currentStoreMap()?.keys() || serverStoreDefinitions.keys())];
   const status = {
     registered: [...islandRegistry.keys()],
     hydrated: hydratedIslands.size,

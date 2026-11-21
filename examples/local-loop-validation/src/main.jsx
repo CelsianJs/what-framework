@@ -1,4 +1,5 @@
-import { mount, useSignal, useForm, simpleResolver, rules, ErrorMessage } from 'what-framework';
+import { mount, useSignal } from 'what-framework';
+import { useForm, simpleResolver, rules, ErrorMessage } from 'what-framework/form';
 
 function App() {
   const count = useSignal(0);
@@ -26,7 +27,7 @@ function App() {
         Checked now: {checked() ? 'yes' : 'no'}
       </label>
 
-      <section innerHTML={html()} />
+      <section innerHTML={{ __html: html() }} />
       <section dangerouslySetInnerHTML={{ __html: html() }} />
 
       <form onSubmit={form.handleSubmit(() => {})}>

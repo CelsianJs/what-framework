@@ -1,11 +1,5 @@
-import {
-  ErrorMessage,
-  Input,
-  useForm,
-  rules,
-  simpleResolver,
-  useSignal,
-} from 'what-framework';
+import { useSignal } from 'what-framework';
+import { ErrorMessage, Input, useForm, rules, simpleResolver } from 'what-framework/form';
 
 export const page = {
   mode: 'client',
@@ -73,7 +67,7 @@ export default function FormsPage() {
           <p><strong>isSubmitting()</strong>: {String(formState.isSubmitting())}</p>
           <p><strong>submitCount()</strong>: {formState.submitCount()}</p>
 
-          <pre>{JSON.stringify(formState.errors, null, 2)}</pre>
+          <pre>{() => JSON.stringify(formState.errors, null, 2)}</pre>
         </aside>
       </div>
 

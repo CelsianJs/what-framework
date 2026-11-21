@@ -1,7 +1,7 @@
 /**
  * What Framework Vite Plugin
  *
- * 1. Transforms JSX via the What babel plugin
+ * 1. Transforms JSX via the What babel plugin (the server target for SSR transforms)
  * 2. Provides file-based routing via virtual:what-routes
  * 3. Watches pages directory for route changes
  * 4. Component hot updates use an installed replacement hook or reload the
@@ -14,6 +14,7 @@ import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
 import { generateRoutesModule } from './file-router.js';
 import { setupErrorOverlay } from './error-overlay.js';
+import { IMPORT_CHANGES } from 'what-core/internal';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
@@ -75,69 +76,59 @@ const COMPONENT_EXPORT_RE = /export\s+(?:default\s+)?function\s+([A-Z]\w*)/;
 // Pattern: files that are likely signal/store/utility files
 const UTILITY_FILE_RE = /(?:store|signal|state|context|util|helper|lib|config)\b/i;
 
-// --- SSR guard --------------------------------------------------------------
+// --- Server builds ---
 //
-// A module that what-compiler lowers cannot run on a server, and the failures it
-// produces without this guard both name the wrong thing.
-//
-// The lowering emits a module-scope `const _tmpl$0 = _$template("<div>...")`,
-// and `_$template` calls `document.createElement('template')` EAGERLY. So the
-// module throws `ReferenceError: document is not defined` at IMPORT time, before
-// any render function runs, with a stack that points into what-core rather than
-// at the file the developer wrote. If a DOM shim happens to exist, the component
-// instead returns a cloned Element and what-server's assertSafeTag reports
-// ERR_COMPILED_JSX_IN_SSR.
-//
-// Both are runtime failures for something decidable at build time: if Vite is
-// transforming this module for the SSR environment and the transform emitted
-// DOM-building code, the resulting bundle cannot work. Fail here, name the file,
-// and name the two configurations that DO server-render, rather than emitting a
-// bundle whose only possible behaviour is to crash.
-//
-// This is a guard, not a feature. It does not make compiled JSX server-render;
-// what-compiler has no hydratable/SSR codegen target. See
-// docs/SSR-COMPILED-JSX-SCOPING.md for the seams and the staged plan.
+// When Vite transforms a module for the server (SSR or the 'ssr' environment),
+// JSX is compiled with what-compiler's server target (`generate: "ssr"`):
+// string templates rendered by what-server/ssr-runtime, which every
+// what-server renderer accepts. Two options change that:
+//   - `ssr: false` keeps compiled JSX out of server bundles: a server transform
+//     whose output would build DOM is refused with ERR_COMPILED_JSX_IN_SSR,
+//     naming the file, instead of shipping a module that throws "document is
+//     not defined" the first time it renders.
+//   - `ssrGuard: false` compiles every server transform for the DOM, with or
+//     without `ssr: false`, for a process that installs a DOM on purpose. The likeliest one is a test runner:
+//     Vitest applies an SSR transform under `environment: 'node'`, so a
+//     component test that mounts compiled JSX into a DOM shim needs it.
+// Whether output builds DOM is reported by the compiler itself
+// (`metadata.whatBuildsDom`: a template clone or a component call), so a
+// JSX-free server-action module and a hydrate()-only module still compile.
 
-// The two compiler-generated locals that make a module client-only.
+// --- Hydration ---
 //
-//   _$template        — hoisted to module scope and calls
-//                       document.createElement('template') EAGERLY, so the
-//                       module throws at import time on a server.
-//   _$createComponent — runs the component and builds its DOM at call time.
-//
-// Deliberately NOT in this list: _$componentVNode, which is _$createComponent
-// stopping one step short of createDOM (what-core render.js). A module whose
-// only JSX is the argument of a hydrate() call emits that and nothing else, and
-// it is import-safe, so flagging it would be wrong. The other helpers
-// (_$insert, _$spread, _$setProp, ...) are all reached only THROUGH a template,
-// so they add no cases and would only widen the blast radius.
-//
-// The `_$` prefix is compiler-generated and never written by hand, which is what
-// makes matching on the name safe.
-const DOM_BUILDING_LOCALS = /\b_\$(?:template|createComponent)\b/;
+// A page the server rendered is adopted by hydrate() only when the client's
+// JSX is compiled for it (what-compiler's `hydratable` option: templates that
+// claim the server's nodes instead of cloning). Its cost is client code that
+// steps through each template rather than walking it by path, so the plugin
+// compiles that way only for a project that renders on the server: one whose
+// Vite config says so (`appType: 'custom'`, the shape of every SSR setup in
+// Vite's guide; an SSR build; or a client build that writes an SSR manifest,
+// `vite build --ssrManifest`, as the guide's production client build does),
+// unless `hydratable` is set. A client build with none of these (a project
+// whose dev server passes `appType: 'custom'` inline but whose `vite build`
+// does not) needs `hydratable: true`. Hydrating
+// server markup with JSX compiled without it reports an ERR_HYDRATION_MISMATCH
+// of kind not-hydratable and renders the page again on the client.
 
-function buildsDom(outputCode) {
-  return DOM_BUILDING_LOCALS.test(outputCode);
+function rendersOnServer(config) {
+  return config.appType === 'custom' || Boolean(config.build && (config.build.ssr || config.build.ssrManifest));
 }
 
 function ssrGuardError(id) {
   // ERROR_CODES.COMPILED_JSX_IN_SSR
   return Object.assign(
     new Error(
-      `[what-compiler] ${id} is being compiled for the server, but what-compiler's ` +
-      'JSX output is client-only. It lowers JSX to module-scope _$template() calls ' +
-      'that run document.createElement() at import time, so this module throws ' +
-      '"document is not defined" the moment a server imports it.\n\n' +
-      'Server-rendered views have two supported spellings:\n' +
-      '  1. Author them with h() from what-framework.\n' +
-      '  2. Compile them with the automatic JSX runtime instead of what-compiler ' +
-      '(jsxImportSource: "what-framework"), which emits h() calls that ' +
-      'renderToString and renderToHydratableString understand.\n\n' +
-      'If a DOM already exists in this process on purpose, set ssrGuard: false ' +
-      'on the plugin. The likeliest reason is a test runner: Vitest applies an ' +
-      "SSR transform under `environment: 'node'`, so a component test that " +
-      'shims a DOM itself lands here. Note that with the guard off the result ' +
-      'is a full client render, not SSR.'
+      `[what-compiler] ${id} is being compiled for the server with ssr: false, so ` +
+      "what-compiler emits its client output, which builds DOM: _$template() calls that " +
+      'parse their markup with document.createElement(), so this module throws ' +
+      '"document is not defined" the first time a server renders it.\n\n' +
+      'Remove ssr: false to compile server modules with what-compiler\'s server ' +
+      'target, which what-server renders directly. Or author server views with h() ' +
+      'from what-framework, or compile them with the automatic JSX runtime ' +
+      '(jsxImportSource: "what-framework").\n\n' +
+      'If a DOM already exists in this process on purpose (a test runner such as ' +
+      "Vitest applies an SSR transform under `environment: 'node'`), set " +
+      'ssrGuard: false to compile server transforms for the DOM.'
     ),
     { code: 'ERR_COMPILED_JSX_IN_SSR', id, plugin: 'vite-plugin-what' },
   );
@@ -172,15 +163,23 @@ export default function whatVitePlugin(options = {}) {
     // against package sources instead — needed e.g. in a monorepo where
     // workspace-linked dist/ output may be stale or absent. See config() below.
     prodBundles = true,
-    // Refuse to lower JSX for a module in the SSR graph. See ssrGuardError().
-    // Set to false only if you have installed a DOM in the server process and
-    // accept that the render is a full client render, not SSR.
+    // Compile server transforms with the server target. See "Server builds".
+    ssr = true,
+    // With ssr: false, refuse server transforms whose output builds DOM; false
+    // compiles them for the DOM instead (a process that installs a DOM).
     ssrGuard = true,
+    // Rewrite `selected() === row.id` in keyed .map() rows to a createSelector
+    // lookup. Set to false to keep every comparison as written.
+    autoSelector = true,
+    // Compile client JSX so that hydrate() adopts server-rendered markup.
+    // 'auto' does when the project renders on the server. See "Hydration".
+    hydratable = 'auto',
   } = options;
 
   let rootDir = '';
   let pagesDir = '';
   let isDevMode = false;
+  let hydratableOutput = hydratable === true;
   const actionIdRegistry = new Map();
 
   function registerActionId(metadata) {
@@ -219,6 +218,7 @@ export default function whatVitePlugin(options = {}) {
       rootDir = config.root;
       pagesDir = path.resolve(rootDir, pages);
       isDevMode = config.command === 'serve';
+      hydratableOutput = hydratable === 'auto' ? rendersOnServer(config) : hydratable === true;
     },
 
     configureServer(devServer) {
@@ -273,6 +273,43 @@ export default function whatVitePlugin(options = {}) {
       const hasServerActions = isScriptModule && SERVER_ACTION_MODULE_RE.test(code);
       if (exclude && patternMatches(exclude, cleanId)) return null;
 
+      // A name the root entry (what-framework, what-core) no longer exports
+      // fails here with the answer IMPORT_CHANGES records for it
+      // (ERR_MOVED_IMPORT), not later with the bundler's "is not exported". The
+      // regex only picks candidates and Babel's parse decides, so an import
+      // statement quoted in a string never fails a build.
+      const changeFor = (name) => IMPORT_CHANGES.find((c) => (c.name === name && !c.onRoot) || c.as === name);
+      const rootClauses = isScriptModule ? [...code.matchAll(/\b(?:import|export)\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]what-(?:framework|core)['"]/g)] : [];
+      if (rootClauses.some(([, names]) => names.split(',').some((n) => changeFor(n.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0])))) {
+        let body = [];
+        try {
+          body = transformSync(code, { ast: true, code: false, configFile: false, babelrc: false, parserOpts: { plugins: ['jsx', 'typescript'] } }).ast.program.body;
+        } catch {
+          // Unparseable here; the rest of the pipeline reports the syntax error.
+        }
+        const moved = [];
+        for (const node of body) {
+          const source = node.source && node.source.value;
+          if ((source !== 'what-framework' && source !== 'what-core') || node.importKind === 'type' || node.exportKind === 'type') continue;
+          for (const spec of node.specifiers || []) {
+            const remote = spec.type === 'ImportSpecifier' ? spec.imported : spec.type === 'ExportSpecifier' ? spec.local : null;
+            const name = remote && spec.importKind !== 'type' && spec.exportKind !== 'type' ? remote.name ?? remote.value : null;
+            const change = name && changeFor(name);
+            if (change) moved.push({ start: spec.loc.start, text: `"${name}" is not exported by ${source}. ${change.answer}` });
+          }
+        }
+        if (moved.length) {
+          throw Object.assign(
+            new Error(
+              `[what-compiler] ERR_MOVED_IMPORT in ${path.relative(rootDir || process.cwd(), cleanId)}:\n` +
+              moved.map((m) => `  ${m.text}\n`).join('') +
+              "eslint --fix with eslint-plugin-what's no-moved-imports rule rewrites the moved names; UPGRADING.md lists every change."
+            ),
+            { code: 'ERR_MOVED_IMPORT', id, plugin: 'vite-plugin-what', loc: { file: cleanId, line: moved[0].start.line, column: moved[0].start.column } },
+          );
+        }
+      }
+
       // Clear before either transforming the replacement or returning early.
       // Otherwise a .ts/.js module that removes its final action import leaves
       // an ID reserved forever and produces false duplicate-ID failures.
@@ -282,7 +319,9 @@ export default function whatVitePlugin(options = {}) {
       // they contain no JSX.
       if (!hasJsx && !hasServerActions) return null;
 
-      const guardSsr = ssrGuard && isSsrTransform(transformOptions, this);
+      const serverTransform = isSsrTransform(transformOptions, this);
+      const generate = serverTransform && ssr !== false && ssrGuard !== false ? 'ssr' : 'dom';
+      const guardSsr = serverTransform && ssr === false && ssrGuard !== false;
 
       try {
         const result = transformSync(code, {
@@ -297,7 +336,11 @@ export default function whatVitePlugin(options = {}) {
           babelrc: false,
           plugins: [
             [whatBabelPlugin, {
+              generate,
+              hydratable: generate === 'dom' && hydratableOutput,
               production,
+              devMetadata: isDevMode && !production,
+              autoSelector,
               projectRoot: rootDir || process.cwd(),
               onActionId: registerActionId,
             }]
@@ -313,18 +356,15 @@ export default function whatVitePlugin(options = {}) {
 
         let outputCode = result.code;
 
-        // Decided from the OUTPUT, not the filename. `.jsx` in the include
-        // pattern says the file MAY contain JSX, not that any was lowered, and a
-        // .js/.ts module compiled here purely for its server-action metadata
-        // emits nothing DOM-building at all. Both would be false positives.
-        // buildsDom() asks the only question that matters: did this transform
-        // emit code that constructs DOM?
-        if (guardSsr && buildsDom(outputCode)) {
+        // Decided from the OUTPUT, not the filename: `.jsx` in the include
+        // pattern says the file MAY contain JSX, not that any was lowered.
+        if (guardSsr && result.metadata && result.metadata.whatBuildsDom) {
           throw ssrGuardError(cleanId);
         }
 
-        // HMR: append hot boundary code for component files in dev mode
-        if (hot && isDevMode && !production) {
+        // HMR: append hot boundary code for component files in dev mode. The
+        // boundary drives the browser, so a server module never gets one.
+        if (hot && isDevMode && !production && !serverTransform) {
           const isComponentFile = isComponentModule(code, id);
 
           if (isComponentFile) {
@@ -393,6 +433,11 @@ export default function whatVitePlugin(options = {}) {
       //    of the defaults), so import/browser/default resolution for other
       //    packages is unaffected.
       const useProdCondition = command === 'build' && mode === 'production' && prodBundles;
+      // Every build except `--mode development` is What's production tier,
+      // whichever files it resolves: defining __WHAT_DEV__ folds the
+      // development flag (what-core/src/env.js) to false, so source builds and
+      // aliased checkouts lose their dev branches exactly as dist/*.min.js does.
+      const productionBuild = command === 'build' && mode !== 'development';
       // Preserve JSX so our babel plugin handles it — don't let the bundler's
       // built-in transformer (esbuild on Vite ≤7, oxc on Vite 8+) touch it.
       // jsxPreserveConfig picks the right option key for the running version.
@@ -402,6 +447,7 @@ export default function whatVitePlugin(options = {}) {
       });
       return {
         ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),
+        ...(productionBuild ? { define: { __WHAT_DEV__: 'false' } } : {}),
         ...jsxPreserve,
         optimizeDeps: {
           // Exclude framework packages from Vite's dependency pre-bundling.
@@ -413,7 +459,7 @@ export default function whatVitePlugin(options = {}) {
           //   pre-bundles `'what-framework'` into an esbuild chunk under
           //   node_modules/.vite, those two import paths resolve to two
           //   *different* module instances. Module-scoped state — the
-          //   `componentStack` used by createComponent, effect ownership,
+          //   current owner that components and hooks resolve through,
           //   the signal subscriber registry — is duplicated, so a signal
           //   created in user code never notifies effects created via the
           //   compiler-emitted path, and `getCurrentComponent()` returns

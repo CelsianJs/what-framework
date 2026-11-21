@@ -1,6 +1,7 @@
 // AddContact — form for creating a new contact
-// Demonstrates: useState for form state, form submission,
-// validation, programmatic navigation after action
+// Demonstrates: useState for form state (it returns [accessor, setter]:
+// call name() to read), form submission, validation, programmatic
+// navigation after action
 
 import { useState } from 'what-framework';
 import { navigate } from 'what-framework/router';
@@ -21,8 +22,8 @@ export default function AddContact() {
     e.preventDefault();
 
     // Basic validation
-    const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
+    const trimmedName = name().trim();
+    const trimmedEmail = email().trim();
 
     if (!trimmedName) {
       setError('Name is required');
@@ -37,7 +38,7 @@ export default function AddContact() {
     store.add({
       name: trimmedName,
       email: trimmedEmail,
-      phone: phone.trim() || null,
+      phone: phone().trim() || null,
     });
 
     navigate('/');
@@ -48,7 +49,7 @@ export default function AddContact() {
       <h2 class="page-title">Add Contact</h2>
 
       <form class="form" onSubmit={handleSubmit}>
-        {error && <p class="form-error">{error}</p>}
+        {error() && <p class="form-error">{error()}</p>}
 
         <label class="field">
           <span class="field-label">Name *</span>

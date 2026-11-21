@@ -1,26 +1,26 @@
 // Pulse Board — What Framework Starter
-// Demonstrates: signals, computed, batch, useSignal, useEffect,
-// useRef, useMemo, JSX components, data fetching, SSE
+// Demonstrates: module-scope signals, computed, batch, JSX components,
+// data fetching, SSE
 
-import { mount, batch, useSignal, useComputed } from 'what-framework';
+import { mount, batch, signal, computed } from 'what-framework';
 
 // --- Signals (module-level reactive state) ---
-const tasks = useSignal([]);
-const filter = useSignal('all'); // 'all' | 'todo' | 'in-progress' | 'done'
-const newTitle = useSignal('');
-const newPriority = useSignal('medium');
-const isConnected = useSignal(false);
-const liveEvents = useSignal([]);
+const tasks = signal([]);
+const filter = signal('all'); // 'all' | 'todo' | 'in-progress' | 'done'
+const newTitle = signal('');
+const newPriority = signal('medium');
+const isConnected = signal(false);
+const liveEvents = signal([]);
 
 // --- Computed ---
-const filteredTasks = useComputed(() => {
+const filteredTasks = computed(() => {
   const f = filter();
   const all = tasks();
   if (f === 'all') return all;
   return all.filter(t => t.status === f);
 });
 
-const stats = useComputed(() => {
+const stats = computed(() => {
   const all = tasks();
   return {
     total: all.length,
@@ -30,12 +30,19 @@ const stats = useComputed(() => {
   };
 });
 
-// --- API (connects to CelsianJS Pulse backend) ---
-const API = 'http://localhost:4000';
+// --- API (optional CelsianJS Pulse backend) ---
+// Without VITE_PULSE_API the board runs offline on demo data and makes no
+// requests, so a missing backend never floods the console.
+const API = import.meta.env.VITE_PULSE_API;
+
+function api(path, init) {
+  if (!API) return Promise.reject(new Error('No backend configured'));
+  return fetch(`${API}${path}`, init);
+}
 
 async function fetchTasks() {
   try {
-    const res = await fetch(`${API}/api/tasks`);
+    const res = await api('/api/tasks');
     const data = await res.json();
     tasks.set(data.tasks || []);
   } catch {
@@ -49,12 +56,17 @@ async function fetchTasks() {
   }
 }
 
+// Offline tasks get ids of their own. crypto.randomUUID() exists only in a
+// secure context (https or localhost), so a board served over plain http
+// could not add one.
+let localTaskId = 0;
+
 async function createTask() {
   const title = newTitle();
   if (!title.trim()) return;
 
   try {
-    await fetch(`${API}/api/tasks`, {
+    await api('/api/tasks', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ title, priority: newPriority() }),
@@ -67,7 +79,7 @@ async function createTask() {
   } catch {
     // Offline mode — add locally
     const task = {
-      id: crypto.randomUUID(),
+      id: `local-${++localTaskId}`,
       title,
       status: 'todo',
       priority: newPriority(),
@@ -84,7 +96,7 @@ async function createTask() {
 
 async function updateStatus(id, status) {
   try {
-    await fetch(`${API}/api/tasks/${id}`, {
+    await api(`/api/tasks/${id}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status }),
@@ -97,7 +109,7 @@ async function updateStatus(id, status) {
 
 async function deleteTask(id) {
   try {
-    await fetch(`${API}/api/tasks/${id}`, { method: 'DELETE' });
+    await api(`/api/tasks/${id}`, { method: 'DELETE' });
     await fetchTasks();
   } catch {
     tasks.set(tasks().filter(t => t.id !== id));
@@ -106,6 +118,7 @@ async function deleteTask(id) {
 
 // --- SSE Connection ---
 function connectSSE() {
+  if (!API) return;
   try {
     const source = new EventSource(`${API}/api/events`);
     source.addEventListener('connected', () => isConnected.set(true));
@@ -132,7 +145,7 @@ function connectSSE() {
 function StatCard({ label, value, color }) {
   return (
     <div style={`background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center;border-top:3px solid ${color}`}>
-      <div style={`font-size:32px;font-weight:700;color:${color}`}>{String(value)}</div>
+      <div style={`font-size:32px;font-weight:700;color:${color}`}>{value}</div>
       <div style="font-size:13px;color:var(--text-muted);margin-top:4px">{label}</div>
     </div>
   );
@@ -151,18 +164,13 @@ function Header() {
           <span style="font-size:12px;color:var(--text-muted)">{() => isConnected() ? 'Live' : 'Offline'}</span>
         </div>
       </div>
+      {/* Each card is built once and binds its number, so a change to the
+          stats updates four text nodes instead of rebuilding the cards. */}
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
-        {() => {
-          const s = stats();
-          return (
-            <>
-              <StatCard label="Total" value={s.total} color="#64748b" />
-              <StatCard label="To Do" value={s.todo} color="#ef4444" />
-              <StatCard label="In Progress" value={s.inProgress} color="#3b82f6" />
-              <StatCard label="Done" value={s.done} color="#22c55e" />
-            </>
-          );
-        }}
+        <StatCard label="Total" value={() => stats().total} color="#64748b" />
+        <StatCard label="To Do" value={() => stats().todo} color="#ef4444" />
+        <StatCard label="In Progress" value={() => stats().inProgress} color="#3b82f6" />
+        <StatCard label="Done" value={() => stats().done} color="#22c55e" />
       </div>
     </header>
   );
@@ -208,6 +216,7 @@ function FilterBar() {
     <div style="display:flex;gap:8px;margin-bottom:16px">
       {buttons.map(btn => (
         <button
+          key={btn.value}
           onClick={() => filter.set(btn.value)}
           style={() => `padding:8px 16px;border-radius:6px;border:1px solid ${filter() === btn.value ? 'var(--accent)' : 'var(--border)'};background:${filter() === btn.value ? 'var(--accent)' : 'transparent'};color:${filter() === btn.value ? '#000' : 'var(--text-muted)'};font-size:13px;font-weight:500;cursor:pointer;font-family:var(--font)`}
         >{btn.label}</button>
@@ -249,24 +258,19 @@ function TaskCard({ task }) {
   );
 }
 
+// Keyed rows: a card whose task changes (a new object with the same id) is
+// built again from it, and the other cards keep their DOM.
 function TaskList() {
   return (
     <div>
-      {() => {
-        const items = filteredTasks();
-        if (items.length === 0) {
-          return (
-            <div style="text-align:center;padding:48px;color:var(--text-muted);font-size:14px">
-              {filter() === 'all' ? 'No tasks yet. Add one above!' : `No ${filter()} tasks.`}
-            </div>
-          );
-        }
-        return (
-          <div style="display:flex;flex-direction:column;gap:8px">
-            {items.map(task => <TaskCard key={task.id} task={task} />)}
-          </div>
-        );
-      }}
+      {filteredTasks().length === 0 && (
+        <div style="text-align:center;padding:48px;color:var(--text-muted);font-size:14px">
+          {filter() === 'all' ? 'No tasks yet. Add one above!' : `No ${filter()} tasks.`}
+        </div>
+      )}
+      <div style="display:flex;flex-direction:column;gap:8px">
+        {filteredTasks().map(task => <TaskCard key={task.id} task={task} />)}
+      </div>
     </div>
   );
 }
@@ -282,7 +286,7 @@ function LiveFeed() {
             <h3 style="font-size:14px;font-weight:600;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Live Feed</h3>
             <div style="display:flex;flex-direction:column;gap:4px">
               {events.map(ev => (
-                <div style="font-size:12px;color:var(--text-muted);padding:6px 12px;background:var(--surface);border-radius:6px;display:flex;justify-content:space-between">
+                <div key={`${ev.type}-${ev.data.id}-${ev.time}`} style="font-size:12px;color:var(--text-muted);padding:6px 12px;background:var(--surface);border-radius:6px;display:flex;justify-content:space-between">
                   <span>{`${ev.type}: ${ev.data.title || ev.data.id || '...'}`}</span>
                   <span style="opacity:0.5">{new Date(ev.time).toLocaleTimeString()}</span>
                 </div>

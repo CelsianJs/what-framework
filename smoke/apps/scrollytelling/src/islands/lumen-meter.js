@@ -5,7 +5,8 @@
 // The island wakes when the chapter arrives, and the spring starts from rest,
 // so the arrival IS the animation.
 
-import { h, spring } from 'what-framework';
+import { h } from 'what-framework';
+import { spring } from 'what-framework/motion';
 import { RATED_LUMENS } from '../story.js';
 import { bindEl, prefersReducedMotion } from '../motion.js';
 

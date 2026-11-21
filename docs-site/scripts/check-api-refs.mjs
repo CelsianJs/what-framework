@@ -112,7 +112,14 @@ const problems = [];
 let checkedImports = 0;
 let checkedFiles = 0;
 
+// reference/errors.html is rendered from the error catalogue (ERROR_CODES),
+// whose examples pair a bad half with a good one: ERR_MOVED_IMPORT's bad half
+// imports moved names on purpose. scripts/docs checks those examples half by
+// half and asserts each bad half fails the way it says.
+const CATALOGUE_RENDERING = join(ROOT, 'docs', 'reference', 'errors.html');
+
 for (const file of htmlFiles(ROOT)) {
+  if (file === CATALOGUE_RENDERING) continue;
   const html = readFileSync(file, 'utf8');
   const rel = relative(REPO, file);
   checkedFiles++;

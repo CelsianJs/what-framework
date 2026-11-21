@@ -64,7 +64,7 @@
           <h1>signal()</h1>
           <p class="subtitle">Create a reactive value that can be read and updated.</p>
 
-<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(initialValue, debugName?)</code></pre>
+<pre><code><span class="keyword">const</span> count = <span class="function">signal</span>(initialValue, debugName)</code></pre>
 
           <h2 id="parameters">Parameters</h2>
           <table>
@@ -120,6 +120,10 @@
               <tr>
                 <td><code>signal.subscribe(fn)</code></td>
                 <td>Run <code>fn(value)</code> immediately with the current value, then again on every change. Returns an unsubscribe function.</td>
+              </tr>
+              <tr>
+                <td><code>signal.mutate(fn)</code></td>
+                <td>Change the value in place (<code>fn</code> receives it), then notify every reader as a write does, batched the same way. A computed that returns the same reference recomputes but does not notify its own readers; derive a copy or a length where a computed must see the change.</td>
               </tr>
             </tbody>
           </table>
@@ -187,7 +191,7 @@ items.set(arr =&gt; arr.filter(x =&gt; x !== <span class="number">2</span>));</c
 
           <h2 id="notes">Notes</h2>
           <ul>
-            <li>Signals should not be mutated directly. Use <code>.set()</code> or the callable form <code>count(next)</code> to update.</li>
+            <li>Do not change a signal's value in place and write it back: a write of the same object is skipped, so no reader is notified. Use <code>.set()</code> or the callable form <code>count(next)</code> with a new value, or <code>.mutate(fn)</code> for an in-place change that notifies.</li>
             <li>In JSX, wrap the read in a thunk so the binding stays live: <code>{() =&gt; count()}</code>. A bare <code>{count()}</code> is only rewritten into a thunk by what-compiler.</li>
             <li>Use <code>peek()</code> when you need the value but don't want to create a subscription</li>
             <li>For derived values that depend on other signals, use <a href="./computed.html">computed()</a></li>

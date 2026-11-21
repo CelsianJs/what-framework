@@ -129,13 +129,15 @@ mount(
 
           <p>Link automatically adds an <code>active</code> class when the current path is the href or one of its sub-paths (<code>/</code> is the exception: it is active only on <code>/</code>). When the path and the href are identical it also adds <code>exact-active</code>:</p>
 
-<pre><code><span class="comment">// Customize active class names</span>
-&lt;<span class="function">Link</span> href="/blog" activeClass="nav-active" exactActiveClass="nav-exact"&gt;
-  Blog
-&lt;/<span class="function">Link</span>&gt;
+<pre><code>&lt;nav&gt;
+  {<span class="comment">/* Customize active class names */</span>}
+  &lt;<span class="function">Link</span> href="/blog" activeClass="nav-active" exactActiveClass="nav-exact"&gt;
+    Blog
+  &lt;/<span class="function">Link</span>&gt;
 
-<span class="comment">// Replace history entry instead of pushing</span>
-&lt;<span class="function">Link</span> href="/login" replace&gt;Sign In&lt;/<span class="function">Link</span>&gt;</code></pre>
+  {<span class="comment">/* Replace history entry instead of pushing */</span>}
+  &lt;<span class="function">Link</span> href="/login" replace&gt;Sign In&lt;/<span class="function">Link</span>&gt;
+&lt;/nav&gt;</code></pre>
 
           <h2 id="programmatic">Programmatic Navigation</h2>
           <p>Use <code>navigate()</code> to change routes from event handlers or effects:</p>
@@ -171,7 +173,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 
           <div class="callout callout-note">
             <p class="callout-title">No Parentheses Needed</p>
-            <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties, with no <code>()</code> call needed. They are still reactive and will trigger re-renders when they change.</p>
+            <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties, with no <code>()</code> call needed. They are still reactive: JSX, an effect or a thunk that reads one updates when the route changes, with no re-render involved.</p>
           </div>
 
           <p><code>route.query</code> is a null-prototype object, so a crafted query string cannot reach <code>Object.prototype</code>. Reading, destructuring, spreading, <code>Object.keys()</code> and <code>JSON.stringify()</code> all behave normally, but inherited members are gone: use <code>'tab' in route.query</code> or <code>Object.prototype.hasOwnProperty.call(route.query, 'tab')</code> rather than <code>route.query.hasOwnProperty('tab')</code>. A repeated key collects into an array, so <code>?tag=a&amp;tag=b</code> gives <code>{ tag: ["a", "b"] }</code>.</p>

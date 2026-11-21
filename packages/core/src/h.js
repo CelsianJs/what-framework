@@ -3,7 +3,27 @@
 
 // h(tag, props, ...children) -> VNode
 // h(Component, props, ...children) -> VNode
-// VNode = { tag, props, children, key }
+// VNode: { tag, props, children, key }, branded (vnode-renderer.js)
+
+import { createDOM, _setVNodeProp, _isUnsafeAttr } from './dom.js';
+import { _vnodeRows } from './render.js';
+import { VNode, _installVNodeRuntime } from './vnode-renderer.js';
+
+// Every vnode is made by h, _jsxVNode or _vnode, and defining each of them
+// installs the renderer for vnodes and the keyed rows for keyed vnode lists
+// (see vnode-renderer.js). The definitions are marked pure, so a bundler drops
+// a producer nothing uses together with its install, from the source and from
+// the single-chunk dist alike: a program that makes no vnode never contains
+// createDOM.
+/**
+ * @template T
+ * @param {T} produce
+ * @returns {T}
+ */
+function vnodeProducer(produce) {
+  _installVNodeRuntime(createDOM, _vnodeRows, _setVNodeProp, _isUnsafeAttr);
+  return produce;
+}
 
 const EMPTY_OBJ = Object.create(null);
 const EMPTY_ARR = [];
@@ -15,7 +35,7 @@ const EMPTY_ARR = [];
  *
  * @type {(tag: any, props?: any, ...children: any[]) => any}
  */
-export function h(tag, props) {
+export const h = /* @__PURE__ */ vnodeProducer(function h(tag, props) {
   props = props || EMPTY_OBJ;
   // Collect children from arguments[2..n] without rest args — avoids array allocation
   // when there are 0-1 children (common case: leaf elements, text nodes).
@@ -36,19 +56,45 @@ export function h(tag, props) {
 
   const key = props.key ?? null;
 
-  // Strip key from props passed to component/element
+  // Strip key from the props passed to the component/element. A rest copy
+  // rather than copy-then-delete: `delete` drops the object into dictionary
+  // mode, and every later read of it pays for that.
   if (props.key !== undefined) {
-    props = { ...props };
-    delete props.key;
+    const { key: _key, ...rest } = props;
+    props = rest;
   }
 
-  return { tag, props, children: flat, key, _vnode: true };
-}
+  return new VNode(tag, props, flat, key);
+});
+
+// The automatic JSX runtime's vnode: `props` is already a fresh object without
+// `key` or `children`, so h()'s copy is skipped. Children flatten as in h().
+export const _jsxVNode = /* @__PURE__ */ vnodeProducer(function _jsxVNode(tag, props, children, key) {
+  let flat;
+  if (children === undefined) flat = EMPTY_ARR;
+  else if (Array.isArray(children)) {
+    flat = [];
+    _flattenInto(children, flat);
+  } else flat = _flattenSingle(children);
+  return new VNode(tag, props, flat, key);
+});
+
+// A vnode whose children are already a normalized array. ErrorBoundary,
+// Suspense and Portal build theirs with this, which is also what brings this
+// module, and with it the vnode renderer, into any bundle that uses them.
+export const _vnode = /* @__PURE__ */ vnodeProducer(function _vnode(tag, props, children) {
+  return new VNode(tag, props, children, null);
+});
 
 // Fragment — just returns children
 export function Fragment({ children }) {
   return children;
 }
+
+// Children are kept as they are, objects included: a vnode, a DOM node (JSX
+// built before it was placed) and compiled server markup are all objects, and
+// whether one renders as an element is the renderer's decision, made by the
+// brand (vnode-renderer.js). Any other object renders as its text.
 
 // Fast path for single child (most common case)
 function _flattenSingle(child) {
@@ -58,14 +104,8 @@ function _flattenSingle(child) {
     _flattenInto(child, out);
     return out;
   }
-  if (typeof child === 'object') {
-    if (child._vnode) return [child];
-    // Preserve DOM nodes (HTMLElement, Text, DocumentFragment, etc.) — they
-    // can flow through component composition when JSX is pre-realized.
-    if (typeof child.nodeType === 'number') return [child];
-  }
-  if (typeof child === 'function') return [child];
-  return [String(child)];
+  const type = typeof child;
+  return [type === 'object' || type === 'function' ? child : String(child)];
 }
 
 // Flatten a child (or array of children) into the output array
@@ -75,20 +115,10 @@ function _flattenInto(child, out) {
     for (let i = 0; i < child.length; i++) {
       _flattenInto(child[i], out);
     }
-  } else if (typeof child === 'object') {
-    if (child._vnode) {
-      out.push(child);
-    } else if (typeof child.nodeType === 'number') {
-      // DOM node: preserve as-is so insert() can attach it directly.
-      out.push(child);
-    } else {
-      out.push(String(child));
-    }
-  } else if (typeof child === 'function') {
-    out.push(child);
-  } else {
-    out.push(String(child));
+    return;
   }
+  const type = typeof child;
+  out.push(type === 'object' || type === 'function' ? child : String(child));
 }
 
 // JSX-like tagged template alternative (no build step needed)
