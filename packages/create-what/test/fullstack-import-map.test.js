@@ -164,7 +164,7 @@ test('fullstack import map: packages a package manager did not hoist are found, 
   // what-framework's dependencies sit next to it in the store.
   const store = join(appDir, 'node_modules', '.pnpm', 'what-framework', 'node_modules');
   for (const [name, dir] of Object.entries(FRAMEWORK)) {
-    for (const entry of ['package.json', 'src']) cpSync(join(repoRoot, dir, entry), join(store, name, entry), { recursive: true });
+    for (const entry of ['package.json', 'src', 'dist']) cpSync(join(repoRoot, dir, entry), join(store, name, entry), { recursive: true });
   }
   await link(appDir, 'what-framework', join(store, 'what-framework'));
   for (const [name, dir] of Object.entries({ 'what-isr': 'packages/cache', esbuild: 'node_modules/esbuild' })) {
@@ -175,9 +175,9 @@ test('fullstack import map: packages a package manager did not hoist are found, 
   const { child, base } = await boot(appDir, { env: { NODE_ENV: 'production', WHAT_REVALIDATE_SECRET: 'import-map-test' } });
   try {
     const map = await pageImportMap(base);
-    assert.equal(map.imports['what-core'], '/node_modules/what-core/src/index.js');
+    assert.equal(map.imports['what-core'], '/node_modules/what-core/dist/index.min.js', 'production maps the production build');
     const served = await (await fetch(base + map.imports['what-core'])).text();
-    assert.equal(served, readFileSync(join(store, 'what-core', 'src', 'index.js'), 'utf8'), 'served from next to what-framework');
+    assert.equal(served, readFileSync(join(store, 'what-core', 'dist', 'index.min.js'), 'utf8'), 'served from next to what-framework');
     await loadThroughMap(base, map);
   } finally {
     await stop(child);

@@ -26,7 +26,7 @@
 //   rootTag()       the name of the element it opens with, or null, read
 //                   without rendering anything (what-core's <Head> uses it).
 
-import { _rowKeyDigest } from 'what-core/internal';
+import { _rowKeyDigest, _rowKeySalt, getServerContext } from 'what-core/internal';
 
 export class Html {
   #brand;
@@ -74,11 +74,11 @@ export function isHtml(value) {
 //                    element, the innermost owns it.
 //   <!--$-->…<!--/$-->     a reactive child (a thunk, a signal, a keyed list)
 //   <!--[]-->…<!--/[]-->   an array a reactive child or a component returned
-//   <!--k:…-->             right after a keyed list's <!--[]-->: a digest of
-//                          each row's key (rowKeys), so hydrate() takes each
-//                          server row as the row of its key; <!--k!--> when a
-//                          key is one hydrate() cannot compare, so it takes
-//                          none
+//   <!--k:…-->             right after a keyed list's <!--[]-->: the
+//                          render's salt and a digest of each row's key
+//                          (rowKeys), so hydrate() takes each server row as
+//                          the row of its key; <!--k!--> when a key is one
+//                          hydrate() cannot compare, so it takes none
 //   <!--b-->…<!--/b-->     an <ErrorBoundary> or <Suspense> showing its
 //                          children; <!--b!--> opens one showing its fallback
 //
@@ -95,22 +95,37 @@ export const BOUNDARY_FALLBACK = '<!--b!-->';
 export const BOUNDARY_CLOSE = '<!--/b-->';
 
 /**
- * The comment a keyed list writes after its opening marker: a digest of each
- * row's key (what-core's _rowKeyDigest, which hydrate() computes for the
- * client's keys), so the page carries no key itself, and a digest is a few
- * characters of [0-9a-z] whatever the key. Keys are strings and finite
- * numbers. A list with any other key (NaN, an object, a boolean, null) writes
- * <!--k!--> instead: no server row can be told by its key, so hydrate() takes
- * none of them and the client builds the list.
+ * The comment a keyed list writes after its opening marker,
+ * <!--k:SALT:DIGESTS-->: the render's random salt, then a digest of each
+ * row's key under it (what-core's _rowKeyDigest, which hydrate() computes for
+ * the client's keys), eleven characters each, so the page carries no key
+ * itself and no digest of it can be computed before the render. A key with
+ * little entropy (a small integer id) can still be confirmed by guessing
+ * against a page's salt. Keys are strings and finite numbers. A list with any
+ * other key (NaN, an object, a boolean, null) writes <!--k!--> instead: no
+ * server row can be told by its key, so hydrate() takes none of them and the
+ * client builds the list.
  */
 export function rowKeys(keys) {
-  const digests = [];
+  const salt = renderSalt();
+  let digests = '';
   for (const key of keys) {
-    const digest = _rowKeyDigest(key);
+    const digest = _rowKeyDigest(key, salt);
     if (digest === null) return '<!--k!-->';
-    digests.push(digest);
+    digests += digest;
   }
-  return `<!--k:${digests.join(',')}-->`;
+  return `<!--k:${salt}:${digests}-->`;
+}
+
+// One salt per render, by its render context; a fresh one outside a render.
+const salts = new WeakMap();
+
+function renderSalt() {
+  const ctx = getServerContext();
+  if (ctx === null) return _rowKeySalt();
+  let salt = salts.get(ctx);
+  if (salt === undefined) salts.set(ctx, salt = _rowKeySalt());
+  return salt;
 }
 
 /** @returns {{ key: string | null }} */

@@ -62,8 +62,14 @@ export function useActionState(action, initialState, permalink) {
         }
         const [settled, leave] = untilLeft(action(latest, payload));
         waits.add(leave);
-        const next = await settled;
-        waits.delete(leave);
+        let next;
+        try {
+          next = await settled;
+        } finally {
+          // On every way out, a rejection included: `leave` reaches the
+          // settled wait, and so what it settled with.
+          waits.delete(leave);
+        }
         if (gen !== generation) {
           failedIn.add(tx);
           return;
@@ -154,22 +160,47 @@ export function useFormStatus() {
  * one submission as a transition the status shows. As React 19 does for an
  * uncontrolled form, `reset()` runs when that transition commits, if what ran
  * in it succeeded: `run` did not reject and no useActionState dispatch in it
- * failed. Returns the transition's promise.
+ * failed. `run` returns what the action returns (a promise for an async one),
+ * without awaiting it. Once the form's owner is disposed, the submissions still
+ * running stop waiting and the form is not reset. Returns the transition's
+ * promise.
  */
 export function _formStatus(method, action) {
   // The FormData of each submission still pending, oldest first.
   const pending = signal(/** @type {FormData[]} */ ([]));
+  /** @type {Set<any>} the transition calls of the submissions still running */
+  const calls = new Set();
+  let mounted = true;
+  // Once the form is gone, no submission waits for its action any more: a
+  // promise that stays pending holds nothing of the form or its data, and
+  // nothing resets the unmounted form.
+  if (getOwner() !== null) {
+    onCleanup(() => {
+      mounted = false;
+      for (const call of calls) call.abandon();
+    });
+  }
   return {
     pending: () => pending().length > 0,
     data: () => pending().at(-1) ?? null,
     method,
     action: typeof action === 'function' ? action : null,
     submit(formData, run, reset) {
-      return _startTransition(() => run(formData), (t, call) => {
+      // `run` returns the action's promise rather than awaiting it: an async
+      // frame would hold the submission across a promise the action owns.
+      return _startTransition(() => {
+        try {
+          return run(formData);
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      }, (t, call) => {
+        calls.add(call);
         pending((list) => [...list, formData]);
         _onCommit(t, () => {
+          calls.delete(call);
           pending((list) => list.filter((entry) => entry !== formData));
-          if (!call.failed && !failedIn.has(t)) reset();
+          if (mounted && !call.failed && !failedIn.has(t)) reset();
         });
       });
     },

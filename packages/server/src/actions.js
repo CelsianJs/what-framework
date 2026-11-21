@@ -19,8 +19,17 @@ import { _devAction, __DEV__ } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
-// Registry of server actions
-const actionRegistry = new Map();
+// Registry of server actions, kept once for every tier of what-server the
+// process loaded (dist/*.js, dist/*.min.js and the source each hold a copy of
+// this module): an action registered through one is found by the handler of
+// another. Keyed by Symbol.for, so one realm has one; made on first use, so
+// importing the module writes no global.
+const REGISTRY = Symbol.for('what.actions');
+/** @type {Map<string, any> | null} */
+let registry = null;
+function actionRegistry() {
+  return registry ??= /** @type {any} */ (globalThis)[REGISTRY] ??= new Map();
+}
 
 // --- CSRF Protection ---
 // The action endpoint checks that a request comes from this site: the
@@ -116,8 +125,8 @@ export function action(fn, options = {}) {
 
   // Server-side: register the action
   if (typeof window === 'undefined') {
-    if (__DEV__ && actionRegistry.has(id)) console.warn(`Duplicate server action ID "${id}".`, '(ERR_DUPLICATE_ACTION_ID)');
-    actionRegistry.set(id, { fn, options });
+    if (__DEV__ && actionRegistry().has(id)) console.warn(`Duplicate server action ID "${id}".`, '(ERR_DUPLICATE_ACTION_ID)');
+    actionRegistry().set(id, { fn, options });
   }
 
   function callAction(...args) {
@@ -255,7 +264,7 @@ export function handleActionRequest(req, actionId, args, options = {}) {
     }
   }
 
-  const action = actionRegistry.get(actionId);
+  const action = actionRegistry().get(actionId);
   if (!action) {
     return Promise.resolve({ status: 404, body: { message: 'Action not found' } });
   }
@@ -301,5 +310,5 @@ export function handleActionRequest(req, actionId, args, options = {}) {
 // --- Get all registered actions (for SSR/build) ---
 
 export function getRegisteredActions() {
-  return [...actionRegistry.keys()];
+  return [...actionRegistry().keys()];
 }

@@ -358,7 +358,9 @@ export function boostIslandPriority(name, newPriority = 100) {
 
 // --- Client-side hydration ---
 
-export function hydrateIslands() {
+// `options.onHydrationError` receives the mismatches of every island it
+// hydrates, as hydrate()'s own option does, whenever each one hydrates.
+export function hydrateIslands(options) {
   // First, hydrate any shared stores from the page's hydration data (the
   // #__what_data payload, plus any streamed data elements).
   const payload = __readHydrationData();
@@ -387,11 +389,11 @@ export function hydrateIslands() {
     // Skip if already hydrated
     if (hydratedIslands.has(el)) continue;
 
-    scheduleHydration(el, entry, props, mode, priority, name, stores);
+    scheduleHydration(el, entry, props, mode, priority, name, stores, options);
   }
 }
 
-function scheduleHydration(el, entry, props, mode, priority, name, stores) {
+function scheduleHydration(el, entry, props, mode, priority, name, stores, options) {
   const hydrateIsland = async () => {
     if (hydratedIslands.has(el)) return;
     hydratedIslands.add(el);
@@ -410,7 +412,7 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
     // and is numbered from the island's owner path.
     const vnode = h(Component, { ...props, ...storeProps });
     if (el.childNodes.length > 0) {
-      hydrate(vnode, el);
+      hydrate(vnode, el, options);
     } else {
       mount(vnode, el);
     }
@@ -500,7 +502,7 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
 // --- Auto-discover islands from data attributes ---
 // Call this once on the client to set up all islands.
 
-export function autoIslands(registry) {
+export function autoIslands(registry, options) {
   for (const [name, config] of Object.entries(registry)) {
     island(name, config.loader || config, {
       mode: config.mode || 'idle',
@@ -512,9 +514,9 @@ export function autoIslands(registry) {
 
   if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', hydrateIslands);
+      document.addEventListener('DOMContentLoaded', () => hydrateIslands(options));
     } else {
-      hydrateIslands();
+      hydrateIslands(options);
     }
   }
 }

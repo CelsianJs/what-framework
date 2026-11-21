@@ -121,14 +121,33 @@ export function requestSite(headers, url, trustedOrigins) {
   // "null" is an opaque origin: a sandboxed frame, a data: URL, a privacy
   // redirect. None of them is this site.
   if (origin === 'null') return 'cross';
-  let host = headers.host;
-  if (!host && url) {
-    try { host = new URL(url).host; } catch { /* no host to compare */ }
-  }
+  const target = targetOrigin(headers, url);
   try {
-    return host && new URL(origin).host === host ? 'same' : 'cross';
+    return target !== null && new URL(origin).origin === target ? 'same' : 'cross';
   } catch {
     return 'cross';
+  }
+}
+
+// The origin a request was sent to, scheme included: an https page posting to
+// an http host is another origin. The scheme is the one a proxy in front
+// reports (X-Forwarded-Proto, which a cross-site form cannot set), else the
+// request URL's; the host is the Host header's, else the URL's. Null when
+// neither names a host.
+function targetOrigin(headers, url) {
+  /** @type {URL | null} */
+  let parsed = null;
+  try {
+    parsed = new URL(url, headers.host ? `http://${headers.host}` : undefined);
+  } catch { /* a path with no Host to resolve it against */ }
+  const host = headers.host || (parsed && parsed.host);
+  if (!host) return null;
+  const forwarded = String(headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const scheme = forwarded === 'https' || forwarded === 'http' ? forwarded : parsed && parsed.protocol === 'https:' ? 'https' : 'http';
+  try {
+    return new URL(`${scheme}://${host}`).origin;
+  } catch {
+    return null;
   }
 }
 
@@ -289,8 +308,8 @@ export function nodeActionMiddleware(options = {}) {
   const handle = createActionHandler(options);
 
   return async function middleware(req, res, next) {
-    const [url, search] = (req.url || '').split('?');
-    if (url !== basePath || (req.method || '').toUpperCase() !== 'POST') {
+    const { pathname, search } = new URL(req.url || '/', 'http://localhost');
+    if (pathname !== basePath || (req.method || '').toUpperCase() !== 'POST') {
       return next ? next() : undefined;
     }
 
@@ -304,7 +323,7 @@ export function nodeActionMiddleware(options = {}) {
       return;
     }
 
-    const query = Object.fromEntries(new URLSearchParams(search || ''));
+    const query = Object.fromEntries(new URLSearchParams(search));
     let out;
     try {
       out = await handle({ method: req.method, headers: req.headers, body, query, url: req.url });

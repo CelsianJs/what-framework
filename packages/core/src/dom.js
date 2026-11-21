@@ -508,13 +508,39 @@ function applyProps(el, newProps, oldProps, isSvg) {
 
 // <select> needs its value set after <option> children mount. Setting it
 // immediately can fail if the matching <option> isn't in the DOM yet; the
-// microtask retry fixes up after the options are appended.
+// microtask retry fixes up after the options are appended. An array selects
+// each option it names (a multiple select), which `el.value` cannot.
 export function _setSelectValue(el, value) {
-  el._$value = value;
-  el.value = value;
-  if (el.value !== String(value)) {
-    queueMicrotask(() => { el.value = value; });
+  el._$value = value ?? undefined;
+  if (!selectOptions(el, value)) queueMicrotask(() => selectOptions(el, value));
+}
+
+// Whether the options `value` names are now the selected ones.
+function selectOptions(el, value) {
+  if (!Array.isArray(value)) {
+    el.value = value;
+    return el.value === String(value);
   }
+  const wanted = value.map(String);
+  let found = 0;
+  for (const option of el.options) {
+    option.selected = wanted.includes(option.value);
+    if (option.selected) found++;
+  }
+  return found === wanted.length;
+}
+
+// Whether `el` takes prop `key` through a property it can write: one with a
+// setter (value, checked, a custom element's accessor) or a writable data
+// property. A getter-only reflection (an input's `form` owner, its `list`
+// datalist, a select's `type`) takes the attribute instead: assigning to it
+// throws in a module.
+export function _writableProp(el, key) {
+  for (let o = el; o !== null; o = Object.getPrototypeOf(o)) {
+    const d = Object.getOwnPropertyDescriptor(o, key);
+    if (d !== undefined) return d.writable === true || d.set !== undefined;
+  }
+  return false;
 }
 
 // NOTE: there are intentionally TWO `setProp` implementations in this codebase:
@@ -667,9 +693,11 @@ function setProp(el, key, value, isSvg) {
   // otherwise stringify a nullish value. Reflected props (e.g. el.title) are
   // reset first so removeAttribute() clears both the attribute and the property.
   if (value == null) {
-    if (key in el) {
-      try { el[key] = ''; } catch { /* read-only reflected prop */ }
+    if (_writableProp(el, key)) {
+      try { el[key] = ''; } catch { /* a property '' does not fit (files) */ }
     }
+    // No value prop is an uncontrolled field: a form reset restores its default.
+    if (key === 'value') el._$value = undefined;
     el.removeAttribute(key);
     return;
   }
@@ -713,8 +741,8 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // Default: property if exists, otherwise attribute
-  if (key in el) {
+  // Default: property if the element can write one, otherwise attribute
+  if (_writableProp(el, key)) {
     el[key] = value;
     // What a controlled field's value prop holds, which a form reset keeps
     // (_resetForm); render.js setValue and setChecked keep theirs too. A
@@ -729,18 +757,20 @@ function setProp(el, key, value, isSvg) {
 // resets one: its uncontrolled fields go back to their defaults, and a
 // controlled field (a value or checked prop) keeps the value its prop holds.
 // The form's own reset and elements, read from its prototype: a control named
-// "reset" or "elements" shadows them on the form itself.
-export function _resetForm(form) {
+// "reset" or "elements" shadows them on the form itself. A write that throws
+// (a control's own setter, a custom element's formResetCallback) goes to
+// `onError`, and every other field is still restored.
+export function _resetForm(form, onError) {
   const proto = Object.getPrototypeOf(form);
   const fields = [...Reflect.get(proto, 'elements', form)];
   const held = fields.map((el) => [el._$value, el._$checked]);
-  proto.reset.call(form);
+  const attempt = (write) => {
+    try { write(); } catch (error) { onError(error); }
+  };
+  attempt(() => proto.reset.call(form));
   fields.forEach((el, i) => {
     const [value, checked] = held[i];
-    if (value !== undefined) {
-      if (el.tagName === 'SELECT') _setSelectValue(el, value);
-      else el.value = value;
-    }
-    if (checked !== undefined) el.checked = checked;
+    if (value !== undefined) attempt(() => (el.tagName === 'SELECT' ? _setSelectValue(el, value) : (el.value = value)));
+    if (checked !== undefined) attempt(() => { el.checked = checked; });
   });
 }

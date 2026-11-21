@@ -26,7 +26,12 @@ installDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>');
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { hydrate, mapArray, insert, _rowKeyDigest } = await import('../src/render.js');
-const keysComment = (...keys) => `<!--k:${keys.map(_rowKeyDigest).join(',')}-->`;
+// The keys comment `html` carries for `keys`: each key's digest under the
+// render's salt, which the comment writes first.
+const keysComment = (html, ...keys) => {
+  const salt = /<!--k:([^:>]+):/.exec(html)?.[1];
+  return `<!--k:${salt}:${keys.map((key) => _rowKeyDigest(key, salt)).join('')}-->`;
+};
 const { renderToString, renderToHydratableString, renderToStream } = await import('what-server');
 
 const root = () => document.getElementById('root');
@@ -171,7 +176,7 @@ describe('hydration never adopts a server row as the row of another key', () => 
 
   it('the same rows in another order: each server row is adopted by its key, moved, and reported', () => {
     root().innerHTML = renderToHydratableString(h(server.make(ALICE_BOB)));
-    assert.ok(root().innerHTML.includes(keysComment('a', 'b')), 'the server writes the keys\' digests');
+    assert.ok(root().innerHTML.includes(keysComment(root().innerHTML, 'a', 'b')), 'the server writes the keys\' digests');
     const alice = root().querySelector('[data-row=a] input');
     alice.value = 'draft for Alice';
     const reports = [];
@@ -209,7 +214,7 @@ describe('hydration never adopts a server row as the row of another key', () => 
     const tree = (items) => h('ul', {}, () => items.map((it) => h('li', { key: it.id }, it.label, h('input', {}))));
     for (const render of [renderToHydratableString, async (vnode) => { let html = ''; for await (const chunk of renderToStream(vnode, {})) html += chunk; return html; }]) {
       const html = await render(tree(ALICE_BOB));
-      assert.ok(html.includes(keysComment('a', 'b')), html);
+      assert.ok(html.includes(keysComment(html, 'a', 'b')), html);
       root().innerHTML = html.includes('<ul>') ? html.slice(html.indexOf('<ul>'), html.indexOf('</ul>') + 5) : html;
       const alice = root().querySelectorAll('input')[0];
       alice.value = 'draft for Alice';
@@ -224,7 +229,7 @@ describe('hydration never adopts a server row as the row of another key', () => 
 
   it('a compiled keyed list rendered by the runtime renderer writes its keys too', () => {
     const html = renderToHydratableString(h('ul', {}, mapArray(ITEMS, (it) => h('li', {}, () => it().t), { key: (x) => x.id })));
-    assert.ok(html.includes(keysComment(1, 2, 3)), html);
+    assert.ok(html.includes(keysComment(html, 1, 2, 3)), html);
     root().innerHTML = html;
     const reports = [];
     const stop = hydrate(clientTree([ITEMS[2], ITEMS[1], ITEMS[0]]), root(), { onHydrationError: (r) => reports.push(r) });

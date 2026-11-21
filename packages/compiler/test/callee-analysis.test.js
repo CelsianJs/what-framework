@@ -1,11 +1,15 @@
 // A call of a function the module declares is as reactive as what that
 // function runs. The compiler follows the module's call graph on a stack of
-// its own: a call is static only when every function it can reach is seen and
-// none of them reads. Mutual recursion, a function declaration that is
-// reassigned, a local function or method named like a built-in, a helper
-// declared in a nested block, and an object literal whose method may be
-// replaced all compile to the reactive form; a chain of thousands of helpers
-// compiles.
+// its own, by the kinds of value each call hands over: a call is static only
+// when every value it can reach is proven static (literals, the values a
+// function is given, built-ins applied to them, functions and object literals
+// the module declares and keeps), and anything else is assumed to read.
+// Mutual recursion, a function declaration that is reassigned, a local
+// function or method named like a built-in, a helper declared in a nested
+// block, an object literal whose method may be replaced, getters and setters,
+// class instances, callbacks handed by name, generators, async functions and
+// default parameters all compile to the reactive form; a chain of thousands
+// of helpers compiles.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -119,6 +123,41 @@ describe('a call reaches a signal through local functions', () => {
   });
 });
 
+// The proof is an allowlist: a call is static only when every value it
+// reaches is proven static. Each of these reaches a signal some other way than
+// by calling it by name, and each must update after the write.
+describe('a call reaches a signal through anything the compiler cannot prove', () => {
+  const cases = [
+    ['a getter reached through a helper', "const model = { get text() { return label(); } }; function read(x) { return model.text; }", "read('x')"],
+    ['a getter read at the top of the expression', "const model = { get text() { return label(); } };", 'model.text'],
+    ['a setter reached through an assignment', "let value; const model = { set text(x) { value = label(); } }; function read(x) { model.text = x; return value; }", "read('x')"],
+    ['a class that overrides a built-in method name', "class Model { replace(x) { return label(); } } const model = new Model();", "model.replace('x')"],
+    ['a class instance handed to a helper', "class Model { trim() { return label(); } } const model = new Model(); function show(m) { return m.trim(); }", 'show(model)'],
+    ['this, calling a method named like a built-in', "const model = { format(x) { return this.replace(x); }, replace(x) { return label(); } };", "model.format('x')"],
+    ['a function handed by name to an array method', 'function format(x) { return label(); }', "[1].map(format).join('')"],
+    ['a generator consumed in a helper', 'function* values(x) { yield label(); } function read(x) { const [result] = values(x); return result; }', "read('x')"],
+    ['an async helper reading before its first await', "let value; async function update(x) { await (value = label()); } function read(x) { void update(x); return value; }", "read('x')"],
+    ['a default parameter', 'function read(x, value = label()) { return value; }', "read('x')"],
+    ['a destructured parameter of an object with a getter', "const model = { get text() { return label(); } }; function read({ text }) { return text; }", 'read(model)'],
+    ['a template literal converting an object', "const model = { toString() { return label(); } }; function read(x) { return `${model}`; }", "read('x')"],
+    ['an operator converting an object', "const model = { valueOf() { return label(); } }; function read(x) { return model + ''; }", "read('x')"],
+    ['a closure over a parameter that is called', 'function read(get) { return [1].map(() => get()).join(\'\'); }', 'read(label)'],
+    ['call() and apply() of a declared function', 'function read(x) { return label(); }', "read.call(null, 'x') + read.apply(null, ['x'])"],
+    ['a constructor the module declares', 'class Box { constructor(x) { this.value = label(); } } function read(x) { return new Box(x).value; }', "read('x')"],
+    ['a global the platform does not define', "globalThis.__whatTestText = { get text() { return label(); } }; function read(x) { return __whatTestText.text; }", "read('x')"],
+    ['iterating a value nobody built', "const items = { *[Symbol.iterator]() { yield label(); } }; function read(x) { for (const item of items) return item; return ''; }", "read('x')"],
+    ['an object literal method replaced elsewhere', "const model = { format: (x) => 'first' }; function swap(m) { m.format = () => label(); } swap(model);", "model.format('x')"],
+  ];
+  it('a function handed to a package utility, which may call it', () => {
+    const code = compileJSX("import { apply } from 'some-lib'; import { signal } from 'what-framework'; const label = signal(''); function format(x) { return label(); } export function View() { return <p>{apply(format, 1)}</p>; }");
+    assert.ok(code.includes('() => apply(format, 1)'), code);
+  });
+
+  for (const [name, helper, expression] of cases) {
+    it(name, () => follows(`${helper}\nexport function View() { return <p>{${expression}}</p>; }`, (value) => value.repeat(expression.includes('apply(null') ? 2 : 1)));
+  }
+});
+
 describe('a call stays static when nothing it reaches reads', () => {
   const isStatic = (code, call) => assert.ok(!code.includes(`() => ${call}`), code);
 
@@ -142,6 +181,17 @@ describe('a call stays static when nothing it reaches reads', () => {
     `);
     isStatic(code, 'even(4)');
     isStatic(code, 'odd(3)');
+  });
+
+  it('methods of a kept object literal, `this` among them, given plain values', () => {
+    const code = compileJSX(`
+      const literal = { format(x) { return this.read(x); }, read(x) { return x.toUpperCase(); } };
+      const day = new Date(0);
+      const LIMIT = 3;
+      function pad(n, width = LIMIT) { let out = String(n); for (let i = out.length; i < width; i++) out = '0' + out; return out; }
+      export function View() { return <p>{literal.format('b')}{day.toISOString()}{pad(7)}{['a', 'b'].map((x) => x + '!')}</p>; }
+    `, { production: true });
+    for (const call of ["literal.format('b')", 'day.toISOString()', 'pad(7)', "['a', 'b'].map("]) isStatic(code, call);
   });
 
   it('a local object literal method that only computes, and real built-ins', () => {

@@ -57,6 +57,10 @@ export function _currentTransition(): object | null;
 export function _onCommit(t: object, fn: () => void): void;
 /** @internal what-router: resolves once no query read on `path` is fetching its first value. */
 export function _pathLoaded(path: string): Promise<void>;
+/** @internal what-router: the context map of the nearest owner above the current one that provides `key` (with _provide), or null. */
+export function _contextOf(key: unknown): Map<unknown, unknown> | null;
+/** @internal what-router: provide `value` under `key` on the current owner, for what it owns to find with _contextOf. */
+export function _provide(key: unknown, value: unknown): void;
 /** @internal Whether this is a development build: false in a production bundle, where the branches it guards fold away. */
 export const __DEV__: boolean;
 /** @internal what-server's <Form>: the context its status is provided in. */
@@ -195,14 +199,18 @@ export function __readHydrationData(): Record<string, any> | null;
 export function isVNode(value: unknown): value is VNode<any>;
 /** @internal Used by what-server. The keyed-array mapping `<For>` compiles down to. */
 export function _mapArrayToArray(...args: unknown[]): unknown;
-/** @internal Used by what-server. A keyed list row key's digest, as the server writes it and hydrate() compares it; null for a key that is not a string or a finite number. */
-export function _rowKeyDigest(key: unknown): string | null;
+/** @internal Used by what-server. A keyed list row key's digest under a render's salt, as the server writes it and hydrate() compares it; null for a key that is not a string or a finite number. */
+export function _rowKeyDigest(key: unknown, salt: string): string | null;
+/** @internal Used by what-server. A random salt for one render's keyed-list digests. */
+export function _rowKeySalt(): string;
 /** @internal Used by what-server's <Form>. Resets a form as React 19 does after a successful action: uncontrolled fields to their defaults, controlled ones to what their props hold. */
-export function _resetForm(form: HTMLFormElement): void;
+export function _resetForm(form: HTMLFormElement, onError: (error: unknown) => void): void;
 /** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
 export function __installServerContextStorage(storage: unknown): void;
 /** @internal Used by what-server. Marks a process that renders on the server with no document: outside a render, the query cache shares nothing. */
 export function __markServerProcess(): void;
+/** @internal Used by what-router. Whether code outside a render runs on a server: a process what-server marked, unless it had a document then and has AsyncLocalStorage. */
+export function _isServerProcess(): boolean;
 /** @internal Used by what-server. Runs waiting effect re-runs with no render context visible. */
 export function __flushOutsideServerContext(): void;
 /** @internal Used by what-server. Runs `fn` with no render context visible and no reactive owner. */

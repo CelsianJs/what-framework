@@ -157,7 +157,7 @@ export default function whatBabelPlugin({ types }) {
               calls.push(callPath);
             },
           });
-          resolveCallees(calls, state.importedIdentifiers);
+          resolveCallees(path, calls, state.importedIdentifiers);
         },
 
         exit(path, state) {

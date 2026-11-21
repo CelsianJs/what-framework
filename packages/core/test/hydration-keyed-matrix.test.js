@@ -10,8 +10,11 @@
 //     instead of adopting rows by position;
 //   - a compiled row's callback sees its client index;
 //   - a keyed list inside a ternary or after `&&` is keyed on the server too.
-// The page carries a digest of each key, never the key itself, and two keys
-// of the client with one digest are never told apart by it.
+// The page carries a digest of each key under a salt of its render, never the
+// key itself: a key of the client is matched to a server row only by its own
+// digest under that salt, so a different key never inherits a row, also one
+// whose digest collided with the server key's under 0.15's first digest
+// (unsalted, 32 bits) in every renderer, client and wrapper.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,6 +51,17 @@ function hView(items) {
       row.label, h('input'),
       () => row.children?.map((child) => h('div', { key: child, 'data-child': child }, h('input'))))));
 }
+
+// 0.15 round 2's row key digest: 32-bit FNV-1a of the key's type and value,
+// unsalted. Two keys it gave one digest, for the cases that force a
+// collision across renders.
+function roundTwoDigest(key) {
+  const text = 's' + key;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  return (hash >>> 0).toString(36);
+}
+const COLLIDING = ['row-1162789', 'row-1379192'];
 
 const ALICE = { id: 'a', label: 'Alice', children: ['A', 'B'] };
 const BOB = { id: 'b', label: 'Bob', children: ['C'] };
@@ -135,12 +149,31 @@ for (const render of ['string', 'stream']) {
         updated: [{ ...BOB, id: 'bob@corp.test' }, { ...ALICE, id: 'alice@corp.test' }],
         verify: ({ host, alice, reports, html }) => {
           assert.ok(!html.includes('corp.test'), html);
-          assert.ok(html.includes(`<!--k:${_rowKeyDigest('alice@corp.test')},${_rowKeyDigest('bob@corp.test')}-->`), html);
+          const salt = /<!--k:([^:>]+):/.exec(html)[1];
+          assert.ok(html.includes(`<!--k:${salt}:${_rowKeyDigest('alice@corp.test', salt)}${_rowKeyDigest('bob@corp.test', salt)}-->`), html);
           assert.equal(host.querySelector('[data-name=Alice] input'), alice);
           assert.deepEqual(reports.filter((r) => r.kind === 'key').map((r) => [r.expected, r.found, r.recovery]),
             [['bob@corp.test,alice@corp.test', 'alice@corp.test,bob@corp.test', 'move']]);
         },
       }));
+
+      for (const wrapper of ['plain', 'suspense', 'island']) {
+        it(`${wrapper}: a different key never inherits the server row, one that collided under 0.15's first digest included`, () => {
+          assert.equal(roundTwoDigest(COLLIDING[0]), roundTwoDigest(COLLIDING[1]));
+          return run({
+            wrapper,
+            original: [{ ...ALICE, id: COLLIDING[0], children: [] }],
+            updated: [{ ...ALICE, label: 'Alice', id: COLLIDING[1], children: [] }],
+            verify: ({ host, alice, reports, html }) => {
+              const salt = /<!--k:([^:>]+):/.exec(html)[1];
+              assert.notEqual(_rowKeyDigest(COLLIDING[0], salt), _rowKeyDigest(COLLIDING[1], salt));
+              assert.equal(host.querySelector('[data-name=Alice] input').value, '', 'the new key inherited the old row\'s draft');
+              assert.ok(!host.contains(alice));
+              assert.deepEqual(reports.filter((r) => r.kind === 'key').map((r) => r.recovery), ['client-render']);
+            },
+          });
+        });
+      }
 
       for (const wrapper of ['suspense', 'island']) {
         it(`a reorder under ${wrapper === 'suspense' ? '<Suspense>' : 'an island'} moves the server rows`, () => run({
@@ -170,14 +203,35 @@ describe('compiled keyed lists, hydrated', () => {
     }
   });
 
-  it('a moved row\'s callback is given its client index', async () => {
+  it('a moved row\'s callback is given its client index, which takes exactly the index\'s text', async () => {
     const [indexedServer, indexedClient] = await compile({ indexed: true });
-    await check({
-      render: 'string', serverView: indexedServer.make, clientView: indexedClient.make,
-      original: [ALICE, BOB],
-      updated: [BOB, ALICE],
-      verify: ({ host }) => assert.deepEqual([...host.querySelectorAll('li')].map((li) => li.textContent), ['0:Bob', '1:Alice']),
-    });
+    for (const render of ['string', 'stream']) {
+      await check({
+        render, serverView: indexedServer.make, clientView: indexedClient.make,
+        original: [ALICE, BOB],
+        updated: [BOB, ALICE],
+        verify: ({ host, alice, reports }) => {
+          assert.deepEqual([...host.querySelectorAll('li')].map((li) => li.textContent.trim()), ['0:Bob', '1:Alice']);
+          assert.equal(host.querySelector('[data-name=Alice] input'), alice, 'the index took the label\'s text with it');
+          assert.equal(alice.value, 'draft for Alice');
+          assert.deepEqual(reports.map((r) => [r.kind, r.recovery]), [['key', 'move'], ['text', 'client-render'], ['text', 'client-render']]);
+        },
+      });
+    }
+  });
+
+  it('an island reports a nested list it rebuilds to the hydrate() that ran it', async () => {
+    for (const render of ['string', 'stream']) {
+      await check({
+        render, wrapper: 'island', serverView: server.make, clientView: client.make,
+        original: [{ ...ALICE, children: [{ id: 1 }] }],
+        updated: [{ ...ALICE, children: [{ id: 2 }] }],
+        verify: ({ reports, html }) => {
+          assert.ok(html.includes('<!--k!-->'), html);
+          assert.deepEqual(reports.filter((r) => r.kind === 'key').map((r) => r.recovery), ['client-render']);
+        },
+      });
+    }
   });
 
   it('a keyed list inside a ternary or after && is keyed on the server too', async () => {
@@ -206,25 +260,33 @@ describe('compiled keyed lists, hydrated', () => {
 });
 
 describe('row key digests', () => {
-  it('two keys of the client with one digest are never told apart by it', async () => {
-    const [first, second] = ['row-1162789', 'row-1379192'];
-    assert.equal(_rowKeyDigest(first), _rowKeyDigest(second));
-    await check({
-      render: 'string', serverView: server.make, clientView: client.make,
-      original: [{ ...ALICE, id: first, children: [] }, { ...BOB, id: second, children: [] }],
-      updated: [{ ...BOB, id: second, children: [] }, { ...ALICE, id: first, children: [] }],
-      verify: ({ host, reports, serverRows }) => {
-        assert.equal(host.querySelector('[data-name=Bob] input').value, '');
-        assert.ok([...host.querySelectorAll('li')].every((li) => !serverRows.includes(li)), 'every row was built by the client');
-        assert.deepEqual(reports.filter((r) => r.kind === 'key').map((r) => r.recovery), ['client-render']);
-      },
-    });
+  it('are salted by each render, so no digest exists before its page does', async () => {
+    const pages = await Promise.all([0, 1].map(() => serverHtml('string', h(server.make([ALICE, BOB])))));
+    const [a, b] = pages.map((html) => /<!--k:([^:>]+):([^>]*)-->/.exec(html));
+    assert.notEqual(a[1], b[1], 'each render has its own salt');
+    assert.notEqual(a[2], b[2], 'so the same keys have other digests');
+    assert.equal(a[2], _rowKeyDigest('a', a[1]) + _rowKeyDigest('b', a[1]));
+  });
+
+  it('a page read under another salt adopts no row', async () => {
+    const html = await serverHtml('string', h(server.make([ALICE, BOB])));
+    const salt = /<!--k:([^:>]+):/.exec(html)[1];
+    const other = salt === 'AAAAAAAAAAA' ? 'BBBBBBBBBBB' : 'AAAAAAAAAAA';
+    const host = document.createElement('div');
+    host.innerHTML = html.replace(salt, other);
+    const alice = host.querySelector('[data-name=Alice] input');
+    const reports = [];
+    const stop = hydrate(h(client.make([ALICE, BOB])), host, { onHydrationError: (r) => reports.push(r) });
+    assert.ok(!host.contains(alice));
+    assert.deepEqual(reports.filter((r) => r.kind === 'key').map((r) => r.recovery), ['client-render']);
+    stop();
   });
 
   it('are the same for a number and its string only by type, and -0 is 0', () => {
-    assert.notEqual(_rowKeyDigest(1), _rowKeyDigest('1'));
-    assert.equal(_rowKeyDigest(-0), _rowKeyDigest(0));
-    assert.match(_rowKeyDigest('\ud800<!--'), /^[0-9a-z]+$/);
-    for (const key of [Number.NaN, Infinity, null, undefined, true, {}, Symbol('k')]) assert.equal(_rowKeyDigest(key), null);
+    const salt = 'Q7_x.0aZ9mK';
+    assert.notEqual(_rowKeyDigest(1, salt), _rowKeyDigest('1', salt));
+    assert.equal(_rowKeyDigest(-0, salt), _rowKeyDigest(0, salt));
+    assert.match(_rowKeyDigest('\ud800<!--', salt), /^[0-9A-Za-z_.]{11}$/);
+    for (const key of [Number.NaN, Infinity, null, undefined, true, {}, Symbol('k')]) assert.equal(_rowKeyDigest(key, salt), null);
   });
 });

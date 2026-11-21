@@ -53,7 +53,10 @@ export interface NavigateOptions {
  * on screen and the data it reads first (beyond `preload`, which it shows
  * pending) has landed; `route.isNavigating` is true until then. Inside a
  * transition's async action it resolves before the commit, which happens with
- * the action (useTransition's isPending shows it).
+ * the action (useTransition's isPending shows it). The URL it commits is the
+ * one the address bar shows (`/old/../find` commits `/find`). On a server,
+ * where nothing navigates, it redirects the response of the render in
+ * progress instead.
  */
 export function navigate(to: string, options?: NavigateOptions): Promise<void>;
 
@@ -101,9 +104,10 @@ export interface LayoutProps {
 /**
  * Middleware is synchronous: allow with true/void, block with false, or
  * redirect with a path. Use asyncGuard for async checks. It runs before the
- * route's `preload`, which never runs for a route it declines, and may run more
- * than once for one navigation. On the server, a redirect redirects the
- * render's response.
+ * route's `preload`, which never runs for a route it declines. It runs once
+ * for a navigation, whose verdict the page renders by, and again only when a
+ * signal it read changes. On the server, a redirect redirects the render's
+ * response.
  */
 export type RouteMiddleware = (props: RouteComponentProps & { path: string }) => boolean | string | void;
 
@@ -115,8 +119,10 @@ export interface RouterProps {
   globalLayout?: Component<{ children?: VNodeChild }>;
   /**
    * The URL a server render shows. Without it, a server render shows the URL
-   * of the request being rendered (`request` of the render), else "/". The
-   * client always shows the window's URL.
+   * of the request being rendered (`request` of the render), else "/", or a
+   * nested Router its parent's. The client always shows the window's URL. A
+   * Router inside another has route state of its own: what it renders reads
+   * the params and query it matched.
    */
   url?: string;
 }
@@ -259,9 +265,9 @@ export function prefetchRoute(href: string): void;
  * first render reports the error, but on a later re-run the navigation simply
  * does not happen and the stale DOM stays, so prefer `navigate(to)` there.
  * A `try/catch` around the call also swallows it, so rethrow anything whose
- * `name` is `RouterRedirect`. On the server, thrown from route middleware it
- * redirects the render's response (getResponse().redirect); from a component
- * body it escapes `renderToString` to its caller: read `.to` and emit a 302.
+ * `name` is `RouterRedirect`. On the server, thrown from route middleware or
+ * from a component body, it redirects the render's response
+ * (getResponse().redirect).
  */
 export function redirect(to: string, options?: NavigateOptions): never;
 

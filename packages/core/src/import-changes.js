@@ -115,10 +115,11 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
   ], note: 'Devtools hooks, guardrails and the error catalogue are tool interfaces in what-core/internal.' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '_escapeHtml', '_runInComponentSSR', '_assignOwnerPath', '_ownerCounter', '_currentOwnerPath', '__flushOutsideServerContext', '__outsideServerContext', '__markServerProcess',
-    '_rowKeyDigest',
+    '_rowKeyDigest', '_rowKeySalt',
   ], note: 'Server-rendering internals are what-server\'s interface in what-core/internal; apps use getResponse() and useLoaderData().' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '__invalidateFromDevtools', '_tagQueries', '_formStatus', '_formStatusContext', '_resetForm', '_devAction', '__DEV__', '_urgent', '_currentTransition', '_onCommit', '_pathLoaded',
+    '_contextOf', '_provide', '_isServerProcess',
   ], note: 'The query cache\'s devtools and router hooks, the status <Form> provides and its reset, the engine hooks a navigation uses and the development flag are what-devtools\', what-router\'s and what-server\'s interface in what-core/internal; apps use what-framework/data, useFormStatus(), <Form> and useTransition().' },
   { name: 'isVNode', to: 'what-core/internal', neverOnRoot: true, note: 'Whether a value is a vnode, by the brand only what-core\'s producers (h(), the JSX runtime, the boundaries) give: for libraries that make or inspect elements, such as what-react. Apps make elements with h() or JSX.' },
 ]);

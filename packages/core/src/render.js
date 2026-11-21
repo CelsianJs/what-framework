@@ -9,7 +9,7 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setSelectValue, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setSelectValue, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
 import { attributeName, isEnumeratedAttr } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
@@ -1770,9 +1770,11 @@ export function setProp(el, key, value) {
     // stringified to "undefined"/"null". Caught before the data-*/aria-*, SVG
     // and property-reflected branches. Reflected props (e.g. el.title) are reset
     // first so removeAttribute() clears both the attribute and the property.
-    if (key in el) {
-      try { el[key] = ''; } catch { /* read-only reflected prop */ }
+    if (_writableProp(el, key)) {
+      try { el[key] = ''; } catch { /* a property '' does not fit (files) */ }
     }
+    // No value prop is an uncontrolled field (dom.js _resetForm).
+    if (key === 'value') el._$value = undefined;
     el.removeAttribute(key);
   } else if (isEnumeratedAttr(key)) {
     el.setAttribute(key, value);
@@ -1783,7 +1785,7 @@ export function setProp(el, key, value) {
     el.setAttribute(key, value);
   } else if (key === 'value' && el.tagName === 'SELECT') {
     _setSelectValue(el, value);
-  } else if (key in el) {
+  } else if (_writableProp(el, key)) {
     el[key] = value;
     // What a controlled field's value prop holds, which a form reset keeps
     // (dom.js _resetForm).
@@ -2170,26 +2172,83 @@ function transparent(data) {
 }
 
 // The comment after a keyed list's opening marker (what-server rowKeys): its
-// rows' key digests, or `k!` when a key was one hydrate() cannot compare.
+// render's salt and its rows' key digests, or `k!` when a key was one
+// hydrate() cannot compare.
 function isRowKeys(data) {
   return data.startsWith('k:') || data === 'k!';
 }
 
-// A keyed list's row key as the server writes it (what-server rowKeys) and
-// hydrate() compares it: a digest, 32-bit FNV-1a of the key's type and value
-// in base 36, so the page does not carry the key. Strings and finite numbers
-// only: null for any other key.
-export function _rowKeyDigest(key) {
+// The digits a digest and a salt are written in: none of them is '-' or '>',
+// so no run of them ends a comment.
+const DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_.';
+// The length of a digest (and of a salt): 64 bits, six to a digit.
+const DIGEST_LENGTH = 11;
+
+/**
+ * A keyed list's row key as the server writes it (what-server rowKeys) and
+ * hydrate() compares it: a 64-bit HalfSipHash-2-4 of the render's `salt`, the
+ * key's type and its value, in DIGEST_LENGTH digits, so the page does not
+ * carry the key. The salt is random for each render and written beside the
+ * digests: no digest can be computed before the page exists, two keys of one
+ * list collide by accident with odds of 2^-64, and making one key's digest
+ * equal another's under a page's salt takes a preimage of a 64-bit hash. A
+ * key with little entropy (a small integer id) can still be confirmed by
+ * guessing, page by page. Strings and finite numbers only: null for any other
+ * key.
+ */
+export function _rowKeyDigest(key, salt) {
   if (typeof key !== 'string' && !(typeof key === 'number' && Number.isFinite(key))) return null;
-  const text = (typeof key === 'string' ? 's' : 'n') + key;
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
-  return (hash >>> 0).toString(36);
+  const text = salt + (typeof key === 'string' ? 's' : 'n') + key;
+  // HalfSipHash-2-4 with a zero key and a 64-bit output; a word is two UTF-16
+  // code units.
+  let v0 = 0, v1 = 0xee, v2 = 0x6c796765, v3 = 0x74656462;
+  const round = () => {
+    v0 = (v0 + v1) | 0; v1 = (v1 << 5) | (v1 >>> 27); v1 ^= v0; v0 = (v0 << 16) | (v0 >>> 16);
+    v2 = (v2 + v3) | 0; v3 = (v3 << 8) | (v3 >>> 24); v3 ^= v2;
+    v0 = (v0 + v3) | 0; v3 = (v3 << 7) | (v3 >>> 25); v3 ^= v0;
+    v2 = (v2 + v1) | 0; v1 = (v1 << 13) | (v1 >>> 19); v1 ^= v2; v2 = (v2 << 16) | (v2 >>> 16);
+  };
+  const absorb = (m) => {
+    v3 ^= m;
+    round();
+    round();
+    v0 ^= m;
+  };
+  const end = text.length & ~1;
+  for (let i = 0; i < end; i += 2) absorb(text.charCodeAt(i) | (text.charCodeAt(i + 1) << 16));
+  absorb((text.length << 16) | (end < text.length ? text.charCodeAt(end) : 0));
+  v2 ^= 0xee;
+  round(); round(); round(); round();
+  const hi = v1 ^ v3;
+  v1 ^= 0xdd;
+  round(); round(); round(); round();
+  return digits(hi, v1 ^ v3);
+}
+
+/**
+ * @internal A render's salt for its keyed lists' digests (what-server
+ * rowKeys): 64 random bits, in the digits of a digest.
+ */
+export function _rowKeySalt() {
+  const [hi, lo] = crypto.getRandomValues(new Uint32Array(2));
+  return digits(hi, lo);
+}
+
+// 64 bits, `hi` and `lo`, in DIGEST_LENGTH digits.
+function digits(hi, lo) {
+  const put = (n, count) => {
+    let out = '';
+    for (let i = 0; i < count; i++, n >>>= 6) out = DIGITS[n & 63] + out;
+    return out;
+  };
+  return put(hi >>> 8, 4) + put(((hi & 0xff) << 16) | (lo >>> 16), 4) + put(lo & 0xffff, 3);
 }
 
 // The walk's position: the parent (p), the next node to claim (n, null at the
-// parent's end), how far a text claim has read into it (o), where the region
-// it walks ends (e: its closing marker, or null for the parent's end),
+// parent's end), how far a text claim has read into it (o), whether the
+// server's text at it begins with a value's that differed from the client's
+// (x: see replaceText), where the region it walks ends (e: its closing
+// marker, or null for the parent's end),
 // whether it claims server DOM (h) or steps through a client clone, and, in
 // compiled template code, the template node it stands on (t).
 /** @type {any} */
@@ -2232,6 +2291,14 @@ export function isHydrating() {
   return cur !== null && cur.h;
 }
 
+/**
+ * @internal The onHydrationError hook of the hydrate() walking now, or null:
+ * what a hydration it defers (an island's) reports to.
+ */
+export function _hydrationErrorHook() {
+  return cur !== null && cur.h && session !== null ? session.onError : null;
+}
+
 function clientBuild(fn, a, b, c) {
   const saved = cur;
   cur = CLIENT;
@@ -2270,7 +2337,7 @@ export function hydrate(tree, container, options) {
     // Effects a write during the walk would re-run wait for its end, when
     // nothing claims any more.
     batch(() => {
-      cur = { p: container, n: container.firstChild, o: 0, e: null, h: true, t: null };
+      cur = { p: container, n: container.firstChild, o: 0, x: false, e: null, h: true, t: null };
       pendingKey = null;
       try {
         adopt(tree);
@@ -2316,6 +2383,7 @@ function isMarker(node, data) {
 // The next node to claim, past empty text and the transparent markers; null
 // at the end of the region.
 function next(c) {
+  if (c.x) dropDiffering(c, '');
   if (c.o > 0) return c.n;
   let n = c.n;
   while (n !== null && n !== c.e) {
@@ -2339,7 +2407,7 @@ function past(c) {
 // _assignHydrationOwnerPath): the key of the element there, '' when there is
 // something without one, null when there is nothing.
 function serverKeyAt(c) {
-  if (c.o > 0) return '';
+  if (c.o > 0 || c.x) return '';
   const n = past(c);
   if (n === c.e || n === null) return null;
   return n.nodeType === 1 ? /** @type {Element} */ (n).getAttribute('data-hk') || '' : '';
@@ -2348,6 +2416,7 @@ function serverKeyAt(c) {
 // The next node past empty text only: where a region or a list looks for its
 // own markers.
 function nextOwn(c) {
+  if (c.x) dropDiffering(c, '');
   if (c.o > 0) return null;
   let n = c.n;
   while (n !== null && n !== c.e && n.nodeType === 3 && n.data === '') n = n.nextSibling;
@@ -2376,7 +2445,7 @@ function closeOf(open, close) {
 function within(open, close, fn, a) {
   const c = cur;
   outer.push(c);
-  cur = { p: c.p, n: open.nextSibling, o: 0, e: close, h: true, t: null };
+  cur = { p: c.p, n: open.nextSibling, o: 0, x: false, e: close, h: true, t: null };
   try {
     fn(a);
     finish(cur);
@@ -2385,10 +2454,12 @@ function within(open, close, fn, a) {
   }
   c.n = close.nextSibling;
   c.o = 0;
+  c.x = false;
 }
 
 // Text a claim read only part of becomes a node of its own from here on.
 function splitHere(c) {
+  if (c.x) dropDiffering(c, '');
   if (c.o > 0) {
     c.n = /** @type {Text} */ (c.n).splitText(c.o);
     c.o = 0;
@@ -2572,6 +2643,7 @@ function claimText(text) {
   if (text === '') return;
   if (text.indexOf('\r') >= 0) text = text.replace(/\r\n?/g, '\n');
   const c = cur;
+  if (c.x) dropDiffering(c, text);
   for (let i = 0; i < text.length;) {
     const n = next(c);
     if (n === null || n.nodeType !== 3) {
@@ -2593,23 +2665,51 @@ function claimText(text) {
   }
 }
 
-// The rest of the server's text node at the cursor, which differs from the
-// client's `text`, takes the client's text in place.
+// The server's text node at the cursor, whose text differs from the client's
+// `text`, takes the client's text in place (returned; null for ''). Where
+// the server's text for that value ends is not in the DOM when the parser
+// merged it with the text that follows (a row's index and its label), so the
+// server's text goes on in a node after it until the next claim shows where
+// that starts (dropDiffering): what follows is still claimed, and the nodes
+// after it kept.
 function replaceText(c, text) {
   splitHere(c);
   const node = /** @type {Text} */ (c.n);
   if (frozen()) {
     c.n = node.nextSibling;
-    return;
+    return null;
   }
   mismatch('text', JSON.stringify(short(text)), describe(node), node);
-  if (text === '') {
-    c.n = node.nextSibling;
-    node.remove();
-    return;
-  }
+  c.x = true;
+  if (text === '') return null;
+  const rest = c.p.insertBefore(node.cloneNode(), node.nextSibling);
   node.data = text;
+  c.n = rest;
+  return node;
+}
+
+// The server's text of a value that differed (replaceText): from the cursor
+// to where `text`, what the next claim reads, starts in that node (where its
+// beginning ends the node, when it runs on into the next one), or the whole
+// node when the next claim is not text or `text` is not there. Removed.
+function dropDiffering(c, text) {
+  c.x = false;
+  const node = c.n;
+  if (node === null || node.nodeType !== 3) return;
+  const data = /** @type {Text} */ (node).data;
+  let end = text === '' ? -1 : data.indexOf(text);
+  if (end === -1) {
+    end = data.length;
+    for (let b = Math.max(1, data.length - text.length + 1); b < data.length; b++) {
+      if (text.startsWith(data.slice(b))) {
+        end = b;
+        break;
+      }
+    }
+  }
+  if (end < data.length) /** @type {Text} */ (node).splitText(end);
   c.n = node.nextSibling;
+  node.remove();
 }
 
 // A claimed element's attributes become its template node's: the server's
@@ -2787,6 +2887,7 @@ function placeBuilt(c, value) {
 // Remove `text` from the server's text at the cursor; false when it is not
 // there.
 function dropText(c, text) {
+  if (c.x) dropDiffering(c, text);
   const n = next(c);
   if (n === null || n.nodeType !== 3 || !n.data.startsWith(text, c.o)) return text === '';
   splitHere(c);
@@ -3011,7 +3112,7 @@ function adoptRegion(fn, devName) {
   if (close !== null) {
     start = /** @type {Node} */ (at);
     outer.push(c);
-    cur = { p: parent, n: start.nextSibling, o: 0, e: close, h: true, t: null };
+    cur = { p: parent, n: start.nextSibling, o: 0, x: false, e: close, h: true, t: null };
   } else {
     splitHere(c);
     anchor = anchorOf(c);
@@ -3039,6 +3140,7 @@ function adoptRegion(fn, devName) {
           if (close !== null) {
             cur.n = close;
             cur.o = 0;
+            cur.x = false;
           }
           throw error;
         }
@@ -3093,6 +3195,7 @@ function adoptRegion(fn, devName) {
   if (close !== null) {
     c.n = close.nextSibling;
     c.o = 0;
+    c.x = false;
   } else {
     splitHere(c);
     const node = afterAnchor(c, anchor);
@@ -3168,17 +3271,23 @@ function vnodeKey(vnode) {
 // row's key is among the client's (the rows are adopted by key, then put in
 // the client's order); else none, and the server's rows go (the client builds
 // the list), as they do when the server marked a key it could not write, or
-// when two different keys of the client have one digest. A row is never
-// adopted as the row of another key. Anything but null is reported: the two
-// sides rendered the list from different data, or with keys hydration cannot
+// when two different keys of the client have one digest. A row is adopted
+// only for a key whose digest under the page's salt is the row's, which no
+// other key of the client reaches by accident or without a preimage of the
+// digest (_rowKeyDigest). Anything but null is reported: the two sides
+// rendered the list from different data, or with keys hydration cannot
 // compare.
 function inServerOrder(open, close, items, keyFn) {
   const n = open.nextSibling;
   if (n === close || n.nodeType !== 8 || !isRowKeys(n.data)) return null;
   n.remove();
   const keys = items.map(keyFn);
-  const mine = keys.map(_rowKeyDigest);
-  const theirs = n.data === 'k!' ? null : n.data === 'k:' ? [] : n.data.slice(2).split(',');
+  // k:<salt>:<digests>, each DIGEST_LENGTH digits.
+  const salt = n.data.slice(2, 2 + DIGEST_LENGTH);
+  const written = n.data.slice(3 + DIGEST_LENGTH);
+  const mine = keys.map((key) => _rowKeyDigest(key, salt));
+  const theirs = n.data === 'k!' || n.data[2 + DIGEST_LENGTH] !== ':' || written.length % DIGEST_LENGTH !== 0 ? null
+    : Array.from({ length: written.length / DIGEST_LENGTH }, (_, i) => written.slice(i * DIGEST_LENGTH, (i + 1) * DIGEST_LENGTH));
   // The client's rows of each digest, in order: none for a digest of two
   // different keys, which cannot tell them apart.
   const byDigest = new Map();
@@ -3299,6 +3408,7 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
         if (close !== null) {
           c.n = close.nextSibling;
           c.o = 0;
+          c.x = false;
         }
         throw error;
       }
@@ -3510,6 +3620,7 @@ function hydrateErrorBoundary(vnode) {
       if (bracketed) {
         cur.n = cur.e;
         cur.o = 0;
+        cur.x = false;
       }
     } else {
       arm = dispose;
@@ -3533,6 +3644,7 @@ function hydrateErrorBoundary(vnode) {
     }
     cur.n = cur.e;
     cur.o = 0;
+    cur.x = false;
     for (const node of built.nodes) parent.insertBefore(node, cur.e);
     arm = built.dispose;
   };
@@ -3694,6 +3806,7 @@ function hydrateSuspense(vnode) {
     if (!b.revealed && bracketed) {
       cur.n = cur.e;
       cur.o = 0;
+      cur.x = false;
     }
   };
 
@@ -3705,6 +3818,7 @@ function hydrateSuspense(vnode) {
     if (b.revealed) {
       cur.n = cur.e;
       cur.o = 0;
+      cur.x = false;
     } else {
       adoptFallback();
     }
@@ -3792,7 +3906,7 @@ function resumeIn(walk, start, end, fn) {
   const saved = { cur, depth: outer.length, session, pendingKey };
   session = walk;
   batch(() => {
-    cur = { p: start.parentNode, n: start.nextSibling, o: 0, e: end, h: true, t: null };
+    cur = { p: start.parentNode, n: start.nextSibling, o: 0, x: false, e: end, h: true, t: null };
     pendingKey = null;
     try {
       fn();
@@ -3818,9 +3932,15 @@ export function _resumeBoundary(id) {
   if (resume !== undefined) resume();
 }
 
+// Every tier of what-core the page loaded (each holds a copy of this module)
+// waits for its own boundaries: the stream's script calls each of them.
 function installResumeHook() {
   const W = /** @type {any} */ (globalThis)._$W || (/** @type {any} */ (globalThis)._$W = {});
-  W.h = _resumeBoundary;
+  if (W.hs === undefined) {
+    W.hs = new Set();
+    W.h = (id) => { for (const resume of W.hs) resume(id); };
+  }
+  W.hs.add(_resumeBoundary);
 }
 
 // --- Compiled JSX built for hydration ---
@@ -3880,10 +4000,11 @@ function enterNode(el, t) {
   outer.push(cur);
   const depth = outer.length;
   let c = entered[depth];
-  if (c === undefined) entered[depth] = c = { p: null, n: null, o: 0, e: null, h: false, t: null };
+  if (c === undefined) entered[depth] = c = { p: null, n: null, o: 0, x: false, e: null, h: false, t: null };
   c.p = el;
   c.n = el.firstChild;
   c.o = 0;
+  c.x = false;
   c.e = null;
   c.h = t !== undefined;
   c.t = t === undefined ? null : t;
@@ -4087,9 +4208,10 @@ export function _$hfield(parent, cell, value, flag, read) {
 // differs, and a node of its own where the server wrote none.
 function claimField(c, text) {
   pendingKey = null;
+  const want = text.indexOf('\r') >= 0 ? text.replace(/\r\n?/g, '\n') : text;
+  if (c.x && want !== '') dropDiffering(c, want);
   splitHere(c);
   const n = next(c);
-  const want = text.indexOf('\r') >= 0 ? text.replace(/\r\n?/g, '\n') : text;
   if (want !== '' && n !== null && n.nodeType === 3) {
     const node = /** @type {Text} */ (n);
     if (node.data.startsWith(want)) {
@@ -4097,10 +4219,7 @@ function claimField(c, text) {
       c.n = node.nextSibling;
       return node;
     }
-    if (!frozen()) {
-      replaceText(c, text);
-      return node;
-    }
+    if (!frozen()) return /** @type {Text} */ (replaceText(c, text));
   }
   const node = document.createTextNode(text);
   if (want === '') c.p.insertBefore(node, c.n);

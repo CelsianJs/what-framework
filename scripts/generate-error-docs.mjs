@@ -131,7 +131,8 @@ function markdown() {
   out.push('- `development`, `node`, `import` and `default` (`src/`): dev servers, Node, server bundles and');
   out.push('  tests. The source reads the flag through what-core\'s `#env` import, by the same conditions:');
   out.push('  under `development` it is on, so Vite\'s dev server, webpack\'s development mode, Rollup with');
-  out.push('  node-resolve and `NODE_ENV=development`, and a default `bun build` report in development wherever');
+  out.push('  node-resolve and `NODE_ENV=development`, and `bun build` without `--production` (`--minify` alone');
+  out.push('  included) report in development wherever');
   out.push('  the page runs. Otherwise it is decided at runtime (`__WHAT_DEV__`, then Vite\'s');
   out.push('  `import.meta.env.DEV`, then a server runtime\'s `process.env.NODE_ENV`, never one a page\'s markup');
   out.push('  names), and a browser with none of them runs production. A production build that resolves `src/`');

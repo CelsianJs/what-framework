@@ -2,6 +2,10 @@
 // while what it waits on stays pending:
 //   - a useActionState dispatch whose component unmounted, while its action's
 //     promise is held elsewhere;
+//   - a dispatch whose action rejected, while the hook stays live (the wait
+//     for its action is let go on every way out, a rejection included);
+//   - an unmounted <Suspense>, while a promise its child suspended on stays
+//     pending;
 //   - a query flight dropped by an invalidation and the cache's removal of its
 //     entry, while its transport ignores the abort, even one that keeps the
 //     signal it was given.
@@ -14,7 +18,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 const { cleanup } = installDOM();
 after(cleanup);
 
-const { h, mount, settled, useActionState } = await import('../src/index.js');
+const { h, mount, hydrate, settled, useActionState, Suspense } = await import('../src/index.js');
 const { clearCache, invalidateQueries, query } = await import('../src/data.js');
 
 async function assertCollected(ref, label) {
@@ -97,3 +101,42 @@ for (const [name, transport] of [
     }
   });
 }
+
+test('a rejected action releases its reason while its dispatch is still live', async () => {
+  const error = console.error;
+  console.error = () => {};
+  try {
+    const [, dispatch, pending] = useActionState((state, reason) => (reason ? Promise.reject(reason) : state), null);
+    const ref = (() => {
+      const reason = new Error('rejected action');
+      dispatch(reason);
+      return new WeakRef(reason);
+    })();
+    await settled();
+    assert.equal(pending(), false);
+    await assertCollected(ref, 'the rejection reason of a finished dispatch');
+    dispatch(null);
+    await settled();
+  } finally {
+    console.error = error;
+  }
+});
+
+test('an unmounted <Suspense> releases itself while a promise its hydrating child suspended on is pending', async () => {
+  const pending = new Promise(() => {});
+  let ref;
+  (() => {
+    const fallback = h('i', null, 'waiting');
+    ref = new WeakRef(fallback);
+    // A component body that suspends throws the promise it waits on: the
+    // app's, which hydration hands to the boundary as it is.
+    const Child = () => {
+      throw pending;
+    };
+    const host = document.createElement('div');
+    host.innerHTML = '<!--b--><b>server</b><!--/b-->';
+    const stop = hydrate(h(Suspense, { fallback }, h(Child)), host);
+    stop();
+  })();
+  await assertCollected(ref, 'a <Suspense> unmounted while its child waits');
+});

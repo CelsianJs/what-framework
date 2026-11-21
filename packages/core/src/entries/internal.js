@@ -9,8 +9,9 @@ export { __getCacheSnapshot, __invalidateFromDevtools, _tagQueries, _pathLoaded 
 // what-server's <Form>: the status useFormStatus() reads, and its submission.
 export { _formStatusContext, _formStatus } from '../actions.js';
 // what-router's navigation: progress written outside the transition it may
-// run in (it shows at once), and the commit it waits for there.
-export { _urgent, _currentTransition, _onCommit } from '../reactive.js';
+// run in (it shows at once), and the commit it waits for there; and the state
+// each <Router> provides to what it renders.
+export { _urgent, _currentTransition, _onCommit, _contextOf, _provide } from '../reactive.js';
 // The development flag, for sibling packages whose development-only text must
 // fold away in a production build (what-router's error fixes).
 export { __DEV__ } from '../reactive.js';
@@ -34,13 +35,14 @@ export {
   runWithServerContext,
   __installServerContextStorage,
   __markServerProcess,
+  _isServerProcess,
   __flushOutsideServerContext,
   __outsideServerContext,
 } from '../server-context.js';
 export { beginHeadCollection, endHeadCollection } from '../head.js';
 export { escapeHtml as _escapeHtml } from '../markup-rules.js';
 export { _isAriaAttr, _beginComponentSSR, _endComponentSSR, _runInComponentSSR, _resetForm } from '../dom.js';
-export { _mapArrayToArray, _rowKeyDigest } from '../render.js';
+export { _mapArrayToArray, _rowKeyDigest, _rowKeySalt } from '../render.js';
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';

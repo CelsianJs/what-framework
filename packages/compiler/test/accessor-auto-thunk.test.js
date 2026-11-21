@@ -169,6 +169,7 @@ describe('what the compiler still leaves alone', () => {
 
   it('does not wrap a call that takes arguments and reads nothing reactive', async () => {
     const code = compile(`
+      function format(a, b) { return a + b; }
       export function build() { return <div>{format(1, 2)}</div>; }
     `);
     assert.doesNotMatch(code, /\(\) => format\(/);

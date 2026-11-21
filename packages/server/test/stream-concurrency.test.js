@@ -26,7 +26,7 @@ import {
   getOwner,
 } from 'what-core';
 import { renderToHydratableString, renderToStream, renderToString, renderToStringAsync } from '../src/index.js';
-import { collect, content, settle } from './stream-helpers.js';
+import { collect, content, keyShape, settle } from './stream-helpers.js';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -142,7 +142,7 @@ describe('renderToStream sends chunks, not tags', () => {
     const chunks = [];
     for await (const chunk of renderToStream(h(Table, {}))) chunks.push(chunk);
     const html = chunks.join('');
-    assert.equal(html, renderToHydratableString(h(Table, {})));
+    assert.equal(keyShape(html), keyShape(renderToHydratableString(h(Table, {}))));
     assert.equal(content(html), renderToString(h(Table, {})));
     assert.ok(chunks.length <= Math.ceil(html.length / 65536) + 1, `${chunks.length} chunks for ${html.length} bytes`);
   });

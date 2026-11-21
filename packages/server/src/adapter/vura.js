@@ -204,6 +204,11 @@ async function loadEsbuild(projectRoot) {
  *                  skipped and listed in the result's `skipped`.
  *   - memory       Function memory: '1gb' (default), '4gb', '6gb', '8gb', '12gb'.
  *
+ * The Function's mode is the build's: its bundle reads \`process.env.NODE_ENV\`
+ * as "production", whatever its runtime sets, unless the build itself runs
+ * with NODE_ENV=development. A deploy built for production never runs as a
+ * development server because its host left NODE_ENV unset.
+ *
  * Paths are checked before anything is deleted or written: `..` segments,
  * absolute sources, and targets that would leave dist/static are refused.
  *
@@ -283,6 +288,7 @@ export async function buildVuraOutput({
     format: 'esm',
     target: 'node22',
     logLevel: 'warning',
+    define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV === 'development' ? 'development' : 'production') },
     // CommonJS dependencies that call require() on a builtin need a real
     // require in an ESM bundle.
     banner: { js: "import { createRequire as __whatCreateRequire } from 'node:module'; const require = __whatCreateRequire(import.meta.url);" },

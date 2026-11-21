@@ -56,6 +56,10 @@ async function renderAll(make, log) {
 
 const log = [];
 globalThis.__holeLog = log;
+// A package's utility called with plain values is a plain hole; everything a
+// hole of it can observe goes through the module's log.
+const SEMANTICS = new URL('./fixtures/fuzz-semantics.js', import.meta.url).href;
+const semantics = await import(SEMANTICS);
 const mod = await load(`
   import { ErrorBoundary, Suspense } from 'what-framework';
   const log = globalThis.__holeLog;
@@ -65,8 +69,8 @@ const mod = await load(`
   export function reassigned() { let label = 'first'; const el = <b>{label}</b>; label = 'second'; return el; }
   function fail(n) { throw new Error('fail ' + n); }
   export function tryCatch() { let el; try { el = <p>{fail(1)}</p>; } catch (e) { el = <p>caught</p>; } return el; }
-  function Register() { log.push('Register'); return <i>r</i>; }
-  export const order = (read) => <div><Register /><span>{log.join(',') || 'empty'}|{read()}</span></div>;
+  import { Register, readRegistry } from ${JSON.stringify(SEMANTICS)};
+  export const order = (read) => <div><Register /><span>{readRegistry('plain')}|{read()}</span></div>;
   export const retry = (count, data) => <Suspense fallback={<i>loading</i>}><p>{count()}|{data()}</p></Suspense>;
 `);
 
@@ -107,14 +111,21 @@ describe('server target: plain holes are read when the JSX expression runs', () 
 
 describe('server target: side effects run in h()\'s order in every renderer', () => {
   it('a plain hole runs before the component written ahead of it renders; a reactive one after', async () => {
-    const read = () => { log.push('read'); return log.filter((e) => e === 'Register').length; };
-    function Register() { log.push('Register'); return h('i', null, 'r'); }
-    const compiled = await renderAll(() => mod.order(read), log);
-    const expected = await renderAll(() => h('div', null, h(Register), h('span', null, log.join(',') || 'empty', '|', () => read())), log);
+    const read = () => semantics.readRegistry('reactive');
+    const runs = async (make) => {
+      const out = {};
+      for (const [name, render] of Object.entries(RENDERERS)) {
+        semantics.resetSemantics();
+        out[name] = { html: await quiet(() => render(make())), order: semantics.L.join('>') };
+      }
+      return out;
+    };
+    const compiled = await runs(() => mod.order(read));
+    const expected = await runs(() => h('div', null, h(semantics.Register), h('span', null, semantics.readRegistry('plain'), '|', () => read())));
     assert.deepEqual(compiled, expected);
     for (const { html, order } of Object.values(compiled)) {
-      assert.match(content(html), /<span>empty\|1<\/span>/);
-      assert.equal(order, 'Register>read');
+      assert.match(content(html), /<span>reg0\|reg1<\/span>/);
+      assert.equal(order, 'read:plain>Register>read:reactive');
     }
   });
 

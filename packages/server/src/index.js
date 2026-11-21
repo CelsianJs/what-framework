@@ -30,7 +30,7 @@ import {
   _isTextContent,
   _afterOpen,
   _resolveInnerHTML,
-  _rethrowIfUnrenderable,
+  _claimThrow,
   _plainText,
   assertSafeTag,
   renderAttrs,
@@ -168,7 +168,7 @@ function _renderHydratable(vnode) {
       const open = out(REGION_OPEN);
       return open + renderRegionValue(_mapArrayToArray(vnode)) + out(REGION_CLOSE);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
@@ -185,7 +185,7 @@ function _renderHydratable(vnode) {
       const open = out(REGION_OPEN);
       return open + renderRegionValue(value) + out(REGION_CLOSE);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       if (e && typeof e.then === 'function') throw e; // not ready: its <Suspense> shows the fallback
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
@@ -210,7 +210,7 @@ function _renderHydratable(vnode) {
     try {
       return out(BOUNDARY_OPEN) + renderChildren(vnode.children, _renderHydratable) + out(BOUNDARY_CLOSE);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       const suspended = e && typeof e.then === 'function';
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
@@ -297,7 +297,7 @@ function _renderString(vnode) {
     try {
       return _renderString(_mapArrayToArray(vnode));
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
@@ -310,7 +310,7 @@ function _renderString(vnode) {
     try {
       return _renderString(vnode());
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       if (e && typeof e.then === 'function') throw e; // not ready: its <Suspense> shows the fallback
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
@@ -341,7 +341,7 @@ function _renderString(vnode) {
     try {
       return renderChildren(vnode.children, _renderString);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       const suspended = e && typeof e.then === 'function';
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>

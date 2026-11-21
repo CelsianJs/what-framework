@@ -70,9 +70,22 @@ export { __DEV__ } from '#env';
 /** @type {WhatDevToolsHooks | null} */
 export let __devtools = null;
 
+// The hooks, kept once for every development tier of what-core the page
+// loaded (dist/*.js and the source each hold a copy of this module): hooks
+// installed through one reach the engine of each. Keyed by Symbol.for, so one
+// realm has one.
+const devtoolsSlot = __DEV__ ? /** @type {any} */ (globalThis)[Symbol.for('what.devtools')] ??= { hooks: null, tiers: new Set() } : null;
+if (__DEV__) {
+  devtoolsSlot.tiers.add((hooks) => { __devtools = hooks; });
+  __devtools = devtoolsSlot.hooks;
+}
+
 /** @internal Install devtools hooks. Called by what-devtools. */
 export function __setDevToolsHooks(hooks) {
-  if (__DEV__) __devtools = hooks;
+  if (__DEV__) {
+    devtoolsSlot.hooks = hooks;
+    for (const install of devtoolsSlot.tiers) install(hooks);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3217,6 +3230,16 @@ export function _contextOf(key) {
     if (map != null && map.has(key)) return map;
   }
   return null;
+}
+
+/**
+ * @internal Provide `value` under `key` on the current owner, for what it owns
+ * to find with _contextOf(key): a context with no provider component. Does
+ * nothing with no owner current.
+ */
+export function _provide(key, value) {
+  const o = ownerNow();
+  if (o !== null) (o.context ??= new Map()).set(key, value);
 }
 
 /** The nearest component owner above the current owner (itself included), or null. */

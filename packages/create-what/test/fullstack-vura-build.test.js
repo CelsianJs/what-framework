@@ -113,12 +113,13 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
       'src/pages/home.js',
       'src/pages/post.js',
       'src/pages/new.js',
-      'node_modules/what-framework/src/index.js',
-      'node_modules/what-core/src/index.js',
+      'node_modules/what-framework/dist/index.min.js',
+      'node_modules/what-core/dist/index.min.js',
     ]) {
       assert.ok(existsSync(join(s, f)), `dist/static/${f} is published`);
     }
-    for (const f of ['src/db.js', 'src/routes.js', 'src/actions', 'server.js', 'function.js', 'import-map.json', 'node_modules/what-devtools', 'node_modules/what-devtools-mcp']) {
+    // The packages' production builds only: no development tier in the payload.
+    for (const f of ['src/db.js', 'src/routes.js', 'src/actions', 'server.js', 'function.js', 'import-map.json', 'node_modules/what-devtools', 'node_modules/what-devtools-mcp', 'node_modules/what-core/src', 'node_modules/what-framework/src']) {
       assert.equal(existsSync(join(s, f)), false, `dist/static/${f} must not be published`);
     }
     // Every URL in the page's import map is a published file, what-framework's
@@ -127,7 +128,8 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
     for (const specifier of ['what-framework/router', 'what-framework/server', 'what-framework/render', 'what-core/internal']) {
       assert.ok(imports[specifier], `the import map names ${specifier}`);
     }
-    assert.equal(scopes['/node_modules/what-core/']['#env'], '/node_modules/what-core/src/env.js', 'and what-core\'s own #env, in its scope');
+    assert.equal(imports['what-core'], '/node_modules/what-core/dist/index.min.js', 'each package maps to its production build');
+    assert.equal(scopes['/node_modules/what-core/'], undefined, 'which imports no #env');
     for (const [specifier, url] of [...Object.entries(imports), ...Object.values(scopes).flatMap((scope) => Object.entries(scope))]) {
       assert.ok(existsSync(join(s, url)), `${specifier} -> dist/static${url} is published`);
     }
@@ -164,6 +166,13 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
         env: { PATH: process.env.PATH, NODE_ENV: 'production' },
       });
       assert.equal(run.status, 0, `Function failed:\n${run.stdout}\n${run.stderr}`);
+      // The build baked its mode in: a host that leaves NODE_ENV unset runs
+      // the same production Function.
+      const unset = spawnSync(process.execPath, [probe], { cwd: isolated, encoding: 'utf8', env: { PATH: process.env.PATH } });
+      assert.equal(unset.status, 0, `Function failed without NODE_ENV:\n${unset.stdout}\n${unset.stderr}`);
+      // Each run mints its own CSRF cookie; everything else is the same.
+      const answers = (out) => ({ ...JSON.parse(out.trim().split('\n').pop()), cookie: null });
+      assert.deepEqual(answers(unset.stdout), answers(run.stdout));
       const got = JSON.parse(run.stdout.trim().split('\n').pop());
       assert.equal(got.home, 200);
       assert.ok(got.listsPosts, 'SSR lists the posts');

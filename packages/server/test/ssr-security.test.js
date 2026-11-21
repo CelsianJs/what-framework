@@ -399,13 +399,21 @@ describe('SSR style object declarations', () => {
       `red"\n;${beacon};x:"`,
       `red[;${beacon};x:)`,
       `red\u0000;${beacon}`,
+      // A bad url token ends at its first `)`: the `;` after it is the
+      // declaration's end.
+      `url(a(b);${beacon};x:y)`,
+      `uRl(a(b);${beacon};x:y)`,
+      `url(a"b);${beacon};x:y)`,
+      `url(a b);${beacon};x:y)`,
+      `url(a\tb);${beacon};x:y)`,
+      `url(;${beacon}`,
     ]) {
       for (const html of [renderToString(h('div', { style: { color } })), renderToString(h(mod.View, { style: { color } }))]) {
         assert.match(html, /^<div(?: style="")?><\/div>$/, JSON.stringify(color));
       }
     }
-    const kept = { content: '"\\201C"', gridTemplateColumns: '[full-start] 1fr [full-end]', fontFamily: "'A;B', serif" };
-    const expected = '<div style="content:&quot;\\201C&quot;;grid-template-columns:[full-start] 1fr [full-end];font-family:&#39;A;B&#39;, serif"></div>';
+    const kept = { content: '"\\201C"', gridTemplateColumns: '[full-start] 1fr [full-end]', fontFamily: "'A;B', serif", backgroundImage: 'url( /a;b.png ), url("c(d).png")' };
+    const expected = '<div style="content:&quot;\\201C&quot;;grid-template-columns:[full-start] 1fr [full-end];font-family:&#39;A;B&#39;, serif;background-image:url( /a;b.png ), url(&quot;c(d).png&quot;)"></div>';
     assert.equal(renderToString(h('div', { style: kept })), expected);
     assert.equal(renderToString(h(mod.View, { style: kept })), expected);
   });

@@ -28,7 +28,8 @@ function disconnectSignal(res) {
 
 async function nodeToWebRequest(req, res) {
   const host = req.headers.host || 'localhost';
-  const url = `http://${host}${req.url}`;
+  // The scheme the socket was reached by: a TLS server's requests are https.
+  const url = `${req.socket && req.socket.encrypted ? 'https' : 'http'}://${host}${req.url}`;
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
     if (v != null) headers.set(k, Array.isArray(v) ? v.join(', ') : String(v));

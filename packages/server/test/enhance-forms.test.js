@@ -289,6 +289,15 @@ describe('enhanceForms CSRF handling', () => {
     assert.equal((await post({ 'sec-fetch-site': 'cross-site' })).status, 403, 'a cross-site post is still refused');
   });
 
+  it('compares the whole origin when only the Origin header decides, the scheme included', async () => {
+    const handle = createActionHandler({ getCsrfToken: () => undefined });
+    const post = (headers, url = 'http://localhost/__what_action') => handle({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', host: 'localhost', ...headers }, body: { _action: 'enhanceTest', _redirect: '/done' }, query: {}, url });
+    assert.equal((await post({ origin: 'https://localhost' })).status, 403, 'an https page posting to an http host');
+    assert.equal((await post({ origin: 'http://localhost' }, 'https://localhost/__what_action')).status, 403, 'an http page posting to an https host');
+    assert.equal((await post({ origin: 'https://localhost', 'x-forwarded-proto': 'https' })).status, 303, 'behind a proxy that terminates TLS');
+    assert.equal((await post({ origin: 'https://localhost:443' }, 'https://localhost/__what_action')).status, 303, 'a default port is the same origin');
+  });
+
   it('never sends our CSRF token to another origin', async () => {
     // The token is a double-submit secret. Attaching it to a third-party form
     // action hands it to that third party.

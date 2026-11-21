@@ -1039,13 +1039,27 @@ async function runServerParity({ cases, seed, makeCase, imports, coreNames, jsxH
           divergent.push({ caseIndex, spec, detail: `${route}/${mode} threw: ${err.code || err.constructor.name}: ${err.message.split('\n')[0]}` });
           continue;
         }
-        if (compiled !== expected) {
+        if (unsalted(compiled) !== unsalted(expected)) {
           divergent.push({ caseIndex, spec, detail: `${route}/${mode}\n  compiled: ${compiled}\n  h()     : ${expected}` });
         }
       }
     }
   }
   return { divergent, specs };
+}
+
+// Each render salts its keyed lists' digests (<!--k:SALT:DIGESTS-->), so two
+// renders compare by the shape of their keys: how many rows, and which of
+// them share a key.
+function unsalted(html) {
+  return html.replace(/<!--k:[^:>]*:([^>]*)-->/g, (_, digests) => {
+    const seen = new Map();
+    const shape = (digests.match(/.{11}/g) || []).map((d) => {
+      if (!seen.has(d)) seen.set(d, seen.size);
+      return seen.get(d);
+    });
+    return `<!--k:${shape.join(',')}-->`;
+  });
 }
 
 function reportServerDivergence(divergent, cases) {
@@ -1311,7 +1325,8 @@ function semH(spec) {
     case 'raw': return `h(${q(spec.tag)}, { "data-raw": "${spec.id}" }, ${spec.pieces.map((p) => (p.text !== undefined ? q(p.text)
       : p.v !== undefined ? `V[${p.v}]` : p.reactive !== undefined ? `(() => ${semR(p.reactive)})` : '(() => boom())')).join(', ')})`;
     case 'show': return spec.fn
-      ? '(() => { const v = s[0](); return v ? ((v) => h("b", null, String(v)))(v) : h("i", null, "fb"); })'
+      // String(v) converts a value nobody proved static: wrapped.
+      ? '(() => { const v = s[0](); return v ? ((v) => h("b", null, () => String(v)))(v) : h("i", null, "fb"); })'
       : `(() => { const v = s[0](); return v ? [${kids(spec.children)}, h(Fragment, null, "f", V[0])] : h("i", null, "fb"); })`;
     case 'switch': return `(() => s[0]() ? ${content(spec.a)} : s[1]() ? [${kids(spec.b)}, h("b", null, "B")] : h("i", null, "none"))`;
     case 'for': {
@@ -1322,7 +1337,9 @@ function semH(spec) {
     case 'map': return spec.block
       ? `(() => s[3]().map((item) => { if (item === 'b') return item; if (item === 'c') return null; return h("li", null, item); }))`
       : '(() => s[3]().map((item) => h("li", { title: item }, item)))';
-    case 'mapPlain': return 'A.map((item) => h("li", null, item))';
+    // A, a parameter of build(), is an array nobody proved static (its
+    // map could be any object's): the compiler wraps the call.
+    case 'mapPlain': return '(() => A.map((item) => h("li", null, item)))';
     case 'boundary': return `h(ErrorBoundary, { fallback: h("i", null, "caught") }, ${kids(spec.children)})`;
     case 'boom': return 'h(Boom, null)';
     case 'suspense': return `h(Suspense, { fallback: h("i", null, "wait") }, ${kids(spec.children) || 'null'})`;

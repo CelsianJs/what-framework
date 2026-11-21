@@ -10,8 +10,8 @@
 // landed, so the old page stays on screen until the new one can show at once.
 // A newer navigation supersedes one still preparing.
 
-import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
-import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, __DEV__, getServerContext } from 'what-core/internal';
+import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, getOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
+import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext } from 'what-core/internal';
 import { matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
@@ -49,11 +49,19 @@ export function isSafeUrl(url) {
 }
 
 // --- Route State ---
-// In the browser, module signals: one tab, one URL. The 'what-router:*' debug
-// names let devtools report the router's state (what_route, what_navigate)
-// separately from the address bar. A server render never reads or writes them:
-// it has route state of its own (serverRoute below), so overlapping requests
-// cannot see each other's URL, params or query.
+// A route state is what one <Router> shows: its URL, and the params and query
+// it matched. `route` and the hooks read the state of the nearest <Router>
+// above the reader. An outermost <Router> shows the tab's state (in the
+// browser) or its request's (on a server); a nested one has a state of its
+// own, so it never writes its parent's. Outside every Router a reader sees
+// the tab's or the request's.
+//
+// The tab's state is module signals: one tab, one URL. The 'what-router:*'
+// debug names let devtools report it (what_route, what_navigate) separately
+// from the address bar. Nothing a server render reaches reads or writes the
+// module: a server never navigates (navigate() redirects the response), and
+// it has route state of its own, so overlapping requests cannot see each
+// other's URL, params or query.
 
 const _url = signal(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : '/', 'what-router:url');
 const _params = signal({}, 'what-router:params');
@@ -70,43 +78,68 @@ const _preparing = signal(false, 'what-router:preparing');
 // page the user was leaving.
 const _pendingUrl = signal(null, 'what-router:pendingUrl');
 const _navigationError = signal(null, 'what-router:error');
-// The route pattern a mounted <Router> matched last ('/users/:id'), or null.
+// The route pattern the outermost <Router> matched last ('/users/:id'), or null.
 const _pattern = signal(null, 'what-router:pattern');
 
+/** The tab's route state. */
+const tab = { url: readUrl, params: _params, query: _query };
+
+// What a <Router> provides its state under (see here()).
+const SCOPE = Symbol('what-router');
+
+// Whether this runs on a server: in a server render, or anywhere in a server
+// process (core's rule for code outside every render, such as code after an
+// await without AsyncLocalStorage). A server never navigates.
+function onServer() {
+  return getServerContext() !== null || _isServerProcess();
+}
+
+/** The route state a reader sees: its nearest <Router>'s, else the tab's or the request's. */
+function here() {
+  const scope = _contextOf(SCOPE);
+  if (scope !== null) return scope.get(SCOPE);
+  if (!onServer()) return tab;
+  const ctx = getServerContext();
+  return ctx === null ? NO_ROUTE : requestState(ctx);
+}
+
 export const route = {
-  get url() { return shownUrl(); },
-  get path() { return splitUrl(shownUrl()).path; },
-  get params() {
-    const server = serverRoute();
-    return server !== null ? server.params : _params();
-  },
-  get query() {
-    const server = serverRoute();
-    return server !== null ? server.query : _query();
-  },
-  get hash() { return splitUrl(shownUrl()).hash; },
-  // Navigation state: a server render never navigates, so on a server these
-  // stay false and null.
-  get isNavigating() { return _navigating(); },
-  get error() { return _navigationError(); },
+  get url() { return here().url(); },
+  get path() { return splitUrl(here().url()).path; },
+  get params() { return here().params(); },
+  get query() { return here().query(); },
+  get hash() { return splitUrl(here().url()).hash; },
+  // Navigation state: a server never navigates, so there these stay false
+  // and null.
+  get isNavigating() { return !onServer() && _navigating(); },
+  get error() { return onServer() ? null : _navigationError(); },
 };
 
-// The route state of each server render, by its render context: the URL it
-// shows, and the params and query its <Router> matched. A WeakMap, so it goes
-// with the render.
+// A state of its own: a server render's, a nested <Router>'s. `url` reads
+// the URL it shows.
+function ownState(url) {
+  return { url, params: signal({}), query: signal(Object.create(null)) };
+}
+
+// The route state of each server render, by its render context: the URL of
+// its request, and the params and query its outermost <Router> matched. A
+// WeakMap, so it goes with the render.
 const _serverRoutes = new WeakMap();
 
-/** The route state of the server render in progress, or null in the browser. */
-function serverRoute() {
-  const ctx = getServerContext();
-  if (ctx === null) return null;
+function requestState(ctx) {
   let state = _serverRoutes.get(ctx);
   if (state === undefined) {
-    state = { url: requestUrl(ctx), params: {}, query: {} };
+    const shown = signal(requestUrl(ctx));
+    state = ownState(shown);
     _serverRoutes.set(ctx, state);
   }
   return state;
 }
+
+// What a server reader sees with no render to read: the root URL and no
+// params or query, never another request's (code after an await without
+// AsyncLocalStorage).
+const NO_ROUTE = Object.freeze({ url: () => '/', params: () => ({}), query: () => Object.create(null) });
 
 // The URL of the request a server render answers (path, search and hash), or
 // the root without one.
@@ -117,38 +150,42 @@ function requestUrl(ctx) {
   return parsed.pathname + parsed.search + parsed.hash;
 }
 
-// The URL on screen: the server render's, else the window's.
-function shownUrl() {
-  const server = serverRoute();
-  return server !== null ? server.url : readUrl();
+// What a relative URL resolves against where there is no page.
+const NO_PAGE = 'http://what.invalid';
+
+// A URL's path, search (with its '?') and hash (with its '#'), as the URL
+// parser splits them: the search runs from the first '?' to the first '#', so
+// a second '?' belongs to a query value, and the hash is all after the first
+// '#'. Dot segments are resolved, as the address bar resolves them.
+function splitUrl(url) {
+  const parsed = new URL(url, NO_PAGE);
+  return { path: parsed.pathname, search: parsed.search, hash: parsed.hash };
 }
 
-// A URL's path, search (without its '?') and hash (with its '#'), split as URL
-// splits them: the search runs from the first '?' to the first '#', so a
-// second '?' belongs to a query value, and the hash is all after the first '#'.
-function splitUrl(url) {
-  const hashAt = url.indexOf('#');
-  const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt);
-  const searchAt = beforeHash.indexOf('?');
-  return {
-    path: searchAt === -1 ? beforeHash : beforeHash.slice(0, searchAt),
-    search: searchAt === -1 ? '' : beforeHash.slice(searchAt + 1),
-    hash: hashAt === -1 || hashAt === url.length - 1 ? '' : url.slice(hashAt),
-  };
+// The URL the browser commits for a navigation to `to` (a path, a relative
+// URL, a '#hash', a URL of this origin): its path, search and hash, resolved
+// against the page as history.pushState resolves it, dot segments and
+// percent-encoding included. Null for another origin's URL (mailto:, an
+// external site), which no route shows.
+function resolveHref(to) {
+  const page = typeof location !== 'undefined' ? location.href : NO_PAGE + _url.peek();
+  const parsed = new URL(to, page);
+  return parsed.origin === new URL(page).origin ? parsed.pathname + parsed.search + parsed.hash : null;
 }
 
 // --- Navigation Hooks ---
 // Subscriber lists consulted by navigate(). Guards run before the URL changes
 // and can cancel by returning false; afterNavigate runs once the URL committed.
-// Module lists, because navigation is the browser tab's. A server render never
-// navigates, so a hook a component subscribes while it renders on the server
-// is not kept: one request's closures must not accumulate in the process.
+// Module lists, because navigation is the browser tab's. A server never
+// navigates, so a hook subscribed on a server (in a render, or after one of
+// its awaits with no async context) is not kept: one request's closures must
+// not accumulate in the process.
 
 const _beforeHooks = [];
 const _afterHooks = [];
 
 function subscribe(list, fn) {
-  if (getServerContext() !== null) return () => {};
+  if (onServer()) return () => {};
   listenToHistory();
   list.push(fn);
   return () => {
@@ -172,7 +209,7 @@ export function afterNavigate(fn) {
 // as its `data` prop. The queries preload makes are read on the route's path,
 // so invalidatePath(path) (a server action's revalidation) refetches them.
 
-/** The routes of the mounted <Router>: what navigate() prepares against. @type {any[] | null} */
+/** The routes of the outermost <Router>: what navigate() prepares against. @type {any[] | null} */
 let _routes = null;
 /** The preparation of the URL on screen, and of the one a navigation is heading to. @type {any} */
 let _shown = null;
@@ -182,6 +219,8 @@ let _incoming = null;
 function pathOf(url) {
   return splitUrl(url).path;
 }
+
+function noop() {}
 
 // A lazy() component's chunk, loading: calling the wrapper starts the load and
 // throws its promise until it has settled.
@@ -217,40 +256,88 @@ function waitsOf(data, out) {
   return out;
 }
 
-function prepare(url, routes) {
+// The preparation of `url` against `routes`: the route it matches, its
+// middleware's verdict, and once that admits it, its chunk and its preload
+// data. The verdict is decided once, here, and the render shows the route by
+// it: true shows it, false declines it, a path redirects, and `{ error }`
+// rethrows what the middleware threw (a redirect() signal, ERR_ASYNC_MIDDLEWARE).
+// It is decided again only when a signal the middleware read changes, and the
+// route is loaded when a verdict first admits it. `current()`, when given, is
+// asked before the first load: a navigation the middleware superseded (it
+// called navigate()) loads nothing.
+function prepare(url, routes, current) {
   const { path, search } = splitUrl(url);
   const matched = routes ? matchRoute(path, routes) : null;
-  const prep = { url, route: matched ? matched.route : null, data: undefined, failed: false, error: undefined, dispose: () => {}, ready: Promise.resolve() };
+  /** @type {any} */
+  const prep = { url, route: matched ? matched.route : null, verdict: () => true, data: undefined, failed: false, error: undefined, dispose: noop, ready: Promise.resolve() };
   if (!matched) return prep;
   const r = matched.route;
-  const waits = [];
-  const chunk = chunkOf(r.component);
-  if (chunk !== null) waits.push(chunk.then(() => {}, () => {}));
-  if (typeof r.preload === 'function') {
-    // Owned by nothing but this preparation: it lives while the route is
-    // shown (or being prepared), whatever called navigate().
-    runWithOwner(null, () => createRoot((dispose) => {
-      prep.dispose = dispose;
-      // A preload that throws has no data to give the page: the page shows
-      // the error instead (see PreloadFailed). One that returns a promise
-      // that rejects gives the page that promise, to show when it reads it.
-      try {
-        prep.data = _tagQueries(path, () => r.preload({ params: matched.params, query: parseQuery(search), url }));
-      } catch (err) {
-        prep.failed = true;
-        prep.error = err;
-      }
-    }));
-    waitsOf(prep.data, waits);
+  const query = parseQuery(search);
+  if (!r.middleware && typeof r.preload !== 'function') {
+    load(prep, r, matched.params, path, query);
+    return prep;
   }
-  prep.ready = Promise.all(waits).then(() => {});
+  // Owned by nothing but this preparation: it lives while the route is shown
+  // (or being prepared), whatever called navigate().
+  runWithOwner(null, () => createRoot((dispose) => {
+    prep.dispose = dispose;
+    const owner = getOwner();
+    let loaded = false;
+    const admit = () => {
+      loaded = true;
+      runWithOwner(owner, () => load(prep, r, matched.params, path, query));
+    };
+    if (!r.middleware) {
+      admit();
+      return;
+    }
+    prep.verdict = signal(/** @type {any} */ (true));
+    const context = { path, params: matched.params, query, route: r };
+    let first = true;
+    effect(() => {
+      const decided = decide(r, context);
+      untrack(() => {
+        if (decided === true && !loaded && !(first && current !== undefined && !current())) admit();
+        prep.verdict.set(decided);
+      });
+      first = false;
+    });
+  }));
   return prep;
 }
 
-// The preparation renderMatch shows route `r` at `url` with: the one a
-// navigation made, or one made now (the first render, a URL the router did not
-// navigate to, or a route the navigation did not prepare because its
-// middleware declined it then).
+// The route's middleware verdict, with what it threw as `{ error }`.
+function decide(r, context) {
+  try {
+    return middlewareVerdict(r, context);
+  } catch (error) {
+    return { error };
+  }
+}
+
+// An admitted route's chunk and preload data, and what a navigation waits for.
+function load(prep, r, params, path, query) {
+  const waits = [];
+  const chunk = chunkOf(r.component);
+  if (chunk !== null) waits.push(chunk.then(noop, noop));
+  if (typeof r.preload === 'function') {
+    // A preload that throws has no data to give the page: the page shows
+    // the error instead (see PreloadFailed). One that returns a promise
+    // that rejects gives the page that promise, to show when it reads it.
+    try {
+      prep.data = _tagQueries(path, () => r.preload({ params, query, url: prep.url }));
+    } catch (err) {
+      prep.failed = true;
+      prep.error = err;
+    }
+    waitsOf(prep.data, waits);
+  }
+  prep.ready = Promise.all(waits).then(noop);
+}
+
+// The preparation the outermost Router shows route `r` at `url` with: the one
+// a navigation made, or one made now (the first render, a URL the router did
+// not navigate to).
 function shownFor(url, r) {
   if (_shown !== null && _shown.url === url && _shown.route === r) return _shown;
   if (_incoming !== null && _incoming.url === url && _incoming.route === r) {
@@ -258,7 +345,7 @@ function shownFor(url, r) {
     show(prep);
     return prep;
   }
-  const prep = untrack(() => prepare(url, _routes));
+  const prep = prepare(url, _routes);
   show(prep);
   return prep;
 }
@@ -272,24 +359,53 @@ function show(prep) {
   if (old !== null && old !== prep) queueMicrotask(() => old.dispose());
 }
 
+// How the navigation in flight stops waiting, which the next one calls: a
+// guard's or a preload's promise that never settles then keeps nothing of a
+// navigation that no longer matters (its route, its preparation).
+let _leave = noop;
+
+// What `value` settles to, as a promise the next navigation can settle at
+// once (to undefined). The callbacks `value` holds reach only `wait`, which
+// leaving empties.
+function waitFor(value) {
+  /** @type {{ resolve: (value?: any) => void, reject: (error?: any) => void }} */
+  const wait = { resolve: noop, reject: noop };
+  const settled = new Promise((resolve, reject) => {
+    wait.resolve = resolve;
+    wait.reject = reject;
+  });
+  Promise.resolve(value).then((v) => wait.resolve(v), (err) => wait.reject(err));
+  _leave = () => {
+    const resolve = wait.resolve;
+    wait.resolve = wait.reject = noop;
+    resolve(undefined);
+  };
+  return settled;
+}
+
 // --- Navigation ---
 
 let _navigation = 0;
 
 /**
  * Navigate to `to`. Runs the beforeNavigate guards, prepares the destination
- * (its lazy chunk and preload data), then commits the URL as a transition, in
- * a View Transition when the browser has them and `transition` is not false.
- * `flushSync: true` commits at once, without holding the screen for async
- * values the URL change starts. Resolves once the new page is on screen; a
- * newer navigation supersedes this one while it prepares.
+ * (its middleware's verdict, then its lazy chunk and preload data), then
+ * commits the URL as a transition, in a View Transition when the browser has
+ * them and `transition` is not false. `flushSync: true` commits at once,
+ * without holding the screen for async values the URL change starts.
+ * Resolves once the new page is on screen; a newer navigation supersedes this
+ * one while it prepares, and it stops at once. On a server, where nothing
+ * navigates, it redirects the response of the render in progress instead.
  */
 export async function navigate(to, opts = {}) {
   const { replace = false, state = null, transition = true, flushSync: sync = false, _fromPopstate = false, _redirectChain = false } = opts;
 
-  // A navigation the user asked for starts a fresh redirect chain; a hop
-  // queued by handleRedirect continues the current one.
-  if (!_redirectChain) _redirectHistory.length = 0;
+  // The response refuses a target that is not a same-origin path, and
+  // redirects to '/' instead.
+  if (onServer()) {
+    if (typeof to !== 'string' || !to.startsWith('#')) getResponse().redirect(to);
+    return;
+  }
 
   // Reject unsafe URLs
   if (!isSafeUrl(to)) {
@@ -302,24 +418,31 @@ export async function navigate(to, opts = {}) {
     return;
   }
 
+  // A navigation the user asked for starts a fresh redirect chain; a hop
+  // queued by handleRedirect continues the current one.
+  if (!_redirectChain) _redirectHistory.length = 0;
+
+  // The URL the address bar will show, which is what the router commits.
+  const href = resolveHref(to) ?? to;
+
   // Handle same-page hash links — use replaceState and scroll directly
   if (typeof window !== 'undefined' && to.startsWith('#')) {
-    const currentUrl = readUrl();
-    const basePath = currentUrl.split('#')[0];
-    const newUrl = basePath + to;
-    history.replaceState(state, '', newUrl);
-    _url.set(newUrl);
+    history.replaceState(state, '', href);
+    _url.set(href);
     const el = document.querySelector(to);
     if (el) el.scrollIntoView({ behavior: 'smooth' });
     return;
   }
 
   // Don't navigate if already on the same URL
-  if (to === readUrl() && !_preparing.peek()) return;
+  if (href === readUrl() && !_preparing.peek()) return;
 
   // The newest navigation wins: one that is still running its guards or
-  // preparing its route when another starts never commits.
+  // preparing its route when another starts never commits, and stops
+  // waiting for them now.
   const nav = ++_navigation;
+  _leave();
+  _leave = noop;
   if (_incoming !== null) {
     _incoming.dispose();
     _incoming = null;
@@ -329,136 +452,138 @@ export async function navigate(to, opts = {}) {
   _urgent(() => batch(() => {
     _navigating.set(true);
     _preparing.set(true);
-    _pendingUrl.set(to);
+    _pendingUrl.set(href);
   }));
 
   const from = readUrl();
   /** The new page's first data, landing: set at the commit. @type {Promise<void> | null} */
   let landed = null;
   let committing = false;
-
-  // A popstate has already moved the browser URL, so cancelling one means
-  // pushing the previous entry back to keep the address bar in sync. That entry
-  // is a new one: the forward entry is not recoverable and its history.state is
-  // not carried over. Documented on beforeNavigate in index.d.ts.
-  if (_beforeHooks.length) {
-    let cancelled = false;
-    try {
-      for (const fn of _beforeHooks.slice()) {
-        if ((await fn(to, from)) === false) { cancelled = true; break; }
+  let committed = false;
+  try {
+    // A popstate has already moved the browser URL, so cancelling one means
+    // pushing the previous entry back to keep the address bar in sync. That
+    // entry is a new one: the forward entry is not recoverable and its
+    // history.state is not carried over. Documented on beforeNavigate in
+    // index.d.ts.
+    for (const fn of _beforeHooks.slice()) {
+      const allowed = await waitFor(fn(href, from));
+      if (nav !== _navigation) return;
+      if (allowed === false) {
+        if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
+        return;
       }
-    } catch (e) {
-      // A throwing guard must not leave the router permanently wedged.
-      if (nav === _navigation) end();
-      throw e;
     }
-    if (nav !== _navigation) return;
-    if (cancelled) {
-      end();
-      if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
+
+    _navigationError.set(null);
+
+    // Prepare the destination while the old page stays: its middleware
+    // decides, then a route it admits loads. Middleware and preload are app
+    // code, which may navigate again.
+    const prep = prepare(href, _routes, () => nav === _navigation);
+    if (nav !== _navigation) {
+      prep.dispose();
       return;
     }
-  }
+    _incoming = prep;
+    await waitFor(prep.ready);
+    if (nav !== _navigation) {
+      if (_incoming === prep) _incoming = null;
+      prep.dispose();
+      return;
+    }
+    _leave = noop;
 
-  _navigationError.set(null);
-
-  // Prepare the destination while the old page stays, unless its middleware
-  // declines it: a preload must not run for a page that does not show. The
-  // render runs the middleware again, and prepares the route then if it admits
-  // it by that time.
-  const prep = prepare(to, admits(to, _routes) ? _routes : null);
-  _incoming = prep;
-  await prep.ready;
-  if (nav !== _navigation) {
-    if (_incoming === prep) _incoming = null;
-    prep.dispose();
-    return;
-  }
-
-  let committed = false;
-  const doNavigation = () => {
-    committed = true;
-    // Skip history manipulation on popstate (browser already updated the URL)
-    if (!_fromPopstate) {
-      // Save scroll position for current URL before navigating away.
-      // Full URL as the key, { x, y } as the value: see scrollPositions below,
-      // every writer and the reader must agree on both.
-      if (typeof window !== 'undefined') {
-        scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
+    const doNavigation = () => {
+      // Skip history manipulation on popstate (browser already updated the URL)
+      if (!_fromPopstate) {
+        // Save scroll position for current URL before navigating away.
+        // Full URL as the key, { x, y } as the value: see scrollPositions below,
+        // every writer and the reader must agree on both.
+        if (typeof window !== 'undefined') {
+          scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
+        }
+        if (replace) {
+          history.replaceState(state, '', href);
+        } else {
+          history.pushState(state, '', href);
+        }
       }
-      if (replace) {
-        history.replaceState(state, '', to);
-      } else {
-        history.pushState(state, '', to);
+      committed = true;
+      batch(() => {
+        // What the address bar shows now: router state agrees with history.
+        _url.set(typeof location !== 'undefined' ? location.pathname + location.search + location.hash : href);
+        _preparing.set(false);
+        _pendingUrl.set(null);
+      });
+      // The navigation goes on until the data the new page reads first, beyond
+      // what preload returned, has landed: the page shows it pending meanwhile.
+      const t = _currentTransition();
+      if (t !== null) {
+        committing = true;
+        _onCommit(t, () => queueMicrotask(() => {
+          landed = _pathLoaded(pathOf(href)).then(() => {
+            if (nav === _navigation) _navigating.set(false);
+          });
+        }));
+      }
+    };
+    // The commit: a transition, so what the new URL reaches commits in one
+    // flush once the async values it starts (a layout's data for the new
+    // params) have landed; with flushSync, at once.
+    const commit = () => {
+      // The browser calls a View Transition's update later: a navigation that
+      // started meanwhile supersedes this one, which then never commits.
+      if (nav !== _navigation) return undefined;
+      if (sync) {
+        doNavigation();
+        flushSync();
+        _navigating.set(false);
+        return undefined;
+      }
+      return startTransition(doNavigation);
+    };
+
+    // Use View Transitions API if available and enabled
+    if (transition && typeof document !== 'undefined' && document.startViewTransition) {
+      try {
+        // The update callback returns the commit: the browser captures the new
+        // state once the transition has committed.
+        const viewTransition = document.startViewTransition(commit);
+        // `.ready` rejects when the transition is skipped, which two navigations
+        // in quick succession do routinely. Awaiting only `.finished` left that
+        // rejection unhandled, so it surfaced as an uncaught page error
+        // ("Transition was skipped") and landed in whatever error reporter the
+        // app had installed, for a navigation that actually succeeded.
+        if (viewTransition.ready && typeof viewTransition.ready.catch === 'function') {
+          viewTransition.ready.catch(() => {});
+        }
+        await viewTransition.finished;
+      } catch {
+        // Transition failed, navigation still happened
+      }
+    } else {
+      try {
+        await waitFor(commit());
+      } catch {
+        // A commit's async work failed; the URL has changed and its page shows
+        // the error.
       }
     }
-    batch(() => {
-      _url.set(to);
-      _preparing.set(false);
-      _pendingUrl.set(null);
-    });
-    // The navigation goes on until the data the new page reads first, beyond
-    // what preload returned, has landed: the page shows it pending meanwhile.
-    const t = _currentTransition();
-    if (t !== null) {
-      committing = true;
-      _onCommit(t, () => queueMicrotask(() => {
-        landed = _pathLoaded(pathOf(to)).then(() => {
-          if (nav === _navigation) _navigating.set(false);
-        });
-      }));
-    }
-  };
-  // The commit: a transition, so what the new URL reaches commits in one
-  // flush once the async values it starts (a layout's data for the new
-  // params) have landed; with flushSync, at once.
-  const commit = () => {
-    // The browser calls a View Transition's update later: a navigation that
-    // started meanwhile supersedes this one, which then never commits.
-    if (nav !== _navigation) return undefined;
-    if (sync) {
-      doNavigation();
-      flushSync();
-      _navigating.set(false);
-      return undefined;
-    }
-    return startTransition(doNavigation);
-  };
 
-  // Use View Transitions API if available and enabled
-  if (transition && typeof document !== 'undefined' && document.startViewTransition) {
-    try {
-      // The update callback returns the commit: the browser captures the new
-      // state once the transition has committed.
-      const viewTransition = document.startViewTransition(commit);
-      // `.ready` rejects when the transition is skipped, which two navigations
-      // in quick succession do routinely. Awaiting only `.finished` left that
-      // rejection unhandled, so it surfaced as an uncaught page error
-      // ("Transition was skipped") and landed in whatever error reporter the
-      // app had installed, for a navigation that actually succeeded.
-      if (viewTransition.ready && typeof viewTransition.ready.catch === 'function') {
-        viewTransition.ready.catch(() => {});
-      }
-      await viewTransition.finished;
-    } catch {
-      // Transition failed, navigation still happened
+    if (!committed) return;
+    if (_afterHooks.length) {
+      for (const fn of _afterHooks.slice()) fn(href, from);
     }
-  } else {
-    try {
-      await commit();
-    } catch {
-      // A commit's async work failed; the URL has changed and its page shows
-      // the error.
-    }
+    if (landed !== null) await waitFor(landed);
+    // Inside a transition an action holds, the commit (and the end) is still to come.
+    else if (!committing && nav === _navigation) _navigating.set(false);
+  } finally {
+    // A navigation that stops before its URL commits (a guard declined it, a
+    // guard or the history write threw) leaves the router as it found it. A
+    // newer navigation owns the progress flags.
+    if (!committed && nav === _navigation) end();
   }
-
-  if (!committed) return;
-  if (_afterHooks.length) {
-    for (const fn of _afterHooks.slice()) fn(to, from);
-  }
-  if (landed !== null) await landed;
-  // Inside a transition an action holds, the commit (and the end) is still to come.
-  else if (!committing && nav === _navigation) _navigating.set(false);
 }
 
 // The page of a route whose preload threw: the route's `error` boundary, or
@@ -633,7 +758,7 @@ function loopScreen(message) {
 function handleRedirect(target, options) {
   // A server render answers with a redirect: it has no history to push, and
   // the navigation state below is the browser tab's.
-  if (getServerContext() !== null) {
+  if (onServer()) {
     getResponse().redirect(target);
     return null;
   }
@@ -733,75 +858,91 @@ function middlewareVerdict(r, context) {
   return true;
 }
 
-// Whether the middleware of the route `url` matches lets it show, asked before
-// a navigation prepares it. A middleware that throws (a redirect() included)
-// declines here; the render runs it again and acts on what it throws.
-function admits(url, routes) {
-  if (!routes) return true;
-  const { path, search } = splitUrl(url);
-  const matched = matchRoute(path, routes);
-  if (!matched || !matched.route.middleware) return true;
-  const context = { path, params: matched.params, query: parseQuery(search), route: matched.route };
-  try {
-    return untrack(() => middlewareVerdict(matched.route, context)) === true;
-  } catch {
-    return false;
-  }
-}
-
 export function Router({ routes, fallback, globalLayout, url = null }) {
-  // On the server, the render's own route state: the URL it shows (`url`,
-  // else the request's), and the params and query matched below. The route
-  // is prepared (its preload run) for this render alone once its middleware
-  // admits it, and nothing of it outlives the render or reaches another one.
-  const server = serverRoute();
+  // This Router's route state, which it provides to what it renders. The
+  // outermost one shows the tab's (in the browser) or its request's (on a
+  // server: the URL of the request, or `url`); a nested one has its own, at
+  // its parent's URL or its own `url` on a server. The client always shows
+  // the window's URL.
+  const scope = _contextOf(SCOPE);
+  const parent = scope === null ? null : /** @type {any} */ (scope.get(SCOPE));
+  const server = onServer();
   /** @type {any} */
-  let serverPrep = null;
-  if (server !== null) {
-    if (typeof url === 'string') server.url = url;
-    onCleanup(() => { if (serverPrep !== null) serverPrep.dispose(); });
+  let state;
+  if (parent !== null) {
+    state = ownState(server && typeof url === 'string' ? () => url : parent.url);
+  } else if (server) {
+    const ctx = getServerContext();
+    state = ctx === null ? ownState(() => (typeof url === 'string' ? url : '/')) : requestState(ctx);
+    if (ctx !== null && typeof url === 'string') state.url.set(url);
   } else {
+    state = tab;
     _routes = routes;
+    // An unmounted Router's navigation and pages go with it.
+    onCleanup(() => {
+      if (_routes !== routes) return;
+      _routes = null;
+      if (_preparing.peek()) {
+        _navigation++;
+        _leave();
+        _leave = noop;
+        end();
+      }
+      for (const prep of [_incoming, _shown]) if (prep !== null) prep.dispose();
+      _incoming = _shown = null;
+    });
   }
+  _provide(SCOPE, state);
+  // The preparation this Router shows, when it is not the outermost one in
+  // the browser (that one shows the navigation's: shownFor).
+  /** @type {any} */
+  let local = null;
+  const prepFor = state === tab ? shownFor : (/** @type {string} */ at, /** @type {any} */ r) => {
+    if (local !== null && local.url === at && local.route === r) return local;
+    const old = local;
+    local = prepare(at, routes);
+    if (old !== null) queueMicrotask(() => old.dispose());
+    return local;
+  };
+  onCleanup(() => { if (local !== null) local.dispose(); });
   // The `loading:` component a navigation in flight shows instead of the page:
   // the destination's, or the departing route's when only it declares one.
   // A computed, so the page re-renders only when there is one to show, not
-  // whenever a navigation starts or ends.
-  const pendingView = computed(() => {
+  // whenever a navigation starts or ends. A server does not navigate.
+  const pendingView = server ? null : computed(() => {
     if (!_preparing()) return null;
-    const matched = matchRoute(pathOf(readUrl()), routes);
+    const matched = matchRoute(pathOf(state.url()), routes);
     const current = matched ? matched.route : null;
     return destinationLoading(_pendingUrl(), routes, current) || (current && current.loading) || null;
   });
   // The Router component runs ONCE. `content` is a reactive function child that
-  // re-evaluates whenever _url changes; the fine-grained runtime reconciles only
-  // the matched page in place. The globalLayout is rendered ONCE around it (below)
-  // so the app shell persists across navigations instead of re-instantiating.
+  // re-evaluates whenever its URL changes; the fine-grained runtime reconciles
+  // only the matched page in place. The globalLayout is rendered ONCE around it
+  // (below) so the app shell persists across navigations instead of
+  // re-instantiating.
   const renderMatch = () => {
-    const currentUrl = server !== null ? server.url : readUrl();
+    const currentUrl = state.url();
     const { path, search } = splitUrl(currentUrl);
-    const loadingView = pendingView();
+    const loadingView = pendingView === null ? null : pendingView();
 
     const matched = matchRoute(path, routes);
 
     if (matched) {
-      if (server !== null) {
-        server.params = matched.params;
-        server.query = parseQuery(search);
-      } else {
-        batch(() => {
-          _params.set(matched.params);
-          _query.set(parseQuery(search));
-          _pattern.set(matched.route.path);
-        });
-      }
-
       const { route: r, params } = matched;
       const queryObj = parseQuery(search);
+      batch(() => {
+        state.params.set(params);
+        state.query.set(queryObj);
+        if (state === tab) _pattern.set(r.path);
+      });
 
-      // Middleware is synchronous. Async authorization belongs in a component
-      // wrapper: asyncGuard(check)(Component), not in this matching pass.
-      const verdict = middlewareVerdict(r, { path, params, query: queryObj, route: r });
+      // The verdict the route's preparation decided (a navigation's, or this
+      // render's), which this render follows. Middleware is synchronous:
+      // async authorization belongs in a component wrapper,
+      // asyncGuard(check)(Component).
+      const prep = untrack(() => prepFor(currentUrl, r));
+      const verdict = prep.verdict();
+      if (verdict !== null && typeof verdict === 'object') throw verdict.error;
       if (verdict === false) {
         // Middleware rejected — show fallback
         if (fallback) return h(fallback, {});
@@ -816,13 +957,12 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       let element;
 
       // While a navigation is in flight, a `loading:` declared by the
-      // DESTINATION wins. _url has not committed yet, so `r` is still the route
-      // being left: without this, declaring `loading:` on the page you are
-      // navigating TO could never show it. Falling back to the departing route's
-      // `loading:` preserves the existing behaviour for the case where only the
-      // page being left declares one. Without either, the page being left
-      // stays until the new one can show.
-      const prep = loadingView ? null : server !== null ? (serverPrep ??= untrack(() => prepare(currentUrl, routes))) : shownFor(currentUrl, r);
+      // DESTINATION wins. The URL has not committed yet, so `r` is still the
+      // route being left: without this, declaring `loading:` on the page you
+      // are navigating TO could never show it. Falling back to the departing
+      // route's `loading:` preserves the existing behaviour for the case where
+      // only the page being left declares one. Without either, the page being
+      // left stays until the new one can show.
       if (loadingView) {
         element = h(loadingView, {});
       } else if (prep.failed) {
@@ -851,7 +991,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     }
 
     // 404
-    if (server === null) _pattern.set(null);
+    if (state === tab) _pattern.set(null);
     if (fallback) return h(fallback, {});
     return h('div', { class: 'what-404' },
       h('h1', null, '404'),
@@ -906,8 +1046,10 @@ export function Link({
     console.warn('[what-router] Link blocked unsafe href:', href);
   }
 
-  // Strip query string and hash from href for path comparison
-  const hrefPath = safeHref.split('?')[0].split('#')[0];
+  // The path the link goes to, as the address bar will show it; none for
+  // another origin's URL, which is never active.
+  const target = resolveHref(safeHref);
+  const hrefPath = target === null ? null : pathOf(target);
 
   // Use a reactive function for class so active states update on navigation.
   // In the run-once model, reading route.path directly would snapshot it. A
@@ -915,7 +1057,7 @@ export function Link({
   const baseClass = cls || className;
   const reactiveClass = () => {
     const currentPath = route.path;
-    const isActive = hrefPath === '/'
+    const isActive = hrefPath === null ? false : hrefPath === '/'
       ? currentPath === '/'
       : currentPath === hrefPath || currentPath.startsWith(hrefPath + '/');
     const isExactActive = currentPath === hrefPath;
@@ -1009,8 +1151,7 @@ export function Redirect({ to }) {
 // Go to `to` in place of the current page: on the server, the response of the
 // render redirects; in the browser, a navigation replaces the history entry.
 function replaceWith(to) {
-  if (getServerContext() !== null) getResponse().redirect(to);
-  else navigate(to, { replace: true });
+  navigate(to, { replace: true });
 }
 
 // --- Route Guards / Middleware ---

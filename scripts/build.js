@@ -34,7 +34,13 @@ const root = resolve(__dirname, '..');
 //   `_$createComponent` pushes the other, and every production build renders
 //   blank, AUDIT-2026-06-06.md C1), or what-server's action registry (an
 //   action registered through what-server/actions is "not found" by the
-//   root's handleActionRequest under `--conditions=production`).
+//   root's handleActionRequest under `--conditions=production`). Across
+//   tiers (a component bundled from dist/*.js that a server running
+//   dist/*.min.js renders), the state that is the process's is kept once for
+//   all of them under Symbol.for keys on globalThis: what-core's render
+//   context store, async context provider and server-process mark, its
+//   devtools hooks and its streamed-boundary hook, and what-server's action
+//   registry.
 // - An app bundled from dist/ is as small as the same app bundled from src/.
 //   A bundler drops whole modules an app never reaches only across module
 //   boundaries, trusting `sideEffects: false`; inside one shared chunk it must

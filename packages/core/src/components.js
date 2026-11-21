@@ -9,7 +9,7 @@ import {
 } from './reactive.js';
 import { report, recordObservation } from './diagnostics.js';
 import { isServerRender } from './server-context.js';
-import { hydrate, insert, _enableSuspense } from './render.js';
+import { hydrate, insert, _enableSuspense, _hydrationErrorHook } from './render.js';
 import { createDOM } from './dom.js';
 
 // --- memo ---
@@ -151,6 +151,21 @@ function gateUserEffect(e) {
   return true;
 }
 
+// A promise a component suspended on is the app's: it reaches the boundary
+// through `link`, which the boundary empties when it goes, so one that never
+// settles keeps nothing of it. Its own scope, so the callbacks hold `link` and
+// nothing else.
+function awaitSuspended(waiting, link) {
+  const done = () => {
+    const b = link.b;
+    if (b === null) return;
+    b.links.delete(link);
+    b.thenables--;
+    b.check();
+  };
+  waiting.then(done, done);
+}
+
 function createSuspense(fallback) {
   _enableSuspense();
   const b = {
@@ -161,6 +176,8 @@ function createSuspense(fallback) {
     waiting: new Set(),
     /** promises of suspended components not settled yet */
     thenables: 0,
+    /** @type {Set<{ b: any }>} what each of those promises reaches the boundary through */
+    links: new Set(),
     /** @type {any[]} user-phase effects waiting for the reveal */
     deferred: [],
     /** @type {(() => void) | null} */
@@ -194,11 +211,9 @@ function createSuspense(fallback) {
       // gone): that render's own waits are counted by now.
       b.thenables++;
       _trackWork(waiting);
-      const done = () => {
-        b.thenables--;
-        b.check();
-      };
-      waiting.then(done, done);
+      const link = { b };
+      b.links.add(link);
+      awaitSuspended(waiting, link);
       return null;
     },
     // A counted effect completed a run, failed, or was disposed. Look again
@@ -244,6 +259,8 @@ function createSuspense(fallback) {
       _setUserEffectGate(gateUserEffect);
       // Until the boundary itself goes: hydration replaces the arm `root` holds.
       runWithOwner(root.owner, () => onCleanup(() => {
+        for (const link of b.links) link.b = null;
+        b.links.clear();
         if (!b.revealed) {
           b.revealed = true;
           if (__DEV__) recordObservation(__devtools, 'suspense:disposed', b);
@@ -557,8 +574,10 @@ export const _$Island = /* @__PURE__ */ deferChildren(function Island({ componen
 
   let hydrated = false;
   // The island's content hydrates long after this body ran, under the island's
-  // owner, so it is disposed with the island and finds its context.
+  // owner, so it is disposed with the island and finds its context, and its
+  // mismatches go where those of the hydrate() that ran this body go.
   const owner = getOwner();
+  const onHydrationError = _hydrationErrorHook();
 
   function hydrateInto(el) {
     if (hydrated || (owner !== null && _isDisposed(owner))) return;
@@ -570,7 +589,7 @@ export const _$Island = /* @__PURE__ */ deferChildren(function Island({ componen
     // Nothing there => a client-only render, so build it from scratch.
     runWithOwner(owner, () => {
       if (el.childNodes.length > 0) {
-        hydrate(vnode, el);
+        hydrate(vnode, el, onHydrationError === null ? undefined : { onHydrationError });
       } else {
         insert(el, vnode, null);
       }

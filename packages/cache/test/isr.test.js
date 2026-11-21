@@ -314,7 +314,7 @@ describe('ISR engine: the key and a stored render see the same request', () => {
     const config = { mode: 'hybrid', revalidate: 60 };
     const attacker = await engine.handle({ path: '/landing', query: { utm_source: 'CALL-555-0100', page: '2' }, config, request: request('https://shop.test/landing?utm_source=CALL-555-0100&page=2') });
     assert.equal(attacker.html, '<p></p>');
-    assert.deepEqual(seen, [[{ page: '2' }, '?page=2']]);
+    assert.deepEqual(seen, [[Object.assign(Object.create(null), { page: '2' }), '?page=2']]);
     const visitor = await engine.handle({ path: '/landing', query: { page: '2' }, config, request: request('https://shop.test/landing?page=2') });
     assert.equal(visitor.cacheStatus, 'HIT');
     assert.equal(visitor.html, '<p></p>');

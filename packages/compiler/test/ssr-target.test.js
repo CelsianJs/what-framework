@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileJSX } from '../../../test-utils/compile.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
-import { content, stableIds } from '../../server/test/stream-helpers.js';
+import { content, keyShape, stableIds } from '../../server/test/stream-helpers.js';
 
 const {
   renderToString, renderToHydratableString, renderToStream, renderToStringAsync, renderDocument,
@@ -264,11 +264,11 @@ describe('server target: renders in every entry point', () => {
   });
 
   it('renderToHydratableString writes the same keys and markers as for the h() spelling', () => {
-    // props.ids.map(...) is not reactive, so its rows are plain children
-    // (h() flattens the array): no list markers, a key, its owner path, per
-    // component root.
-    assert.equal(renderToHydratableString(h(mod.List, { ids: [1, 2] })),
-      '<ul data-hk="0"><li data-hk="00" class="">1</li><li data-hk="01" class="on">2</li></ul>');
+    // props.ids.map(...) maps a value nobody proved static, so it is a
+    // reactive keyed list, as the client's _$mapArray(() => props.ids) is:
+    // region and list markers, the rows' keys, and each row's owner path.
+    assert.equal(keyShape(renderToHydratableString(h(mod.List, { ids: [1, 2] }))),
+      '<ul data-hk="0"><!--$--><!--[]--><!--k:0,1--><li data-hk="00" class="">1</li><li data-hk="01" class="on">2</li><!--/[]--><!--/$--></ul>');
   });
 
   it('renderToString shows a suspended boundary\'s fallback; renderToStringAsync resolves it', async () => {
@@ -308,7 +308,7 @@ describe('server target: renders in every entry point', () => {
     assert.equal(html, '<article><aside title="h"><em>inner</em></aside>text</article>');
     const outer = h('div', { id: 'outer' }, h(mod.List, { ids: [1] }), () => h(mod.WithChildren, null, 'x'));
     assert.equal(renderToString(outer), '<div id="outer"><ul><li class="">1</li></ul><article>x</article></div>');
-    assert.equal(await streamed(outer), '<div id="outer"><ul data-hk="0"><li data-hk="00" class="">1</li></ul><!--$--><article data-hk="1">x</article><!--/$--></div>');
+    assert.equal(keyShape(await streamed(outer)), '<div id="outer"><ul data-hk="0"><!--$--><!--[]--><!--k:0--><li data-hk="00" class="">1</li><!--/[]--><!--/$--></ul><!--$--><article data-hk="1">x</article><!--/$--></div>');
   });
 
   it('a compiled root built before the render renders inside it, with the render\'s context', async () => {
@@ -343,7 +343,9 @@ describe('server target: control flow', () => {
     assert.equal(renderToString(flow.keyed([])), '<ul><li>empty</li></ul>');
     assert.equal(renderToString(flow.plain(['x', 'y'])), '<ul><li>0:x</li><li>1:y</li></ul>');
     assert.equal(renderToHydratableString(flow.plain(['x'])), '<ul><!--$--><!--[]--><li>0:x</li><!--/[]--><!--/$--></ul>');
-    assert.equal(await streamed(flow.keyed([{ id: 1, name: 'a' }])), `<ul><!--$--><!--[]--><!--k:${_rowKeyDigest(1)}--><li><!--$-->a<!--/$--></li><!--/[]--><!--/$--></ul>`);
+    const keyed = await streamed(flow.keyed([{ id: 1, name: 'a' }]));
+    const salt = /<!--k:([^:>]+):/.exec(keyed)[1];
+    assert.equal(keyed, `<ul><!--$--><!--[]--><!--k:${salt}:${_rowKeyDigest(1, salt)}--><li><!--$-->a<!--/$--></li><!--/[]--><!--/$--></ul>`);
   });
 
   it('<Switch> renders the first matching arm or the fallback', () => {

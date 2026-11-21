@@ -287,12 +287,12 @@ An owner can carry handlers. `_onError` receives errors: an error thrown by an e
 
 The source reads the flag through what-core's `#env` import (package.json `imports`), which follows the same conditions:
 
-- `development`: `src/env-development.js`, `true`. Vite's dev server, webpack's development mode, Rollup with node-resolve and `NODE_ENV=development`, and a default `bun build` resolve it, so their development builds report diagnostics wherever they run, with or without a `process` in the page.
+- `development`: `src/env-development.js`, `true`. Vite's dev server, webpack's development mode, Rollup with node-resolve and `NODE_ENV=development`, and `bun build` without `--production` resolve it, so their development builds report diagnostics wherever they run, with or without a `process` in the page. `bun build --minify` alone is such a build: a production Bun build passes `--production` (or `--define process.env.NODE_ENV='"production"'`). `node --conditions=development` is one too, whatever `NODE_ENV` says.
 - `default`: `src/env.js`, resolved at runtime: `globalThis.__WHAT_DEV__` set before load forces either tier, else Vite's `import.meta.env.DEV`, else a server runtime's `process.env.NODE_ENV` (a `process` whose `versions.node` is a string: page markup can name a global `process`, but never make that a string), else production.
 
 A buildless page that maps the framework's source through an import map maps `#env` in what-core's scope (create-what's full-stack template does). A tool that resolves `node` for a bundle served to a browser (esbuild `--platform=node`) gets `src/` with the runtime flag, which a browser answers with production; give such a build `--conditions=development` or `--conditions=production`.
 
-Every dist file is one source module's output and imports its siblings, in both tiers (`scripts/build.js`): two exports that reach a module share its state (what-server's action registry, what-core's component stack and tracking context), and an app bundled from dist/ tree-shakes as it does from src/. `scripts/check-size.mjs` fails if a production bundle contains development-only code, including a counter built with esbuild's defaults (`--bundle --minify`, nothing else).
+Every dist file is one source module's output and imports its siblings, in both tiers (`scripts/build.js`): two exports that reach a module share its state (what-server's action registry, what-core's component stack and tracking context), and an app bundled from dist/ tree-shakes as it does from src/. A process can still load two tiers, or a tier and the source: a component bundled for the browser that the production server renders. The state that is the process's is kept once for every tier, under `Symbol.for` keys on `globalThis`: the render context (so that component's `getResponse()` and loader data are the render's), the async context provider and the server-process mark, the server action registry, the devtools hooks, and the page's streamed-boundary hook, which resumes the boundaries of each tier. The signal graph and the caches stay a tier's own: a signal of one tier read in an effect of another is not tracked, so an app's client code comes from one tier. `scripts/check-size.mjs` fails if a production bundle contains development-only code, including a counter built with esbuild's defaults (`--bundle --minify`, nothing else).
 
 ### Component Lifecycle
 
@@ -532,11 +532,16 @@ or mounting into a container that holds a root disposes that root first.
 - **A keyed list** (`<For>`, a keyed `.map()` or `?.map()` of vnodes or
   compiled rows, a nested one in a row included) adopts each row's server
   nodes as that row, so the first reorder moves the server's nodes rather than
-  rebuilding them. The server writes a digest of each row's key after the
-  list's opening marker (`<!--k:1wzqjyo,1fx5nfu-->`: 32-bit FNV-1a of the
-  key's type and value in base 36, so the page carries no key itself; a digest
-  can still confirm a key someone guesses, so a key is not a secret), and a
-  server row is only ever adopted as the row of its own key: rows the client
+  rebuilding them. The server writes a random salt for the render and a digest
+  of each row's key under it after the list's opening marker
+  (`<!--k:SALT:DIGESTS-->`: each digest a 64-bit HalfSipHash-2-4 of the salt,
+  the key's type and its value, eleven characters), so the page carries no key
+  itself, no digest can be computed before the render, and two keys share one
+  by accident with odds of 2^-64. A digest can still confirm a key someone
+  guesses against the page's salt: a key with little entropy (a small integer
+  id, an e-mail address from a directory) can be enumerated page by page, so a
+  key is not a secret. A server row is adopted only as the row of the key
+  whose digest is its own: rows the client
   has in another order are adopted by key and moved into the client's order
   (reported as kind `key`, recovery `move`), and when a server row's key is
   not among the client's, no server row is taken and the client builds the
@@ -544,7 +549,10 @@ or mounting into a container that holds a root disposes that root first.
   with any other key (NaN, an object, a boolean, null) writes `<!--k!-->`, and
   the client builds it and reports it, as it does when two different keys of
   its own share a digest. What was typed into a row before hydration stays
-  with that row's key. A compiled row's callback is given its client index. A compiled row of several nodes
+  with that row's key. A compiled row's callback is given its client index, and
+  a text the client renders differently (the index of a row that moved) takes
+  exactly its own share of the server's text: the text after it, which the
+  parser merged with it, is still claimed by what follows. A compiled row of several nodes
   starts at the array marker the server bracketed it with, and a compiled
   `<For fallback>` adopts its rows, or its fallback, whichever the server
   rendered. A compiled keyed row's plain field of its item (`{row.label}`) is a

@@ -81,11 +81,11 @@ function Badge(props) {
 }
 ```
 
-A call with arguments is wrapped when it can read a signal, and only then:
+A call with arguments is left unwrapped only when the compiler proves that nothing it reaches can read a signal; anything else is wrapped:
 
-- Built-in methods (`date.toLocaleDateString()`, `name.padStart(3)`), globals (`JSON.stringify(row)`) and a package's utilities (`format(day, 'P')` from date-fns) are left alone: none of them reads a signal of yours.
-- A function this module declares, or a method of an object literal it declares, is as reactive as its body: `{format(a, b)}` is wrapped when `format` reads a signal and left alone when it does not, wherever in the file it is declared.
-- A function the compiler cannot see into is wrapped: a parameter (`props.format('x')`), a value some call returned. If it turns out constant, the cost is one effect that runs once.
+- A function this module declares, or a method of an object literal it declares and never changes, is as reactive as its body, given the values the call hands it: `{format(a, b)}` is left alone when `format`'s body reads nothing, wherever in the file it is declared.
+- Built-in methods and globals applied to values the compiler saw made (literals, constants of the module, `new Date(...)`) are left alone, `{name.padStart(3)}` for a `const name = 'Ada'`, and so is a package's utility given such values (`format(day, 'P')` from date-fns).
+- Anything the compiler cannot prove is wrapped: a function it cannot see into (a parameter, `props.format('x')`, a value some call returned), a method called on a value it did not see made (`{row.padStart(3)}` for a parameter `row`: it could be any object's method), a getter or setter, a class instance, a function handed on to be called, a generator or async function, a default parameter, and a global the platform does not define. If it turns out constant, the cost is one effect that runs once.
 - A call whose argument reads an accessor (`{format(count())}`) is wrapped, and so is one handed a function whose body reads one anywhere: `{fmt(() => { const text = label(); return text; })}`.
 
 ## 3. Don't Mutate Signal Values Directly

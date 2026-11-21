@@ -107,17 +107,12 @@ export function Form({
       const form = event.currentTarget;
       const formData = new FormData(form, event.submitter || undefined);
       const fail = (error) => form.dispatchEvent(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
-      status.submit(formData, async (data) => {
-        if (actionId === null) await action(data);
-        else if (typeof action === 'function') await action(fieldsOf(data));
-        else await _callAction(actionId, [fieldsOf(data)]);
-      }, () => {
-        // Inside the transition's commit, which a throw would cut short.
-        try {
-          _resetForm(form);
-        } catch (error) {
-          fail(error);
-        }
+      status.submit(formData, (data) => (actionId === null ? action(data)
+        : typeof action === 'function' ? action(fieldsOf(data))
+          : _callAction(actionId, [fieldsOf(data)])), () => {
+        // Inside the transition's commit, which a throw would cut short:
+        // _resetForm hands each one to `fail` and restores the other fields.
+        _resetForm(form, fail);
       }).catch(fail);
     };
   }

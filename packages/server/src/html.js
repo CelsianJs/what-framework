@@ -109,7 +109,7 @@ function _boundaryFallback(vnode, error, report) {
   try {
     return fallback({ error, reset });
   } catch (e) {
-    _rethrowIfUnrenderable(e);
+    _claimThrow(e);
     if (report) report(e);
     else if (_isDevMode) {
       console.warn(`[what-server] <ErrorBoundary> fallback threw during SSR: ${e.message}`);
@@ -209,8 +209,22 @@ function _resolveInnerHTML(props) {
 //
 // This mirrors the ownership rethrows already in the boundary branches: some
 // throws are not the catcher's to absorb.
-function _rethrowIfUnrenderable(e) {
+//
+// A navigation signal is not an error either: what-router's redirect() from a
+// component body throws one, and a server render acts on it as the client
+// does (core's _handleNavigationSignal), by running its handler, which
+// redirects the render's response. The catcher then renders the subtree it
+// cut short as it renders a failed one; a signal one catcher rethrows to the
+// next (a <Suspense> passes errors on) is acted on once.
+const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+const _navigated = new WeakSet();
+
+function _claimThrow(e) {
   if (e && e.code === 'ERR_COMPILED_JSX_IN_SSR') throw e;
+  if (e !== null && typeof e === 'object' && typeof e[NAV_SIGNAL] === 'function' && !_navigated.has(e)) {
+    _navigated.add(e);
+    e[NAV_SIGNAL](e);
+  }
 }
 
 function _isDomNode(value) {
@@ -450,7 +464,11 @@ const isControl = (code) => (code < 0x20 && code !== 0x09 && code !== 0x0a && co
 //   quote or a parenthesis from a reader that knows no comments) and no braces;
 // - strings close on their own line (`\` escapes the next character in them);
 // - parentheses and brackets nest and match, and a `;` is allowed only inside
-//   them (`url(data:image/png;base64,…)`).
+//   them (`url(data:image/png;base64,…)`);
+// - an unquoted `url(` holds one url token: a CSS parser reads it to the
+//   first `)` whatever it holds, and one with a quote, a `(` or inner
+//   whitespace is a bad url, which also ends at the first `)`, so the `;`
+//   after that `)` would end the declaration (`url(a(b);x:y)`).
 // A value outside the grammar is dropped, even one a browser would accept
 // (`red /* note */`): style objects never need one.
 function oneDeclaration(text) {
@@ -464,12 +482,42 @@ function oneDeclaration(text) {
       else if (c === quote) quote = '';
       else if (c === '\n' || c === '\r' || c === '\f') return false;
     } else if (c === '"' || c === "'") quote = c;
-    else if (c === '(' || c === '[') open.push(c === '(' ? ')' : ']');
+    else if (c === '(' && isUrlFunction(text, i)) {
+      const end = urlTokenEnd(text, i + 1);
+      if (end === -1) return false;
+      if (end > i) i = end;
+      else open.push(')');
+    } else if (c === '(' || c === '[') open.push(c === '(' ? ')' : ']');
     else if (c === ')' || c === ']') {
       if (open.pop() !== c) return false;
     } else if (c === '\\' || c === '{' || c === '}' || (c === '/' && text[i + 1] === '*') || (c === ';' && open.length === 0)) return false;
   }
   return open.length === 0 && quote === '';
+}
+
+// Whether the `(` at `at` opens `url(`: the identifier before it is `url`, in
+// any case.
+function isUrlFunction(text, at) {
+  return at >= 3 && text.slice(at - 3, at).toLowerCase() === 'url' && (at === 3 || !/[\w\u0080-\uffff-]/.test(text[at - 4]));
+}
+
+// Where the url token that starts at `from` (after `url(`) ends: the index of
+// its `)`; `from - 1` when the argument is a string instead (a quote after
+// any whitespace), read as one; -1 when it is a bad url or never closes.
+function urlTokenEnd(text, from) {
+  let i = from;
+  while (i < text.length && /[ \t\n\r\f]/.test(text[i])) i++;
+  if (text[i] === '"' || text[i] === "'") return from - 1;
+  for (; i < text.length; i++) {
+    const c = text[i];
+    if (c === ')') return i;
+    if (c === '"' || c === "'" || c === '(' || c === '\\') return -1;
+    if (/[ \t\n\r\f]/.test(c)) {
+      while (i < text.length && /[ \t\n\r\f]/.test(text[i])) i++;
+      return text[i] === ')' ? i : -1;
+    }
+  }
+  return -1;
 }
 
 function styleText(style) {
@@ -515,7 +563,7 @@ function textOf(tag, value) {
     try {
       return textOf(tag, value());
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       if (_isDevMode) console.warn(`[what-server] A child of <${tag}> threw during SSR: ${e && e.message}`);
       return '';
     }
@@ -548,7 +596,7 @@ export {
   _isDevMode,
   _exposesErrorDetails,
   _resolveInnerHTML,
-  _rethrowIfUnrenderable,
+  _claimThrow,
   _rawText,
   _isTextContent,
   _afterOpen,

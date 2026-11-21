@@ -93,7 +93,7 @@ import {
   _isDevMode,
   _exposesErrorDetails,
   _resolveInnerHTML,
-  _rethrowIfUnrenderable,
+  _claimThrow,
   _rawText,
   _isTextContent,
   _afterOpen,
@@ -290,7 +290,7 @@ function runSegment(seg) {
       blocker = step(seg, node, owner);
     } catch (error) {
       if (error instanceof BoundaryFailure) throw error;
-      _rethrowIfUnrenderable(error);
+      _claimThrow(error);
       handleError(seg, error, node);
       continue;
     }
@@ -414,7 +414,7 @@ function stepFunction(seg, fn, owner, attempts) {
     value = inFrame(owner, fn._mapArray ? () => _mapArrayToArray(fn) : fn);
   } catch (error) {
     if (isThenable(error)) return suspend(seg, fn, owner, attempts, children, resources, error);
-    _rethrowIfUnrenderable(error);
+    _claimThrow(error);
     // A throwing child renders an empty region, as in renderToString: one bad
     // binding must not take its component down with it.
     report(seg.r, error, 'render', seg.id);
@@ -708,7 +708,7 @@ async function driveBoundary(seg, blocker) {
     if (r.aborted || seg.cancelled) return;
     if (!(error instanceof BoundaryFailure)) {
       try {
-        _rethrowIfUnrenderable(error);
+        _claimThrow(error);
       } catch (fatal) {
         failRender(r, fatal, 'stream');
         return;

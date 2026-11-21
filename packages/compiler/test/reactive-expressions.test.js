@@ -74,8 +74,13 @@ describe('compiled output: these expressions are wrapped', () => {
   }
 
   it('a call with plain arguments, and a callback that reads nothing reactive, stay static', () => {
-    const code = compileJSX('const a = <p>{fmt(a, b)}{fmt(() => 1)}</p>;');
+    const code = compileJSX("import { fmt } from 'fmt-lib'; const n = 2; const a = <p>{fmt(1, n)}{fmt(() => 1)}</p>;");
     assert.ok(!code.includes('() => fmt('), code);
+  });
+
+  it('a call reaching a value nobody proved static, or a global the platform does not define, is wrapped', () => {
+    const code = compileJSX("import { fmt } from 'fmt-lib'; function Row(item) { return <p>{fmt(item, 1)}{other(1)}</p>; }");
+    assert.ok(code.includes('() => fmt(item, 1)') && code.includes('() => other(1)'), code);
   });
 
   it('a callback that reads anywhere in its block body', () => {
@@ -88,10 +93,10 @@ describe('compiled output: these expressions are wrapped', () => {
       'for (const part of label()) return part;',
       'if (label()) return 1;',
     ]) {
-      const code = compileJSX(`const label = signal(''); const a = <p>{fmt(() => { ${body} })}</p>;`);
+      const code = compileJSX(`import { fmt } from 'fmt-lib'; const label = signal(''); const a = <p>{fmt(() => { ${body} })}</p>;`);
       assert.ok(code.includes('() => fmt('), `${body}\n${code}`);
     }
-    const nested = compileJSX('const label = signal(""); const a = <p>{fmt(() => { const later = () => label(); return 1; })}</p>;');
+    const nested = compileJSX('import { fmt } from "fmt-lib"; const label = signal(""); const a = <p>{fmt(() => { const later = () => label(); return 1; })}</p>;');
     assert.ok(!nested.includes('() => fmt('), nested);
   });
 
@@ -116,16 +121,20 @@ describe('compiled output: these expressions are wrapped', () => {
     for (const call of ["shout('x')", "model.plain('x')", 'count(3)']) assert.ok(!plain.includes(`() => ${call}`), `${call}\n${plain}`);
   });
 
-  it('a call of a function the compiler cannot see is wrapped; built-ins, globals and package utilities are not', () => {
+  it('a call of a function the compiler cannot see is wrapped; built-ins, globals and package utilities applied to proven values are not', () => {
     const code = compileJSX(`
       import { format } from 'date-fns';
-      function Row(props, render) {
+      const name = 'Ada';
+      const day = new Date(0);
+      function Row(props, render, row) {
         const formatter = makeFormatter();
-        return <p>{props.format('x')}{render('x')}{formatter('x')}{name.padStart(3)}{format(day, 'P')}{JSON.stringify(row)}{alert('x')}</p>;
+        return <p>{props.format('x')}{render('x')}{formatter('x')}{alert('x')}{row.padStart(3)}{JSON.stringify(row)}{name.padStart(3)}{format(day, 'P')}{JSON.stringify({ id: 1 })}{Math.max(2, 3)}</p>;
       }
     `);
-    for (const call of ["props.format('x')", "render('x')", "formatter('x')"]) assert.ok(code.includes(`() => ${call}`), `${call}\n${code}`);
-    for (const call of ['name.padStart(3)', "format(day, 'P')", 'JSON.stringify(row)', "alert('x')"]) {
+    for (const call of ["props.format('x')", "render('x')", "formatter('x')", "alert('x')", 'row.padStart(3)', 'JSON.stringify(row)']) {
+      assert.ok(code.includes(`() => ${call}`), `${call}\n${code}`);
+    }
+    for (const call of ['name.padStart(3)', "format(day, 'P')", 'JSON.stringify({', 'Math.max(2, 3)']) {
       assert.ok(!code.includes(`() => ${call}`), `${call}\n${code}`);
     }
   });

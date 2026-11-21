@@ -183,8 +183,7 @@ function isSafeGlobalCall(expr, fallbackScope) {
   // Math.max(), Number.parseInt(), etc., or parseInt(), isNaN(), etc.
   const root = t.isMemberExpression(callee) ? callee.object : callee;
   if (!t.isIdentifier(root) || !SAFE_GLOBAL_CALLS.has(root.name)) return false;
-  const scope = scopeOf(expr, fallbackScope);
-  return !scope || !scope.getBinding(root.name);
+  return !bindingOf(root, fallbackScope);
 }
 
 // Check if an expression's reactivity is uncertain — e.g., a non-signal function call
@@ -224,7 +223,7 @@ export function isUncertainReactive(expr, signalNames, importedIds) {
 export function isPotentiallyReactive(expr, signalNames, importedIds) {
   if (!signalNames) signalNames = new Set();
 
-  if (t.isCallExpression(expr)) {
+  if (t.isCallExpression(expr) || t.isOptionalCallExpression(expr)) {
     // If callee is a known signal identifier being called (signal read), it's reactive
     if (t.isIdentifier(expr.callee) && isSignalIdentifier(expr.callee.name, signalNames)) {
       return true;
@@ -234,26 +233,13 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
     if (expr.callee._whatSelector || expr.callee._whatRowItem) return true;
     // Imported identifier called as a function — conservatively reactive.
     // Handles: import { count } from './store'; ... {count()} in JSX
-    if (importedIds && t.isIdentifier(expr.callee) && importedIds.has(expr.callee.name)) {
-      // Exclude known safe globals that happen to also be imported
-      if (!SAFE_GLOBAL_CALLS.has(expr.callee.name)) {
-        return true;
-      }
+    if (importedIds && t.isIdentifier(expr.callee) && importedIds.has(expr.callee.name) &&
+        !SAFE_GLOBAL_CALLS.has(expr.callee.name)) {
+      return true;
     }
     // member.call() — e.g., data(), isLoading()
-    if (t.isMemberExpression(expr.callee)) {
-      // Check if the object is a signal
-      if (t.isIdentifier(expr.callee.object) && isSignalIdentifier(expr.callee.object.name, signalNames)) {
-        return true;
-      }
-    }
-    // Safe global calls like Math.max — only reactive if their args are
-    if (isSafeGlobalCall(expr, signalNames.scope)) {
-      return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
-    }
-    // A function argument the call may run at once reads for the call:
-    // isPending(() => users()), a formatter handed a getter.
-    if (expr.arguments.some(arg => readsInCallback(arg, signalNames, importedIds))) {
+    if ((t.isMemberExpression(expr.callee) || t.isOptionalMemberExpression(expr.callee)) &&
+        t.isIdentifier(expr.callee.object) && isSignalIdentifier(expr.callee.object.name, signalNames)) {
       return true;
     }
     // Any other zero-argument call has the shape of an accessor read, so it
@@ -266,27 +252,12 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
     if (expr.arguments.length === 0 && !isPureBuiltinMethodCall(expr)) {
       return true;
     }
-    if (callReadsInside(expr, signalNames, importedIds)) return true;
-
-    // Unknown call — check if callee or args contain signal reads
-    if (t.isIdentifier(expr.callee)) {
-      // Could be a function that reads signals internally
-      // Be conservative: if it's not a known safe call and not a signal, still check args
-      return expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
+    if (isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
+        expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds))) {
+      return true;
     }
-    // For any other call expression, check recursively
-    return isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
-           expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds));
-  }
-
-  // Optional chaining reads like the plain chain: a()?.b and a()?.[k]
-  // through their object, f?.() as a call.
-  if (t.isOptionalCallExpression(expr)) {
-    if (expr.arguments.length === 0) return true;
-    return callReadsInside(expr, signalNames, importedIds) ||
-           isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
-           expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds) ||
-             readsInCallback(arg, signalNames, importedIds));
+    // Everything else the call reaches (see callReads).
+    return callReads(expr, signalNames, importedIds);
   }
 
   if (t.isIdentifier(expr)) {
@@ -294,9 +265,14 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
            (importedIds && importedIds.has(expr.name));
   }
 
+  // A property read: reactive through its object or its key, and where the
+  // module declares the object (an object literal, an instance of a class it
+  // declares) and the read may run an accessor of it. A read of a value the
+  // compiler did not see built (a prop, a parameter) is a plain read.
   if (t.isMemberExpression(expr) || t.isOptionalMemberExpression(expr)) {
     return isPotentiallyReactive(expr.object, signalNames, importedIds) ||
-           (expr.computed && isPotentiallyReactive(expr.property, signalNames, importedIds));
+           (expr.computed && isPotentiallyReactive(expr.property, signalNames, importedIds)) ||
+           mayRunAccessor(expr, signalNames.scope);
   }
 
   if (t.isConditionalExpression(expr)) {
@@ -316,8 +292,8 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
 
   if (t.isAssignmentExpression(expr)) {
     return isPotentiallyReactive(expr.right, signalNames, importedIds) ||
-           (t.isMemberExpression(expr.left) && expr.left.computed &&
-             isPotentiallyReactive(expr.left.property, signalNames, importedIds));
+           (t.isMemberExpression(expr.left) && (mayRunAccessor(expr.left, signalNames.scope) || (expr.left.computed &&
+             isPotentiallyReactive(expr.left.property, signalNames, importedIds))));
   }
 
   if (t.isSequenceExpression(expr)) {
@@ -346,161 +322,891 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   return false;
 }
 
-// Whether `fn`, a function handed to a call, reads reactively when the call
-// runs it: anything its body evaluates, nested functions aside (they run when
-// something calls them). `() => { const text = label(); return text; }` reads
-// as much as `() => label()`.
-function readsInCallback(fn, signalNames, importedIds) {
-  if (!t.isArrowFunctionExpression(fn) && !t.isFunctionExpression(fn)) return false;
-  return bodyReads(fn, signalNames, importedIds);
+// --- What a call can read ---
+//
+// A call is static only when everything its evaluation can reach is proven
+// static; anything the compiler cannot prove is assumed to read a signal,
+// because a wrong guess that way costs one effect that runs once, and a wrong
+// guess the other way freezes the text in silence. The proof is an abstract
+// evaluation of the call, its arguments and the bodies of the functions it
+// reaches, over what kind of value each expression is:
+//
+//   P  a primitive: reading it, converting it and its built-in methods run
+//      no app code
+//   A  an array the code being read built from primitives
+//   B  a built-in object it built (new Date(), new Intl.NumberFormat(), a
+//      RegExp literal): its methods are the platform's
+//   D  an object literal it built of primitives, with no accessor, method or
+//      spread: plain data
+//   { f }  a function the module declares (its path), proven by reading it
+//   { o }  an object literal the module declares and keeps (every use reads
+//      a property by name, so none is replaced), whose members it can read
+//   { g }  a built-in global the module does not shadow (Math, JSON, String)
+//   U  anything else: a parameter's value nobody proved, what an unknown
+//      call returned, a class instance, `this` outside a method of a kept
+//      object literal
+//
+// Evaluating reads (marks the evaluation as reading) at every step that may
+// run code the compiler did not see: a property read or write on U (a getter
+// or setter), converting U to a primitive (valueOf, toString), iterating or
+// spreading U, calling U or a method of U, constructing anything but a
+// built-in, a global the platform does not define, `await`, `yield`, and
+// every syntax form not listed below. A call of a function the module
+// declares is an edge of the call graph, to that function read with its
+// arguments' kinds (and `this`); an async function or a generator reads, since
+// part of its body runs where the caller cannot see. A function's default
+// parameters and destructured parameters are read with its body.
+
+/** @typedef {'p' | 'a' | 'b' | 'd' | 'u' | { f: any } | { o: any } | { g: string }} Kind */
+const P = 'p';
+const A = 'a';
+const B = 'b';
+const D = 'd';
+const U = 'u';
+
+// Constructors of built-in objects whose methods take and give primitives.
+const BUILTIN_OBJECTS = new Set(['Date', 'RegExp', 'Intl']);
+// Other built-in constructors: they run no app code beyond what they are
+// handed (an error's message, a promise's executor).
+const BUILTIN_CONSTRUCTORS = new Set([
+  'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'EvalError', 'URIError', 'AggregateError',
+  'Map', 'Set', 'WeakMap', 'WeakSet', 'Promise', 'URL', 'URLSearchParams',
+]);
+
+// Methods of a primitive (String.prototype, Number.prototype) beyond the
+// two lists above, all the platform's.
+const PRIMITIVE_METHODS = new Set([
+  ...PURE_BUILTIN_METHODS, ...BUILTIN_METHODS,
+  'concat', 'isWellFormed', 'toWellFormed',
+]);
+
+// Methods of an array the code built: [primitive, ...].
+const ARRAY_METHODS = new Set([
+  ...PURE_BUILTIN_METHODS, ...BUILTIN_METHODS,
+  'keys', 'values', 'entries', 'fill', 'copyWithin', 'push', 'pop', 'shift', 'unshift', 'splice',
+]);
+// The array methods that change the array.
+const MUTATING = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'fill', 'copyWithin', 'sort', 'reverse']);
+// The array methods whose result is an array of the same elements.
+const SAME_ELEMENTS = new Set(['slice', 'reverse', 'sort', 'flat', 'concat', 'filter', 'toSorted', 'toReversed', 'toSpliced', 'with', 'fill', 'copyWithin', 'splice']);
+
+// Object.prototype's methods: what an object literal has without declaring.
+const OBJECT_METHODS = new Set(['hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', 'toString', 'valueOf']);
+
+// The bindings, functions and declarators of the module, recorded before any
+// JSX is lowered (see resolveCallees): what an identifier names, and where a
+// function or a declaration stands.
+/** @type {WeakMap<object, any>} */
+let references = new WeakMap();
+/** @type {WeakMap<object, any>} */
+let functionPaths = new WeakMap();
+/** @type {WeakMap<object, any>} */
+let declaratorPaths = new WeakMap();
+// What each call of the module reads, decided before any JSX is lowered.
+/** @type {WeakMap<object, boolean>} */
+let decided = new WeakMap();
+
+// Whether `call`, at the top of a JSX expression, may read a signal that its
+// callee and arguments do not show by their names.
+function callReads(call, signalNames, importedIds) {
+  const known = decided.get(call);
+  if (known !== undefined) return known;
+  const ev = evaluation(null, null, U, signalNames.scope, importedIds);
+  evalExpr(call, ev);
+  return finish(ev);
 }
 
-function bodyReads(fn, signalNames, importedIds) {
-  if (!t.isBlockStatement(fn.body)) return isPotentiallyReactive(fn.body, signalNames, importedIds);
-  return statementReads(fn.body, signalNames, importedIds);
-}
-
-function statementReads(stmt, names, ids) {
-  const reads = e => e != null && isPotentiallyReactive(e, names, ids);
-  const runs = s => s != null && statementReads(s, names, ids);
-  if (t.isBlockStatement(stmt)) return stmt.body.some(runs);
-  if (t.isExpressionStatement(stmt)) return reads(stmt.expression);
-  if (t.isReturnStatement(stmt) || t.isThrowStatement(stmt)) return reads(stmt.argument);
-  if (t.isVariableDeclaration(stmt)) return stmt.declarations.some(d => reads(d.init));
-  if (t.isIfStatement(stmt)) return reads(stmt.test) || runs(stmt.consequent) || runs(stmt.alternate);
-  if (t.isTryStatement(stmt)) return runs(stmt.block) || runs(stmt.handler && stmt.handler.body) || runs(stmt.finalizer);
-  if (t.isSwitchStatement(stmt)) {
-    return reads(stmt.discriminant) || stmt.cases.some(c => reads(c.test) || c.consequent.some(runs));
-  }
-  if (t.isForStatement(stmt)) {
-    const init = t.isVariableDeclaration(stmt.init) ? runs(stmt.init) : reads(stmt.init);
-    return init || reads(stmt.test) || reads(stmt.update) || runs(stmt.body);
-  }
-  if (t.isForOfStatement(stmt) || t.isForInStatement(stmt)) return reads(stmt.right) || runs(stmt.body);
-  if (t.isWhileStatement(stmt) || t.isDoWhileStatement(stmt)) return reads(stmt.test) || runs(stmt.body);
-  if (t.isLabeledStatement(stmt)) return runs(stmt.body);
+/** Whether an evaluation, or a function it reached, reads. */
+function finish(ev) {
+  if (ev.reads) return true;
+  for (const node of ev.edges) if (readsThrough(node)) return true;
   return false;
 }
 
-// Whether `call` may read a signal that neither its callee expression nor its
-// arguments show. A function this module declares, or a method of an object
-// literal it declares, is read for it: `{format('x')}` is as reactive as
-// format's body. A function the compiler cannot see (a parameter, a value
-// some call returned, a method of an object it did not see built, a function
-// that is reassigned) is assumed to read: only a body it has seen proves a
-// call static, and a wrong guess the other way freezes the text silently.
-// Built-in methods and globals are the environment's, not the app's.
-//
-// While a function's own body is being read (`signalNames.calls` set), a call
-// of another local function is recorded as an edge of the call graph instead
-// of being read through: see readsThrough.
-function callReadsInside(call, signalNames, importedIds) {
-  const scope = scopeOf(call, signalNames.scope);
-  if (!scope) return false;
-  const target = calleeTarget(call.callee, scope, importedIds);
-  if (typeof target === 'boolean') return target;
-  if (signalNames.calls) {
-    signalNames.calls.push(target);
-    return false;
-  }
-  return readsThrough(target, importedIds);
+function evaluation(fn, outer, thisKind, scope, importedIds) {
+  return { fn, outer, thisKind, scope, importedIds, env: new Map(), params: new Map(), written: new Map(), reads: false, edges: [] };
 }
 
-// The scope each call of the module was written in, recorded before any is
-// read (see resolveCallees): a helper declared in a nested block resolves from
-// that block, not from the function around it. A call node made later (by
-// JSX lowering) resolves from the scope its reader names.
-const callScopes = new WeakMap();
-
-function scopeOf(call, fallbackScope) {
-  return callScopes.get(call) || fallbackScope;
+// Whether the property read `expr` may run an accessor the module declares:
+// its object is an object literal it keeps with a getter or setter of that
+// name (or a key it cannot see), or an instance of a class it declares.
+function mayRunAccessor(expr, scope) {
+  let root = expr.object;
+  while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) root = root.object;
+  if (!t.isIdentifier(root)) return false;
+  const binding = bindingOf(root, scope);
+  if (!binding || !binding.path.isVariableDeclarator()) return false;
+  const init = binding.path.node.init;
+  if (t.isNewExpression(init)) return !builtinConstructor(init.callee, binding.path.scope);
+  if (!t.isObjectExpression(init)) return false;
+  const ev = evaluation(null, null, U, scope, null);
+  evalExpr(expr, ev);
+  return finish(ev);
 }
 
-// What a call of `callee` runs: true or false when that is known at once, or
-// the call-graph node of the local function it calls.
-function calleeTarget(callee, scope, importedIds) {
-  if (t.isIdentifier(callee)) {
-    const binding = scope.getBinding(callee.name);
-    if (!binding) return false;
-    // An import is as reactive as its source: one from What or from the app
-    // itself is decided by name (importedIds), a package's utility is not.
-    if (binding.kind === 'module') return !!importedIds && importedIds.has(callee.name);
-    return graphNode(binding, null);
-  }
-  if ((t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) && !callee.computed &&
-      t.isIdentifier(callee.property)) {
-    const method = callee.property.name;
-    const builtin = PURE_BUILTIN_METHODS.has(method) || BUILTIN_METHODS.has(method);
-    if (!t.isIdentifier(callee.object)) return !builtin;
-    const binding = scope.getBinding(callee.object.name);
-    // An object literal of the module that may define the method runs its
-    // own, whatever the method is called.
-    if (binding && mayDefine(binding, method)) return graphNode(binding, method);
-    if (builtin || !binding) return false;
-    if (binding.kind === 'module') return !!importedIds && importedIds.has(callee.object.name);
-    return graphNode(binding, method);
-  }
-  return true;
+function bindingOf(id, scope) {
+  const known = references.get(id);
+  if (known !== undefined) return known;
+  return scope ? scope.getBinding(id.name) || null : null;
 }
 
-// Whether the object literal `binding` is declared with may have a `method`
-// of its own: a property of that name, or a spread or computed key.
-function mayDefine(binding, method) {
+function keyName(prop) {
+  if (t.isIdentifier(prop.key)) return prop.key.name;
+  if (t.isStringLiteral(prop.key)) return prop.key.value;
+  if (t.isNumericLiteral(prop.key)) return String(prop.key.value);
+  return null;
+}
+
+function propertyName(member) {
+  if (!member.computed) return t.isIdentifier(member.property) ? member.property.name : null;
+  if (t.isStringLiteral(member.property)) return member.property.value;
+  if (t.isNumericLiteral(member.property)) return String(member.property.value);
+  return null;
+}
+
+// --- Kinds ---
+
+function same(a, b) {
+  return a === b || (typeof a === 'object' && typeof b === 'object' &&
+    ((a.f !== undefined && a.f === b.f) || (a.o !== undefined && a.o === b.o) || (a.g !== undefined && a.g === b.g)));
+}
+
+function join(a, b) {
+  return same(a, b) ? a : U;
+}
+
+const ids = new WeakMap();
+let nextId = 0;
+function idOf(object) {
+  let id = ids.get(object);
+  if (id === undefined) ids.set(object, id = ++nextId);
+  return id;
+}
+
+function kindKey(kind) {
+  if (typeof kind === 'string') return kind;
+  if (kind.f !== undefined) return 'f' + idOf(kind.f.node);
+  if (kind.o !== undefined) return 'o' + idOf(kind.o.identifier);
+  return 'g' + kind.g;
+}
+
+// A value a built-in may convert, read or call without running app code.
+function inert(kind) {
+  return kind === P || kind === A || kind === B || kind === D || (typeof kind === 'object' && kind.g !== undefined);
+}
+
+// --- The kind of what a binding names, from its declaration ---
+
+/** @returns {Kind} */
+function declaredKind(binding, seen = new Set()) {
+  if (binding.kind === 'module' || binding.kind === 'param' || seen.has(binding)) return U;
   const path = binding.path;
-  if (!path.isVariableDeclarator() || !t.isObjectExpression(path.node.init)) return false;
-  return path.node.init.properties.some((prop) =>
-    t.isSpreadElement(prop) || prop.computed ||
-    t.isIdentifier(prop.key, { name: method }) || t.isStringLiteral(prop.key, { value: method }));
+  if (!binding.constant) return countedKind(binding, seen);
+  if (path.isFunctionDeclaration()) return { f: path };
+  if (!path.isVariableDeclarator() || !t.isIdentifier(path.node.id)) return U;
+  const init = path.get('init');
+  if (!init.node) return P;
+  if (init.isArrowFunctionExpression() || init.isFunctionExpression()) return { f: init };
+  if (init.isObjectExpression()) return keepsItself(binding) ? { o: binding } : U;
+  seen.add(binding);
+  const kind = constKind(init.node, init.scope, seen);
+  return kind === A && !keepsElements(binding) ? U : kind;
 }
 
-// Every call of the module, read before any JSX is lowered (see the plugin's
-// Program visitor), so that a function's body is read as its author wrote it
-// whether it comes before or after the JSX that calls it. Every call's scope
-// is recorded first, so the bodies read see each of them.
-export function resolveCallees(callPaths, importedIds) {
-  for (const callPath of callPaths) callScopes.set(callPath.node, callPath.scope);
-  scopeNamesCache = new WeakMap();
-  try {
-    for (const callPath of callPaths) callReadsInside(callPath.node, { scope: callPath.scope }, importedIds);
-  } finally {
-    scopeNamesCache = null;
+// A variable that is written again (a loop counter, a total) is a primitive
+// when it starts as one and every write gives it one by the rules of
+// constKind: `i++`, `i = 0`, `n += 2`.
+function countedKind(binding, seen) {
+  const path = binding.path;
+  if (!path.isVariableDeclarator() || !t.isIdentifier(path.node.id)) return U;
+  seen.add(binding);
+  if (path.node.init && constKind(path.node.init, path.scope, seen) !== P) return U;
+  return binding.constantViolations.every((write) => write.isUpdateExpression() ||
+    (write.isAssignmentExpression() && t.isIdentifier(write.node.left) && constKind(write.node.right, write.scope, seen) === P)) ? P : U;
+}
+
+// Whether the array `binding` names keeps the primitives it was declared
+// with: every use reads it, iterates it or spreads it, and none changes it.
+function keepsElements(binding) {
+  return binding.referencePaths.every((ref) => {
+    const parent = ref.parentPath;
+    if (parent.isForOfStatement({ right: ref.node }) || parent.isSpreadElement()) return true;
+    if (!parent.isMemberExpression({ object: ref.node })) return false;
+    const use = parent.parentPath;
+    if (use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() || use.isUnaryExpression({ operator: 'delete' })) return false;
+    return !(use.isCallExpression({ callee: parent.node }) && MUTATING.has(propertyName(parent.node)));
+  });
+}
+
+// The kind of a module-level constant's initializer, where it is built of
+// literals, operators, built-in objects and other such constants.
+function constKind(node, scope, seen) {
+  if (t.isStringLiteral(node) || t.isNumericLiteral(node) || t.isBooleanLiteral(node) || t.isNullLiteral(node) || t.isBigIntLiteral(node)) return P;
+  if (t.isTemplateLiteral(node)) return node.expressions.every((e) => constKind(e, scope, seen) === P) ? P : U;
+  if (t.isUnaryExpression(node)) return constKind(node.argument, scope, seen) === P ? P : U;
+  if (t.isBinaryExpression(node) || t.isLogicalExpression(node)) {
+    return constKind(node.left, scope, seen) === P && constKind(node.right, scope, seen) === P ? P : U;
+  }
+  if (t.isConditionalExpression(node)) {
+    return [node.test, node.consequent, node.alternate].every((e) => constKind(e, scope, seen) === P) ? P : U;
+  }
+  if (t.isArrayExpression(node)) return node.elements.every((e) => e !== null && !t.isSpreadElement(e) && constKind(e, scope, seen) === P) ? A : U;
+  if (t.isRegExpLiteral(node)) return B;
+  if (t.isNewExpression(node) && builtinConstructor(node.callee, scope) && node.arguments.every((e) => !t.isSpreadElement(e) && constKind(e, scope, seen) === P)) return B;
+  if (t.isIdentifier(node)) {
+    if (node.name === 'undefined' || node.name === 'NaN' || node.name === 'Infinity') return bindingOf(node, scope) ? U : P;
+    const binding = bindingOf(node, scope);
+    return binding ? declaredKind(binding, seen) : U;
+  }
+  return U;
+}
+
+function builtinConstructor(callee, scope) {
+  let root = callee;
+  if (t.isMemberExpression(root) && !root.computed) root = root.object;
+  return t.isIdentifier(root) && BUILTIN_OBJECTS.has(root.name) && !bindingOf(root, scope);
+}
+
+// Whether the object literal `binding` is declared with keeps the members it
+// was declared with: every use reads one of its properties by name (none is
+// replaced, deleted, or handed to code that could), and each of its methods
+// uses `this` only to read or call a property by name.
+const kept = new WeakMap();
+function keepsItself(binding) {
+  let answer = kept.get(binding);
+  if (answer !== undefined) return answer;
+  answer = binding.referencePaths.every((ref) => {
+    const parent = ref.parentPath;
+    if (!parent || !parent.isMemberExpression({ object: ref.node }) || parent.node.computed) return false;
+    const use = parent.parentPath;
+    return !(use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() ||
+      use.isUnaryExpression({ operator: 'delete' }));
+  }) && binding.path.get('init.properties').every((prop) => {
+    const fn = prop.isObjectMethod() ? prop : prop.isObjectProperty() && prop.get('value').isFunctionExpression() ? prop.get('value') : null;
+    return fn === null || thisStaysPut(fn);
+  });
+  kept.set(binding, answer);
+  return answer;
+}
+
+function thisStaysPut(fn) {
+  let ok = true;
+  fn.traverse({
+    ThisExpression(path) {
+      const parent = path.parentPath;
+      const use = parent.parentPath;
+      if (!parent.isMemberExpression({ object: path.node }) || parent.node.computed ||
+          use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() ||
+          use.isUnaryExpression({ operator: 'delete' })) ok = false;
+    },
+    Function(path) {
+      if (!path.isArrowFunctionExpression()) path.skip();
+    },
+  });
+  return ok;
+}
+
+// What reading member `name` of the kept object literal `binding` finds:
+// { value } for a property or a method (the path of its value), { get } or
+// { set } for an accessor, null when a spread or a computed key may give it
+// another, and { inherited } when the literal declares no such member.
+function memberOf(binding, name, write) {
+  /** @type {any} */
+  let found = { inherited: true };
+  for (const prop of binding.path.get('init.properties')) {
+    if (prop.isSpreadElement() || prop.node.computed) {
+      found = null;
+      continue;
+    }
+    if (keyName(prop.node) !== name) continue;
+    if (prop.isObjectMethod()) {
+      if (prop.node.kind === 'method') found = { value: prop };
+      else if ((prop.node.kind === 'set') === write) found = prop.node.kind === 'set' ? { set: prop } : { get: prop };
+    } else {
+      found = { value: prop.get('value') };
+    }
+  }
+  return found;
+}
+
+// --- Evaluation ---
+
+/** @returns {Kind} */
+function evalExpr(e, ev) {
+  if (e == null) return P;
+  switch (e.type) {
+    case 'StringLiteral': case 'NumericLiteral': case 'BooleanLiteral': case 'NullLiteral': case 'BigIntLiteral':
+      return P;
+    case 'RegExpLiteral':
+      return B;
+    case 'TemplateLiteral':
+      for (const x of e.expressions) convert(evalExpr(x, ev), ev);
+      return P;
+    case 'Identifier':
+      return identKind(e, ev);
+    case 'ThisExpression':
+      return ev.thisKind;
+    case 'ParenthesizedExpression': case 'TSAsExpression': case 'TSSatisfiesExpression': case 'TSNonNullExpression': case 'TypeCastExpression': case 'TSTypeAssertion':
+      return evalExpr(e.expression, ev);
+    case 'SequenceExpression': {
+      /** @type {Kind} */
+      let kind = P;
+      for (const x of e.expressions) kind = evalExpr(x, ev);
+      return kind;
+    }
+    case 'ArrayExpression': {
+      let primitives = true;
+      for (const x of e.elements) {
+        if (x === null) continue;
+        if (t.isSpreadElement(x)) {
+          iterate(evalExpr(x.argument, ev), ev);
+          primitives = false;
+        } else if (evalExpr(x, ev) !== P) {
+          primitives = false;
+        }
+      }
+      return primitives ? A : U;
+    }
+    case 'ObjectExpression': {
+      let data = true;
+      for (const prop of e.properties) {
+        if (t.isSpreadElement(prop)) {
+          spread(evalExpr(prop.argument, ev), ev);
+          data = false;
+        } else {
+          if (prop.computed) convert(evalExpr(prop.key, ev), ev);
+          if (!t.isObjectProperty(prop) || evalExpr(prop.value, ev) !== P) data = false;
+        }
+      }
+      return data ? D : U;
+    }
+    case 'ArrowFunctionExpression': case 'FunctionExpression': {
+      const path = functionPaths.get(e);
+      return path ? { f: path } : U;
+    }
+    case 'UnaryExpression': {
+      const kind = evalExpr(e.argument, ev);
+      if (e.operator === '-' || e.operator === '+' || e.operator === '~') convert(kind, ev);
+      return P;
+    }
+    case 'BinaryExpression': {
+      const left = t.isPrivateName(e.left) ? P : evalExpr(e.left, ev);
+      const right = evalExpr(e.right, ev);
+      if (e.operator === '===' || e.operator === '!==') return P;
+      if (e.operator === 'in') {
+        if (right === U) ev.reads = true;
+      } else if (e.operator === 'instanceof') {
+        if (typeof right !== 'object' || /** @type {any} */ (right).g === undefined) ev.reads = true;
+      } else {
+        convert(left, ev);
+        convert(right, ev);
+      }
+      return P;
+    }
+    case 'LogicalExpression':
+      return join(evalExpr(e.left, ev), evalExpr(e.right, ev));
+    case 'ConditionalExpression':
+      evalExpr(e.test, ev);
+      return join(evalExpr(e.consequent, ev), evalExpr(e.alternate, ev));
+    case 'AssignmentExpression':
+      return assign(e, ev);
+    case 'UpdateExpression':
+      if (t.isIdentifier(e.argument)) convert(evalExpr(e.argument, ev), ev);
+      else if (t.isMemberExpression(e.argument)) {
+        convert(memberRead(e.argument, ev), ev);
+        write(memberObject(e.argument, ev), ev);
+      } else ev.reads = true;
+      return P;
+    case 'MemberExpression': case 'OptionalMemberExpression':
+      return memberRead(e, ev);
+    case 'CallExpression': case 'OptionalCallExpression':
+      return call(e, ev);
+    case 'NewExpression':
+      return construct(e, ev);
+    case 'TaggedTemplateExpression': {
+      const args = [A, ...e.quasi.expressions.map((x) => evalExpr(x, ev))];
+      if (t.isMemberExpression(e.tag)) return methodCall(evalExpr(e.tag.object, ev), propertyName(e.tag), args, ev);
+      return callValue(evalExpr(e.tag, ev), args, U, ev);
+    }
+    // JSX the body builds tracks its own holes once it is lowered.
+    case 'JSXElement': case 'JSXFragment':
+      return U;
+    default:
+      ev.reads = true;
+      return U;
   }
 }
 
-// Each scope's own signal names, kept while resolveCallees reads the module,
-// before any JSX is lowered (lowering rewrites a row callback's parameters):
-// a module of thousands of functions reads its top-level bindings once, not
-// once per function.
-/** @type {WeakMap<object, { signals: string[], props: string[] }> | null} */
-let scopeNamesCache = null;
+/** @returns {Kind} */
+function identKind(id, ev) {
+  const binding = bindingOf(id, ev.scope);
+  if (binding === null) {
+    if (id.name === 'undefined' || id.name === 'NaN' || id.name === 'Infinity') return P;
+    if (SAFE_GLOBAL_CALLS.has(id.name) || BUILTIN_OBJECTS.has(id.name)) return { g: id.name };
+    // A global the platform does not define may be a getter of globalThis.
+    ev.reads = true;
+    return U;
+  }
+  for (let at = ev; at !== null; at = at.outer) {
+    const kind = at.env.get(binding);
+    if (kind !== undefined) return kind;
+  }
+  if (!binding.constant) {
+    const around = binding.scope.getFunctionParent();
+    for (let at = ev; at !== null; at = at.outer) {
+      if (around !== null && at.fn !== null && at.fn.node === around.block) return writtenKind(binding, at);
+    }
+  }
+  return declaredKind(binding);
+}
 
-// The call graph: a node per local function the module calls (a binding
-// called, or its `method`), kept per declaration. Its edges are the local
-// functions its body calls; `direct` says whether its body reads by itself.
+// The kind of a variable of the function `ev` reads that is written again:
+// what it starts with (its initializer, or the value of its parameter) joined
+// with every value written to it, each of a kind that may depend on the
+// variable's own (taken to be what it starts with while it is worked out: a
+// variable only ever given primitives is a primitive). A write the join
+// cannot see (a destructuring, a loop's left side) makes it U.
+function writtenKind(binding, ev) {
+  if (ev.written.has(binding)) return ev.written.get(binding);
+  const path = binding.path;
+  /** @type {Kind} */
+  let kind = U;
+  if (binding.kind === 'param') kind = ev.params.get(binding) ?? U;
+  else if (path.isVariableDeclarator() && t.isIdentifier(path.node.id)) kind = path.node.init ? kindOf(path.node.init, ev) : P;
+  ev.written.set(binding, kind);
+  for (const write of binding.constantViolations) {
+    if (write.isUpdateExpression()) continue;
+    if (!write.isAssignmentExpression() || !t.isIdentifier(write.node.left)) {
+      kind = U;
+      break;
+    }
+    const op = write.node.operator;
+    kind = join(kind, op === '=' || op === '||=' || op === '&&=' || op === '??=' ? kindOf(write.node.right, ev) : P);
+    ev.written.set(binding, kind);
+  }
+  ev.written.set(binding, kind);
+  return kind;
+}
+
+// The kind of `expr`, without what evaluating it reads: the evaluation reads
+// it where it stands.
+function kindOf(expr, ev) {
+  return evalExpr(expr, { ...ev, reads: false, edges: [] });
+}
+
+// Converting a value to a primitive runs its valueOf or toString.
+function convert(kind, ev) {
+  if (kind === U) ev.reads = true;
+  else if (typeof kind === 'object' && kind.o !== undefined) {
+    for (const name of ['valueOf', 'toString']) {
+      const member = memberOf(kind.o, name, false);
+      if (member === null || member.inherited !== true) ev.reads = true;
+    }
+  }
+}
+
+function iterate(kind, ev) {
+  if (kind !== P && kind !== A && kind !== D) ev.reads = true;
+}
+
+// Spreading an object runs its getters.
+function spread(kind, ev) {
+  if (kind === U) ev.reads = true;
+  else if (typeof kind === 'object' && kind.o !== undefined) {
+    if (kind.o.path.node.init.properties.some((prop) => t.isSpreadElement(prop) || prop.computed || (t.isObjectMethod(prop) && prop.kind !== 'method'))) ev.reads = true;
+  }
+}
+
+// Writing a property of a value of `kind` runs its setter.
+function write(kind, ev) {
+  if (kind === U || (typeof kind === 'object' && kind.o !== undefined)) ev.reads = true;
+}
+
+function memberObject(member, ev) {
+  if (t.isSuper(member.object)) {
+    ev.reads = true;
+    return U;
+  }
+  const kind = evalExpr(member.object, ev);
+  if (member.computed) convert(evalExpr(member.property, ev), ev);
+  return kind;
+}
+
+/** @returns {Kind} */
+function memberRead(member, ev) {
+  const object = memberObject(member, ev);
+  return readMember(object, propertyName(member), ev);
+}
+
+/** @returns {Kind} */
+function readMember(object, name, ev) {
+  if (object === P || object === A || object === B || object === D) return P;
+  if (typeof object === 'object') {
+    if (object.g !== undefined || object.f !== undefined) return P;
+    const member = name === null ? null : memberOf(object.o, name, false);
+    if (member === null) {
+      ev.reads = true;
+      return U;
+    }
+    if (member.inherited === true) return P;
+    if (member.get !== undefined) {
+      edge(member.get, [], object, ev);
+      return U;
+    }
+    const value = member.value;
+    if (value.isObjectMethod() || value.isFunctionExpression() || value.isArrowFunctionExpression()) return { f: value };
+    if (value.isIdentifier()) {
+      const binding = bindingOf(value.node, value.scope);
+      return binding ? declaredKind(binding) : U;
+    }
+    return constKind(value.node, value.scope, new Set());
+  }
+  ev.reads = true;
+  return U;
+}
+
+function assign(e, ev) {
+  const value = evalExpr(e.right, ev);
+  const target = e.left;
+  if (t.isIdentifier(target)) {
+    if (e.operator !== '=') {
+      const current = evalExpr(target, ev);
+      if (e.operator !== '||=' && e.operator !== '&&=' && e.operator !== '??=') {
+        convert(current, ev);
+        convert(value, ev);
+      }
+    }
+    return value;
+  }
+  if (t.isMemberExpression(target)) {
+    if (e.operator !== '=') {
+      const current = memberRead(target, ev);
+      if (e.operator !== '||=' && e.operator !== '&&=' && e.operator !== '??=') {
+        convert(current, ev);
+        convert(value, ev);
+      }
+    }
+    write(memberObject(target, ev), ev);
+    return value;
+  }
+  destructure(target, value, ev);
+  return value;
+}
+
+// A destructuring target (a declaration, a parameter, an assignment) given a
+// value of `kind`: its defaults are evaluated, and taking its parts reads
+// properties of the value or iterates it.
+function destructure(pattern, kind, ev) {
+  if (t.isIdentifier(pattern)) {
+    const binding = bindingOf(pattern, ev.scope) || (ev.fn ? ev.fn.scope.getBinding(pattern.name) : null);
+    if (binding && binding.constant) ev.env.set(binding, kind);
+    else if (binding && binding.kind === 'param') ev.params.set(binding, kind);
+    return;
+  }
+  if (t.isAssignmentPattern(pattern)) {
+    destructure(pattern.left, join(kind, evalExpr(pattern.right, ev)), ev);
+    return;
+  }
+  if (t.isArrayPattern(pattern)) {
+    iterate(kind, ev);
+    for (const element of pattern.elements) if (element) destructure(element, kind === A || kind === P ? P : U, ev);
+    return;
+  }
+  if (t.isObjectPattern(pattern)) {
+    for (const prop of pattern.properties) {
+      if (t.isRestElement(prop)) {
+        spread(kind, ev);
+        destructure(prop.argument, U, ev);
+      } else {
+        if (prop.computed) convert(evalExpr(prop.key, ev), ev);
+        destructure(prop.value, readMember(kind, prop.computed ? null : keyName(prop), ev), ev);
+      }
+    }
+    return;
+  }
+  if (t.isRestElement(pattern)) {
+    destructure(pattern.argument, U, ev);
+    return;
+  }
+  if (t.isMemberExpression(pattern)) {
+    write(memberObject(pattern, ev), ev);
+    return;
+  }
+  ev.reads = true;
+}
+
+function args(call, ev) {
+  const kinds = [];
+  for (const arg of call.arguments) {
+    if (t.isSpreadElement(arg)) {
+      iterate(evalExpr(arg.argument, ev), ev);
+      kinds.push(U);
+    } else {
+      kinds.push(evalExpr(arg, ev));
+    }
+  }
+  return kinds;
+}
+
+/** @returns {Kind} */
+function call(e, ev) {
+  const callee = e.callee;
+  if (t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) {
+    const receiver = memberObject(callee, ev);
+    return methodCall(receiver, propertyName(callee), args(e, ev), ev);
+  }
+  if (t.isIdentifier(callee)) {
+    const binding = bindingOf(callee, ev.scope);
+    if (binding && binding.kind === 'module') {
+      const argKinds = args(e, ev);
+      // An import from What or from the app itself is as reactive as its
+      // source; a package's utility reads nothing of the app's, except
+      // through what it is handed: a function it may call, or a value whose
+      // conversion or getters are the app's.
+      if (ev.importedIds && ev.importedIds.has(callee.name)) ev.reads = true;
+      else handOver(argKinds, ev);
+      return U;
+    }
+  }
+  const fn = evalExpr(callee, ev);
+  return callValue(fn, args(e, ev), U, ev);
+}
+
+// Values handed to code that may convert, read or call them: a function it
+// may call with anything.
+function handOver(argKinds, ev) {
+  for (const kind of argKinds) {
+    if (typeof kind === 'object' && kind.f !== undefined) edge(kind.f, kind.f.node.params.map(() => U), U, ev);
+    else if (!inert(kind)) ev.reads = true;
+  }
+}
+
+/** @returns {Kind} */
+function callValue(fn, argKinds, thisKind, ev) {
+  if (typeof fn === 'object' && fn.f !== undefined) {
+    edge(fn.f, argKinds, thisKind, ev);
+    return U;
+  }
+  if (typeof fn === 'object' && fn.g !== undefined && SAFE_GLOBAL_CALLS.has(fn.g)) {
+    handOver(argKinds, ev);
+    return P;
+  }
+  ev.reads = true;
+  return U;
+}
+
+/** @returns {Kind} */
+function methodCall(receiver, name, argKinds, ev) {
+  if (receiver === P) {
+    if (name === null || !PRIMITIVE_METHODS.has(name)) ev.reads = true;
+    handOver(argKinds, ev);
+    return name === 'split' || name === 'match' ? A : P;
+  }
+  if (receiver === A) {
+    if (name === null || !ARRAY_METHODS.has(name)) ev.reads = true;
+    // A callback is given the array's elements (primitives), their indexes
+    // and the array (reduce: what the last call returned, first).
+    for (const kind of argKinds) {
+      if (typeof kind === 'object' && kind.f !== undefined) edge(kind.f, name === 'reduce' || name === 'reduceRight' ? [U, P, P, A] : [P, P, A], U, ev);
+      else if (!inert(kind)) ev.reads = true;
+    }
+    if (name === 'join' || name === 'toString' || name === 'indexOf' || name === 'lastIndexOf' || name === 'includes' ||
+        name === 'some' || name === 'every' || name === 'find' || name === 'findLast' || name === 'at' || name === 'findIndex' || name === 'findLastIndex') return P;
+    return name !== null && SAME_ELEMENTS.has(name) ? A : U;
+  }
+  if (receiver === B) {
+    handOver(argKinds, ev);
+    return P;
+  }
+  if (receiver === D) {
+    if (name === null || !OBJECT_METHODS.has(name)) ev.reads = true;
+    handOver(argKinds, ev);
+    return P;
+  }
+  if (typeof receiver === 'object') {
+    if (receiver.g !== undefined) {
+      // Math.max(), JSON.stringify(row), Number.parseFloat(), console.log().
+      handOver(argKinds, ev);
+      return receiver.g === 'Math' || receiver.g === 'Number' || receiver.g === 'String' || receiver.g === 'JSON' || receiver.g === 'Date' ? P : U;
+    }
+    if (receiver.f !== undefined) {
+      if (name === 'call') return callValue(receiver, argKinds.slice(1), argKinds[0] ?? P, ev);
+      if (name === 'apply') return callValue(receiver, argKinds[1] === A || argKinds[1] === undefined ? [P, P, P] : [U, U, U], argKinds[0] ?? P, ev);
+      if (name !== 'bind') ev.reads = true;
+      handOver(argKinds, ev);
+      return U;
+    }
+    const member = name === null ? null : memberOf(receiver.o, name, false);
+    if (member === null) {
+      ev.reads = true;
+      return U;
+    }
+    if (member.inherited === true) {
+      if (!OBJECT_METHODS.has(/** @type {string} */ (name))) ev.reads = true;
+      handOver(argKinds, ev);
+      return P;
+    }
+    if (member.get !== undefined) {
+      edge(member.get, [], receiver, ev);
+      ev.reads = true;
+      return U;
+    }
+    const value = member.value;
+    // A method has the object as `this`; an arrow function its module's.
+    const fn = readMember(receiver, name, ev);
+    return callValue(fn, argKinds, value.isArrowFunctionExpression() ? U : receiver, ev);
+  }
+  ev.reads = true;
+  return U;
+}
+
+/** @returns {Kind} */
+function construct(e, ev) {
+  const argKinds = args(e, ev);
+  if (builtinConstructor(e.callee, ev.scope)) {
+    handOver(argKinds, ev);
+    return B;
+  }
+  if (t.isIdentifier(e.callee) && !bindingOf(e.callee, ev.scope) && (SAFE_GLOBAL_CALLS.has(e.callee.name) || BUILTIN_CONSTRUCTORS.has(e.callee.name))) {
+    handOver(argKinds, ev);
+    return U;
+  }
+  // A constructor the app declares runs its own code: a class instance is
+  // never proven static.
+  ev.reads = true;
+  return U;
+}
+
+// A call of the function at `path` with arguments of `argKinds` and `this`
+// of `thisKind`: an edge of the call graph from the evaluation. A function
+// written inside the one being read sees that one's bindings.
+function edge(path, argKinds, thisKind, ev) {
+  const node = path.node;
+  if (node.async || node.generator) {
+    ev.reads = true;
+    return;
+  }
+  const around = path.parentPath && path.parentPath.getFunctionParent();
+  let outer = null;
+  for (let at = ev; at !== null; at = at.outer) {
+    if (around && at.fn !== null && at.fn.node === around.node) {
+      outer = at;
+      break;
+    }
+  }
+  ev.edges.push(graphNode(path, argKinds, thisKind, outer, ev.importedIds));
+}
+
+// --- The call graph ---
+//
+// A node per function, per kinds of its arguments and `this`, and per
+// evaluation it is a closure of. Its edges are the calls of declared
+// functions its body makes; `direct` says whether its body reads by itself.
 // A node reads when it reads directly or reaches one that does.
 const graphNodes = new WeakMap();
 
-function graphNode(binding, method) {
-  let byMethod = graphNodes.get(binding.identifier);
-  if (!byMethod) graphNodes.set(binding.identifier, byMethod = new Map());
-  let node = byMethod.get(method);
-  if (!node) byMethod.set(method, node = { binding, method, edges: null, direct: false, reads: undefined });
+function graphNode(path, argKinds, thisKind, outer, importedIds) {
+  let byKey = graphNodes.get(path.node);
+  if (!byKey) graphNodes.set(path.node, byKey = new Map());
+  const key = argKinds.map(kindKey).join() + '|' + kindKey(thisKind) + '|' + (outer === null ? '' : idOf(outer));
+  let node = byKey.get(key);
+  if (!node) byKey.set(key, node = { path, argKinds, thisKind, outer, importedIds, edges: null, direct: false, reads: undefined });
   return node;
 }
 
-// Read a node's own body once: whether it reads, and which local functions it
-// calls.
-function expand(node, importedIds) {
-  const fn = boundFunction(node.binding, node.method);
-  if (fn === null) {
-    node.direct = true;
-    node.edges = [];
-    return;
+// Read a node's function once: whether it reads, and which declared
+// functions it calls.
+function expand(node) {
+  const path = node.path;
+  const ev = evaluation(path, node.outer, node.thisKind, path.scope, node.importedIds);
+  // The values a parameter was not given are undefined.
+  path.node.params.forEach((param, i) => destructure(param, node.argKinds[i] ?? P, ev));
+  if (path.node._whatMovedProps) destructure(path.node._whatMovedProps, node.argKinds[0] ?? P, ev);
+  const body = path.node.body;
+  if (t.isBlockStatement(body)) evalStmt(body, ev);
+  else evalExpr(body, ev);
+  node.direct = ev.reads;
+  node.edges = ev.edges;
+}
+
+function evalStmt(s, ev) {
+  switch (s.type) {
+    case 'BlockStatement':
+      for (const x of s.body) evalStmt(x, ev);
+      return;
+    case 'ExpressionStatement':
+      evalExpr(s.expression, ev);
+      return;
+    case 'ReturnStatement': case 'ThrowStatement':
+      evalExpr(s.argument, ev);
+      return;
+    case 'VariableDeclaration':
+      for (const d of s.declarations) {
+        const kind = evalExpr(d.init, ev);
+        // The declared names resolve from the declaration's own block.
+        const scope = ev.scope;
+        ev.scope = declaratorPaths.get(d)?.scope ?? scope;
+        destructure(d.id, d.init == null ? P : kind, ev);
+        ev.scope = scope;
+      }
+      return;
+    case 'IfStatement':
+      evalExpr(s.test, ev);
+      evalStmt(s.consequent, ev);
+      if (s.alternate) evalStmt(s.alternate, ev);
+      return;
+    case 'ForStatement':
+      if (s.init) {
+        if (t.isVariableDeclaration(s.init)) evalStmt(s.init, ev);
+        else evalExpr(s.init, ev);
+      }
+      evalExpr(s.test, ev);
+      evalExpr(s.update, ev);
+      evalStmt(s.body, ev);
+      return;
+    case 'ForOfStatement': {
+      const kind = evalExpr(s.right, ev);
+      iterate(kind, ev);
+      if (s.await) ev.reads = true;
+      const target = t.isVariableDeclaration(s.left) ? s.left.declarations[0].id : s.left;
+      destructure(target, kind === A || kind === P ? P : U, ev);
+      evalStmt(s.body, ev);
+      return;
+    }
+    case 'ForInStatement': {
+      if (evalExpr(s.right, ev) === U) ev.reads = true;
+      const target = t.isVariableDeclaration(s.left) ? s.left.declarations[0].id : s.left;
+      destructure(target, P, ev);
+      evalStmt(s.body, ev);
+      return;
+    }
+    case 'WhileStatement': case 'DoWhileStatement':
+      evalExpr(s.test, ev);
+      evalStmt(s.body, ev);
+      return;
+    case 'SwitchStatement':
+      evalExpr(s.discriminant, ev);
+      for (const c of s.cases) {
+        if (c.test) evalExpr(c.test, ev);
+        for (const x of c.consequent) evalStmt(x, ev);
+      }
+      return;
+    case 'TryStatement':
+      evalStmt(s.block, ev);
+      if (s.handler) {
+        if (s.handler.param) destructure(s.handler.param, U, ev);
+        evalStmt(s.handler.body, ev);
+      }
+      if (s.finalizer) evalStmt(s.finalizer, ev);
+      return;
+    case 'LabeledStatement':
+      evalStmt(s.body, ev);
+      return;
+    case 'FunctionDeclaration': case 'EmptyStatement': case 'BreakStatement': case 'ContinueStatement': case 'DebuggerStatement':
+      return;
+    default:
+      ev.reads = true;
   }
-  const names = collectSignalNamesFromScope(fn);
-  names.calls = [];
-  node.direct = bodyReads(fn.node, names, importedIds);
-  node.edges = names.calls;
 }
 
 // Whether `start` reads, by a depth-first walk of the graph on a stack of its
@@ -508,7 +1214,7 @@ function expand(node, importedIds) {
 // and a cycle is decided only once all of it has been seen. Reaching a reader
 // makes every node on the path to it a reader; exhausting the walk proves
 // every node it saw static, since each reaches only what the start reaches.
-function readsThrough(start, importedIds) {
+function readsThrough(start) {
   if (start.reads !== undefined) return start.reads;
   const stack = [start];
   const nextEdge = [0];
@@ -520,62 +1226,63 @@ function readsThrough(start, importedIds) {
   while (stack.length > 0) {
     const top = stack.length - 1;
     const node = stack[top];
-    if (node.edges === null) expand(node, importedIds);
+    if (node.edges === null) expand(node);
     if (node.direct) return found();
     if (nextEdge[top] === node.edges.length) {
       stack.pop();
       nextEdge.pop();
       continue;
     }
-    const edge = node.edges[nextEdge[top]++];
-    if (edge.reads === true) return found();
-    if (edge.reads === false || seen.has(edge)) continue;
-    seen.add(edge);
-    stack.push(edge);
+    const edgeNode = node.edges[nextEdge[top]++];
+    if (edgeNode.reads === true) return found();
+    if (edgeNode.reads === false || seen.has(edgeNode)) continue;
+    seen.add(edgeNode);
+    stack.push(edgeNode);
     nextEdge.push(0);
   }
   for (const node of seen) node.reads = false;
   return false;
 }
 
-// The path of the function a call of the binding (or of its `method`) runs,
-// or null when the declaration does not show one that stays put.
-function boundFunction(binding, method) {
-  if (!binding.constant) return null;
-  const path = binding.path;
-  if (path.isFunctionDeclaration()) return method === null ? path : null;
-  if (!path.isVariableDeclarator()) return null;
-  const init = path.get('init');
-  if (method === null) return init.isArrowFunctionExpression() || init.isFunctionExpression() ? init : null;
-  if (!init.isObjectExpression() || !keepsItsMethods(binding)) return null;
-  // The last property that may be `method` is the one the object has.
-  /** @type {any} */
-  let last = null;
-  for (const prop of init.get('properties')) {
-    if (prop.isSpreadElement() || prop.node.computed) last = null;
-    else if (t.isIdentifier(prop.node.key, { name: method }) || t.isStringLiteral(prop.node.key, { value: method })) last = prop;
+// Every call of the module, read before any JSX is lowered (see the plugin's
+// Program visitor), so that a function's body is read as its author wrote it
+// whether it comes before or after the JSX that calls it. What every
+// identifier names, and where each function and declaration stands, is
+// recorded first, so the bodies read see each of them.
+export function resolveCallees(program, callPaths, importedIds) {
+  references = new WeakMap();
+  functionPaths = new WeakMap();
+  declaratorPaths = new WeakMap();
+  decided = new WeakMap();
+  program.traverse({
+    ReferencedIdentifier(path) {
+      if (path.isIdentifier()) references.set(path.node, path.scope.getBinding(path.node.name) || null);
+    },
+    Function(path) {
+      functionPaths.set(path.node, path);
+    },
+    VariableDeclarator(path) {
+      declaratorPaths.set(path.node, path);
+    },
+  });
+  scopeNamesCache = new WeakMap();
+  try {
+    for (const callPath of callPaths) {
+      const ev = evaluation(null, null, U, callPath.scope, importedIds);
+      evalExpr(callPath.node, ev);
+      decided.set(callPath.node, finish(ev));
+    }
+  } finally {
+    scopeNamesCache = null;
   }
-  if (last === null) return null;
-  if (last.isObjectMethod()) return last.node.kind === 'method' ? last : null;
-  const value = last.get('value');
-  if (value.isArrowFunctionExpression() || value.isFunctionExpression()) return value;
-  if (!value.isIdentifier()) return null;
-  const inner = last.scope.getBinding(value.node.name);
-  return inner ? boundFunction(inner, null) : null;
 }
 
-// Whether the object `binding` names keeps the methods it was declared with:
-// every use reads one of its properties by name, so none is replaced and the
-// object reaches no code that could replace one.
-function keepsItsMethods(binding) {
-  return binding.referencePaths.every((ref) => {
-    const parent = ref.parentPath;
-    if (!parent || !parent.isMemberExpression({ object: ref.node }) || parent.node.computed) return false;
-    const use = parent.parentPath;
-    return !(use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() ||
-      use.isUnaryExpression({ operator: 'delete' }));
-  });
-}
+// Each scope's own signal names, kept while resolveCallees reads the module,
+// before any JSX is lowered (lowering rewrites a row callback's parameters):
+// a module of thousands of functions reads its top-level bindings once, not
+// once per function.
+/** @type {WeakMap<object, { signals: string[], props: string[] }> | null} */
+let scopeNamesCache = null;
 
 // A `when` prop's shape determines how the condition is formed:
 //   - call expression          → use as-is              when={cond()}

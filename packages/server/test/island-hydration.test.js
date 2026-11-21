@@ -72,6 +72,20 @@ describe('island hydration', () => {
     assert.equal(clicks, 1, 'handlers should be attached by hydration');
   });
 
+  it('reports an island\'s mismatches to the onHydrationError it was given', async () => {
+    const html = await asServer(() => renderToString(Island({
+      name: 'labelled', props: { label: 'server' }, mode: 'load', children: [h(Counter, { label: 'server' })],
+    })));
+    const app = document.getElementById('app');
+    app.innerHTML = html;
+    const reports = [];
+    island('labelled', () => ({ default: () => h(Counter, { label: 'client' }) }), { mode: 'load' });
+    hydrateIslands({ onHydrationError: (report) => reports.push(report) });
+    await flush();
+    assert.equal(app.querySelector('button').textContent, 'client:0');
+    assert.deepEqual(reports.map((report) => report.kind), ['text']);
+  });
+
   it('hydrates island stores from the #__what_data payload', async () => {
     function Page() {
       const store = createIslandStore('cart', { items: 0 });

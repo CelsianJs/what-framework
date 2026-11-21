@@ -29,10 +29,21 @@
 import { runWithOwner, flushSync, _setOwnerFallback, _detached } from './reactive.js';
 import { _installSeeding } from './hydration-data.js';
 
-/** @type {any} */
-let _current = null;
-/** @type {{ getStore: () => any, run: (store: any, fn: () => any) => any } | null} */
-let _asyncContextStorage = null;
+// The process's render context, its async context provider and whether it is
+// a server, kept once for every tier of what-core the process loaded: the
+// development and production builds (dist/*.js, dist/*.min.js) and the source
+// each hold a copy of this module, and a component bundled from one tier that
+// a server of another renders still reads that render's context (its
+// response, its loader data). Keyed by Symbol.for, so one realm has one.
+const STORE = Symbol.for('what.serverContext');
+/** @type {{ current: any, storage: { getStore: () => any, run: (store: any, fn: () => any) => any } | null, server: boolean, withDocument: boolean } | null} */
+let shared = null;
+// Made on first use, so importing the module writes no global.
+function store() {
+  return shared ??= /** @type {any} */ (globalThis)[STORE] ??= { current: null, storage: null, server: false, withDocument: false };
+}
+// Whether this copy of the module has wired the provider into its tier.
+let installed = false;
 
 /**
  * Install the async context provider used by the server renderer.
@@ -44,8 +55,10 @@ let _asyncContextStorage = null;
  * @internal
  */
 export function __installServerContextStorage(storage) {
-  if (_asyncContextStorage) return;
-  _asyncContextStorage = storage;
+  if (installed) return;
+  installed = true;
+  const state = store();
+  if (state.storage === null) state.storage = storage;
   _installSeeding();
   _setOwnerFallback(renderOwner);
 }
@@ -53,7 +66,8 @@ export function __installServerContextStorage(storage) {
 // The root of the render whose async context is active, for work created with
 // no owner current.
 function renderOwner() {
-  const ctx = _asyncContextStorage ? _asyncContextStorage.getStore() : null;
+  const storage = store().storage;
+  const ctx = storage ? storage.getStore() : null;
   return ctx != null && ctx.owner != null ? ctx.owner : null;
 }
 
@@ -66,24 +80,24 @@ function renderOwner() {
 // request's. Without AsyncLocalStorage a render's code after an `await` runs
 // outside its context, and a DOM shim (jsdom, happy-dom, a Workers polyfill)
 // must not make that code share one cache.
-let _serverProcess = false;
-let _markedWithDocument = false;
-
 /** @internal what-server: this process renders on the server. */
 export function __markServerProcess() {
-  _serverProcess = true;
-  _markedWithDocument = typeof document !== 'undefined';
+  const state = store();
+  state.server = true;
+  state.withDocument = typeof document !== 'undefined';
 }
 
 /** @internal Whether code outside a render runs on a server (see above). */
 export function _isServerProcess() {
-  return _serverProcess && (!_markedWithDocument || _asyncContextStorage === null);
+  const state = store();
+  return state.server && (!state.withDocument || state.storage === null);
 }
 
 /** @returns the active render context, or null on the client / outside a render. */
 export function getServerContext() {
-  if (_current != null) return _current;
-  return _asyncContextStorage ? _asyncContextStorage.getStore() ?? null : null;
+  const state = store();
+  if (state.current != null) return state.current;
+  return state.storage ? state.storage.getStore() ?? null : null;
 }
 
 /**
@@ -104,8 +118,9 @@ export function isServerRender() {
  */
 export function setServerContext(ctx) {
   _installSeeding();
-  const prev = _current;
-  _current = ctx;
+  const state = store();
+  const prev = state.current;
+  state.current = ctx;
   return prev;
 }
 
@@ -117,13 +132,14 @@ export function setServerContext(ctx) {
  */
 export function runWithServerContext(ctx, fn) {
   _installSeeding();
-  const prev = _current;
-  _current = ctx;
+  const state = store();
+  const prev = state.current;
+  state.current = ctx;
   const run = ctx && ctx.owner ? () => runWithOwner(ctx.owner, fn) : fn;
   try {
-    return _asyncContextStorage ? _asyncContextStorage.run(ctx, run) : run();
+    return state.storage ? state.storage.run(ctx, run) : run();
   } finally {
-    _current = prev;
+    state.current = prev;
   }
 }
 
@@ -152,13 +168,14 @@ export function __flushOutsideServerContext() {
  * @internal
  */
 export function __outsideServerContext(fn) {
-  const prev = _current;
-  const storage = _asyncContextStorage;
-  _current = null;
+  const state = store();
+  const prev = state.current;
+  const storage = state.storage;
+  state.current = null;
   try {
     return _detached(storage ? () => storage.run(null, fn) : fn);
   } finally {
-    _current = prev;
+    state.current = prev;
   }
 }
 

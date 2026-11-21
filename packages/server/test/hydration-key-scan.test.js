@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import * as core from 'what-core';
 import { renderToHydratableString, renderToString } from '../src/index.js';
 import { randomTree } from './fixtures/random-tree.js';
+import { keyShape } from './stream-helpers.js';
 
 const { h } = core;
 
@@ -44,7 +45,8 @@ describe('the hydration key scan', () => {
 // got markers. A <textarea> changed in both in 0.15: its content is text only
 // (no element, no marker) and a newline follows its start tag, which the
 // parser drops (what-core markup-rules.js). Also in 0.15, a keyed list writes
-// its rows' keys after its opening marker (compiled.js rowKeys), and a
+// its rows' keys after its opening marker (compiled.js rowKeys, hashed here
+// by their shape, since each render salts them), and a
 // component given one child gets the child itself, as on the client, so a
 // component that returns its children writes no array markers around one; a
 // style object's declaration the client's CSSOM would drop (a name that is not
@@ -59,7 +61,7 @@ describe('string output is unchanged', () => {
     try {
       for (const [seed, [plain, hydratable]] of Object.entries(expected)) {
         if (sha(renderToString(randomTree(core, Number(seed)))) !== plain) mismatches.push(`renderToString seed ${seed}`);
-        if (sha(renderToHydratableString(randomTree(core, Number(seed)))) !== hydratable) mismatches.push(`renderToHydratableString seed ${seed}`);
+        if (sha(keyShape(renderToHydratableString(randomTree(core, Number(seed))))) !== hydratable) mismatches.push(`renderToHydratableString seed ${seed}`);
       }
     } finally {
       console.warn = warn;

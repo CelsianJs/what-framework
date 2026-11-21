@@ -1044,6 +1044,11 @@ NODE_ENV=production npm start
 - \`dist/manifest.json\`: one catch-all serverless route, so the deploy fits the
   free tier (static files plus one Function, no dedicated server).
 
+The deploy is a production build: the page loads the framework's production
+modules (\`dist/*.min.js\`, no development code), and the Function runs in
+production whatever its host sets \`NODE_ENV\` to. Build with
+\`NODE_ENV=development npm run build\` for a development deploy.
+
 The ISR cache is in memory, per Function instance: a cold start begins with an
 empty cache, and \`revalidatePath\` purges only the instance that ran the action.
 Swap \`createMemoryStore()\` in \`server.js\` for a shared store if you need one
@@ -1593,7 +1598,7 @@ const documentOptions = {
   clientEntry: '/src/entry-client.js',
   // A getter, so devToolsHead() re-reads the token on every render.
   get head() {
-    importMap ??= importMapFor(clientPackages({ dev: !isProd }));
+    importMap ??= importMapFor(clientPackages({ dev: !isProd, production: isProd }));
     return \`<script type="importmap">\${JSON.stringify(importMap)}</script>\` +
       devToolsHead() +
       '<link rel="stylesheet" href="/src/styles.css">' +
@@ -1660,7 +1665,7 @@ let packageDirs = null;
 
 function resolveStaticFile(pathname) {
   if (pathname.includes('..') || pathname.includes('\\0')) return null;
-  packageDirs ??= clientPackages({ dev: !isProd }).flatMap((pkg) => pkg.dirs);
+  packageDirs ??= clientPackages({ dev: !isProd, production: isProd }).flatMap((pkg) => pkg.dirs);
   const pkgDir = packageDirs.find((d) => pathname.startsWith(d.url));
   let file;
   if (pkgDir) {
@@ -1744,12 +1749,16 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 // what-devtools-mcp is the Node MCP server). Each is found the way Node finds
 // it, wherever the package manager put it: the re-exported packages from
 // what-framework itself, since a package manager that does not hoist installs
-// them only there. Each one is served at /node_modules/<name>/.
+// them only there. Each one is served at /node_modules/<name>/. For
+// production (\`production: true\`) each export maps to the package's
+// production build (dist/*.min.js), which carries no development code, and
+// only that build is served.
 const DEVTOOLS = { 'what-devtools': ['.'], 'what-devtools-mcp': ['./client'] };
 
-export function clientPackages({ dev = false } = {}) {
-  const framework = clientPackage('what-framework', ROOT);
-  const packages = [framework, ...['what-core', 'what-router', 'what-server'].map((name) => clientPackage(name, framework.dir))];
+export function clientPackages({ dev = false, production = false } = {}) {
+  const conditions = production ? PRODUCTION_CONDITIONS : BROWSER_CONDITIONS;
+  const framework = clientPackage('what-framework', ROOT, undefined, conditions);
+  const packages = [framework, ...['what-core', 'what-router', 'what-server'].map((name) => clientPackage(name, framework.dir, undefined, conditions))];
   if (dev) {
     for (const [name, subpaths] of Object.entries(DEVTOOLS)) {
       const pkg = installed(name, subpaths);
@@ -1782,7 +1791,7 @@ function installed(name, subpaths) {
 // dirs: [{ url, dir }] }, mapping the given subpaths, or every one the package
 // exports, and the package's own \`#\` imports. \`dir\` is where Node
 // found the package, which is where its own dependencies resolve from.
-function clientPackage(name, from, subpaths) {
+function clientPackage(name, from, subpaths, conditions = BROWSER_CONDITIONS) {
   let dir = dirname(createRequire(join(from, 'package.json')).resolve(name));
   while (!isPackage(dir, name)) {
     if (dirname(dir) === dir) throw new Error(\`no package.json names \${name}\`);
@@ -1799,14 +1808,14 @@ function clientPackage(name, from, subpaths) {
   const tops = new Set();
   for (const [subpath, target] of Object.entries(readPackage(dir).exports)) {
     if (subpaths && !subpaths.includes(subpath)) continue;
-    const file = browserFile(target);
+    const file = browserFile(target, conditions);
     if (!file) continue;
     imports.push([name + subpath.slice(1), url + file.slice(2)]);
     tops.add(file.slice(2).split('/')[0]);
   }
   const scope = [];
   for (const [specifier, target] of Object.entries(readPackage(dir).imports ?? {})) {
-    const file = browserFile(target);
+    const file = browserFile(target, conditions);
     if (!file) continue;
     scope.push([specifier, url + file.slice(2)]);
     tops.add(file.slice(2).split('/')[0]);
@@ -1815,15 +1824,17 @@ function clientPackage(name, from, subpaths) {
 }
 
 // The file a browser import of an export resolves to: its \`browser\`,
-// \`import\` or \`default\` condition, whichever the package lists first.
-// \`node\` is the server's, and \`production\` names a dist this template does
-// not serve.
+// \`import\` or \`default\` condition, whichever the package lists first;
+// for production, its \`production\` build. \`node\` is the server's. An
+// import with no production build (what-core's \`#env\`, which the
+// production build does not import) is not mapped for production.
 const BROWSER_CONDITIONS = new Set(['browser', 'import', 'default']);
+const PRODUCTION_CONDITIONS = new Set(['production']);
 
-function browserFile(target) {
-  if (typeof target === 'string') return target;
+function browserFile(target, conditions) {
+  if (typeof target === 'string') return conditions === PRODUCTION_CONDITIONS ? null : target;
   for (const [condition, value] of Object.entries(target)) {
-    const file = BROWSER_CONDITIONS.has(condition) ? browserFile(value) : null;
+    const file = conditions.has(condition) ? browserFile(value, BROWSER_CONDITIONS) : null;
     if (file) return file;
   }
   return null;
@@ -1876,7 +1887,10 @@ import { buildVuraOutput } from 'what-framework/server';
 import { CLIENT_DIRS, CLIENT_FILES, clientPackages, importMapFor } from './client-files.js';
 
 const projectRoot = fileURLToPath(new URL('.', import.meta.url));
-const packages = clientPackages();
+// A deploy is a production build unless this runs with NODE_ENV=development:
+// the page maps the packages' production builds, and buildVuraOutput bakes
+// the same mode into the Function.
+const packages = clientPackages({ production: process.env.NODE_ENV !== 'development' });
 writeFileSync(join(projectRoot, 'import-map.json'), JSON.stringify(importMapFor(packages), null, 2) + '\\n');
 
 const { copied } = await buildVuraOutput({

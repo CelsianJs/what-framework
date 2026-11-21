@@ -154,11 +154,16 @@ after an `await` in a component sees no route state at all (the root URL,
 empty params and query), never another request's. A middleware redirect (a
 path, or `redirect()`), `<Redirect>` and a `guard()` path fallback redirect
 the render's response (`getResponse().redirect(to)`, a same-origin path) on
-the server; `redirect()` thrown from a component body escapes the render.
-A `beforeNavigate` or `afterNavigate` a component subscribes while it renders
-on the server is not kept: the server does not navigate. The query string is
-parsed as `URL` parses it: a second `?` belongs to a value (`?q=a?b` is
-`{ q: 'a?b' }`).
+the server, and so do `redirect()` thrown from a component body and
+`navigate()`: a server never navigates, and nothing a render does reaches the
+route state of another one. A `beforeNavigate` or `afterNavigate` subscribed
+on a server (while it renders, or after an `await` with no async context) is
+not kept. A `<Router>` inside another one has route state of its own: its
+`url` (on the server) and the params and query it matched are read by what it
+renders, and never change what its parent's subtree reads. The URL is split as
+`URL` splits it: a second `?` belongs to a value (`?q=a?b` is `{ q: 'a?b' }`),
+`??a=1` is the key `?a`, and a navigation to `/old/../find` commits `/find`,
+as the address bar does.
 
 ## Link Component
 
@@ -263,9 +268,11 @@ redirect. Returning a promise or thenable throws `ERR_ASYNC_MIDDLEWARE` before
 the protected component mounts. The Router observes rejections but does not
 await or use async middleware results. Middleware runs before the route's
 `preload`, on the client and on the server, and a route it declines is never
-prepared. It may run more than once for one navigation (when the navigation
-prepares the route, and when the page renders), so keep it a check without
-side effects.
+prepared. It runs once for a navigation: the page renders by the verdict the
+navigation reached (a redirect it returned, a decline, an error it threw), and
+it runs again only when a signal it read changes (a logout re-checks the page
+on screen). A middleware that starts another navigation supersedes its own:
+the route it was asked about is not prepared.
 
 For async authorization, wrap the route component instead:
 

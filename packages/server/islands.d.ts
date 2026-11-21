@@ -32,8 +32,14 @@ export function Island(props: {
   children?: VNodeChild;
 }): VNode;
 
+/** Options of the island runtime's hydration. */
+export interface HydrateIslandsOptions {
+  /** Receives each mismatch of every island it hydrates, whenever that island hydrates, as hydrate()'s option does. */
+  onHydrationError?: (mismatch: { kind: string; component: string; ownerPath: string | null; path: string; expected: string; found: string; recovery: string }) => void;
+}
+
 /** Hydrate all islands on the page */
-export function hydrateIslands(): void;
+export function hydrateIslands(options?: HydrateIslandsOptions): void;
 
 /** Auto-discover and register islands */
 export function autoIslands(registry: Record<string, {
@@ -42,7 +48,7 @@ export function autoIslands(registry: Record<string, {
   media?: string;
   priority?: number;
   stores?: string[];
-} | (() => Promise<any>)>): void;
+} | (() => Promise<any>)>, options?: HydrateIslandsOptions): void;
 
 /** Boost hydration priority for an island */
 export function boostIslandPriority(name: string, newPriority?: number): void;

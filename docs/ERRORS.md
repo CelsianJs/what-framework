@@ -34,7 +34,8 @@ package exports removes it. A bundler resolves one of three files per export:
 - `development`, `node`, `import` and `default` (`src/`): dev servers, Node, server bundles and
   tests. The source reads the flag through what-core's `#env` import, by the same conditions:
   under `development` it is on, so Vite's dev server, webpack's development mode, Rollup with
-  node-resolve and `NODE_ENV=development`, and a default `bun build` report in development wherever
+  node-resolve and `NODE_ENV=development`, and `bun build` without `--production` (`--minify` alone
+  included) report in development wherever
   the page runs. Otherwise it is decided at runtime (`__WHAT_DEV__`, then Vite's
   `import.meta.env.DEV`, then a server runtime's `process.env.NODE_ENV`, never one a page's markup
   names), and a browser with none of them runs production. A production build that resolves `src/`

@@ -67,7 +67,7 @@ function routeState(devtools) {
     browser,
     router: {
       url,
-      path: url.split('?')[0].split('#')[0],
+      path: new URL(url, loc.href).pathname,
       pattern: r.pattern?.peek() ?? null,
       params: devtools.preview(r.params?.peek() ?? {}, 400),
       query: devtools.preview(r.query?.peek() ?? {}, 400),

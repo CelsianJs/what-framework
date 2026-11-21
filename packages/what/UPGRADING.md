@@ -139,7 +139,7 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `_rowKeySalt`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `_contextOf`, `_provide`, `_isServerProcess`, `isVNode` |
 
 <!-- import-changes:end -->
 
@@ -393,6 +393,26 @@ and navigations that are transitions. Each change below has its migration.
 - **`renderToString(vnode, { response })`** takes a response to read the
   status and headers back from, and `renderToStringAsync` returns it as
   `response`.
+- **Route middleware runs once per navigation.** The page renders by the
+  verdict the navigation reached: a redirect it returned, a decline, or what
+  it threw (`ERR_ASYNC_MIDDLEWARE` from an async one, which starts once). It
+  runs again only when a signal it read changes. A middleware that calls
+  `navigate()` supersedes its own navigation, and the route it was asked about
+  is not prepared. This affects middleware with side effects that expected a
+  second call at render.
+- **The router commits the URL the address bar commits**, dot segments
+  resolved (`/old/../find` is `/find`), and splits it as `URL` does (`??a=1`
+  is the key `?a`).
+- **A `<Router>` inside another has route state of its own**, on the server
+  and in the browser: what it renders reads the params and query it matched,
+  and its parent's subtree keeps reading the parent's. In the browser the
+  outermost Router keeps the routes `navigate()` prepares against. This
+  affects a page that read a nested Router's params from outside it.
+- **A server never navigates.** During a server render, `navigate()` and a
+  `redirect()` thrown from a component body redirect the response (as
+  `<Redirect>` does); `navigate()` no longer leaves the process's router in a
+  navigation that every later render showed. A `beforeNavigate` or
+  `afterNavigate` subscribed anywhere in a server process is not kept.
 
 ### Lists
 
@@ -442,6 +462,14 @@ and navigations that are transitions. Each change below has its migration.
   instead of throwing `ERR_INVALID_SSR_TAG`.
 - **An island's vnode prop is revived only where the server recorded one**
   (`data-island-vnodes`); other vnode-shaped data stays data.
+- **A keyed list's comment carries a salted digest of each key**,
+  `<!--k:SALT:DIGESTS-->`: a random salt for each render, then each key's
+  64-bit digest under it, eleven characters, instead of the keys. A server
+  row is adopted only for the client key whose digest is its own. Code that
+  parsed the comment should stop; a test that compares two renders' markup
+  compares them without it (two renders have two salts).
+- **An island reports to the `onHydrationError` of the `hydrate()` that
+  rendered it**, when it hydrates later.
 
 ### Server rendering
 
@@ -552,6 +580,18 @@ options.
   `environment: 'node'`): set `ssr: false, ssrGuard: false`
   ([Server builds](https://github.com/CelsianJs/what-framework/blob/main/packages/compiler/README.md#server-builds)). With the
   Babel plugin, the server target is `generate: 'ssr'`.
+- **A call is static only when the compiler proves it.** A JSX expression
+  that calls something is left unwrapped only when nothing the call reaches
+  can read a signal: functions and object literals the module declares, given
+  the values the call hands them, and built-ins and package utilities applied
+  to values the compiler saw made. Anything else is wrapped as a reactive
+  child: a method called on a value it did not see made (`{row.padStart(3)}`
+  for a parameter), a global the platform does not define, a getter or
+  setter, a class instance, a callback handed on, a generator, an async
+  function, a default parameter. The rendered text is the same; such a
+  child is a region of its own (one effect that runs once, and its comment
+  markers on the server). This affects tests that match compiled output or
+  server markup of such calls.
 - **Selection comparisons become selectors.** `autoSelector`, on by default,
   rewrites `selected() === row.id` (or `!==`) in a render binding of a keyed
   `.map()` row into a `createSelector` lookup, so a selection change re-runs

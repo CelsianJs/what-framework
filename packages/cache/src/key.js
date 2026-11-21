@@ -39,13 +39,11 @@ export function normalizePath(path) {
   return p || '/';
 }
 
+// URLSearchParams takes one leading '?' off itself, as URL's searchParams
+// does: '??a=1' is the key '?a'.
 function queryToEntries(query) {
   if (!query) return [];
-  if (typeof query === 'string') {
-    const s = query.startsWith('?') ? query.slice(1) : query;
-    if (!s) return [];
-    return [...new URLSearchParams(s).entries()];
-  }
+  if (typeof query === 'string') return [...new URLSearchParams(query).entries()];
   // plain object — values may be arrays
   const out = [];
   for (const [k, v] of Object.entries(query)) {
@@ -92,12 +90,16 @@ export function canonicalCookie(header) {
 export function keyedQuery(query) {
   if (!query) return query;
   if (typeof query === 'string') {
-    const params = new URLSearchParams(query.startsWith('?') ? query.slice(1) : query);
+    const params = new URLSearchParams(query);
     for (const name of new Set(params.keys())) if (shouldStrip(name)) params.delete(name);
     const s = params.toString();
     return query.startsWith('?') && s ? `?${s}` : s;
   }
-  return Object.fromEntries(Object.entries(query).filter(([name]) => !shouldStrip(name)));
+  // Null-prototype, as the router's parseQuery makes it: a cached route sees
+  // the query object an uncached one sees.
+  const kept = Object.create(null);
+  for (const [name, value] of Object.entries(query)) if (!shouldStrip(name)) kept[name] = value;
+  return kept;
 }
 
 /**
