@@ -23,16 +23,19 @@ export const SAFE_TAG_NAME = /^[a-zA-Z_][a-zA-Z0-9._:-]*$/;
 
 // Attributes whose value is a URL the browser follows, fetches or executes:
 // xlink:href because SVG <a> executes it, ping and object[data] because they
-// are fetched. Compared in lower case, so the camelCase props (formAction,
-// xlinkHref) are covered too.
-export const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href', 'xlinkhref']);
+// are fetched, and the SVG animation values (values, to, from, by), which
+// <animate> or <set> with attributeName="href" sets as the href after the
+// element's own attributes were checked. Compared in lower case, so the
+// camelCase props (formAction, xlinkHref) are covered too.
+export const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href', 'xlinkhref', 'values', 'to', 'from', 'by']);
 
 export function isUrlAttr(name) {
   return URL_ATTRS.has(name.toLowerCase());
 }
 
 // A URL with a javascript:, vbscript: or data: scheme, after whitespace and
-// control characters (a superset of what a browser ignores) are removed. A
+// control characters (a superset of what a browser ignores) are removed, or
+// a `;`-separated list (an animation's `values`) with one among its items. A
 // value with no usable toString (Object.create(null), { toString: null }, both
 // reachable from JSON) is refused rather than allowed to throw mid-render.
 export function isUnsafeUrl(value) {
@@ -43,7 +46,7 @@ export function isUnsafeUrl(value) {
   } catch {
     return true;
   }
-  return normalized.startsWith('javascript:') || normalized.startsWith('vbscript:') || normalized.startsWith('data:');
+  return normalized.split(';').some((url) => url.startsWith('javascript:') || url.startsWith('vbscript:') || url.startsWith('data:'));
 }
 
 // Props whose value the browser parses as markup, so escaping is no defense:

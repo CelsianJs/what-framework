@@ -47,6 +47,17 @@ describe('redirect predicate parity', () => {
     assert.ok(clientOnly.includes('mailto:a@b.c'));
   });
 
+  it('safeLocalPath refuses a path whose canonical form is protocol-relative (dot segments, tabs)', () => {
+    for (const t of ['/.//evil.test', '/..//evil.test', '/%2e//evil.test', '/x/..//evil.test', '/./\t/evil.test', '/.//evil.test/x?y=1']) {
+      assert.equal(safeLocalPath(t), null, JSON.stringify(t));
+      assert.equal(localRedirectTarget(t), null, JSON.stringify(t));
+      const response = createResponse();
+      response.redirect(t);
+      assert.equal(response.location, '/', `${JSON.stringify(t)} redirects home instead`);
+    }
+    assert.equal(safeLocalPath('/a/./b/../c'), '/a/c', 'dot segments that stay on the site are fine');
+  });
+
   it('both accept an ordinary same-origin path', () => {
     assert.equal(isSafeUrl('/a/b?x=1'), true);
     assert.equal(safeLocalPath('/a/b?x=1'), '/a/b?x=1');

@@ -149,6 +149,76 @@ describe('<Form> on a mounted page', () => {
     assert.equal(el.querySelector('button').textContent, 'save');
   });
 
+  it('keeps what was typed while a useActionState submission is pending, resets it once the action succeeded, keeps it when it failed', async () => {
+    const gates = [];
+    let status;
+    function Submit() {
+      status = core.useFormStatus();
+      return core.h('button', { type: 'submit' }, 'save');
+    }
+    const el = mount(core.h(core.ErrorBoundary, { fallback: ({ error }) => error.message }, core.h(() => {
+      const [, dispatch] = core.useActionState(() => {
+        const gate = Promise.withResolvers();
+        gates.push(gate);
+        return gate.promise;
+      }, null);
+      return core.h(form.Form, { action: dispatch }, core.h('input', { name: 'title' }), core.h(Submit));
+    })));
+    const input = el.querySelector('input');
+    const submit = () => el.querySelector('form').dispatchEvent(new env.window.Event('submit', { bubbles: true, cancelable: true }));
+    input.value = 'first draft';
+    submit();
+    await tick();
+    assert.deepEqual([status.pending(), status.data().get('title'), input.value], [true, 'first draft', 'first draft'], 'pending: the draft stays');
+    gates[0].resolve('saved');
+    await core.settled();
+    assert.deepEqual([status.pending(), input.value], [false, ''], 'succeeded: reset at the commit');
+    input.value = 'second draft';
+    submit();
+    await tick();
+    gates[1].reject(new Error('save failed'));
+    await core.settled();
+    assert.deepEqual([el.textContent, input.value], ['save failed', 'second draft'], 'failed: the boundary shows it, and the draft stays');
+  });
+
+  it('keeps what was typed when the server action fails, and reports it as form:error', async () => {
+    const save = server.action(async () => {}, { id: 'failingSave' });
+    const el = mount(core.h(form.Form, { action: save }, core.h('input', { name: 'title' })));
+    const formEl = el.querySelector('form');
+    const errors = [];
+    formEl.addEventListener('form:error', (event) => errors.push(event.detail.error));
+    el.querySelector('input').value = 'draft';
+    formEl.dispatchEvent(new env.window.Event('submit', { bubbles: true, cancelable: true }));
+    await tick();
+    respond({ ok: false, body: { error: 'nope' } });
+    await core.settled();
+    await tick();
+    assert.equal(errors.length, 1);
+    assert.equal(el.querySelector('input').value, 'draft');
+  });
+
+  it('a field named like a built-in reaches the server action as its own field', async () => {
+    const save = server.action(async () => {}, { id: 'builtinNames' });
+    const el = mount(core.h(form.Form, { action: save }, core.h('input', { name: 'constructor', value: 'x' }), core.h('input', { name: 'toString', value: 'y' })));
+    el.querySelector('form').dispatchEvent(new env.window.Event('submit', { bubbles: true, cancelable: true }));
+    await tick();
+    assert.deepEqual(posts[0].body, { args: [{ constructor: 'x', toString: 'y' }] });
+    respond({ body: { ok: true } });
+    await core.settled();
+  });
+
+  it('useFormStatus().action is the action function, or null for an action id, as in React', () => {
+    const save = server.action(async () => {}, { id: 'statusSave' });
+    const seen = [];
+    function Probe() {
+      seen.push(core.useFormStatus().action);
+      return null;
+    }
+    mount(core.h(form.Form, { action: save }, core.h(Probe)));
+    mount(core.h(form.Form, { action: 'statusSave' }, core.h(Probe)));
+    assert.deepEqual(seen, [save, null]);
+  });
+
   it('runs a client action (useActionState\'s dispatch) with the FormData', async () => {
     let state;
     const el = mount(core.h(() => {
@@ -160,5 +230,23 @@ describe('<Form> on a mounted page', () => {
     await core.settled();
     assert.equal(state(), 'hi ada');
     assert.equal(posts.length, 0, 'a client action posts nothing');
+  });
+});
+
+describe('<Form> in a server-rendered page', () => {
+  it('hydrates with an <ErrorBoundary> after it: no mismatch, the server nodes are kept', async () => {
+    const { renderToHydratableString } = await import('../src/index.js');
+    const Child = () => core.h('p', { id: 'c' }, () => 'fine');
+    const tree = () => core.h('main', {},
+      core.h(form.Form, { action: 'saveDraft', id: 'f' }, core.h('button', {}, 'go')),
+      core.h(core.ErrorBoundary, { fallback: () => core.h('p', {}, 'err') }, core.h(Child)));
+    const el = env.document.createElement('div');
+    env.document.body.appendChild(el);
+    el.innerHTML = renderToHydratableString(tree());
+    const server = [el.querySelector('form'), el.querySelector('#c')];
+    const reports = [];
+    mounted.push(core.hydrate(tree(), el, { onHydrationError: (r) => reports.push(r) }));
+    assert.deepEqual(reports, []);
+    assert.deepEqual([el.querySelector('form'), el.querySelector('#c')], server);
   });
 });

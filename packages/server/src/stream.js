@@ -101,6 +101,7 @@ import {
   assertSafeTag,
   renderAttrs,
   escapeHtml,
+  arrayKeys,
 } from './html.js';
 import {
   ARRAY_CLOSE,
@@ -422,7 +423,15 @@ function stepFunction(seg, fn, owner, attempts) {
   }
   put(seg, REGION_OPEN);
   push(seg, mark(CLOSE, { html: REGION_CLOSE }), owner);
-  push(seg, value, owner);
+  // An array is the region's rows, written with their keys when they are
+  // keyed (arrayKeys).
+  if (Array.isArray(value)) {
+    put(seg, ARRAY_OPEN + arrayKeys(value));
+    push(seg, mark(CLOSE, { html: ARRAY_CLOSE }), owner);
+    pushChildren(seg, value, owner);
+  } else {
+    push(seg, value, owner);
+  }
   return null;
 }
 

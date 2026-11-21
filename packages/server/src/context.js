@@ -2,9 +2,31 @@
 // installs (see what-core's server-context.js). One per request; never shared.
 
 import { createRoot, getOwner } from 'what-core';
-import { beginHeadCollection, ERROR_CODES, __installServerContextStorage, __outsideServerContext } from 'what-core/internal';
+import { beginHeadCollection, ERROR_CODES, getServerContext, runWithServerContext, __installServerContextStorage, __markServerProcess, __outsideServerContext } from 'what-core/internal';
 import { _exposesErrorDetails } from './html.js';
-import { createResponse } from './response.js';
+import { createResponse, isRenderResponse } from './response.js';
+
+// What renderToStringAsync(vnode, init) accepts as `init`, checked: a render
+// context made from it, or a TypeError that names what is wrong.
+const INIT_KEYS = ['loaderData', 'signal', 'request', 'response'];
+
+export function renderContextFrom(init, caller) {
+  if (init == null) return createRenderContext(undefined);
+  const wrong = (what) => new TypeError(`[what-server] ${caller}: ${what}. init is { loaderData?, signal?, request?, response? }, or nothing.`);
+  if (typeof init !== 'object' || Array.isArray(init)) throw wrong(`init is ${Array.isArray(init) ? 'an array' : typeof init}`);
+  for (const key of Object.keys(init)) {
+    if (!INIT_KEYS.includes(key)) throw wrong(`"${key}" is not an init field`);
+  }
+  const { loaderData, signal, request, response } = init;
+  if (signal != null && (typeof signal !== 'object' || typeof signal.aborted !== 'boolean' || typeof signal.addEventListener !== 'function')) {
+    throw wrong('signal is not an AbortSignal');
+  }
+  if (request != null && (typeof request !== 'object' || (request.signal != null && typeof request.signal.addEventListener !== 'function'))) {
+    throw wrong('request is not a Request');
+  }
+  if (response != null && !isRenderResponse(response)) throw wrong('response is not one createResponse() made');
+  return createRenderContext(loaderData, { signal: signal ?? undefined, request: request ?? undefined, response: response ?? undefined });
+}
 
 // `resources` holds resources created with a `key`, `owned` keyless ones under
 // their owner key (what-core hydration-data.js). Entries are
@@ -142,6 +164,30 @@ function collect(map, valuesName, errorsName, out, sent, owned) {
   }
 }
 
+/**
+ * The request being answered: inside a server render, a page's loader, or a
+ * server action the built-in endpoints run. Null anywhere else.
+ */
+export function getRequest() {
+  const ctx = getServerContext();
+  return ctx !== null && ctx.request != null ? ctx.request : null;
+}
+
+/**
+ * Run `fn`, a server action's call, in a context of its own, as a render
+ * runs: getRequest() is `request` there, and the query cache it reads is its
+ * own. Released when `fn` settles.
+ */
+export async function runInActionContext(request, fn) {
+  ensureServerRuntime();
+  const ctx = createRenderContext(undefined, { request });
+  try {
+    return await runWithServerContext(ctx, fn);
+  } finally {
+    ctx.release();
+  }
+}
+
 let _runtimeReady = false;
 
 /**
@@ -163,6 +209,7 @@ let _runtimeReady = false;
 export function ensureServerRuntime() {
   if (_runtimeReady) return;
   _runtimeReady = true;
+  __markServerProcess();
   const g = /** @type {any} */ (globalThis);
   const AsyncLocalStorage = g.AsyncLocalStorage
     ?? (typeof g.process?.getBuiltinModule === 'function'

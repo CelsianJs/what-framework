@@ -140,7 +140,15 @@ expects. Their accessors are functions: `q.data()`, `q.isLoading()`.
 ## Server rendering and the data channel
 
 A server render keeps a cache of its own: one request's data never answers
-another. `query()` starts fetching when it is created, so sibling queries
+another. A page's loader runs in its request's render, so what it prefetches
+(`prefetchQuery`, `setQueryData`) is that request's, and the page reads it
+without fetching again. Code on the server outside every render, loader and
+action (module scope, a timer, code after an `await` on a runtime without
+AsyncLocalStorage) gets an empty cache of its own on each call, never one
+every request shares (`ERR_QUERY_OUTSIDE_RENDER` in development). On an edge
+runtime, enable AsyncLocalStorage (Cloudflare Workers: `nodejs_compat`), or
+data a component reads after an `await` is not in the page's data channel.
+(`packages/server/test/query-isolation.test.js`) `query()` starts fetching when it is created, so sibling queries
 fetch side by side. A read before the value lands suspends its `<Suspense>`.
 The settled value goes into the hydration payload as `resources["query:KEY"]`,
 and the hydrating client adopts it under the same key with no request and no
@@ -193,7 +201,8 @@ export function Rename() {
 - An action that throws reaches the nearest `<ErrorBoundary>`, and the
   dispatches queued behind it are dropped, as in React. (`action-state.test.js`)
 - `useFormStatus()` returns the submission of the `<Form>` around the
-  component: `pending()`, `data()` (its FormData), and `method` and `action`.
+  component: `pending()`, `data()` (its FormData), `method`, and `action`, the
+  form's action function (null for an action id, as React's is for a URL).
   Outside a form, `pending()` is false and the rest is null.
   (`action-state.test.js`, "useFormStatus")
 
@@ -218,14 +227,24 @@ result once those refetches have landed, and rejects with the action's
 error, which rolls back its optimistic overlay. The screen goes from the old
 data to the new in one commit. (`packages/server/test/actions-transition.test.js`)
 
+An action is a public endpoint: its id is in the page, so any client can call
+it with any arguments (CSRF protection stops other sites, not the client).
+Check the caller and the arguments in the action: the built-in endpoints run
+each call in a context of its own, where `getRequest()` (what-framework/server)
+is the request, with its cookies and headers. (`packages/server/test/actions.test.js`,
+"an action call knows its request")
+
 ### `<Form action>`
 
 `<Form>` renders a real `<form method="post">`, so it submits without
 JavaScript, posting to the action endpoint (for a server action) or to the
 dispatch's `permalink`. The endpoint answers 303 to `redirect`. On a mounted
 page the form runs its own submit instead: it calls the action with the form's
-data as a transition, `useFormStatus()` inside it shows the submission, and
-the form is reset once the action has succeeded. A server action receives the
+data as a transition, `useFormStatus()` inside it shows the submission, and,
+as React 19 does for an uncontrolled form, the form is reset when that
+transition commits, only if the action succeeded: what the user typed stays
+while the action is pending, and after it fails (a server action that
+rejects, a `useActionState` action that throws). A server action receives the
 fields as an object; a client action (`useActionState`'s dispatch) receives
 the FormData. (`packages/server/test/actions-transition.test.js`, "<Form> on a
 mounted page"; `packages/server/test/form.test.js`)
@@ -279,6 +298,16 @@ export const App = () => <Router routes={routes} />;
   is the transitions' own: they keep revealed content, and a boundary with
   nothing revealed yet shows its fallback (ASYNC.md, Transitions).
   (`packages/router/test/lazy-route-navigation.test.js`)
+- **A `preload` that throws** renders the route's `error` component (or the
+  nearest `<ErrorBoundary>`) with what it threw, and the navigation ends there;
+  a promise it returns that rejects is the page's to show when it reads `data`.
+  (`navigation-transition.test.js`, "a preload that throws")
+- **On the server**, `<Router>` renders the URL of the request being rendered
+  (`renderToStream(vnode, { request })`, `renderDocument(page, { request })`,
+  the request handler), or its `url` prop, and runs that route's `preload` for
+  the render alone. The page server-renders with its data; the client hydrates
+  it and adopts the preloaded queries instead of fetching them.
+  (`packages/router/test/server-render.test.js`)
 - **Data the page reads that `preload` does not return** is fetched after the
   commit: the page shows it pending (its bindings hold, or its `<Suspense>`
   shows its fallback). The navigation goes on until that first data has

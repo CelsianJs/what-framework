@@ -1,7 +1,10 @@
 // A promise nobody waits for any more retains nothing of what waited for it
 // (docs/ASYNC.md): an async computed's run, and a component suspended with
 // use(), let go of the computed, the component's props and its place when
-// they are disposed, while the promise is still pending.
+// they are disposed, while the promise is still pending; so does a
+// transition's action left by the component that started it. An async error
+// an error boundary caught retains nothing of the component that failed once
+// both are gone.
 
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -11,7 +14,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 const { document, cleanup } = installDOM();
 after(cleanup);
 
-const { computed, use, h, mount, Suspense } = await import('../src/index.js');
+const { computed, use, h, mount, Suspense, ErrorBoundary, settled, useTransition } = await import('../src/index.js');
 
 async function assertCollected(ref, label) {
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -46,4 +49,47 @@ test('an unmounted component\'s pending run and suspension retain nothing while 
   await assertCollected(refs.use, 'the props of a removed component suspended on a pending promise');
   computedWork.resolve('late');
   useWork.resolve('late');
+});
+
+test('an async error an error boundary caught retains nothing of the failed component once both are unmounted', async () => {
+  let ref;
+  (() => {
+    const host = document.createElement('div');
+    const stop = mount(h(ErrorBoundary, { fallback: ({ error }) => error.message }, h(Suspense, { fallback: 'loading' }, h(function Page() {
+      const payload = { message: 'offline' };
+      ref = new WeakRef(payload);
+      const value = computed(async () => { throw new Error(payload.message); });
+      return h('p', null, () => value());
+    }))), host);
+    ref.host = host;
+    ref.stop = stop;
+  })();
+  await settled();
+  assert.equal(ref.host.textContent, 'offline');
+  ref.stop();
+  delete ref.host;
+  delete ref.stop;
+  await assertCollected(ref, 'the payload of a failed async value whose boundary caught it');
+});
+
+test('an action left by the component that started it retains nothing of the component while its promise is pending', async () => {
+  const work = Promise.withResolvers();
+  let ref;
+  (() => {
+    const host = document.createElement('div');
+    let start;
+    const stop = mount(h(function Page({ payload }) {
+      ref = new WeakRef(payload);
+      [, start] = useTransition();
+      return payload.label;
+    }, { payload: { label: 'ready' } }), host);
+    void start(() => work.promise);
+    stop();
+  })();
+  await settled();
+  try {
+    await assertCollected(ref, 'the props of a component whose transition\'s action is still pending');
+  } finally {
+    work.resolve();
+  }
 });

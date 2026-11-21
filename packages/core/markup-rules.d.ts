@@ -11,11 +11,11 @@ export type MarkupNamespace = 'svg' | 'math' | 'foreign' | null;
 export const SAFE_ATTR_NAME: RegExp;
 /** Tag names that can be emitted verbatim. */
 export const SAFE_TAG_NAME: RegExp;
-/** Attributes whose value is a URL, in lower case. */
+/** Attributes whose value is a URL, in lower case (the SVG animation values among them). */
 export const URL_ATTRS: ReadonlySet<string>;
 /** Whether `name`, in any case, holds a URL. */
 export function isUrlAttr(name: string): boolean;
-/** Whether a URL value uses a javascript:, vbscript: or data: scheme. */
+/** Whether a URL value (or an item of a `;`-separated list of them) uses a javascript:, vbscript: or data: scheme. */
 export function isUnsafeUrl(value: unknown): boolean;
 /** Props never applied, in lower case: srcdoc, outerhtml. */
 export const REFUSED_ATTRS: ReadonlySet<string>;

@@ -12,10 +12,11 @@ import { installDOM } from '../../../test-utils/dom.js';
 
 const { dom } = installDOM();
 
-const { h, mount, hydrate, signal } = await import('../src/index.js');
+const W = await import('../src/index.js');
+const { h, mount, hydrate, signal } = W;
 // What a client:* directive compiles to; h() code calls it the same way.
 const { _$Island: Island } = await import('../src/render.js');
-const { renderToString } = await import('../../server/src/index.js');
+const { renderToString, renderToHydratableString: renderHydratable } = await import('../../server/src/index.js');
 
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 const app = () => document.getElementById('app');
@@ -126,6 +127,38 @@ describe('islands hydrate on the client', () => {
     el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await tick();
     assert.ok(el.hasAttribute('data-island-hydrated'), 'the interaction triggers hydration');
+  });
+
+  it('mode "interaction": focusing a control inside it (focus does not bubble) hydrates it, also under <Suspense>', () => {
+    const { Suspense } = W;
+    const tree = () => h(Suspense, { fallback: 'loading' }, h(Island, { component: Counter, mode: 'interaction', start: 1 }));
+    app().innerHTML = renderHydratable(tree());
+    const stop = hydrate(tree(), app());
+    const el = app().querySelector('[data-island]');
+    const button = el.querySelector('button');
+    assert.equal(el.hasAttribute('data-island-hydrated'), false);
+    button.focus();
+    assert.equal(document.activeElement, button);
+    assert.ok(el.hasAttribute('data-island-hydrated'), 'keyboard focus hydrates the island');
+    assert.equal(el.querySelector('button'), button, 'the server button is kept');
+    stop();
+  });
+
+  it('mode "interaction": the click that hydrates it reaches the handler it sets, and the handler goes with the island', () => {
+    let clicks = 0;
+    const Save = () => h('button', { onclick: () => { clicks++; } }, 'save');
+    const tree = () => h(W.Suspense, { fallback: 'loading' }, h(Island, { component: Save, mode: 'interaction' }));
+    app().innerHTML = renderHydratable(tree());
+    const stop = hydrate(tree(), app());
+    const button = app().querySelector('button');
+    button.click();
+    assert.equal(clicks, 1, 'the first click ran the handler');
+    assert.equal(app().querySelector('button'), button);
+    button.click();
+    assert.equal(clicks, 2);
+    stop();
+    button.click();
+    assert.equal(clicks, 2, 'unmounted: the handler is gone');
   });
 });
 

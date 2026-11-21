@@ -249,7 +249,9 @@ export function handleActionRequest(req, actionId, args, options = {}) {
     return Promise.resolve({ status: 400, body: { message: 'Invalid action arguments' } });
   }
 
-  return action.fn(...args)
+  // A plain function's throw or return value goes the way a promise's would.
+  return Promise.resolve()
+    .then(() => action.fn(...args))
     .then(async result => {
       // Server-side cache revalidation: if the action declared revalidate paths
       // or tags, purge them through the bound cache engine (no-op if unbound).

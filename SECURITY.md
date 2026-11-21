@@ -22,6 +22,15 @@ If you discover a security vulnerability, please report it responsibly:
 We support the latest published minor. All 14 packages release together at the same version,
 so "0.15.x" applies across the whole `what-*` / `create-what` / `eslint-plugin-what` set.
 
+## Server actions
+
+A server action is a public, unauthenticated endpoint: its id is in the page (and can be computed
+from the source), and the client chooses every argument. CSRF protection (Fetch Metadata, Origin,
+the double-submit token) stops another site from posting in a visitor's name; it does not stop a
+client from calling an action itself. Authorize the caller and validate the arguments inside the
+action: the built-in endpoints run each call with `getRequest()` returning its request (cookies,
+headers), and with a query cache of its own.
+
 ## Hydration
 
 `hydrate()` adopts the DOM the browser built from the server's response instead of building
@@ -32,8 +41,11 @@ was; what it decides is how much of the response outlives the walk.
 the same tree with the same data holds: no element, attribute, URL, event handler, shadow root,
 script, style or raw HTML that the client render would not produce. Markup that matches the
 client's is kept as it is; anything else is replaced by the client's rendering or removed, and
-reported (`ERR_HYDRATION_MISMATCH` in development, `onHydrationError` in every build). In
-detail, on both clients (h() vnodes and compiled JSX built with `hydratable`):
+reported (`ERR_HYDRATION_MISMATCH` in development, `onHydrationError` in every build), apart from
+attributes: a claimed element's attributes are corrected to the client's without a report, so
+monitoring through `onHydrationError` does not see an injected handler or URL attribute (it is
+removed all the same). In detail, on both clients (h() vnodes and compiled JSX built with
+`hydratable`):
 
 - **Attributes.** A claimed element ends with exactly the attributes a client render gives it.
   A server attribute survives only where a prop renders exactly that value; every other prop is
@@ -57,6 +69,11 @@ detail, on both clients (h() vnodes and compiled JSX built with `hydratable`):
   text. what-react's `isValidElement` accepts only elements (a vnode, or an object carrying
   React's element symbol, which JSON cannot), and `cloneElement` returns anything else
   unchanged.
+- **Keyed rows.** A keyed list's server row is adopted only as the row of its own key (the server
+  writes the rows' keys with the list), never as another key's: rows in another order are moved to
+  their keys, and a list whose server rows the client cannot match by key is built by the client.
+  A server node, and what the user typed into it before hydration, stays with its key. The
+  mismatch is reported (kind `key`).
 - **Event handlers** belong to the component, row or root that set them: once it is disposed
   (an unmount, a later `hydrate()` of the same container) the handler never runs again, also on
   an element that outlived it.

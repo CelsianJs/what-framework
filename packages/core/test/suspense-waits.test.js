@@ -173,6 +173,26 @@ describe('<Suspense> stops waiting for what no longer blocks it', () => {
     stop();
   });
 
+  it('an effect disposed by its own disposer: the boundary reveals while the component that made it stays', async () => {
+    const { computed, effect, h, mount, Suspense } = W;
+    const work = Promise.withResolvers();
+    const value = computed(() => work.promise);
+    let stopReading;
+    const host = document.createElement('div');
+    const stop = mount(h(Suspense, { fallback: 'loading' }, h(function Page() {
+      stopReading = effect(() => { value(); });
+      return 'ready';
+    })), host);
+    assert.equal(host.textContent, 'loading');
+    stopReading();
+    await drain();
+    assert.equal(host.textContent, 'ready', 'revealed before the value it no longer reads lands');
+    work.resolve('late');
+    await W.settled();
+    assert.equal(host.textContent, 'ready');
+    stop();
+  });
+
   it('an unmounted boundary: settled() does not wait for what it waited on', async () => {
     const { use, h, mount, Suspense } = W;
     const work = Promise.withResolvers();

@@ -129,7 +129,17 @@ on the route's path, so `invalidatePath('/users/7')` (a server action's
 Data the page reads that `preload` does not return is fetched after the URL
 commits: the page shows it pending, and the navigation (`route.isNavigating`,
 the promise `navigate()` returns) goes on until it has landed. Only `preload`
-data keeps the old page on screen. See
+data keeps the old page on screen. A `preload` that throws renders the
+route's `error` component (or the nearest `<ErrorBoundary>`) with what it
+threw; a promise it returns that rejects is the page's to show when it reads
+`data`.
+
+On the server, `<Router>` renders the URL of the request being rendered (the
+`request` a render is given: `renderToStream(vnode, { request })`,
+`renderDocument(page, { request })`, the request handler), or its `url` prop,
+and runs that route's `preload` for the render. The page server-renders with
+its data, and the client hydrates it and adopts the data instead of fetching
+it again. See
 [DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
 
 ## Link Component

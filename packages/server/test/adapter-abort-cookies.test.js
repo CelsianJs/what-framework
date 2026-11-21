@@ -100,6 +100,16 @@ describe('every Set-Cookie reaches the client', () => {
     assert.ok(cookies.some((c) => c.startsWith('what-csrf=')));
   });
 
+  it('a malformed CSRF cookie (one a sibling subdomain set) is replaced, not a 500 on every page', async () => {
+    const handle = createRequestHandler({
+      routes: [{ path: '/', page: { mode: 'server' }, component: () => h('p', null, 'x') }],
+    });
+    const res = await handle(new Request('http://localhost/', { headers: { cookie: 'what-csrf=%E0%A4' } }));
+    assert.equal(res.status, 200);
+    const fresh = res.headers.getSetCookie().find((c) => c.startsWith('what-csrf='));
+    assert.ok(fresh && !fresh.startsWith('what-csrf=%E0%A4'), 'a fresh token is set');
+  });
+
   it('keeps cookies from a cache engine result too', async () => {
     const handle = createRequestHandler({
       routes: [{ path: '/', page: { mode: 'static' }, component: () => h('p', null, 'x') }],

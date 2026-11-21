@@ -83,7 +83,7 @@ Five rules:
 4. **Lists need a stable \`key\`.** \`items().map(i => <li key={i.id}>…</li>)\`.
 5. **An effect that writes what it reads loops.** Read it with \`untrack(count)\` or derive with \`computed()\`.
 
-\`what-framework\` has the reactivity, async values (\`computed\` of a promise, \`refresh\`, \`startTransition\`, \`useOptimistic\`, \`use\`, \`settled\`), actions (\`useActionState\`, \`useFormStatus\`), components, hooks and context. The domain kits are subpaths: \`what-framework/form\`, \`/data\` (\`query\`, \`useQuery\`, \`useSWR\`: one shared query cache), \`/a11y\`, \`/ui\` (skeletons), \`/motion\` and \`/dom\` (scheduler, cls, useLocalStorage).
+\`what-framework\` has the reactivity, async values (\`computed\` of a promise, \`refresh\`, \`startTransition\`, \`useOptimistic\`, \`use\`, \`settled\`), actions (\`useActionState\`, \`useFormStatus\`), components, hooks and context. The domain kits are subpaths: \`what-framework/form\`, \`/data\` (\`query\`, \`useQuery\`, \`useSWR\`: one shared query cache), \`/a11y\`, \`/ui\` (skeletons), \`/motion\` and \`/dom\` (the DOM read/write scheduler \`scheduleRead\`, \`scheduleWrite\` and \`flushScheduler\`, \`cls\`, \`useLocalStorage\`, \`useMediaQuery\`).
 
 **React's hooks, in a component that runs once.** ${HOOKS_CONTRACT}`;
 

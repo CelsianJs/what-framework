@@ -229,6 +229,62 @@ describe('query()', () => {
     assert.equal(el.textContent, 'back');
   });
 
+  it('a fetcher that throws before it returns reaches the <ErrorBoundary> at once, and reset() fetches again', async () => {
+    const el = host();
+    let calls = 0;
+    let retry;
+    mount(h(ErrorBoundary, {
+      fallback: ({ error, reset }) => { retry = reset; return h('em', null, error.message); },
+    }, h(Suspense, { fallback: 'loading' }, h(() => {
+      const q = query('throws-at-once', () => {
+        if (++calls === 1) throw new Error('offline');
+        return Promise.resolve('back');
+      });
+      return h('p', null, () => q());
+    }))), el);
+    let quiet = false;
+    void settled().then(() => { quiet = true; });
+    await tick();
+    assert.deepEqual([el.textContent, quiet, calls], ['offline', true, 1], 'the throw is the entry\'s error, and nothing waits for a landing');
+    retry();
+    await settled();
+    assert.deepEqual([el.textContent, calls], ['back', 2]);
+  });
+
+  it('a fetch that lands undefined is a value: it shows, and nothing fetches it again', async () => {
+    const el = host();
+    let calls = 0;
+    mount(h(Suspense, { fallback: 'loading' }, h(() => {
+      const q = query('lands-undefined', () => (++calls === 1 ? Promise.resolve(undefined) : new Promise(() => {})));
+      return h('p', null, () => q() ?? 'empty');
+    })), el);
+    await settled();
+    await tick();
+    assert.deepEqual([calls, el.textContent], [1, 'empty']);
+  });
+
+  it('a superseded invalidation answers with its replacement, without waiting for a transport that ignores the abort', async () => {
+    const { calls, fetcher } = remote();
+    const stop = mount(h(() => {
+      const q = query('replaced', fetcher, { initialData: 'initial', staleTime: Infinity });
+      return h('p', null, () => q());
+    }), host());
+    const answers = [];
+    const first = invalidateQueries('replaced').then(() => answers.push('first'));
+    const latest = invalidateQueries('replaced').then(() => answers.push('latest'));
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].abort.aborted, true);
+    calls[1].resolve('current');
+    await latest;
+    await tick();
+    assert.deepEqual(answers.sort(), ['first', 'latest'], 'the first answered once its replacement landed');
+    calls[0].resolve('stale');
+    await first;
+    await tick();
+    assert.equal(getQueryData('replaced'), 'current', 'the aborted transport\'s late answer is dropped');
+    stop();
+  });
+
   it('drops an entry nothing reads after its gcTime, and a reader within it is answered from the cache', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000 });
     const { calls, fetcher } = remote();

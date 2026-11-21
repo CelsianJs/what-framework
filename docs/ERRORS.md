@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 65 of them: 38 errors and 27 warnings.
+Every code in What's error catalogue, all 66 of them: 38 errors and 28 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -74,6 +74,7 @@ code, because the flag is then decided at runtime.
 | [`ERR_PAGE_NO_DEFAULT_EXPORT`](#err-page-no-default-export) | error | Page module has no default-exported component. |
 | [`ERR_PENDING_READ_UNTRACKED`](#err-pending-read-untracked) | warning | `call` was read in a component body. The body runs once, so this reads the pending state once and it never changes on screen. |
 | [`ERR_PRETEXT_NOT_INSTALLED`](#err-pretext-not-installed) | error | [what-text] Failed to load @chenglou/pretext: `message`. |
+| [`ERR_QUERY_OUTSIDE_RENDER`](#err-query-outside-render) | warning | [what] Server query cache used outside a render, loader or action. |
 | [`ERR_REDIRECT_NOT_CAUGHT`](#err-redirect-not-caught) | error | A redirect() to "`target`" surfaced uncaught, so nothing performed the navigation. |
 | [`ERR_RUNTIME`](#err-runtime) | error | An error surfaced that the framework could not classify, so the message is the original one verbatim. |
 | [`ERR_SIGNAL_WRITE_IN_COMPUTED`](#err-signal-write-in-computed) | warning | Computed "`computedName`" wrote signal "`signalName`". A computed only derives a value; a write from it runs again on every recomputation and can loop. |
@@ -573,7 +574,7 @@ export default { plugins: [reactCompat()] };
 
 > Hydration mismatch ({{kind}}) in <{{component}}> at {{path}}: the server rendered {{found}} where the client renders {{expected}}. Recovery: {{recovery}}.
 
-hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).
+hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a component's key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key (a component's data-hk, or a keyed list whose server rows have other keys, or keys in another order: expected and found list them), shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, move (a keyed list: each server row was taken as the row of its own key and moved into the client's order; a row is never given to another key, so what was typed in it stays with its key), or none for a component's key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).
 
 ```jsx
 // Bad — the client renders a value the server could not know:
@@ -1062,6 +1063,27 @@ what-text declares pretext as an optional peer so the package installs without i
 // Then load it up front, so a missing install fails at startup:
 import { ensurePretext } from 'what-text';
 await ensurePretext();
+```
+
+## ERR_QUERY_OUTSIDE_RENDER
+
+**Severity:** warning
+  ·  **Raised by:** `what-core`
+  ·  **Detected:** reported
+
+> [what] Server query cache used outside a render, loader or action.
+
+On the server, each render, loader and server action has a query cache of its own, so one request's data never answers another. Code outside them (module scope, a timer, a background task, or code after an await on a runtime without AsyncLocalStorage) has no request to bind to, and a cache every request shared would hand one user's data to the next. So prefetchQuery, setQueryData, getQueryData and query() there get an empty cache of their own. Call them in a loader, an action or a component the server renders. On an edge runtime, enable AsyncLocalStorage (Cloudflare Workers: the nodejs_compat flag).
+
+```jsx
+// Bad: runs at import time, with no request in scope.
+prefetchQuery(['config'], loadConfig);
+
+// Good: in the loader, which runs in the request's render.
+export async function loader() {
+  await prefetchQuery(['config'], loadConfig);
+  return null;
+}
 ```
 
 ## ERR_REDIRECT_NOT_CAUGHT

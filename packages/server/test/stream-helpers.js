@@ -37,9 +37,10 @@ export function settle(html) {
 
 /**
  * Markup without the hydration protocol what-server writes for hydrate()
- * (compiled.js): the region, array and boundary markers and the data-hk keys.
+ * (compiled.js): the region, array and boundary markers, a keyed list's row
+ * keys and the data-hk keys.
  * For assertions about what a page shows rather than how it hydrates.
  */
 export function content(html) {
-  return html.replace(/<!--(?:\$|\/\$|\[\]|\/\[\]|b|b!|\/b)-->/g, '').replace(/ data-hk="[^"]*"/g, '');
+  return html.replace(/<!--(?:\$|\/\$|\[\]|\/\[\]|b|b!|\/b|k\[[^>]*)-->/g, '').replace(/ data-hk="[^"]*"/g, '');
 }

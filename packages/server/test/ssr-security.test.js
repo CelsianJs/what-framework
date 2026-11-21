@@ -352,3 +352,31 @@ describe('SSR/client URL attribute parity', () => {
     }
   });
 });
+
+// A style object's declaration is written only when it is one declaration of
+// a property, as the client's CSSOM applies it: a value with a `;` outside a
+// string or parentheses, or a brace, or a name that is not a property, used
+// to inject its own declarations (a tracking beacon, a page overlay) into the
+// server's HTML while the client dropped them.
+describe('SSR style object declarations', () => {
+  it('drops a declaration the client would not apply, and keeps every ordinary one', async () => {
+    const { compileJSX } = await import('../../../test-utils/compile.js');
+    const style = {
+      color: 'red;background-image:url(http://tracker.test/beacon);position:fixed;inset:0',
+      'x:y;background:url(http://tracker.test/key)': '1',
+      margin: '0)',
+      padding: '1px}',
+      width: 'calc(100% - 2px)',
+      backgroundImage: 'url(data:image/png;base64,AAA)',
+      content: '"a;b"',
+      '--gap': '4px',
+      fontSize: '12px',
+    };
+    const expected = '<div style="width:calc(100% - 2px);background-image:url(data:image/png;base64,AAA);content:&quot;a;b&quot;;--gap:4px;font-size:12px"></div>';
+    assert.equal(renderToString(h('div', { style })), expected);
+    const code = compileJSX('export const View = ({ style }) => <div style={style} />;', { pluginOptions: { generate: 'ssr' } })
+      .replace(/(['"])(what-framework(?:\/[\w-]+)?)\1/g, (_m, _q, entry) => JSON.stringify(import.meta.resolve(entry)));
+    const mod = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+    assert.equal(renderToString(h(mod.View, { style })), expected, 'compiled server output writes the same');
+  });
+});

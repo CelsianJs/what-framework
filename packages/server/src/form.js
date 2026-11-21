@@ -14,7 +14,8 @@
 // dispatch's permalink, and the endpoint answers 303 to `redirect`. Mounted,
 // the form handles its own submit: it runs the action with the form's data as
 // a transition, the status useFormStatus() reads inside it shows the
-// submission, and the form is reset once the action has succeeded.
+// submission, and the form is reset when that transition commits, if the
+// action succeeded (a useActionState dispatch included).
 //
 // CSRF: the endpoint accepts a post the browser marks same-origin (Fetch
 // Metadata, or an Origin header), which is how a form on a cached page posts.
@@ -25,6 +26,7 @@
 import { h } from 'what-core';
 import { _formStatusContext, _formStatus } from 'what-core/internal';
 import { _callAction } from './actions.js';
+import { addField } from './fields.js';
 
 export const ACTION_ENDPOINT = '/__what_action';
 
@@ -60,9 +62,7 @@ function readClientCsrfToken() {
 function fieldsOf(formData) {
   const data = {};
   for (const [key, value] of formData.entries()) {
-    if (RESERVED.has(key)) continue;
-    if (key in data) data[key] = [].concat(data[key], value);
-    else data[key] = value;
+    if (!RESERVED.has(key)) addField(data, key, value);
   }
   return data;
 }
@@ -108,8 +108,7 @@ export function Form({
         if (actionId === null) await action(data);
         else if (typeof action === 'function') await action(fieldsOf(data));
         else await _callAction(actionId, [fieldsOf(data)]);
-        form.reset();
-      }).catch((error) => {
+      }, () => form.reset()).catch((error) => {
         form.dispatchEvent(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
       });
     };

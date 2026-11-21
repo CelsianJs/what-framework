@@ -53,6 +53,11 @@ export default [
       'packages/*/example/dist/**',
       'benchmark/frameworks/**',
       'benchmark/results/**',
+      // Gitignored build output in a working checkout: the reactivity
+      // benchmark's bundle and Vercel's build of a site. A fresh clone has
+      // neither, so linting them made `npm run lint` pass there and fail here.
+      '**/.build/**',
+      '**/.vercel/**',
     ],
   },
 

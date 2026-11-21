@@ -11,9 +11,9 @@ import { installDOM } from '../../../test-utils/dom.js';
 
 installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/' });
 
-const { h, mount, useTransition, Suspense } = await import('what-core');
+const { h, mount, useTransition, Suspense, ErrorBoundary } = await import('what-core');
 const { query, invalidatePath, clearCache } = await import('what-core/data');
-const { Router, navigate, route } = await import('../src/index.js');
+const { Router, navigate, route, afterNavigate } = await import('../src/index.js');
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
@@ -91,6 +91,40 @@ describe('a navigation to a route with preload', () => {
     await tick();
     assert.equal(el.textContent, 'fast', 'the superseded navigation never commits');
     assert.equal(location.pathname, '/fast');
+  });
+
+  it('a newer navigation supersedes one whose View Transition has not run its commit yet', async () => {
+    const updates = [];
+    document.startViewTransition = (update) => {
+      const done = Promise.withResolvers();
+      updates.push(async () => {
+        try { done.resolve(await update()); } catch (error) { done.reject(error); }
+      });
+      return { ready: done.promise, finished: done.promise };
+    };
+    const after = [];
+    const off = afterNavigate((to) => after.push(to));
+    try {
+      const routes = [
+        { path: '/', component: () => h('h1', null, 'home') },
+        { path: '/b', component: () => h('h1', null, 'b') },
+        { path: '/c', component: () => h('h1', null, 'c') },
+      ];
+      const el = show(h(Router, { routes }));
+      const b = navigate('/b');
+      await tick();
+      assert.equal(updates.length, 1, 'the browser holds the commit of /b');
+      await navigate('/c', { transition: false });
+      assert.deepEqual([route.path, location.pathname, el.textContent], ['/c', '/c', 'c']);
+      await updates[0]();
+      await b;
+      assert.deepEqual([route.path, location.pathname, el.textContent], ['/c', '/c', 'c'], 'the superseded commit does nothing');
+      assert.deepEqual(after, ['/c'], 'afterNavigate runs for the navigation that committed only');
+      assert.equal(route.isNavigating, false);
+    } finally {
+      off();
+      delete document.startViewTransition;
+    }
   });
 
   it('useTransition\'s isPending follows a navigation started in it', async () => {
@@ -188,6 +222,24 @@ describe('a navigation to a route with preload', () => {
     await invalidatePath('/inbox');
     await tick();
     assert.equal(el.textContent, '2 new');
+  });
+
+  it('a preload that throws shows the error in the route\'s error boundary, or the nearest one', async () => {
+    const routes = [
+      { path: '/', component: () => h('h1', null, 'home') },
+      {
+        path: '/failure',
+        preload() { throw new Error('preload offline'); },
+        component: () => h('h1', null, 'destination'),
+        error: ({ error }) => h('p', null, `route: ${error.message}`),
+      },
+      { path: '/bare', preload() { throw new Error('bare offline'); }, component: () => h('h1', null, 'bare') },
+    ];
+    const el = show(h(ErrorBoundary, { fallback: ({ error }) => h('p', null, `app: ${error.message}`) }, h(Router, { routes })));
+    await navigate('/failure', { transition: false });
+    assert.deepEqual([location.pathname, route.isNavigating, el.textContent], ['/failure', false, 'route: preload offline']);
+    await navigate('/bare', { transition: false });
+    assert.deepEqual([location.pathname, route.isNavigating, el.textContent], ['/bare', false, 'app: bare offline']);
   });
 
   it('runs its commit inside a View Transition when the browser has them', async () => {

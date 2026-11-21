@@ -1,10 +1,13 @@
 // Expressions the compiler makes reactive like any other that reads a signal:
 // optional chains (a()?.b, a()?.[k], f?.()), a call handed a function it may
-// run (isPending(() => x()), a formatter given a getter), a computed member
-// key (row[key()]), and <For each={expr}>. Each compiled form updates as the
-// h() spelling of the same program does, and the server target marks the
-// same holes reactive, so hydration agrees. mapArray, the runtime list behind
-// <For>, takes an array as well as an accessor.
+// run (isPending(() => x()), a formatter given a getter, whatever the
+// function's body evaluates), a call of a function or object method this
+// module declares whose body reads, a call of a function the compiler cannot
+// see, a computed member key (row[key()]), and <For each={expr}>, including
+// an expression that picks one of two accessors. Each compiled form updates
+// as the h() spelling of the same program does, and the server target marks
+// the same holes reactive, so hydration agrees. mapArray, the runtime list
+// behind <For>, takes an array as well as an accessor.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,6 +34,19 @@ const SOURCE = `
   export const forCall = () => <ul><For each={list().filter((n) => n > 0)}>{(n) => <li>{n}</li>}</For></ul>;
   export const forArray = () => <ul><For each={[3, 4]}>{(n) => <li>{n}</li>}</For></ul>;
   export const forFallback = () => <ul><For each={list().filter((n) => n > 0)} fallback={<li>none</li>}>{(n) => <li>{n}</li>}</For></ul>;
+  export const alternate = signal(false);
+  const primary = signal(['one', 'two']);
+  const secondary = signal(['three']);
+  export const forPick = () => <ul><For each={alternate() ? secondary : primary}>{(s) => <li>{s}</li>}</For></ul>;
+  export const forPickFallback = () => <ul><For each={alternate() ? secondary : primary} fallback={<li>none</li>}>{(s) => <li>{s}</li>}</For></ul>;
+  export const forPickProp = ({ rows, others }) => <ul><For each={alternate() ? others : rows}>{(s) => <li>{s}</li>}</For></ul>;
+  export const label = signal('first');
+  const model = { label: (prefix) => prefix + label(), plain: (prefix) => prefix + '!' };
+  export const optionalMethod = () => <p>{model.label?.('tag:')}</p>;
+  export const method = () => <p>{model.label('tag:')}</p>;
+  export const later = () => <p>{tagged('tag:')}</p>;
+  function tagged(prefix) { return prefix + label(); }
+  export const blockCallback = () => <p>{fmt(() => { const text = label(); return text; })}</p>;
   export { mount };
 `;
 
@@ -62,6 +78,65 @@ describe('compiled output: these expressions are wrapped', () => {
     assert.ok(!code.includes('() => fmt('), code);
   });
 
+  it('a callback that reads anywhere in its block body', () => {
+    for (const body of [
+      'const text = label(); return text;',
+      'label();',
+      'let text; text = label(); return text;',
+      'try { return label(); } catch { return ""; }',
+      'switch (label()) { default: return 1; }',
+      'for (const part of label()) return part;',
+      'if (label()) return 1;',
+    ]) {
+      const code = compileJSX(`const label = signal(''); const a = <p>{fmt(() => { ${body} })}</p>;`);
+      assert.ok(code.includes('() => fmt('), `${body}\n${code}`);
+    }
+    const nested = compileJSX('const label = signal(""); const a = <p>{fmt(() => { const later = () => label(); return 1; })}</p>;');
+    assert.ok(!nested.includes('() => fmt('), nested);
+  });
+
+  it('a call of a local function or object method is as reactive as its body, wherever it is declared', () => {
+    const reads = `
+      const label = signal('');
+      function before(p) { return p + label(); }
+      const model = { label: (p) => p + label(), method(p) { return label(); }, alias: before };
+      const a = <p>{before('x')}{after('x')}{model.label('x')}{model.label?.('x')}{model.method('x')}{model.alias('x')}</p>;
+      function after(p) { return p + label(); }
+    `;
+    const code = compileJSX(reads);
+    for (const call of ["before('x')", "after('x')", "model.label('x')", "model.label?.('x')", "model.method('x')", "model.alias('x')"]) {
+      assert.ok(code.includes(`() => ${call}`), `${call}\n${code}`);
+    }
+    const plain = compileJSX(`
+      function shout(p) { return p.toUpperCase() + '!'; }
+      const model = { plain: (p) => p + '!' };
+      const a = <p>{shout('x')}{model.plain('x')}{count(3)}</p>;
+      function count(n) { return n > 0 ? count(n - 1) : 0; }
+    `);
+    for (const call of ["shout('x')", "model.plain('x')", 'count(3)']) assert.ok(!plain.includes(`() => ${call}`), `${call}\n${plain}`);
+  });
+
+  it('a call of a function the compiler cannot see is wrapped; built-ins, globals and package utilities are not', () => {
+    const code = compileJSX(`
+      import { format } from 'date-fns';
+      function Row(props, render) {
+        const formatter = makeFormatter();
+        return <p>{props.format('x')}{render('x')}{formatter('x')}{name.padStart(3)}{format(day, 'P')}{JSON.stringify(row)}{alert('x')}</p>;
+      }
+    `);
+    for (const call of ["props.format('x')", "render('x')", "formatter('x')"]) assert.ok(code.includes(`() => ${call}`), `${call}\n${code}`);
+    for (const call of ['name.padStart(3)', "format(day, 'P')", 'JSON.stringify(row)', "alert('x')"]) {
+      assert.ok(!code.includes(`() => ${call}`), `${call}\n${code}`);
+    }
+  });
+
+  it('a <For> expression that picks an accessor reads the one it picks', () => {
+    const code = compileJSX('const on = signal(false); const a = signal([]); const b = signal([]); const x = <ul><For each={on() ? b : a}>{(n) => <li>{n}</li>}</For></ul>;');
+    assert.ok(code.includes('_$mapArray(() => on() ? b() : a(),'), code);
+    const props = compileJSX('const X = ({ rows }) => <ul><For each={rows ?? none()}>{(n) => <li>{n}</li>}</For></ul>;');
+    assert.ok(props.includes('typeof rows === "function" ? rows() : rows'), props);
+  });
+
   it('a plain name or a member is handed to <For> as it is', () => {
     assert.ok(compileJSX('const a = <ul><For each={rows}>{(n) => <li>{n}</li>}</For></ul>;').includes('_$mapArray(rows,'));
     assert.ok(compileJSX('const a = <ul><For each={props.rows}>{(n) => <li>{n}</li>}</For></ul>;').includes('_$mapArray(props.rows,'));
@@ -70,6 +145,8 @@ describe('compiled output: these expressions are wrapped', () => {
   it('the server target marks the same holes reactive', () => {
     const code = compileJSX('const a = <p>{user()?.name}{fmt(() => user())}</p>;', { pluginOptions: { generate: 'ssr' } });
     assert.ok(code.includes('() => user()?.name') && code.includes('() => fmt(() => user())'), code);
+    const local = compileJSX("const label = signal(''); const model = { label: (p) => p + label() }; const a = <p>{model.label?.('x')}{fmt(() => { const t = label(); return t; })}</p>;", { pluginOptions: { generate: 'ssr' } });
+    assert.ok(local.includes("() => model.label?.('x')") && local.includes('() => fmt(() => {'), local);
   });
 });
 
@@ -109,6 +186,18 @@ describe('compiled and h() update alike', () => {
     hTree.stop();
   });
 
+  it('a local method, a function declared after the JSX and a block callback follow the signal they read', () => {
+    client.label('first');
+    const compiled = [client.optionalMethod, client.method, client.later, client.blockCallback].map((View) => render(View()));
+    const hTree = render(h('p', null, () => 'tag:' + client.label()));
+    const texts = () => [...compiled, hTree].map((r) => r.host.textContent);
+    assert.deepEqual(texts(), ['tag:first', 'tag:first', 'tag:first', '[first]', 'tag:first']);
+    client.label('second');
+    flushSync();
+    assert.deepEqual(texts(), ['tag:second', 'tag:second', 'tag:second', '[second]', 'tag:second']);
+    for (const r of [...compiled, hTree]) r.stop();
+  });
+
   it('isPending(() => value()) as a child shows the refetch', async () => {
     const id = signal(1);
     const flights = [];
@@ -142,6 +231,22 @@ describe('compiled and h() update alike', () => {
     flushSync();
     assert.deepEqual([forCall, forFallback, hTree].map((r) => r.host.textContent), ['5', '5', '5']);
     for (const r of [forCall, forFallback, forArray, hTree, hArray]) r.stop();
+  });
+
+  it('<For> over an expression that picks one of two accessors renders the one it picks', () => {
+    client.alternate(false);
+    const rows = signal(['r']);
+    const compiled = [render(client.forPick()), render(client.forPickFallback()), render(client.forPickProp({ rows, others: ['o1', 'o2'] }))];
+    const texts = () => compiled.map((r) => r.host.textContent);
+    assert.deepEqual(texts(), ['onetwo', 'onetwo', 'r']);
+    client.alternate(true);
+    flushSync();
+    assert.deepEqual(texts(), ['three', 'three', 'o1o2']);
+    client.alternate(false);
+    rows(['r', 's']);
+    flushSync();
+    assert.deepEqual(texts(), ['onetwo', 'onetwo', 'rs']);
+    for (const r of compiled) r.stop();
   });
 
   it('mapArray takes an array as a list that never changes', () => {

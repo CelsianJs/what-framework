@@ -55,6 +55,14 @@ function refused(method, value) {
   return '/';
 }
 
+// The responses createResponse() made: what a render accepts as `response`.
+const responses = new WeakSet();
+
+/** Whether `value` is a response createResponse() made. */
+export function isRenderResponse(value) {
+  return responses.has(value);
+}
+
 export function createResponse() {
   let committed = false;
   /** @type {((location: string) => void) | null} */
@@ -118,5 +126,6 @@ export function createResponse() {
     committed = true;
     lateRedirect = onRedirect || null;
   };
+  responses.add(response);
   return response;
 }

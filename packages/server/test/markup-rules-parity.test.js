@@ -152,6 +152,44 @@ describe('markup rules: URL attributes (URL_ATTRS, isUnsafeUrl)', () => {
   }
 });
 
+describe('markup rules: SVG animation values are URLs (URL_ATTRS, isUnsafeUrl)', () => {
+  // <animate attributeName="href"> sets the href to each of these after the
+  // URL rule checked the element's own attributes, so they are URL attributes
+  // too, and a refused URL anywhere in a `values` list is refused.
+  for (const name of ['values', 'to', 'from', 'by']) {
+    it(`${name}: a value with a javascript:, data: or vbscript: URL among its items is never written or applied on <animate>; an ordinary one always is`, async () => {
+      assert.equal(rules.isUrlAttr(name), true);
+      const dynamicServer = await compiled(`<svg><a href="#x"><animate attributeName="href" ${name}={v} /></a></svg>`, 'ssr');
+      const dynamicClient = await compiled(`<svg><a href="#x"><animate attributeName="href" ${name}={v} /></a></svg>`, 'dom');
+      const viaH = (value) => h('svg', null, h('a', { href: '#x' }, h('animate', { attributeName: 'href', [name]: value })));
+      for (const url of HOSTILE_URLS) {
+        const value = name === 'values' ? `#x;${url}` : url;
+        assert.equal(rules.isUnsafeUrl(value), true, JSON.stringify(value));
+        for (const html of [...await serverRenders(() => viaH(value)), ...await serverRenders(() => dynamicServer(value))]) {
+          assert.ok(!html.includes(` ${name}=`), `server wrote ${name}=${JSON.stringify(value)}: ${html}`);
+        }
+        for (const host of [mountH(viaH(value)), mountCompiled(dynamicClient(value))]) {
+          assert.equal(host.querySelector('animate').hasAttribute(name), false, `client applied ${name}=${JSON.stringify(value)}`);
+        }
+        const literal = value.replace(/\t/g, '').replace(/"/g, '&quot;');
+        for (const generate of ['ssr', 'dom']) {
+          assert.equal(staticError(`<svg><animate attributeName="href" ${name}="${literal}" /></svg>`, generate), 'ERR_UNSAFE_STATIC_MARKUP', `static ${name}, ${generate}`);
+        }
+      }
+      const ordinary = name === 'values' ? '0;1;0' : '#y';
+      for (const html of await serverRenders(() => viaH(ordinary))) assert.ok(html.includes(` ${name}="${ordinary}"`), html);
+      assert.equal(mountH(viaH(ordinary)).querySelector('animate').getAttribute(name), ordinary);
+      assert.equal(staticError(`<svg><animate attributeName="opacity" ${name}="${ordinary}" /></svg>`, 'dom'), null);
+    });
+  }
+
+  it('a URL whose text holds ";" is refused only when an item of it is a refused URL', () => {
+    assert.equal(rules.isUnsafeUrl('/a;b?c=1'), false);
+    assert.equal(rules.isUnsafeUrl('https://shop.test/x;y'), false);
+    assert.equal(rules.isUnsafeUrl('/a;javascript:alert(1)'), true);
+  });
+});
+
 describe('markup rules: innerHTML takes { __html } only (INNER_HTML_PROPS)', () => {
   for (const name of rules.INNER_HTML_PROPS) {
     it(`${name}: a string is never parsed, { __html } always is`, async () => {

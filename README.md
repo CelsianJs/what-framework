@@ -18,7 +18,7 @@
 - **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
 - **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
 - **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast**: fine-grained, no VDOM. `npm run check:size` bundles counter apps for production (the `production` export condition), minified and gzipped with Node's zlib at level 9 (1 KB = 1024 B): written with `h()` and bundled by esbuild, a counter app is 8.62KB (8825 B); the create-what counter compiled from JSX by what-compiler/vite in a production `vite build`, the way the scaffold builds it, is 6.22KB (6371 B) of JavaScript, not counting the modulepreload polyfill Vite adds to a build from the scaffold's `index.html`. Minimal dependencies, fully tree-shakeable
+- **Small & Fast**: fine-grained, no VDOM. `npm run check:size` bundles counter apps for production (the `production` export condition), minified and gzipped with Node's zlib at level 9 (1 KB = 1024 B): written with `h()` and bundled by esbuild, a counter app is 8.67KB (8878 B); the create-what counter compiled from JSX by what-compiler/vite in a production `vite build`, the way the scaffold builds it, is 6.24KB (6386 B) of JavaScript, not counting the modulepreload polyfill Vite adds to a build from the scaffold's `index.html`. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
@@ -99,7 +99,7 @@ The 13 maintained packages publish together at the same version. The table also 
 | `create-what` | Project scaffolder (`npm create what@latest`) |
 | `what-framework-cli` | CLI — dev server, build, deploy tools (`what dev/build/start`) |
 | `what-devtools` | Browser dev panel (signal inspector, component tree) |
-| `what-devtools-mcp` | MCP server bridging AI agents to live app state — 24 tools |
+| `what-devtools-mcp` | MCP server bridging AI agents to live app state — 25 tools |
 | `what-mcp` | **Deprecated** — docs/assistance MCP server, superseded by `what-devtools-mcp` |
 | `what-react` | React compatibility layer (use React-ecosystem packages) |
 | `eslint-plugin-what` | ESLint rules — catch signal bugs, enforce patterns |
@@ -141,7 +141,7 @@ Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## MCP DevTools (AI Agent Debugging)
 
-What Framework ships an MCP server for AI-assisted development. 24 tools: inspect signals, effects, components, DOM, cache, dependency graphs and diagnostics in a live app, plus offline lint, scaffolding and error fixes. See [docs/MCP-DEVTOOLS.md](docs/MCP-DEVTOOLS.md).
+What Framework ships an MCP server for AI-assisted development. 25 tools: inspect signals, effects, components, DOM, cache, dependency graphs and diagnostics in a live app, plus offline lint, scaffolding and error fixes. See [docs/MCP-DEVTOOLS.md](docs/MCP-DEVTOOLS.md).
 
 ## React Compatibility
 

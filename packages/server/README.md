@@ -238,7 +238,12 @@ one render between visitors, so what a render sets decides what can be shared:
 - **Private renders are never stored.** A render is private when it sets a
   cookie, sets `Cache-Control` with `private`, `no-store` or `no-cache`, sets
   `Vary`, or reads a request header the route's `vary` does not name (a
-  cookie, `Authorization`, `Accept-Language`; development warns which). It is
+  cookie, `Authorization`, `Accept-Language`; development warns which). The
+  Cookie header carries every cookie, so reading it reads each cookie the
+  request has: with `vary: ['cookie:theme']`, a visitor who also sends `uid`
+  gets a private render. A copy of the request (`request.clone()`) counts the
+  same, and using the request whole (`new Request(request)`, `fetch(request)`)
+  makes the render private. It is
   sent to its own visitor only, with its own headers and cookies, as
   `private, no-store` (or the private `Cache-Control` it set), and every
   visitor waiting on the same regeneration renders for themselves.
@@ -341,6 +346,26 @@ The client callable posts JSON to `/__what_action`, rejects with the action's
 error (`ERR_ACTION_FAILED`, or `TIMEOUT` after `timeout`, default 30 s), and
 rolls back the optimistic overlays of its transition when it fails. See
 [DATA.md](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
+
+**An action is a public endpoint.** Its id is in the page (`_action`,
+`data-action`) and can be computed from the source, so anyone can post it,
+with any arguments: CSRF protection stops other sites from posting in a
+visitor's name, not a client from calling an action itself. An action checks
+its caller and its arguments. The built-in endpoints (`createRequestHandler`,
+`nodeActionMiddleware`, `fetchActionHandler`, `createActionHandler`) run each
+call in a context of its own: `getRequest()` there is the request, with its
+cookies and headers, and the query cache it reads is the call's own.
+
+```js
+import { action, getRequest } from 'what-server';
+
+export const deleteTodo = action(async (id) => {
+  const user = await sessionUser(getRequest());   // your session lookup
+  if (!user) throw new Error('Not signed in');
+  if (typeof id !== 'string') throw new Error('Bad id');
+  await db.todos.delete({ id, owner: user.id });
+}, { id: 'deleteTodo' });
+```
 
 ## Request Handler & CSRF (on by default)
 
@@ -560,6 +585,12 @@ main = "worker.js"
 compatibility_date = "2026-01-01"
 ```
 
+Enable AsyncLocalStorage with the `nodejs_compat` compatibility flag
+(`compatibility_flags = ["nodejs_compat"]`): without it, code a component runs
+after an `await` loses its request, and the queries it reads get an empty
+cache of their own instead of the request's (their data is then not in the
+page's data channel).
+
 `wrangler dev` to verify locally, `wrangler deploy` to ship. The handler is a
 standard ES module worker (`{ fetch(request, env, ctx) }`); `env`/`ctx` are
 exposed to loaders/renderers as `request.__env` / `request.__ctx` for KV/D1
@@ -585,10 +616,11 @@ covered by automated tests.
 | `renderToString(vnode)` | Render a component tree to an HTML string |
 | `renderToHydratableString(vnode)` | The same, with the hydration keys and markers `hydrate()` reads |
 | `renderToStream(vnode, options?)` | Stream HTML shell-first; returns `{ shellReady, allReady, response, pipe, readable, abort }`, also async-iterable |
-| `renderToStringAsync(vnode, ctx?, options?)` | The settled page as a string: `{ body, head, loaderData, resources, owned, ctx }` |
+| `renderToStringAsync(vnode, init?, options?)` | The settled page as a string: `{ body, head, loaderData, resources, owned, ctx, response }`. `init` is `{ loaderData?, signal?, request?, response? }` (a `createResponse()`); any other field rejects with a `TypeError` |
 | `renderDocument(page, reqCtx?, options?)` | Run the loader and render a whole document, settled |
 | `renderDocumentStream(page, reqCtx?, options?)` | Run the loader and stream a whole document |
 | `createResponse()` | A response object to pass as `reqCtx.response` from a custom server |
+| `getRequest()` | The request being answered: in a server render, a loader, or an action the built-in endpoints run; else null |
 | `ensureServerRuntime()` | Install the async request context where the host has one (every render calls it) |
 | `definePage(config)` | Define page rendering mode and metadata |
 | `generateStaticPage(page, data?)` | Generate a full HTML document |

@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 65 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 66 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 65 of them: 38 errors and 27 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 66 of them: 38 errors and 28 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -117,6 +117,7 @@
             <li><a href="#ERR_PAGE_NO_DEFAULT_EXPORT">ERR_PAGE_NO_DEFAULT_EXPORT</a></li>
             <li><a href="#ERR_PENDING_READ_UNTRACKED">ERR_PENDING_READ_UNTRACKED</a></li>
             <li><a href="#ERR_PRETEXT_NOT_INSTALLED">ERR_PRETEXT_NOT_INSTALLED</a></li>
+            <li><a href="#ERR_QUERY_OUTSIDE_RENDER">ERR_QUERY_OUTSIDE_RENDER</a></li>
             <li><a href="#ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</a></li>
             <li><a href="#ERR_RUNTIME">ERR_RUNTIME</a></li>
             <li><a href="#ERR_SIGNAL_WRITE_IN_COMPUTED">ERR_SIGNAL_WRITE_IN_COMPUTED</a></li>
@@ -436,7 +437,7 @@ export default { plugins: [reactCompat()] };</code></pre>
           <h2 id="ERR_HYDRATION_MISMATCH">ERR_HYDRATION_MISMATCH</h2>
           <p class="subtitle">Hydration mismatch (kind) in &lt;component&gt; at path: the server rendered found where the client renders expected. Recovery: recovery.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
-          <p>hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, or none for a key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).</p>
+          <p>hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a component's key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key (a component's data-hk, or a keyed list whose server rows have other keys, or keys in another order: expected and found list them), shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, move (a keyed list: each server row was taken as the row of its own key and moved into the client's order; a row is never given to another key, so what was typed in it stays with its key), or none for a component's key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).</p>
 <pre><code>// Bad — the client renders a value the server could not know:
 import { h, hydrate } from 'what-framework';
 
@@ -747,6 +748,19 @@ function Users() {
 // Then load it up front, so a missing install fails at startup:
 import { ensurePretext } from 'what-text';
 await ensurePretext();</code></pre>
+
+          <h2 id="ERR_QUERY_OUTSIDE_RENDER">ERR_QUERY_OUTSIDE_RENDER</h2>
+          <p class="subtitle">[what] Server query cache used outside a render, loader or action.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>On the server, each render, loader and server action has a query cache of its own, so one request's data never answers another. Code outside them (module scope, a timer, a background task, or code after an await on a runtime without AsyncLocalStorage) has no request to bind to, and a cache every request shared would hand one user's data to the next. So prefetchQuery, setQueryData, getQueryData and query() there get an empty cache of their own. Call them in a loader, an action or a component the server renders. On an edge runtime, enable AsyncLocalStorage (Cloudflare Workers: the nodejs_compat flag).</p>
+<pre><code>// Bad: runs at import time, with no request in scope.
+prefetchQuery(['config'], loadConfig);
+
+// Good: in the loader, which runs in the request's render.
+export async function loader() {
+  await prefetchQuery(['config'], loadConfig);
+  return null;
+}</code></pre>
 
           <h2 id="ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</h2>
           <p class="subtitle">A redirect() to &quot;target&quot; surfaced uncaught, so nothing performed the navigation.</p>

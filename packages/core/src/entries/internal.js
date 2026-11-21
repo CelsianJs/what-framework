@@ -33,6 +33,7 @@ export {
   setServerContext,
   runWithServerContext,
   __installServerContextStorage,
+  __markServerProcess,
   __flushOutsideServerContext,
   __outsideServerContext,
 } from '../server-context.js';

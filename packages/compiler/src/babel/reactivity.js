@@ -23,6 +23,17 @@ const PURE_BUILTIN_METHODS = new Set([
   'slice', 'reverse', 'sort', 'flat', 'concat', 'join',
 ]);
 
+// Built-in methods that read only their receiver and their arguments, a
+// callback argument included (see readsInCallback). Any other method of a value
+// the compiler did not see built may read a signal inside (see callReadsInside).
+const BUILTIN_METHODS = new Set([
+  'at', 'charAt', 'charCodeAt', 'codePointAt', 'includes', 'indexOf', 'lastIndexOf',
+  'startsWith', 'endsWith', 'padStart', 'padEnd', 'repeat', 'replace', 'replaceAll',
+  'split', 'substring', 'localeCompare', 'normalize', 'match', 'matchAll', 'search',
+  'map', 'filter', 'find', 'findIndex', 'findLast', 'findLastIndex', 'some', 'every',
+  'reduce', 'reduceRight', 'flatMap', 'forEach', 'toSorted', 'toReversed', 'toSpliced', 'with',
+]);
+
 // Known signal-creating functions
 const SIGNAL_CREATORS = new Set([
   'useSignal', 'signal', 'computed', 'useComputed', 'useState', 'useReducer',
@@ -42,6 +53,7 @@ export function isSignalIdentifier(name, signalNames) {
 // Walks the scope chain from the given path upward, collecting signals
 // defined in each lexical scope (function/block).
 export function collectSignalNamesFromScope(path) {
+  /** @type {Set<string> & { fromDestructuredProps?: Set<string>, scope?: any }} */
   const signalNames = new Set();
   // Names that came from a DESTRUCTURED PROP rather than a signal() call.
   //
@@ -59,6 +71,9 @@ export function collectSignalNamesFromScope(path) {
   // both a plain value and an accessor.
   const propNames = new Set();
   signalNames.fromDestructuredProps = propNames;
+  // Where the names were collected: a call is resolved from here to the
+  // function it calls (see callReadsInside).
+  signalNames.scope = path.scope;
 
   // Helper: extract signal names from a VariableDeclarator node
   function extractFromDeclarator(decl) {
@@ -242,6 +257,7 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
     if (expr.arguments.length === 0 && !isPureBuiltinMethodCall(expr)) {
       return true;
     }
+    if (callReadsInside(expr.callee, signalNames.scope, importedIds)) return true;
 
     // Unknown call — check if callee or args contain signal reads
     if (t.isIdentifier(expr.callee)) {
@@ -258,7 +274,8 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   // through their object, f?.() as a call.
   if (t.isOptionalCallExpression(expr)) {
     if (expr.arguments.length === 0) return true;
-    return isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
+    return callReadsInside(expr.callee, signalNames.scope, importedIds) ||
+           isPotentiallyReactive(expr.callee, signalNames, importedIds) ||
            expr.arguments.some(arg => isPotentiallyReactive(arg, signalNames, importedIds) ||
              readsInCallback(arg, signalNames, importedIds));
   }
@@ -288,6 +305,16 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
     return isPotentiallyReactive(expr.argument, signalNames, importedIds);
   }
 
+  if (t.isAssignmentExpression(expr)) {
+    return isPotentiallyReactive(expr.right, signalNames, importedIds) ||
+           (t.isMemberExpression(expr.left) && expr.left.computed &&
+             isPotentiallyReactive(expr.left.property, signalNames, importedIds));
+  }
+
+  if (t.isSequenceExpression(expr)) {
+    return expr.expressions.some(e => isPotentiallyReactive(e, signalNames, importedIds));
+  }
+
   if (t.isTemplateLiteral(expr)) {
     return expr.expressions.some(e => isPotentiallyReactive(e, signalNames, importedIds));
   }
@@ -310,35 +337,112 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   return false;
 }
 
-// Whether `fn`, a function handed to a call, returns something that reads
-// reactively: its expression body, or what its block body returns (nested
-// functions aside).
+// Whether `fn`, a function handed to a call, reads reactively when the call
+// runs it: anything its body evaluates, nested functions aside (they run when
+// something calls them). `() => { const text = label(); return text; }` reads
+// as much as `() => label()`.
 function readsInCallback(fn, signalNames, importedIds) {
   if (!t.isArrowFunctionExpression(fn) && !t.isFunctionExpression(fn)) return false;
-  if (!t.isBlockStatement(fn.body)) return isPotentiallyReactive(fn.body, signalNames, importedIds);
-  const returned = [];
-  collectReturns(fn.body, returned);
-  return returned.some(e => isPotentiallyReactive(e, signalNames, importedIds));
+  return bodyReads(fn, signalNames, importedIds);
 }
 
-function collectReturns(stmt, out) {
-  if (t.isReturnStatement(stmt)) {
-    if (stmt.argument) out.push(stmt.argument);
-  } else if (t.isBlockStatement(stmt)) {
-    for (const s of stmt.body) collectReturns(s, out);
-  } else if (t.isIfStatement(stmt)) {
-    collectReturns(stmt.consequent, out);
-    if (stmt.alternate) collectReturns(stmt.alternate, out);
-  } else if (t.isTryStatement(stmt)) {
-    collectReturns(stmt.block, out);
-    if (stmt.handler) collectReturns(stmt.handler.body, out);
-    if (stmt.finalizer) collectReturns(stmt.finalizer, out);
-  } else if (t.isSwitchStatement(stmt)) {
-    for (const c of stmt.cases) for (const s of c.consequent) collectReturns(s, out);
-  } else if (t.isLabeledStatement(stmt) || t.isForStatement(stmt) || t.isForOfStatement(stmt) ||
-             t.isForInStatement(stmt) || t.isWhileStatement(stmt) || t.isDoWhileStatement(stmt)) {
-    collectReturns(stmt.body, out);
+function bodyReads(fn, signalNames, importedIds) {
+  if (!t.isBlockStatement(fn.body)) return isPotentiallyReactive(fn.body, signalNames, importedIds);
+  return statementReads(fn.body, signalNames, importedIds);
+}
+
+function statementReads(stmt, names, ids) {
+  const reads = e => e != null && isPotentiallyReactive(e, names, ids);
+  const runs = s => s != null && statementReads(s, names, ids);
+  if (t.isBlockStatement(stmt)) return stmt.body.some(runs);
+  if (t.isExpressionStatement(stmt)) return reads(stmt.expression);
+  if (t.isReturnStatement(stmt) || t.isThrowStatement(stmt)) return reads(stmt.argument);
+  if (t.isVariableDeclaration(stmt)) return stmt.declarations.some(d => reads(d.init));
+  if (t.isIfStatement(stmt)) return reads(stmt.test) || runs(stmt.consequent) || runs(stmt.alternate);
+  if (t.isTryStatement(stmt)) return runs(stmt.block) || runs(stmt.handler && stmt.handler.body) || runs(stmt.finalizer);
+  if (t.isSwitchStatement(stmt)) {
+    return reads(stmt.discriminant) || stmt.cases.some(c => reads(c.test) || c.consequent.some(runs));
   }
+  if (t.isForStatement(stmt)) {
+    const init = t.isVariableDeclaration(stmt.init) ? runs(stmt.init) : reads(stmt.init);
+    return init || reads(stmt.test) || reads(stmt.update) || runs(stmt.body);
+  }
+  if (t.isForOfStatement(stmt) || t.isForInStatement(stmt)) return reads(stmt.right) || runs(stmt.body);
+  if (t.isWhileStatement(stmt) || t.isDoWhileStatement(stmt)) return reads(stmt.test) || runs(stmt.body);
+  if (t.isLabeledStatement(stmt)) return runs(stmt.body);
+  return false;
+}
+
+// Whether calling `callee` may read a signal that neither the callee
+// expression nor the arguments show. A function this module declares, or a
+// method of an object literal it declares, is read for it: `{format('x')}`
+// is as reactive as format's body. A function the compiler cannot see (a
+// parameter, a value some call returned, a method of an object it did not
+// see built) is assumed to read: only a body it has seen proves a call
+// static, and a wrong guess the other way freezes the text silently. Built-in
+// methods and globals are the environment's, not the app's.
+function callReadsInside(callee, scope, importedIds) {
+  if (!scope) return false;
+  if (t.isIdentifier(callee)) return bindingReads(scope, callee.name, null, importedIds);
+  if ((t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) && !callee.computed &&
+      t.isIdentifier(callee.property)) {
+    const method = callee.property.name;
+    if (PURE_BUILTIN_METHODS.has(method) || BUILTIN_METHODS.has(method)) return false;
+    if (t.isIdentifier(callee.object)) return bindingReads(scope, callee.object.name, method, importedIds);
+  }
+  return true;
+}
+
+// Every call's callee, resolved before any JSX is lowered (see the plugin's
+// Program visitor), so that a function's body is read as its author wrote it
+// whether it comes before or after the JSX that calls it.
+export function resolveCallee(callPath, importedIds) {
+  callReadsInside(callPath.node.callee, callPath.scope, importedIds);
+}
+
+// `name` resolved from `scope`, then called (`method` null) or its `method`
+// called. Kept per declaration: a function being read counts as reading
+// nothing while it is, so a recursive one ends and the rest of its body
+// decides.
+const bindingReadsCache = new WeakMap();
+function bindingReads(scope, name, method, importedIds) {
+  const binding = scope.getBinding(name);
+  if (!binding) return false;
+  // An import is as reactive as its source: one from What or from the app
+  // itself is decided by name (importedIds), a package's utility is not.
+  if (binding.kind === 'module') return !!importedIds && importedIds.has(name);
+  let byMethod = bindingReadsCache.get(binding.identifier);
+  if (!byMethod) bindingReadsCache.set(binding.identifier, byMethod = new Map());
+  let reads = byMethod.get(method);
+  if (reads === undefined) {
+    byMethod.set(method, false);
+    const fn = boundFunction(binding, method);
+    reads = fn === null || bodyReads(fn.node, collectSignalNamesFromScope(fn), importedIds);
+    byMethod.set(method, reads);
+  }
+  return reads;
+}
+
+// The path of the function a call of the binding (or of its `method`) runs,
+// or null when the declaration does not show one that stays put.
+function boundFunction(binding, method) {
+  const path = binding.path;
+  if (path.isFunctionDeclaration()) return method === null ? path : null;
+  if (!binding.constant || !path.isVariableDeclarator()) return null;
+  const init = path.get('init');
+  if (method === null) return init.isArrowFunctionExpression() || init.isFunctionExpression() ? init : null;
+  if (!init.isObjectExpression()) return null;
+  for (const prop of init.get('properties')) {
+    if (prop.node.computed || !t.isIdentifier(prop.node.key, { name: method })) continue;
+    if (prop.isObjectMethod()) return prop;
+    if (!prop.isObjectProperty()) return null;
+    const value = prop.get('value');
+    if (value.isArrowFunctionExpression() || value.isFunctionExpression()) return value;
+    if (!value.isIdentifier()) return null;
+    const inner = prop.scope.getBinding(value.node.name);
+    return inner ? boundFunction(inner, null) : null;
+  }
+  return null;
 }
 
 // A `when` prop's shape determines how the condition is formed:
@@ -373,6 +477,29 @@ export function buildWhenCondition(whenExpr, state) {
   const root = plainMemberChainRoot(whenExpr);
   if (root && isUnprovenBinding(root.name)) return resolveAccessorAtRuntime(whenExpr);
   return whenExpr;
+}
+
+// A reactive `each` becomes the list's accessor (see the <For> lowering), and
+// the value it evaluates to may be an accessor itself, as a plain `each` name
+// may: each={archived() ? done : open} picks one of two signals. Each name or
+// plain member chain the value can come from is read the way mapArray reads a
+// plain `each`; a proven local signal is called.
+export function buildEachValue(expr, state) {
+  if (t.isConditionalExpression(expr)) {
+    return t.conditionalExpression(expr.test, buildEachValue(expr.consequent, state), buildEachValue(expr.alternate, state));
+  }
+  if (t.isLogicalExpression(expr)) {
+    return t.logicalExpression(expr.operator, buildEachValue(expr.left, state), buildEachValue(expr.right, state));
+  }
+  if (t.isIdentifier(expr)) {
+    if (expr.name === 'undefined') return expr;
+    const fromProps = state.signalNames && state.signalNames.fromDestructuredProps;
+    const proven = state.signalNames && isSignalIdentifier(expr.name, state.signalNames) &&
+      !(fromProps && fromProps.has(expr.name)) &&
+      !(state.importedIdentifiers && state.importedIdentifiers.has(expr.name));
+    return proven ? t.callExpression(expr, []) : resolveAccessorAtRuntime(expr);
+  }
+  return plainMemberChainRoot(expr) ? resolveAccessorAtRuntime(expr) : expr;
 }
 
 // The root identifier of `a.b.c` with no computed keys, else null. Reading

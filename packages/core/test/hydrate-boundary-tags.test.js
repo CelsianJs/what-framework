@@ -73,6 +73,34 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 // =========================================================================
 
 describe('hydrating <ErrorBoundary>', () => {
+  // A component before the boundary that returns an array, a fragment, or its
+  // one child (a context provider, as <Form> renders): the boundary still
+  // finds its own marker, adopts the server's nodes, and nothing is reported.
+  it('after a sibling component that returns an array, a fragment or its children', async () => {
+    const { Fragment } = await import('../src/h.js');
+    const { createContext } = await import('../src/hooks.js');
+    const Ctx = createContext(0);
+    const before = {
+      array: () => [h('i', {}, 'a'), h('i', {}, 'b')],
+      fragment: () => h(Fragment, null, h('i', {}, 'a'), h('i', {}, 'b')),
+      'one child': () => h(Ctx, { value: 1 }, h('form', {}, h('button', {}, 'go'))),
+      'two children': () => h(Ctx, { value: 1 }, h('i', {}, 'a'), h('i', {}, 'b')),
+    };
+    for (const [name, Before] of Object.entries(before)) {
+      const tree = () => h('main', {}, h(Before, {}), h(ErrorBoundary, { fallback: () => h('p', {}, 'err') }, h(() => h('p', { id: 'c' }, () => 'fine'), {})));
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      container.innerHTML = renderToHydratableString(tree());
+      const server = container.querySelector('#c');
+      const reports = [];
+      hydrate(tree(), container, { onHydrationError: (r) => reports.push(r) });
+      flushSync();
+      assert.deepEqual(reports, [], name);
+      assert.equal(container.querySelector('#c'), server, `${name}: the server's node is adopted`);
+      container.remove();
+    }
+  });
+
   it('keeps the subtree the server rendered', () => {
     const tree = () => h('div', { id: 'x' },
       h(ErrorBoundary, { fallback: () => h('p', {}, 'FALLBACK') },

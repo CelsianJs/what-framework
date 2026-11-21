@@ -45,13 +45,20 @@ export function useActionState(action, initialState, permalink) {
         // With nothing queued the action starts at once, inside the
         // transition: an addOptimistic() before its first await belongs to it.
         if (before !== null) await before;
-        if (gen !== generation) return;
+        if (gen !== generation) {
+          failedIn.add(tx);
+          return;
+        }
         const next = await action(latest, payload);
-        if (gen !== generation) return;
+        if (gen !== generation) {
+          failedIn.add(tx);
+          return;
+        }
         latest = next;
         _onCommit(tx, () => state(next));
       } catch (err) {
         generation++;
+        failedIn.add(tx);
         const left = _handleError(owner, err);
         if (left !== HANDLED) throw left;
       } finally {
@@ -74,6 +81,10 @@ export function useActionState(action, initialState, permalink) {
 
   return [() => state(), dispatch, () => open() > 0];
 }
+
+// The transitions a dispatch did not succeed in: its action threw, or was
+// dropped behind one that did. A <Form> it ran in is not reset at the commit.
+const failedIn = new WeakSet();
 
 // What useFormStatus() answers outside a <Form>.
 const NO_FORM = /* @__PURE__ */ Object.freeze({
@@ -103,9 +114,13 @@ export function useFormStatus() {
 }
 
 /**
- * @internal A <Form>'s status: what useFormStatus() inside it reads, and
- * `submit(formData, run)`, which runs `run(formData)` for one submission as a
- * transition the status shows. Returns the transition's promise.
+ * @internal A <Form>'s status: what useFormStatus() inside it reads (`action`
+ * is the form's action function, or null for a URL or an action id, as in
+ * React), and `submit(formData, run, reset)`, which runs `run(formData)` for
+ * one submission as a transition the status shows. As React 19 does for an
+ * uncontrolled form, `reset()` runs when that transition commits, if what ran
+ * in it succeeded: `run` did not reject and no useActionState dispatch in it
+ * failed. Returns the transition's promise.
  */
 export function _formStatus(method, action) {
   const pending = signal(0);
@@ -114,14 +129,15 @@ export function _formStatus(method, action) {
     pending: () => pending() > 0,
     data: () => data(),
     method,
-    action,
-    submit(formData, run) {
-      return _startTransition(() => run(formData), (t) => {
+    action: typeof action === 'function' ? action : null,
+    submit(formData, run, reset) {
+      return _startTransition(() => run(formData), (t, call) => {
         pending((n) => n + 1);
         data(formData);
         _onCommit(t, () => {
           pending((n) => n - 1);
           if (pending.peek() === 0) data(null);
+          if (!call.failed && !failedIn.has(t)) reset();
         });
       });
     },

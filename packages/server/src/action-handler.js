@@ -7,6 +7,8 @@
 // actions.js (handleActionRequest) — no security logic is duplicated here.
 
 import { handleActionRequest } from './actions.js';
+import { addField } from './fields.js';
+import { runInActionContext } from './context.js';
 
 const DEFAULT_BASE_PATH = '/__what_action';
 export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
@@ -50,7 +52,10 @@ function htmlResponse(status, message) {
 // Backslashes matter: browsers and `new URL()` treat "\" like "/", so
 // "/\evil.com" canonicalizes to http://evil.com (an open redirect). We reject
 // anything starting with two slash-or-backslash chars or containing a
-// backslash, then canonicalize via URL and require the localhost origin.
+// backslash, then canonicalize via URL and require the localhost origin. The
+// canonical path is checked again: removing dot segments and tabs makes
+// "/.//evil", "/x/..//evil" and "/%2e//evil" into "//evil", a protocol-relative
+// target once it is a Location header.
 //
 // Sibling predicate: isSafeUrl in packages/router/src/index.js. That one gates
 // a client navigation target and legitimately allows absolute http(s), mailto:
@@ -65,7 +70,7 @@ export function safeLocalPath(value) {
   if (/^[/\\]{2}/.test(value) || value.includes('\\')) return null;
   try {
     const u = new URL(value, 'http://localhost');
-    if (u.origin !== 'http://localhost') return null;
+    if (u.origin !== 'http://localhost' || u.pathname.startsWith('//')) return null;
     return u.pathname + u.search;
   } catch {
     return null;
@@ -164,12 +169,35 @@ const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-c
  *    fields stripped). Success responds 303 See Other (POST/redirect/GET);
  *    failures respond with an HTML error page and the matching status.
  */
+// The request an action call answers: the Web Request a fetch endpoint got,
+// else one made from the request-like object (its URL against its Host).
+function requestOf(reqLike, method) {
+  if (typeof Request === 'undefined') return null;
+  if (reqLike.request instanceof Request) return reqLike.request;
+  const headers = lowerHeaders(reqLike.headers);
+  let url;
+  try {
+    url = new URL(reqLike.url || '/', `http://${headers.host || 'localhost'}`);
+  } catch {
+    url = new URL('http://localhost/');
+  }
+  const init = new Headers();
+  for (const [name, value] of Object.entries(headers)) {
+    if (value != null) init.set(name, Array.isArray(value) ? value.join(', ') : String(value));
+  }
+  return new Request(url, { method, headers: init });
+}
+
 export function createActionHandler(options = {}) {
   const { getCsrfToken, skipCsrf = false } = options;
   const trustedOrigins = new Set(options.trustedOrigins || []);
 
   return async function handle(reqLike) {
     const method = (reqLike.method || 'POST').toUpperCase();
+    // The action runs with its request (getRequest()), the caller's cookies
+    // and headers: an action is a public endpoint, and checks its caller.
+    const call = (id, args, callOptions, callHeaders) => runInActionContext(requestOf(reqLike, method),
+      () => handleActionRequest({ headers: callHeaders }, id, args, callOptions));
     if (method !== 'POST') {
       return jsonResponse(405, { message: 'Method Not Allowed' });
     }
@@ -215,12 +243,7 @@ export function createActionHandler(options = {}) {
         if (!RESERVED_FORM_FIELDS.has(k)) data[k] = v;
       }
 
-      const result = await handleActionRequest(
-        { headers: formHeaders },
-        actionId,
-        [data],
-        { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }
-      );
+      const result = await call(actionId, [data], { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }, formHeaders);
 
       if (result.status === 200) {
         return {
@@ -246,12 +269,7 @@ export function createActionHandler(options = {}) {
     const body = reqLike.body || {};
     const args = body.args;
 
-    const result = await handleActionRequest(
-      { headers },
-      headerActionId,
-      args,
-      { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }
-    );
+    const result = await call(headerActionId, args, { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }, headers);
 
     return jsonResponse(result.status, result.body);
   };
@@ -281,7 +299,13 @@ export function nodeActionMiddleware(options = {}) {
     }
 
     const query = Object.fromEntries(new URLSearchParams(search || ''));
-    const out = await handle({ method: req.method, headers: req.headers, body, query, url: req.url });
+    let out;
+    try {
+      out = await handle({ method: req.method, headers: req.headers, body, query, url: req.url });
+    } catch (err) {
+      console.error('[what] Action request failed:', err);
+      out = { status: 500, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Action failed' }) };
+    }
     res.writeHead(out.status, out.headers);
     res.end(out.body);
   };
@@ -291,11 +315,7 @@ export function nodeActionMiddleware(options = {}) {
 export function parseActionBody(raw, contentType) {
   if ((contentType || '').includes('application/x-www-form-urlencoded')) {
     const fields = {};
-    for (const [k, v] of new URLSearchParams(String(raw))) {
-      if (fields[k] === undefined) fields[k] = v;
-      else if (Array.isArray(fields[k])) fields[k].push(v);
-      else fields[k] = [fields[k], v];
-    }
+    for (const [k, v] of new URLSearchParams(String(raw))) addField(fields, k, v);
     return fields;
   }
   if (raw == null || raw === '') return {};
@@ -392,7 +412,7 @@ export function fetchActionHandler(options = {}) {
     try {
       query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
     } catch { /* no query */ }
-    const out = await handle({ method: request.method, headers: request.headers, body, query, url: request.url });
+    const out = await handle({ method: request.method, headers: request.headers, body, query, url: request.url, request });
     return new Response(out.body, { status: out.status, headers: out.headers });
   };
 }

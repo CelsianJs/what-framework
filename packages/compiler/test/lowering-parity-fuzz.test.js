@@ -499,6 +499,16 @@ function emitJSX(spec) {
   }
 }
 
+function jsxChildren(children) {
+  const out = [];
+  for (const child of children) {
+    const last = out[out.length - 1];
+    if (child.kind === 'raw' && last !== undefined && last.kind === 'raw') out[out.length - 1] = { kind: 'raw', text: last.text + child.text };
+    else out.push(child);
+  }
+  return out;
+}
+
 function emitH(spec) {
   switch (spec.kind) {
     case 'raw': return q(spec.text);
@@ -513,8 +523,11 @@ function emitH(spec) {
       const [a, b] = spec.arms || ['b', 'i'];
       return `(() => s[${spec.signal}]() ? h(${q(a)}, {}, ${emitH(spec.then)}) : h(${q(b)}, {}, ${emitH(spec.else)}))`;
     }
+    // Raw text written side by side in JSX is one text child, so the
+    // fragment's children are counted as JSX counts them: a component hands a
+    // single child over as itself, and several as an array.
     case 'fragment':
-      return `h(Fragment, {}, ${spec.children.map(emitH).join(', ') || 'null'})`;
+      return `h(Fragment, {}, ${jsxChildren(spec.children).map(emitH).join(', ') || 'null'})`;
     case 'list':
       return spec.selector
         ? `(() => s[${LIST_SIGNAL}]().map(v => h("li", { key: v, class: () => (s[${SELECT_SIGNAL}]() === v ? "on" : "off") }, v)))`
@@ -1426,7 +1439,10 @@ async function runSemantics({ cases, seed }) {
         results.push({ html, log: fixture.L.join(' ') });
       }
       const [compiled, expected] = results;
-      if (compiled.html !== expected.html) {
+      // A compiled keyed <For> writes its rows' keys (what-server rowKeys);
+      // the h() program it stands for hands its rows over as plain values,
+      // which carry none. Everything else is compared as written.
+      if (compiled.html.replace(/<!--k\[[^>]*-->/g, '') !== expected.html) {
         divergent.push({ caseIndex, spec, detail: `${mode}\n  compiled: ${compiled.html}\n  h()     : ${expected.html}` });
       } else if (compiled.log !== expected.log) {
         divergent.push({ caseIndex, spec, detail: `${mode}: evaluation order\n  compiled: ${compiled.log}\n  h()     : ${expected.log}` });

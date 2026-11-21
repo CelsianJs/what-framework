@@ -198,3 +198,46 @@ describe('a boundary the server could not render (m5)', () => {
     dom.window.close();
   });
 });
+
+// renderToStringAsync(vnode, init?) takes { loaderData, signal, request,
+// response }, the inputs of a render, and checks them: an object of another
+// shape used to reach the engine as its internal context and fail inside it
+// (`reading 'aborted'`), or, with only a signal, throw an uncaught exception
+// from a microtask that took the process down.
+describe('renderToStringAsync(vnode, init)', () => {
+  it('renders with each init field, and with none', async () => {
+    const { createResponse } = await import('../src/response.js');
+    const response = createResponse();
+    for (const init of [undefined, null, {}, { loaderData: { n: 1 } }, { signal: new AbortController().signal }, { request: new Request('http://shop.test/') }, { response }]) {
+      const out = await renderToStringAsync(h('p', null, 'x'), init);
+      assert.equal(content(out.body), '<p>x</p>', JSON.stringify(init && Object.keys(init)));
+    }
+    assert.deepEqual((await renderToStringAsync(h('p', null, 'x'), { loaderData: { n: 1 } })).loaderData, { n: 1 });
+    assert.equal((await renderToStringAsync(h('p', null, 'x'), { response })).response, response);
+  });
+
+  it('rejects anything else with a TypeError that says what is wrong, and never throws from a later turn', async () => {
+    const uncaught = [];
+    const onUncaught = (error) => uncaught.push(error);
+    process.on('uncaughtException', onUncaught);
+    try {
+      for (const [init, says] of [
+        [{ params: { id: '1' } }, '"params" is not an init field'],
+        [{ signal: 1 }, 'signal is not an AbortSignal'],
+        [{ response: {} }, 'response is not one createResponse() made'],
+        [{ request: 'http://shop.test/' }, 'request is not a Request'],
+        [5, 'init is number'],
+        [[], 'init is an array'],
+      ]) {
+        await assert.rejects(renderToStringAsync(h('p', null, 'x'), init), (error) => error instanceof TypeError && error.message.includes(says));
+      }
+      const aborted = new AbortController();
+      aborted.abort();
+      await assert.rejects(renderToStringAsync(h('p', null, 'x'), { signal: aborted.signal }));
+      await delay(10);
+      assert.deepEqual(uncaught, []);
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
+  });
+});

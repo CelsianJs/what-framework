@@ -409,10 +409,18 @@ function listHole(expr, state, inArray = false) {
   }
   const found = findMappedJsx(mapCall, state, false);
   if (!found) return null;
-  if (isKeyedRow(found)) markRowItemReads(found.mapFn, found.keyValue);
+  const keyed = isKeyedRow(found);
+  if (keyed) markRowItemReads(found.mapFn, found.keyValue);
   // A row that is the callback's whole result goes straight into the list.
   if (found.mapFn.body === found.returnExpr && !isComponentElement(found.returnExpr)) found.returnExpr._whatRow = true;
-  const list = call(state, '_$ssrList', [mapCall.callee.object, found.mapFn, t.booleanLiteral(reactive || inArray)]);
+  const args = [mapCall.callee.object, found.mapFn, t.booleanLiteral(reactive || inArray)];
+  // The key function the DOM target's list keys its rows with (dom.js
+  // tryLowerMapCall), for the keys the hydratable markup carries.
+  if (keyed) {
+    const item = found.mapFn.params[0] ? t.cloneNode(found.mapFn.params[0], true) : t.identifier('_item');
+    args.push(t.arrowFunctionExpression([item], t.cloneNode(found.keyValue, true)));
+  }
+  const list = call(state, '_$ssrList', args);
   return reactive ? thunk(list) : list;
 }
 
@@ -569,7 +577,7 @@ function forValue(node, path, state) {
   if (!each || !renderFn) {
     throw compileError(path, state, '<For> needs an "each" prop and a render function child: <For each={items}>{(item) => <li>{item}</li>}</For>');
   }
-  return call(state, '_$ssrFor', [each, renderFn.expression, t.booleanLiteral(key !== null), fallback || t.nullLiteral()]);
+  return call(state, '_$ssrFor', [each, renderFn.expression, key || t.booleanLiteral(false), fallback || t.nullLiteral()]);
 }
 
 // --- Program teardown ------------------------------------------------------------

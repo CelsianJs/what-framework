@@ -38,9 +38,11 @@ import {
   _setAsyncValue,
   _installSeedOps,
   _isNotReady,
+  __DEV__,
 } from './reactive.js';
 import { _seedFor, getResource, getResourceError, _errorFromRecord } from './hydration-data.js';
-import { getServerContext } from './server-context.js';
+import { getServerContext, _isServerProcess } from './server-context.js';
+import { report } from './diagnostics.js';
 import { _enableSuspense, isHydrating } from './render.js';
 
 const PLAIN = 0;
@@ -89,7 +91,14 @@ const serverCaches = new WeakMap();
 
 function cacheOf(kind) {
   const ctx = getServerContext();
-  if (ctx === null) return clientCache[kind];
+  if (ctx === null) {
+    if (!_isServerProcess()) return clientCache[kind];
+    // On a server, outside every render, loader and action: no request to
+    // bind to, and a cache every request shares would hand one user's data to
+    // another. The call gets an empty cache nothing else sees.
+    if (__DEV__) report('ERR_QUERY_OUTSIDE_RENDER');
+    return new Map();
+  }
   let caches = serverCaches.get(ctx);
   if (caches === undefined) serverCaches.set(ctx, caches = [new Map(), new Map()]);
   return caches[kind];
@@ -237,6 +246,7 @@ function startFlight(e) {
     /** @type {any} */ result: undefined,
     /** @type {any} */ page: undefined,
     started: Date.now(),
+    /** @type {(() => void) | null} */ onKill: null,
   };
   e.by = null;
   e.flight = f;
@@ -247,10 +257,13 @@ function startFlight(e) {
     first = callFetcher(e, f);
   } catch (err) {
     // A fetcher that threw before it started, or read an input that is not
-    // ready: the node takes that as its run's answer.
+    // ready: the node takes that as its run's answer. A throw is the entry's
+    // error, as a rejection would be; the query() whose run this is reads it
+    // from the entry at once, so the landing does not run it again.
     e.flight = null;
     f.dead = true;
-    e.version++;
+    if (_isNotReady(err)) e.version++;
+    else record(e, f, err, true);
     throw err;
   }
   f.promise = retrying(e, f, first);
@@ -315,24 +328,34 @@ function landed(e, f, result, failed) {
   f.result = result;
   if (f.dead) return;
   if (e.flight === f) e.flight = null;
+  record(e, f, result, failed);
+  e.tick((n) => n + 1);
+}
+
+// A fetch's result, on the entry.
+function record(e, f, result, failed) {
   e.version++;
   const now = Date.now();
   e.updatedAt = now;
   e.error = failed ? result : undefined;
   e.last = { at: now, ms: now - f.started, ok: !failed };
   if (e.dir !== null) e.dir(null);
-  arrive(e, result, failed);
+  answer(e, result, failed);
 }
 
 // The entry got a value or an error: a query() waiting for its first one
 // lands with it, and runs again to read the node from then on.
 function arrive(e, result, failed) {
+  answer(e, result, failed);
+  e.tick((n) => n + 1);
+}
+
+function answer(e, result, failed) {
   const a = e.arrival;
   if (a !== null) {
     e.arrival = null;
     (failed ? a.reject : a.resolve)(result);
   }
-  e.tick((n) => n + 1);
 }
 
 function arrival(e) {
@@ -355,6 +378,7 @@ function kill(e, f, superseded) {
   f.superseded = superseded;
   f.ac.abort();
   if (e.flight === f) e.flight = null;
+  if (f.onKill !== null) f.onKill();
 }
 
 // The callbacks of the observer that asked for a flight, once its result is in
@@ -379,10 +403,21 @@ function deliver(e, f) {
 // page it fetched), the value of the flight that superseded it, or undefined
 // when its result was dropped.
 function outcome(e, f) {
-  return f.promise.then(
+  const settled = f.promise.then(
     (v) => (f.dead ? follow(e, f) : e.kind === INFINITE ? f.page : v),
     (err) => (f.dead ? follow(e, f) : Promise.reject(err)),
   );
+  if (f.dead) return settled;
+  // Dropped, it answers at once, without waiting for a transport that may
+  // ignore the abort: the newer flight is in place by the time this runs.
+  const dropped = new Promise((resolve) => {
+    const prev = f.onKill;
+    f.onKill = () => {
+      if (prev !== null) prev();
+      resolve(undefined);
+    };
+  }).then(() => follow(e, f));
+  return Promise.race([settled, dropped]);
 }
 
 function follow(e, f) {
@@ -781,10 +816,10 @@ export function query(key, fetcher, options = {}) {
     // of it, or an error boundary's reset. Fetch the entry again.
     const again = seen !== null && seen.e === e && seen.version === e.version;
     seen = { e, version: e.version };
-    if (untrack(() => valueOf(e)) === undefined) {
-      // No data yet: wait for the entry's first landing, subscribed to the
-      // landing itself rather than to the node, whose placeholder is not a
-      // value to show as pending.
+    if (untrack(() => e.node.peek()) === IDLE) {
+      // No data yet (a fetch that landed undefined is data): wait for the
+      // entry's first landing, subscribed to the landing itself rather than to
+      // the node, whose placeholder is not a value to show as pending.
       e.tick();
       if (again || (e.flight === null && e.error === undefined)) fetchEntry(e, o);
       seen.version = e.version;

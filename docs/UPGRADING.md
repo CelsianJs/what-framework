@@ -135,7 +135,7 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `isVNode` |
 
 <!-- import-changes:end -->
 
@@ -457,15 +457,17 @@ The [what-server README](../packages/server/README.md) documents each of these.
   request as options
   ([Streaming SSR](../packages/server/README.md#streaming-ssr)).
 - **`renderToStringAsync()` waits on the streaming engine.**
-  `renderToStringAsync(vnode, ctx?, options?)` renders on the same engine as
+  `renderToStringAsync(vnode, init?, options?)` renders on the same engine as
   the stream and waits for everything the stream waits for (a resource inside
   or outside a `<Suspense>`, an async component, `lazy()`); 0.14 re-rendered
   the whole tree until its resources settled. A resource with no `key` is
   returned in `owned`, by owner, no longer in `resources` under `__r0`,
-  `__r1` and so on. The second argument is a server context from
-  `what-core/internal`, which applications do not create. This affects code
-  that builds its own hydration payload from the result: send `owned` along
-  with `resources`, or let `renderDocument()` write the payload.
+  `__r1` and so on. The second argument is the render's inputs,
+  `{ loaderData?, signal?, request?, response? }` (a `createResponse()`);
+  any other field, or a value of the wrong kind, rejects with a `TypeError`.
+  This affects code that builds its own hydration payload from the result:
+  send `owned` along with `resources`, or let `renderDocument()` write the
+  payload.
 - **A render sets its status, headers and redirect.** New in 0.15: a page's
   loader receives `response`, and a component reaches the same object with
   `getResponse()` from `what-framework`. `response.redirect(path, status =
@@ -599,21 +601,22 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B (ceiling 6656 B) | 8825 B |
-| The create-what counter, runtime JSX | ceiling 7987 B | 8869 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | not measured | 6371 B |
+| A counter written with `h()` | 6601 B (ceiling 6656 B) | 8878 B |
+| The create-what counter, runtime JSX | ceiling 7987 B | 8918 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | not measured | 6386 B |
 
 0.14's numbers include development-only code (872 B of the `h()` counter),
 which 0.15 leaves out of production builds; the `h()` counter still grows by
-2224 B, for the new engine, the engine hooks async values and transitions need,
-and for fixes to keyed rows, class composition, delegated events and hydration. The production build (`dist/*.min.js`, what the
+2277 B, for the new engine, the engine hooks async values and transitions need,
+and for fixes to keyed rows, class composition, delegated events, hydration,
+`<Suspense>` release and SVG animation URLs. The production build (`dist/*.min.js`, what the
 `production` export condition resolves) has one file per source module
 instead of one shared chunk, so an app bundled from it is as small as the
 same app bundled from source, and a compiled app with no `h()`, boundary or
 portal leaves the vnode renderer out. Loading the dist straight into a
 browser without a bundler fetches more, smaller files. This affects an app
 written with `h()` that has a size budget: compiled with what-compiler, the
-same counter is 6371 B.
+same counter is 6386 B.
 
 ### Companion packages
 

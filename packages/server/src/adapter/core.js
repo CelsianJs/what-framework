@@ -69,7 +69,14 @@ function responseHeaders(...sources) {
 function readCookie(cookieHeader, name) {
   if (!cookieHeader) return null;
   const match = String(cookieHeader).match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
-  return match ? decodeURIComponent(match[1]) : null;
+  if (!match) return null;
+  // A malformed value (`%E0%A4`, set by a sibling subdomain) is no value: the
+  // request gets a fresh one instead of a 500 on every page.
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 // Read + parse the action body with the shared MAX_BODY_BYTES cap. Returns
@@ -127,59 +134,87 @@ function committedHeaders(response) {
   return response.location ? responseHeaders(response.headers, { location: response.location }) : response.headers;
 }
 
-// The request header names a route's declared `vary` covers ('cookie:session'
-// covers the Cookie header, 'accept-language' and 'header:x-tenant' name one).
+// What a route's declared `vary` covers: request header names
+// ('accept-language', 'header:x-tenant', 'cookie' for the whole Cookie header)
+// and cookie names ('cookie:session' names one cookie).
 function variedHeaderNames(config) {
-  const names = new Set();
+  const headers = new Set();
+  const cookies = new Set();
   const vary = config && config.vary;
   for (const raw of typeof vary === 'string' ? [vary] : Array.isArray(vary) ? vary : []) {
     const name = String(raw);
     const i = name.indexOf(':');
     const kind = i < 0 ? 'header' : name.slice(0, i).toLowerCase();
-    names.add(kind === 'cookie' ? 'cookie' : (i < 0 ? name : name.slice(i + 1)).toLowerCase());
+    if (kind === 'cookie') cookies.add(name.slice(i + 1));
+    else headers.add((i < 0 ? name : name.slice(i + 1)).toLowerCase());
   }
-  return names;
+  return { headers, cookies };
 }
 
 const ITERATING_METHODS = new Set(['forEach', 'entries', 'keys', 'values', Symbol.iterator]);
 
-// The request a shareable render sees: the cache's signal, and a record of the
-// header names read that the cache key does not vary on.
+// The names of the cookies a Cookie header carries.
+function cookieNames(header) {
+  const names = [];
+  for (const part of String(header || '').split(';')) {
+    const name = part.split('=')[0].trim();
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+// The request a shareable render sees: the cache's signal, and a record of
+// what it read that the cache key does not vary on. The Cookie header holds
+// every cookie, so reading it counts as reading each cookie the request
+// carries: one the route's `vary` does not name makes the render private.
+// A copy of the request (`clone()`) is watched the same way; the request used
+// whole (`new Request(request)`, `fetch(request)`), which reads its internal
+// state rather than its headers, makes the render private.
 function sharedRenderRequest(request, signal, varied) {
   /** @type {Set<string>} */
   const unvaried = new Set();
-  const read = (name) => {
+  const read = (target, name) => {
     const lower = String(name).toLowerCase();
-    if (!varied.has(lower)) unvaried.add(lower);
+    if (lower === 'cookie' && !varied.headers.has('cookie')) {
+      for (const cookie of cookieNames(target.get('cookie'))) {
+        if (!varied.cookies.has(cookie)) unvaried.add(`cookie:${cookie}`);
+      }
+    } else if (!varied.headers.has(lower)) {
+      unvaried.add(lower);
+    }
   };
-  const headers = new Proxy(request.headers, {
-    get(target, property) {
-      const value = Reflect.get(target, property, target);
-      if (typeof value !== 'function') return value;
-      if (property === 'get' || property === 'has') {
-        return (name) => {
-          read(name);
-          return value.call(target, name);
-        };
-      }
-      if (ITERATING_METHODS.has(property)) {
-        return (...args) => {
-          target.forEach((_value, name) => read(name));
-          return value.apply(target, args);
-        };
-      }
-      return value.bind(target);
-    },
-  });
-  const view = new Proxy(request, {
-    get(target, property) {
-      if (property === 'headers') return headers;
-      if (property === 'signal') return signal;
-      const value = Reflect.get(target, property, target);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-  return { request: view, unvaried };
+  const watch = (req) => {
+    const headers = new Proxy(req.headers, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (typeof value !== 'function') return value;
+        if (property === 'get' || property === 'has') {
+          return (name) => {
+            read(target, name);
+            return value.call(target, name);
+          };
+        }
+        if (ITERATING_METHODS.has(property)) {
+          return (...args) => {
+            target.forEach((_value, name) => read(target, name));
+            return value.apply(target, args);
+          };
+        }
+        return value.bind(target);
+      },
+    });
+    return new Proxy(req, {
+      get(target, property) {
+        if (property === 'headers') return headers;
+        if (property === 'signal') return signal;
+        if (property === 'clone') return () => watch(target.clone());
+        if (typeof property === 'symbol' && property !== Symbol.toStringTag) unvaried.add('the whole request');
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  };
+  return { request: watch(request), unvaried };
 }
 
 function defaultRenderRoute(documentOptions) {
@@ -300,6 +335,7 @@ export function createRequestHandler(options = {}) {
         body,
         query: Object.fromEntries(url.searchParams),
         url: request.url,
+        request,
       });
       return new Response(out.body, { status: out.status, headers: out.headers });
     }

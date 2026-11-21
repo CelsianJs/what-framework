@@ -73,7 +73,9 @@ export interface RouteConfig {
    * first render), and the navigation waits for what it returns (a query(),
    * an async value, a promise, or an array or object of them) before it
    * commits. The page receives it as its `data` prop. Queries it makes are
-   * tagged with the route's path, so invalidatePath(path) refetches them.
+   * tagged with the route's path, so invalidatePath(path) refetches them. A
+   * preload that throws renders the route's `error` (or the nearest error
+   * boundary) with what it threw. On the server it runs for the render.
    */
   preload?: (ctx: { params: Record<string, string>; query: Record<string, string>; url: string }) => any;
 }
@@ -101,6 +103,12 @@ export interface RouterProps {
   routes: RouteConfig[];
   fallback?: Component<{}>;
   globalLayout?: Component<{ children?: VNodeChild }>;
+  /**
+   * The URL a server render shows. Without it, a server render shows the URL
+   * of the request being rendered (`request` of the render), else "/". The
+   * client always shows the window's URL.
+   */
+  url?: string;
 }
 
 export function Router(props: RouterProps): VNode;

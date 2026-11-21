@@ -57,6 +57,21 @@ function renderOwner() {
   return ctx != null && ctx.owner != null ? ctx.owner : null;
 }
 
+// Whether this process renders on the server with no document of its own
+// (what-server's ensureServerRuntime). There, code outside every render has
+// no page of its own either: the query cache gives it nothing shared.
+let _serverProcess = false;
+
+/** @internal what-server: this process renders on the server. */
+export function __markServerProcess() {
+  _serverProcess = typeof document === 'undefined';
+}
+
+/** @internal Whether code outside a render runs on a server with no document. */
+export function _isServerProcess() {
+  return _serverProcess;
+}
+
 /** @returns the active render context, or null on the client / outside a render. */
 export function getServerContext() {
   if (_current != null) return _current;

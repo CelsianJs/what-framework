@@ -81,7 +81,12 @@ function Badge(props) {
 }
 ```
 
-Two things are deliberately left alone, because neither can be an accessor: built-in conversions (`date.toLocaleDateString()`, `name.toUpperCase()`) and calls whose arguments call nothing (`format(a, b)`). A call whose argument reads an accessor (`{format(count())}`) is wrapped. If a call reads a signal internally, write the wrapper yourself: `{() => format(a, b)}`.
+A call with arguments is wrapped when it can read a signal, and only then:
+
+- Built-in methods (`date.toLocaleDateString()`, `name.padStart(3)`), globals (`JSON.stringify(row)`) and a package's utilities (`format(day, 'P')` from date-fns) are left alone: none of them reads a signal of yours.
+- A function this module declares, or a method of an object literal it declares, is as reactive as its body: `{format(a, b)}` is wrapped when `format` reads a signal and left alone when it does not, wherever in the file it is declared.
+- A function the compiler cannot see into is wrapped: a parameter (`props.format('x')`), a value some call returned. If it turns out constant, the cost is one effect that runs once.
+- A call whose argument reads an accessor (`{format(count())}`) is wrapped, and so is one handed a function whose body reads one anywhere: `{fmt(() => { const text = label(); return text; })}`.
 
 ## 3. Don't Mutate Signal Values Directly
 

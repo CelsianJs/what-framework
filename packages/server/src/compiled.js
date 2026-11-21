@@ -72,6 +72,9 @@ export function isHtml(value) {
 //                    element, the innermost owns it.
 //   <!--$-->…<!--/$-->     a reactive child (a thunk, a signal, a keyed list)
 //   <!--[]-->…<!--/[]-->   an array a reactive child or a component returned
+//   <!--k[…]-->            right after a keyed list's <!--[]-->: its rows' keys
+//                          (rowKeys), so hydrate() takes each server row as
+//                          the row of its key
 //   <!--b-->…<!--/b-->     an <ErrorBoundary> or <Suspense> showing its
 //                          children; <!--b!--> opens one showing its fallback
 //
@@ -86,6 +89,20 @@ export const ARRAY_CLOSE = '<!--/[]-->';
 export const BOUNDARY_OPEN = '<!--b-->';
 export const BOUNDARY_FALLBACK = '<!--b!-->';
 export const BOUNDARY_CLOSE = '<!--/b-->';
+
+/**
+ * The comment a keyed list writes after its opening marker: its rows' keys
+ * as JSON, with what could end the comment escaped. Only strings and finite
+ * numbers are written; a list with any other key writes nothing, and its
+ * rows are adopted in order.
+ */
+export function rowKeys(keys) {
+  for (const key of keys) {
+    if (typeof key !== 'string' && !(typeof key === 'number' && Number.isFinite(key))) return '';
+  }
+  const json = JSON.stringify(keys).replace(/[<>]/g, (c) => (c === '<' ? '\\u003c' : '\\u003e')).replace(/--/g, '-\\u002d');
+  return `<!--k${json}-->`;
+}
 
 /** @returns {{ key: string | null }} */
 export function createHydrationKeys() {

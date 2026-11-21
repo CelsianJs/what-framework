@@ -43,7 +43,12 @@ describe('the hydration key scan', () => {
 // (compiled.js), which changed when keys became owner paths and boundaries
 // got markers. A <textarea> changed in both in 0.15: its content is text only
 // (no element, no marker) and a newline follows its start tag, which the
-// parser drops (what-core markup-rules.js).
+// parser drops (what-core markup-rules.js). Also in 0.15, a keyed list writes
+// its rows' keys after its opening marker (compiled.js rowKeys), and a
+// component given one child gets the child itself, as on the client, so a
+// component that returns its children writes no array markers around one; a
+// style object's declaration the client's CSSOM would drop (a name that is not
+// a property) is not written.
 describe('string output is unchanged', () => {
   it('renderToString matches the previous release, renderToHydratableString the protocol, on 300 seeded random trees', () => {
     const expected = JSON.parse(readFileSync(new URL('./fixtures/string-render-hashes.json', import.meta.url), 'utf8'));

@@ -1063,14 +1063,18 @@ function describeKey(key) {
  * every row.
  */
 export function _mapArrayToArray(inserter) {
-  const [source, mapFn, , keyed] = inserter._list;
+  const [source, mapFn, keyFn, keyed] = inserter._list;
   const items = source() || [];
-  return items.map((item, index) => {
+  const rows = items.map((item, index) => {
     if (keyed === RAW) return mapFn(item, index, item);
     const cell = _rowItem(item);
     cell.building = false;
     return mapFn(keyed === FOLLOW ? cell : () => _readRowItem(cell), index, item);
   });
+  // A keyed list's keys, which the server writes with its rows (what-server
+  // rowKeys) for hydrate() to adopt each row by its key.
+  if (keyFn !== itemKey) rows._keys = items.map(keyFn);
+  return rows;
 }
 
 // --- Rows ---
@@ -2157,6 +2161,12 @@ const BOUNDARY_CLOSE = '/b';
 // the client's is reactive or not.
 const TRANSPARENT = new Set([REGION_OPEN, REGION_CLOSE, ARRAY_OPEN, ARRAY_CLOSE]);
 
+// So is a keyed list's keys comment (inServerOrder), where a client that renders
+// no keyed list there meets it.
+function transparent(data) {
+  return TRANSPARENT.has(data) || data.startsWith('k[');
+}
+
 // The walk's position: the parent (p), the next node to claim (n, null at the
 // parent's end), how far a text claim has read into it (o), where the region
 // it walks ends (e: its closing marker, or null for the parent's end),
@@ -2290,7 +2300,7 @@ function next(c) {
   let n = c.n;
   while (n !== null && n !== c.e) {
     const type = n.nodeType;
-    if (type === 8 ? !TRANSPARENT.has(n.data) : type !== 3 || n.data !== '') break;
+    if (type === 8 ? !transparent(n.data) : type !== 3 || n.data !== '') break;
     n = n.nextSibling;
   }
   c.n = n;
@@ -2301,7 +2311,7 @@ function next(c) {
 function past(c) {
   let n = c.n;
   while (n !== null && n !== c.e
-    && ((n.nodeType === 8 && TRANSPARENT.has(n.data)) || (n.nodeType === 3 && n.data === ''))) n = n.nextSibling;
+    && ((n.nodeType === 8 && transparent(n.data)) || (n.nodeType === 3 && n.data === ''))) n = n.nextSibling;
   return n;
 }
 
@@ -2682,7 +2692,14 @@ function adopt(value) {
     return;
   }
   if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) adopt(value[i]);
+    // An array the server bracketed (one a component or a reactive child
+    // returned) is walked between its markers, so what follows it starts
+    // after its closing one: a boundary or a region after it finds its own
+    // opening marker there.
+    const at = nextOwn(cur);
+    const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;
+    if (close !== null) within(at, close, adoptEach, value);
+    else adoptEach(value);
     return;
   }
   if (isVNode(value)) {
@@ -2694,6 +2711,10 @@ function adopt(value) {
     return;
   }
   claimText(String(value));
+}
+
+function adoptEach(values) {
+  for (let i = 0; i < values.length; i++) adopt(values[i]);
 }
 
 // A node: one a compiled claim took in place (nothing left to do), or one the
@@ -3075,10 +3096,11 @@ function adoptRegion(fn, devName) {
 // h() keyed rows (_vnodeRows), adopted: each row hydrates its vnode in a root
 // of its own under the owner the region was created under, as a built row
 // would be, and the server's closing array marker is the rows' end.
-function adoptVNodeRows(vnodes, scope) {
+function adoptVNodeRows(value, scope) {
   const c = cur;
   const at = nextOwn(c);
   const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;
+  const vnodes = close !== null ? inServerOrder(at, close, value, vnodeKey) : value;
   const rows = [];
   const adoptRows = () => {
     const rc = cur;
@@ -3106,10 +3128,56 @@ function adoptVNodeRows(vnodes, scope) {
     splitHere(c);
     end = c.p.insertBefore(document.createComment('/list'), c.n);
   }
-  return /** @type {Function} */ (vnodeRows)(null, null, false, scope, end, rows);
+  const kept = /** @type {Function} */ (vnodeRows)(null, null, false, scope, end, rows);
+  if (vnodes !== value) kept.update(end.parentNode, end, value);
+  return kept;
+}
+
+function vnodeKey(vnode) {
+  return vnode.key;
 }
 
 // --- Lists ---
+
+// The items the server's rows (after `open`, up to `close`) are the rows of,
+// in the server's order, read from the keys the server wrote after the list's
+// opening marker (what-server rowKeys), which come out of the DOM: `items`
+// when it wrote their keys in their order (or wrote none); the items of its
+// keys in its order, when every server row's key is among the client's (the
+// rows are adopted by key, then put in the client's order); else none, and
+// the server's rows go (the client builds the list). A row is never adopted
+// as the row of another key. Anything but `items` is reported: the two sides
+// rendered the list from different data.
+function inServerOrder(open, close, items, keyFn) {
+  const n = open.nextSibling;
+  if (n === close || n.nodeType !== 8 || !n.data.startsWith('k[')) return items;
+  n.remove();
+  let keys;
+  try {
+    keys = JSON.parse(n.data.slice(1));
+  } catch {
+    return items;
+  }
+  if (keys.length === items.length && keys.every((key, i) => key === keyFn(items[i]))) return items;
+  const byKey = new Map();
+  for (const item of items) {
+    const key = keyFn(item);
+    byKey.set(key, [...(byKey.get(key) || []), item]);
+  }
+  const order = [];
+  for (const key of keys) {
+    const list = byKey.get(key);
+    if (list === undefined || list.length === 0) {
+      order.length = 0;
+      while (open.nextSibling !== close) open.nextSibling.remove();
+      break;
+    }
+    order.push(list.shift());
+  }
+  const describeKeys = (list) => short(list.map(String).join());
+  mismatch('key', describeKeys(items.map(keyFn)), describeKeys(keys), open, order.length > 0 ? 'move' : 'client-render');
+  return order;
+}
 
 // A compiled list (mapArray / _$mapKeyed), adopted: each item's row claims the
 // server's nodes for it inside an item scope, as buildRow builds one, and the
@@ -3201,8 +3269,13 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
         }
         throw error;
       }
-      if (close !== null) within(at, close, adoptRows, newItems);
-      else adoptRows(newItems);
+      const adopted = close !== null ? inServerOrder(at, close, newItems, keyFn) : newItems;
+      if (close !== null) within(at, close, adoptRows, adopted);
+      else adoptRows(adopted);
+      if (adopted !== newItems) {
+        for (let i = 0; i < mappedNodes.length; i++) mappedNodes[i]._$row = endMarker;
+        reconcileKeyed(endMarker.parentNode || parent, endMarker, adopted, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
+      }
     } else {
       newItems = source() || [];
       if (held) {

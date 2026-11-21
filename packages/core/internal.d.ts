@@ -59,9 +59,9 @@ export function _pathLoaded(path: string): Promise<void>;
 export const __DEV__: boolean;
 /** @internal what-server's <Form>: the context its status is provided in. */
 export function _formStatusContext(): any;
-/** @internal what-server's <Form>: a form's status, with `submit(formData, run)` running one submission as a transition. */
+/** @internal what-server's <Form>: a form's status, with `submit(formData, run, reset)` running one submission as a transition, and `reset()` at its commit if the submission succeeded. */
 export function _formStatus(method: string | null, action: unknown): import('./index.js').FormStatus & {
-  submit(formData: FormData, run: (formData: FormData) => unknown): Promise<void>;
+  submit(formData: FormData, run: (formData: FormData) => unknown, reset: () => void): Promise<void>;
 };
 
 export interface DiagnosticDetail {
@@ -195,6 +195,8 @@ export function isVNode(value: unknown): value is VNode<any>;
 export function _mapArrayToArray(...args: unknown[]): unknown;
 /** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
 export function __installServerContextStorage(storage: unknown): void;
+/** @internal Used by what-server. Marks a process that renders on the server with no document: outside a render, the query cache shares nothing. */
+export function __markServerProcess(): void;
 /** @internal Used by what-server. Runs waiting effect re-runs with no render context visible. */
 export function __flushOutsideServerContext(): void;
 /** @internal Used by what-server. Runs `fn` with no render context visible and no reactive owner. */

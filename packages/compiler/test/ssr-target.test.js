@@ -95,7 +95,7 @@ const a = _$ssrComponent(C, {
 import { ssr as _$ssr, ssrRow as _$ssrRow, ssrText as _$ssrText, ssrList as _$ssrList } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<ul>", "</ul>"];
 const _tmpl$1 = ["<li>", "</li>"];
-const a = _$ssr(_tmpl$0, () => _$ssrList(items(), it => _$ssrRow(_tmpl$1, _$ssrText(it.n)), true));`],
+const a = _$ssr(_tmpl$0, () => _$ssrList(items(), it => _$ssrRow(_tmpl$1, _$ssrText(it.n)), true, it => it.id));`],
   ["conditional", String.raw`const a = <p>{ok() ? <A /> : <b>no</b>}{x && <A />}</p>;`, String.raw`
 import { ssr as _$ssr, ssrText as _$ssrText, ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<p>", "", "</p>"];
@@ -132,11 +132,11 @@ const a = () => {
 import { ssr as _$ssr, ssrFor as _$ssrFor } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<li>", "</li>"];
 import { For } from 'what-framework';
-const a = _$ssrFor(rows, r => _$ssr(_tmpl$0, () => r().name), true, null);`],
+const a = _$ssrFor(rows, r => _$ssr(_tmpl$0, () => r().name), r => r.id, null);`],
   ["list in component children", String.raw`const a = <Box>{items().map(i => <li key={i}>{i}</li>)}</Box>;`, String.raw`
 import { ssrRow as _$ssrRow, ssrText as _$ssrText, ssrList as _$ssrList, ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<li>", "</li>"];
-const a = _$ssrComponent(Box, null, [() => _$ssrList(items(), i => _$ssrRow(_tmpl$0, _$ssrText(i)), true)]);`],
+const a = _$ssrComponent(Box, null, [() => _$ssrList(items(), i => _$ssrRow(_tmpl$0, _$ssrText(i)), true, i => i)]);`],
   ["switch", String.raw`import { Switch, Match } from 'what-framework'; const a = <Switch fallback={<i>none</i>}><Match when={a()}>A</Match><Match when={b()}><b>B</b></Match></Switch>;`, String.raw`
 import { ssr as _$ssr } from "what-framework/ssr-runtime";
 const _tmpl$0 = /* @__PURE__ */_$ssr(["<b>B</b>"]);
@@ -342,7 +342,7 @@ describe('server target: control flow', () => {
     assert.equal(renderToString(flow.keyed([])), '<ul><li>empty</li></ul>');
     assert.equal(renderToString(flow.plain(['x', 'y'])), '<ul><li>0:x</li><li>1:y</li></ul>');
     assert.equal(renderToHydratableString(flow.plain(['x'])), '<ul><!--$--><!--[]--><li>0:x</li><!--/[]--><!--/$--></ul>');
-    assert.equal(await streamed(flow.keyed([{ id: 1, name: 'a' }])), '<ul><!--$--><!--[]--><li><!--$-->a<!--/$--></li><!--/[]--><!--/$--></ul>');
+    assert.equal(await streamed(flow.keyed([{ id: 1, name: 'a' }])), '<ul><!--$--><!--[]--><!--k[1]--><li><!--$-->a<!--/$--></li><!--/[]--><!--/$--></ul>');
   });
 
   it('<Switch> renders the first matching arm or the fallback', () => {

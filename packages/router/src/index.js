@@ -10,8 +10,8 @@
 // landed, so the old page stays on screen until the new one can show at once.
 // A newer navigation supersedes one still preparing.
 
-import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, h, ErrorBoundary } from 'what-core';
-import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, __DEV__ } from 'what-core/internal';
+import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, onCleanup, h, ErrorBoundary } from 'what-core';
+import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, __DEV__, getServerContext } from 'what-core/internal';
 import { matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
@@ -166,7 +166,7 @@ function waitsOf(data, out) {
 function prepare(url, routes) {
   const path = pathOf(url);
   const matched = routes ? matchRoute(path, routes) : null;
-  const prep = { url, route: matched ? matched.route : null, data: undefined, dispose: () => {}, ready: Promise.resolve() };
+  const prep = { url, route: matched ? matched.route : null, data: undefined, failed: false, error: undefined, dispose: () => {}, ready: Promise.resolve() };
   if (!matched) return prep;
   const r = matched.route;
   const waits = [];
@@ -177,11 +177,14 @@ function prepare(url, routes) {
     // shown (or being prepared), whatever called navigate().
     runWithOwner(null, () => createRoot((dispose) => {
       prep.dispose = dispose;
+      // A preload that throws has no data to give the page: the page shows
+      // the error instead (see PreloadFailed). One that returns a promise
+      // that rejects gives the page that promise, to show when it reads it.
       try {
         prep.data = _tagQueries(path, () => r.preload({ params: matched.params, query: parseQuery(url.split('?')[1]?.split('#')[0] || ''), url }));
       } catch (err) {
-        prep.data = undefined;
-        if (typeof console !== 'undefined') console.error('[what-router] preload failed:', err);
+        prep.failed = true;
+        prep.error = err;
       }
     }));
     waitsOf(prep.data, waits);
@@ -313,7 +316,9 @@ export async function navigate(to, opts = {}) {
     return;
   }
 
+  let committed = false;
   const doNavigation = () => {
+    committed = true;
     // Skip history manipulation on popstate (browser already updated the URL)
     if (!_fromPopstate) {
       // Save scroll position for current URL before navigating away.
@@ -349,6 +354,9 @@ export async function navigate(to, opts = {}) {
   // flush once the async values it starts (a layout's data for the new
   // params) have landed; with flushSync, at once.
   const commit = () => {
+    // The browser calls a View Transition's update later: a navigation that
+    // started meanwhile supersedes this one, which then never commits.
+    if (nav !== _navigation) return undefined;
     if (sync) {
       doNavigation();
       flushSync();
@@ -385,12 +393,20 @@ export async function navigate(to, opts = {}) {
     }
   }
 
+  if (!committed) return;
   if (_afterHooks.length) {
     for (const fn of _afterHooks.slice()) fn(to, from);
   }
   if (landed !== null) await landed;
   // Inside a transition an action holds, the commit (and the end) is still to come.
   else if (!committing && nav === _navigation) _navigating.set(false);
+}
+
+// The page of a route whose preload threw: the route's `error` boundary, or
+// the nearest one above the router, shows the error.
+/** @returns {never} */
+function PreloadFailed({ error }) {
+  throw error;
 }
 
 // A navigation that is not going to commit stops.
@@ -614,8 +630,23 @@ function destinationLoading(pendingUrl, routes, currentRoute) {
   return dest.route.loading || null;
 }
 
-export function Router({ routes, fallback, globalLayout }) {
+// The URL a server render shows: `url`, else the request being rendered, else
+// the root.
+function serverUrl(url) {
+  if (typeof url === 'string') return url;
+  const request = /** @type {any} */ (getServerContext()).request;
+  if (request == null || typeof request.url !== 'string') return '/';
+  const parsed = new URL(request.url, 'http://localhost');
+  return parsed.pathname + parsed.search;
+}
+
+export function Router({ routes, fallback, globalLayout, url = null }) {
   _routes = routes;
+  // On the server, the render's own URL, prepared (its preload run) for this
+  // render alone: nothing of it outlives the render or reaches another one.
+  const onServer = getServerContext() !== null ? prepare(serverUrl(url), routes) : null;
+  if (onServer !== null) onCleanup(onServer.dispose);
+  const shownUrl = onServer !== null ? () => onServer.url : readUrl;
   // The `loading:` component a navigation in flight shows instead of the page:
   // the destination's, or the departing route's when only it declares one.
   // A computed, so the page re-renders only when there is one to show, not
@@ -631,7 +662,7 @@ export function Router({ routes, fallback, globalLayout }) {
   // the matched page in place. The globalLayout is rendered ONCE around it (below)
   // so the app shell persists across navigations instead of re-instantiating.
   const renderMatch = () => {
-    const currentUrl = readUrl();
+    const currentUrl = shownUrl();
     const path = currentUrl.split('?')[0].split('#')[0];
     const search = currentUrl.split('?')[1]?.split('#')[0] || '';
     const loadingView = pendingView();
@@ -701,14 +732,17 @@ export function Router({ routes, fallback, globalLayout }) {
       // `loading:` preserves the existing behaviour for the case where only the
       // page being left declares one. Without either, the page being left
       // stays until the new one can show.
+      const prep = loadingView ? null : onServer || shownFor(currentUrl);
       if (loadingView) {
         element = h(loadingView, {});
+      } else if (prep.failed) {
+        element = h(PreloadFailed, { error: prep.error });
       } else {
         element = h(r.component, {
           params,
           query: queryObj,
           route: r,
-          data: shownFor(currentUrl).data,
+          data: prep.data,
         });
       }
 

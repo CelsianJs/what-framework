@@ -54,7 +54,7 @@ Your component function executes a single time and returns real DOM nodes. Every
 |                                                      |
 |  +--------------------------------------------------+ |
 |  |           MCP DevTools Bridge                    | |
-|  |  24 tools: signals, effects, components, DOM,    | |
+|  |  25 tools: signals, effects, components, DOM,    | |
 |  |  cache, errors, dependency graph, diagnostics    | |
 |  +--------------------------------------------------+ |
 |                                                      |
@@ -518,13 +518,25 @@ or mounting into a container that holds a root disposes that root first.
   its two markers around what it claimed.
 - **A keyed list** (`<For>`, a keyed `.map()` of vnodes or compiled rows)
   adopts each row's server nodes as that row, so the first reorder moves the
-  server's nodes rather than rebuilding them. A compiled row of several nodes
+  server's nodes rather than rebuilding them. The server writes the rows' keys
+  after the list's opening marker (`<!--k["a","b"]-->`, strings and finite
+  numbers only), and a server row is only ever adopted as the row of its own
+  key: rows the client has in another order are adopted by key and moved into
+  the client's order (reported as kind `key`, recovery `move`), and when a
+  server row's key is not among the client's, no server row is taken and the
+  client builds the list (recovery `client-render`). What was typed into a
+  row before hydration stays with that row's key. A compiled row of several nodes
   starts at the array marker the server bracketed it with, and a compiled
   `<For fallback>` adopts its rows, or its fallback, whichever the server
   rendered. A compiled keyed row's plain field of its item (`{row.label}`) is a
   text node of its own that the row's item cell rewrites when the row gets a
   new item: no effect, region or marker per field; the server writes it as
   plain text and the walk claims that text node.
+- **An array** a component or a reactive child returned is walked between
+  its markers, so what follows it (a boundary, a region) starts after the
+  closing one. A component given one child gets the child itself on both
+  sides, so a component that returns its children (a context provider, as
+  `<Form>` renders) writes no array markers around one.
 - **A component** gets the owner path the server gave it, as the data channel
   needs (Hydration data). A `data-hk` on its first element is checked against
   that path (a key that cannot be the component's is reported as kind `key`
@@ -671,7 +683,7 @@ The bridge:
 1. Receives state snapshots (signals, effects, components) from the browser client
 2. Stamps every event with a sequence number and keeps a bounded log, the page's coded diagnostics and an error log
 3. Forwards commands from the agent to the browser (eval, navigate, set-signal, etc.)
-4. Exposes 24 MCP tools for agents to query and manipulate app state
+4. Exposes 25 MCP tools for agents to query and manipulate app state
 
 See `/docs/MCP-DEVTOOLS.md` for the complete tool reference.
 
@@ -703,7 +715,7 @@ packages/
 +-- server/             SSR, SSG, islands hydration, server actions
 +-- react-compat/       React compatibility layer (see REACT-COMPAT.md for the tested matrix)
 +-- devtools/           Browser DevTools extension
-+-- devtools-mcp/       MCP-based AI debugging bridge (24 tools)
++-- devtools-mcp/       MCP-based AI debugging bridge (25 tools)
 +-- eslint-plugin/      Lint rules for What Framework patterns
 +-- mcp-server/         MCP documentation server (deprecated — see what-devtools-mcp)
 +-- cli/                Development tools (dev, build, preview, generate)

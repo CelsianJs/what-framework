@@ -22,7 +22,7 @@ import {
   rawTextContent,
 } from 'what-core/internal/markup-rules';
 import { isVNode } from 'what-core/internal';
-import { isHtml } from './compiled.js';
+import { isHtml, rowKeys } from './compiled.js';
 
 // <ErrorBoundary> and <Suspense> are not elements. They return vnodes carrying
 // the internal marker tags '__errorBoundary' / '__suspense', which every client
@@ -90,14 +90,14 @@ const SERVER_SKIPPED_TAGS = new Set(['__portal']);
 // so `<Comp>{''}</Comp>` has one child and the default must NOT apply there.
 // Only length 0 counts, plus a hand-built vnode carrying no children array.
 //
-// Not yet matched: the client also UNWRAPS a single child (`[child]` -> `child`).
-// Aligning that here alone would break <Island>, which puts the prop straight
-// back onto a vnode's children (islands.js:243) where the element renderer
-// requires an array. That one needs both sides changed together.
+// A single child is the child itself, as the client hands it over
+// (render.js componentArgs): a component that returns its children (a
+// context provider, a pass-through wrapper) returns the same value on both
+// sides, so the server writes no array markers the client does not adopt.
 function _componentProps(vnode) {
   const children = vnode.children;
   if (!children || children.length === 0) return { ...vnode.props };
-  return { ...vnode.props, children };
+  return { ...vnode.props, children: children.length === 1 ? children[0] : children };
 }
 
 // `report` receives an error thrown by the fallback function itself; the
@@ -434,10 +434,38 @@ function classAttribute(props, keys) {
 
 // A style object as CSS text: camelCase properties in kebab-case, custom
 // properties (--x) as they are.
+// A style object as CSS text. A declaration the client's CSSOM would refuse
+// (a name that is not a property or a custom property, a value that ends the
+// declaration or opens a block) is left out, as the client leaves it out: the
+// server must not write `color: red; background: url(//tracker)` from one value.
+const CSS_PROPERTY = /^(?:--[\w-]+|-?[a-zA-Z][\w-]*)$/;
+
+// A `;` inside a string or parentheses (`url(data:image/png;base64,…)`) is
+// part of the value; one outside them, a brace, or an unclosed string or
+// parenthesis is not.
+function oneDeclaration(text) {
+  let depth = 0;
+  let quote = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote !== '') {
+      if (c === '\\') i++;
+      else if (c === quote) quote = '';
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '(') depth++;
+    else if (c === ')') {
+      if (--depth < 0) return false;
+    } else if (c === '{' || c === '}' || (c === ';' && depth === 0)) return false;
+  }
+  return depth === 0 && quote === '';
+}
+
 function styleText(style) {
   let css = '';
   for (const [property, value] of Object.entries(style)) {
-    css += (css ? ';' : '') + (property.startsWith('--') ? property : property.replace(/([A-Z])/g, '-$1').toLowerCase()) + ':' + value;
+    const text = String(value);
+    if (!CSS_PROPERTY.test(property) || !oneDeclaration(text)) continue;
+    css += (css ? ';' : '') + (property.startsWith('--') ? property : property.replace(/([A-Z])/g, '-$1').toLowerCase()) + ':' + text;
   }
   return css;
 }
@@ -518,3 +546,19 @@ export {
   styleText,
   escapeHtml,
 };
+
+/**
+ * The keys comment of an array a reactive child returned, which hydrate()
+ * adopts as keyed rows: a compiled list's rows (_mapArrayToArray gives them
+ * their keys), or h() vnodes that all carry one. '' for any other array.
+ */
+export function arrayKeys(rows) {
+  if (rows._keys !== undefined) return rowKeys(rows._keys);
+  if (rows.length === 0) return '';
+  const keys = [];
+  for (const row of rows) {
+    if (!isVNode(row) || row.key == null) return '';
+    keys.push(row.key);
+  }
+  return rowKeys(keys);
+}

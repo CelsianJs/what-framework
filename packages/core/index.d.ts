@@ -148,8 +148,8 @@ export interface FormStatus {
   data: () => FormData | null;
   /** The form's method, or null outside a <Form>. */
   method: string | null;
-  /** The form's action, or null outside a <Form>. */
-  action: ((...args: any[]) => any) | string | null;
+  /** The form's action function, or null: for an action id (as React's is for a URL), and outside a <Form>. */
+  action: ((...args: any[]) => any) | null;
 }
 /** React 19's useFormStatus: the submission of the <Form> (what-server) this component renders in. */
 export function useFormStatus(): FormStatus;

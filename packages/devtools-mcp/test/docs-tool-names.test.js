@@ -89,6 +89,21 @@ describe('agent-facing docs name only registered tools', () => {
   }
 });
 
+// "25 tools" in a page a person or an agent reads is a claim about the
+// registry; the README said 24 for a release. A sentence about an earlier
+// release (the migration notes' "0.14.0 registered 29 tools") is history.
+describe('docs state the number of tools the server registers', () => {
+  const count = registeredNames().size;
+  for (const doc of ['README.md', 'CLAUDE.md', 'docs/ARCHITECTURE.md', 'docs/MCP-DEVTOOLS.md', 'docs/UPGRADING.md', 'packages/devtools-mcp/README.md', 'packages/create-what/agent-instructions.js']) {
+    it(doc, () => {
+      const text = readFileSync(join(repo, doc), 'utf8');
+      const claims = [...text.matchAll(/^.*?\b(\d+) (?:MCP )?tools\b/gm)].filter((m) => !/\b0\.1[0-4]\./.test(m[0]));
+      const wrong = claims.filter((m) => Number(m[1]) !== count).map((m) => m[0].trim().slice(-80));
+      assert.deepEqual(wrong, [], `${doc} states a tool count other than ${count}`);
+    });
+  }
+});
+
 describe('the invocation parser', () => {
   it('finds keys in both spellings and in parameter tables', () => {
     assert.deepEqual(invocations('`what_events({ after: seq, types: ["write", "run"] })` and `what_errors {after, severity}`\n| `what_signals` | `filter` | string |'), [

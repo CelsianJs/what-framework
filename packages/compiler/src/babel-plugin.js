@@ -49,6 +49,7 @@ import { initDomState, finishDomProgram, transformJsxRoot } from './babel/dom.js
 import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js';
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
 import { annotatePrimitive } from './babel/dev-metadata.js';
+import { resolveCallee } from './babel/reactivity.js';
 
 export default function whatBabelPlugin({ types }) {
   setTypes(types);
@@ -139,9 +140,9 @@ export default function whatBabelPlugin({ types }) {
           t.traverseFast(path.node, (node) => {
             if (node.type === 'Identifier' || node.type === 'JSXIdentifier') recordName(state, node.name);
           });
-          // Before any JSX is lowered: forwarded children, server action ids
-          // and development names, all read against the original source
-          // positions.
+          // Before any JSX is lowered: forwarded children, server action ids,
+          // development names and what each call's callee reads, all read
+          // against the original source.
           path.traverse({
             Function(fnPath) {
               deferForwardedChildren(fnPath);
@@ -149,6 +150,10 @@ export default function whatBabelPlugin({ types }) {
             CallExpression(callPath) {
               transformServerAction(callPath, state);
               annotatePrimitive(callPath, state);
+              resolveCallee(callPath, state.importedIdentifiers);
+            },
+            OptionalCallExpression(callPath) {
+              resolveCallee(callPath, state.importedIdentifiers);
             },
           });
         },

@@ -193,6 +193,34 @@ async function importRuntime(runtime) {
   }
 }
 
+// A runtime entry that only re-exports another package (`export * from 'x'`)
+// is described by re-exporting x's declarations, never by a copy of them:
+// names match a copy (the parity above passes), and its shapes still drift
+// from the package they describe. what-framework/router's copy lacked
+// `preload` for a release. An entry that gathers its own package's modules
+// (relative specifiers) has no other declarations to re-export.
+const REEXPORT_LINE = /^export\s+(?:\*|(?:type\s+)?\{[^}]*\})\s+from\s+['"]([^'"]+)['"];?$/;
+
+function onlyReexports(source) {
+  const lines = source.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//'));
+  const from = new Set();
+  for (const line of lines) {
+    const m = REEXPORT_LINE.exec(line);
+    if (m === null) return null;
+    from.add(m[1]);
+  }
+  return from;
+}
+
+function barrelCopy(types, runtime) {
+  if (!runtime.endsWith('.js')) return null;
+  const barrel = onlyReexports(readFileSync(runtime, 'utf8'));
+  if (barrel === null || barrel.size === 0 || [...barrel].some((spec) => spec.startsWith('.') || resolveStarTarget(spec, runtime) === null)) return null;
+  const declared = onlyReexports(readFileSync(types, 'utf8'));
+  if (declared !== null && [...barrel].every((spec) => declared.has(spec))) return null;
+  return `its runtime only re-exports ${[...barrel].join(', ')}: declare it as \`export * from\` the same, not a copy`;
+}
+
 export async function checkParity() {
   const failures = [];
   let checked = 0;
@@ -232,8 +260,10 @@ export async function checkParity() {
         .filter((n) => n !== 'default' && !n.startsWith('_') && !declared.has(n) && !typeNames.has(n))
         .sort();
 
-      if (phantoms.length || undeclared.length) {
-        failures.push({ types: types.slice(root.length + 1), phantoms, undeclared });
+      const copied = barrelCopy(types, runtime);
+
+      if (phantoms.length || undeclared.length || copied) {
+        failures.push({ types: types.slice(root.length + 1), phantoms, undeclared, copied });
       }
     }
   }
@@ -241,6 +271,7 @@ export async function checkParity() {
   for (const f of failures) {
     console.log(`FAIL  ${f.types}`);
     if (f.unimportable) console.log(`        ${f.unimportable}`);
+    if (f.copied) console.log(`        ${f.copied}`);
     for (const p of f.phantoms) console.log(`        declared but not exported: ${p}`);
     for (const u of f.undeclared || []) console.log(`        exported but not declared: ${u}`);
   }
@@ -259,7 +290,7 @@ export async function checkParity() {
 //
 // Each probe is real usage compiled the way a consumer's own tsc would compile
 // it. A diagnostic in one is a declaration the package cannot be used with.
-const CONSUMER_PROBES = ['scripts/types/fixtures/what-server-consumer.ts'];
+const CONSUMER_PROBES = ['scripts/types/fixtures/what-server-consumer.ts', 'scripts/types/fixtures/what-router-consumer.ts'];
 
 export async function checkConsumerProbes() {
   const failures = [];

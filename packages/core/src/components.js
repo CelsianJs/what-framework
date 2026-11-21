@@ -618,12 +618,15 @@ export const _$Island = /* @__PURE__ */ deferChildren(function Island({ componen
 
       case 'interaction':
       case 'action': {
+        // In the capture phase: focus does not bubble, and the island
+        // hydrates before the event reaches its target, so the handler the
+        // island sets on the target runs for the interaction that woke it.
         const events = ['click', 'focus', 'mouseenter', 'touchstart'];
         const onInteract = () => {
-          for (const type of events) el.removeEventListener(type, onInteract);
+          for (const type of events) el.removeEventListener(type, onInteract, true);
           trigger();
         };
-        for (const type of events) el.addEventListener(type, onInteract, { once: true });
+        for (const type of events) el.addEventListener(type, onInteract, { capture: true, once: true });
         break;
       }
 

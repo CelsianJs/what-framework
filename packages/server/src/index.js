@@ -17,7 +17,7 @@ import { childNamespace } from 'what-core/internal/markup-rules';
 import { serializeState } from './serialize.js';
 import { getIslandStoresSnapshot } from './islands.js';
 import { csrfMetaTag } from './actions.js';
-import { createRenderContext, ensureServerRuntime, resourcePayload, throwIfAborted } from './context.js';
+import { createRenderContext, ensureServerRuntime, renderContextFrom, resourcePayload, throwIfAborted } from './context.js';
 import { startStream, renderBuffered, checkStreamOptions } from './stream.js';
 import { createResponse } from './response.js';
 import {
@@ -35,6 +35,7 @@ import {
   assertSafeTag,
   renderAttrs,
   escapeHtml,
+  arrayKeys,
 } from './html.js';
 import {
   ARRAY_CLOSE,
@@ -133,6 +134,18 @@ function restoreKeys(saved) {
   HK.key = saved;
 }
 
+function renderArray(rows, keys) {
+  let html = out(ARRAY_OPEN) + out(keys);
+  for (let i = 0; i < rows.length; i++) html += _renderHydratable(rows[i]);
+  return html + out(ARRAY_CLOSE);
+}
+
+// What a reactive child returned: an array is the region's rows, written with
+// their keys when they are keyed (arrayKeys).
+function renderRegionValue(value) {
+  return Array.isArray(value) ? renderArray(value, arrayKeys(value)) : _renderHydratable(value);
+}
+
 function _renderHydratable(vnode) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
@@ -143,7 +156,7 @@ function _renderHydratable(vnode) {
   // Signal — unwrap
   if (typeof vnode === 'function' && vnode._signal) {
     const open = out(REGION_OPEN);
-    return open + _renderHydratable(vnode()) + out(REGION_CLOSE);
+    return open + renderRegionValue(vnode()) + out(REGION_CLOSE);
   }
 
   // Compiled keyed list: an inserter taking (parent, marker), not a thunk.
@@ -153,7 +166,7 @@ function _renderHydratable(vnode) {
     const saved = saveKeys();
     try {
       const open = out(REGION_OPEN);
-      return open + _renderHydratable(_mapArrayToArray(vnode)) + out(REGION_CLOSE);
+      return open + renderRegionValue(_mapArrayToArray(vnode)) + out(REGION_CLOSE);
     } catch (e) {
       _rethrowIfUnrenderable(e);
       if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
@@ -170,7 +183,7 @@ function _renderHydratable(vnode) {
     try {
       const value = vnode();
       const open = out(REGION_OPEN);
-      return open + _renderHydratable(value) + out(REGION_CLOSE);
+      return open + renderRegionValue(value) + out(REGION_CLOSE);
     } catch (e) {
       _rethrowIfUnrenderable(e);
       if (e && typeof e.then === 'function') throw e; // not ready: its <Suspense> shows the fallback
@@ -183,11 +196,7 @@ function _renderHydratable(vnode) {
   }
 
   // Array — wrap in list markers
-  if (Array.isArray(vnode)) {
-    let html = out(ARRAY_OPEN);
-    for (let i = 0; i < vnode.length; i++) html += _renderHydratable(vnode[i]);
-    return html + out(ARRAY_CLOSE);
-  }
+  if (Array.isArray(vnode)) return renderArray(vnode, '');
 
   if (isHtml(vnode)) return vnode.render(renderHydratableIn, HK, _ns);
   if (!isVNode(vnode)) return out(_plainText(vnode));
@@ -427,7 +436,9 @@ async function loadPage(pageModule, reqCtx) {
   try {
     throwIfAborted(ctx.signal);
     if (typeof pageModule.loader === 'function') {
-      ctx.loaderData = await pageModule.loader({ ...reqCtx, signal: ctx.signal, response });
+      // In the request's render context: the queries it prefetches are this
+      // request's, and reach its page and its data channel.
+      ctx.loaderData = await runWithServerContext(ctx, () => pageModule.loader({ ...reqCtx, signal: ctx.signal, response }));
     }
     throwIfAborted(ctx.signal);
   } catch (error) {
@@ -448,9 +459,12 @@ async function loadPage(pageModule, reqCtx) {
 // collected head (including tags set inside boundaries), and the resolved
 // resources for the hydration payload. Rejects with the Error that failed the
 // render. `options.onError` is the stream's (default console.error).
-export async function renderToStringAsync(vnode, ctx, options = {}) {
+export async function renderToStringAsync(vnode, init, options = {}) {
   ensureServerRuntime();
-  if (!ctx) ctx = createRenderContext(undefined);
+  return renderSettled(vnode, renderContextFrom(init, 'renderToStringAsync(vnode, init)'), options);
+}
+
+async function renderSettled(vnode, ctx, options) {
   const body = await renderBuffered(vnode, ctx, options);
   const { resources = {}, owned = {} } = resourcePayload(ctx);
   return { body, head: endHeadCollection(ctx.head), loaderData: ctx.loaderData, resources, owned, ctx, response: ctx.response };
@@ -463,7 +477,7 @@ export async function renderToStringAsync(vnode, ctx, options = {}) {
 export async function renderDocument(pageModule, reqCtx = {}, options = {}) {
   ensureServerRuntime();
   const { ctx, vnode, loaderData } = await loadPage(pageModule, reqCtx);
-  const { body, head } = await renderToStringAsync(vnode, ctx, options);
+  const { body, head } = await renderSettled(vnode, ctx, options);
   ctx.response._commit();
   const payload = {
     loaderData: loaderData ?? null,
@@ -543,7 +557,7 @@ const DOCUMENT_CLOSE = '</body></html>';
 // --- Stream Render ---
 export { renderToStream } from './stream.js';
 
-export { ensureServerRuntime } from './context.js';
+export { ensureServerRuntime, getRequest } from './context.js';
 export { createResponse } from './response.js';
 
 // --- Static Site Generation ---

@@ -1021,6 +1021,12 @@ let sourcesOf = null;
 let thrownError;
 /** @type {{ node: any, run: number } | null} */
 let thrownFrom = null;
+// Once the error has reached its handler, the pair must not keep the failed
+// run (and what its function holds) alive.
+function forgetThrown() {
+  thrownError = undefined;
+  thrownFrom = null;
+}
 /** Called when the graph may have gone quiet: after a landing, a commit, a disposal. @type {Set<() => void> | null} */
 let quietHooks = null;
 let quietQueued = false;
@@ -1366,6 +1372,7 @@ function readAsync(node) {
       thrownError = node.value;
       thrownFrom = /** @type {WeakMap<any, any>} */ (sourcesOf).get(node) || null;
     }
+    if (thrownFrom !== null) queueMicrotask(forgetThrown);
     throw thrownError;
   } else if (f & NO_VALUE) {
     throw notReady(node, f);
@@ -1450,6 +1457,7 @@ function countHeld(e, release) {
     return out;
   };
   if (__DEV__) held.inner = fn;
+  held.release = done;
   e.fn = held;
   if (e.owner !== null) scopeOf(e.owner).disposals.push(done);
 }
@@ -2335,7 +2343,12 @@ export function _startTransition(fn, onStart) {
       reject(call.error);
     };
   });
+  // What an async fn's promise reports to, until the call is over: a promise
+  // that never settles must not keep the call (its owner) or the transition alive.
+  /** @type {{ call: typeof call | null }} */
+  const link = { call };
   call.abandon = () => {
+    link.call = null;
     call.gone = true;
     if (!call.acting) return;
     call.acting = false;
@@ -2352,11 +2365,7 @@ export function _startTransition(fn, onStart) {
     throw err;
   }
   if (result != null && typeof result.then === 'function') {
-    Promise.resolve(result).then(call.abandon, (err) => {
-      call.failed = true;
-      call.error = err;
-      call.abandon();
-    });
+    settleWith(result, link);
     // An async fn keeps the transition open until it settles, unless what
     // started it left first (in fn's synchronous part included).
     if (!call.gone) {
@@ -2371,6 +2380,19 @@ export function _startTransition(fn, onStart) {
   // async work they caused.
   queueMicrotask(() => closeTx(t));
   return done;
+}
+
+// Its own scope, so the callbacks hold `link` and nothing else.
+function settleWith(result, link) {
+  Promise.resolve(result).then(() => {
+    if (link.call !== null) link.call.abandon();
+  }, (err) => {
+    const call = link.call;
+    if (call === null) return;
+    call.failed = true;
+    call.error = err;
+    call.abandon();
+  });
 }
 
 function closeTx(t) {
@@ -2700,9 +2722,11 @@ function disposeEffect(e) {
 
 // The disposer effect() returns. The owner's entry is left in place and swept
 // once disposed entries make up half of the list, so a long-lived owner whose
-// effects come and go stays bounded at O(1) amortized per disposal.
+// effects come and go stays bounded at O(1) amortized per disposal. An effect
+// a boundary counts as waiting tells it now, not when its owner goes.
 function dropEffect(e) {
   if (e.flags & DISPOSED) return;
+  if (e.flags & HELD) e.fn.release();
   disposeEffect(e);
   const o = e.owner;
   if (o !== null && (o.flags & DISPOSED) === 0 && ++o.dropped > 16 && o.dropped * 2 > o.disposals.length) {

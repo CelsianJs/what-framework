@@ -261,13 +261,34 @@ export function renderToHydratableString(vnode: VNode<any>): string;
 export function renderToStringWithHead(vnode: VNode<any>): { body: string; head: string };
 
 /**
+ * The request being answered: inside a server render, a page's loader, or a
+ * server action the built-in endpoints run (createRequestHandler,
+ * nodeActionMiddleware, fetchActionHandler, createActionHandler). Null anywhere
+ * else. A server action is a public endpoint: read its caller's cookies and
+ * headers here to decide whether it may run.
+ */
+export function getRequest(): Request | null;
+
+/** What renderToStringAsync renders with. Any other field, or a value of the wrong kind, rejects with a TypeError. */
+export interface RenderInit {
+  /** The page's loader data, which useLoaderData() reads. */
+  loaderData?: unknown;
+  /** Aborts the render. */
+  signal?: AbortSignal;
+  /** The request being answered: its signal aborts the render too. */
+  request?: Request;
+  /** The response the components set status, headers and a redirect on (createResponse()). */
+  response?: RenderResponse;
+}
+
+/**
  * Render, awaiting any suspended resources so their data is resolved in the
  * output. `resources` (keyed resources) and `owned` (keyless ones, by owner
  * key) are the payload the client reuses so it does not refetch.
  */
 export function renderToStringAsync(
   vnode: VNode<any>,
-  ctx?: ServerContext,
+  init?: RenderInit | null,
   options?: { onError?: (error: unknown, info: StreamErrorInfo) => void },
 ): Promise<{
   body: string;

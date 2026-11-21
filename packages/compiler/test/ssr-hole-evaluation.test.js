@@ -63,7 +63,8 @@ const mod = await load(`
   export const guarded = (bad) => <div><ErrorBoundary fallback={<i>fallback</i>}><b>{bad()}</b></ErrorBoundary></div>;
   export function loopVar() { const out = []; for (var i = 0; i < 3; i++) out.push(<li>{i}</li>); return <ul>{out}</ul>; }
   export function reassigned() { let label = 'first'; const el = <b>{label}</b>; label = 'second'; return el; }
-  export function tryCatch(fail) { let el; try { el = <p>{fail(1)}</p>; } catch (e) { el = <p>caught</p>; } return el; }
+  function fail(n) { throw new Error('fail ' + n); }
+  export function tryCatch() { let el; try { el = <p>{fail(1)}</p>; } catch (e) { el = <p>caught</p>; } return el; }
   function Register() { log.push('Register'); return <i>r</i>; }
   export const order = (read) => <div><Register /><span>{log.join(',') || 'empty'}|{read()}</span></div>;
   export const retry = (count, data) => <Suspense fallback={<i>loading</i>}><p>{count()}|{data()}</p></Suspense>;
@@ -100,8 +101,7 @@ describe('server target: plain holes are read when the JSX expression runs', () 
   });
 
   it('JSX built in a try/catch throws inside it', async () => {
-    const fail = (n) => { throw new Error(`fail ${n}`); };
-    for (const { html } of Object.values(await renderAll(() => mod.tryCatch(fail), log))) assert.match(content(html), /<p>caught<\/p>/);
+    for (const { html } of Object.values(await renderAll(() => mod.tryCatch(), log))) assert.match(content(html), /<p>caught<\/p>/);
   });
 });
 

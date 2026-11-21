@@ -14,7 +14,7 @@ import {
   renderFunctionChild,
 } from './common.js';
 import {
-  buildWhenCondition, isPotentiallyReactive, isSignalIdentifier, isUncertainReactive,
+  buildEachValue, buildWhenCondition, isPotentiallyReactive, isSignalIdentifier, isUncertainReactive,
 } from './reactivity.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { bindingMetadata, componentMetadata } from './dev-metadata.js';
@@ -1500,7 +1500,7 @@ function transformForFineGrained(path, state) {
   // variable may hold an accessor or an array, both of which mapArray takes.
   if (!t.isIdentifier(eachExpr) && !t.isArrowFunctionExpression(eachExpr) && !t.isFunctionExpression(eachExpr) &&
       isPotentiallyReactive(eachExpr, state.signalNames, state.importedIdentifiers)) {
-    eachExpr = t.arrowFunctionExpression([], eachExpr);
+    eachExpr = t.arrowFunctionExpression([], buildEachValue(eachExpr, state));
   }
 
   // `_$mapArray(source, renderFn[, { key }])` — built from whichever source

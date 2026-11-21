@@ -42,7 +42,7 @@ import { _$Island } from 'what-core/render';
 import { isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
 import { _afterOpen, _isDevMode, _rawText, _resolveInnerHTML, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
-import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml } from './compiled.js';
+import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
 
 // Compiled JSX: HTML, or HTML with what is rendered when it is placed. The
 // HTML is `h` followed by `s`, or by the parts in `p`: `h` is the markup's
@@ -64,6 +64,8 @@ class Markup extends Html {
     // The rows of a .map() a reactive child returned: the array h()'s thunk
     // would have returned, so the hydratable renderer brackets it as a list.
     this.list = list;
+    // A keyed list's rows' keys, written after its opening marker (rowKeys).
+    this.keys = '';
   }
 
   // `hk` is null for a plain render, and a hydratable renderer's pending
@@ -88,7 +90,7 @@ class Markup extends Html {
   // The same for a hydratable renderer: list markers, and every string fed to
   // the pending hydration key while there is one.
   renderKeyed(renderChild, hk, ns) {
-    let html = this.list ? keyed(hk, ARRAY_OPEN) : '';
+    let html = this.list ? keyed(hk, ARRAY_OPEN) + this.keys : '';
     html += keyed(hk, this.h);
     if (this.s !== null) html += keyed(hk, this.s);
     else {
@@ -107,9 +109,9 @@ class Markup extends Html {
 
   // The stream renders hydratable markup, list markers included.
   parts() {
-    if (this.s !== null) return this.list ? ARRAY_OPEN + this.h + this.s + ARRAY_CLOSE : this.h + this.s;
+    if (this.s !== null) return this.list ? ARRAY_OPEN + this.keys + this.h + this.s + ARRAY_CLOSE : this.h + this.s;
     const p = /** @type {any[]} */ (this.p);
-    const parts = this.list ? [ARRAY_OPEN] : [];
+    const parts = this.list ? [ARRAY_OPEN + this.keys] : [];
     if (this.h) parts.push(this.h);
     for (let i = 0; i < p.length; i++) {
       const part = p[i];
@@ -258,10 +260,12 @@ export function ssrText(v) {
  * through ssrText, so a row is markup only when it is Markup. `asArray` says
  * the list is what a reactive child returns, so the hydratable renderer
  * brackets it as the array it stands for; a plain child's rows are flattened
- * into the parent, as h() flattens an array child.
+ * into the parent, as h() flattens an array child. A keyed list's `keyFn`
+ * gives its rows' keys, written with its markers.
  */
-export function ssrList(list, fn, asArray) {
+export function ssrList(list, fn, asArray, keyFn) {
   const m = new Markup('', false, asArray);
+  if (asArray && keyFn && Array.isArray(list)) m.keys = rowKeys(list.map((item) => keyFn(item)));
   if (Array.isArray(list)) {
     const outer = rows;
     rows = m;
@@ -282,16 +286,17 @@ export function ssrList(list, fn, asArray) {
 }
 
 /**
- * <For each fallback>{(item, i) => row}</For>: the reactive child the DOM back
- * end lowers it to. It reads `each` when it is rendered and returns the rows
- * as a list, or the fallback when there are none. A keyed <For> hands each row
- * an accessor for its item, as the compiled client does.
+ * <For each key fallback>{(item, i) => row}</For>: the reactive child the DOM
+ * back end lowers it to. It reads `each` when it is rendered and returns the
+ * rows as a list, or the fallback when there are none. A keyed <For> (`key`,
+ * its key function, or false) hands each row an accessor for its item, as the
+ * compiled client does.
  */
-export function ssrFor(each, fn, keyed, fallback) {
+export function ssrFor(each, fn, key, fallback) {
   return () => {
     const list = typeof each === 'function' ? each() : each;
     if (!list || list.length === 0) return fallback;
-    return ssrList(list, keyed ? (item, i) => fn(() => item, i) : fn, true);
+    return ssrList(list, key ? (item, i) => fn(() => item, i) : fn, true, key);
   };
 }
 

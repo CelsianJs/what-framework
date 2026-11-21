@@ -17,6 +17,7 @@ import {
   renderToHydratableString,
   renderToStringWithHead,
   renderToStringAsync,
+  createResponse,
   renderPage,
   renderDocument,
   definePage,
@@ -39,6 +40,12 @@ const hydratable: string = renderToHydratableString(h(Greeting, { name: 'Alice' 
 const withHead: { body: string; head: string } = renderToStringWithHead(h(Greeting, { name: 'Alice' }));
 const stream: AsyncIterable<string> = renderToStream(h(Greeting, { name: 'Alice' }));
 const resolved = renderToStringAsync(h(Greeting, { name: 'Alice' }));
+// Its second argument is the render's inputs (README, renderToStringAsync).
+const settled = renderToStringAsync(h(Greeting, { name: 'Alice' }), {
+  loaderData: { greeting: 'hi' },
+  signal: new AbortController().signal,
+  response: createResponse(),
+});
 
 // A page module, the shape renderPage and renderDocument take.
 const page = {
@@ -73,5 +80,5 @@ const postId: string | undefined = matched?.params.id;
 const query: Record<string, string> = parseQuery('?page=2');
 const compiled: CompiledPath | null = null;
 
-export { html, hydratable, withHead, stream, resolved, rendered, document_, staticHtml, ServerOnly, typedHtml };
+export { html, hydratable, withHead, stream, resolved, settled, rendered, document_, staticHtml, ServerOnly, typedHtml };
 export { saving, meta, postTitle, postId, query, compiled };
