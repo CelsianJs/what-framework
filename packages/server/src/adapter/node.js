@@ -4,7 +4,7 @@
 
 import http from 'node:http';
 import { createRequestHandler } from './core.js';
-import { MAX_BODY_BYTES, tooLargeResponse } from '../action-handler.js';
+import { bodyLimitOf, tooLargeResponse } from '../action-handler.js';
 import { nodeRequestHost, requestScheme, requestUrl } from '../request-url.js';
 
 // A Request object only exists after the body is read, so the cap the fetch
@@ -120,9 +120,8 @@ function isAbort(err) {
 }
 
 // The handler's response for one Node request: 413 and 400 come from reading
-// the request, before the handler, with its `bodyLimit` (createRequestHandler).
-async function respond(handler, req, res) {
-  const limit = handler.bodyLimit ?? MAX_BODY_BYTES;
+// the request, before the handler, with `limit` (its `bodyLimit`).
+async function respond(handler, req, res, limit) {
   const webReq = await nodeToWebRequest(req, res, limit);
   if (webReq === TOO_LARGE) return tooLargeResponse(req.headers, limit);
   if (webReq === BAD_TARGET) return BAD_TARGET_RESPONSE();
@@ -146,11 +145,18 @@ function failed(res, err) {
   res.end('<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>');
 }
 
-/** Convert a Web-Fetch handler into a Node (req, res) listener. */
-export function toNodeListener(handler) {
+/**
+ * Convert a Web-Fetch handler into a Node (req, res) listener. It reads each
+ * request body before the handler, up to `options.bodyLimit`, else the
+ * handler's own (`createRequestHandler` sets it on the function it returns),
+ * else 1 MB: a handler wrapped in a function of yours (logging, headers) has
+ * none, so pass its limit here.
+ */
+export function toNodeListener(handler, options = {}) {
+  const limit = bodyLimitOf(options.bodyLimit !== undefined ? options : { bodyLimit: handler.bodyLimit });
   return async function listener(req, res) {
     try {
-      await sendWebResponse(res, await respond(handler, req, res));
+      await sendWebResponse(res, await respond(handler, req, res, limit));
     } catch (err) {
       failed(res, err);
     }
@@ -168,7 +174,7 @@ export function whatMiddleware(options = {}) {
   return async function middleware(req, res, next) {
     let webRes;
     try {
-      webRes = await respond(handler, req, res);
+      webRes = await respond(handler, req, res, handler.bodyLimit);
     } catch (err) {
       if (res.destroyed && isAbort(err)) return;
       if (typeof next === 'function') return next(err);

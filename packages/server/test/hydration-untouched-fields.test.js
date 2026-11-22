@@ -154,6 +154,92 @@ describe('hydration and fields the user did not touch', () => {
       host.remove();
     }
   });
+
+  // An input or a textarea whose live state is its markup's is untouched as
+  // it stands: hydration builds no copy of it to reset (a copy is built in a
+  // <form> of its own) for any but a field that differs. Before, every field
+  // was copied and reset, which made hydrating a long form slow.
+  it('an untouched input, textarea, checkbox or radio is compared in place, with no reset copy', async () => {
+    const view = (title) => h('form', null,
+      h('input', { name: 'title', defaultValue: title }),
+      h('input', { type: 'number', name: 'n', defaultValue: '20' }),
+      h('input', { type: 'date', name: 'd', defaultValue: '2026-11-22' }),
+      h('input', { type: 'range', name: 'r', defaultValue: '25' }),
+      h('input', { type: 'color', name: 'c', defaultValue: '#00ff00' }),
+      h('textarea', { name: 't', defaultValue: 'note' }),
+      h('input', { type: 'checkbox', name: 'ok', defaultChecked: true }),
+      h('input', { type: 'radio', name: 'pick', value: 'a', defaultChecked: true }),
+      h('input', { type: 'radio', name: 'pick', value: 'b' }));
+    const copiesWhile = async (edit) => {
+      const host = document.createElement('div');
+      document.body.append(host);
+      host.innerHTML = renderToHydratableString(view('draft'));
+      edit(host);
+      const create = document.createElement;
+      let copies = 0;
+      document.createElement = function (tag, ...rest) {
+        if (String(tag).toLowerCase() === 'form') copies++;
+        return create.call(this, tag, ...rest);
+      };
+      let stop = () => {};
+      try {
+        stop = hydrate(view('draft'), host);
+        await flush();
+      } finally {
+        document.createElement = create;
+        stop();
+        host.remove();
+      }
+      return copies;
+    };
+    assert.equal(await copiesWhile(() => {}), 0, 'no field changed: no copy');
+    assert.ok(await copiesWhile((host) => { host.querySelector('[name=title]').value = 'typed'; }) > 0, 'a changed field is compared through a copy');
+  });
+
+  // A browser lists a form-associated custom element in form.elements, and
+  // one may say it is a radio (`type`) of a native group's name. A changed
+  // radio group is compared through copies, which are native radios only:
+  // a copy of the custom element would run its constructor and callbacks.
+  it('a form-associated element that says it is a radio is no radio of the group: no copy of it is made', async () => {
+    let constructed = 0;
+    class Pick extends window.HTMLElement {
+      constructor() {
+        super();
+        constructed++;
+      }
+      get type() { return 'radio'; }
+      get name() { return this.getAttribute('name'); }
+      get form() { return this.closest('form'); }
+      get checked() { return false; }
+    }
+    window.customElements.define('x-pick-radio', Pick);
+    const view = () => h('form', null,
+      h('input', { type: 'radio', name: 'pick', value: 'a', defaultChecked: true }),
+      h('input', { type: 'radio', name: 'pick', value: 'b' }),
+      h('x-pick-radio', { name: 'pick' }));
+    const host = document.createElement('div');
+    document.body.append(host);
+    host.innerHTML = renderToHydratableString(view());
+    host.querySelector('[value=b]').checked = true;
+    const elements = Object.getOwnPropertyDescriptor(window.HTMLFormElement.prototype, 'elements');
+    // As a browser lists it: the native controls and the custom element.
+    Object.defineProperty(window.HTMLFormElement.prototype, 'elements', {
+      configurable: true,
+      get() { return [...elements.get.call(this), ...this.querySelectorAll('x-pick-radio')]; },
+    });
+    const before = constructed;
+    let stop = () => {};
+    try {
+      stop = hydrate(view(), host);
+      await flush();
+      assert.equal(constructed, before, 'no copy of the custom element');
+      assert.equal(host.querySelector('[value=b]').checked, true, 'the user\'s choice stays');
+    } finally {
+      Object.defineProperty(window.HTMLFormElement.prototype, 'elements', elements);
+      stop();
+      host.remove();
+    }
+  });
 });
 
 // A country the user picked before hydration, with what depends on it: the

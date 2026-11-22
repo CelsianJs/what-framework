@@ -12,7 +12,8 @@ export function TodoList() {
     return _el$1;
   }, {
     key: todo => todo.id,
-    follow: true
+    follow: true,
+    slot: 140
   }));
   return _el$0;
 }

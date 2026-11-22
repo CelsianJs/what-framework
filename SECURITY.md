@@ -70,6 +70,34 @@ client from calling an action itself. Authorize the caller and validate the argu
 action: the built-in endpoints run each call with `getRequest()` returning its request (cookies,
 headers), and with a query cache of its own.
 
+### Request bodies and files
+
+Every body the framework reads (an action call, a form posted to the action endpoint or to a
+page, the revalidate webhook) is read whole into memory up to `bodyLimit` bytes (1 MB by default)
+before anything parses it, on every entry point (`createRequestHandler` and the Node adapter in
+front of it, `nodeActionMiddleware`, `fetchActionHandler`, `createFormPostHandler` when it reads
+the request itself). Content-Length is checked first and the running total while the body
+streams, so a chunked body or a false length cannot pass it. A body over it is answered 413 and
+never parsed: an HTML page for a browser's form post (an urlencoded or multipart body, or a request
+that accepts `text/html`), JSON for an action call (`X-What-Action`) and anything else.
+`nodeActionMiddleware` answers as soon as the body passes the limit and reads the rest without
+keeping it, so the client reads the 413.
+
+A `multipart/form-data` body (a form with a file) is parsed by the platform's own parser
+(`Response#formData`, undici in Node), never by the framework, and only after it is read whole
+under the limit. So every bound follows from `bodyLimit`: each file and each field is smaller than
+it, and a part takes at least about 40 bytes of boundary and headers, so a body holds at most
+`bodyLimit / 40` parts (about 26,000 at the default; an urlencoded body of the same size holds more
+fields, two bytes each). Parsing holds the body and the parts it reads at the same time, and a
+form posted to a page keeps the request's own copy of the body for the page as well: up to about
+three times `bodyLimit` for one request. A file reaches the action as a Web `File` held in memory, its name and type as
+the client sent them: check its size and type, never trust its name as a path, and raise the limit
+only as far as the server's memory allows for the requests it serves at once. The parsed fields
+follow the urlencoded rules: the reserved names are the framework's (a reserved field sent as a
+file is a malformed one: a `_state` that is a file is a 400), a name such as `__proto__` is a
+field like any other, and the same CSRF checks and registered action ids apply. An action's result
+never carries a file back to the page.
+
 ### A form posted to a page without JavaScript
 
 A `<Form>` whose action is the dispatch of `useActionState(serverAction)` posts to the page it is on,
@@ -81,8 +109,8 @@ runs the action and renders the page with the result. What holds, and what does 
   reserved fields kept from the action; the body limit (`bodyLimit`, 1 MB by default); the action
   run in the request's context. A post refused there never reaches the action. The page's `csrf`
   option decides the checks, whatever `actionHandler` is. A POST to a page without `_action` is the
-  page's own, and an urlencoded one over `bodyLimit` is answered 413 before the page reads it, as
-  every body over it is.
+  page's own, and an urlencoded or multipart one over `bodyLimit` is answered 413 before the page
+  reads it, as every body over it is.
 - The render that answers it is the visitor's own: never stored in or served from the ISR cache,
   and sent `private, no-store`. Nothing is set on the visitor's browser to carry the result: no
   cookie, and no Referer is read.

@@ -415,7 +415,7 @@ export interface ActionHandlerOptions {
   trustedOrigins?: string[];
   /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. */
   basePath?: string;
-  /** The most bytes a request body may hold, default 1048576 (1 MB): a larger one is answered 413. Read by nodeActionMiddleware and fetchActionHandler, which read the body; a server that reads it itself sets its own limit. */
+  /** The most bytes a request body may hold, default 1048576 (1 MB): a larger one is answered 413 (an HTML page for a browser's form post, JSON for an action call or anything else). Read by nodeActionMiddleware, fetchActionHandler and createFormPostHandler (when it reads `request` itself); a server that reads the body itself sets its own limit. A multipart/form-data body's fields and files are all within it. */
   bodyLimit?: number;
 }
 
@@ -442,12 +442,14 @@ export type FormPostOutcome =
  * Run a form posted to a page without JavaScript (the <Form> of a
  * useActionState(serverAction) dispatch posts to its page), by the action
  * endpoint's rules: the same options and checks. `request.body` is the posted
- * fields as an object (a name posted more than once as an array), `url` the
- * absolute URL. Resolves to null for a post with no
- * `_action`, which the page answers as before. createRequestHandler does this
- * itself; a custom server calls it before rendering the page.
+ * fields as an object (a name posted more than once as an array, a file as a
+ * Web `File`), `url` the absolute URL. Leave `body` out and pass `request` (the
+ * Web Request) to have the handler read an urlencoded or multipart/form-data
+ * body itself, from a copy, up to `bodyLimit`. Resolves to null for a post with
+ * no `_action`, which the page answers as before. createRequestHandler does
+ * this itself; a custom server calls it before rendering the page.
  */
-export function createFormPostHandler(options?: ActionHandlerOptions): (request: { method?: string; headers: any; body: Record<string, any>; url: string; request?: Request }) => Promise<FormPostOutcome | null>;
+export function createFormPostHandler(options?: ActionHandlerOptions): (request: { method?: string; headers: any; body?: Record<string, any>; url: string; request?: Request }) => Promise<FormPostOutcome | null>;
 export function nodeActionMiddleware(options?: ActionHandlerOptions): (req: any, res: any, next?: () => void) => void;
 export function fetchActionHandler(options?: ActionHandlerOptions): (request: Request) => Promise<Response>;
 
@@ -586,7 +588,7 @@ export interface RequestHandlerOptions {
   actionHandler?: (reqLike: any) => Promise<{ status: number; headers: Record<string, string>; body: any }>;
   /** Hears every error a built-in route render (streamed or buffered) contains or fails on. Default: console.error. */
   onError?: (error: unknown, info: StreamErrorInfo) => void;
-  /** The most bytes a request body may hold (an action call, a form posted to a page, the revalidate webhook), default 1048576 (1 MB), the Node adapter's read included: a larger one is answered 413, as a page for a form a browser posted to a page. */
+  /** The most bytes a request body may hold (an action call, a form posted to a page, the revalidate webhook), default 1048576 (1 MB), the Node adapter's read included: a larger one is answered 413, an HTML page for a browser's form post (urlencoded or multipart, or a request that accepts HTML), JSON otherwise. A multipart/form-data body's fields and files are all within it. */
   bodyLimit?: number;
 }
 

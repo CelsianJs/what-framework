@@ -169,6 +169,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **A style object after a style string replaces the string's declarations**
   on compiled and spread paths, as `h()` already did and Solid does. `null`,
   `undefined` and `false` clear the inline style on every path.
+- **A compiled component that destructures `children` and only places it runs
+  its body before its children are built**, as `props.children` and `h()`
+  already did, so its `onMount` runs before its children's and a component
+  that never places its children no longer builds them. *Migration:* code that
+  needs its children built while its own body runs reads `props.children` at
+  that point. A component that inspects its children is unchanged.
 - **`ERR_HYDRATION_MISMATCH` carries a record**,
   `{ kind, component, ownerPath, path, expected, found, recovery }`, in
   development and through `onHydrationError` in every build. The "already
@@ -335,6 +341,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   with no `csrfToken` prop no longer adds the page's token while hydrating,
   which the server never wrote. The enhanced submit still sends it in
   `X-CSRF-Token`.
+- **`<Form>`'s JavaScript submit follows the form's `enctype`.** A file field
+  in a form without `multipart/form-data` sends the file's name, as the
+  browser's native submit does. A `File` in what an action returns is `null`
+  in its state, with and without JavaScript. *Migration:* add
+  `enctype="multipart/form-data"` to forms with file inputs, and return what
+  you show about a file (its name, its size), not the file.
 - **`enhanceForms()` submits a same-origin form without a token**, as the
   native submit would, and leaves the decision to the endpoint.
   `data-no-csrf` is gone. *Migration:* remove `data-no-csrf`, and check the
@@ -494,7 +506,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   by position. Row keys never appear in the page: the form posts a digest
   under the render's salt. `bodyLimit` (default 1 MB) on
   `createRequestHandler`, `nodeActionMiddleware` and the action endpoint sets
-  the largest body read; a page post over it gets an HTML 413.
+  the largest body read; a page post over it gets an HTML 413. A server-action
+  form takes files: a multipart post reaches the action with each file as a
+  Web `File`, with and without JavaScript, parsed by the platform under
+  `bodyLimit`. A keyed list's identity is where it is written, so an earlier
+  list that is empty in one render no longer moves the result.
+  `toNodeListener(handler, { bodyLimit })` serves a wrapped handler, and
+  `createFormPostHandler` takes `bodyLimit`.
 - **Router.** Route `preload` with a `data` prop, `navigate(to,
   { flushSync })`, and `route.isNavigating` from the moment a navigation
   starts, including one started inside a transition.
@@ -514,7 +532,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
   `ERR_QUERY_OUTSIDE_RENDER`. The production build's catalogue keeps each
   code's severity and message and leaves the fix and example to `what_fix` and
-  docs/ERRORS.md (5.3 KB gzip instead of 21.0 KB).
+  docs/ERRORS.md (5.2 KB gzip instead of 21.0 KB).
 - **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
   Suspense and action events) and `what_why` (why a run, a skipped effect or a
   mount happened, back to the write or landing). Async flight details and
@@ -596,7 +614,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   An HTTP/2 request whose Host and `:authority` differ gets 400.
   `ERR_REDIRECT_CYCLE` reports route patterns (`/verify/:token`), never the
   visitor's paths, query or fragment. `what dev`'s HMR socket accepts only
-  loopback, `--host` and `allowedHosts` origins, not any IP address.
+  loopback, `--host` and `allowedHosts` origins, not any IP address. Every
+  entry point answers a body over `bodyLimit` by one rule, an HTML page for a
+  browser's form post and JSON for an action call, and
+  `nodeActionMiddleware`'s 413 now reaches the client instead of a reset
+  connection.
 - **Form data (security).** No-JS and enhanced form fields such as
   `constructor` and `__proto__` arrive as own fields. ISR loader `query`
   objects are null-prototype. A malformed cookie no longer fails every page. A
@@ -637,7 +659,17 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   form member (`reset`, `elements`, …) no longer breaks hydration or submit.
   Hydrating a controlled select is linear in its options again, an untouched
   field is not copied to decide whether it was edited, and the copies run no
-  element constructors and load no images.
+  element constructors and load no images. A compiled component hydrates its
+  children in place however it reads `children` (destructured, renamed, with a
+  literal default or a rest element, or as `props.children`) and wherever it
+  places them. A compiled array that mixes text, a reactive value, a list or a
+  conditional with elements adopts in document order
+  (`<Button>Save <Icon /></Button>`). `<Form>`, `<Link>`, `<NavLink>`,
+  `<Outlet>`, `<Head>`, the form kit's `<Select>` and the a11y components take
+  compiled children unbuilt, so they hydrate in place. A streamed `<Suspense>`
+  with a `lazy()` child hydrates whatever the order of its content, its code
+  and `hydrate()`. Hydration no longer copies a form-associated custom element
+  that reports `type === 'radio'`.
 - **Async values.** `settled()` waits for the reveal's effects and for
   streams, and never spins on a synchronous refetch. `refresh()` settles when
   the function answers at once or throws. Transitions that reach one binding

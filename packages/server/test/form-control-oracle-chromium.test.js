@@ -30,8 +30,16 @@ const browserAvailable = await chromiumLaunches(chromium);
 
 const textual = (s) => s.control === 'text' || s.control === 'textarea' || s.control === 'range';
 const SHAPES = shapes().filter((s) => !textual(s) || s.id % 10 === 0 || s.name !== undefined || s.fieldId !== undefined);
-const AUTHORINGS = ['h', 'compiled', 'spread'];
-const SOURCES = ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable'];
+const AUTHORINGS = ['h', 'compiled', 'spread', 'wrapped'];
+// The server markup each authoring hydrates: a wrapped field's wrappers
+// render elements of their own.
+const SOURCES = {
+  h: ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable'],
+  compiled: ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable'],
+  spread: ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable'],
+  wrapped: ['wrapped:hydratable', 'wrapped:stream'],
+};
+const LETTER = { compiled: 'C', spread: 'S', wrapped: 'W' };
 
 // Every server render the page parses: `${id}|${authoring}|${renderer}`.
 async function serverMarkup() {
@@ -48,7 +56,7 @@ async function serverMarkup() {
   const markup = {};
   for (const shape of SHAPES) {
     for (const authoring of AUTHORINGS) {
-      const Component = authoring === 'h' ? hComponent(h, shape, { For, Show }) : server[`${authoring === 'spread' ? 'S' : 'C'}${shape.id}`];
+      const Component = authoring === 'h' ? hComponent(h, shape, { For, Show }) : server[`${LETTER[authoring]}${shape.id}`];
       for (const [name, render] of Object.entries(renderers)) {
         markup[`${shape.id}|${authoring}|${name}`] = await render(h(Component, { v: isDynamic(shape) ? signal(shape.initial) : undefined, o: signal(editsEarly(shape)), l: signal(false) }));
       }
@@ -77,7 +85,8 @@ async function pageBundle(dir) {
     };
     const env = { h: core.h, mount: core.mount, hydrate: core.hydrate, flushSync: core.flushSync, signal: core.signal, resetForm: _resetForm, changedFields, For: core.For, Show: core.Show, document };
     const byId = new Map(oracle.shapes().map((s) => [s.id, s]));
-    const component = (shape, authoring, build) => authoring === 'h' ? oracle.hComponent(core.h, shape, env) : build[(authoring === 'spread' ? 'S' : 'C') + shape.id];
+    const letter = { compiled: 'C', spread: 'S', wrapped: 'W' };
+    const component = (shape, authoring, build) => authoring === 'h' ? oracle.hComponent(core.h, shape, env) : build[letter[authoring] + shape.id];
     export async function run(ids, markup, authorings, sources) {
       const findings = [];
       let server = 0;
@@ -93,7 +102,7 @@ async function pageBundle(dir) {
           clients++;
           const mounted = await oracle.runClient(env, shape, component(shape, authoring, client));
           if (mounted) findings.push({ shape, path: authoring + ' mount', ...mounted });
-          for (const source of sources) {
+          for (const source of sources[authoring]) {
             clients++;
             const [from, renderer] = source.split(':');
             const html = markup[id + '|' + from + '|' + renderer];

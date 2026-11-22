@@ -3,11 +3,9 @@ const _tmpl$0 = /* @__PURE__ */_$template("<main class=layout>");
 const _tmpl$1 = /* @__PURE__ */_$template("<h1>");
 const _tmpl$2 = /* @__PURE__ */_$template("<p>Welcome");
 import { signal } from 'what-framework';
-function Layout({
-  children
-}) {
+function Layout(_props) {
   const _el$0 = _tmpl$0();
-  _$insert(_el$0, () => children);
+  _$insert(_el$0, _props.children);
   return _el$0;
 }
 export function Page() {

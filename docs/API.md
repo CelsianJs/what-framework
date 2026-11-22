@@ -294,27 +294,54 @@ function Settings() {
 }
 ```
 
-### Forwarding children into a boundary or a provider
+### Placing and forwarding children
 
-Your own wrapper around `ErrorBoundary`, `Suspense` or a `Context.Provider`
-works with no extra ceremony:
+Compiled JSX hands a component its children unbuilt: they are built where the
+component reads them. A component that only places its children builds them
+where they render, however it reads them:
 
 ```jsx
+function Card({ title, children, ...rest }) {
+  return (
+    <section {...rest}>
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 function MyBoundary({ children, fallback }) {
   return <ErrorBoundary fallback={fallback}>{children}</ErrorBoundary>;
 }
 ```
 
-The compiler keeps children that are only forwarded unbuilt until the component
-they are handed to has run, which is what lets the boundary catch them and the
-provider publish its value in time.
+"Places" means each read of `children` is rendered where it stands: a child
+of an element, a fragment or another component, the component's own result,
+or a branch of a condition (`{open && children}`, `{ready ? children : null}`)
+or an array. Destructured in the parameters (renamed, with a rest element, or
+with a literal default such as `{ children = null }`), destructured from props
+in the body, or read as `props.children`: the compiler compiles each read where
+it stands. That lets a boundary catch the children, lets a provider publish its
+value in time for them, and, while hydrating, lets them adopt the server's
+nodes inside the component's own element, so what the user typed before the
+page's code ran stays.
 
-Inspecting children is the one thing that cannot stay lazy: reading
-`children.length` builds the subtree, and building it is exactly what the
-boundary has to be around. A component that both inspects and forwards has to
-pick one. Set `Component._deferChildren = true` to pick forwarding, which makes
-`props.children` a zero-argument factory the runtime calls inside the boundary
-and gives up inspection:
+Inspecting children builds them where they are inspected: `children.length`,
+`Array.isArray(children)`, `children.map(...)`, a truthiness test such as
+`{children && <div>{children}</div>}`, a local alias (`const kids = children`)
+or a default that is not a literal. Such a component keeps its destructuring,
+and two things follow:
+
+- While hydrating, children built before the element that holds them has
+  claimed its server node do not adopt: the component's subtree is built again
+  on the client (`ERR_HYDRATION_MISMATCH` in development) and what the user
+  typed in it is lost. They adopt when they are first read where they are
+  placed, such as `<ul>{props.children}</ul>`. Pass a component the data it has
+  to inspect as a prop (`<Tabs items={tabs} />`) instead of as children.
+- A component that both inspects and forwards into a boundary or a provider
+  has to pick one. Set `Component._deferChildren = true` to pick forwarding,
+  which makes `props.children` a zero-argument factory the runtime calls where
+  it is placed, and gives up inspection:
 
 ```jsx
 function Panel({ children }) {
@@ -323,11 +350,14 @@ function Panel({ children }) {
 Panel._deferChildren = true;   // only needed if Panel also read children itself
 ```
 
-Three other shapes read `children` before the wrapper's body runs and need the
-same flag: a `children` binding with a default value (`{ children = null }`), a
-parameter pattern with a rest element (`{ children, ...rest }`), and a forward
-that goes through a local first (`const kids = children`). Write the forward as
-`{ children }` or `props.children` and none of them apply.
+A component written with `h()` that is given children from compiled JSX reads
+them built, before the element it returns is adopted: `function Card({
+children }) { return h('section', null, children); }` mismatches while
+hydrating, whichever way it reads them. Set `Card._deferChildren = true`, as
+What's own `<Form>`, `<Link>`, `<Head>` and `<Select>` do, and the children are
+built where `h()` places them. Children written with `h()` or the JSX runtime
+are vnodes, built only where they are placed, so a component given those adopts
+either way.
 
 An expression child is now built by the component it is handed to, not by the
 caller, so a component that never renders its children never evaluates them.

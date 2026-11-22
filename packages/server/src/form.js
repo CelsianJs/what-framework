@@ -18,7 +18,8 @@
 // the request handler runs serverAction(state, fields) and renders the page
 // with what it returned, for this form alone (adapter/core.js). Mounted,
 // the form handles its own submit: it runs the action with the form's data as
-// a transition, the status useFormStatus() reads inside it shows the
+// a transition (a form with a file, `enctype="multipart/form-data"`, goes as
+// multipart), the status useFormStatus() reads inside it shows the
 // submission, and the form is reset when that transition commits, if the
 // action succeeded (a useActionState dispatch included). As in React 19, the
 // reset clears the uncontrolled fields and leaves a controlled one (a `value`
@@ -33,12 +34,9 @@
 import { h } from 'what-core';
 import { _formMember, _formStatusContext, _formStatus, _resetForm, getServerContext, isHydrating } from 'what-core/internal';
 import { _callAction } from './actions.js';
-import { addField } from './fields.js';
+import { addField, RESERVED_FIELDS } from './fields.js';
 
 export const ACTION_ENDPOINT = '/__what_action';
-
-// Fields the endpoint reads itself; an enhanced submit does not pass them on.
-const RESERVED = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state', '_actionKey']);
 
 // The action id lives on the callable wrapper that action() returns. Accepting
 // the function itself is the point: passing the id as a string means keeping two
@@ -77,16 +75,31 @@ function pageUrl() {
 }
 
 // The form's fields as the endpoint hands them to a server action: one value
-// per name, an array for a repeated name, reserved fields left out.
-function fieldsOf(formData) {
+// per name, an array for a repeated name, reserved fields left out. A file is
+// the File in a multipart/form-data form (which the action client sends as
+// one, actions.js); any other form posts a file's name alone, as the
+// browser's own submit of it does, so the action gets the same either way.
+function fieldsOf(formData, multipart) {
   const data = {};
   for (const [key, value] of formData.entries()) {
-    if (!RESERVED.has(key)) addField(data, key, value);
+    if (!RESERVED_FIELDS.has(key)) addField(data, key, multipart || typeof value === 'string' ? value : value.name);
   }
   return data;
 }
 
-export function Form({
+// Whether the submit posts multipart/form-data: the submitter's `formenctype`,
+// else the form's `enctype`, as the browser decides.
+function postsMultipart(form, submitter) {
+  const enctype = submitter && submitter.hasAttribute('formenctype') ? submitter.formEnctype : _formMember(form, 'enctype');
+  return enctype === 'multipart/form-data';
+}
+
+// Compiled JSX hands <Form> its children unbuilt (`_deferChildren`, what-core
+// dom.js _installLazyChildren) and they are built inside the <form>: while
+// hydrating, children built while <Form> runs would claim the server's nodes
+// where the form stands, and the whole form would be built again, losing
+// what the user typed or chose before the page's code ran.
+export const Form = /* @__PURE__ */ Object.assign(function Form({
   action,
   csrfToken,
   redirect,
@@ -136,10 +149,11 @@ export function Form({
       event.stopImmediatePropagation();
       const form = event.currentTarget;
       const formData = new FormData(form, event.submitter || undefined);
+      const multipart = postsMultipart(form, event.submitter);
       const fail = (error) => _formMember(form, 'dispatchEvent')(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
       status.submit(formData, (data) => (actionId === null ? action(data)
-        : typeof action === 'function' ? action(fieldsOf(data))
-          : _callAction(actionId, [fieldsOf(data)])), () => {
+        : typeof action === 'function' ? action(fieldsOf(data, multipart))
+          : _callAction(actionId, [fieldsOf(data, multipart)])), () => {
         // Inside the transition's commit, which a throw would cut short:
         // _resetForm hands each one to `fail` and restores the other fields.
         _resetForm(form, fail);
@@ -149,4 +163,4 @@ export function Form({
 
   const kids = children == null ? [] : (Array.isArray(children) ? children : [children]);
   return h(_formStatusContext(), { value: status }, h('form', props, ...hidden, ...kids));
-}
+}, { _deferChildren: true });

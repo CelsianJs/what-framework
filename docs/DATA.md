@@ -347,15 +347,30 @@ export default function EditPost() {
   order there). So in a list of inline editors keyed by record, a record's
   form gets its own result back when a teammate added, removed or reordered
   records between the render that served the form and the one that answers
-  it, with JavaScript or without. Forms that repeat without a key (several in
+  it, with JavaScript or without. A list's place is where it is written (the
+  element or the `.map()` that holds it), never how many lists came before
+  it, so a list before it that is empty in one render and not in the other (a
+  Pinned list the record joins, a `{rows.length > 0 && <ul>…</ul>}` section)
+  moves no other list's rows. With `h()`, which drops a `false` or `null` child
+  and spreads an array into its parent's children, such a child before the
+  list's element moves the element: write a conditional sibling as a function
+  child (`() => flash() && h('p', null, flash())`), which keeps its place.
+  Forms that repeat without a key (several in
   one component, an unkeyed list) are told apart by position only: if their
   order changed between the two renders, the result goes to the form now in
-  that place. A row key is a string or a finite number; a row whose key is
-  anything else (an object, a boolean) has no form that is the same from one
-  render to the next, so the forms in it count by position. Rows of one list
-  with the same key are told apart by their order. The page carries no row
-  key: the key holds each one as a digest under the render's salt, as a keyed
-  list's hydration comment does.
+  that place. With `h()`, a `useActionState` called in the `.map()` callback
+  itself runs in the component around the list, so it is one of several in
+  that component and counts by position; call it in a component the row
+  renders (`<li key={r.id}><Editor record={r} /></li>`) and it follows the
+  row's key. A row key is a string or a
+  finite number; a row whose key is anything else (an object, a boolean) has
+  no form that is the same from one render to the next, so the forms in it
+  count by position. Rows of one list with the same key are told apart by
+  their order. The page carries no row key as it is: the key holds each one
+  as a digest under the render's salt, as a keyed list's hydration comment
+  does. That hides a long random key, not one that can be guessed: the salt
+  is in the page, so a guessed key is checked in a moment, and a small number
+  or an email address is found. Keep secrets out of row keys.
 - The page renders from a POST, so reloading it, or coming back to it with the
   Back button, posts the form again, as with any form POST (the browser asks
   first). A redirect on success avoids that for the common case.
@@ -363,28 +378,48 @@ export default function EditPost() {
   `_state`: render it (it is escaped like every value), never trust it for
   anything else. The action gets `previousState` from the client too, with or
   without JavaScript.
+- **A form with a file**: give it `enctype="multipart/form-data"`, as HTML
+  requires, and the action gets the file as a Web `File` in its fields, with
+  JavaScript or without. A multipart post is read by the platform's own parser
+  into the fields an urlencoded one gives (a repeated name an array), and with
+  JavaScript the dispatch sends the form's fields as that same form,
+  multipart, the state as `_state`. A file input with nothing chosen is the
+  empty string. The whole body, files included, is within `bodyLimit`: raise
+  it for uploads. Without the multipart `enctype` a form posts a file's name
+  alone, with JavaScript too, as the browser's own submit does. What the
+  action returns never carries a file back: a `File` in it is `null` in the
+  state, with and without JavaScript (JSON has no form for its bytes), so the
+  recipe above returns the text fields it shows (`fields: { title: typed }`),
+  never `fields` whole with the file in it, and what the page shows about a
+  file (its name, its size) as its own value. A file input cannot be filled in
+  again after a validation error (a browser rule): the visitor chooses the
+  file again. (`packages/server/test/action-form-files.test.js`, and in
+  Chromium `action-form-files-chromium.test.js`)
 - A POST to a page without `_action` is the page's own, as before: its loader
-  reads the body. An urlencoded one is read first, up to `bodyLimit`, to look
-  for `_action`, so one over it is answered 413, as every body over it is.
+  reads the body. An urlencoded or multipart one is read first, from a copy,
+  up to `bodyLimit`, to look for `_action`, so one over it is answered 413, as
+  every body over it is.
 - A custom server that renders with `renderDocument` runs the post itself with
   `createFormPostHandler(options)` (the action endpoint's options), then
-  renders with its result:
+  renders with its result. Handed the Web `request` and no `body`, it reads an
+  urlencoded or multipart body itself, from a copy, up to `bodyLimit`:
 
   ```js
   import { createFormPostHandler, renderDocument } from 'what-framework/server';
 
   const runFormPost = createFormPostHandler({ getCsrfToken: (req) => /(?:^|;\s*)app-csrf=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] });
 
-  export async function renderPost(page, { request, fields, ctx }) {
-    const posted = await runFormPost({ method: 'POST', headers: Object.fromEntries(request.headers), body: fields, url: request.url, request });
+  export async function renderPost(page, { request, ctx }) {
+    const posted = await runFormPost({ method: 'POST', headers: Object.fromEntries(request.headers), url: request.url, request });
     if (posted === null) return renderDocument(page, ctx);
     if (posted.response) return posted.response;
     return renderDocument(page, { ...ctx, actionState: posted.actionState });
   }
   ```
 
-  It resolves to `null` for a post without `_action`, `{ response }` for a
-  refusal, a failure or the action's redirect, else `{ actionState, headers }`:
+  It resolves to `null` for a post without `_action` (or with a body that is
+  not a form), `{ response }` for a refusal, a failure, a body over the limit
+  or the action's redirect, else `{ actionState, headers }`:
   render the page with `actionState`, and send it with those headers and
   `cache-control: private, no-store`. `nodeActionMiddleware` serves only the
   action endpoint.

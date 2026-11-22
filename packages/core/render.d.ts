@@ -12,9 +12,11 @@ export function mapArray<T>(
   /**
    * `raw`: the row gets the item itself. `follow`: the row gets the item's cell
    * (what-compiler's `.map()` lowering). `loc`: the list's source location,
-   * named by the duplicate-key diagnostic.
+   * named by the duplicate-key diagnostic. `slot`: the number what-compiler
+   * gives a list it lowers, the same as the server's, for the place of its
+   * keyed rows.
    */
-  options?: { key?: (item: T) => string | number; raw?: boolean; follow?: boolean; loc?: string },
+  options?: { key?: (item: T) => string | number; raw?: boolean; follow?: boolean; loc?: string; slot?: number },
 ): (parent: Node, marker?: Node | null) => Node;
 export function spread(el: Element, props: Record<string, any>): void;
 export function setProp(el: Element, key: string, value: any): void;
@@ -90,7 +92,7 @@ export function _$item<T>(cell: RowItem<T>): T;
 export function _$mapKeyed<T>(
   source: () => T[] | null | undefined,
   mapFn: (item: any, index: number, raw: T) => Node,
-  options: { key: (item: T) => unknown; raw?: boolean; follow?: boolean; loc?: string },
+  options: { key: (item: T) => unknown; raw?: boolean; follow?: boolean; loc?: string; slot?: number },
 ): (parent: Node, marker?: Node | null) => Comment;
 
 // Equality-gated eager memo (the reactive memo, NOT the component-HOC `memo`
@@ -178,3 +180,7 @@ export function _$hole(parent: Node, value: unknown, flag: number, devName?: str
 export function _$exit(): void;
 export function _$hcreateComponent(component: unknown, props?: unknown, ...args: unknown[]): unknown;
 export function _$outside<T>(build: () => T): T;
+/** @internal A hydratable array whose members claim the server's nodes in document order as `build` creates them. */
+export function _$members<T>(build: () => T, nested?: number): T;
+/** @internal A `_$members` member that is not an element or a component, adopted where it stands while hydrating. */
+export function _$member<T>(value: T, index: number): T;

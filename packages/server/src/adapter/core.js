@@ -21,7 +21,7 @@
 
 import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument, renderDocumentStream } from '../index.js';
-import { bodyLimitOf, createActionHandler, createFormPostHandler, parseActionBody, readFetchBodyCapped, tooLargeResponse } from '../action-handler.js';
+import { bodyLimitOf, createActionHandler, createFormPostHandler, parseRequestBody, readFetchBodyCapped, readFormBody, tooLargeResponse } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
 import { generateCsrfToken } from '../actions.js';
 import { createResponse } from '../response.js';
@@ -80,15 +80,15 @@ function readCookie(cookieHeader, name) {
   }
 }
 
-// Read + parse the action body with the handler's `bodyLimit`. Returns
+// Read + parse the action body with the handler's `bodyLimit`: { body }, or
 // { tooLarge: true } when over the limit so the caller can respond 413 (DoS
-// guard parity with the Node connect/express middleware).
+// guard parity with the Node connect/express middleware). A body that does
+// not parse is an empty one.
 async function readActionBody(request, limit) {
-  try {
-    const read = await readFetchBodyCapped(request, limit);
-    if (read.tooLarge) return { tooLarge: true };
-    return parseActionBody(read.raw, request.headers.get('content-type') || '');
-  } catch { return {}; }
+  let read;
+  try { read = await readFetchBodyCapped(request, limit); } catch { return { body: {} }; }
+  if (read.tooLarge) return read;
+  try { return { body: await parseRequestBody(read.bytes, request.headers.get('content-type') || '') }; } catch { return { body: {} }; }
 }
 
 // Same cap for the revalidate webhook: the secret is only checked once the body
@@ -98,9 +98,7 @@ async function readJsonBody(request, limit) {
   let read;
   try { read = await readFetchBodyCapped(request, limit); } catch { return { json: {} }; }
   if (read.tooLarge) return { tooLarge: true };
-  // `raw` is absent on the tooLarge branch, which returned above; `?? ''` keeps
-  // the parse throwing into the same catch it always did.
-  try { return { json: JSON.parse(read.raw ?? '') }; } catch { return { json: {} }; }
+  try { return { json: JSON.parse(new TextDecoder().decode(read.bytes)) }; } catch { return { json: {} }; }
 }
 
 // The page module, loader context and document options for one route request.
@@ -334,9 +332,9 @@ export function createRouteRenderer(documentOptions = {}) {
  * owns its CSRF policy and the cookie/meta auto-provisioning is skipped.
  *
  * Plain HTML form posts (progressive enhancement, no JS) are accepted on
- * /__what_action as application/x-www-form-urlencoded — see createActionHandler
- * in action-handler.js for the field contract (_action, _csrf/what-csrf-token,
- * _redirect).
+ * /__what_action as application/x-www-form-urlencoded or multipart/form-data
+ * (a form with a file) — see createActionHandler in action-handler.js for the
+ * field contract (_action, _csrf/what-csrf-token, _redirect).
  *
  * A form posted to a page (the <Form> of a useActionState(serverAction)
  * dispatch, without JavaScript) carries `_action`: its action runs under the
@@ -401,12 +399,12 @@ export function createRequestHandler(options = {}) {
 
     // Server actions (JSON fetch path AND plain form-post fallback)
     if (request.method === 'POST' && pathname === ACTION_PATH) {
-      const body = await readActionBody(request, bodyLimit);
-      if (body && body.tooLarge) return tooLargeResponse(null, bodyLimit);
+      const read = await readActionBody(request, bodyLimit);
+      if (read.tooLarge) return tooLargeResponse(request.headers, bodyLimit);
       const out = await actionHandler({
         method: 'POST',
         headers: headersToObject(request.headers),
-        body,
+        body: read.body,
         query: Object.fromEntries(url.searchParams),
         url: request.url,
         request,
@@ -439,7 +437,7 @@ export function createRequestHandler(options = {}) {
     // On-demand revalidation webhook
     if (request.method === 'POST' && pathname === REVALIDATE_PATH && revalidateWebhook) {
       const read = await readJsonBody(request, bodyLimit);
-      if (read.tooLarge) return tooLargeResponse(null, bodyLimit);
+      if (read.tooLarge) return tooLargeResponse(request.headers, bodyLimit);
       const out = await revalidateWebhook({ headers: headersToObject(request.headers), body: read.json });
       return new Response(JSON.stringify(out.body), {
         status: out.status,
@@ -458,21 +456,22 @@ export function createRequestHandler(options = {}) {
     const config = route.page || { mode: route.mode || 'client' };
     const routeMatch = { path: pathname, query: parseQuery(url.search), config, route, params, request };
 
-    // A form posted to this page without JavaScript: its action runs, and the
+    // A form posted to this page without JavaScript (urlencoded, or
+    // multipart/form-data for a form with a file): its action runs, and the
     // page renders with what it returned for that form. This render is the
     // visitor's own, never stored or served from the cache. The body is read
     // from a copy, so a POST that is not one (no `_action`) reaches the page
     // with its body unread.
     /** @type {any} */
     let posted = null;
-    if (request.method === 'POST' && (request.headers.get('content-type') || '').includes('application/x-www-form-urlencoded')) {
+    const form = request.method === 'POST' ? await readFormBody(request.clone(), bodyLimit) : null;
+    if (form !== null) {
       // A page's form: a visitor without JavaScript reads the 413 as a page.
-      const read = await readFetchBodyCapped(request.clone(), bodyLimit);
-      if (read.tooLarge) return tooLargeResponse({ accept: 'text/html' }, bodyLimit);
+      if (form.tooLarge) return tooLargeResponse(request.headers, bodyLimit);
       posted = await formPostHandler({
         method: 'POST',
         headers: headersToObject(request.headers),
-        body: parseActionBody(read.raw ?? '', 'application/x-www-form-urlencoded'),
+        body: form.fields,
         url: request.url,
         request,
       });

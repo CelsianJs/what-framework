@@ -154,7 +154,7 @@ function ownSignalNames(scope) {
     if (fnNode.params) {
       for (const param of fnNode.params) extractFromPattern(param);
     }
-    // deferForwardedChildren moved this pattern out of the parameter list;
+    // deferPlacedChildren moved this pattern out of the parameter list;
     // it is still the same props destructuring and classifies the same way.
     if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
   }

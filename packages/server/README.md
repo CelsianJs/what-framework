@@ -392,23 +392,59 @@ limit but the body's. Reloading that page, or going back to it, posts the form
 again, as with any form POST; a redirect on success avoids it. The state is the visitor's to set: show it, trust it for nothing.
 
 The body limit is `bodyLimit` (bytes, 1 MB by default) on `createRequestHandler`,
-`nodeActionMiddleware` and `fetchActionHandler`, and it covers every body the
-handler reads: an action call, a form posted to a page (read to look for
-`_action`, so a page's own urlencoded POST is held to it too) and the
-revalidate webhook. A body over it is answered 413: a short HTML page for a
-form a browser posted, JSON for a fetch. The recipe above returns the fields as
-typed in the state, so a re-post carries the draft twice (its field, and
-`_state`'s `fields`): a draft fits in about half the limit. A site that takes
-long drafts raises it, `createRequestHandler({ routes, bodyLimit: 4 * 1024 * 1024 })`.
+`nodeActionMiddleware`, `fetchActionHandler` and `createFormPostHandler`, and it
+covers every body the handler reads: an action call, a form posted to a page
+(read to look for `_action`, so a page's own urlencoded or multipart POST is
+held to it too) and the revalidate webhook. A body over it is answered 413, by
+one rule on every entry point: a short HTML page for a browser's form post (an
+urlencoded or multipart body, or a request that accepts `text/html`), JSON for
+an action call (`X-What-Action`, what the action client sends) and anything
+else. The recipe above returns the fields as typed in the state, so a re-post
+carries the draft twice (its field, and `_state`'s `fields`): a draft fits in
+about half the limit. A site that takes long drafts raises it,
+`createRequestHandler({ routes, bodyLimit: 4 * 1024 * 1024 })`.
+
+**A form with a file.** Give the form `enctype="multipart/form-data"`, as HTML
+requires, and the action gets the file as a Web `File` in its fields, with and
+without JavaScript: the endpoint and a page post read a multipart body with the
+platform's own parser into the same fields an urlencoded one gives (a repeated
+name an array), and the action client sends a call whose fields hold a file as
+that form, multipart, the state as `_state`. A file input with nothing chosen
+is the empty string. The whole body, every field and file in it, is within
+`bodyLimit`: raise it for uploads. A form without the multipart `enctype`
+posts a file's name alone, with JavaScript too, as the browser's own submit of
+it does. An action's result never carries a file (JSON has no form for its
+bytes): a `File` in it is `null` in the state, with and without JavaScript, so
+return what the page shows about the file (its name, its size) and echo the
+text fields only. A file input cannot be filled in again after a validation
+error (a browser rule): the visitor chooses the file again.
+
+```js
+export const signup = action(async (previous, fields) => {
+  const avatar = fields.avatar;                     // a File, or '' when none was chosen
+  if (!(avatar instanceof File) || avatar.size === 0) {
+    return { error: 'Attach an avatar', fields: { email: fields.email } };
+  }
+  await saveAvatar(fields.email, await avatar.arrayBuffer());
+  getResponse().redirect('/welcome');
+  return { saved: true };
+}, { id: 'signup' });
+```
 
 Which form is "that form" is the hook's key. Inside a keyed list (a `<For key>`
 row, a `.map()` row with a `key`) the key follows the row's key, as React's key
 path does, so a record's editor gets its own result back when records were
 added, removed or reordered between the page and the post. Another form of the
-same action keeps its own state. Forms that repeat without a key are told
-apart by position only, and a change in their order in between hands the
-result to the form now in that place. A row key is a string or a finite
-number; the page carries it only as a salted digest (docs/DATA.md).
+same action keeps its own state. A list's place is where it is written, so a
+list before it that is empty in one render and not in the other (a Pinned list
+the record joins, a section shown while it has rows) moves no other list's
+rows. Forms that repeat without a key are told apart by position only, and a
+change in their order in between hands the result to the form now in that
+place. A row key is a string or a finite number. The page carries it as a
+digest under the render's salt, which hides a long random key but not one
+that can be guessed: the salt is in the page, so a guess is checked in a
+moment, and a small number or an email address is found. Keep secrets out of
+row keys (docs/DATA.md).
 
 `getResponse()` in an action is the response of its call: `redirect(path)`
 (a same-origin path, as in a loader) answers a no-JS post with 303 and, with
@@ -418,8 +454,10 @@ loading the page). `setHeader()` (a cookie) reaches the response either way.
 
 **A custom server.** `nodeActionMiddleware` serves only the action endpoint.
 For page-posted forms, run the post with `createFormPostHandler(options)` (the
-action endpoint's options) before rendering the page, and render with what it
-resolved to:
+action endpoint's options, `bodyLimit` among them) before rendering the page,
+and render with what it resolved to. Pass the Web `request` and leave `body`
+out, and it reads an urlencoded or multipart body itself, from a copy, up to
+`bodyLimit` (a body you parsed yourself goes in `body`, a file as a `File`):
 
 ```js
 import { createFormPostHandler, renderDocument } from 'what-server';
@@ -427,9 +465,9 @@ import { createFormPostHandler, renderDocument } from 'what-server';
 // The same options as the action endpoint: here the token is the app's own CSRF cookie.
 const runFormPost = createFormPostHandler({ getCsrfToken: (req) => /(?:^|;\s*)app-csrf=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] });
 
-// `fields` is the urlencoded body as an object (express.urlencoded()).
-export async function answerPage(page, { request, fields, ctx }) {
-  const posted = await runFormPost({ method: 'POST', headers: Object.fromEntries(request.headers), body: fields, url: request.url, request });
+// `request` is the Web Request: the handler reads its form body itself.
+export async function answerPage(page, { request, ctx }) {
+  const posted = await runFormPost({ method: 'POST', headers: Object.fromEntries(request.headers), url: request.url, request });
   if (posted === null) return { html: await renderDocument(page, ctx) };       // not a form the framework runs
   if (posted.response) return posted.response;                                // a refusal, a failure, or the action's 303
   const html = await renderDocument(page, { ...ctx, actionState: posted.actionState });
@@ -437,7 +475,8 @@ export async function answerPage(page, { request, fields, ctx }) {
 }
 ```
 
-The client callable posts JSON to `/__what_action`, rejects with the action's
+The client callable posts JSON to `/__what_action` (a form's fields with a file
+in them as multipart), rejects with the action's
 error (`ERR_ACTION_FAILED`, or `TIMEOUT` after `timeout`, default 30 s), and
 rolls back the optimistic overlays of its transition when it fails. See
 the installed `what-framework/skills/what/SKILL.md` and the [online data guide](https://github.com/CelsianJs/what-framework/blob/main/docs/DATA.md).
@@ -512,7 +551,10 @@ How the default CSRF protection works:
    another site cannot set it on a visitor's request. Behind a TLS-terminating
    proxy, have the proxy send it (nginx: `proxy_set_header X-Forwarded-Proto
    $scheme;`), or list the `https://` origin in `trustedOrigins`; otherwise the
-   server takes itself for `http`.
+   server takes itself for `http`. The Node adapter's `request.url` and the ISR
+   cache take their scheme by the same rule; on a fetch platform (Bun, Deno,
+   Cloudflare, Vercel) a loader's `request.url` and an action's
+   `getRequest().url` stay the URL the platform hands the handler.
 2. A request that carries neither header (an old browser, a script) must
    carry the double-submit token: every HTML response ensures a `what-csrf`
    cookie (`SameSite=Lax`, readable by JS so the fetch client can echo it),
@@ -536,8 +578,9 @@ option either way (the `what-csrf` cookie as its token).
 
 ### Plain HTML form posts (progressive enhancement)
 
-`POST /__what_action` accepts `application/x-www-form-urlencoded` bodies, so
-forms work without any client JavaScript:
+`POST /__what_action` accepts `application/x-www-form-urlencoded` and
+`multipart/form-data` bodies (a form with a file input), so forms work without
+any client JavaScript:
 
 ```html
 <form method="post" action="/__what_action">
@@ -552,7 +595,7 @@ forms work without any client JavaScript:
 - Action id: `_action` (or `data-action`) hidden field, or `?action=` query param.
 - The action receives **one argument**: the form fields as a plain object
   (reserved `_action` / `_csrf` / `_redirect` / `_state` / `_actionKey` fields
-  stripped; repeated field names become arrays). A form that posts `_state`
+  stripped; repeated field names become arrays; a file is a Web `File`). A form that posts `_state`
   (JSON) is called with two, `(state, fields)`; a `_state` that is not JSON is
   a `400`.
 - Success responds `303 See Other` (POST/redirect/GET) to the action's
@@ -587,6 +630,10 @@ options as `createRequestHandler` (`cache` for ISR, `scheduler` for background
 revalidation — the scheduler is stopped cleanly on SIGTERM/SIGINT). To mount
 inside an existing Express/connect app use `whatMiddleware(options)` (calls
 `next()` on 404), or convert any Web-Fetch handler with `toNodeListener(handler)`.
+The listener reads each body before the handler, up to the `bodyLimit`
+`createRequestHandler` gave its handler: a handler you wrap in a function of
+your own (logging, headers) has none, so pass the limit,
+`toNodeListener(wrapped, { bodyLimit: 4 * 1024 * 1024 })`.
 
 ### Static export (any CDN: Nginx, S3, GitHub Pages, Netlify)
 

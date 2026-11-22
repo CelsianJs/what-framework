@@ -19,11 +19,15 @@
 //   - binding: none, a static value (null and undefined included), a signal,
 //     an accessor;
 //   - authoring: h(), compiled JSX, compiled JSX whose field props come
-//     through a spread;
+//     through a spread, compiled JSX whose field is placed through one to
+//     three of the user's own wrapper components (each reading and placing
+//     its children another way: destructured, renamed, with a default or a
+//     rest element, in the body, through a fragment, a condition, an array, a
+//     forward or props.children);
 //   - server renderers: renderToString, renderToHydratableString and
 //     renderToStream of each authoring;
 //   - client paths: mount and hydrate for each authoring, a hydration from
-//     each hydratable server output;
+//     each hydratable server output (a wrapped field from its own);
 //   - phases: before hydration, after mount or hydration, after a signal
 //     write, after a user edit, after a form reset, after a release to null
 //     or undefined, after control is taken again;
@@ -593,9 +597,10 @@ function jsxProp(shape, [key, kind, value], spread) {
 
 /**
  * The compiled JSX source of `shape`'s component named `name`: its field
- * props as attributes, or (spread) inside one spread object.
+ * props as attributes, or (spread) inside one spread object, or (wrapped)
+ * as attributes with the field placed through the shape's wrappers.
  */
-export function jsxComponent(shape, component, spread) {
+export function jsxComponent(shape, component, spread, wrapped = false) {
   const attrs = (r, fixed) => {
     const props = fieldProps(shape, r);
     const own = props.map((p) => jsxProp(shape, p, spread));
@@ -621,13 +626,39 @@ export function jsxComponent(shape, component, spread) {
     if (GROUPED.has(shape.set)) opts = `<optgroup label="g">${opts}</optgroup>`;
     field = `<select${attrs(null, ` name="${name}"${shape.control === 'multiple' ? ' multiple' : ''}`)}>${opts}</select>`;
   }
+  if (wrapped) field = wrappersOf(shape).reduceRight((inner, [name, , attrs]) => `<${name}${attrs}>${inner}</${name}>`, field);
   return `export function ${component}({ v, o, l }) { return <form>${field}</form>; }`;
 }
 
-/** One module of every shape's components: C<id> plain, S<id> through a spread. */
+// The user's own wrapper components a wrapped field is placed through:
+// [name, source, the attributes a use passes].
+const WRAPPERS = [
+  ['WDestructured', 'function WDestructured({ children }) { return <div class="w">{children}</div>; }', ''],
+  ['WRenamed', 'function WRenamed({ children: kids }) { return <div class="w">{kids}</div>; }', ''],
+  ['WDefault', 'function WDefault({ children = null }) { return <div class="w">{children}</div>; }', ''],
+  ['WRest', 'function WRest({ children, ...rest }) { return <div class="w" {...rest}>{children}</div>; }', ' data-w="rest"'],
+  ['WBody', 'function WBody(props) { const { children } = props; return <div class="w">{children}</div>; }', ''],
+  ['WLayout', 'function WLayout({ title, children }) { return <section><h2>{title}</h2><div>{children}</div></section>; }', ' title="t"'],
+  ['WFragment', 'function WFragment({ children }) { return <><span>w</span>{children}</>; }', ''],
+  ['WLogical', 'function WLogical({ open, children }) { return <div class="w">{open && children}</div>; }', ' open={true}'],
+  ['WConditional', 'function WConditional({ open, children }) { return <div class="w">{open() ? children : null}</div>; }', ' open={() => true}'],
+  ['WArray', 'function WArray({ children }) { return <div class="w">{[children]}</div>; }', ''],
+  ['WForward', 'function WForward({ children }) { return <WDestructured>{children}</WDestructured>; }', ''],
+  ['WProps', 'function WProps(props) { return <div class="w">{props.children}</div>; }', ''],
+];
+
+// One to three wrappers, outermost first, turning with the shape's id so
+// that every wrapper meets every control at every depth.
+function wrappersOf(shape) {
+  const depth = 1 + (Math.floor(shape.id / WRAPPERS.length) % 3);
+  return Array.from({ length: depth }, (_, i) => WRAPPERS[(shape.id + i) % WRAPPERS.length]);
+}
+
+/** One module of every shape's components: C<id> plain, S<id> through a spread, W<id> wrapped. */
 export function jsxModule(list) {
   return `import { For, Show } from 'what-framework';\nconst is = (value, r) => (value == null ? value : value === r);\nconst relabelled = ${relabelled.toString()};\n` +
-    list.map((shape) => jsxComponent(shape, `C${shape.id}`, false) + '\n' + jsxComponent(shape, `S${shape.id}`, true)).join('\n');
+    WRAPPERS.map(([, source]) => source).join('\n') + '\n' +
+    list.map((shape) => [jsxComponent(shape, `C${shape.id}`, false), jsxComponent(shape, `S${shape.id}`, true), jsxComponent(shape, `W${shape.id}`, false, true)].join('\n')).join('\n');
 }
 
 // --- Running a client path ---

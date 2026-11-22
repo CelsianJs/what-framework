@@ -687,7 +687,10 @@ export function _changedFields(el, out, seen) {
   const group = el.form !== null ? _formMember(el.form, 'elements') : el.ownerDocument.getElementsByName(el.name);
   const radios = [];
   for (const radio of group) {
-    if (radio.type !== 'radio' || radio.name !== el.name || radio.form !== el.form || seen.has(radio)) continue;
+    // A native radio only: a form-associated custom element reporting
+    // `type === 'radio'` is no member of the group's reset, and a copy of it
+    // would run its constructor. It is left as it is.
+    if (radio.localName !== 'input' || radio.type !== 'radio' || radio.name !== el.name || radio.form !== el.form || seen.has(radio)) continue;
     seen.add(radio);
     radios.push(radio);
   }
@@ -953,7 +956,11 @@ function setProp(el, key, value, isSvg) {
  * bound to the form. HTMLFormElement is [LegacyOverrideBuiltIns]: a control
  * whose name or id is a member's (`reset`, `elements`, `action`, `append`,
  * `dispatchEvent`, any of them) stands in for that member on the form itself,
- * so every read of a form's member in the framework goes through here.
+ * so the framework's reads of the members a form's own code uses (its
+ * fields, reset, submit and events, in dom.js, form.js and islands.js) go
+ * through here. The element reads every renderer makes of any element
+ * (`getAttribute`, `addEventListener`, ...) do not: a control named after one
+ * of those breaks its form's hydration (docs/GOTCHAS.md).
  */
 export function _formMember(form, name) {
   const value = Reflect.get(Object.getPrototypeOf(form), name, form);

@@ -40,4 +40,6 @@ export {
   _$exit,
   _$hcreateComponent,
   _$outside,
+  _$members,
+  _$member,
 } from 'what-core/render';

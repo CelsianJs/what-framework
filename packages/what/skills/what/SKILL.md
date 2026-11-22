@@ -136,7 +136,12 @@ record's id), so the result finds its record's form even when the list changed
 in between. To go somewhere once a save succeeds, the action
 calls `getResponse().redirect(path)` (from `what-framework`): a 303 without
 JavaScript, a navigation with it. `<Form redirect>` is for a server action's
-own form, whose result is not shown; a dispatch's form does not read it.
+own form, whose result is not shown; a dispatch's form does not read it. A form
+with a file input takes `enctype: 'multipart/form-data'`: the action gets the
+file as a `File`, with and without JavaScript, within the server's
+`bodyLimit` (1 MB by default). Return the text fields the form shows again,
+never the file: a `File` in the returned state is `null`, and a file input
+cannot be filled in again, so the visitor chooses it again after an error.
 
 A field the user changed before hydration keeps the user's value (no event is
 dispatched), so a signal bound to it still holds the server's: read the field in

@@ -44,7 +44,7 @@
  */
 
 import { t, setTypes } from './babel/types.js';
-import { deferForwardedChildren, initFileState, isWhatModuleSource, recordName } from './babel/common.js';
+import { deferPlacedChildren, initFileState, isWhatModuleSource, recordName } from './babel/common.js';
 import { initDomState, finishDomProgram, transformJsxRoot } from './babel/dom.js';
 import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js';
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
@@ -148,13 +148,13 @@ export default function whatBabelPlugin({ types }) {
               if (node.type === 'JSXElement' && t.isJSXIdentifier(node.openingElement.name, { name: 'noscript' })) node.children = [];
             });
           }
-          // Before any JSX is lowered: forwarded children, server action ids,
+          // Before any JSX is lowered: placed children, server action ids,
           // development names and what each call's callee reads, all read
           // against the original source.
           const calls = [];
           path.traverse({
             Function(fnPath) {
-              deferForwardedChildren(fnPath);
+              deferPlacedChildren(fnPath);
             },
             CallExpression(callPath) {
               transformServerAction(callPath, state);

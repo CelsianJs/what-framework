@@ -51,11 +51,18 @@ before(async () => {
   ]);
 });
 
-// The component of `shape` an authoring builds: 'h', 'compiled', 'spread'.
+// The component of `shape` an authoring builds: 'h', 'compiled', 'spread',
+// 'wrapped'.
+const LETTER = { compiled: 'C', spread: 'S', wrapped: 'W' };
 function component(shape, authoring, build) {
   if (authoring === 'h') return hComponent(h, shape, env);
-  return build[`${authoring === 'spread' ? 'S' : 'C'}${shape.id}`];
+  return build[`${LETTER[authoring]}${shape.id}`];
 }
+
+// The server markup each authoring hydrates: the others all render the same
+// form; a wrapped field's wrappers render elements of their own.
+const SOURCES = ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable'];
+const sourcesFor = (authoring) => (authoring === 'wrapped' ? ['wrapped:hydratable', 'wrapped:stream'] : SOURCES);
 
 function report(findings, total) {
   const lines = findings.slice(0, 12).map((f) => JSON.stringify(f));
@@ -68,7 +75,7 @@ describe('form-control oracle', () => {
     let cases = 0;
     // A select whose options come later shows none before hydration.
     for (const shape of SHAPES.filter(editsEarly)) {
-      for (const authoring of ['h', 'compiled', 'spread']) {
+      for (const authoring of ['h', 'compiled', 'spread', 'wrapped']) {
         for (const [renderer, render] of Object.entries(RENDERERS)) {
           cases++;
           const v = shape.binding === 'signal' || shape.binding === 'accessor' ? signal(shape.initial) : undefined;
@@ -97,11 +104,11 @@ describe('form-control oracle', () => {
       return RENDERERS[renderer](h(component(shape, authoring, server), { v, o: signal(shape.late === undefined), l: signal(false) }));
     };
     for (const shape of SHAPES) {
-      for (const authoring of ['h', 'compiled', 'spread']) {
+      for (const authoring of ['h', 'compiled', 'spread', 'wrapped']) {
         cases++;
         const mounted = await runClient(env, shape, component(shape, authoring, client));
         if (mounted) findings.push({ shape, path: `${authoring} mount`, ...mounted });
-        for (const source of ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable']) {
+        for (const source of sourcesFor(authoring)) {
           cases++;
           const html = await markup(shape, source);
           const found = await runClient(env, shape, component(shape, authoring, hydratableClient), html);

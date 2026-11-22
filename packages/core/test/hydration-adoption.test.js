@@ -206,4 +206,71 @@ describe('a boundary still streaming', () => {
       stop();
     }
   });
+
+  // A boundary whose child is lazy() hydrates whatever the order of its
+  // content, its code and hydrate(): an async or classic entry script runs
+  // hydrate() before the stream has sent the content. Before, the content
+  // arriving after hydrate() threw in the walk's settle (its session was
+  // over) and the boundary stayed dead server HTML.
+  const ORDERS = [
+    ['hydrate, then the content, then the code', { hydrateFirst: true, codeFirst: false }],
+    ['hydrate, then the code, then the content', { hydrateFirst: true, codeFirst: true }],
+    ['the content, then hydrate, then the code', { hydrateFirst: false, codeFirst: false }],
+    ['the code, then the content, then hydrate', { hydrateFirst: false, codeFirst: true }],
+  ];
+  for (const [order, { hydrateFirst, codeFirst }] of ORDERS) {
+    it(`with a lazy() child, hydrates: ${order}`, async () => {
+      const seen = [];
+      let clicks = 0;
+      function Editor() {
+        let input;
+        core.onMount(() => seen.push(['mount', input.value]));
+        return h('input', { id: 'draft', defaultValue: 'server', onclick: () => clicks++, ref: (el) => { input = el; } });
+      }
+      const page = (component) => h('main', null, h(Suspense, { fallback: h('p', { id: 'wait' }, 'loading') }, h(component)));
+      let releaseServer;
+      const onServer = core.lazy(() => new Promise((resolve) => { releaseServer = resolve; }));
+      const code = withResolvers();
+      const onClient = core.lazy(() => code.promise);
+      const chunks = [];
+      const stream = server.renderToStream(page(onServer), { noScripts: true });
+      const reader = (async () => { for await (const chunk of stream) chunks.push(chunk); })();
+      await stream.shellReady;
+      while (chunks.length === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+      const el = host(chunks[0]);
+      const errors = [];
+      let stop = null;
+      const start = () => { stop = hydrate(page(onClient), el, { onHydrationError: (info) => errors.push(info.kind) }); };
+      const arrive = async () => {
+        releaseServer({ default: Editor });
+        await reader;
+        el.insertAdjacentHTML('beforeend', chunks.slice(1).join(''));
+        applyStreamedBoundaries();
+        flushSync();
+      };
+      const load = async () => {
+        code.resolve({ default: Editor });
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        flushSync();
+      };
+      try {
+        if (codeFirst) await load();
+        if (hydrateFirst) start();
+        await arrive();
+        if (!hydrateFirst) start();
+        const input = el.querySelector('#draft');
+        assert.ok(input, 'the content is shown');
+        if (!codeFirst) await load();
+        await core.settled();
+        assert.deepEqual(errors, []);
+        assert.equal(el.querySelector('#draft'), input, 'the server input is adopted');
+        assert.equal(el.querySelector('#wait'), null);
+        assert.deepEqual(seen, [['mount', 'server']], 'onMount ran once');
+        input.click();
+        assert.equal(clicks, 1, 'the handler is attached');
+      } finally {
+        stop?.();
+      }
+    });
+  }
 });

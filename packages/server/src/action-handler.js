@@ -7,7 +7,7 @@
 // actions.js (handleActionRequest) — no security logic is duplicated here.
 
 import { handleActionRequest } from './actions.js';
-import { addField } from './fields.js';
+import { addField, RESERVED_FIELDS } from './fields.js';
 import { runInActionContext } from './context.js';
 import { isHost, nodeRequestHost, requestOrigin, requestScheme, requestUrl } from './request-url.js';
 
@@ -29,17 +29,43 @@ export function bodyLimitOf(options) {
 }
 
 /**
- * The 413 for a body over `limit`: an HTML page for a browser's form post (a
+ * The 413 for a body over `limit`, by one rule on every entry point: an HTML
+ * page for a browser's form post (an urlencoded or multipart body, or a
  * request that accepts HTML), so a visitor without JavaScript reads why, and
- * JSON for any other caller.
+ * JSON for an action call (`X-What-Action`, what the action client sends) and
+ * any other caller. `headers` is the request's (Headers or a plain object of
+ * lowercase names).
  */
 export function tooLargeResponse(headers, limit) {
-  const accept = String((headers && (typeof headers.get === 'function' ? headers.get('accept') : headers.accept)) || '');
-  if (accept.includes('text/html')) {
-    return new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Too large</title></head><body><h1>413 — Too large</h1><p>What you sent is over the ${limit} bytes this site accepts in one request. Go back and shorten it.</p></body></html>`,
-      { status: 413, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'private, no-store' } });
+  const { status, headers: own, body } = tooLargeAnswer(headers, limit);
+  return new Response(body, { status, headers: own });
+}
+
+// The same 413 as { status, headers, body }, the shape the handlers answer in.
+/** @returns {{ status: number, headers: Record<string, string>, body: string }} */
+function tooLargeAnswer(headers, limit) {
+  if (tooLargeIsPage(headers)) {
+    return {
+      status: 413,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'private, no-store' },
+      body: `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Too large</title></head><body><h1>413 — Too large</h1><p>What you sent is over the ${limit} bytes this site accepts in one request. Go back and shorten it.</p></body></html>`,
+    };
   }
-  return new Response(JSON.stringify({ message: 'Payload too large' }), { status: 413, headers: { 'content-type': 'application/json' } });
+  return { status: 413, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Payload too large' }) };
+}
+
+function tooLargeIsPage(headers) {
+  const read = (name) => String((headers && (typeof headers.get === 'function' ? headers.get(name) : headers[name])) || '');
+  return read('x-what-action') === '' && (formBodyType(read('content-type')) !== null || read('accept').includes('text/html'));
+}
+
+/**
+ * The kind of form body a Content-Type names: 'urlencoded', 'multipart'
+ * (multipart/form-data), or null for anything else.
+ */
+export function formBodyType(contentType) {
+  const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+  return type === 'application/x-www-form-urlencoded' ? 'urlencoded' : type === 'multipart/form-data' ? 'multipart' : null;
 }
 
 function lowerHeaders(headers) {
@@ -158,11 +184,6 @@ export function requestSite(headers, url, trustedOrigins) {
   }
 }
 
-// Reserved form fields consumed by the framework (not passed to the action).
-// `what-csrf-token` is an alias for `_csrf` matching the <meta name="what-csrf-token">
-// tag SSR pages embed, so templates can reuse one name for both surfaces.
-const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state', '_actionKey']);
-
 // The state a form posted (`_state`): a <Form> whose action is the dispatch of
 // useActionState(serverAction) posts the state it rendered with, as JSON, and
 // the action is called (state, fields), as React's useActionState(fn) calls
@@ -244,17 +265,26 @@ async function runFormPost(policy, reqLike, form, actionId) {
     return { status: 403, message: 'Missing CSRF token' };
   }
 
-  // Copied as own fields (addField), as parseActionBody wrote them: an
-  // assignment to a field named `__proto__` would set data's prototype.
-  const data = {};
-  for (const [k, v] of Object.entries(form)) {
-    if (!RESERVED_FORM_FIELDS.has(k)) addField(data, k, v);
-  }
-  const previous = postedState(form);
-  if (previous === INVALID) return { status: 400, message: 'Invalid form state' };
-  const args = previous === undefined ? [data] : [previous.value, data];
+  const args = formArguments(form);
+  if (args === INVALID) return { status: 400, message: 'Invalid form state' };
   const call = await callAction(reqLike, String(actionId), args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, formHeaders);
   return { actionId: String(actionId), call };
+}
+
+// What the action of a posted form is called with: the fields, reserved ones
+// left out, after the posted `_state` when the form carries one; INVALID for
+// a `_state` that is not JSON. A no-JS post and the action client's
+// multipart call (a form with a file) take the same arguments from it.
+function formArguments(form) {
+  // Copied as own fields (addField), as the parser wrote them: an assignment
+  // to a field named `__proto__` would set data's prototype.
+  const data = {};
+  for (const [k, v] of Object.entries(form)) {
+    if (!RESERVED_FIELDS.has(k)) addField(data, k, v);
+  }
+  const previous = postedState(form);
+  if (previous === INVALID) return INVALID;
+  return previous === undefined ? [data] : [previous.value, data];
 }
 
 // The answer to a form post the action did not complete: a refusal, or the
@@ -289,10 +319,14 @@ function failedForm(outcome) {
  *    POST with `X-What-Action: <id>` header, JSON body `{ args: [...] }`,
  *    CSRF token in the `X-CSRF-Token` header. Responds with JSON; a redirect
  *    the action made (getResponse().redirect()) travels in `X-What-Redirect`.
+ *    A call with a file in its fields (a <Form> with a file input) comes as
+ *    multipart/form-data instead: the fields, and the state before them as
+ *    `_state`, read as a form post's (2) are.
  *
  * 2. Plain HTML form post (progressive enhancement — works without JS):
- *    POST with `Content-Type: application/x-www-form-urlencoded` and NO
- *    X-What-Action header. `body` is the parsed form fields object.
+ *    POST with `Content-Type: application/x-www-form-urlencoded` or
+ *    `multipart/form-data` and NO X-What-Action header. `body` is the parsed
+ *    form fields object (a file is a Web File).
  *    - action id:   `_action` (or `data-action`) hidden field, or `?action=`
  *                   query param (reqLike.query.action)
  *    - CSRF token:  `_csrf` (or `what-csrf-token`) hidden field; an
@@ -344,10 +378,10 @@ export function createActionHandler(options = {}) {
 
     const headers = lowerHeaders(reqLike.headers);
     const headerActionId = headers['x-what-action'];
-    const contentType = headers['content-type'] || '';
+    const type = formBodyType(headers['content-type']);
 
     // --- Plain HTML form post (progressive enhancement) ---
-    if (!headerActionId && contentType.includes('application/x-www-form-urlencoded')) {
+    if (!headerActionId && type !== null) {
       const form = reqLike.body || {};
       const outcome = await runFormPost(policy, reqLike, form, form._action || form['data-action'] || (reqLike.query && reqLike.query.action));
       if (!outcome.call || outcome.call.status !== 200) return failedForm(outcome);
@@ -372,7 +406,9 @@ export function createActionHandler(options = {}) {
     }
 
     const body = reqLike.body || {};
-    const call = await callAction(reqLike, headerActionId, body.args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, headers);
+    const args = type === 'multipart' ? formArguments(body) : body.args;
+    if (args === INVALID) return jsonResponse(400, { message: 'Invalid form state' });
+    const call = await callAction(reqLike, headerActionId, args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, headers);
     const answer = jsonResponse(call.status, call.body);
     if (call.status !== 200) return answer;
     /** @type {Record<string, string>} */
@@ -395,12 +431,26 @@ export function createActionHandler(options = {}) {
  *                                            `actionState` in its request
  *                                            context, and these headers (the
  *                                            action's) on the response
- *   reqLike: { method, headers, body (the parsed fields), url, request? }
+ *   reqLike: { method, headers, body?, url, request? }
+ *
+ * `body` is the parsed fields (a file a Web File). Without it, the handler
+ * reads `request` (a Web Request) itself, from a copy, so a post that is not
+ * one is the page's to read: an urlencoded or multipart/form-data body up to
+ * `options.bodyLimit` bytes (1 MB by default), and the 413 answer for one over
+ * it.
  */
 export function createFormPostHandler(options = {}) {
   const policy = csrfPolicy(options);
+  const limit = bodyLimitOf(options);
   return async function handleFormPost(reqLike) {
-    const form = reqLike.body || {};
+    let form = reqLike.body;
+    if (form === undefined && reqLike.request instanceof Request) {
+      const read = await readFormBody(reqLike.request.clone(), limit);
+      if (read === null) return null;
+      if (read.tooLarge) return { response: tooLargeAnswer(reqLike.request.headers, limit) };
+      form = read.fields;
+    }
+    form = form || {};
     if (!Object.hasOwn(form, '_action')) return null;
     const outcome = await runFormPost(policy, reqLike, form, form._action);
     if (!outcome.call || outcome.call.status !== 200) return { response: failedForm(outcome) };
@@ -452,13 +502,19 @@ export function nodeActionMiddleware(options = {}) {
 // Request the action sees (getRequest()) is this connection's: its scheme
 // (TLS or not), its Host header, and the endpoint's path.
 async function answerAction(req, res, handle, search, limit) {
+  const read = await readRawBody(req, limit);
+  if (read.tooLarge) {
+    const answer = tooLargeAnswer(req.headers, limit);
+    res.writeHead(answer.status, answer.headers);
+    res.end(answer.body);
+    return;
+  }
   let body;
   try {
-    const raw = await readRawBody(req, limit);
-    body = parseActionBody(raw, req.headers['content-type'] || '');
-  } catch (err) {
-    res.writeHead(err.code === 'BODY_TOO_LARGE' ? 413 : 400, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ message: err.code === 'BODY_TOO_LARGE' ? 'Payload too large' : 'Invalid request body' }));
+    body = await parseRequestBody(read.bytes, req.headers['content-type'] || '');
+  } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: 'Invalid request body' }));
     return;
   }
   const query = Object.fromEntries(new URLSearchParams(search));
@@ -473,9 +529,9 @@ async function answerAction(req, res, handle, search, limit) {
   res.end(out.body);
 }
 
-/** Parse an action request body by content type: form-urlencoded -> fields object, else JSON. */
+/** Parse a text action request body by content type: form-urlencoded -> fields object, else JSON. */
 export function parseActionBody(raw, contentType) {
-  if ((contentType || '').includes('application/x-www-form-urlencoded')) {
+  if (formBodyType(contentType) === 'urlencoded') {
     const fields = {};
     for (const [k, v] of new URLSearchParams(String(raw))) addField(fields, k, v);
     return fields;
@@ -485,16 +541,53 @@ export function parseActionBody(raw, contentType) {
 }
 
 /**
- * Read a Web Fetch `Request` body as text with the cap the Node middleware
+ * Parse an action request body, its bytes as read (under the body limit), by
+ * content type. A multipart/form-data form is read by the platform's own
+ * parser (Response#formData) into the fields an urlencoded one gives: one
+ * value per name, an array for a repeated name, and a file as the Web File
+ * it reads. Anything else as parseActionBody does. Rejects for a body its
+ * content type does not describe.
+ */
+export async function parseRequestBody(bytes, contentType) {
+  if (formBodyType(contentType) !== 'multipart') return parseActionBody(new TextDecoder().decode(bytes), contentType);
+  const fields = {};
+  for (const [k, v] of await new Response(bytes, { headers: { 'content-type': contentType } }).formData()) addField(fields, k, v);
+  return fields;
+}
+
+/**
+ * A form body of `request`: null when its content type is no form's,
+ * { tooLarge: true } over `limit`, else { fields } (none for a body that is
+ * not the form its content type says).
+ *
+ * @param {Request} request
+ * @param {number} limit
+ * @returns {Promise<{ fields: Record<string, any>, tooLarge?: undefined } | { tooLarge: true, fields?: undefined } | null>}
+ */
+export async function readFormBody(request, limit) {
+  const contentType = request.headers.get('content-type') || '';
+  if (formBodyType(contentType) === null) return null;
+  const read = await readFetchBodyCapped(request, limit);
+  if (read.tooLarge) return { tooLarge: true };
+  try {
+    return { fields: await parseRequestBody(read.bytes, contentType) };
+  } catch {
+    return { fields: {} };
+  }
+}
+
+/**
+ * Read a Web Fetch `Request` body as bytes with the cap the Node middleware
  * enforces (`bodyLimit`). Used by the adapter/edge entry points (Vercel /
  * Cloudflare / Node-adapter) so all three share one DoS guard.
  *
- * Returns { raw } on success or { tooLarge: true } when the cap is exceeded —
+ * Returns { bytes } on success or { tooLarge: true } when the cap is exceeded —
  * checked first via Content-Length, then enforced while streaming (chunked /
  * spoofed Content-Length can't bypass it).
  *
  * @param {Request} request
  * @param {number} [limit=MAX_BODY_BYTES]
+ * @returns {Promise<{ bytes: Uint8Array, tooLarge?: undefined } | { tooLarge: true, bytes?: undefined }>}
  */
 export async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
   const declared = Number(request.headers.get('content-length'));
@@ -502,12 +595,12 @@ export async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
     return { tooLarge: true };
   }
   const body = request.body;
-  // No stream available (or env without ReadableStream): fall back to text()
-  // but still re-check the resulting size against the cap.
+  // No stream available (or env without ReadableStream): fall back to
+  // arrayBuffer() but still re-check the resulting size against the cap.
   if (!body || typeof body.getReader !== 'function') {
-    const raw = await request.text();
-    if (Buffer.byteLength(raw, 'utf8') > limit) return { tooLarge: true };
-    return { raw };
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (bytes.byteLength > limit) return { tooLarge: true };
+    return { bytes };
   }
   const reader = body.getReader();
   const chunks = [];
@@ -526,29 +619,32 @@ export async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
       chunks.push(value);
     }
   }
-  return { raw: Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8') };
+  return { bytes: Buffer.concat(chunks.map((c) => Buffer.from(c))) };
 }
 
+// A Node request's body: { bytes }, or { tooLarge: true } as soon as it is
+// over `limit`. The rest of an over-limit body is read and dropped, never
+// buffered, so the socket stays up for the 413 the caller writes at once (a
+// request destroyed instead reached its client as a connection reset).
 function readRawBody(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
-    req.on('data', (chunk) => {
+    const onData = (chunk) => {
       size += chunk.length;
-      if (size > limit) {
-        /** @type {Error & { code?: string }} */
-        const e = new Error('Body too large');
-        e.code = 'BODY_TOO_LARGE';
-        reject(e);
-        req.destroy?.();
+      if (size <= limit) {
+        chunks.push(chunk);
         return;
       }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      if (chunks.length === 0) return resolve('');
-      resolve(Buffer.concat(chunks).toString('utf8'));
-    });
+      chunks.length = 0;
+      req.off('data', onData);
+      req.off('end', onEnd);
+      req.resume();
+      resolve({ tooLarge: true });
+    };
+    const onEnd = () => resolve({ bytes: Buffer.concat(chunks) });
+    req.on('data', onData);
+    req.on('end', onEnd);
     req.on('error', reject);
   });
 }
@@ -564,7 +660,7 @@ export function fetchActionHandler(options = {}) {
     try {
       const read = await readFetchBodyCapped(request, limit);
       if (read.tooLarge) return tooLargeResponse(request.headers, limit);
-      body = parseActionBody(read.raw, request.headers.get('content-type') || '');
+      body = await parseRequestBody(read.bytes, request.headers.get('content-type') || '');
     } catch {
       body = {};
     }

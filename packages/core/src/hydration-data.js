@@ -224,6 +224,16 @@ export function _nextOwnerKey(frame, root) {
 // reach it (_enterRow, _leaveRow), on the server and while hydrating alike,
 // on the object that counts the components of the frame rendering it.
 //
+// A list's place is where it stands, never how many lists came before it, so
+// a list that is empty in one render and not in the next moves no other: the
+// child slots from the innermost row (or the frame's output) down to the list,
+// as the vnode renderers walk them (each vnode, function or array member of an
+// element's children or of an array enters its index there, _enterRow),
+// then the number what-compiler gives each list it lowers, from where the
+// list is written in its source. Lists that still share a place (one call
+// site run twice in a frame, lists inside the rows of an unkeyed compiled
+// list) are told apart by the order they first enter a row in.
+//
 // The page carries no key: a key is written as its digest under the render's
 // salt (_rowKeyDigest, as a keyed list's keys comment writes it), and the
 // identity begins with that salt. The render that answers a post compares
@@ -247,7 +257,7 @@ let rootRow = null;
 // step under its parent, and a built-in the compiler lowers away (no
 // `holder`) none.
 function placeInRow(frame, parent, holder, prefix) {
-  const row = holder === null ? undefined : holder._row;
+  const row = holder === null ? undefined : rowOf(holder._row);
   if (row !== undefined) {
     frame._rowIn = row;
     frame._rowPath = formatId('', /** @type {{ index: number }} */ (stepAt(frame._ownerPath, prefix.length)).index - row.base);
@@ -270,32 +280,38 @@ function readRootRow(root, container) {
 // between them.
 const ROW_PATH = /^[0-9A-Za-z_.-]+$/;
 
+// The innermost keyed row of what is open in a frame's output (`open`: the
+// slot or row entered last, each slot holding the row around it).
+const rowOf = (open) => (open !== undefined && open.slot !== undefined ? open.row : open);
+
 /**
  * @internal A keyed row with key `key` of the list `list` begins in the
  * output of `frame` (undefined: the component running now; null: the root,
  * counted by `root`). `list` is an object the caller makes for one array or
- * one element's children, and passes for each of its members with a key:
- * the first takes the list's place among the lists of that frame's output
- * (of the row open there, inside one), every one the count of the rows of the
- * same key before it. A caller that enters only
- * some of its rows (compiled markup enters the rows it renders components
- * in) gives the list its rows' keys as `list.keys`, enters it once before the
- * first row with no key, and passes each row's place in `keys` as `index`.
- * Returns what _leaveRow puts back once the row is done. A key that is not a
- * row key (above) enters nothing, and the result is the row open there now,
- * as it is for a null `list`.
+ * one element's children (with `slot`, the number what-compiler gave a list
+ * it lowered), and passes for each of its members with a key: the first
+ * gives the list its place (Keyed rows above), and each the count of the rows
+ * of the same key before it. A caller that enters only some of its rows
+ * (compiled markup enters the rows it renders components in) gives the list
+ * its rows' keys as `list.keys`, enters it once before the first row with no
+ * key, and passes each row's place in `keys` as `index`. Returns what
+ * _leaveRow puts back once the row is done. A key that is not a row key
+ * (above) enters nothing, and the result is what is open there now. A null
+ * `list` is a member that is no keyed row: with a number `key`, its index in
+ * the element's children or the array being walked, it enters that slot (a
+ * vnode, a function or an array member holds the lists below it there; a
+ * slot around text holds none); with none, it enters nothing.
  */
 export function _enterRow(frame, root, list, key, index) {
   const holder = holderOf(frame === undefined ? _currentComponent() : frame, root);
-  const outer = holder._row;
-  if (list === null) return outer;
-  // A list in a row of the same frame's output counts among that row's.
-  if (list.n === undefined) {
-    const lists = outer !== undefined ? outer : holder;
-    list.n = lists._ownerLists || 0;
-    lists._ownerLists = list.n + 1;
+  const open = holder._row;
+  if (list === null) {
+    if (typeof key === 'number') holder._row = { up: open, slot: key, row: rowOf(open) };
+    return open;
   }
-  if (!isRowKey(key)) return outer;
+  const outer = rowOf(open);
+  list.place ??= placeOf(open, outer !== undefined ? outer : holder, list.slot);
+  if (!isRowKey(key)) return open;
   let n;
   if (list.keys !== undefined) n = (list.counts ??= keyCounts(list.keys))[/** @type {number} */ (index)];
   else {
@@ -310,8 +326,23 @@ export function _enterRow(frame, root, list, key, index) {
     up = holder._rowIn !== undefined ? holder._rowIn : null;
     lead = up !== null ? holder._rowPath : holder._ownerPath || '';
   }
-  holder._row = { up, lead, list: list.n, key, n, base: holder._ownerChildren || 0 };
-  return outer;
+  holder._row = { up, lead, list: list.place, key, n, base: holder._ownerChildren || 0 };
+  return open;
+}
+
+// A list's place: the slots open from the start of `scope` (its innermost
+// row, or the frame) down to it, and its compiled `number`; a second list in
+// `scope` at the same place adds how many took it before. Each step is
+// formatId's (self-delimiting); `Z` and `Y`, which open no step formatId
+// writes, mark the number and the count.
+function placeOf(open, scope, number) {
+  let place = '';
+  for (let s = open; s !== undefined && s.slot !== undefined; s = s.up) place = formatId('', s.slot) + place;
+  if (number != null) place += 'Z' + formatId('', number);
+  const taken = scope._places ??= new Map();
+  const before = taken.get(place) || 0;
+  taken.set(place, before + 1);
+  return before === 0 ? place : place + 'Y' + formatId('', before);
 }
 
 const keyId = (key) => (typeof key === 'string' ? 's' : 'n') + key;
@@ -344,13 +375,19 @@ export function _installRowKeys() {
   _installRowEntry(_enterRow, _leaveRow);
 }
 
+/** @internal Whether keyed rows are installed (_installRowKeys): the server renderers enter slots (_enterRow) only then. */
+export function _tracksRows() {
+  return placeRow !== null;
+}
+
 // `row` and the rows around it, under `salt`. An island's root starts from
-// the path its server wrote (_hydrationRoot).
+// the path its server wrote (_hydrationRoot). A list's place ends at `.`,
+// which no step writes, before the key's fixed-length digest.
 function rowPath(row, salt) {
   let path = '';
   for (let r = row; r !== null; r = r.up) {
     if (r.written !== undefined) return r.written + path;
-    path = r.lead + '-' + formatId('', r.list) + _rowKeyDigest(r.key, salt) + formatId('', r.n) + path;
+    path = r.lead + '-' + r.list + '.' + _rowKeyDigest(r.key, salt) + formatId('', r.n) + path;
   }
   return path;
 }

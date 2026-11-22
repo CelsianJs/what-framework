@@ -82,6 +82,7 @@ import {
   _ownerCounter,
   _enterRow,
   _leaveRow,
+  _tracksRows,
   runWithServerContext,
   __flushOutsideServerContext,
   isVNode,
@@ -138,8 +139,8 @@ const AWAITED = 5;   // the settled result of an async component
 const NS_END = 6;    // an element whose children sit in another namespace is finished
 const SELECT_END = 7; // a <select> is finished: back to the select scope it was in
 const OPTION_END = 8; // an option whose text is its value is finished: mark it
-const ROW = 9;        // a keyed row begins (what-core hydration-data.js _enterRow)
-const ROW_END = 10;   // a keyed row is finished
+const ROW = 9;        // a keyed row or a slot begins (what-core hydration-data.js _enterRow)
+const ROW_END = 10;   // a keyed row or a slot is finished
 
 // A marker is an instance of this module's own class, never a shape: a child
 // can be any value a reactive child returns, JSON included, and a plain
@@ -296,24 +297,52 @@ function push(seg, node, owner) {
 }
 
 // The members of an array or of an element's children, each with a key (a
-// keyed list's, or a vnode's) between the markers of a keyed row.
+// keyed list's, or a vnode's) between the markers of a keyed row, and any
+// other that can hold a list (takesSlot) between those of its slot (a null
+// list, what-core hydration-data.js _enterRow), entered as the stream reaches
+// it.
 function pushChildren(seg, children, owner) {
   const keys = children._keys;
+  const slots = _tracksRows();
   /** @type {object | null} */
   let list = null;
   for (let i = children.length - 1; i >= 0; i--) {
     const child = children[i];
     const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
-    if (key == null && keys === undefined) {
+    const keyed = key != null || keys !== undefined;
+    if (!keyed && !(slots && takesSlot(child))) {
       push(seg, child, owner);
       continue;
     }
-    if (list === null) list = {};
+    // One object for the list's members: the first one reached gives it its place.
+    if (keyed && list === null) list = { slot: children._slot };
     const end = mark(ROW_END, { entered: false, saved: undefined });
     push(seg, end, owner);
     push(seg, child, owner);
-    push(seg, mark(ROW, { list, key, end }), owner);
+    push(seg, mark(ROW, keyed ? { list, key, end } : { list: null, key: i, end }), owner);
   }
+}
+
+/**
+ * Whether a member of children the renderers walk can hold a keyed list in
+ * the frame rendering it, and so enters its slot (what-core hydration-data.js
+ * _enterRow; hydration enters one for every member, and a slot that holds no
+ * list changes no place): a function or an array, a built-in the compiler
+ * lowers away (its output is that frame's), or an element with a child that
+ * is not text. A component's lists are its own frame's.
+ */
+export function takesSlot(child) {
+  if (typeof child === 'function' || Array.isArray(child)) return true;
+  if (!isVNode(child)) return false;
+  if (typeof child.tag === 'function') return /** @type {any} */ (child.tag)._lowered === true;
+  const kids = child.children;
+  if (kids) {
+    for (let i = 0; i < kids.length; i++) {
+      const kid = kids[i];
+      if (typeof kid === 'function' || (typeof kid === 'object' && kid !== null)) return true;
+    }
+  }
+  return false;
 }
 
 // The row open in `owner`'s output now, which a row entered later leaves

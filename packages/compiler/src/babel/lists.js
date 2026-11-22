@@ -305,6 +305,15 @@ export function markRowItemReads(mapFn, keyValue) {
   if (reads !== null) for (const [holder, slot] of reads) holder[slot]._whatRowItem = true;
 }
 
+// The number of the keyed list written at `node` (a `.map()` call, a <For>):
+// where it starts in the source, the same for both targets, so the server's
+// list and the client's have one place among their component's lists however
+// many of the others are empty (what-core hydration-data.js _enterRow). Null
+// for a node no source holds.
+export function listSlot(node) {
+  return typeof node.start === 'number' ? t.numericLiteral(node.start) : null;
+}
+
 // Whether `found` (findMappedJsx) is a row the DOM target lowers to a keyed
 // list: it has a key, and the key reads only the item.
 export function isKeyedRow(found) {

@@ -45,7 +45,7 @@ import {
   checkIslandProp, directiveValue, renderFunctionChild,
 } from './common.js';
 import { buildWhenCondition, isPotentiallyReactive } from './reactivity.js';
-import { findMappedJsx, isKeyedRow, markRowItemReads, rowField } from './lists.js';
+import { findMappedJsx, isKeyedRow, listSlot, markRowItemReads, rowField } from './lists.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { componentMetadata } from './dev-metadata.js';
 
@@ -473,10 +473,13 @@ function ssrListOf(mapCall, state, asArray) {
   if (found.mapFn.body === found.returnExpr && !isComponentElement(found.returnExpr)) found.returnExpr._whatRow = true;
   const args = [mapCall.callee.object, found.mapFn, t.booleanLiteral(asArray)];
   // The key function the DOM target's list keys its rows with (dom.js
-  // tryLowerMapCall), for the keys the hydratable markup carries.
+  // tryLowerMapCall), for the keys the hydratable markup carries, and the
+  // list's number, the DOM target's too (lists.js listSlot).
   if (keyed) {
     const item = found.mapFn.params[0] ? t.cloneNode(found.mapFn.params[0], true) : t.identifier('_item');
     args.push(t.arrowFunctionExpression([item], t.cloneNode(found.keyValue, true)));
+    const slot = listSlot(mapCall);
+    if (slot !== null) args.push(slot);
   }
   return call(state, '_$ssrList', args);
 }
@@ -634,7 +637,10 @@ function forValue(node, path, state) {
   if (!each || !renderFn) {
     throw compileError(path, state, '<For> needs an "each" prop and a render function child: <For each={items}>{(item) => <li>{item}</li>}</For>');
   }
-  return call(state, '_$ssrFor', [each, renderFn.expression, key || t.booleanLiteral(false), fallback || t.nullLiteral()]);
+  const args = [each, renderFn.expression, key || t.booleanLiteral(false), fallback || t.nullLiteral()];
+  const slot = key ? listSlot(node) : null;
+  if (slot !== null) args.push(slot);
+  return call(state, '_$ssrFor', args);
 }
 
 // --- Program teardown ------------------------------------------------------------

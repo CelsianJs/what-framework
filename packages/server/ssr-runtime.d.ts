@@ -42,18 +42,21 @@ export declare function ssrRow(template: SSRTemplate, ...holes: SSRHole[]): unkn
 
 /** A child written as itself: what h() does with the same value as a child. */
 export declare function ssrText(value: unknown): string | SSRMarkup | (() => unknown) | VNode<any>;
-/** The rows of a `.map()`, each escaped unless it is markup; `asArray` brackets them as a list. */
+/** The rows of a `.map()`, each escaped unless it is markup; `asArray` brackets them as a list; `keyFn` keys its rows; `slot` is the number what-compiler gave the list. */
 export declare function ssrList<T>(
   list: readonly T[] | { map(fn: (item: T, index: number) => unknown): unknown[] },
   fn: (item: T, index: number, list: readonly T[]) => unknown,
   asArray: boolean,
+  keyFn?: (item: T) => unknown,
+  slot?: number,
 ): SSRMarkup;
 /** `<For>`: the reactive child that renders its rows, or its fallback. */
 export declare function ssrFor<T>(
   each: readonly T[] | (() => readonly T[] | null | undefined) | null | undefined,
   fn: (item: T | (() => T), index: number) => unknown,
-  keyed: boolean,
+  key: ((item: T) => unknown) | false,
   fallback: unknown,
+  slot?: number,
 ): () => unknown;
 
 export declare function ssrComponent<P = any>(

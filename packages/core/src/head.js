@@ -11,6 +11,7 @@
 import { getServerContext, isServerRender } from './server-context.js';
 import { SAFE_ATTR_NAME, escapeHtml } from './markup-rules.js';
 import { isVNode } from './vnode-renderer.js';
+import { _$outside } from './render.js';
 
 const headState = {
   title: null,
@@ -20,8 +21,13 @@ const headState = {
 
 // --- Head component ---
 // Use in any component to set head tags. Last one wins for title/meta.
+// Compiled children arrive unbuilt (`_deferChildren`, dom.js
+// _installLazyChildren): Head reads them while it runs, and a <title>,
+// <meta> or <link> child is never rendered where it stands, so while
+// hydrating they are built off the walk instead of claiming the server's
+// nodes (readHeadChildren).
 
-export function Head(props) {
+export const Head = /* @__PURE__ */ Object.assign(function Head(props) {
   const { title, meta, link, children } = readHeadChildren(props);
   // Decided by the render scope, not by `typeof document`: under a DOM shim
   // (jsdom, happy-dom, a Workers polyfill) a server render would otherwise
@@ -55,7 +61,7 @@ export function Head(props) {
   }
 
   return children || null;
-}
+}, { _deferChildren: true });
 
 // --- Head children ---
 // <title>, <meta> and <link> children are the props they spell, as React 19
@@ -64,11 +70,15 @@ export function Head(props) {
 // the same Head). Any other child renders in place. A child is an h() or
 // JSX-runtime vnode, a DOM element (compiled JSX), or in a server render the
 // markup of what-compiler's server target (what-server's ssr-runtime).
+// Compiled children come as their factory and are built as JSX outside the
+// hydration walk is (`_$outside`): any other child among them takes the place
+// of the server's copy where Head renders it.
 
 function readHeadChildren({ title, meta, link, children }) {
+  const compiled = typeof children === 'function' && children._lazyChildren;
   const found = { title, meta: toList(meta), link: toList(link), rest: [] };
-  collectHeadChildren(children, found);
-  const { rest } = found;
+  collectHeadChildren(compiled ? _$outside(children) : children, found);
+  const rest = compiled ? found.rest.map((child) => _$outside(() => child)) : found.rest;
   return { title: found.title, meta: found.meta, link: found.link, children: rest.length > 1 ? rest : rest[0] };
 }
 

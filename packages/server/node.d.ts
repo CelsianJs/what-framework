@@ -7,9 +7,15 @@ export * from './index.js';
 import type { RequestHandlerOptions, RenderRequestContext, DocumentOptions } from './index.js';
 
 
-/** Convert a Web-Fetch handler into a Node (req, res) listener. */
+/**
+ * Convert a Web-Fetch handler into a Node (req, res) listener. It reads each
+ * request body before the handler, up to `options.bodyLimit`, else the
+ * handler's own (createRequestHandler sets it), else 1 MB: pass the limit here
+ * when you wrap the handler in a function of yours.
+ */
 export function toNodeListener(
-  handler: (request: Request) => Promise<Response> | Response,
+  handler: ((request: Request) => Promise<Response> | Response) & { bodyLimit?: number },
+  options?: { bodyLimit?: number },
 ): (req: any, res: any) => Promise<void>;
 
 /** connect/express middleware. Calls next() on a 404 so other routes can answer. */

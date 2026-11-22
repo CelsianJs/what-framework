@@ -11,6 +11,7 @@ import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';
+import { networkInterfaces } from 'os';
 
 // Security: Prevent path traversal attacks. `userPath` is a URL pathname, so it
 // starts with '/', so it must be joined onto the base as a RELATIVE path, otherwise
@@ -108,13 +109,28 @@ function hostAllowance(host, config, flag = getFlag('--allowed-hosts', '')) {
 // serve its page from an IP of its own. Allowed, at this server's port:
 // loopback (localhost, *.localhost, 127.0.0.0/8, [::1]), the exact --host, and
 // the config's `allowedHosts` names with --allowed-hosts (true: any origin).
+// Bound to every interface (`--host 0.0.0.0` or `::`), the machine's own
+// addresses are allowed too: a page can carry one of them as its Origin only if
+// this machine served it, which is how a phone on the LAN opens the dev server.
 // Non-browser clients send no Origin at all; browsers always do.
-function originAllowance(host, config, flag = getFlag('--allowed-hosts', '')) {
+function originAllowance(host, config, flag = getFlag('--allowed-hosts', ''), interfaces = networkInterfaces) {
   if (config.allowedHosts === true || flag === 'true') return () => true;
-  const names = new Set([host, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
+  const own = host === '0.0.0.0' || host === '::' || host === '[::]'
+    ? Object.values(interfaces()).flat().filter(Boolean).map((a) => (a.family === 'IPv6' || a.family === 6 ? `[${a.address}]` : a.address))
+    : [];
+  const names = new Set([host, ...own, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
     .map((name) => String(name).trim().toLowerCase()).filter(Boolean));
   return (hostname) => names.has(hostname) || hostname === 'localhost' || hostname.endsWith('.localhost')
     || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+}
+
+// A refused live-reload origin is named once, so a page that loads but never
+// reloads says why. The Origin is client data: it is printed JSON-escaped.
+const refusedOrigins = new Set();
+function warnRefusedOrigin(origin) {
+  if (!origin || refusedOrigins.has(origin) || refusedOrigins.size >= 32) return;
+  refusedOrigins.add(origin);
+  console.warn(`[what dev] live reload refused for the page at ${JSON.stringify(String(origin).slice(0, 200))}: add its host to allowedHosts (or --allowed-hosts), or pass it as --host`);
 }
 
 function isAllowedOrigin(origin, originAllowed, port) {
@@ -137,6 +153,7 @@ class SimpleWebSocketServer {
 
       const key = req.headers['sec-websocket-key'];
       if (!key || !isAllowedOrigin(req.headers.origin, originAllowed, port)) {
+        warnRefusedOrigin(req.headers.origin);
         socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;

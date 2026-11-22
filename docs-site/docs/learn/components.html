@@ -181,6 +181,8 @@
   &lt;button&gt;Learn More&lt;/button&gt;
 &lt;/Card&gt;</code></pre>
 
+          <p>Children are built where the component places them, however it reads them: destructured (renamed, with a rest element or a literal default), from <code>props</code> in the body, or as <code>props.children</code>, placed in an element, a fragment, a condition or another component. On a page rendered on the server, they keep the nodes the server sent, and what the user typed in them before the page's code ran. A component that inspects its children (<code>children.length</code>, <code>children.map(...)</code> as <code>TabList</code> below does, a test such as <code>{children &amp;&amp; ...}</code>) builds them where it inspects them, so while hydrating its subtree is built again on the client. Hand such a component its data as a prop when it renders on the server.</p>
+
           <h2 id="state-in-components">State in Components</h2>
           <p>Use signals for component state:</p>
 

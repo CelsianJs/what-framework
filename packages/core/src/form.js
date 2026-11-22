@@ -763,7 +763,11 @@ export function Textarea(props) {
   });
 }
 
-export function Select(props) {
+// Compiled options arrive unbuilt (`_deferChildren`, dom.js
+// _installLazyChildren) and are built inside the <select>: while hydrating,
+// options built while Select runs would claim the server's nodes before the
+// select does.
+export const Select = /* @__PURE__ */ Object.assign(function Select(props) {
   const { register, error, children, ...rest } = props;
   const registered = register ? register(props.name) : {};
 
@@ -772,7 +776,7 @@ export function Select(props) {
     ...registered,
     'aria-invalid': error ? 'true' : undefined,
   }, children);
-}
+}, { _deferChildren: true });
 
 export function Checkbox(props) {
   const { register, ...rest } = props;

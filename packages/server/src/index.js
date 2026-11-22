@@ -9,6 +9,7 @@ import {
   _mapArrayToArray,
   _enterRow,
   _leaveRow,
+  _tracksRows,
   getServerContext,
   runWithServerContext,
   endHeadCollection,
@@ -21,7 +22,7 @@ import { serializeState } from './serialize.js';
 import { getIslandStoresSnapshot } from './islands.js';
 import { csrfMetaTag } from './actions.js';
 import { createRenderContext, ensureServerRuntime, renderContextFrom, resourcePayload, throwIfAborted } from './context.js';
-import { startStream, renderBuffered, checkStreamOptions } from './stream.js';
+import { startStream, renderBuffered, checkStreamOptions, takesSlot } from './stream.js';
 import { createResponse } from './response.js';
 import {
   BOUNDARY_TAGS,
@@ -305,24 +306,27 @@ function optionContent(props, children, render) {
 
 // The members of an array or of an element's children, each with a key
 // (a keyed list's, or a vnode's) as a keyed row (what-core hydration-data.js
-// _enterRow), in the frame rendering them.
+// _enterRow), and any other that can hold a list (stream.js takesSlot) in its
+// slot (a null list), in the frame rendering them.
 function renderChildren(children, render) {
   if (!children) return '';
   const keys = children._keys;
+  const slots = _tracksRows();
   let out = '';
   /** @type {object | null} */
   let list = null;
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
     const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
-    if (key == null && keys === undefined) {
+    const keyed = key != null || keys !== undefined;
+    if (!keyed && !(slots && takesSlot(child))) {
       out += render(child);
       continue;
     }
-    if (list === null) list = {};
+    if (keyed && list === null) list = { slot: children._slot };
     // A render always runs in a context: the root that counts its components.
     const root = /** @type {object} */ (getServerContext());
-    const saved = _enterRow(undefined, root, list, key);
+    const saved = keyed ? _enterRow(undefined, root, list, key) : _enterRow(undefined, root, null, i);
     try {
       out += render(child);
     } finally {

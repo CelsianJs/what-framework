@@ -284,3 +284,125 @@ describe('an island in a keyed row', () => {
     }
   });
 });
+
+// A keyed list's place is where it is written: the slots from the component's
+// output (or the row around it) down to it, and the number what-compiler gives
+// a list it lowers. Before, a list took the next number among the component's
+// lists when its first row was entered, so a list before the posted one that
+// was empty in one of the two renders (a Pinned list the record joins, a
+// section shown while it has rows) gave the posted list another number, and
+// the result went to no form, or to the same record's form in the other list.
+describe('a keyed list before the posted one, empty in one of the two renders', () => {
+  let pinned = [];
+  const pinnedLoader = () => ({ records: records.map((r) => ({ ...r })), pinned: records.filter((r) => pinned.includes(r.id)).map((r) => ({ ...r, id: `pinned/${r.id}` })) });
+  const row = (record) => h('li', { key: record.id.replace('pinned/', '') }, h(Editor, { record }));
+  const SHAPES = [
+    ['.map() lists, an array child each', () => {
+      const data = useLoaderData();
+      return h('main', null, h('ul', null, data.pinned.map(row)), h('ul', null, data.records.map(row)));
+    }],
+    ['<For key> lists', () => {
+      const data = useLoaderData();
+      const list = (each) => h('ul', null, h(For, { each, key: (r) => r.id.replace('pinned/', ''), children: (item) => h('li', null, h(Editor, { record: item() })) }));
+      return h('main', null, list(data.pinned), list(data.records));
+    }],
+    ['a section shown while it has rows, then rows spread into a list', () => {
+      const data = useLoaderData();
+      return h('main', null, data.pinned.length > 0 ? h('ul', null, ...data.pinned.map(row)) : h('p', null, 'Nothing pinned'), h('ul', null, ...data.records.map(row)));
+    }],
+  ];
+  const CHANGES = [['fills', [], ['bravo-record-2']], ['empties', ['bravo-record-2'], []]];
+
+  for (const [renderer, page] of RENDERERS) {
+    for (const [shape, component] of SHAPES) {
+      for (const [change, before, after] of CHANGES) {
+        it(`the result comes back to the posted list's row when the earlier list ${change}: ${shape}, ${renderer}`, async () => {
+          pinned = before;
+          const handle = createRequestHandler({ routes: [{ path: '/admin', component, loader: pinnedLoader, page }] });
+          const shown = await pageOf(handle);
+          const form = shown.find((f) => f.id === 'bravo-record-2');
+          pinned = after;
+          const back = forms(await (await post(handle, { _action: 'records/rename', _state: 'null', _actionKey: form.key, id: form.id, title: 'x' })).text());
+          assert.deepEqual(back.filter((f) => f.alerts.length > 0).map((f) => f.id), ['bravo-record-2']);
+        });
+      }
+    }
+  }
+
+  it('the page that comes back hydrates into the server\'s keys, the earlier list filled', async () => {
+    const [, component] = SHAPES[0];
+    pinned = [];
+    const handle = createRequestHandler({ routes: [{ path: '/admin', component, loader: pinnedLoader, page: { mode: 'server', stream: false } }] });
+    const form = (await pageOf(handle)).find((f) => f.id === 'bravo-record-2');
+    pinned = ['bravo-record-2'];
+    const html = await (await post(handle, { _action: 'records/rename', _state: 'null', _actionKey: form.key, id: form.id, title: 'x' })).text();
+    const env = installDOM();
+    try {
+      __resetHydrationData();
+      document.body.innerHTML = html.slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'));
+      const keys = [...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value);
+      const problems = [];
+      const stop = hydrate(h(component, { loaderData: pinnedLoader() }), document.body, { onHydrationError: (info) => problems.push(info.kind) });
+      assert.deepEqual(problems, []);
+      assert.deepEqual([...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value), keys);
+      assert.deepEqual([...document.querySelectorAll('[role=alert]')].map((el) => el.closest('form').dataset.form), ['bravo-record-2']);
+      stop();
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it('in compiled JSX: two .map() lists, two <For key> lists and a section shown while it has rows, hydrated into the server\'s keys', async () => {
+    const editor = `
+      function Editor({ record }) {
+        const [state, save] = useActionState(rename, null);
+        return <Form action={save} data-form={record.id}>
+          <input type="hidden" name="id" value={record.id} />
+          <input name="title" defaultValue={state()?.fields?.title ?? record.title} />
+          {state()?.error ? <p role="alert">{state().error}</p> : null}
+        </Form>;
+      }`;
+    const imports = (at) => `
+      import { For, useActionState, useLoaderData } from 'what-framework';
+      import { Form } from ${JSON.stringify(at('../src/index.js'))};
+      import { rename } from ${JSON.stringify(at('./fixtures/keyed-rename.js'))};`;
+    const pages = {
+      maps: `export function Page() { const d = useLoaderData(); return <main><ul>{d.pinned.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul><ul>{d.records.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul></main>; }`,
+      fors: `export function Page() { const d = useLoaderData(); return <main><ul><For each={d.pinned} key={(r) => r.key}>{(r) => <li><Editor record={r()} /></li>}</For></ul><ul><For each={d.records} key={(r) => r.key}>{(r) => <li><Editor record={r()} /></li>}</For></ul></main>; }`,
+      section: `export function Page() { const d = useLoaderData(); return <main>{d.pinned.length > 0 && <ul>{d.pinned.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul>}<ul>{d.records.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul></main>; }`,
+    };
+    const { setRecords } = await import('./fixtures/keyed-rename.js');
+    const keyedLoader = () => ({ records: records.map((r) => ({ ...r, key: r.id })), pinned: records.filter((r) => pinned.includes(r.id)).map((r) => ({ ...r, id: `pinned/${r.id}`, key: r.id })) });
+    for (const [shape, body] of Object.entries(pages)) {
+      const server = await loadCompiled(imports((p) => import.meta.resolve(p)) + editor + body, { pluginOptions: { generate: 'ssr' } });
+      const client = await loadCompiled(imports((p) => import.meta.resolve(p)) + editor + body, { pluginOptions: { hydratable: true } });
+      for (const [renderer, page] of RENDERERS) {
+        for (const [, before, after] of CHANGES) {
+          records = initial();
+          setRecords(records);
+          pinned = before;
+          const handle = createRequestHandler({ routes: [{ path: '/admin', component: server.Page, loader: keyedLoader, page }] });
+          const form = (await pageOf(handle)).find((f) => f.id === 'bravo-record-2');
+          pinned = after;
+          const html = await (await post(handle, { _action: 'records/compiled-rename', _state: 'null', _actionKey: form.key, id: form.id, title: 'x' })).text();
+          assert.deepEqual(forms(html).filter((f) => f.alerts.length > 0).map((f) => f.id), ['bravo-record-2'], `${shape}, ${renderer}, ${JSON.stringify(after)}`);
+          if (page.stream === false) {
+            const env = installDOM();
+            try {
+              __resetHydrationData();
+              document.body.innerHTML = html.slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'));
+              const keys = [...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value);
+              const problems = [];
+              const stop = hydrate(h(client.Page, { loaderData: keyedLoader() }), document.body, { onHydrationError: (info) => problems.push(info.kind) });
+              assert.deepEqual(problems, [], shape);
+              assert.deepEqual([...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value), keys, `${shape}: the client computes the server's keys`);
+              stop();
+            } finally {
+              env.cleanup();
+            }
+          }
+        }
+      }
+    }
+  });
+});

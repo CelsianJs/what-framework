@@ -18,6 +18,7 @@ import { startTransition } from 'what-core';
 import { _actionKeySalt, _actionStateKey, _devAction, _installRowKeys, _renderSalt, __DEV__, __readHydrationData, getServerContext } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
+import { RESERVED_FIELDS } from './fields.js';
 
 // Registry of server actions, kept once for every tier of what-server the
 // process loaded (dist/*.js, dist/*.min.js and the source each hold a copy of
@@ -242,10 +243,11 @@ async function post(id, args, options) {
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
     const csrfToken = getCsrfToken();
-    const headers = {
-      'Content-Type': 'application/json',
-      'X-What-Action': id,
-    };
+    const form = formBody(args);
+    /** @type {Record<string, string>} */
+    const headers = { 'X-What-Action': id };
+    // A FormData body sets its own multipart type, with its boundary.
+    if (form === null) headers['Content-Type'] = 'application/json';
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
 
     const response = await fetch('/__what_action', {
@@ -253,7 +255,7 @@ async function post(id, args, options) {
       headers,
       credentials: 'same-origin',
       signal: controller.signal,
-      body: JSON.stringify({ args }),
+      body: form ?? JSON.stringify({ args }),
     });
 
     if (!response.ok) {
@@ -275,6 +277,39 @@ async function post(id, args, options) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+// A call of a form's fields that hold a file, `(fields)` or `(state, fields)`
+// (a <Form> with a file input, its useActionState's state first): sent as
+// that form, multipart, the state as `_state`, which the endpoint reads into
+// the same arguments, a file as the File it is (action-handler.js
+// formArguments). JSON has no form for a file's bytes. Every other call is
+// sent as JSON, null here.
+function formBody(args) {
+  const fields = args[args.length - 1];
+  if (args.length > 2 || !holdsFile(fields)) return null;
+  const body = new FormData();
+  if (args.length === 2) body.append('_state', JSON.stringify(args[0]) ?? 'null');
+  for (const [name, value] of Object.entries(fields)) {
+    for (const v of Array.isArray(value) ? value : [value]) body.append(name, v);
+  }
+  return body;
+}
+
+// Whether `fields` is a form's fields (a plain object of strings and files,
+// an array of them for a repeated name, no name the endpoint reads itself)
+// with a file among them.
+function holdsFile(fields) {
+  if (fields === null || typeof fields !== 'object' || Object.getPrototypeOf(fields) !== Object.prototype) return false;
+  let file = false;
+  for (const [name, value] of Object.entries(fields)) {
+    if (RESERVED_FIELDS.has(name)) return false;
+    for (const v of Array.isArray(value) ? value : [value]) {
+      if (v instanceof Blob) file = true;
+      else if (typeof v !== 'string') return false;
+    }
+  }
+  return file;
 }
 
 // --- Optimistic updates ---
@@ -348,7 +383,7 @@ export function handleActionRequest(req, actionId, args, options = {}) {
       if (Array.isArray(opts.revalidateTags)) {
         for (const t of opts.revalidateTags) await serverRevalidateTag(t);
       }
-      return { status: 200, body: result };
+      return { status: 200, body: withoutFiles(result) };
     })
     .catch(error => {
       // Log the full error server-side, return generic message to client
@@ -358,6 +393,29 @@ export function handleActionRequest(req, actionId, args, options = {}) {
         body: { message: 'Action failed' },
       };
     });
+}
+
+// What an action returned, as its caller gets it: a file in it (a Blob, a
+// File: the fields echoed back) is null. With JavaScript the result travels
+// as JSON, which has no form for its bytes, and without, it is the page's
+// state, which the page carries as JSON too, and the state the next post
+// sends back (`_state`): either way the same value, without the file. Plain
+// objects and arrays are copied only where a file is in them.
+function withoutFiles(value) {
+  if (typeof Blob !== 'undefined' && value instanceof Blob) return null;
+  if (value === null || typeof value !== 'object') return value;
+  const array = Array.isArray(value);
+  if (!array && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return value;
+  /** @type {any} */
+  let out = null;
+  for (const key of Object.keys(value)) {
+    const was = value[key];
+    const now = withoutFiles(was);
+    if (now === was) continue;
+    out ??= array ? value.slice() : { ...value };
+    out[key] = now;
+  }
+  return out ?? value;
 }
 
 // --- Get all registered actions (for SSR/build) ---

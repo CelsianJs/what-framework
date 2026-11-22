@@ -27,7 +27,7 @@ what dev --host 0.0.0.0
 ```
 
 Features:
-- WebSocket-based HMR with automatic reconnection. The socket accepts a browser page only from loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`), the exact `--host`, or a name in `allowedHosts` / `--allowed-hosts`, at the dev port (`allowedHosts: true` accepts any origin). An IP-literal page on another address is refused, though its IP is a Host the server answers: to open the dev server from another machine by its IP, pass it as `--host`.
+- WebSocket-based HMR with automatic reconnection. The socket accepts a browser page only from loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`), the exact `--host`, or a name in `allowedHosts` / `--allowed-hosts`, at the dev port (`allowedHosts: true` accepts any origin). An IP-literal page on another address is refused, though its IP is a Host the server answers. With `--host 0.0.0.0` (or `::`) the machine's own addresses are accepted too, so a phone on the LAN gets live reload from `http://<this machine's IP>:<port>`; otherwise pass the IP itself as `--host`. A refused page is named once in the terminal.
 - Bare import transforms (`what-framework`, `what-framework/router`, `what-framework/server` -> `/@what/*.js`)
 - File-based routing from `src/pages/`
 - SPA fallback for client-side routing

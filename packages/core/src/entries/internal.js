@@ -51,4 +51,4 @@ export { _mapArrayToArray, _rowKeyDigest, isHydrating } from '../render.js';
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';
-export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath, _actionStateKey, _actionKeySalt, _currentRowPath, _enterRow, _installRowKeys, _leaveRow, _renderSalt } from '../hydration-data.js';
+export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath, _actionStateKey, _actionKeySalt, _currentRowPath, _enterRow, _installRowKeys, _leaveRow, _renderSalt, _tracksRows } from '../hydration-data.js';

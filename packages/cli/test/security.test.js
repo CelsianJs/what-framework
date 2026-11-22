@@ -222,3 +222,16 @@ describe('security', () => {
     });
   });
 });
+
+// `--host 0.0.0.0` serves the LAN: the machine's own addresses are its pages'
+// origins, so live reload accepts them; any other IP stays refused.
+it('the HMR origin check accepts the machine\'s own addresses when bound to every interface', () => {
+  const interfaces = () => ({ en0: [{ address: '192.168.1.20', family: 'IPv4' }, { address: 'fe80::1', family: 'IPv6' }], lo0: [{ address: '127.0.0.1', family: 'IPv4' }] });
+  const wildcard = originAllowance('0.0.0.0', {}, '', interfaces);
+  assert.equal(isAllowedOrigin('http://192.168.1.20:3000', wildcard, 3000), true);
+  assert.equal(isAllowedOrigin('http://[fe80::1]:3000', wildcard, 3000), true);
+  assert.equal(isAllowedOrigin('http://192.168.1.21:3000', wildcard, 3000), false);
+  assert.equal(isAllowedOrigin('http://203.0.113.7:3000', wildcard, 3000), false);
+  const local = originAllowance('localhost', {}, '', interfaces);
+  assert.equal(isAllowedOrigin('http://192.168.1.20:3000', local, 3000), false);
+});

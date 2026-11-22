@@ -594,7 +594,19 @@ build with `build.ssrManifest`; `hydratable: true | false` overrides it). A hydr
 while hydrating (`_$claim`, `_$next`, `_$hole`, `_$exit`) and clones itself
 otherwise, so the same build also mounts. JSX that is not written in place in
 its parent (built ahead of time into a variable, say) is built on the client
-(`_$outside`) and takes the place of the server's rendering of it. A part of
+(`_$outside`) and takes the place of the server's rendering of it. A
+component's compiled children are built where it reads them, and a component
+that only places its children has each read compiled where it stands, however
+it reads them (what-compiler's `deferPlacedChildren`), so they claim inside its
+own element; one that inspects them first builds them there, before that
+element, and mismatches. An array of compiled members (a component's children,
+a fragment, a `<Show>`'s content, a row of several nodes) claims in document
+order: an element or a component claims when it is created, and text, a
+reactive child or a list is adopted when the array is placed, so where one of
+those comes before an element, or an element's hoisted setup before an
+earlier member, the array is built by `_$members` instead, its members created
+in order and each of the others adopted where it stands (`_$member`), inside
+the array's server markers; placing it afterwards adopts nothing again. A part of
 a template with no bindings in it is adopted whole when the server wrote
 exactly the template's nodes (one `isEqualNode`), and claimed node by node,
 each difference reported, otherwise. Compiled

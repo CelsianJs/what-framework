@@ -24,10 +24,6 @@ import { t } from './types.js';
 const EVENT_MODIFIERS = new Set(['preventDefault', 'stopPropagation', 'once', 'capture', 'passive', 'self']);
 export const EVENT_OPTION_MODIFIERS = new Set(['once', 'capture', 'passive']);
 
-// Control-flow tags the plugin lowers itself instead of emitting
-// _$createComponent, so their children never travel through a factory.
-const LOWERED_TAGS = new Set(['For', 'Show', 'Switch', 'Match']);
-
 // A bare specifier that resolves to this framework, entry point included:
 // 'what-framework', 'what-framework/render', 'what-core', 'what-core/render'.
 // Used to decide whether an imported binding is provably ours before the plugin
@@ -434,68 +430,194 @@ export function componentCallee(name) {
   return t.identifier(name.name);
 }
 
-// --- Forwarded children on a destructured parameter ---
-// `function Wrap({ children }) { return <ErrorBoundary>{children}</ErrorBoundary>; }`
-// realizes the subtree while the parameter list is destructured, which is
-// before ErrorBoundary is entered, so the boundary never catches and a
-// provider publishes its value too late for its own subtree. Rewriting the
-// pattern to a props identifier moves the read into the deferred children
-// factory, where the enclosing component is already on the stack. Only a
-// binding whose every reference is a component-child forward qualifies: a
-// component that inspects its children still needs them realized.
-export function deferForwardedChildren(fnPath) {
+// --- Children a component only places ---
+// Compiled JSX hands a component its children as a getter that builds them
+// when read (dom.js _installLazyChildren). Destructuring `children`, in the
+// parameter list or from props in the body, reads it there, before the
+// component's output exists: a boundary or a provider the children are
+// forwarded into is not entered yet (the boundary never catches, the provider
+// publishes too late), and while hydrating the children claim the server
+// node the component's own element was to claim (a mismatch, and the subtree
+// is built again on the client). When every read of the binding places the
+// children, each read becomes `props.children` where it stands, which builds
+// them where they render, as that spelling written by hand does. A binding
+// that is ever inspected (`children.length`, `Array.isArray(children)`, a
+// truthiness test, a local alias) keeps its destructuring: inspecting builds
+// the children.
+export function deferPlacedChildren(fnPath) {
   const params = fnPath.node.params;
-  if (params.length !== 1 || !t.isObjectPattern(params[0])) return;
-  const pattern = params[0];
+  if (params.length !== 1) return;
+  const param = params[0];
+  if (t.isObjectPattern(param)) {
+    const found = placedChildren(fnPath, param, fnPath.scope);
+    if (found === null || !movesIntoBody(fnPath, found.others)) return;
+    const propsId = fnPath.scope.generateUidIdentifier('props');
+    if (param.typeAnnotation) propsId.typeAnnotation = param.typeAnnotation;
+    readAtUse(fnPath, found, propsId);
+    params[0] = propsId;
+    const declarators = otherProps(fnPath, found, propsId);
+    if (declarators.length > 0) {
+      if (!t.isBlockStatement(fnPath.node.body)) {
+        fnPath.node.body = t.blockStatement([t.returnStatement(fnPath.node.body)]);
+      }
+      fnPath.node.body.body.unshift(t.variableDeclaration('const', declarators));
+      // collectSignalNamesFromScope classifies a component's props by reading
+      // the parameter list, so the moved pattern has to stay visible to it or
+      // every sibling prop silently stops being treated as reactive.
+      fnPath.node._whatMovedProps = t.objectPattern(found.others);
+    }
+  } else if (t.isIdentifier(param)) {
+    // `const { children } = props` in the body.
+    const binding = fnPath.scope.getBinding(param.name);
+    if (!binding || binding.constantViolations.length > 0) return;
+    const rewrites = [];
+    for (const ref of binding.referencePaths) {
+      const decl = ref.parentPath;
+      if (!decl.isVariableDeclarator() || ref.key !== 'init' || !t.isObjectPattern(decl.node.id)) continue;
+      if (decl.parent.kind === 'var' || ref.getFunctionParent() !== fnPath) continue;
+      const found = placedChildren(fnPath, decl.node.id, decl.scope);
+      if (found !== null) rewrites.push([decl, found]);
+    }
+    if (rewrites.length === 0) return;
+    for (const [decl, found] of rewrites) {
+      readAtUse(fnPath, found, param);
+      const declarators = otherProps(fnPath, found, param);
+      if (declarators.length > 0) decl.replaceWithMultiple(declarators);
+      else decl.remove();
+    }
+  } else {
+    return;
+  }
+  fnPath.scope.crawl();
+}
+
+// The `children` property of `pattern` when every read of its binding places
+// the children, else null. `others` are the pattern's other properties.
+function placedChildren(fnPath, pattern, scope) {
   let index = -1;
   for (let i = 0; i < pattern.properties.length; i++) {
     const prop = pattern.properties[i];
-    if (t.isRestElement(prop)) return;
-    if (t.isObjectProperty(prop) && !prop.computed &&
-        t.isIdentifier(prop.key, { name: 'children' })) {
-      // A duplicate key would leave the other one destructured in the body,
-      // which reads the getter and defeats the deferral.
-      if (index !== -1 || !t.isIdentifier(prop.value)) return;
-      index = i;
-    }
+    if (!t.isObjectProperty(prop) || prop.computed || propertyName(prop.key) !== 'children') continue;
+    // A second key would still read the getter where it is destructured.
+    if (index !== -1) return null;
+    index = i;
   }
-  if (index === -1) return;
+  if (index === -1) return null;
+  let local = pattern.properties[index].value;
+  let fallback = null;
+  if (t.isAssignmentPattern(local)) {
+    fallback = local.right;
+    local = local.left;
+    // Evaluated where each read stands now, so only a value that is the
+    // same wherever and however often it is evaluated.
+    if (!isPlainLiteral(fallback, fnPath.scope)) return null;
+  }
+  if (!t.isIdentifier(local)) return null;
+  const others = pattern.properties.filter((_, i) => i !== index);
+  const last = others[others.length - 1];
+  const rest = t.isRestElement(last) ? last : null;
+  // The rest object is built by naming the keys it leaves out.
+  if (rest !== null && (!t.isIdentifier(rest.argument)
+      || others.some((p) => t.isObjectProperty(p) && (p.computed || propertyName(p.key) === null)))) return null;
+  const binding = scope.getBinding(local.name);
+  if (!binding || binding.constantViolations.length > 0) return null;
+  if (!binding.referencePaths.every((ref) => placesChildren(ref, fnPath))) return null;
+  return { binding, fallback, others, rest };
+}
 
-  const binding = fnPath.scope.getBinding(pattern.properties[index].value.name);
-  if (!binding || binding.constantViolations.length > 0 || binding.referencePaths.length === 0) return;
-  const forwarded = binding.referencePaths.every((ref) => {
-    const container = ref.parentPath;
-    if (!container || !container.isJSXExpressionContainer()) return false;
-    const owner = container.parentPath;
-    if (!owner || !owner.isJSXElement() || !isComponentElement(owner.node)) return false;
-    const tag = owner.node.openingElement.name;
-    return !(t.isJSXIdentifier(tag) && LOWERED_TAGS.has(tag.name));
-  });
-  if (!forwarded) return;
+function propertyName(key) {
+  if (t.isIdentifier(key)) return key.name;
+  if (t.isStringLiteral(key)) return key.value;
+  return t.isNumericLiteral(key) ? String(key.value) : null;
+}
 
-  const propsId = fnPath.scope.generateUidIdentifier('props');
-  if (pattern.typeAnnotation) propsId.typeAnnotation = pattern.typeAnnotation;
-  params[0] = propsId;
-  const remaining = pattern.properties.filter((_, i) => i !== index);
-  if (remaining.length > 0) {
-    if (!t.isBlockStatement(fnPath.node.body)) {
-      fnPath.node.body = t.blockStatement([t.returnStatement(fnPath.node.body)]);
-    }
-    const moved = t.objectPattern(remaining);
-    fnPath.node.body.body.unshift(
-      t.variableDeclaration('const', [
-        t.variableDeclarator(moved, t.cloneNode(propsId)),
-      ])
-    );
-    // collectSignalNamesFromScope classifies a component's props by reading
-    // the parameter list, so the moved pattern has to stay visible to it or
-    // every sibling prop silently stops being treated as reactive.
-    fnPath.node._whatMovedProps = moved;
+function isPlainLiteral(node, scope) {
+  if (t.isNullLiteral(node) || t.isBooleanLiteral(node) || t.isNumericLiteral(node) || t.isStringLiteral(node) || t.isBigIntLiteral(node)) return true;
+  if (t.isTemplateLiteral(node)) return node.expressions.length === 0;
+  if (t.isIdentifier(node, { name: 'undefined' })) return !scope.hasBinding('undefined');
+  return t.isUnaryExpression(node, { operator: 'void' }) && t.isNumericLiteral(node.argument);
+}
+
+// Whether the value at `path` is rendered where it stands: a child of an
+// element, a fragment or a component (a forward), what the component returns,
+// or a branch of a conditional, a logical expression or an array that is one
+// of those. A function written in such a place is a reactive child, so what
+// it returns is placed too. The child of <For> is its row function, not
+// content.
+function placesChildren(path, fnPath) {
+  let child = path;
+  let parent = path.parentPath;
+  while ((parent.isConditionalExpression() && child.key !== 'test')
+      || (parent.isLogicalExpression() && child.key === 'right')
+      || parent.isArrayExpression()
+      || parent.isTSAsExpression() || parent.isTSSatisfiesExpression() || parent.isTSNonNullExpression()) {
+    child = parent;
+    parent = parent.parentPath;
   }
-  for (const ref of binding.referencePaths) {
-    ref.replaceWith(t.memberExpression(t.cloneNode(propsId), t.identifier('children')));
+  if (parent.isJSXExpressionContainer()) {
+    if (parent.listKey !== 'children') return false;
+    const owner = parent.parentPath;
+    return owner.isJSXFragment() || !t.isJSXIdentifier(owner.node.openingElement.name, { name: 'For' });
   }
-  fnPath.scope.crawl();
+  /** @type {any} */
+  let fn = null;
+  if (parent.isReturnStatement()) fn = parent.getFunctionParent();
+  else if (parent.isArrowFunctionExpression() && child.key === 'body') fn = parent;
+  if (fn === null) return false;
+  if (fn === fnPath) return true;
+  return (fn.isArrowFunctionExpression() || fn.isFunctionExpression()) && placesChildren(fn, fnPath);
+}
+
+// Moving a parameter pattern into the body changes what its defaults and
+// computed keys see: a name the body declares, which they could not see
+// before.
+function movesIntoBody(fnPath, others) {
+  let safe = true;
+  for (const prop of fnPath.get('params.0.properties')) {
+    if (!others.includes(prop.node)) continue;
+    prop.traverse({
+      ReferencedIdentifier(ref) {
+        const binding = fnPath.scope.getOwnBinding(ref.node.name);
+        if (binding && binding.kind !== 'param') safe = false;
+      },
+    });
+  }
+  return safe;
+}
+
+// Each read of the binding becomes a read of `props.children` where it
+// stands. With a default, one read into a temporary: a read once the component
+// has returned builds the children again.
+function readAtUse(fnPath, found, propsId) {
+  const read = () => t.memberExpression(t.cloneNode(propsId), t.identifier('children'));
+  if (found.fallback === null) {
+    for (const ref of found.binding.referencePaths) ref.replaceWith(read());
+    return;
+  }
+  const temp = fnPath.scope.generateUidIdentifier('children');
+  for (const ref of found.binding.referencePaths) {
+    ref.replaceWith(t.conditionalExpression(
+      t.binaryExpression('===', t.assignmentExpression('=', t.cloneNode(temp), read()), t.unaryExpression('void', t.numericLiteral(0))),
+      t.cloneNode(found.fallback),
+      t.cloneNode(temp),
+    ));
+  }
+  fnPath.scope.push({ id: temp });
+}
+
+// Declarators for the pattern's other properties, read from `source`. The
+// rest object names the keys it leaves out instead: destructuring `children`
+// into nothing would read it.
+function otherProps(fnPath, found, source) {
+  const named = found.rest === null ? found.others : found.others.slice(0, -1);
+  const declarators = [];
+  if (named.length > 0) declarators.push(t.variableDeclarator(t.objectPattern(named), t.cloneNode(source)));
+  if (found.rest !== null) {
+    const excluded = ['children', ...named.map((p) => propertyName(p.key))].map((name) => t.stringLiteral(name));
+    const without = t.callExpression(fnPath.hub.addHelper('objectWithoutProperties'), [t.cloneNode(source), t.arrayExpression(excluded)]);
+    declarators.push(t.variableDeclarator(found.rest.argument, without));
+  }
+  return declarators;
 }
 
 export function isVoidHtmlElement(name) {

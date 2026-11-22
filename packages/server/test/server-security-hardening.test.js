@@ -106,7 +106,7 @@ describe('readFetchBodyCapped — DoS body cap', () => {
     assert.equal(read.tooLarge, true);
   });
 
-  it('accepts an under-cap body and returns the raw text', async () => {
+  it('accepts an under-cap body and returns its bytes', async () => {
     const req = new Request('http://x/__what_action', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -114,7 +114,7 @@ describe('readFetchBodyCapped — DoS body cap', () => {
     });
     const read = await readFetchBodyCapped(req);
     assert.equal(read.tooLarge, undefined);
-    assert.deepEqual(JSON.parse(read.raw), { args: [1, 2] });
+    assert.deepEqual(JSON.parse(new TextDecoder().decode(read.bytes)), { args: [1, 2] });
   });
 });
 

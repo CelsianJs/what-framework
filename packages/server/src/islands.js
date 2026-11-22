@@ -615,15 +615,11 @@ function formEntries(form, submitter, multipart) {
 /**
  * Form enhancement: submit via fetch instead of a full page load.
  *
- * The encoding is not a detail. `/__what_action` parses
- * application/x-www-form-urlencoded or JSON, never multipart, so an enhanced
- * submit of a default form has to use the same encoding as the plain HTML submit
- * it replaces. Posting a FormData object unconditionally produced a multipart
- * body the endpoint could not parse: the action id went missing and every
- * enhanced `<Form>` failed with 400 while the no-JS path kept working.
- *
- * The encoding now follows the form's own `enctype`, exactly as the browser
- * would, so a form that declares multipart still uploads its files.
+ * The encoding is not a detail: an enhanced submit has to send what the plain
+ * HTML submit it replaces sends, so it follows the form's own `enctype`,
+ * exactly as the browser would. A default form posts urlencoded, a file only
+ * by its name; a form that declares multipart/form-data uploads its files,
+ * which `/__what_action` and a page post read as the plain submit's.
  *
  * On success the action endpoint answers 303 to the form's `_redirect` target,
  * which fetch follows. The page is then navigated there so the enhanced path

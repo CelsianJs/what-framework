@@ -135,7 +135,11 @@ function getFocusableElements(container) {
 // --- Focus Scope ---
 // Component wrapper that traps focus
 
-export function FocusTrap({ children, active = true }) {
+// These place their children in an element of their own, so compiled
+// children arrive unbuilt (`_deferChildren`, dom.js _installLazyChildren)
+// and are built there: while hydrating, children built while the component
+// runs would claim the server's nodes before its element does.
+export const FocusTrap = /* @__PURE__ */ Object.assign(function FocusTrap({ children, active = true }) {
   const containerRef = { current: null };
   const refVersion = signal(0);
   const trap = useFocusTrap(containerRef);
@@ -175,7 +179,7 @@ export function FocusTrap({ children, active = true }) {
   });
 
   return h('div', { ref: setRef }, children);
-}
+}, { _deferChildren: true });
 
 // --- Screen Reader Announcements ---
 
@@ -239,7 +243,7 @@ export function announceAssertive(message) {
 // --- Skip Link ---
 // Accessible skip navigation
 
-export function SkipLink({ href = '#main', children = 'Skip to content' }) {
+export const SkipLink = /* @__PURE__ */ Object.assign(function SkipLink({ href = '#main', children = 'Skip to content' }) {
   return h('a', {
     href,
     class: 'what-skip-link',
@@ -268,7 +272,7 @@ export function SkipLink({ href = '#main', children = 'Skip to content' }) {
       e.target.style.top = '-40px';
     },
   }, children);
-}
+}, { _deferChildren: true });
 
 // --- ARIA Helpers ---
 
@@ -589,7 +593,7 @@ export function useRovingTabIndex(itemCountOrSignal, options = {}) {
 // --- Visually Hidden ---
 // Hide content visually but keep accessible to screen readers
 
-export function VisuallyHidden({ children, as = 'span' }) {
+export const VisuallyHidden = /* @__PURE__ */ Object.assign(function VisuallyHidden({ children, as = 'span' }) {
   return h(as, {
     style: {
       position: 'absolute',
@@ -603,16 +607,16 @@ export function VisuallyHidden({ children, as = 'span' }) {
       border: '0',
     },
   }, children);
-}
+}, { _deferChildren: true });
 
 // --- Live Region Component ---
 
-export function LiveRegion({ children, priority = 'polite', atomic = true }) {
+export const LiveRegion = /* @__PURE__ */ Object.assign(function LiveRegion({ children, priority = 'polite', atomic = true }) {
   return h('div', {
     'aria-live': priority,
     'aria-atomic': atomic,
   }, children);
-}
+}, { _deferChildren: true });
 
 // --- ID Generator ---
 // Generate unique IDs for ARIA attributes

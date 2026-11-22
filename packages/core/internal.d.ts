@@ -195,11 +195,13 @@ export function _actionStateKey(): (((salt: string | null) => string) & { salted
 export function _actionKeySalt(key: unknown): string | null;
 /** @internal Used by what-server's <Island>. The keyed rows around the component rendering now and its steps below them, under `salt`, or null. */
 export function _currentRowPath(salt: string): string | null;
-/** @internal Used by what-server's renderers. A keyed row begins in the output of `frame` (undefined: the current component; null: the root `root`); returns what _leaveRow puts back. */
+/** @internal Used by what-server's renderers. A keyed row begins in the output of `frame` (undefined: the current component; null: the root `root`), or with a null `list` and a number `key` the slot of that member of the children being walked; returns what _leaveRow puts back. */
 export function _enterRow(frame: object | null | undefined, root: object, list: object | null, key: unknown, index?: number): unknown;
+/** @internal Used by what-server's renderers. Whether keyed rows are installed: the renderers enter slots only then. */
+export function _tracksRows(): boolean;
 /** @internal Used by what-server's action(). Hydration enters keyed rows from now on, for useActionState keys. */
 export function _installRowKeys(): void;
-/** @internal Used by what-server's renderers. The row _enterRow entered is done. */
+/** @internal Used by what-server's renderers. The row or slot _enterRow entered is done. */
 export function _leaveRow(frame: object | null | undefined, root: object, saved: unknown): void;
 /** @internal Used by what-server. The salt the render running now writes its keyed rows' digests under. */
 export function _renderSalt(): string;

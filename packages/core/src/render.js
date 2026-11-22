@@ -1057,9 +1057,10 @@ function listInserter(source, mapFn, keyFn, keyedSignals, keyed) {
   // The server has no DOM to insert into, so it renders the rows from the
   // inserter's inputs instead (_mapArrayToArray), in the same order and with
   // the same item protocol the client uses; hydrate() adopts the rows it
-  // rendered (adoptList). The inserter itself comes last: a copy of these
-  // properties on another inserter is not this list.
-  inserter._list = [source, mapFn, keyFn, keyedSignals, inserter];
+  // rendered (adoptList). The inserter itself comes fifth: a copy of these
+  // properties on another inserter is not this list. Last is the number
+  // what-compiler gave the list (hydration-data.js _enterRow).
+  inserter._list = [source, mapFn, keyFn, keyedSignals, inserter, keyed?.slot];
   return inserter;
 }
 
@@ -1113,7 +1114,7 @@ function describeKey(key) {
  * every row.
  */
 export function _mapArrayToArray(inserter) {
-  const [source, mapFn, keyFn, keyed] = inserter._list;
+  const [source, mapFn, keyFn, keyed, , slot] = inserter._list;
   const items = source() || [];
   const rows = items.map((item, index) => {
     if (keyed === RAW) return mapFn(item, index, item);
@@ -1123,7 +1124,10 @@ export function _mapArrayToArray(inserter) {
   });
   // A keyed list's keys, which the server writes with its rows (what-server
   // rowKeys) for hydrate() to adopt each row by its key.
-  if (keyFn !== itemKey) rows._keys = items.map(keyFn);
+  if (keyFn !== itemKey) {
+    rows._keys = items.map(keyFn);
+    rows._slot = slot;
+  }
   return rows;
 }
 
@@ -2286,7 +2290,8 @@ let cur = null;
 const outer = [];
 // One hydrate() call: its container, the onHydrationError hook, the regions
 // already reported (one report each), what was built before the walk could
-// claim it (_$outside), the <Suspense> records whose children are being
+// claim it (_$outside), the compiled arrays whose members were adopted as they
+// were built (_$members), the <Suspense> records whose children are being
 // adopted (once a component under one suspends, its walk is dropped, and what
 // the walk finds out of place is not reported), the counter of its root-level
 // components (hydration-data.js), and whether the walk has matched the
@@ -2301,6 +2306,7 @@ function newSession(container, onError, ownerRoot) {
     onError,
     reported: new WeakSet(),
     prebuilt: new WeakSet(),
+    built: new WeakSet(),
     warned: false,
     lenient: false,
     dropping: [],
@@ -2913,6 +2919,7 @@ function adopt(value) {
     return;
   }
   if (Array.isArray(value)) {
+    if (session.built.has(value)) return;
     // An array the server bracketed (one a component or a reactive child
     // returned) is walked between its markers, so what follows it starts
     // after its closing one: a boundary or a region after it finds its own
@@ -2935,15 +2942,15 @@ function adopt(value) {
 }
 
 // The members of an array or of an element's children, a vnode with a key
-// as a keyed row (hydration-data.js _enterRow), as what-server renders them.
+// as a keyed row (hydration-data.js _enterRow), and any other in its slot, as
+// what-server renders them (it enters none around text, which holds no list).
 function adoptEach(values) {
   /** @type {object | null} */
   let list = null;
   for (let i = 0; i < values.length; i++) {
     const value = values[i];
     const key = isVNode(value) ? value.key : null;
-    if (key == null) adopt(value);
-    else adoptRow(list ??= {}, key, adopt, value);
+    adoptRow(key != null ? list ??= {} : null, key ?? i, adopt, value);
   }
 }
 
@@ -3474,7 +3481,7 @@ function inServerOrder(open, close, items, keyFn) {
 // region (what-compiler's lowering); the server rendered one or the other,
 // and each adopts what it renders: the rows, then the fallback after them.
 function adoptList(inserter) {
-  const [source, mapFn, keyFn, keyedSignals, list] = inserter._list;
+  const [source, mapFn, keyFn, keyedSignals, list, slot] = inserter._list;
   const c = cur;
   const parent = c.p;
   pendingKey = null;
@@ -3483,8 +3490,8 @@ function adoptList(inserter) {
     placeInserter(c, inserter);
     return;
   }
-  /** @type {[any, any, any, any, any]} */
-  const args = [source, mapFn, keyFn, keyedSignals, parent];
+  /** @type {[any, any, any, any, any, any]} */
+  const args = [source, mapFn, keyFn, keyedSignals, parent, slot];
   const adoptAll = fallback === undefined ? adoptListRows : () => {
     adoptListRows(args);
     adoptRegion(fallback);
@@ -3495,7 +3502,7 @@ function adoptList(inserter) {
   else adoptAll(args);
 }
 
-function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
+function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
   const c = cur;
   const at = nextOwn(c);
   const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;
@@ -3517,7 +3524,7 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
   /** @type {number[] | null} */
   let order = null;
   // A keyed list's rows are keyed rows (_enterRow), as the server rendered them.
-  const list = keyFn !== itemKey ? {} : null;
+  const list = keyFn !== itemKey ? { slot } : null;
   const adoptRows = (newItems) => {
     const rc = cur;
     for (let i = 0; i < newItems.length; i++) {
@@ -3883,6 +3890,10 @@ function hydrateSuspense(vnode) {
   const c = cur;
   const parent = c.p;
   const owner = getOwner();
+  // The hydrate() call this walk belongs to, for the walk of the children
+  // that reveals them later (settle): a boundary the stream fills in after
+  // the page hydrated settles once that walk is over, outside any session.
+  const { root, onError, ownerRoot } = session;
   pendingKey = null;
   const at = nextOwn(c);
   const close = boundaryClose(at);
@@ -3989,7 +4000,7 @@ function hydrateSuspense(vnode) {
     if (childrenArm !== null) childrenArm();
     childrenArm = null;
     const show = b.show;
-    const walk = newSession(session.root, session.onError, session.ownerRoot);
+    const walk = newSession(root, onError, ownerRoot);
     b.show = () => {
       b.show = show;
       if (start.parentNode === null || (owner !== null && _isDisposed(owner))) return;
@@ -4416,6 +4427,35 @@ export function _$hcreateComponent(Component, props, children, devLoc) {
     merged.children = children.length === 1 ? children[0] : children;
   }
   return adoptComponent(Component, merged, endChildrenPass, devLoc);
+}
+
+/**
+ * A compiled array whose members claim the server's nodes in document order
+ * as `build` creates them: an element or a component claims when it is
+ * created, and `_$member` adopts each other member where it stands. While
+ * hydrating it is built between the server's array markers, and placing it
+ * afterwards adopts nothing again. `nested` 1: a member of an array other
+ * code builds (a row a `.map()` callback returns), whose markers come first,
+ * so the walk steps over them all.
+ */
+export function _$members(build, nested) {
+  const c = cur;
+  if (c === null || !c.h) return build();
+  const at = nested === 1 ? null : nextOwn(c);
+  const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;
+  /** @type {any} */
+  let value;
+  if (close !== null) within(at, close, (fn) => { value = fn(); }, build);
+  else value = build();
+  session.built.add(value);
+  return value;
+}
+
+/** A `_$members` member that is not an element or a component (text, a reactive child, a list, a value): while hydrating, adopted here, as member `index`. */
+export function _$member(value, index) {
+  const c = cur;
+  if (c !== null && c.h) adoptRow(null, index, adopt, value);
+  return value;
 }
 
 /**

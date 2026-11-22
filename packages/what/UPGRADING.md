@@ -140,7 +140,7 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `_actionStateKey`, `_actionKeySalt`, `_currentRowPath`, `_enterRow`, `_installRowKeys`, `_leaveRow`, `_renderSalt`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `_engine`, `_runComponentAsync`, `_runComponentSync`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_formMember`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `_contextOf`, `_provide`, `_isServerProcess`, `isVNode`, `_mountPortal` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `_actionStateKey`, `_actionKeySalt`, `_currentRowPath`, `_enterRow`, `_installRowKeys`, `_leaveRow`, `_renderSalt`, `_tracksRows`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `_engine`, `_runComponentAsync`, `_runComponentSync`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_formMember`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `_contextOf`, `_provide`, `_isServerProcess`, `isVNode`, `_mountPortal` |
 
 <!-- import-changes:end -->
 
@@ -529,6 +529,18 @@ and navigations that are transitions. Each change below has its migration.
   `<textarea>` and `<listing>`, so a leading newline survives; and a compiled
   keyed row's plain field (`{row.label}`) is plain text with no `<!--$-->`
   markers. Tests that match exact HTML should expect these.
+- **Compiled children hydrate in place, in order.** A component's children,
+  a fragment it returns, a `<Show>`'s content and a row of several nodes adopt
+  the server's nodes in document order, wherever the component places them
+  and however it reads `children`. Before, children a component read before
+  its own element (a destructured `children`, `<Head>`, what-core's form
+  `<Select>`) claimed the server's nodes ahead of it, and text, a reactive
+  child or a list written before an element (`<Button>Save <Icon /></Button>`)
+  went after it: the subtree was built again or shown in another order, and
+  what the user typed in it before hydration was lost. No code change; a
+  component written with `h()` that places children given in compiled JSX
+  sets `_deferChildren`
+  ([API](https://github.com/CelsianJs/what-framework/blob/main/docs/API.md#placing-and-forwarding-children)).
 
 ### Server rendering
 
@@ -701,6 +713,19 @@ options.
   compiled such markup, and the browser restructured it under the bindings
   that pointed into it. Write markup the parser keeps: a `<tbody>` around the
   rows, a `<div>` in place of the `<p>`.
+- **A destructured `children` is read where it is placed.** A component that
+  reads `children` only to place it (in an element, a fragment, a condition,
+  an array, its result or another component), destructured in the parameter
+  list (renamed, with a literal default or a rest element) or from props in
+  the body, compiles each read as `props.children` where it stands. Its body
+  now runs before its children are built, as with `props.children` and
+  `h()`: a log or an `onMount` in the component comes before its children's.
+  Children a condition shows again are built again, as `props.children` does
+  (a child component in them used to come back empty). A component that never
+  places its children no longer builds them. This affects code that relied on the
+  children existing while the component's body ran; read `props.children`
+  there (it builds them). A component that inspects its children keeps its
+  destructuring ([API](https://github.com/CelsianJs/what-framework/blob/main/docs/API.md#placing-and-forwarding-children)).
 
 ### Diagnostics
 
@@ -759,7 +784,7 @@ Three kinds of app grow more than the counters:
   ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)): the compiled counter with one `computed()` is
   9448 B, against 7979 B in 0.14 (+1469 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 18959 B, the same app mounted without hydration 8097 B.
+  hydrating counter is 18979 B, the same app mounted without hydration 8109 B.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
   export of what-core, what-router and what-server has three: `production`

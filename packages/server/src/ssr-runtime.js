@@ -262,18 +262,19 @@ export function ssrText(v) {
  * the list is what a reactive child returns, so the hydratable renderer
  * brackets it as the array it stands for; a plain child's rows are flattened
  * into the parent, as h() flattens an array child. A keyed list's `keyFn`
- * gives its rows' keys, written with its markers.
+ * gives its rows' keys, written with its markers, and `slot` is the number
+ * what-compiler gave it (the client's list has the same).
  */
-export function ssrList(list, fn, asArray, keyFn) {
+export function ssrList(list, fn, asArray, keyFn, slot) {
   if (list == null) list = [];
   const m = new Markup('', false, asArray);
   if (Array.isArray(list)) {
     const keys = keyFn ? list.map((item) => keyFn(item)) : null;
     if (asArray && keys !== null) m.keys = rowKeys(keys);
     // A keyed list's rows are keyed rows (what-core hydration-data.js
-    // _enterRow): it takes its place among the lists as its first row
-    // renders, and the components a row renders count in that row.
-    const rowList = keys !== null && keys.length > 0 ? { keys } : null;
+    // _enterRow): it takes its place as its first row renders, and the
+    // components a row renders count in that row.
+    const rowList = keys !== null && keys.length > 0 ? { keys, slot } : null;
     if (rowList !== null) defer(m, new RowEdge(rowList, undefined, 0, null));
     const outer = rows;
     rows = m;
@@ -358,11 +359,11 @@ class RowEdge extends Html {
  * its key function, or false) hands each row an accessor for its item, as the
  * compiled client does.
  */
-export function ssrFor(each, fn, key, fallback) {
+export function ssrFor(each, fn, key, fallback, slot) {
   return () => {
     const list = typeof each === 'function' ? each() : each;
     if (!list || list.length === 0) return fallback;
-    return ssrList(list, key ? (item, i) => fn(() => item, i) : fn, true, key);
+    return ssrList(list, key ? (item, i) => fn(() => item, i) : fn, true, key, slot);
   };
 }
 

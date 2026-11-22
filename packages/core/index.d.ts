@@ -230,9 +230,12 @@ export type Component<P = {}> = ((props: P & { children?: VNodeChild }) => VNode
    * provider, an error or suspense boundary) receives `props.children` as a
    * zero-argument factory instead of built nodes, and the runtime realizes it
    * once that scope exists. `ErrorBoundary`, `Suspense` and `Context.Provider`
-   * set this themselves, and the compiler keeps a component that only forwards
-   * its children lazy, so this is only needed by a component that both
-   * inspects its children and forwards them into a boundary or a provider.
+   * set this themselves, and the compiler builds the children of a component
+   * that only places them where they render, so this is needed by a compiled
+   * component that both inspects its children and forwards them into a
+   * boundary or a provider, and by a component written with `h()` that places
+   * children given in compiled JSX (while hydrating, children it built while
+   * it ran would claim the server's nodes before its own element does).
    */
   _deferChildren?: boolean;
 };

@@ -61,4 +61,7 @@ export {
   _$exit,
   _$hcreateComponent,
   _$outside,
+  // A hydratable array whose members claim the server's nodes in order.
+  _$members,
+  _$member,
 } from 'what-core/render';

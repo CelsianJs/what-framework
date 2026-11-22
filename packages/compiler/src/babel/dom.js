@@ -18,7 +18,7 @@ import {
 } from './reactivity.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { bindingMetadata, componentMetadata } from './dev-metadata.js';
-import { findMappedJsx, readItemThroughAccessor, rowField, withItem } from './lists.js';
+import { findMappedJsx, listSlot, readItemThroughAccessor, rowField, withItem } from './lists.js';
 import { hasNoSelectorPragma, lowerRowSelectors } from './auto-selector.js';
 
 
@@ -203,14 +203,14 @@ function tryLowerMapCall(mapCall, state) {
   // same key (mapArray's follow mode); a row that reads only the key gets the
   // raw item (`raw: true`).
   const follow = readItemThroughAccessor(mapFn, keyValue, () => helper(state, '_$item'), uniqueName(state, '_item$'), uniqueName(state, '_i$'));
-  const list = t.callExpression(helper(state, '_$mapArray'), [
-    source,
-    mapFn,
-    t.objectExpression([
-      t.objectProperty(t.identifier('key'), keyFn),
-      t.objectProperty(t.identifier(follow ? 'follow' : 'raw'), t.booleanLiteral(true)),
-    ]),
-  ]);
+  const options = [
+    t.objectProperty(t.identifier('key'), keyFn),
+    t.objectProperty(t.identifier(follow ? 'follow' : 'raw'), t.booleanLiteral(true)),
+  ];
+  // The server's list has the same number (lists.js listSlot).
+  const slot = listSlot(mapCall);
+  if (slot !== null) options.push(t.objectProperty(t.identifier('slot'), slot));
+  const list = t.callExpression(helper(state, '_$mapArray'), [source, mapFn, t.objectExpression(options)]);
   list._whatList = true;
   return list;
 }
@@ -1168,12 +1168,12 @@ function transformComponentFineGrained(path, state) {
   // children rather than silently dropping them.
   function transformComponentChildren() {
     const setupMark = state._pendingSetup ? state._pendingSetup.length : 0;
-    const transformedChildren = [];
+    const members = [];
     let deferChildren = false;
     for (const child of children) {
       if (t.isJSXText(child)) {
         const text = normalizeJsxText(child.value);
-        if (text) transformedChildren.push(t.stringLiteral(text));
+        if (text) members.push({ expr: t.stringLiteral(text), setup: [] });
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) {
           deferChildren = true;
@@ -1187,21 +1187,23 @@ function transformComponentFineGrained(path, state) {
           // are built into an array with no host element to _$insert into,
           // which is exactly the situation lowerFragmentExprChild exists for,
           // and it is where `.map()` picks up keyed reconciliation too.
-          transformedChildren.push(lowerFragmentExprChild(child.expression, state));
+          members.push(arrayMember(state, () => lowerFragmentExprChild(child.expression, state)));
         }
       } else if (t.isJSXElement(child)) {
         // <For>/<Show>/<Switch> lower to an inserter or a thunk (already lazy).
         const childTag = child.openingElement.name.name;
         if (childTag !== 'For' && childTag !== 'Show' && childTag !== 'Switch') deferChildren = true;
-        transformedChildren.push(transformElementFineGrained({ node: child }, state));
+        members.push(arrayMember(state, () => transformElementFineGrained({ node: child }, state)));
       } else if (t.isJSXFragment(child)) {
         deferChildren = true;
-        transformedChildren.push(transformFragmentFineGrained({ node: child }, state));
+        members.push(arrayMember(state, () => transformFragmentFineGrained({ node: child }, state)));
       }
     }
 
-    let childrenArg = t.arrayExpression(transformedChildren);
-    if (deferChildren) {
+    let childrenArg = membersArray(members, state);
+    // An array built in order claims where it is built: where the component
+    // places its children.
+    if (deferChildren || !t.isArrayExpression(childrenArg)) {
       // Hoisted element setup emitted while transforming these children belongs
       // inside the factory, not before the enclosing statement.
       const setup = state._pendingSetup ? state._pendingSetup.splice(setupMark) : [];
@@ -1515,9 +1517,10 @@ function transformForFineGrained(path, state) {
   const buildMapArrayCall = (sourceExpr) => {
     const args = [sourceExpr, renderFn];
     if (keyExpr) {
-      args.push(t.objectExpression([
-        t.objectProperty(t.identifier('key'), keyExpr)
-      ]));
+      const options = [t.objectProperty(t.identifier('key'), keyExpr)];
+      const slot = listSlot(node);
+      if (slot !== null) options.push(t.objectProperty(t.identifier('slot'), slot));
+      args.push(t.objectExpression(options));
     }
     const list = t.callExpression(helper(state, '_$mapArray'), args);
     list._whatList = true;
@@ -1805,18 +1808,18 @@ function collectControlFlowContent(children, state) {
   for (const child of children) {
     if (t.isJSXText(child)) {
       const text = normalizeJsxText(child.value);
-      if (text) parts.push(t.stringLiteral(text));
+      if (text) parts.push({ expr: t.stringLiteral(text), setup: [] });
     } else if (t.isJSXExpressionContainer(child)) {
-      if (!t.isJSXEmptyExpression(child.expression)) parts.push(child.expression);
+      if (!t.isJSXEmptyExpression(child.expression)) parts.push({ expr: child.expression, setup: [] });
     } else if (t.isJSXElement(child)) {
-      parts.push(transformElementFineGrained({ node: child }, state));
+      parts.push(arrayMember(state, () => transformElementFineGrained({ node: child }, state)));
     } else if (t.isJSXFragment(child)) {
-      parts.push(transformFragmentFineGrained({ node: child }, state));
+      parts.push(arrayMember(state, () => transformFragmentFineGrained({ node: child }, state)));
     }
   }
   if (parts.length === 0) return t.nullLiteral();
-  if (parts.length === 1) return parts[0];
-  return t.arrayExpression(parts);
+  if (parts.length === 1) return parts[0].expr;
+  return membersArray(parts, state);
 }
 
 function transformSwitchFineGrained(path, state) {
@@ -1956,24 +1959,139 @@ export function transformFragmentFineGrained(path, state) {
   const { node } = path;
   const children = node.children;
 
-  const transformed = [];
+  const members = [];
   for (const child of children) {
     if (t.isJSXText(child)) {
       const text = normalizeJsxText(child.value);
-      if (text) transformed.push(t.stringLiteral(text));
+      if (text) members.push({ expr: t.stringLiteral(text), setup: [] });
     } else if (t.isJSXExpressionContainer(child)) {
       if (!t.isJSXEmptyExpression(child.expression)) {
-        transformed.push(lowerFragmentExprChild(child.expression, state));
+        members.push(arrayMember(state, () => lowerFragmentExprChild(child.expression, state)));
       }
     } else if (t.isJSXElement(child)) {
-      transformed.push(transformElementFineGrained({ node: child }, state));
+      members.push(arrayMember(state, () => transformElementFineGrained({ node: child }, state)));
     } else if (t.isJSXFragment(child)) {
-      transformed.push(transformFragmentFineGrained({ node: child }, state));
+      members.push(arrayMember(state, () => transformFragmentFineGrained({ node: child }, state)));
     }
   }
 
-  if (transformed.length === 1) return transformed[0];
-  return t.arrayExpression(transformed);
+  if (members.length === 1) return members[0].expr;
+  return membersArray(members, state, path.parentPath ? followsOtherMarkers(path) : false);
+}
+
+// Whether the fragment at `path` is a member of an array other code builds:
+// a row a callback returns (`.map(x => <>…</>)`) or a member of an array
+// literal. The server brackets that array before the fragment.
+function followsOtherMarkers(path) {
+  let p = path;
+  for (;;) {
+    const parent = p.parentPath;
+    if (!parent || parent.isArrayExpression()) return parent !== null;
+    if (parent.isReturnStatement() || (parent.isArrowFunctionExpression() && p.key === 'body')) {
+      const fn = parent.isReturnStatement() ? parent.getFunctionParent() : parent;
+      return fn !== null && fn.parentPath.isCallExpression() && fn.listKey === 'arguments';
+    }
+    const climbs = (parent.isConditionalExpression() && p.key !== 'test')
+      || (parent.isLogicalExpression() && p.key === 'right')
+      || parent.isParenthesizedExpression() || parent.isTSAsExpression() || parent.isTSNonNullExpression();
+    if (!climbs) return false;
+    p = parent;
+  }
+}
+
+// --- Arrays, hydrated in order ---
+// While hydrating, an element or a component claims the server's nodes when
+// it is created, and an array's other members (text, a reactive child, a
+// list, a value) are adopted when the array is placed, after all of them
+// were created. An array literal written after its members' setup therefore
+// claims out of document order where such a member stands before one that
+// claims when created, or where a member's setup claims before an earlier
+// member claims inline: the server's nodes go to the wrong members, and the
+// page shows them in the wrong order. A hydratable build builds that array
+// with _$members, which creates the members in order and adopts each one
+// that does not claim when created where it stands (_$member).
+
+// A member of an array: its expression and the statements transforming it
+// added to _pendingSetup.
+function arrayMember(state, transform) {
+  if (!state._pendingSetup) state._pendingSetup = [];
+  const mark = state._pendingSetup.length;
+  const expr = transform();
+  return { expr, setup: state._pendingSetup.slice(mark) };
+}
+
+// The array of `members`, whose setup is the end of _pendingSetup.
+// `nested`: it follows the markers of an array other code builds.
+function membersArray(members, state, nested = false) {
+  if (!state.hydratable || !claimsOutOfOrder(members, state, nested)) return t.arrayExpression(members.map((m) => m.expr));
+  const own = members.reduce((n, m) => n + m.setup.length, 0);
+  state._pendingSetup.splice(state._pendingSetup.length - own, own);
+  const body = [];
+  const items = members.map((m, i) => {
+    body.push(...m.setup);
+    if (t.isIdentifier(m.expr) && createdClaims(m, state)) return m.expr;
+    const id = t.identifier(uniqueName(state, '_m$'));
+    // JSX inside the member is still built where it stands (isInPlace).
+    m.expr._whatInPlace = true;
+    const value = createdClaims(m, state) ? m.expr : t.callExpression(helper(state, '_$member'), [m.expr, t.numericLiteral(i)]);
+    body.push(t.variableDeclaration('const', [t.variableDeclarator(id, value)]));
+    return t.cloneNode(id);
+  });
+  body.push(t.returnStatement(t.arrayExpression(items)));
+  const args = [t.arrowFunctionExpression([], t.blockStatement(body))];
+  if (nested) args.push(t.numericLiteral(1));
+  return t.callExpression(helper(state, '_$members'), args);
+}
+
+function claimsOutOfOrder(members, state, nested) {
+  // An array _$members builds among the members takes its own markers, so
+  // this one must have taken its own before.
+  if (members.some((m) => isMembersCall(m.expr, state))) return true;
+  // The other code builds its next members before it places this one.
+  if (nested && members.some((m) => !createdClaims(m, state))) return true;
+  // An earlier member is adopted only when the array is placed; an earlier
+  // member claims as the literal is evaluated.
+  let placed = false;
+  let inline = false;
+  for (const m of members) {
+    const setupClaims = m.setup.some((stmt) => containsClaim(stmt, state));
+    const inlineClaims = claimsInline(m.expr);
+    if ((placed && (setupClaims || inlineClaims)) || (inline && setupClaims)) return true;
+    if (!createdClaims(m, state)) placed = true;
+    if (inlineClaims) inline = true;
+  }
+  return false;
+}
+
+const CLAIMING = ['_$claim', '_$claimControl', '_$createComponent', '_$members'];
+
+function isMembersCall(node, state) {
+  return t.isCallExpression(node) && t.isIdentifier(node.callee) && helperLocals(state).get('_$members') === node.callee.name;
+}
+
+function isClaimCall(node, state) {
+  return t.isCallExpression(node) && t.isIdentifier(node.callee)
+    && CLAIMING.some((name) => helperLocals(state).get(name) === node.callee.name);
+}
+
+function containsClaim(node, state) {
+  let found = false;
+  t.traverseFast(node, (n) => { if (!found && isClaimCall(n, state)) found = true; });
+  return found;
+}
+
+// Whether creating the member claims everything it renders: an element, a
+// component, or an array _$members builds.
+function createdClaims(m, state) {
+  if (isClaimCall(m.expr, state)) return true;
+  return t.isIdentifier(m.expr) && m.setup.some((stmt) => t.isVariableDeclaration(stmt)
+    && stmt.declarations.some((d) => t.isIdentifier(d.id, { name: m.expr.name }) && isClaimCall(d.init, state)));
+}
+
+// Whether evaluating `expr` can claim: anything but a literal, a function, a
+// name or a list's inserter.
+function claimsInline(expr) {
+  return !(t.isLiteral(expr) || t.isFunction(expr) || t.isIdentifier(expr) || isListInserterCall(expr));
 }
 
 // Closing tags at the very end of a template: end of input closes them.
@@ -2196,6 +2314,8 @@ const RENDER_IMPORTS = [
   ['_$hole', '_$hole'],
   ['_$exit', '_$exit'],
   ['_$outside', '_$outside'],
+  ['_$members', '_$members'],
+  ['_$member', '_$member'],
 ];
 
 // The export a helper whose RENDER_IMPORTS entry is null imports.

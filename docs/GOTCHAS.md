@@ -284,6 +284,8 @@ export function CountryPicker() {
 }
 ```
 
+Do not name or id a form control `getAttribute`, `addEventListener`, `removeAttribute` or `getAttributeNames`. A form shows its controls as members under their names, and the renderers call these DOM methods on every element, so such a control breaks its form's hydration. The form's own members (`reset`, `submit`, `action`, `elements`, `method`, `name`, …) are safe names.
+
 ## Agent-Specific Gotchas
 
 ### 17. Dev-Mode Validation Messages
