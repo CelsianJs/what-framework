@@ -51,16 +51,28 @@ content that begins with a newline keeps it. The protocol is described in
 [docs/ARCHITECTURE.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ARCHITECTURE.md#server-rendering).
 
 ```js
-// server
-import { renderToHydratableString } from 'what-framework/server';
-const body = renderToHydratableString(<App />);
-
-// client (what-framework)
+// client (what-framework), for the full-page document what-server renders
+// (renderDocument, createRequestHandler, the scaffold): the route is written
+// directly under <body>
 import { hydrate } from 'what-framework';
-const unmount = hydrate(<App />, document.getElementById('app'), {
+const unmount = hydrate(<App />, document.body, {
   onHydrationError: (mismatch) => report(mismatch), // optional; production too
 });
 ```
+
+A page that writes its own wrapper around the markup hydrates that wrapper:
+
+```js
+// server
+import { renderToHydratableString } from 'what-framework/server';
+const page = `<div id="app">${renderToHydratableString(<App />)}</div>`;
+
+// client
+hydrate(<App />, '#app');
+```
+
+`hydrate()` and `mount()` given no element (`null`, or a selector that matches
+nothing) throw `ERR_MOUNT_TARGET_MISSING`.
 
 `hydrate()` adopts the server's nodes instead of creating new ones: where the
 markup matches, it adds no node, runs each reactive child once and fetches no
@@ -410,7 +422,8 @@ without JavaScript: the endpoint and a page post read a multipart body with the
 platform's own parser into the same fields an urlencoded one gives (a repeated
 name an array), and the action client sends a call whose fields hold a file as
 that form, multipart, the state as `_state`. A file input with nothing chosen
-is the empty string. The whole body, every field and file in it, is within
+is an empty `File` (`size` 0, name `''`), as the platform's parser gives it:
+test `size === 0`, not the empty string. The whole body, every field and file in it, is within
 `bodyLimit`: raise it for uploads. A form without the multipart `enctype`
 posts a file's name alone, with JavaScript too, as the browser's own submit of
 it does. An action's result never carries a file (JSON has no form for its
@@ -421,7 +434,7 @@ error (a browser rule): the visitor chooses the file again.
 
 ```js
 export const signup = action(async (previous, fields) => {
-  const avatar = fields.avatar;                     // a File, or '' when none was chosen
+  const avatar = fields.avatar;                     // a File; an empty one (size 0) when none was chosen
   if (!(avatar instanceof File) || avatar.size === 0) {
     return { error: 'Attach an avatar', fields: { email: fields.email } };
   }
@@ -429,6 +442,41 @@ export const signup = action(async (previous, fields) => {
   getResponse().redirect('/welcome');
   return { saved: true };
 }, { id: 'signup' });
+```
+
+A body over `bodyLimit` runs nothing. Without JavaScript the visitor gets the
+server's 413 page, which names the limit. With JavaScript the call rejects with
+`ERR_PAYLOAD_TOO_LARGE` (`status` 413, `limit` the bytes allowed), which, as any
+error an action throws, reaches the nearest `<ErrorBoundary>` above the
+component that dispatched it: a page with none shows nothing. Check a file's size before the form is sent, which keeps what the
+visitor typed and tells them why, and put the form in a boundary for the rest
+(another refused call is `ERR_ACTION_FAILED` with its `status`):
+
+```jsx
+const MAX_UPLOAD = 1_000_000; // bodyLimit, less room for the other fields
+
+function Signup() {
+  const [state, save] = useActionState(signup, null);
+  return <Form action={save} enctype="multipart/form-data">
+    <input name="email" defaultValue={state()?.fields?.email ?? ''} />
+    <input type="file" name="avatar" onChange={(e) => {
+      const file = e.target.files[0];
+      e.target.setCustomValidity(file && file.size > MAX_UPLOAD ? 'Choose a file under 1 MB' : '');
+    }} />
+    <button type="submit">Create account</button>
+  </Form>;
+}
+
+// The boundary goes around the component whose useActionState dispatched the
+// action: that component is where the action's error is thrown.
+<ErrorBoundary fallback={({ error, reset }) => (
+  <p role="alert">
+    {error.code === 'ERR_PAYLOAD_TOO_LARGE' ? `Too large: the limit is ${error.limit} bytes.` : error.message}
+    <button onClick={reset}>Try again</button>
+  </p>
+)}>
+  <Signup />
+</ErrorBoundary>
 ```
 
 Which form is "that form" is the hook's key. Inside a keyed list (a `<For key>`

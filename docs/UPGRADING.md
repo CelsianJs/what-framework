@@ -413,6 +413,30 @@ and navigations that are transitions. Each change below has its migration.
   platform's URL), or from `X-Forwarded-Proto` when the request carries it:
   behind a TLS proxy that sends no `X-Forwarded-Proto`, make it send one, or
   list the app's https origin in `trustedOrigins`.
+- **Every form POST to a page is read under `bodyLimit`.** An urlencoded or
+  multipart POST to a page served by `createRequestHandler` is read first,
+  from a copy, to look for `_action`, so one over `bodyLimit` (1 MB by
+  default) gets an HTML 413 even when the page has no form action and its
+  loader reads the upload itself (0.14 passed such a body through). Raise
+  `bodyLimit` for a page that takes large uploads. An action call, or a form
+  posted to the action endpoint, whose body does not parse as its content
+  type says (a multipart body with the wrong boundary or cut short, JSON that
+  is not JSON) is answered 400 and runs no action, on every entry point,
+  where 0.14 ran the action with no fields; such a POST to a page names no
+  action and reaches the page, as before.
+- **A refused action call throws a coded error.** With JavaScript, a call
+  over `bodyLimit` rejects with `ERR_PAYLOAD_TOO_LARGE` (`status` 413, `limit`
+  the bytes allowed) and any other refusal with `ERR_ACTION_FAILED` and its
+  `status`; the 413 answer's JSON carries `code` and `limit`. As any error an
+  action throws, it reaches the `<ErrorBoundary>` above the component whose
+  `useActionState` dispatched it, and a page with none shows nothing: wrap
+  the form's component, and check a file's size before the form is sent
+  ([what-server README](../packages/server/README.md#server-actions)).
+- **A component's identity does not count an earlier list's rows.** A form
+  after a keyed list (a `.map()` with `key`, a `<For key>`) gets its no-JS
+  result back when rows were added or removed between the page and the post:
+  the components in the list's rows no longer count toward the place of what
+  follows it.
 - **`ERR_FORM_ACTION_NOT_REGISTERED` is gone**: a plain function is a valid
   `<Form action>`.
 - **A navigation waits for its destination.** `navigate()` and `<Link>` load
@@ -539,7 +563,19 @@ and navigations that are transitions. Each change below has its migration.
   what the user typed in it before hydration was lost. No code change; a
   component written with `h()` that places children given in compiled JSX
   sets `_deferChildren`
-  ([API](./API.md#placing-and-forwarding-children)).
+  ([API](./API.md#placing-and-forwarding-children-and-other-jsx-props)).
+- **JSX in a prop hydrates in place, and nothing is replaced silently.** JSX
+  passed in a named prop (`header={<SearchBox />}`), a boundary's fallback
+  handed on through a wrapper, a body child of `<Head>`, an array literal and
+  adjacent components that return a fragment starting with text now adopt the
+  server's nodes; before, they were built on the client and replaced the
+  server's copy with no report, and what the user typed there was lost. JSX
+  that is still built before it is placed (in a variable, read by a component
+  that inspects it, given to an `h()` component) is reported as
+  `ERR_HYDRATION_MISMATCH` of kind `prebuilt`, and what the user changed in a
+  form control there is kept. `hydrate()` and `mount()` given no element throw
+  `ERR_MOUNT_TARGET_MISSING`; the full-page document what-server renders is
+  hydrated with `hydrate(<App />, document.body)`.
 
 ### Server rendering
 
@@ -724,7 +760,19 @@ options.
   places its children no longer builds them. This affects code that relied on the
   children existing while the component's body ran; read `props.children`
   there (it builds them). A component that inspects its children keeps its
-  destructuring ([API](./API.md#placing-and-forwarding-children)).
+  destructuring ([API](./API.md#placing-and-forwarding-children-and-other-jsx-props)).
+- **JSX passed in any prop is built where the component reads it**, as its
+  children are: `<Layout header={<Nav />}>` builds `<Nav />` when Layout reads
+  `header`, inside Layout's run, so its components run after Layout's body,
+  are owned by Layout and see the context Layout provides; a prop a component
+  hands on (`fallback={fallback}`) reaches the next one unbuilt, and a
+  destructured prop that is only placed compiles to a read of `props.<name>`
+  where it stands. A prop placed twice in one run is built twice, as `h()` and
+  the server render it, children included (0.15 moved one set of nodes to the
+  last place). `<ErrorBoundary>` and `<Suspense>` read `fallback` when they
+  show it. This affects code that relied on a JSX prop being built before the
+  component ran, or on the same nodes being moved: read the prop where the
+  JSX is wanted, and pass data, not JSX, to a component that inspects it.
 
 ### Diagnostics
 
@@ -754,20 +802,20 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 8538 B |
-| The create-what counter, runtime JSX | 6702 B | 8578 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5545 B |
+| A counter written with `h()` | 6601 B | 8729 B |
+| The create-what counter, runtime JSX | 6702 B | 8774 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5763 B |
 
-The compiled counter, what the scaffold ships, is 2186 B (28%) smaller in
+The compiled counter, what the scaffold ships, is 1968 B (25%) smaller in
 0.15: compiled output no longer carries the vnode reconciler, and an app that
 makes no computed no longer carries the engine's pull phase. 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 2765 B, for the new engine, the engine hooks async
+counter still grows by 2956 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
-value when its options change), styles, hydration, `<Suspense>` release, SVG
+value when its options change), styles, hydration, JSX props built where they are placed, `<Suspense>` release, SVG
 animation URLs and the render ownership of a second copy of what-core. The production build (`dist/*.min.js`, what the
 `production` export condition resolves) has one file per source module
 instead of one shared chunk, so an app bundled from it is as small as the
@@ -775,15 +823,15 @@ same app bundled from source, and a compiled app with no `h()`, boundary or
 portal leaves the vnode renderer out.
 Loading the dist straight into a browser without a bundler fetches more,
 smaller files. This affects an app written with `h()` that has a size budget:
-compiled with what-compiler, the same counter is 5545 B.
+compiled with what-compiler, the same counter is 5763 B.
 
 Three kinds of app grow more than the counters:
 
 - **An app that calls `computed()`** brings the async core with it
   ([ASYNC.md](ASYNC.md)): the compiled counter with one `computed()` is
-  9448 B, against 7979 B in 0.14 (+1469 B).
+  9637 B, against 7979 B in 0.14 (+1658 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 18979 B, the same app mounted without hydration 8109 B.
+  hydrating counter is 19621 B, the same app mounted without hydration 8325 B.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
   export of what-core, what-router and what-server has three: `production`
@@ -795,12 +843,12 @@ Three kinds of app grow more than the counters:
   `bun build --production` select `module`, and each defines
   `process.env.NODE_ENV` itself: `"production"` when it minifies (Bun: with
   `--production`), `"development"` otherwise. So `esbuild app.js --bundle
-  --minify` builds the `h()` counter at 8545 B, and an unminified esbuild or
+  --minify` builds the `h()` counter at 8746 B, and an unminified esbuild or
   rolldown build with no `NODE_ENV` of your own is a development build, with
   its diagnostics: minify, or define `process.env.NODE_ENV` as `"production"`,
   for production. A bundler given custom conditions with neither `production`
   nor `module` bundles `src/` and its development tier (esbuild
-  `--conditions=browser`: 33353 B), whatever `process.env.NODE_ENV` says. Add
+  `--conditions=browser`: 34524 B), whatever `process.env.NODE_ENV` says. Add
   `production` to such a list.
 - **Development builds report diagnostics in every bundler.** The source reads
   its flag through what-core's `#env` import, by the same conditions: under

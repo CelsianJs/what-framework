@@ -7,7 +7,7 @@ import {
   EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,
   getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers, hasLiteralMatchArms,
   isBindingAttribute, isComponentElement, isConditionallyEvaluated, isDynamicAttr,
-  isEventAttrName, isFieldProp, isForeignTag, isHydrateRootArgument, isShadowedAttr, isStaticChild,
+  isEventAttrName, isFieldProp, isForeignTag, isHydrateRootArgument, isShadowedAttr, isSlotAttribute, isStaticChild,
   isVoidHtmlElement, normalizeJsxText, parseEventModifiers, propKey,
   addImports, helper, helperLocals, readSwitch, uniqueName,
   checkElementName, checkIslandProp, checkStaticAttribute, checkStaticRawText, directiveValue,
@@ -1041,7 +1041,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
         // Hydratable output hands a signal written as a child (`{count}`) to
         // the hole as itself: the server renders it as one region, and a
         // thunk returning it would be a region holding another.
-        const value = hydratable && t.isIdentifier(expr) ? expr : t.arrowFunctionExpression([], expr);
+        const value = hydratable && t.isIdentifier(expr) ? expr : t.arrowFunctionExpression([], orderedRows(expr, state, true));
         const call = insertCall(value, entry.marker, entry.node, entry.placeholder);
         if (isUncertainReactive(expr, state.signalNames, state.importedIdentifiers)) {
           t.addComment(call, 'leading',
@@ -1051,7 +1051,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
         }
         statements.push(t.expressionStatement(call));
       } else {
-        statements.push(t.expressionStatement(insertCall(expr, entry.marker, entry.node, entry.placeholder)));
+        statements.push(t.expressionStatement(insertCall(orderedRows(expr, state, false), entry.marker, entry.node, entry.placeholder)));
       }
       continue;
     }
@@ -1325,6 +1325,7 @@ function transformComponentFineGrained(path, state) {
   // (dom.js) copies again before the component sees the props.
   const parts = [];
   let props = [];
+  const slots = [];
   const flushProps = () => {
     if (props.length > 0) {
       parts.push(t.objectExpression(props));
@@ -1401,15 +1402,16 @@ function transformComponentFineGrained(path, state) {
       continue;
     }
 
-    let value = getAttributeValue(attr.value);
-    // Hydratable output: a boundary's fallback JSX is built when the boundary
-    // shows it, so a page that hydrates with the children showing builds none
-    // and one that hydrates with the fallback showing claims the server's.
-    // Both boundaries take a function fallback (ErrorBoundary calls it with
-    // the error, which this one ignores).
-    if (state.hydratable && attrName === 'fallback' && isWhatBoundary(openingElement.name, state)
-        && (t.isJSXElement(value) || t.isJSXFragment(value))) {
-      value = t.arrowFunctionExpression([], value);
+    const value = getAttributeValue(attr.value);
+    // JSX handed to a component in a prop, and a prop handed on to one
+    // (`fallback={props.fallback}`, a placing read), are built where the
+    // component reads them, as its children are: a lazy getter over a
+    // factory (render.js _$slots, dom.js _installLazyChildren). While
+    // hydrating, the factory's JSX claims the server's nodes where the
+    // component places it.
+    if (isSlotAttribute(node, attr, state) && (isJsxValue(value) || isPlacingRead(value))) {
+      slots.push(t.objectProperty(propKey(attrName), t.arrowFunctionExpression([], value)));
+      continue;
     }
 
     props.push(t.objectProperty(propKey(attrName), value));
@@ -1432,6 +1434,13 @@ function transformComponentFineGrained(path, state) {
     );
   }
 
+  if (slots.length > 0) {
+    propsExpr = t.callExpression(helper(state, '_$slots'), [
+      t.isNullLiteral(propsExpr) ? t.objectExpression([]) : propsExpr,
+      t.objectExpression(slots),
+    ]);
+  }
+
   const childrenArg = transformComponentChildren();
 
   const componentArgs = [componentRef, propsExpr, childrenArg];
@@ -1440,8 +1449,15 @@ function transformComponentFineGrained(path, state) {
   return t.callExpression(helper(state, isHydrateRoot ? '_$componentVNode' : '_$createComponent'), componentArgs);
 }
 
-function isWhatBoundary(name, state) {
-  return t.isJSXIdentifier(name) && (name.name === 'Suspense' || name.name === 'ErrorBoundary') && !isForeignTag(name.name, state);
+// JSX, or a conditional that renders JSX in one of its branches.
+function isJsxValue(node) {
+  if (t.isJSXElement(node) || t.isJSXFragment(node)) return true;
+  if (t.isConditionalExpression(node)) return isJsxValue(node.consequent) || isJsxValue(node.alternate);
+  return t.isLogicalExpression(node) && isJsxValue(node.right);
+}
+
+function isPlacingRead(node) {
+  return t.isCallExpression(node) && node.callee._whatPlace === true;
 }
 
 function transformForFineGrained(path, state) {
@@ -1819,7 +1835,7 @@ function collectControlFlowContent(children, state) {
   }
   if (parts.length === 0) return t.nullLiteral();
   if (parts.length === 1) return parts[0].expr;
-  return membersArray(parts, state);
+  return membersArray(parts, state, false, true);
 }
 
 function transformSwitchFineGrained(path, state) {
@@ -1948,11 +1964,61 @@ function lowerFragmentExprChild(expr, state) {
     // Branch memoization (C1): conditional/logical children only rebuild the
     // taken branch's DOM when the condition actually flips.
     expr = memoizeBranchCondition(expr, setup, state);
-    return t.arrowFunctionExpression([], expr);
+    return t.arrowFunctionExpression([], orderedRows(expr, state, true));
   }
 
   // Static — emit verbatim.
-  return expr;
+  return orderedRows(expr, state, false);
+}
+
+// In hydratable output, the arrays an expression child places, built so that
+// they claim the server's nodes in document order (_$members). `bracketed`:
+// the child is a reactive one, whose array value the server writes markers
+// around; the array an element's hole holds directly it writes none for.
+//   - an array literal with JSX among its members: the elements claim as the
+//     literal is evaluated, and the other members are adopted where they
+//     stand;
+//   - an unkeyed `.map()` whose rows are components, in a reactive child: each
+//     row component claims as the call creates it, before the array the rows
+//     make is placed, so it would take the markers the server wrote around
+//     that array for its own. _$members enters them first.
+function orderedRows(expr, state, bracketed) {
+  if (!state.hydratable) return expr;
+  if (t.isArrayExpression(expr) && expr.elements.some(isJsxValue) && expr.elements.every((m) => m !== null && !t.isSpreadElement(m))) {
+    const body = [];
+    const items = expr.elements.map((member, i) => {
+      const id = t.identifier(uniqueName(state, '_m$'));
+      // Its JSX is built where it stands (isInPlace).
+      member._whatInPlace = true;
+      const value = t.isJSXElement(member) ? member : t.callExpression(helper(state, '_$member'), [member, t.numericLiteral(i)]);
+      body.push(t.variableDeclaration('const', [t.variableDeclarator(id, value)]));
+      return t.cloneNode(id);
+    });
+    body.push(t.returnStatement(t.arrayExpression(items)));
+    const args = [t.arrowFunctionExpression([], t.blockStatement(body))];
+    if (!bracketed) args.push(t.numericLiteral(1));
+    return t.callExpression(helper(state, '_$members'), args);
+  }
+  if (t.isConditionalExpression(expr)) {
+    expr.consequent = orderedRows(expr.consequent, state, bracketed);
+    expr.alternate = orderedRows(expr.alternate, state, bracketed);
+    return expr;
+  }
+  if (t.isLogicalExpression(expr)) {
+    expr.right = orderedRows(expr.right, state, bracketed);
+    return expr;
+  }
+  if (!bracketed || !t.isCallExpression(expr) || !t.isMemberExpression(expr.callee) || expr.callee.computed
+      || !t.isIdentifier(expr.callee.property, { name: 'map' })) return expr;
+  const fn = expr.arguments[0];
+  if (!t.isArrowFunctionExpression(fn) && !t.isFunctionExpression(fn)) return expr;
+  let row = fn.body;
+  if (t.isBlockStatement(row)) {
+    const last = row.body[row.body.length - 1];
+    row = t.isReturnStatement(last) ? last.argument : null;
+  }
+  if (!t.isJSXElement(row) || !isComponentElement(row)) return expr;
+  return t.callExpression(helper(state, '_$members'), [t.arrowFunctionExpression([], expr)]);
 }
 
 export function transformFragmentFineGrained(path, state) {
@@ -2022,8 +2088,10 @@ function arrayMember(state, transform) {
 
 // The array of `members`, whose setup is the end of _pendingSetup.
 // `nested`: it follows the markers of an array other code builds.
-function membersArray(members, state, nested = false) {
-  if (!state.hydratable || !claimsOutOfOrder(members, state, nested)) return t.arrayExpression(members.map((m) => m.expr));
+// `bracketed`: the server writes its markers around it (a conditional's
+// content, the value of a reactive child), before those of a component in it.
+function membersArray(members, state, nested = false, bracketed = false) {
+  if (!state.hydratable || !claimsOutOfOrder(members, state, nested, bracketed)) return t.arrayExpression(members.map((m) => m.expr));
   const own = members.reduce((n, m) => n + m.setup.length, 0);
   state._pendingSetup.splice(state._pendingSetup.length - own, own);
   const body = [];
@@ -2043,10 +2111,12 @@ function membersArray(members, state, nested = false) {
   return t.callExpression(helper(state, '_$members'), args);
 }
 
-function claimsOutOfOrder(members, state, nested) {
+function claimsOutOfOrder(members, state, nested, bracketed) {
   // An array _$members builds among the members takes its own markers, so
-  // this one must have taken its own before.
+  // this one must have taken its own before; so does a component in an array
+  // the server brackets, whose output may be such an array.
   if (members.some((m) => isMembersCall(m.expr, state))) return true;
+  if (bracketed && members.length > 1 && members.some((m) => isComponentCall(m.expr, state))) return true;
   // The other code builds its next members before it places this one.
   if (nested && members.some((m) => !createdClaims(m, state))) return true;
   // An earlier member is adopted only when the array is placed; an earlier
@@ -2067,6 +2137,10 @@ const CLAIMING = ['_$claim', '_$claimControl', '_$createComponent', '_$members']
 
 function isMembersCall(node, state) {
   return t.isCallExpression(node) && t.isIdentifier(node.callee) && helperLocals(state).get('_$members') === node.callee.name;
+}
+
+function isComponentCall(node, state) {
+  return t.isCallExpression(node) && t.isIdentifier(node.callee) && helperLocals(state).get('_$createComponent') === node.callee.name;
 }
 
 function isClaimCall(node, state) {
@@ -2316,6 +2390,8 @@ const RENDER_IMPORTS = [
   ['_$outside', '_$outside'],
   ['_$members', '_$members'],
   ['_$member', '_$member'],
+  ['_$slots', '_$slots'],
+  ['_$place', '_$place'],
 ];
 
 // The export a helper whose RENDER_IMPORTS entry is null imports.

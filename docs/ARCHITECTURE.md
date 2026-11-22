@@ -507,10 +507,15 @@ container holds the page's data element, or from the path in its
 ```js
 import { hydrate } from 'what-framework';
 
-const unmount = hydrate(<App />, document.getElementById('app'), {
+// The full-page document what-server renders puts the route under <body>.
+const unmount = hydrate(<App />, document.body, {
   onHydrationError: (mismatch) => reportToMonitoring(mismatch), // optional, every build
 });
 ```
+
+A page that writes its own wrapper (`<div id="app">`) hydrates that element.
+No element at all (`null`, or a selector that matches nothing) throws
+`ERR_MOUNT_TARGET_MISSING`, as `mount()` does.
 
 `hydrate()` adopts the server's DOM as the DOM of the tree. One walk over the
 container's nodes, in document order, claims each node the tree renders (an
@@ -592,21 +597,33 @@ what-compiler's `hydratable` option, which the Vite plugin sets for a project
 that renders on the server (`appType: 'custom'`, an SSR build, or a client
 build with `build.ssrManifest`; `hydratable: true | false` overrides it). A hydratable template claims the server's nodes
 while hydrating (`_$claim`, `_$next`, `_$hole`, `_$exit`) and clones itself
-otherwise, so the same build also mounts. JSX that is not written in place in
-its parent (built ahead of time into a variable, say) is built on the client
-(`_$outside`) and takes the place of the server's rendering of it. A
-component's compiled children are built where it reads them, and a component
-that only places its children has each read compiled where it stands, however
-it reads them (what-compiler's `deferPlacedChildren`), so they claim inside its
-own element; one that inspects them first builds them there, before that
-element, and mismatches. An array of compiled members (a component's children,
-a fragment, a `<Show>`'s content, a row of several nodes) claims in document
+otherwise, so the same build also mounts. A component's compiled children,
+and every prop its caller wrote as JSX or handed on from its own props
+(`_$slots`), are lazy getters built where the component reads them (what-core
+dom.js `_installLazyChildren`). A component that only places such a prop has
+each read compiled as a placing read where it stands (`_$place`, what-compiler's
+`deferPlacedProps`), which builds it there, so it claims inside the
+component's own element; a prop placed twice is built twice. Any other read
+(an inspection, an `h()` component's) builds it off the walk, as JSX that is
+not written in place in its parent (built ahead of time into a variable, say)
+is (`_$outside`): it takes the place of the server's rendering of it where it
+is placed, reported as a mismatch of kind `prebuilt`, and what the user
+changed in the server's form controls there (a value, checkedness, a
+selection, files) goes to the built controls of the same tag, type and name.
+No node the server rendered is replaced without a report. An array of compiled members (a component's children,
+a fragment, a `<Show>`'s content, an array literal, the rows of an unkeyed
+`.map()` of components, a row of several nodes) claims in document
 order: an element or a component claims when it is created, and text, a
 reactive child or a list is adopted when the array is placed, so where one of
 those comes before an element, or an element's hoisted setup before an
-earlier member, the array is built by `_$members` instead, its members created
+earlier member, or a component's own array markers could be taken for the
+array's, the array is built by `_$members` instead, its members created
 in order and each of the others adopted where it stands (`_$member`), inside
-the array's server markers; placing it afterwards adopts nothing again. A part of
+the array's server markers; placing it afterwards adopts nothing again, and
+nor does placing the nodes a component adopted. `<Head>` builds its compiled
+children where it stands: a `<title>`, `<meta>` or `<link>` among them, which
+the server wrote into `<head>`, is built on the client, and the others claim
+in place. A part of
 a template with no bindings in it is adopted whole when the server wrote
 exactly the template's nodes (one `isEqualNode`), and claimed node by node,
 each difference reported, otherwise. Compiled
@@ -614,14 +631,14 @@ without the option, a component returns DOM it already built, before the walk
 can claim anything: `hydrate()` puts it in place of the server's copy and
 reports one `ERR_HYDRATION_MISMATCH` of kind `not-hydratable`. The page works;
 the reuse is lost. A hydratable build carries the hydration runtime (about
-10.6 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
+11.0 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
 the same app mounted); a build without the option carries none of it.
 
 **Mismatches** are reported, never silently rewritten: one record per region
 (a marked region, else the element the walk is in),
 `{ kind, component, ownerPath, path, expected, found, recovery }`, where `kind`
-is `tag`, `text`, `missing`, `extra-nodes`, `marker`, `key`, `shadow-root` or
-`not-hydratable` and `path` is the DOM path under the container. Development
+is `tag`, `text`, `missing`, `extra-nodes`, `marker`, `key`, `shadow-root`,
+`prebuilt` or `not-hydratable` and `path` is the DOM path under the container. Development
 prints it as `ERR_HYDRATION_MISMATCH`; every build, production included,
 passes it to `options.onHydrationError`. Recovery client-renders the smallest
 part it can: the one element (with its subtree) or text node that differs is

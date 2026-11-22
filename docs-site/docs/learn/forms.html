@@ -164,10 +164,10 @@
           </ul>
 
           <h3 id="form-with-a-file">A form with a file</h3>
-          <p>Give the form <code>enctype="multipart/form-data"</code>, as HTML requires, and the action gets the file as a Web <code>File</code> in its fields, with JavaScript and without: a multipart post is read by the platform's own parser into the same fields an urlencoded one gives, and with JavaScript the dispatch sends the form's fields as that same form. A file input with nothing chosen is the empty string.</p>
+          <p>Give the form <code>enctype="multipart/form-data"</code>, as HTML requires, and the action gets the file as a Web <code>File</code> in its fields, with JavaScript and without: a multipart post is read by the platform's own parser into the same fields an urlencoded one gives, and with JavaScript the dispatch sends the form's fields as that same form. A file input with nothing chosen is an empty <code>File</code> (<code>size</code> 0, name <code>''</code>), as the platform's parser gives it: test <code>size === 0</code>, not the empty string. The whole body is within <code>bodyLimit</code> (1 MB by default). A body over it runs nothing: without JavaScript the visitor gets the 413 page naming the limit, and with JavaScript the call rejects with <code>ERR_PAYLOAD_TOO_LARGE</code> (<code>status</code> 413, <code>limit</code> the bytes allowed), which reaches the nearest <code>&lt;ErrorBoundary&gt;</code> above the component that dispatched it, as any error an action throws: a page with none shows nothing. Check the file's size on its input before the form is sent, which keeps what the visitor typed, and put the form's component in a boundary that names <code>error.limit</code>, as below.</p>
 
 <pre><code><span class="keyword">export const</span> signup = action(<span class="keyword">async</span> (previous, fields) =&gt; {
-  <span class="keyword">const</span> avatar = fields.avatar; <span class="comment">// a File, or '' when none was chosen</span>
+  <span class="keyword">const</span> avatar = fields.avatar; <span class="comment">// a File; an empty one (size 0) when none was chosen</span>
   <span class="keyword">if</span> (!(avatar <span class="keyword">instanceof</span> File) || avatar.size === <span class="number">0</span>) {
     <span class="keyword">return</span> { error: <span class="string">'Attach an avatar'</span>, fields: { email: fields.email } };
   }
@@ -176,11 +176,29 @@
   <span class="keyword">return</span> { saved: <span class="keyword">true</span> };
 }, { id: <span class="string">'signup'</span> });
 
-&lt;<span class="component">Form</span> <span class="attr">action</span>={save} <span class="attr">enctype</span>=<span class="string">"multipart/form-data"</span>&gt;
-  &lt;<span class="tag">input</span> <span class="attr">name</span>=<span class="string">"email"</span> <span class="attr">defaultValue</span>={() =&gt; state()?.fields?.email ?? <span class="string">''</span>} /&gt;
-  &lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"file"</span> <span class="attr">name</span>=<span class="string">"avatar"</span> <span class="attr">accept</span>=<span class="string">"image/*"</span> /&gt;
-  &lt;<span class="tag">button</span> <span class="attr">type</span>=<span class="string">"submit"</span>&gt;Create account&lt;/<span class="tag">button</span>&gt;
-&lt;/<span class="component">Form</span>&gt;</code></pre>
+<span class="keyword">const</span> MAX_UPLOAD = <span class="number">1_000_000</span>; <span class="comment">// bodyLimit, less room for the other fields</span>
+
+<span class="keyword">function</span> <span class="component">Signup</span>() {
+  <span class="keyword">const</span> [state, save] = useActionState(signup, <span class="keyword">null</span>);
+  <span class="keyword">return</span> &lt;<span class="component">Form</span> <span class="attr">action</span>={save} <span class="attr">enctype</span>=<span class="string">"multipart/form-data"</span>&gt;
+    &lt;<span class="tag">input</span> <span class="attr">name</span>=<span class="string">"email"</span> <span class="attr">defaultValue</span>={() =&gt; state()?.fields?.email ?? <span class="string">''</span>} /&gt;
+    &lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"file"</span> <span class="attr">name</span>=<span class="string">"avatar"</span> <span class="attr">accept</span>=<span class="string">"image/*"</span> <span class="attr">onChange</span>={(e) =&gt; {
+      <span class="keyword">const</span> file = e.target.files[<span class="number">0</span>];
+      e.target.setCustomValidity(file &amp;&amp; file.size &gt; MAX_UPLOAD ? <span class="string">'Choose a file under 1 MB'</span> : <span class="string">''</span>);
+    }} /&gt;
+    &lt;<span class="tag">button</span> <span class="attr">type</span>=<span class="string">"submit"</span>&gt;Create account&lt;/<span class="tag">button</span>&gt;
+  &lt;/<span class="component">Form</span>&gt;;
+}
+
+<span class="comment">// Around the component whose useActionState dispatched the action.</span>
+&lt;<span class="component">ErrorBoundary</span> <span class="attr">fallback</span>={({ error, reset }) =&gt; (
+  &lt;<span class="tag">p</span> <span class="attr">role</span>=<span class="string">"alert"</span>&gt;
+    {error.code === <span class="string">'ERR_PAYLOAD_TOO_LARGE'</span> ? <span class="string">`Too large: the limit is ${error.limit} bytes.`</span> : error.message}
+    &lt;<span class="tag">button</span> <span class="attr">onClick</span>={reset}&gt;Try again&lt;/<span class="tag">button</span>&gt;
+  &lt;/<span class="tag">p</span>&gt;
+)}&gt;
+  &lt;<span class="component">Signup</span> /&gt;
+&lt;/<span class="component">ErrorBoundary</span>&gt;</code></pre>
 
           <ul>
             <li>The whole body, every field and file in it, is within <code>bodyLimit</code> (1 MB by default): raise it for uploads, <code>createRequestHandler({ routes, bodyLimit: 8 * 1024 * 1024 })</code>. A post over it gets a 413 page.</li>

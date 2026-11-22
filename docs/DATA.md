@@ -383,9 +383,17 @@ export default function EditPost() {
   JavaScript or without. A multipart post is read by the platform's own parser
   into the fields an urlencoded one gives (a repeated name an array), and with
   JavaScript the dispatch sends the form's fields as that same form,
-  multipart, the state as `_state`. A file input with nothing chosen is the
-  empty string. The whole body, files included, is within `bodyLimit`: raise
-  it for uploads. Without the multipart `enctype` a form posts a file's name
+  multipart, the state as `_state`. A file input with nothing chosen is an
+  empty `File` (`size` 0, name `''`), as the platform's parser gives it: test
+  `size === 0`, not the empty string. The whole body, files included, is within `bodyLimit`: raise
+  it for uploads. A body over it runs nothing: without JavaScript the visitor
+  gets the 413 page naming the limit, and with JavaScript the call rejects with
+  `ERR_PAYLOAD_TOO_LARGE` (`status` 413, `limit` the bytes allowed), which
+  reaches the nearest `<ErrorBoundary>` as any error an action throws (a page
+  with none shows nothing). Check a file's size on its input before the form
+  is sent (`setCustomValidity`, which keeps the form and tells the visitor),
+  and put the form's component in a boundary that names `error.limit` (the
+  server README has the recipe). Without the multipart `enctype` a form posts a file's name
   alone, with JavaScript too, as the browser's own submit does. What the
   action returns never carries a file back: a `File` in it is `null` in the
   state, with and without JavaScript (JSON has no form for its bytes), so the

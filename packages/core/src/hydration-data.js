@@ -251,20 +251,35 @@ let placeRow = null;
 let rootRow = null;
 
 // A frame's place among the keyed rows: `_rowIn`, the innermost keyed row
-// around it, and `_rowPath`, its steps counted from that row. A component at
-// the top of a row (the row is open in the output of the frame counting it,
-// `holder`) counts from the row's start; any other takes its owner path's
-// step under its parent, and a built-in the compiler lowers away (no
-// `holder`) none.
+// around it, and `_rowPath`, its steps counted from that row; outside keyed
+// rows, `_placePath`, its steps from the root. A step counts the components
+// before it in its scope (the frame counting it, `holder`, or the keyed row
+// open there) but those rendered inside a keyed row of that scope, which
+// come and go with the list's rows (`_inRows` and a row's `inRows`, counted
+// as each row is left, _leaveRow): an "add" form after a list is the same
+// form whatever the list holds. A component at the top of a row counts from
+// the row's start; a built-in the compiler lowers away (no `holder`) takes
+// no step.
 function placeInRow(frame, parent, holder, prefix) {
   const row = holder === null ? undefined : rowOf(holder._row);
+  const step = holder === null ? '' : formatId('', /** @type {{ index: number }} */ (stepAt(frame._ownerPath, prefix.length)).index
+    - (row !== undefined ? row.base + row.inRows : holder._inRows || 0));
   if (row !== undefined) {
     frame._rowIn = row;
-    frame._rowPath = formatId('', /** @type {{ index: number }} */ (stepAt(frame._ownerPath, prefix.length)).index - row.base);
+    frame._rowPath = step;
   } else if (parent && parent._rowIn !== undefined) {
     frame._rowIn = parent._rowIn;
-    frame._rowPath = holder === null ? parent._rowPath : parent._rowPath + frame._ownerPath.slice(prefix.length);
+    frame._rowPath = parent._rowPath + step;
+  } else {
+    frame._placePath = (parent ? parent._placePath || '' : '') + step;
   }
+}
+
+// A frame's steps from the root outside keyed rows (placeInRow), or its
+// owner path where it has none (no server action, an unanchored frame).
+function stepsOf(frame) {
+  const path = frame._ownerPath || '';
+  return frame._placePath !== undefined && path[0] !== UNANCHORED ? frame._placePath : path;
 }
 
 // An island's root starts from the keyed rows its server wrote around it.
@@ -324,9 +339,9 @@ export function _enterRow(frame, root, list, key, index) {
   let lead = '';
   if (outer === undefined) {
     up = holder._rowIn !== undefined ? holder._rowIn : null;
-    lead = up !== null ? holder._rowPath : holder._ownerPath || '';
+    lead = up !== null ? holder._rowPath : stepsOf(holder);
   }
-  holder._row = { up, lead, list: list.place, key, n, base: holder._ownerChildren || 0 };
+  holder._row = { up, lead, list: list.place, key, n, base: holder._ownerChildren || 0, inRows: 0 };
   return open;
 }
 
@@ -361,7 +376,17 @@ function keyCounts(keys) {
 
 /** @internal The row _enterRow entered in `frame`'s output is done: `saved` is what it returned. */
 export function _leaveRow(frame, root, saved) {
-  holderOf(frame === undefined ? _currentComponent() : frame, root)._row = saved;
+  const holder = holderOf(frame === undefined ? _currentComponent() : frame, root);
+  const done = holder._row;
+  holder._row = saved;
+  // The components the keyed row rendered count for no later step of the
+  // scope around it (placeInRow).
+  if (done !== undefined && done.base !== undefined && done !== rowOf(saved)) {
+    const used = (holder._ownerChildren || 0) - done.base;
+    const outer = rowOf(saved);
+    if (outer !== undefined) outer.inRows += used;
+    else holder._inRows = (holder._inRows || 0) + used;
+  }
 }
 
 /**
@@ -441,7 +466,7 @@ export function _actionStateKey() {
   const holder = holderOf(frame, null);
   const index = holder._ownerActions || 0;
   holder._ownerActions = index + 1;
-  const positional = `${frame._ownerPath}:${index}`;
+  const positional = `${stepsOf(frame)}:${index}`;
   const row = frame._rowIn;
   if (row === undefined || positional[0] === UNANCHORED) {
     const key = () => positional;

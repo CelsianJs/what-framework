@@ -80,4 +80,57 @@ describe('a compiled array, hydrated', () => {
   }
 });
 
+// Components that return a fragment starting with text or an expression,
+// side by side, and array literals of text and JSX: each claims the server's
+// markers of its own (a component's array, not the one around it), and an
+// array literal's members are adopted in document order.
+const ADJACENT = {
+  'two adjacent fragment components': '<form><F label="Name" name="q1" /><F label="Email" name="q2" /></form>',
+  'fragment components in a <Show>': '<form><Show when={t()}><F label="Name" name="q1" /><F label="Email" name="q2" /></Show></form>',
+  'fragment components as unkeyed .map() rows': '<form>{xs().map((x) => <F label={"L" + x} name={"q" + x} />)}</form>',
+  'fragment components as keyed .map() rows': '<form>{xs().map((x) => <F key={x} label={"L" + x} name={"q" + x} />)}</form>',
+  'fragment components given as children': '<W><F label="Name" name="q1" /><F label="Email" name="q2" /></W>',
+  'an array literal of text and elements': '<form>{["lead ", <b id="m1">x</b>, " tail", <input name="q1" />]}</form>',
+  'an array literal with a reactive and a conditional member': '<form>{["lead ", <b id="m1">x</b>, t(), <input name="q1" />, t() ? <s id="m2">z</s> : null]}</form>',
+  'an array literal that begins with a fragment component': '<form>{[<F label="Name" name="q1" />, " tail", <b id="m1">x</b>]}<div id="m2">after</div></form>',
+  'fragment components as rows of a .map() over a plain array': '<form>{rows.map((x) => <F label={"L" + x} name={"q" + x} />)}<div id="m1">after</div></form>',
+};
+
+describe('adjacent fragment components and array literals, hydrated', () => {
+  for (const [name, jsx] of Object.entries(ADJACENT)) {
+    it(`${name}: adopted in order, with the early edits kept`, async () => {
+      const source = `
+        import { signal, Show } from 'what-framework';
+        export const t = signal('T0');
+        export const xs = signal([1, 2]);
+        const rows = [1, 2];
+        function F(props) { return <>{props.label} <input name={props.name} /></>; }
+        function W({ children }) { return <form class="w">{children}</form>; }
+        export function Page() { return <main>${jsx}</main>; }`;
+      const server = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+      const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+      __resetHydrationData();
+      document.body.innerHTML = renderToHydratableString(h(server.Page));
+      const main = document.querySelector('main');
+      const text = main.textContent;
+      const serverElements = [...main.querySelectorAll('*')];
+      const fields = [...main.querySelectorAll('input')];
+      fields.forEach((field, i) => { field.value = `typed ${i}`; });
+      const problems = [];
+      const stop = hydrate(h(client.Page), document.body, { onHydrationError: (info) => problems.push(`${info.kind}: ${info.expected} / ${info.found}`) });
+      try {
+        assert.deepEqual(problems, []);
+        assert.equal(main.textContent, text, 'the page shows what the server rendered, in its order');
+        assert.deepEqual(serverElements.filter((el) => !el.isConnected).map((el) => el.id || el.localName), [], 'no server element is replaced');
+        assert.deepEqual([...main.querySelectorAll('input')].map((field) => field.value), fields.map((_, i) => `typed ${i}`));
+        client.t('T1');
+        flushSync();
+        assert.equal(main.textContent, text.replaceAll('T0', 'T1'), 'its reactive members update in place');
+      } finally {
+        stop();
+      }
+    });
+  }
+});
+
 process.on('exit', () => env.cleanup());

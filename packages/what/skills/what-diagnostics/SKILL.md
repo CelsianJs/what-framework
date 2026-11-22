@@ -52,6 +52,7 @@ To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, offline) for the fix an
 - `ERR_FOREIGN_ENGINE_IN_SSR` error: An async value was made by a second copy of what-core during a server rend…
 - `ERR_HOOK_OUTSIDE_RENDER` error: hookName() called outside of a component render.
 - `ERR_INVALID_HTML_NESTING` error: <parent> cannot contain <child>: the HTML parser closed the outer tag earl…
+- `ERR_MOUNT_TARGET_MISSING` error: fn() got no container element.
 - `ERR_NO_VNODE_RENDERER` error: what reached the compiled-JSX runtime, but no vnode renderer is installed.
 - `ERR_PRETEXT_NOT_INSTALLED` error: Failed to load @chenglou/pretext: message.
 - `ERR_REDIRECT_NOT_CAUGHT` error: redirect to target
@@ -78,6 +79,7 @@ To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, offline) for the fix an
 - `ERR_MOVED_IMPORT` error: "name" is not exported by source. answer
 - `ERR_NO_SECURE_RANDOM` error: No secure random source available for CSRF token generation.
 - `ERR_PAGE_NO_DEFAULT_EXPORT` error: Page module has no default-exported component.
+- `ERR_PAYLOAD_TOO_LARGE` error: A call over the limit-byte bodyLimit was refused.
 - `ERR_SSR_INVALID_ID_PREFIX` error: idPrefix idPrefix is not a letter followed by letters, digits, "_" or "-".
 - `ERR_SSR_LATE_HEAD` warn: <Head> inside a streamed <Suspense> (boundary boundaryId) set head tags af…
 - `ERR_SSR_SUSPENSE_TIMEOUT` error: A resource was still pending after 12 attempts during streaming SSR.

@@ -101,7 +101,7 @@ if (count() > 5) {}`,
     code: 'ERR_HYDRATION_MISMATCH',
     severity: 'error',
     template: 'Hydration mismatch ({{kind}}) in <{{component}}> at {{path}}: the server rendered {{found}} where the client renders {{expected}}. Recovery: {{recovery}}.',
-    suggestion: 'hydrate() adopts the server\'s DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a component\'s key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic\'s data in development, the argument of hydrate()\'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key (a component\'s data-hk, or a keyed list whose server rows have other keys, or keys in another order, or keys hydration cannot compare (anything but strings and finite numbers): expected and found list them), shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client\'s and the server\'s node; recovery is client-render, move (a keyed list: each server row was taken as the row of its own key and moved into the client\'s order; a row is never given to another key, so what was typed in it stays with its key), or none for a component\'s key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler\'s hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).',
+    suggestion: 'hydrate() adopts the server\'s DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a component\'s key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic\'s data in development, the argument of hydrate()\'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key (a component\'s data-hk, or a keyed list whose server rows have other keys, or keys in another order, or keys hydration cannot compare (anything but strings and finite numbers): expected and found list them), shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced), prebuilt (JSX the client built before the walk reached its place: in a variable, read by a component that inspects it, or given to an h() component; it takes the server\'s place, and what the user changed in a form control there is kept) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client\'s and the server\'s node; recovery is client-render, move (a keyed list: each server row was taken as the row of its own key and moved into the client\'s order; a row is never given to another key, so what was typed in it stays with its key), or none for a component\'s key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler\'s hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).',
     codeExample: `// Bad — the client renders a value the server could not know:
 import { h, hydrate } from 'what-framework';
 
@@ -632,6 +632,21 @@ const theme = useLocalStorage('myapp:theme', 'light');`,
 <Portal><Dialog /></Portal>`,
   },
 
+  MOUNT_TARGET_MISSING: {
+    code: 'ERR_MOUNT_TARGET_MISSING',
+    severity: 'error',
+    template: '{{fn}}() got no container element.',
+    suggestion: 'mount() and hydrate() render into an element that is in the page when they run: pass the element, or a CSS selector that matches one. The full-page document what-server renders (renderDocument, createRequestHandler, the scaffold) puts the route directly under <body> with no wrapper of its own, so its client hydrates document.body. Use a selector such as #app only where the page writes that element itself.',
+    codeExample: `// Bad - the built-in document has no #app wrapper:
+hydrate(<App />, document.getElementById('app'));
+
+// Good - the built-in document:
+hydrate(<App />, document.body);
+
+// Good - a page that writes <div id="app"> itself:
+hydrate(<App />, '#app');`,
+  },
+
   // --- Outside core ---
   //
   // Every package in the workspace threw bare `new Error(...)` with good prose
@@ -669,11 +684,33 @@ import { webcrypto } from 'node:crypto';
 globalThis.crypto ??= webcrypto;`,
   },
 
+  PAYLOAD_TOO_LARGE: {
+    code: 'ERR_PAYLOAD_TOO_LARGE',
+    severity: 'error',
+    template: 'A call over the {{limit}}-byte bodyLimit was refused.',
+    suggestion: 'The action call\'s body (every field and file in it) was over the server\'s bodyLimit (1 MB by default), so the server answered 413 and ran nothing. The error carries `status` 413 and `limit`, the bytes allowed. Raise bodyLimit for uploads, check a file\'s size before the form is sent (setCustomValidity on the file input keeps the form and tells the visitor), and show the error in an <ErrorBoundary> around the component whose useActionState dispatched the action, which a throwing action reaches. Without JavaScript the visitor gets the server\'s 413 page, which names the limit.',
+    codeExample: `// Good - refuse a file over the limit before the form is sent:
+const MAX_UPLOAD = 1_000_000; // the server's bodyLimit, less room for the other fields
+const avatar = <input type="file" name="avatar" onChange={(e) => {
+  const file = e.target.files[0];
+  e.target.setCustomValidity(file && file.size > MAX_UPLOAD ? 'Choose a file under 1 MB' : '');
+}} />;
+
+// Good - and the error reaches a boundary around the component whose
+// useActionState dispatched the action:
+const page = <ErrorBoundary fallback={({ error, reset }) => (
+  <p role="alert">{error.code === 'ERR_PAYLOAD_TOO_LARGE' ? \`Too large: the limit is \${error.limit} bytes.\` : error.message}
+    <button onClick={reset}>Try again</button></p>
+)}>
+  <Signup />
+</ErrorBoundary>;`,
+  },
+
   ACTION_FAILED: {
     code: 'ERR_ACTION_FAILED',
     severity: 'error',
     template: '{{message}}',
-    suggestion: 'The server action rejected. The message is the one the action threw, forwarded to the client by the action handler. Throw a typed error from the action and branch on its shape rather than parsing this string.',
+    suggestion: 'The server action rejected. The server refused the call or the action threw: `status` is the response\'s (403 for a CSRF check, 404 for an action it does not have, 400 for arguments it cannot read, 500 for a throw), and the message is the one the action threw, forwarded to the client by the action handler. Throw a typed error from the action and branch on its shape rather than parsing this string; a body over bodyLimit is ERR_PAYLOAD_TOO_LARGE.',
     codeExample: `// In the action, fail with something the client can read:
 export const save = action(async (data) => {
   if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });

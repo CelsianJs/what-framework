@@ -64,4 +64,8 @@ export {
   // A hydratable array whose members claim the server's nodes in order.
   _$members,
   _$member,
+  // JSX a component is handed in a prop, built where the component reads it,
+  // and a compiled read of a prop where its value is placed.
+  _$slots,
+  _$place,
 } from 'what-core/render';

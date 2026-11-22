@@ -42,4 +42,6 @@ export {
   _$outside,
   _$members,
   _$member,
+  _$slots,
+  _$place,
 } from 'what-core/render';

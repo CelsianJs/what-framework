@@ -28,7 +28,7 @@ const fixture = path.join(here, 'fixtures/signup-files.js');
 // The same JSX for both: its imports by URL for the server (a data: module),
 // by path for the client bundle.
 const compiledSource = (at) => `
-  import { useActionState } from 'what-framework';
+  import { ErrorBoundary, useActionState } from 'what-framework';
   import { Form } from ${JSON.stringify(at(path.join(here, '../src/index.js')))};
   import { signup } from ${JSON.stringify(at(fixture))};
   export function CompiledSignup() {
@@ -40,7 +40,40 @@ const compiledSource = (at) => `
       {state()?.upload ? <output>{JSON.stringify(state().upload)}</output> : null}
       <button type="submit">Create account</button>
     </Form></main>;
-  }`;
+  }
+  // The upload recipe (server README, docs/DATA.md): a size check on the file
+  // input, and the form's component in a boundary that names the limit (an
+  // action's error reaches the boundary above the component whose
+  // useActionState dispatched it). \`check\` false leaves the check out, so
+  // the server's limit answers.
+  const MAX_UPLOAD = 32 * 1024;
+  function Upload({ check }) {
+    const [state, save] = useActionState(signup, null);
+    return <Form action={save} enctype="multipart/form-data">
+      <input name="email" defaultValue={state()?.fields?.email ?? ''} />
+      <input type="file" name="avatar" onChange={(e) => {
+        const file = e.target.files[0];
+        if (check) e.target.setCustomValidity(file && file.size > MAX_UPLOAD ? 'Choose a file under 32 KB' : '');
+      }} />
+      <button type="submit">Create account</button>
+    </Form>;
+  }
+  function Recipe({ check }) {
+    return <main><ErrorBoundary fallback={({ error, reset }) => (
+      <p role="alert">
+        {error.code === 'ERR_PAYLOAD_TOO_LARGE' ? \`Too large: the limit is \${error.limit} bytes.\` : error.message}
+        <button onClick={reset}>Try again</button>
+      </p>
+    )}>
+      <Upload check={check} />
+    </ErrorBoundary></main>;
+  }
+  export function CheckedRecipe() { return <Recipe check={true} />; }
+  export function BoundaryRecipe() { return <Recipe check={false} />; }
+  // A field built before it is placed (an inspected prop): it takes the
+  // server's place while hydrating, with the file chosen in the server's.
+  function Inspecting({ field }) { return <div class="inspecting">{field ? field : null}</div>; }
+  export function InspectedUpload() { return <main><Inspecting field={<input type="file" name="avatar" />} /></main>; }`;
 
 const avatar = { name: 'avatar.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') };
 
@@ -52,14 +85,16 @@ let release = null;
 
 before(async () => {
   if (!browserAvailable) return;
-  const { CompiledSignup } = await loadCompiled(compiledSource((file) => pathToFileURL(file).href), { pluginOptions: { generate: 'ssr' } });
+  const { CompiledSignup, CheckedRecipe, BoundaryRecipe, InspectedUpload } = await loadCompiled(compiledSource((file) => pathToFileURL(file).href), { pluginOptions: { generate: 'ssr' } });
   const client = await build({
     stdin: {
       contents: `
         import { h, hydrate } from 'what-core';
         import { SignupPage } from ${JSON.stringify(fixture)};
         ${compileJSX(compiledSource((file) => file), { pluginOptions: { hydratable: true } })}
-        hydrate(h(location.pathname === '/compiled' ? CompiledSignup : SignupPage), document.body);
+        const pages = { '/compiled': CompiledSignup, '/recipe': CheckedRecipe, '/boundary': BoundaryRecipe, '/inspected': InspectedUpload };
+        window.__problems = [];
+        hydrate(h(pages[location.pathname] ?? SignupPage), document.body, { onHydrationError: (info) => window.__problems.push(info.kind) });
         window.__hydrated = true;
       `,
       resolveDir: here,
@@ -74,9 +109,13 @@ before(async () => {
     routes: [
       { path: '/', component: SignupPage, page: { mode: 'server' } },
       { path: '/compiled', component: CompiledSignup, page: { mode: 'server' } },
+      { path: '/recipe', component: CheckedRecipe, page: { mode: 'server' } },
+      { path: '/boundary', component: BoundaryRecipe, page: { mode: 'server' } },
+      { path: '/inspected', component: InspectedUpload, page: { mode: 'server' } },
       { path: '/welcome', component: () => h('h1', null, 'Welcome'), page: { mode: 'server' } },
     ],
     document: { clientEntry: '/client.js' },
+    bodyLimit: 64 * 1024,
   });
   const listener = toNodeListener(handle);
   server = http.createServer(async (req, res) => {
@@ -141,4 +180,82 @@ describe('a form with a file in Chromium', { skip: !browserAvailable }, () => {
       });
     }
   }
+});
+
+// A file over the limit, with JavaScript: the visitor is told, and keeps what
+// they typed.
+describe('the upload recipe in Chromium, a file over the limit', { skip: !browserAvailable }, () => {
+  const big = (bytes) => ({ name: 'photo.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(bytes, 120) });
+  const open = async (route) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(String(error)));
+    await page.goto(origin + route);
+    await page.waitForFunction(() => window.__hydrated === true);
+    return { context, page, errors };
+  };
+
+  it('the size check refuses it before the form is sent, naming the limit, and the form keeps the typed email', async () => {
+    received.length = 0;
+    const { context, page, errors } = await open('/recipe');
+    try {
+      const posts = [];
+      page.on('request', (request) => { if (request.method() === 'POST') posts.push(request.url()); });
+      await page.locator('[name=email]').fill('name@example.test');
+      await page.locator('[name=avatar]').setInputFiles(big(40 * 1024));
+      await page.getByRole('button', { name: 'Create account' }).click();
+      assert.equal(await page.locator('[name=avatar]').evaluate((input) => input.validationMessage), 'Choose a file under 32 KB');
+      assert.deepEqual(posts, [], 'nothing is sent');
+      assert.equal(await page.locator('[name=email]').inputValue(), 'name@example.test');
+      assert.deepEqual(received, []);
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
+
+  it('without the check, the server refuses it and the boundary names the limit', async () => {
+    received.length = 0;
+    const { context, page, errors } = await open('/boundary');
+    try {
+      await page.locator('[name=email]').fill('name@example.test');
+      await page.locator('[name=avatar]').setInputFiles(big(80 * 1024));
+      const answered = page.waitForResponse((response) => response.request().method() === 'POST');
+      await page.getByRole('button', { name: 'Create account' }).click();
+      assert.equal((await answered).status(), 413);
+      await page.getByRole('alert').waitFor();
+      assert.match(await page.getByRole('alert').textContent(), /Too large: the limit is 65536 bytes\./);
+      assert.deepEqual(received, [], 'the action did not run');
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+describe('a file input built before it is placed, in Chromium', { skip: !browserAvailable }, () => {
+  it('takes the server field\'s place, reported as prebuilt, with the file the visitor chose', async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    try {
+      let open = () => {};
+      release = new Promise((resolve) => { open = resolve; });
+      await page.goto(origin + '/inspected', { waitUntil: 'commit' });
+      await page.locator('[name=avatar]').setInputFiles(avatar);
+      await page.locator('[name=avatar]').evaluate((input) => { window.__server = input; });
+      open();
+      release = null;
+      await page.waitForFunction(() => window.__hydrated === true);
+      const after = await page.evaluate(() => {
+        const input = document.querySelector('[name=avatar]');
+        return { same: input === window.__server, files: [...input.files].map((f) => f.name), problems: window.__problems };
+      });
+      assert.deepEqual(after, { same: false, files: ['avatar.svg'], problems: ['prebuilt'] });
+    } finally {
+      await context.close();
+    }
+  });
 });

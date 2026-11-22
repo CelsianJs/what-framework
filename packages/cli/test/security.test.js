@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 // The real implementation, not a copy: an earlier copy of safePath drifted from
 // cli.js and hid both the dead-containment-check and the symlink-escape bugs.
-import { safePath, isAllowedOrigin, hostAllowance, originAllowance, targetPath, resolveFrameworkModule, guarded } from '../src/cli.js';
+import { safePath, isAllowedOrigin, originRefusal, warnRefusedOrigin, hostAllowance, originAllowance, targetPath, resolveFrameworkModule, guarded } from '../src/cli.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const testDir = join(__dirname, '.test-security');
@@ -234,4 +234,40 @@ it('the HMR origin check accepts the machine\'s own addresses when bound to ever
   assert.equal(isAllowedOrigin('http://203.0.113.7:3000', wildcard, 3000), false);
   const local = originAllowance('localhost', {}, '', interfaces);
   assert.equal(isAllowedOrigin('http://192.168.1.20:3000', local, 3000), false);
+});
+
+// Bound to every interface, the machine's own addresses are read at each
+// check: one it gave up (it moved to another network) is someone else's now,
+// and one it gained (a VPN came up) is its own.
+it('the machine addresses an HMR origin may carry are read at each check', () => {
+  let current = { en0: [{ address: '192.168.1.184', family: 'IPv4' }] };
+  const allowed = originAllowance('0.0.0.0', {}, '', () => current);
+  assert.equal(isAllowedOrigin('http://192.168.1.184:3000', allowed, 3000), true);
+  current = { en0: [{ address: '10.20.30.40', family: 'IPv4' }], utun3: [{ address: 'fd7a::1', family: 'IPv6' }] };
+  assert.equal(isAllowedOrigin('http://192.168.1.184:3000', allowed, 3000), false, 'an address the machine gave up');
+  assert.equal(isAllowedOrigin('http://10.20.30.40:3000', allowed, 3000), true, 'an address it gained');
+  assert.equal(isAllowedOrigin('http://[fd7a::1]:3000', allowed, 3000), true);
+});
+
+// A refused Origin is client data: printed with every character outside
+// printable ASCII escaped, the first 32 named and then one line for the rest,
+// and with the reason that applies.
+it('a refused HMR origin is logged escaped, capped and with its reason', () => {
+  const lines = [];
+  const warn = console.warn;
+  console.warn = (line) => lines.push(line);
+  try {
+    warnRefusedOrigin('http://evil.test\u009b2J\u009d0;x\u009c\u001b', 'r');
+    for (let i = 0; i < 40; i++) warnRefusedOrigin(`http://fill${i}.test:3000`, 'r');
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(lines[0], '[what dev] live reload refused for the page at "http://evil.test\\u009b2J\\u009d0;x\\u009c\\u001b": r');
+  assert.ok(lines.every((line) => /^[\x20-\x7e]*$/.test(line)), 'nothing but printable ASCII reaches the terminal');
+  assert.equal(lines.length, 33);
+  assert.match(lines[32], /further refused origins are not listed one by one/);
+  const allowed = originAllowance('localhost', {}, '');
+  assert.match(originRefusal('http://localhost:4000', allowed, 3000), /its port 4000 is not this dev server's \(3000\)/);
+  assert.match(originRefusal('http://evil.example:3000', allowed, 3000), /allowedHosts/);
+  assert.equal(originRefusal('http://localhost:3000', allowed, 3000), null);
 });

@@ -122,7 +122,7 @@ export function _$Island(props: IslandProps): VNode;
 // option). Returns the unmount function, as mount() does; hydrating or
 // mounting into the same container disposes the root it held.
 export interface HydrationMismatch {
-  /** tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a shadow root the client would not make), or not-hydratable (DOM built before hydrate() could claim the server's, reported once) */
+  /** tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a shadow root the client would not make), prebuilt (JSX built before the walk reached its place took the server's nodes' place), or not-hydratable (DOM built before hydrate() could claim the server's, reported once) */
   kind: string;
   /** The component whose output mismatched, or 'root'. */
   component: string;
@@ -184,3 +184,7 @@ export function _$outside<T>(build: () => T): T;
 export function _$members<T>(build: () => T, nested?: number): T;
 /** @internal A `_$members` member that is not an element or a component, adopted where it stands while hydrating. */
 export function _$member<T>(value: T, index: number): T;
+/** @internal Compiled JSX: `props` carrying `slots`, the factories of the props its JSX passed as JSX or forwarded, which the component reads as lazy getters. */
+export function _$slots<P extends object>(props: P, slots: Record<string, () => unknown>): P;
+/** @internal A compiled read of `props[key]` where its value is placed: a lazy prop is built there. */
+export function _$place(props: object, key: string): unknown;

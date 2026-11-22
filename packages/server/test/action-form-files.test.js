@@ -235,7 +235,7 @@ describe('a custom server, a middleware and a fetch endpoint', () => {
       assert.match(await page.text(), /413/);
       const call = await fetch(at, { method: 'POST', headers: { 'content-type': 'application/json', 'x-what-action': 'files/signup' }, body: JSON.stringify({ args: ['x'.repeat(64 * 1024)] }) });
       assert.equal(call.status, 413);
-      assert.deepEqual(await call.json(), { message: 'Payload too large' });
+      assert.deepEqual(await call.json(), { message: 'Payload too large', code: 'ERR_PAYLOAD_TOO_LARGE', limit: 4096 });
     } finally {
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));

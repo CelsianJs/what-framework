@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 69 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 71 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 69 of them: 40 errors and 29 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 71 of them: 42 errors and 29 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -109,6 +109,7 @@
             <li><a href="#ERR_MISSING_CLEANUP">ERR_MISSING_CLEANUP</a></li>
             <li><a href="#ERR_MISSING_KEY">ERR_MISSING_KEY</a></li>
             <li><a href="#ERR_MISSING_SIGNAL_READ">ERR_MISSING_SIGNAL_READ</a></li>
+            <li><a href="#ERR_MOUNT_TARGET_MISSING">ERR_MOUNT_TARGET_MISSING</a></li>
             <li><a href="#ERR_MOVED_IMPORT">ERR_MOVED_IMPORT</a></li>
             <li><a href="#ERR_NESTED_FLUSH_SYNC">ERR_NESTED_FLUSH_SYNC</a></li>
             <li><a href="#ERR_NO_SECURE_RANDOM">ERR_NO_SECURE_RANDOM</a></li>
@@ -116,6 +117,7 @@
             <li><a href="#ERR_OPTIMISTIC_OUTSIDE_TRANSITION">ERR_OPTIMISTIC_OUTSIDE_TRANSITION</a></li>
             <li><a href="#ERR_ORPHAN_EFFECT">ERR_ORPHAN_EFFECT</a></li>
             <li><a href="#ERR_PAGE_NO_DEFAULT_EXPORT">ERR_PAGE_NO_DEFAULT_EXPORT</a></li>
+            <li><a href="#ERR_PAYLOAD_TOO_LARGE">ERR_PAYLOAD_TOO_LARGE</a></li>
             <li><a href="#ERR_PENDING_READ_UNTRACKED">ERR_PENDING_READ_UNTRACKED</a></li>
             <li><a href="#ERR_PORTAL_TARGET_MISSING">ERR_PORTAL_TARGET_MISSING</a></li>
             <li><a href="#ERR_PRETEXT_NOT_INSTALLED">ERR_PRETEXT_NOT_INSTALLED</a></li>
@@ -146,7 +148,7 @@
           <h2 id="ERR_ACTION_FAILED">ERR_ACTION_FAILED</h2>
           <p class="subtitle">The server action rejected.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>The server action rejected. The message is the one the action threw, forwarded to the client by the action handler. Throw a typed error from the action and branch on its shape rather than parsing this string.</p>
+          <p>The server action rejected. The server refused the call or the action threw: `status` is the response's (403 for a CSRF check, 404 for an action it does not have, 400 for arguments it cannot read, 500 for a throw), and the message is the one the action threw, forwarded to the client by the action handler. Throw a typed error from the action and branch on its shape rather than parsing this string; a body over bodyLimit is ERR_PAYLOAD_TOO_LARGE.</p>
 <pre><code>// In the action, fail with something the client can read:
 export const save = action(async (data) =&gt; {
   if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });
@@ -458,7 +460,7 @@ export default { plugins: [reactCompat()] };</code></pre>
           <h2 id="ERR_HYDRATION_MISMATCH">ERR_HYDRATION_MISMATCH</h2>
           <p class="subtitle">Hydration mismatch (kind) in &lt;component&gt; at path: the server rendered found where the client renders expected. Recovery: recovery.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
-          <p>hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a component's key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key (a component's data-hk, or a keyed list whose server rows have other keys, or keys in another order, or keys hydration cannot compare (anything but strings and finite numbers): expected and found list them), shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, move (a keyed list: each server row was taken as the row of its own key and moved into the client's order; a row is never given to another key, so what was typed in it stays with its key), or none for a component's key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).</p>
+          <p>hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a component's key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key (a component's data-hk, or a keyed list whose server rows have other keys, or keys in another order, or keys hydration cannot compare (anything but strings and finite numbers): expected and found list them), shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced), prebuilt (JSX the client built before the walk reached its place: in a variable, read by a component that inspects it, or given to an h() component; it takes the server's place, and what the user changed in a form control there is kept) or not-hydratable; component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, move (a keyed list: each server row was taken as the row of its own key and moved into the client's order; a row is never given to another key, so what was typed in it stays with its key), or none for a component's key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).</p>
 <pre><code>// Bad — the client renders a value the server could not know:
 import { h, hydrate } from 'what-framework';
 
@@ -644,6 +646,19 @@ if (count &gt; 5) {}                  // compares the function's text: always fa
 const label = `Total: ${count()}`;  // &quot;Total: 3&quot;
 if (count() &gt; 5) {}</code></pre>
 
+          <h2 id="ERR_MOUNT_TARGET_MISSING">ERR_MOUNT_TARGET_MISSING</h2>
+          <p class="subtitle">fn() got no container element.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>, <code>what-react</code>.</p>
+          <p>mount() and hydrate() render into an element that is in the page when they run: pass the element, or a CSS selector that matches one. The full-page document what-server renders (renderDocument, createRequestHandler, the scaffold) puts the route directly under &lt;body&gt; with no wrapper of its own, so its client hydrates document.body. Use a selector such as #app only where the page writes that element itself.</p>
+<pre><code>// Bad - the built-in document has no #app wrapper:
+hydrate(&lt;App /&gt;, document.getElementById('app'));
+
+// Good - the built-in document:
+hydrate(&lt;App /&gt;, document.body);
+
+// Good - a page that writes &lt;div id=&quot;app&quot;&gt; itself:
+hydrate(&lt;App /&gt;, '#app');</code></pre>
+
           <h2 id="ERR_MOVED_IMPORT">ERR_MOVED_IMPORT</h2>
           <p class="subtitle">&quot;name&quot; is not exported by source. answer</p>
           <p><span class="badge badge-error">error</span> Raised by <code>eslint-plugin-what</code>, <code>what-compiler</code>.</p>
@@ -745,6 +760,26 @@ export function Home() { return &lt;h1&gt;Hi&lt;/h1&gt;; }
 
 // Good:
 export default function Home() { return &lt;h1&gt;Hi&lt;/h1&gt;; }</code></pre>
+
+          <h2 id="ERR_PAYLOAD_TOO_LARGE">ERR_PAYLOAD_TOO_LARGE</h2>
+          <p class="subtitle">A call over the limit-byte bodyLimit was refused.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
+          <p>The action call's body (every field and file in it) was over the server's bodyLimit (1 MB by default), so the server answered 413 and ran nothing. The error carries `status` 413 and `limit`, the bytes allowed. Raise bodyLimit for uploads, check a file's size before the form is sent (setCustomValidity on the file input keeps the form and tells the visitor), and show the error in an &lt;ErrorBoundary&gt; around the component whose useActionState dispatched the action, which a throwing action reaches. Without JavaScript the visitor gets the server's 413 page, which names the limit.</p>
+<pre><code>// Good - refuse a file over the limit before the form is sent:
+const MAX_UPLOAD = 1_000_000; // the server's bodyLimit, less room for the other fields
+const avatar = &lt;input type=&quot;file&quot; name=&quot;avatar&quot; onChange={(e) =&gt; {
+  const file = e.target.files[0];
+  e.target.setCustomValidity(file &amp;&amp; file.size &gt; MAX_UPLOAD ? 'Choose a file under 1 MB' : '');
+}} /&gt;;
+
+// Good - and the error reaches a boundary around the component whose
+// useActionState dispatched the action:
+const page = &lt;ErrorBoundary fallback={({ error, reset }) =&gt; (
+  &lt;p role=&quot;alert&quot;&gt;{error.code === 'ERR_PAYLOAD_TOO_LARGE' ? `Too large: the limit is ${error.limit} bytes.` : error.message}
+    &lt;button onClick={reset}&gt;Try again&lt;/button&gt;&lt;/p&gt;
+)}&gt;
+  &lt;Signup /&gt;
+&lt;/ErrorBoundary&gt;;</code></pre>
 
           <h2 id="ERR_PENDING_READ_UNTRACKED">ERR_PENDING_READ_UNTRACKED</h2>
           <p class="subtitle">call was read in a component body. The body runs once, so this reads the pending state once and it never changes on screen.</p>

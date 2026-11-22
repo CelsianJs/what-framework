@@ -21,7 +21,7 @@
 
 import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument, renderDocumentStream } from '../index.js';
-import { bodyLimitOf, createActionHandler, createFormPostHandler, parseRequestBody, readFetchBodyCapped, readFormBody, tooLargeResponse } from '../action-handler.js';
+import { UNPARSABLE_BODY, bodyLimitOf, createActionHandler, createFormPostHandler, parseRequestBody, readFetchBodyCapped, readFormBody, tooLargeResponse } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
 import { generateCsrfToken } from '../actions.js';
 import { createResponse } from '../response.js';
@@ -82,13 +82,13 @@ function readCookie(cookieHeader, name) {
 
 // Read + parse the action body with the handler's `bodyLimit`: { body }, or
 // { tooLarge: true } when over the limit so the caller can respond 413 (DoS
-// guard parity with the Node connect/express middleware). A body that does
-// not parse is an empty one.
+// guard parity with the Node connect/express middleware). A body that cannot
+// be read or does not parse is UNPARSABLE_BODY, which runs no action (400).
 async function readActionBody(request, limit) {
   let read;
-  try { read = await readFetchBodyCapped(request, limit); } catch { return { body: {} }; }
+  try { read = await readFetchBodyCapped(request, limit); } catch { return { body: UNPARSABLE_BODY }; }
   if (read.tooLarge) return read;
-  try { return { body: await parseRequestBody(read.bytes, request.headers.get('content-type') || '') }; } catch { return { body: {} }; }
+  try { return { body: await parseRequestBody(read.bytes, request.headers.get('content-type') || '') }; } catch { return { body: UNPARSABLE_BODY }; }
 }
 
 // Same cap for the revalidate webhook: the secret is only checked once the body
@@ -465,7 +465,8 @@ export function createRequestHandler(options = {}) {
     /** @type {any} */
     let posted = null;
     const form = request.method === 'POST' ? await readFormBody(request.clone(), bodyLimit) : null;
-    if (form !== null) {
+    // A body that does not parse names no action, and reaches the page.
+    if (form !== null && !form.unparsable) {
       // A page's form: a visitor without JavaScript reads the 413 as a page.
       if (form.tooLarge) return tooLargeResponse(request.headers, bodyLimit);
       posted = await formPostHandler({

@@ -7,7 +7,7 @@
 // actions.js (handleActionRequest) — no security logic is duplicated here.
 
 import { handleActionRequest } from './actions.js';
-import { addField, RESERVED_FIELDS } from './fields.js';
+import { addField, RESERVED_FIELDS, urlEncodedFields, urlEncodedPairs } from './fields.js';
 import { runInActionContext } from './context.js';
 import { isHost, nodeRequestHost, requestOrigin, requestScheme, requestUrl } from './request-url.js';
 
@@ -51,7 +51,7 @@ function tooLargeAnswer(headers, limit) {
       body: `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Too large</title></head><body><h1>413 — Too large</h1><p>What you sent is over the ${limit} bytes this site accepts in one request. Go back and shorten it.</p></body></html>`,
     };
   }
-  return { status: 413, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Payload too large' }) };
+  return { status: 413, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Payload too large', code: 'ERR_PAYLOAD_TOO_LARGE', limit }) };
 }
 
 function tooLargeIsPage(headers) {
@@ -379,6 +379,7 @@ export function createActionHandler(options = {}) {
     const headers = lowerHeaders(reqLike.headers);
     const headerActionId = headers['x-what-action'];
     const type = formBodyType(headers['content-type']);
+    if (reqLike.body === UNPARSABLE_BODY) return unparsableAnswer(headers);
 
     // --- Plain HTML form post (progressive enhancement) ---
     if (!headerActionId && type !== null) {
@@ -448,6 +449,8 @@ export function createFormPostHandler(options = {}) {
       const read = await readFormBody(reqLike.request.clone(), limit);
       if (read === null) return null;
       if (read.tooLarge) return { response: tooLargeAnswer(reqLike.request.headers, limit) };
+      // A body that does not parse names no action: the page's own.
+      if (read.unparsable) return null;
       form = read.fields;
     }
     form = form || {};
@@ -517,7 +520,7 @@ async function answerAction(req, res, handle, search, limit) {
     res.end(JSON.stringify({ message: 'Invalid request body' }));
     return;
   }
-  const query = Object.fromEntries(new URLSearchParams(search));
+  const query = Object.fromEntries(urlEncodedPairs(search));
   const url = requestUrl(requestScheme(req.headers, req.socket && req.socket.encrypted ? 'https' : 'http'), nodeRequestHost(req.headers), req.url);
   if (url === null) {
     res.writeHead(400, { 'content-type': 'application/json' });
@@ -531,14 +534,18 @@ async function answerAction(req, res, handle, search, limit) {
 
 /** Parse a text action request body by content type: form-urlencoded -> fields object, else JSON. */
 export function parseActionBody(raw, contentType) {
-  if (formBodyType(contentType) === 'urlencoded') {
-    const fields = {};
-    for (const [k, v] of new URLSearchParams(String(raw))) addField(fields, k, v);
-    return fields;
-  }
+  if (formBodyType(contentType) === 'urlencoded') return urlEncodedFields(raw);
   if (raw == null || raw === '') return {};
   return JSON.parse(String(raw));
 }
+
+/**
+ * The body of a request whose body did not parse as its content type says
+ * (a JSON syntax error, a multipart body with the wrong boundary or cut
+ * short): the readers hand it to the action handler in place of the body,
+ * which answers 400 and calls no action. Never `{}`, which is an empty form.
+ */
+export const UNPARSABLE_BODY = /* @__PURE__ */ Object.freeze({});
 
 /**
  * Parse an action request body, its bytes as read (under the body limit), by
@@ -557,12 +564,12 @@ export async function parseRequestBody(bytes, contentType) {
 
 /**
  * A form body of `request`: null when its content type is no form's,
- * { tooLarge: true } over `limit`, else { fields } (none for a body that is
- * not the form its content type says).
+ * { tooLarge: true } over `limit`, { unparsable: true } for a body that is not
+ * the form its content type says, else { fields }.
  *
  * @param {Request} request
  * @param {number} limit
- * @returns {Promise<{ fields: Record<string, any>, tooLarge?: undefined } | { tooLarge: true, fields?: undefined } | null>}
+ * @returns {Promise<{ fields: Record<string, any>, tooLarge?: undefined, unparsable?: undefined } | { tooLarge: true, fields?: undefined, unparsable?: undefined } | { unparsable: true, fields?: undefined, tooLarge?: undefined } | null>}
  */
 export async function readFormBody(request, limit) {
   const contentType = request.headers.get('content-type') || '';
@@ -572,8 +579,14 @@ export async function readFormBody(request, limit) {
   try {
     return { fields: await parseRequestBody(read.bytes, contentType) };
   } catch {
-    return { fields: {} };
+    return { unparsable: true };
   }
+}
+
+// The answer to an action call or a form posted to the action endpoint whose
+// body does not parse: 400, as a page or as JSON by the same rule as the 413.
+function unparsableAnswer(headers) {
+  return tooLargeIsPage(headers) ? htmlResponse(400, 'The form could not be read.') : jsonResponse(400, { message: 'Invalid request body' });
 }
 
 /**
@@ -656,13 +669,13 @@ export function fetchActionHandler(options = {}) {
   const limit = bodyLimitOf(options);
   const handle = createActionHandler(options);
   return async function (request) {
-    let body = {};
+    let body;
     try {
       const read = await readFetchBodyCapped(request, limit);
       if (read.tooLarge) return tooLargeResponse(request.headers, limit);
       body = await parseRequestBody(read.bytes, request.headers.get('content-type') || '');
     } catch {
-      body = {};
+      body = UNPARSABLE_BODY;
     }
     let query = {};
     try {

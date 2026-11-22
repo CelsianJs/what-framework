@@ -20,3 +20,70 @@ export function addField(fields, key, value) {
     fields[key] = [fields[key], value];
   }
 }
+
+// --- application/x-www-form-urlencoded ---
+// The name/value pairs of an urlencoded string, exactly as URLSearchParams
+// reads them (a leading `?` dropped, `+` a space, `%XX` a byte, the bytes
+// UTF-8 with U+FFFD for what is not, a pair with no `=` an empty value), in
+// time linear in its length on every Node version. Every form body and query
+// string the framework reads from a request goes through here: on Node
+// 24.22.3 URLSearchParams is quadratic in the pairs that have no `=`, and a
+// 1 MB body of `a&a&…` held the event loop for seconds before any check ran.
+
+const utf8 = /* @__PURE__ */ new TextEncoder();
+const utf8Text = /* @__PURE__ */ new TextDecoder();
+
+// `each(name, value)` for every pair of `input`, in order.
+function eachUrlEncoded(input, each) {
+  const s = String(input);
+  for (let start = s.charCodeAt(0) === 63 ? 1 : 0; start <= s.length;) {
+    let end = s.indexOf('&', start);
+    if (end === -1) end = s.length;
+    if (end > start) {
+      const pair = s.slice(start, end);
+      const eq = pair.indexOf('=');
+      if (eq === -1) each(decodePart(pair), '');
+      else each(decodePart(pair.slice(0, eq)), decodePart(pair.slice(eq + 1)));
+    }
+    start = end + 1;
+  }
+}
+
+/** @returns {Array<[string, string]>} */
+export function urlEncodedPairs(input) {
+  const pairs = [];
+  eachUrlEncoded(input, (name, value) => pairs.push([name, value]));
+  return pairs;
+}
+
+function decodePart(raw) {
+  const text = raw.indexOf('+') === -1 ? raw : raw.replaceAll('+', ' ');
+  if (text.indexOf('%') === -1) return text;
+  const bytes = utf8.encode(text);
+  const out = new Uint8Array(bytes.length);
+  let n = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    const high = i + 2 < bytes.length && bytes[i] === 37 ? hexValue(bytes[i + 1]) : -1;
+    const low = high === -1 ? -1 : hexValue(bytes[i + 2]);
+    if (low === -1) {
+      out[n++] = bytes[i];
+    } else {
+      out[n++] = high * 16 + low;
+      i += 2;
+    }
+  }
+  return utf8Text.decode(out.subarray(0, n));
+}
+
+function hexValue(byte) {
+  if (byte >= 48 && byte <= 57) return byte - 48;
+  if (byte >= 65 && byte <= 70) return byte - 55;
+  return byte >= 97 && byte <= 102 ? byte - 87 : -1;
+}
+
+/** The fields of an urlencoded string: one value per name, an array for a repeated one. */
+export function urlEncodedFields(input) {
+  const fields = {};
+  eachUrlEncoded(input, (name, value) => addField(fields, name, value));
+  return fields;
+}

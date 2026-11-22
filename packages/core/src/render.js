@@ -9,7 +9,7 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _setOutsideRead, _mountTarget, _handleNavigationSignal } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
@@ -20,6 +20,7 @@ export { effect, untrack };
 // condition value actually changes, not on every dependency write). The root
 // entry's `memo` is React's component memo.
 export { memo as _$memo };
+export { _place as _$place };
 // What `<Counter client:idle />` compiles to: an island that hydrates itself.
 export { _$Island } from './components.js';
 // The compiler rewrites `sig() === row.key` in keyed .map() rows to a selector.
@@ -70,6 +71,16 @@ function lazyChildren(factory) {
   return lazy;
 }
 
+// `children` (an array, or the factory of compiled JSX) and the slots of
+// `props` (_$slots) on `merged`, the copy a compiled component runs with:
+// what ends the burst of their reads, or null.
+function lazyProps(Component, merged, props, children) {
+  const slots = props != null ? props._$slots : undefined;
+  if (typeof children === 'function') return _installLazyChildren(Component, merged, lazyChildren(children), slots);
+  if (children != null && children.length > 0) merged.children = children.length === 1 ? children[0] : children;
+  return slots !== undefined ? _installLazyChildren(Component, merged, null, slots) : null;
+}
+
 // --- _$componentVNode(Component, props, children) ---
 // The VNode half of _$createComponent: same argument protocol, stopping one step
 // short of building anything.
@@ -88,14 +99,19 @@ export function _$componentVNode(Component, props, children, devLoc) {
 function componentVNode(Component, props, children) {
   // Deferred children (compiled JSX): the compiler passes a zero-arg factory
   // when children contain elements, so their DOM is not built before this
-  // component runs. hydrate() reads the _$lazyChildren marker, so the
+  // component runs, and the factories of the props it passed JSX in
+  // (_$slots). hydrate() reads the _$lazyChildren and _$slots markers, so the
   // protocol survives the unbuilt route intact.
-  if (typeof children === 'function') {
+  const slots = props != null ? props._$slots : undefined;
+  const lazy = typeof children === 'function';
+  if (lazy || slots !== undefined) {
     // Copy first. The lazy marker is an expando, and `props` may be a
     // user-owned object (a lone JSX spread, or a hand-written call).
     props = props ? Object.assign({}, props) : {};
-    Object.defineProperty(props, '_$lazyChildren', { value: lazyChildren(children), configurable: true });
-    return new VNode(Component, props, [], null);
+    if (lazy) Object.defineProperty(props, '_$lazyChildren', { value: lazyChildren(children), configurable: true });
+    else if (children && children.length > 0) props.children = children.length === 1 ? children[0] : children;
+    if (slots !== undefined) Object.defineProperty(props, '_$slots', { value: slots, configurable: true });
+    return new VNode(Component, props, lazy ? [] : children || [], null);
   }
   if (children && children.length > 0) {
     const mergedChildren = children.length === 1 ? children[0] : children;
@@ -109,6 +125,16 @@ function componentVNode(Component, props, children) {
       : { children: mergedChildren };
   }
   return new VNode(Component, props || {}, children || [], null);
+}
+
+/**
+ * Compiled JSX: `props` with `slots`, the factories of the props its JSX
+ * passed as JSX or forwarded (`header={<Nav />}`, `fallback={props.fallback}`),
+ * which the component reads as lazy getters (dom.js _installLazyChildren).
+ */
+export function _$slots(props, slots) {
+  Object.defineProperty(props, '_$slots', { value: slots });
+  return props;
 }
 
 // --- _$createComponent(Component, props, children, devLoc) ---
@@ -127,14 +153,7 @@ export function _$createComponent(Component, props, children, devLoc) {
   // prototype, so `props.__proto__` / `props.constructor` cannot lead a write
   // keyed by user data onto Object.prototype.
   const merged = Object.assign(Object.create(null), props);
-  /** @type {(() => void) | null} */
-  let endChildrenPass = null;
-  if (typeof children === 'function') {
-    endChildrenPass = _installLazyChildren(Component, merged, lazyChildren(children));
-  } else if (children != null && children.length > 0) {
-    merged.children = children.length === 1 ? children[0] : children;
-  }
-  return _renderComponent(Component, merged, endChildrenPass, false, devLoc);
+  return _renderComponent(Component, merged, lazyProps(Component, merged, props, children), false, devLoc);
 }
 
 // A class component runs as a function component that constructs it and calls
@@ -2301,6 +2320,7 @@ const outer = [];
 let session = null;
 
 function newSession(container, onError, ownerRoot) {
+  _setOutsideRead(_$outside);
   return {
     root: container,
     onError,
@@ -2377,9 +2397,14 @@ export function isHydrating() {
   return cur !== null && cur.h;
 }
 
-/** @internal Run `fn` when the hydration walking now is done; false when none is. */
+/**
+ * @internal Run `fn` when the hydration walking now is done; false when none
+ * is. A client build inside the walk waits for it too: what it builds may
+ * take a claimed node's place (placeBuilt), whose user changes are shown
+ * once the walk is done.
+ */
 export function _afterWalk(fn) {
-  if (cur === null || !cur.h || session === null) return false;
+  if (cur === null || session === null) return false;
   session.after.push(fn);
   return true;
 }
@@ -2414,7 +2439,7 @@ function clientBuild(fn, a, b, c) {
  * for every mismatch, in production too.
  */
 export function hydrate(tree, container, options) {
-  if (typeof container === 'string') container = document.querySelector(container);
+  container = _mountTarget(container, 'hydrate');
   /** @type {() => void} */
   let unmount = () => {};
   createRoot((dispose) => {
@@ -2659,7 +2684,8 @@ function mismatch(kind, expected, found, at, recovery = 'client-render') {
   const s = session;
   const region = regionOf(cur);
   if (frozen()) return;
-  if (kind !== 'text') s.ordered = false;
+  // A prebuilt node took the server's place in the same structure.
+  if (kind !== 'text' && kind !== 'prebuilt') s.ordered = false;
   if (s.reported.has(region)) return;
   s.reported.add(region);
   if (!__DEV__ && s.onError === null) return;
@@ -2923,11 +2949,22 @@ function adopt(value) {
     // An array the server bracketed (one a component or a reactive child
     // returned) is walked between its markers, so what follows it starts
     // after its closing one: a boundary or a region after it finds its own
-    // opening marker there.
+    // opening marker there. One whose first node claimed the server's in
+    // place (the nodes a component adopted, which it returns) was walked as
+    // it was built: markers at the cursor are the next value's.
     const at = nextOwn(cur);
-    const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;
+    const first = value[0];
+    const claimed = _isDomNode(first) && first.parentNode === cur.p;
+    const close = at !== null && isMarker(at, ARRAY_OPEN) && !claimed ? closeOf(at, ARRAY_CLOSE) : null;
     if (close !== null) within(at, close, adoptEach, value);
-    else adoptEach(value);
+    else {
+      adoptEach(value);
+      // Its claims stepped past the server's opening marker: the closing
+      // one, where the walk stands now, is passed too, so what follows
+      // finds its own markers.
+      const open = claimed ? first.previousSibling : null;
+      if (open !== null && isMarker(open, ARRAY_OPEN) && nextOwn(cur) === closeOf(open, ARRAY_CLOSE)) cur.n = cur.n.nextSibling;
+    }
     return;
   }
   if (isVNode(value)) {
@@ -2992,23 +3029,33 @@ function adoptNode(node) {
 }
 
 // Built DOM where the server rendered the same JSX: the server's nodes for it
-// are consumed by the built nodes' structure and replaced by them.
+// are consumed by the built nodes' structure and replaced by them. JSX built
+// off the walk (_$outside) is reported where it replaces the server's nodes
+// (kind prebuilt), and what the user changed in the server's form controls
+// there goes to the built ones (carryFields).
 function placeBuilt(c, value) {
   if (frozen()) return;
   const nodes = value.nodeType === 11 ? Array.from(value.childNodes) : [value];
   splitHere(c);
   let same = true;
+  let report = session.prebuilt.has(value);
   for (let i = 0; i < nodes.length && same; i++) {
     const b = nodes[i];
     if (b.nodeType === 1) {
       const s = next(c);
       if (s !== null && s.nodeType === 1 && s.localName === b.localName) {
+        if (report) mismatch('prebuilt', describe(b), describe(s), s);
+        report = false;
+        carryFields(s, b);
         c.n = s.nextSibling;
         s.remove();
       } else {
         same = false;
       }
     } else if (b.nodeType === 3) {
+      const s = next(c);
+      if (report && b.data !== '' && s !== null && s.nodeType === 3) mismatch('prebuilt', describe(b), describe(s), s);
+      report = false;
       same = dropText(c, b.data);
     } else if (b.nodeType === 8 && (b.data === 'fn' || b.data === 'list')) {
       const s = nextOwn(c);
@@ -3026,6 +3073,49 @@ function placeBuilt(c, value) {
   }
   if (!same) mismatch('tag', describe(nodes[0]), describe(next(c)), next(c) || c.p);
   c.p.insertBefore(value, c.n);
+}
+
+// What the user changed in the server's form controls in `server` (the
+// element and its descendants) goes to the built controls in `built` of the
+// same tag, type and name, taken in order: the walk shows it once it is done
+// (walkDone), and a file input gets the files chosen in it.
+function carryFields(server, built) {
+  const from = controlsIn(server);
+  if (from.length === 0) return;
+  const to = controlsIn(built);
+  restoreFields = _restoreFields;
+  let j = 0;
+  for (const f of from) {
+    let k = j;
+    while (k < to.length && !(to[k].localName === f.localName && to[k].type === f.type && to[k].name === f.name)) k++;
+    if (k === to.length) continue;
+    const t = to[k];
+    j = k + 1;
+    if (f.type === 'file') {
+      if (f.files !== null && f.files.length > 0) t.files = f.files;
+    } else if (f.type === 'radio') {
+      if (f.checked !== f.defaultChecked) session.fields.push([t, f.checked]);
+    } else {
+      const changed = [];
+      _changedFields(f, changed, session.radios);
+      for (const [, shown, live] of changed) {
+        if (live === undefined) session.fields.push([t, shown]);
+        else if (t.options.length === shown.length) {
+          t._$chosen = true;
+          session.fields.push([t, [...t.options], live]);
+        }
+      }
+    }
+  }
+}
+
+// In document order, which a selector list on a detached tree does not give
+// in every DOM (jsdom).
+function controlsIn(el) {
+  if (FIELD_TAGS.has(el.localName)) return [el];
+  const controls = [];
+  for (const d of el.getElementsByTagName('*')) if (FIELD_TAGS.has(d.localName)) controls.push(d);
+  return controls;
 }
 
 // Remove `text` from the server's text at the cursor; false when it is not
@@ -3186,7 +3276,8 @@ function componentArgs(vnode) {
   const merged = Object.assign(Object.create(null), props);
   if (children.length > 0) merged.children = children.length === 1 ? children[0] : children;
   const lazy = props && props._$lazyChildren;
-  return [Component, merged, lazy ? _installLazyChildren(Component, merged, lazy) : null];
+  const slots = props && props._$slots;
+  return [Component, merged, lazy || slots ? _installLazyChildren(Component, merged, lazy, slots) : null];
 }
 
 // A component, hydrated: an owner of its own with the owner path the server
@@ -3652,6 +3743,18 @@ function placeInserter(c, inserter) {
 // mounted, as mountSuspense does.
 
 // The server's closing marker for a boundary whose opening marker is `at`.
+// The node a boundary's own markers start at: the opening marker of an array
+// around the boundary, which the walk has not entered (an array whose members
+// claim where they are created), is passed, as an element's claim passes it.
+function boundaryAt(c) {
+  let at = nextOwn(c);
+  while (at !== null && isMarker(at, ARRAY_OPEN)) {
+    c.n = at.nextSibling;
+    at = nextOwn(c);
+  }
+  return at;
+}
+
 function boundaryClose(at) {
   return at !== null && (isMarker(at, BOUNDARY_OPEN) || isMarker(at, BOUNDARY_FALLBACK)) ? closeOf(at, BOUNDARY_CLOSE) : null;
 }
@@ -3671,6 +3774,7 @@ function awaitStream(at, close, adoptFallback, resume) {
   const owner = getOwner();
   const holder = _ownerCounter(_currentComponent(), session.ownerRoot);
   const counter = holder._ownerChildren;
+  const inRows = holder._inRows;
   const { root, onError, ownerRoot } = session;
   within(at, close, () => {
     const pc = cur;
@@ -3688,6 +3792,7 @@ function awaitStream(at, close, adoptFallback, resume) {
     if (at.parentNode === null || (owner !== null && _isDisposed(owner))) return;
     runWithOwner(owner, () => resume((fn) => resumeIn(newSession(root, onError, ownerRoot), at, close, () => {
       holder._ownerChildren = counter;
+      holder._inRows = inRows;
       fn();
     })));
   };
@@ -3722,17 +3827,18 @@ function adoptLeniently(content) {
  * boundary's owner.
  */
 function hydrateErrorBoundary(vnode) {
-  const { errorState, fallback, reset, handleError } = vnode.props;
+  const { errorState, reset, handleError } = vnode.props;
   const children = vnode.children || [];
   const contentFor = (error) => {
     if (!error) return children;
+    const fallback = vnode.props.fallback;
     return typeof fallback === 'function' ? fallback({ error, reset }) : fallback;
   };
   const c = cur;
   const parent = c.p;
   const owner = getOwner();
   pendingKey = null;
-  const at = nextOwn(c);
+  const at = boundaryAt(c);
   const close = boundaryClose(at);
   /** @type {any} */
   let startComment = at;
@@ -3895,7 +4001,7 @@ function hydrateSuspense(vnode) {
   // the page hydrated settles once that walk is over, outside any session.
   const { root, onError, ownerRoot } = session;
   pendingKey = null;
-  const at = nextOwn(c);
+  const at = boundaryAt(c);
   const close = boundaryClose(at);
   /** @type {any} */
   let start = at;
@@ -3915,7 +4021,7 @@ function hydrateSuspense(vnode) {
   };
   const buildFallback = () => {
     fallbackShown = true;
-    const content = b.fallback;
+    const content = clientBuild(() => b.fallback);
     fallbackArm = runWithOwner(owner, () => createRoot((dispose) => {
       for (const v of Array.isArray(content) ? content : [content]) {
         const node = clientBuild(/** @type {Function} */ (vnodeRenderer), v, end.parentNode);
@@ -4011,7 +4117,7 @@ function hydrateSuspense(vnode) {
   if (close === null) {
     splitHere(c);
     start = parent.insertBefore(document.createComment(BOUNDARY_OPEN), c.n);
-    if (showsFallback(c, b.fallback)) {
+    if (showsFallback(c, b)) {
       end = parent.insertBefore(document.createComment(BOUNDARY_CLOSE), /** @type {Node} */ (next(c)).nextSibling);
       within(start, end, childrenOrFallback);
     } else {
@@ -4042,10 +4148,12 @@ function hydrateSuspense(vnode) {
 
 // Whether the fallback a markerless <Suspense> would show is what the cursor
 // stands on: the same tag, attributes and text.
-function showsFallback(c, fallback) {
+function showsFallback(c, b) {
   const s = next(c);
-  if (s === null || s.nodeType !== 1 || fallback == null) return false;
+  if (s === null || s.nodeType !== 1) return false;
   const built = clientBuild(() => createRoot((dispose) => {
+    const fallback = b.fallback;
+    if (fallback == null) return null;
     const node = typeof fallback === 'function' ? fallback() : fallback;
     const out = _isDomNode(node) ? node : /** @type {Function} */ (vnodeRenderer)(node, c.p);
     dispose();
@@ -4182,12 +4290,12 @@ function enterNode(el, t) {
 /** A template's root: the server's element while hydrating, a clone otherwise. `flags` 1: enter it; 2: a binding writes its content. */
 export function _$claim(tmpl, flags) {
   const c = cur;
-  if (c === null || !c.h) {
+  const t = c === null || !c.h ? null : tmpl.root();
+  if (t === null || (headDepth > 0 && HEAD_TAGS.has(t.localName) && next(c)?.localName !== t.localName)) {
     const el = tmpl();
     if (flags & 1) enterNode(el, undefined);
     return el;
   }
-  const t = tmpl.root();
   const el = takeElement(c, t.localName);
   if (el === null) {
     const built = recover(c, tmpl(), describe(t));
@@ -4419,14 +4527,7 @@ export function _$hcreateComponent(Component, props, children, devLoc) {
   const proto = Component.prototype;
   if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
   const merged = Object.assign(Object.create(null), props);
-  /** @type {(() => void) | null} */
-  let endChildrenPass = null;
-  if (typeof children === 'function') {
-    endChildrenPass = _installLazyChildren(Component, merged, lazyChildren(children));
-  } else if (children != null && children.length > 0) {
-    merged.children = children.length === 1 ? children[0] : children;
-  }
-  return adoptComponent(Component, merged, endChildrenPass, devLoc);
+  return adoptComponent(Component, merged, lazyProps(Component, merged, props, children), devLoc);
 }
 
 /**
@@ -4458,6 +4559,24 @@ export function _$member(value, index) {
   return value;
 }
 
+// While <Head> builds its compiled children (head.js), a <title>, <meta> or
+// <link> among them goes to document.head, never where Head stands, and the
+// server wrote none there: one the walk does not stand on is built on the
+// client and claims nothing (_$claim). Head's other children claim the
+// server's nodes where they render.
+let headDepth = 0;
+const HEAD_TAGS = /* @__PURE__ */ new Set(['title', 'meta', 'link']);
+
+/** @internal <Head>'s compiled children, built where the walk stands, their head tags built on the client. */
+export function _headChildren(children) {
+  headDepth++;
+  try {
+    return children();
+  } finally {
+    headDepth--;
+  }
+}
+
 /**
  * JSX built before the walk reaches the place it renders in (assigned to a
  * variable, passed as a prop other than children): built on the client while
@@ -4467,6 +4586,12 @@ export function _$outside(build) {
   const c = cur;
   if (c === null || !c.h) return build();
   const value = clientBuild(build);
-  if (value !== null && typeof value === 'object') session.prebuilt.add(value);
+  builtOutside(value);
   return value;
+}
+
+function builtOutside(value) {
+  if (value === null || typeof value !== 'object') return;
+  session.prebuilt.add(value);
+  if (Array.isArray(value)) for (const v of value) builtOutside(v);
 }

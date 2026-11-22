@@ -570,11 +570,12 @@ function stepFunction(seg, fn, owner, attempts) {
   const holder = _ownerCounter(owner || null, seg.r.ctx);
   const children = holder._ownerChildren;
   const resources = holder._ownerResources;
+  const inRows = holder._inRows;
   let value;
   try {
     value = inFrame(owner, fn._mapArray ? () => _mapArrayToArray(fn) : fn);
   } catch (error) {
-    if (isThenable(error)) return suspend(seg, fn, owner, attempts, children, resources, error);
+    if (isThenable(error)) return suspend(seg, fn, owner, attempts, [children, resources, inRows], error);
     _claimThrow(error);
     // A throwing child renders an empty region, as in renderToString: one bad
     // binding must not take its component down with it.
@@ -600,6 +601,7 @@ function stepComponent(seg, node, owner, attempts) {
   const holder = _ownerCounter(owner || null, seg.r.ctx);
   const children = holder._ownerChildren;
   const resources = holder._ownerResources;
+  const inRows = holder._inRows;
   const frame = _beginComponentSSR(node.tag, owner);
   // A built-in the compiler lowers away has no key (hydration-data.js).
   const stepped = _assignOwnerPath(frame, owner, seg.r.ctx);
@@ -611,7 +613,7 @@ function stepComponent(seg, node, owner, attempts) {
     result = _runComponentAsync(frame, () => node.tag(_componentProps(node)));
   } catch (error) {
     seg.key = outer;
-    if (isThenable(error)) return suspend(seg, node, owner, attempts, children, resources, error);
+    if (isThenable(error)) return suspend(seg, node, owner, attempts, [children, resources, inRows], error);
     throw error;
   } finally {
     _endComponentSSR(frame);
@@ -633,8 +635,8 @@ function stepComponent(seg, node, owner, attempts) {
 // `children` and `resources` are the owner's counters before the attempt (see
 // hydration-data.js in what-core); restoring them gives the retry the same
 // owner path and resource keys, so it finds what the first attempt started.
-function suspend(seg, node, owner, attempts, children, resources, thenable) {
-  push(seg, mark(RETRY, { node, attempts: attempts + 1, children, resources, row: openRow(seg, owner) }), owner);
+function suspend(seg, node, owner, attempts, [children, resources, inRows], thenable) {
+  push(seg, mark(RETRY, { node, attempts: attempts + 1, children, resources, inRows, row: openRow(seg, owner) }), owner);
   return thenable;
 }
 
@@ -650,6 +652,7 @@ function retry(seg, marker, owner) {
   holder._ownerChildren = marker.children;
   holder._ownerResources = marker.resources;
   _leaveRow(owner || null, seg.r.ctx, marker.row);
+  holder._inRows = marker.inRows;
   return typeof node === 'function'
     ? stepFunction(seg, node, owner, attempts)
     : stepComponent(seg, node, owner, attempts);

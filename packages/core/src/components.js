@@ -10,7 +10,7 @@ import {
 import { report, recordObservation } from './diagnostics.js';
 import { isServerRender } from './server-context.js';
 import { hydrate, insert, _enableSuspense, _hydrationErrorHook } from './render.js';
-import { createDOM, _handleNavigationSignal } from './dom.js';
+import { createDOM, _handleNavigationSignal, _place } from './dom.js';
 
 // --- memo ---
 // In the run-once model, components execute exactly once and never re-render.
@@ -127,8 +127,13 @@ function lowered(Component) {
 // hydration (render.js hydrateSuspense) sets them too, and tells the boundary
 // when the walk of its children is over (`walked`).
 
-export const Suspense = /* @__PURE__ */ deferChildren(function Suspense({ fallback, children }) {
-  return _vnode('__suspense', { fallback, boundary: createSuspense(fallback) }, Array.isArray(children) ? children : [children]);
+// `fallback` is read where it is shown, never while Suspense runs: JSX passed
+// as the fallback is built there (dom.js _installLazyChildren), so while
+// hydrating it claims the server's fallback.
+export const Suspense = /* @__PURE__ */ deferChildren(function Suspense(props) {
+  const b = createSuspense(props);
+  const children = props.children;
+  return _vnode('__suspense', { get fallback() { return b.fallback; }, boundary: b }, Array.isArray(children) ? children : [children]);
 });
 
 // Boundaries built and not revealed yet; the user-effect gate looks only while
@@ -166,10 +171,10 @@ function awaitSuspended(waiting, link) {
   waiting.then(done, done);
 }
 
-function createSuspense(fallback) {
+function createSuspense(props) {
   _enableSuspense();
   const b = {
-    fallback,
+    get fallback() { return _place(props, 'fallback'); },
     revealed: false,
     hydrating: false,
     /** @type {Set<any>} held effects and bindings that have not completed a run since */
@@ -342,7 +347,9 @@ function mountSuspense(vnode, parent) {
 // `reset` fetches again the async values whose errors it caught, disposes the
 // fallback and builds the children again.
 
-export const ErrorBoundary = /* @__PURE__ */ deferChildren(function ErrorBoundary({ fallback, children, onError }) {
+// `fallback` is read when it is shown, as Suspense's is.
+export const ErrorBoundary = /* @__PURE__ */ deferChildren(function ErrorBoundary(props) {
+  const { children, onError } = props;
   const errorState = signal(null);
   // The async computed runs that failed with the errors it caught.
   /** @type {Array<{ node: any, run: number }>} */
@@ -368,7 +375,10 @@ export const ErrorBoundary = /* @__PURE__ */ deferChildren(function ErrorBoundar
     errorState.set(null);
   };
 
-  return _vnode('__errorBoundary', { errorState, handleError, fallback, reset, mount: createErrorBoundary }, Array.isArray(children) ? children : [children]);
+  return _vnode('__errorBoundary', {
+    errorState, handleError, reset, mount: createErrorBoundary,
+    get fallback() { return _place(props, 'fallback'); },
+  }, Array.isArray(children) ? children : [children]);
 });
 
 // The client render of a boundary, which its vnode carries (`mount`) as
@@ -380,7 +390,7 @@ export const ErrorBoundary = /* @__PURE__ */ deferChildren(function ErrorBoundar
 // how an error anywhere under the children finds it, and why one in the
 // fallback goes past it to the boundary above.
 function createErrorBoundary(vnode, parent) {
-  const { errorState, handleError, fallback, reset } = vnode.props;
+  const { errorState, handleError, reset } = vnode.props;
   const children = vnode.children;
   const start = document.createComment('eb:start');
   const end = document.createComment('eb:end');
@@ -392,6 +402,7 @@ function createErrorBoundary(vnode, parent) {
     for (let n = start.nextSibling; n !== null && n !== end; n = start.nextSibling) n.remove();
     untrack(() => {
       if (error) {
+        const fallback = vnode.props.fallback;
         buildErrorArm(typeof fallback === 'function' ? fallback({ error, reset }) : fallback, parent, end, null);
         return;
       }

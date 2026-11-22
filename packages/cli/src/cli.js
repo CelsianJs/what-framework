@@ -113,35 +113,60 @@ function hostAllowance(host, config, flag = getFlag('--allowed-hosts', '')) {
 // addresses are allowed too: a page can carry one of them as its Origin only if
 // this machine served it, which is how a phone on the LAN opens the dev server.
 // Non-browser clients send no Origin at all; browsers always do.
+// The machine's addresses are read at each check, so an address it gave up is
+// refused and one it gained is allowed.
 function originAllowance(host, config, flag = getFlag('--allowed-hosts', ''), interfaces = networkInterfaces) {
   if (config.allowedHosts === true || flag === 'true') return () => true;
-  const own = host === '0.0.0.0' || host === '::' || host === '[::]'
-    ? Object.values(interfaces()).flat().filter(Boolean).map((a) => (a.family === 'IPv6' || a.family === 6 ? `[${a.address}]` : a.address))
-    : [];
-  const names = new Set([host, ...own, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
+  const everywhere = host === '0.0.0.0' || host === '::' || host === '[::]';
+  const names = new Set([host, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
     .map((name) => String(name).trim().toLowerCase()).filter(Boolean));
+  // Node 18.0-18.3 gave `family` as a number.
+  const own = (hostname) => Object.values(interfaces()).flat().some((a) => a
+    && (String(a.family) === 'IPv6' || String(a.family) === '6' ? `[${a.address}]` : a.address).toLowerCase() === hostname);
   return (hostname) => names.has(hostname) || hostname === 'localhost' || hostname.endsWith('.localhost')
-    || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+    || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname) || (everywhere && own(hostname));
 }
 
-// A refused live-reload origin is named once, so a page that loads but never
-// reloads says why. The Origin is client data: it is printed JSON-escaped.
-const refusedOrigins = new Set();
-function warnRefusedOrigin(origin) {
-  if (!origin || refusedOrigins.has(origin) || refusedOrigins.size >= 32) return;
-  refusedOrigins.add(origin);
-  console.warn(`[what dev] live reload refused for the page at ${JSON.stringify(String(origin).slice(0, 200))}: add its host to allowedHosts (or --allowed-hosts), or pass it as --host`);
+// Why a live-reload Origin is refused, or null when it is allowed: the
+// server's own scheme, port and an allowed host. No Origin (a client that is
+// not a browser) is allowed.
+function originRefusal(origin, originAllowed, port) {
+  if (!origin) return null;
+  let url;
+  try {
+    url = new URL(origin);
+  } catch {
+    return 'it is not an http(s) origin';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'it is not an http(s) origin';
+  if (!originAllowed(url.hostname.toLowerCase())) return 'add its host to allowedHosts (or --allowed-hosts), or pass it as --host';
+  const at = url.port || (url.protocol === 'https:' ? '443' : '80');
+  return at === String(port) ? null : `its port ${at} is not this dev server's (${port})`;
 }
 
 function isAllowedOrigin(origin, originAllowed, port) {
-  if (!origin) return true;
-  try {
-    const url = new URL(origin);
-    return (url.protocol === 'http:' || url.protocol === 'https:')
-      && (url.port || (url.protocol === 'https:' ? '443' : '80')) === String(port) && originAllowed(url.hostname.toLowerCase());
-  } catch {
-    return false;
+  return originRefusal(origin, originAllowed, port) === null;
+}
+
+// A refused live-reload origin is named once, so a page that loads but never
+// reloads says why. The Origin is client data: every character outside
+// printable ASCII is written as \uXXXX, so none reaches the terminal as a
+// control (a C1 byte such as CSI passes Node's header parser as latin-1). The
+// first 32 are named; then one line says the rest are not.
+const refusedOrigins = new Set();
+const ORIGINS_NAMED = 32;
+function warnRefusedOrigin(origin, reason) {
+  if (!origin || refusedOrigins.has(origin) || refusedOrigins.size > ORIGINS_NAMED) return;
+  refusedOrigins.add(origin);
+  if (refusedOrigins.size > ORIGINS_NAMED) {
+    console.warn(`[what dev] live reload refused for ${ORIGINS_NAMED} origins: further refused origins are not listed one by one`);
+    return;
   }
+  console.warn(`[what dev] live reload refused for the page at ${printable(String(origin).slice(0, 200))}: ${reason}`);
+}
+
+function printable(text) {
+  return `"${text.replace(/[^\x20-\x7e]|["\\]/g, (c) => (c === '"' || c === '\\' ? `\\${c}` : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`))}"`;
 }
 
 // Simple WebSocket implementation using native Node.js APIs (no external deps)
@@ -152,8 +177,9 @@ class SimpleWebSocketServer {
       if (req.headers.upgrade?.toLowerCase() !== 'websocket') return;
 
       const key = req.headers['sec-websocket-key'];
-      if (!key || !isAllowedOrigin(req.headers.origin, originAllowed, port)) {
-        warnRefusedOrigin(req.headers.origin);
+      const refusal = originRefusal(req.headers.origin, originAllowed, port);
+      if (!key || refusal !== null) {
+        if (refusal !== null) warnRefusedOrigin(req.headers.origin, refusal);
         socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;
@@ -327,7 +353,7 @@ function isMainModule() {
 
 if (isMainModule()) main();
 
-export { safePath, isAllowedOrigin, hostAllowance, originAllowance, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
+export { safePath, isAllowedOrigin, originRefusal, warnRefusedOrigin, hostAllowance, originAllowance, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
 
 // --- Dev Server ---
 

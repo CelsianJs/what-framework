@@ -187,9 +187,15 @@ JavaScript, a navigation with it. \`<Form redirect>\` is for a server action's
 own form, whose result is not shown; a dispatch's form does not read it. A form
 with a file input takes \`enctype: 'multipart/form-data'\`: the action gets the
 file as a \`File\`, with and without JavaScript, within the server's
-\`bodyLimit\` (1 MB by default). Return the text fields the form shows again,
-never the file: a \`File\` in the returned state is \`null\`, and a file input
-cannot be filled in again, so the visitor chooses it again after an error.
+\`bodyLimit\` (1 MB by default). A file input with nothing chosen is an empty
+\`File\` (test \`size === 0\`). A call over the limit rejects with
+\`ERR_PAYLOAD_TOO_LARGE\` (\`error.limit\` is the bytes allowed), which reaches
+the \`<ErrorBoundary>\` around the component whose \`useActionState\` dispatched
+it: check a file's size on its input before the form is sent
+(\`setCustomValidity\`), and wrap that component in a boundary that says so.
+Return the text fields the form shows again, never the file: a \`File\` in the
+returned state is \`null\`, and a file input cannot be filled in again, so the
+visitor chooses it again after an error.
 
 A field the user changed before hydration keeps the user's value (no event is
 dispatched), so a signal bound to it still holds the server's: read the field in

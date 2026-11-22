@@ -154,7 +154,7 @@ function ownSignalNames(scope) {
     if (fnNode.params) {
       for (const param of fnNode.params) extractFromPattern(param);
     }
-    // deferPlacedChildren moved this pattern out of the parameter list;
+    // deferPlacedProps moved this pattern out of the parameter list;
     // it is still the same props destructuring and classifies the same way.
     if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
   }
@@ -191,7 +191,7 @@ function isSafeGlobalCall(expr, fallbackScope) {
 // a reactive result, so the compiler wraps it conservatively.
 export function isUncertainReactive(expr, signalNames, importedIds) {
   if (!signalNames) return false;
-  if (t.isCallExpression(expr)) {
+  if (t.isCallExpression(expr) && !expr.callee._whatPlace) {
     // Callee is a known signal — definitely reactive, not uncertain
     if (t.isIdentifier(expr.callee) && isSignalIdentifier(expr.callee.name, signalNames)) {
       return false;
@@ -222,6 +222,9 @@ export function isUncertainReactive(expr, signalNames, importedIds) {
 // imported binding could be a signal from another file.
 export function isPotentiallyReactive(expr, signalNames, importedIds) {
   if (!signalNames) signalNames = new Set();
+
+  // A placing read of a prop (common.js placingRead) is the property read.
+  if (t.isCallExpression(expr) && expr.callee._whatPlace) return isPotentiallyReactive(expr.arguments[0], signalNames, importedIds);
 
   if (t.isCallExpression(expr) || t.isOptionalCallExpression(expr)) {
     // If callee is a known signal identifier being called (signal read), it's reactive

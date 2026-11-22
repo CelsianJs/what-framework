@@ -294,19 +294,21 @@ function Settings() {
 }
 ```
 
-### Placing and forwarding children
+### Placing and forwarding children and other JSX props
 
-Compiled JSX hands a component its children unbuilt: they are built where the
-component reads them. A component that only places its children builds them
-where they render, however it reads them:
+Compiled JSX hands a component its children unbuilt, and every other prop
+written as JSX too (`header={<Nav />}`, `fallback={<p>failed</p>}`, a
+condition such as `toolbar={user ? <Search /> : null}`): each is built where
+the component reads it. A component that only places such a prop builds it
+where it renders, however it reads it:
 
 ```jsx
-function Card({ title, children, ...rest }) {
+function Layout({ header, children, ...rest }) {
   return (
-    <section {...rest}>
-      <h2>{title}</h2>
-      {children}
-    </section>
+    <div {...rest}>
+      <header>{header}</header>
+      <main>{children}</main>
+    </div>
   );
 }
 
@@ -315,33 +317,40 @@ function MyBoundary({ children, fallback }) {
 }
 ```
 
-"Places" means each read of `children` is rendered where it stands: a child
-of an element, a fragment or another component, the component's own result,
-or a branch of a condition (`{open && children}`, `{ready ? children : null}`)
-or an array. Destructured in the parameters (renamed, with a rest element, or
-with a literal default such as `{ children = null }`), destructured from props
-in the body, or read as `props.children`: the compiler compiles each read where
-it stands. That lets a boundary catch the children, lets a provider publish its
-value in time for them, and, while hydrating, lets them adopt the server's
-nodes inside the component's own element, so what the user typed before the
-page's code ran stays.
+"Places" means each read of the prop is rendered where it stands: a child of
+an element, a fragment or another component, a prop handed on to another
+component (`fallback={fallback}`, `title={props.title}`), the component's own
+result, or a branch of a condition (`{open && header}`, `{ready ? children :
+null}`) or an array. Destructured in the parameters (renamed, with a rest
+element, or with a literal default such as `{ children = null }`),
+destructured from props in the body, or read as `props.header`: the compiler
+compiles each read where it stands, and a prop handed on reaches the next
+component unbuilt. That lets a boundary catch the children, lets a provider
+publish its value in time for them, and, while hydrating, lets the JSX adopt
+the server's nodes where the component places it, so what the user typed
+before the page's code ran stays. Within one run of the component, a prop
+placed twice is built twice (as `h()` and the server render it), and one
+read again later (a condition shown again) is built again.
 
-Inspecting children builds them where they are inspected: `children.length`,
+Inspecting such a prop builds it before it is placed: `children.length`,
 `Array.isArray(children)`, `children.map(...)`, a truthiness test such as
-`{children && <div>{children}</div>}`, a local alias (`const kids = children`)
-or a default that is not a literal. Such a component keeps its destructuring,
+`{header && <div>{header}</div>}`, a local alias (`const kids = children`) or
+a default that is not a literal. Such a component keeps its destructuring,
 and two things follow:
 
-- While hydrating, children built before the element that holds them has
-  claimed its server node do not adopt: the component's subtree is built again
-  on the client (`ERR_HYDRATION_MISMATCH` in development) and what the user
-  typed in it is lost. They adopt when they are first read where they are
-  placed, such as `<ul>{props.children}</ul>`. Pass a component the data it has
-  to inspect as a prop (`<Tabs items={tabs} />`) instead of as children.
-- A component that both inspects and forwards into a boundary or a provider
-  has to pick one. Set `Component._deferChildren = true` to pick forwarding,
-  which makes `props.children` a zero-argument factory the runtime calls where
-  it is placed, and gives up inspection:
+- While hydrating, JSX built before it is placed is built on the client and
+  takes the server's place where it is placed: `ERR_HYDRATION_MISMATCH` of
+  kind `prebuilt` in development (and to `onHydrationError`), and what the
+  user typed or chose in a form control there is kept on the new control.
+  The same holds for JSX written in a variable before it is placed
+  (`const icon = <Icon />`), passed as an argument or inside an object.
+  It adopts when it is first read where it is placed, such as
+  `<ul>{props.children}</ul>`. Pass a component the data it has to inspect as
+  a prop (`<Tabs items={tabs} />`) instead of as JSX.
+- A component that both inspects and forwards its children into a boundary or
+  a provider has to pick one. Set `Component._deferChildren = true` to pick
+  forwarding, which makes `props.children` a zero-argument factory the
+  runtime calls where it is placed, and gives up inspection:
 
 ```jsx
 function Panel({ children }) {
@@ -350,14 +359,14 @@ function Panel({ children }) {
 Panel._deferChildren = true;   // only needed if Panel also read children itself
 ```
 
-A component written with `h()` that is given children from compiled JSX reads
-them built, before the element it returns is adopted: `function Card({
-children }) { return h('section', null, children); }` mismatches while
-hydrating, whichever way it reads them. Set `Card._deferChildren = true`, as
-What's own `<Form>`, `<Link>`, `<Head>` and `<Select>` do, and the children are
-built where `h()` places them. Children written with `h()` or the JSX runtime
-are vnodes, built only where they are placed, so a component given those adopts
-either way.
+A component written with `h()` that is given JSX props from compiled JSX reads
+them when it runs, before the element it returns is adopted: `function Card({
+children }) { return h('section', null, children); }` takes the server's
+place while hydrating (kind `prebuilt`, form state kept), whichever way it
+reads them. Set `Card._deferChildren = true`, as What's own `<Form>`, `<Link>`,
+`<Head>` and `<Select>` do, and its children are built where `h()` places them.
+Children written with `h()` or the JSX runtime are vnodes, built only where
+they are placed, so a component given those adopts either way.
 
 An expression child is now built by the component it is handed to, not by the
 caller, so a component that never renders its children never evaluates them.
@@ -457,7 +466,8 @@ Imported from `what-framework/dom`.
 
 `<Head>` takes `title`, `meta` and `link` props (`meta` and `link` are an
 object or an array of them), and also `<title>`, `<meta>` and `<link>`
-children, which set the same tags; any other child renders in place. Tags are
+children, which set the same tags; any other child renders in place, and
+while hydrating it adopts the server's nodes there, as any other child does. Tags are
 de-duplicated: a `meta` is keyed by its `name`, `property` or `httpEquiv`, a
 `link` by `rel` plus `href`, and a later tag with the same key, or a later
 title, replaces the earlier one, so a child beats a prop of the same `<Head>`.

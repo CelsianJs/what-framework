@@ -430,30 +430,36 @@ export function componentCallee(name) {
   return t.identifier(name.name);
 }
 
-// --- Children a component only places ---
-// Compiled JSX hands a component its children as a getter that builds them
-// when read (dom.js _installLazyChildren). Destructuring `children`, in the
-// parameter list or from props in the body, reads it there, before the
-// component's output exists: a boundary or a provider the children are
-// forwarded into is not entered yet (the boundary never catches, the provider
-// publishes too late), and while hydrating the children claim the server
-// node the component's own element was to claim (a mismatch, and the subtree
-// is built again on the client). When every read of the binding places the
-// children, each read becomes `props.children` where it stands, which builds
-// them where they render, as that spelling written by hand does. A binding
-// that is ever inspected (`children.length`, `Array.isArray(children)`, a
-// truthiness test, a local alias) keeps its destructuring: inspecting builds
-// the children.
-export function deferPlacedChildren(fnPath) {
+// --- Props a component only places ---
+// Compiled JSX hands a component JSX as a getter that builds it when read:
+// its children (dom.js _installLazyChildren), and the JSX it passes in any
+// other prop (`header={<Nav />}`, _$slots). Destructuring such a prop, in
+// the parameter list or from props in the body, reads it there, before the
+// component's output exists: a boundary or a provider it is forwarded into
+// is not entered yet (the boundary never catches, the provider publishes too
+// late), and while hydrating the JSX is built off the walk and takes the
+// place of the server's nodes for it. When every read of a destructured prop
+// places it, each read becomes a placing read of `props.<key>` where it
+// stands, which builds the JSX where it renders, as `props.children` written
+// there does. A binding that is ever inspected (`children.length`,
+// `Array.isArray(children)`, a truthiness test, a local alias) keeps its
+// destructuring: inspecting builds the value.
+//
+// The DOM back end also marks a read of `props.<key>` written by hand where
+// it is placed. A placing read is `_$place(props, "key")` (render.js), which
+// the reactivity analysis treats as the property read it is; the server back
+// end renders vnodes, which build where they are placed, and reads
+// `props.<key>`.
+export function deferPlacedProps(fnPath, state) {
   const params = fnPath.node.params;
-  if (params.length !== 1) return;
+  if (params.length !== 1 || isRowFunction(fnPath, state)) return;
   const param = params[0];
   if (t.isObjectPattern(param)) {
-    const found = placedChildren(fnPath, param, fnPath.scope);
+    const found = placedProps(fnPath, param, fnPath.scope, state);
     if (found === null || !movesIntoBody(fnPath, found.others)) return;
     const propsId = fnPath.scope.generateUidIdentifier('props');
     if (param.typeAnnotation) propsId.typeAnnotation = param.typeAnnotation;
-    readAtUse(fnPath, found, propsId);
+    readAtUse(fnPath, found, propsId, state);
     params[0] = propsId;
     const declarators = otherProps(fnPath, found, propsId);
     if (declarators.length > 0) {
@@ -467,43 +473,76 @@ export function deferPlacedChildren(fnPath) {
       fnPath.node._whatMovedProps = t.objectPattern(found.others);
     }
   } else if (t.isIdentifier(param)) {
-    // `const { children } = props` in the body.
     const binding = fnPath.scope.getBinding(param.name);
     if (!binding || binding.constantViolations.length > 0) return;
     const rewrites = [];
+    const reads = [];
     for (const ref of binding.referencePaths) {
       const decl = ref.parentPath;
-      if (!decl.isVariableDeclarator() || ref.key !== 'init' || !t.isObjectPattern(decl.node.id)) continue;
-      if (decl.parent.kind === 'var' || ref.getFunctionParent() !== fnPath) continue;
-      const found = placedChildren(fnPath, decl.node.id, decl.scope);
-      if (found !== null) rewrites.push([decl, found]);
+      if (decl.isVariableDeclarator() && ref.key === 'init' && t.isObjectPattern(decl.node.id)) {
+        // `const { children } = props` in the body.
+        if (decl.parent.kind === 'var' || ref.getFunctionParent() !== fnPath) continue;
+        const found = placedProps(fnPath, decl.node.id, decl.scope, state);
+        if (found !== null) rewrites.push([decl, found]);
+      } else if (!state.ssr && decl.isMemberExpression() && ref.key === 'object' && !t.isNumericLiteral(decl.node.property)
+          && propertyName(decl.node.property, decl.node.computed) !== null && placesValue(decl, fnPath, state)) {
+        reads.push(decl);
+      }
     }
-    if (rewrites.length === 0) return;
+    if (rewrites.length === 0 && reads.length === 0) return;
     for (const [decl, found] of rewrites) {
-      readAtUse(fnPath, found, param);
+      readAtUse(fnPath, found, param, state);
       const declarators = otherProps(fnPath, found, param);
       if (declarators.length > 0) decl.replaceWithMultiple(declarators);
       else decl.remove();
     }
+    for (const read of reads) read.replaceWith(placingRead(param, propertyName(read.node.property, read.node.computed), state));
   } else {
     return;
   }
   fnPath.scope.crawl();
 }
 
-// The `children` property of `pattern` when every read of its binding places
-// the children, else null. `others` are the pattern's other properties.
-function placedChildren(fnPath, pattern, scope) {
-  let index = -1;
-  for (let i = 0; i < pattern.properties.length; i++) {
-    const prop = pattern.properties[i];
-    if (!t.isObjectProperty(prop) || prop.computed || propertyName(prop.key) !== 'children') continue;
-    // A second key would still read the getter where it is destructured.
-    if (index !== -1) return null;
-    index = i;
+// A callback a method calls (`.map(row => …)`, `.then(…)`) or the row
+// function of a <For>: its parameter is an item, not props, and the list
+// lowerings read a row's fields themselves (lists.js).
+function isRowFunction(fnPath, state) {
+  const parent = fnPath.parentPath;
+  if (parent.isCallExpression() && fnPath.listKey === 'arguments') return t.isMemberExpression(parent.node.callee) || t.isOptionalMemberExpression(parent.node.callee);
+  return parent.isJSXExpressionContainer() && parent.parentPath.isJSXElement() && isLoweredTag(parent.parentPath.node, 'For', state);
+}
+
+// The properties of `pattern` whose every read places the value (`placed`:
+// each with its key, binding and literal default), else null when there are
+// none. `others` are the pattern's other properties, and `rest` its rest
+// element.
+function placedProps(fnPath, pattern, scope, state) {
+  const counts = new Map();
+  for (const prop of pattern.properties) {
+    const name = t.isObjectProperty(prop) ? propertyName(prop.key, prop.computed) : null;
+    if (name !== null) counts.set(name, (counts.get(name) || 0) + 1);
   }
-  if (index === -1) return null;
-  let local = pattern.properties[index].value;
+  const placed = [];
+  const others = [];
+  for (const prop of pattern.properties) {
+    const entry = t.isObjectProperty(prop) ? placedProp(fnPath, prop, scope, state) : null;
+    // A second key would still read the getter where it is destructured.
+    if (entry !== null && counts.get(entry.key) === 1) placed.push(entry);
+    else others.push(prop);
+  }
+  if (placed.length === 0) return null;
+  const last = others[others.length - 1];
+  const rest = t.isRestElement(last) ? last : null;
+  // The rest object is built by naming the keys it leaves out.
+  if (rest !== null && (!t.isIdentifier(rest.argument)
+      || others.some((p) => t.isObjectProperty(p) && propertyName(p.key, p.computed) === null))) return null;
+  return { placed, others, rest };
+}
+
+function placedProp(fnPath, prop, scope, state) {
+  const key = propertyName(prop.key, prop.computed);
+  if (key === null) return null;
+  let local = prop.value;
   let fallback = null;
   if (t.isAssignmentPattern(local)) {
     fallback = local.right;
@@ -513,20 +552,14 @@ function placedChildren(fnPath, pattern, scope) {
     if (!isPlainLiteral(fallback, fnPath.scope)) return null;
   }
   if (!t.isIdentifier(local)) return null;
-  const others = pattern.properties.filter((_, i) => i !== index);
-  const last = others[others.length - 1];
-  const rest = t.isRestElement(last) ? last : null;
-  // The rest object is built by naming the keys it leaves out.
-  if (rest !== null && (!t.isIdentifier(rest.argument)
-      || others.some((p) => t.isObjectProperty(p) && (p.computed || propertyName(p.key) === null)))) return null;
   const binding = scope.getBinding(local.name);
   if (!binding || binding.constantViolations.length > 0) return null;
-  if (!binding.referencePaths.every((ref) => placesChildren(ref, fnPath))) return null;
-  return { binding, fallback, others, rest };
+  if (!binding.referencePaths.every((ref) => placesValue(ref, fnPath, state))) return null;
+  return { key, binding, fallback };
 }
 
-function propertyName(key) {
-  if (t.isIdentifier(key)) return key.name;
+function propertyName(key, computed) {
+  if (t.isIdentifier(key) && !computed) return key.name;
   if (t.isStringLiteral(key)) return key.value;
   return t.isNumericLiteral(key) ? String(key.value) : null;
 }
@@ -539,12 +572,12 @@ function isPlainLiteral(node, scope) {
 }
 
 // Whether the value at `path` is rendered where it stands: a child of an
-// element, a fragment or a component (a forward), what the component returns,
-// or a branch of a conditional, a logical expression or an array that is one
-// of those. A function written in such a place is a reactive child, so what
-// it returns is placed too. The child of <For> is its row function, not
-// content.
-function placesChildren(path, fnPath) {
+// element, a fragment or a component, a prop handed on to a component
+// (isSlotAttribute), what the component returns, or a branch of a
+// conditional, a logical expression or an array that is one of those. A
+// function written in such a place is a reactive child, so what it returns
+// is placed too. The child of <For> is its row function, not content.
+function placesValue(path, fnPath, state) {
   let child = path;
   let parent = path.parentPath;
   while ((parent.isConditionalExpression() && child.key !== 'test')
@@ -555,9 +588,10 @@ function placesChildren(path, fnPath) {
     parent = parent.parentPath;
   }
   if (parent.isJSXExpressionContainer()) {
-    if (parent.listKey !== 'children') return false;
     const owner = parent.parentPath;
-    return owner.isJSXFragment() || !t.isJSXIdentifier(owner.node.openingElement.name, { name: 'For' });
+    if (owner.isJSXAttribute()) return placingAttribute(owner.parentPath.parent, owner.node, state);
+    if (parent.listKey !== 'children') return false;
+    return owner.isJSXFragment() || !isLoweredTag(owner.node, 'For', state);
   }
   /** @type {any} */
   let fn = null;
@@ -565,7 +599,52 @@ function placesChildren(path, fnPath) {
   else if (parent.isArrowFunctionExpression() && child.key === 'body') fn = parent;
   if (fn === null) return false;
   if (fn === fnPath) return true;
-  return (fn.isArrowFunctionExpression() || fn.isFunctionExpression()) && placesChildren(fn, fnPath);
+  return (fn.isArrowFunctionExpression() || fn.isFunctionExpression()) && placesValue(fn, fnPath, state);
+}
+
+// An attribute whose value is rendered where it stands: one a component
+// takes as a lazy prop, or the fallback of a <Show> or a <Switch>, which the
+// compiler places in the conditional it lowers them to.
+function placingAttribute(el, attr, state) {
+  if (isLoweredTag(el, 'Show', state) || isLoweredTag(el, 'Switch', state)) return getAttrName(attr) === 'fallback';
+  return isSlotAttribute(el, attr, state);
+}
+
+// A built-in the DOM back end lowers (dom.js transformElementFineGrained):
+// What's own <For>, <Show> or <Switch>, never a third party's of that name.
+function isLoweredTag(el, tag, state) {
+  const name = el.openingElement.name;
+  if (!t.isJSXIdentifier(name, { name: tag })) return false;
+  return !isForeignTag(tag, state) || (tag === 'Switch' && hasLiteralMatchArms(el));
+}
+
+/**
+ * Whether the attribute `attr` of the JSX element `el` hands its value to a
+ * component as a lazy prop (dom.js transformComponentFineGrained, _$slots):
+ * any attribute of a component after its last spread, but `key`, `ref`,
+ * `children`, an event handler, a namespaced name (`bind:`, `client:`) and
+ * any attribute of an island or of a built-in the DOM back end lowers.
+ */
+export function isSlotAttribute(el, attr, state) {
+  if (!isComponentElement(el) || ['For', 'Show', 'Switch', 'Match'].some((tag) => isLoweredTag(el, tag, state))) return false;
+  const attrs = el.openingElement.attributes;
+  const name = getAttrName(attr);
+  // A later spread or a later attribute of the same name decides the value.
+  for (let i = attrs.indexOf(attr) + 1; i < attrs.length; i++) {
+    if (t.isJSXSpreadAttribute(attrs[i]) || getAttrName(attrs[i]) === name) return false;
+  }
+  if (attrs.some((a) => t.isJSXAttribute(a) && getAttrName(a).startsWith('client:'))) return false;
+  return name !== 'key' && name !== 'ref' && name !== 'children' && !name.includes(':') && !isEventAttrName(name);
+}
+
+// `props[key]` read where it is placed: `_$place(props, "key")` for the DOM
+// back end (the reactivity analysis reads it as `props.key`), `props.key` for
+// the server's.
+function placingRead(propsId, key, state) {
+  if (state.ssr) return t.memberExpression(t.cloneNode(propsId), propKey(key), !t.isIdentifier(propKey(key)));
+  const callee = helper(state, '_$place');
+  callee._whatPlace = true;
+  return t.callExpression(callee, [t.cloneNode(propsId), t.stringLiteral(key)]);
 }
 
 // Moving a parameter pattern into the body changes what its defaults and
@@ -585,35 +664,36 @@ function movesIntoBody(fnPath, others) {
   return safe;
 }
 
-// Each read of the binding becomes a read of `props.children` where it
-// stands. With a default, one read into a temporary: a read once the component
-// has returned builds the children again.
-function readAtUse(fnPath, found, propsId) {
-  const read = () => t.memberExpression(t.cloneNode(propsId), t.identifier('children'));
-  if (found.fallback === null) {
-    for (const ref of found.binding.referencePaths) ref.replaceWith(read());
-    return;
+// Each read of a placed binding becomes a placing read of `props.<key>`
+// where it stands. With a default, one read into a temporary: a read once
+// the component has returned builds the value again.
+function readAtUse(fnPath, found, propsId, state) {
+  for (const { key, binding, fallback } of found.placed) {
+    if (fallback === null) {
+      for (const ref of binding.referencePaths) ref.replaceWith(placingRead(propsId, key, state));
+      continue;
+    }
+    const temp = fnPath.scope.generateUidIdentifier(key);
+    for (const ref of binding.referencePaths) {
+      ref.replaceWith(t.conditionalExpression(
+        t.binaryExpression('===', t.assignmentExpression('=', t.cloneNode(temp), placingRead(propsId, key, state)), t.unaryExpression('void', t.numericLiteral(0))),
+        t.cloneNode(fallback),
+        t.cloneNode(temp),
+      ));
+    }
+    fnPath.scope.push({ id: temp });
   }
-  const temp = fnPath.scope.generateUidIdentifier('children');
-  for (const ref of found.binding.referencePaths) {
-    ref.replaceWith(t.conditionalExpression(
-      t.binaryExpression('===', t.assignmentExpression('=', t.cloneNode(temp), read()), t.unaryExpression('void', t.numericLiteral(0))),
-      t.cloneNode(found.fallback),
-      t.cloneNode(temp),
-    ));
-  }
-  fnPath.scope.push({ id: temp });
 }
 
 // Declarators for the pattern's other properties, read from `source`. The
-// rest object names the keys it leaves out instead: destructuring `children`
-// into nothing would read it.
+// rest object names the keys it leaves out instead: destructuring a placed
+// prop into nothing would read it.
 function otherProps(fnPath, found, source) {
   const named = found.rest === null ? found.others : found.others.slice(0, -1);
   const declarators = [];
   if (named.length > 0) declarators.push(t.variableDeclarator(t.objectPattern(named), t.cloneNode(source)));
   if (found.rest !== null) {
-    const excluded = ['children', ...named.map((p) => propertyName(p.key))].map((name) => t.stringLiteral(name));
+    const excluded = [...found.placed.map((p) => p.key), ...named.map((p) => propertyName(p.key, p.computed))].map((name) => t.stringLiteral(name));
     const without = t.callExpression(fnPath.hub.addHelper('objectWithoutProperties'), [t.cloneNode(source), t.arrayExpression(excluded)]);
     declarators.push(t.variableDeclarator(found.rest.argument, without));
   }

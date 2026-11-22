@@ -23,7 +23,7 @@ before(async () => {
   globalThis.fetch = async (url, init) => {
     posts.push({ url, init, body: JSON.parse(init.body) });
     const answer = await new Promise((resolve) => { respond = resolve; });
-    return { ok: answer.ok !== false, status: answer.ok === false ? 500 : 200, headers: new Headers(), json: async () => answer.body };
+    return { ok: answer.ok !== false, status: answer.status ?? (answer.ok === false ? 500 : 200), headers: new Headers(), json: async () => answer.body };
   };
   core = await import('what-core');
   data = await import('what-core/data');
@@ -127,7 +127,29 @@ describe('a server action on the client', () => {
     await done;
     await tick();
     assert.equal(error && error.code, 'ERR_ACTION_FAILED');
+    assert.equal(error.status, 500);
     assert.equal(el.textContent, '0');
+  });
+
+  // A body over the server's bodyLimit: what the visitor's code can tell
+  // apart and show, with the limit the server sent.
+  it('rejects a call the server refused as too large with ERR_PAYLOAD_TOO_LARGE, its status and the limit', async () => {
+    const big = server.action(async () => {}, { id: 'too-large' });
+    let error = null;
+    const done = big('x').catch((e) => { error = e; });
+    await tick();
+    respond({ ok: false, status: 413, body: { message: 'Payload too large', code: 'ERR_PAYLOAD_TOO_LARGE', limit: 1048576 } });
+    await done;
+    assert.equal(error && error.code, 'ERR_PAYLOAD_TOO_LARGE');
+    assert.equal(error.status, 413);
+    assert.equal(error.limit, 1048576);
+    assert.match(error.message, /1048576 bytes/);
+    const refused = server.action(async () => {}, { id: 'refused' });
+    const second = refused().catch((e) => { error = e; });
+    await tick();
+    respond({ ok: false, status: 403, body: { message: 'Invalid CSRF token' } });
+    await second;
+    assert.deepEqual([error.code, error.status, error.message], ['ERR_ACTION_FAILED', 403, 'Invalid CSRF token']);
   });
 });
 

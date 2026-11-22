@@ -205,6 +205,28 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **what-react:** `cloneElement(nonElement)` returns its argument, and
   `isValidElement` accepts only real elements. *Migration:* pass a real
   element, or call `createElement(obj.type, obj.props)` on purpose.
+- **JSX passed in any prop is built where the component places it**, inside
+  the component's run, as `children` are: its components run after the
+  receiving component's body, are owned by it and see its context, and while
+  hydrating it claims the server's nodes there. A destructured prop that is
+  only placed compiles to a read where it stands, and a prop handed on reaches
+  the next component unbuilt. *Migration:* code that relied on a JSX prop's
+  components having run before the receiving component reads the prop where
+  the JSX is wanted; pass data, not JSX, to a component that inspects it.
+- **The same JSX placed twice in one run is built twice**, as `h()` and the
+  server render it; before, one set of nodes moved to the last place.
+  *Migration:* a component that relied on one set of nodes places it once.
+- **`<ErrorBoundary>` and `<Suspense>` read `fallback` when they show it**, so
+  a JSX fallback is built afresh each time it is shown.
+- **JSX built before it is placed is reported while hydrating.** JSX in a
+  variable, an argument or an object, a prop a component inspects, and a prop
+  given to an `h()` component are built before the walk reaches their place.
+  Hydration puts them in the server's place, reports `ERR_HYDRATION_MISMATCH`
+  of kind `prebuilt` with the owner, and moves what the user typed or chose in
+  a form control there to the new control.
+- **`hydrate()`, `mount()` and what-react's roots throw
+  `ERR_MOUNT_TARGET_MISSING`** for a `null` container or a selector that
+  matches nothing, instead of a WeakMap `TypeError`.
 
 ### Breaking: server rendering
 
@@ -379,6 +401,18 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   kept. *Migration:* read the redirect from the response you passed in
   (`createResponse()`); the deploy adapters answer with the 3xx. Read the URL
   a `<Router url>` was given inside that Router.
+- **A refused action call rejects with a coded error and `status`:**
+  `ERR_PAYLOAD_TOO_LARGE` with `limit` for a 413, `ERR_ACTION_FAILED`
+  otherwise. The 413 JSON body is `{ message, code, limit }`. *Migration:*
+  branch on `error.code`, and wrap the component that calls `useActionState`
+  in an `<ErrorBoundary>` to show it. The upload recipe checks the file's size
+  in the browser first, and names the limit in its boundary.
+- **An action body that does not parse is answered 400 and runs no action**,
+  on every entry point: JSON for an action call, HTML for a form post. Before,
+  a malformed multipart call ran the action with no fields.
+- **Every form POST to a page is read under `bodyLimit`** on every platform,
+  including a page whose loader reads its own upload: over the limit it gets
+  the 413 page.
 
 ### Breaking: compiler
 
@@ -525,14 +559,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 69 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 71 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
   `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
   `ERR_QUERY_OUTSIDE_RENDER`. The production build's catalogue keeps each
   code's severity and message and leaves the fix and example to `what_fix` and
-  docs/ERRORS.md (5.2 KB gzip instead of 21.0 KB).
+  docs/ERRORS.md (5.3 KB gzip instead of 22.0 KB).
 - **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
   Suspense and action events) and `what_why` (why a run, a skipped effect or a
   mount happened, back to the write or landing). Async flight details and
@@ -773,6 +807,31 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   inside attribute values, `<pre>` and `<textarea>`. `revalidatePath` and
   `revalidateTag` with `regenerate` and no `routeResolver` render from the
   route last rendered for the path instead of throwing.
+- **Hydration keeps what the server rendered in more shapes:** JSX in a
+  named prop (`<Layout header={<Search />}>`) and a `fallback` handed on
+  through a wrapper adopt the server's nodes and keep what the user typed;
+  a body child of `<Head>` hydrates in place; two components side by side
+  that each return a fragment starting with text or an expression, component
+  rows of an unkeyed `.map()`, several components in a `<Show>`, an array
+  literal of text and JSX, and a boundary first in an array are adopted in
+  order. A generated compiled-JSX hydration oracle checks hundreds of
+  component trees for adoption, kept edits and in-place updates.
+- **A form after a keyed list keeps its no-JS result** when rows were added
+  or removed between the page and the post: a component's place no longer
+  counts the components inside an earlier list's rows. A list in
+  `<Suspense>` after a conditional list keeps its rows' results.
+- **Form bodies parse in linear time on every Node version.** On Node 24, a
+  1 MB urlencoded body of key-only pairs (`a&a&…`) blocked the server for
+  about 5 seconds before any check.
+- **`what dev`'s refused-origin log** escapes every character outside
+  printable ASCII, says when it stops listing origins, and tells a page on
+  the dev server's host but another port that the port is wrong. With
+  `--host 0.0.0.0` or `::`, the machine's addresses are read at each check,
+  so an address it gave up is refused.
+- **Docs.** A file input with nothing chosen reaches the action as an empty
+  `File` (`size` 0), not `''`. The server README hydrates the built-in
+  document at `document.body`. SECURITY.md gives measured per-request memory
+  for form parsing in place of "about three times `bodyLimit`".
 
 ### Performance
 

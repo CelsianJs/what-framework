@@ -363,13 +363,14 @@ describe('a keyed list before the posted one, empty in one of the two renders', 
         </Form>;
       }`;
     const imports = (at) => `
-      import { For, useActionState, useLoaderData } from 'what-framework';
+      import { For, Suspense, useActionState, useLoaderData } from 'what-framework';
       import { Form } from ${JSON.stringify(at('../src/index.js'))};
       import { rename } from ${JSON.stringify(at('./fixtures/keyed-rename.js'))};`;
     const pages = {
       maps: `export function Page() { const d = useLoaderData(); return <main><ul>{d.pinned.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul><ul>{d.records.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul></main>; }`,
       fors: `export function Page() { const d = useLoaderData(); return <main><ul><For each={d.pinned} key={(r) => r.key}>{(r) => <li><Editor record={r()} /></li>}</For></ul><ul><For each={d.records} key={(r) => r.key}>{(r) => <li><Editor record={r()} /></li>}</For></ul></main>; }`,
       section: `export function Page() { const d = useLoaderData(); return <main>{d.pinned.length > 0 && <ul>{d.pinned.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul>}<ul>{d.records.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul></main>; }`,
+      suspense: `export function Page() { const d = useLoaderData(); return <main>{d.pinned.length > 0 && <ul>{d.pinned.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul>}<Suspense fallback={<p>wait</p>}><ul>{d.records.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul></Suspense></main>; }`,
     };
     const { setRecords } = await import('./fixtures/keyed-rename.js');
     const keyedLoader = () => ({ records: records.map((r) => ({ ...r, key: r.id })), pinned: records.filter((r) => pinned.includes(r.id)).map((r) => ({ ...r, id: `pinned/${r.id}`, key: r.id })) });
@@ -405,4 +406,41 @@ describe('a keyed list before the posted one, empty in one of the two renders', 
       }
     }
   });
+});
+
+// A component's identity is its place, as a list's is: the components a
+// keyed list renders in its rows count for nothing after the list, so an
+// "add" form below a table is the same form whatever rows the table has.
+describe('a form after a keyed list, the list changed between the page and the post', () => {
+  const create = action(async (_previous, fields) => {
+    const title = String(fields.title ?? '');
+    return title.trim().length < 3 ? { error: 'Title needs three characters', fields: { title } } : { saved: true };
+  }, { id: 'records/create' });
+  function NewRecord() {
+    const [state, save] = useActionState(create, null);
+    return h(Form, { action: save, 'data-form': 'new-record' },
+      h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? '' }),
+      () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null));
+  }
+  const SHAPES = [
+    ['a .map() list', () => {
+      const { records } = useLoaderData();
+      return h('main', null, h('ul', null, records.map((record) => h('li', { key: record.id }, h(Editor, { record })))), h(NewRecord));
+    }],
+    ['a <For key> list', () => {
+      const { records } = useLoaderData();
+      return h('main', null, h('ul', null, h(For, { each: records, key: (r) => r.id, children: (item) => h('li', null, h(Editor, { record: item() })) })), h(NewRecord));
+    }],
+  ];
+  for (const [renderer, page] of RENDERERS) {
+    for (const [shape, component] of SHAPES) {
+      it(`comes back to the form after ${shape} when a record was added above, ${renderer}`, async () => {
+        const handle = createRequestHandler({ routes: [{ path: '/admin', component, loader, page }] });
+        const form = (await pageOf(handle)).find((f) => f.id === 'new-record');
+        records.unshift({ id: 'aardvark-record-0', title: 'Aardvark' });
+        const back = forms(await (await post(handle, { _action: 'records/create', _state: 'null', _actionKey: form.key, title: 'x' })).text());
+        assert.deepEqual(back.filter((f) => f.alerts.length > 0).map((f) => f.id), ['new-record']);
+      });
+    }
+  }
 });

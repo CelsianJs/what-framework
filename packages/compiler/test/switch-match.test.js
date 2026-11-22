@@ -281,7 +281,7 @@ describe('compiled Switch/Match', () => {
         <Switch checked={checked} onChange={onChange} checkedChildren="ON" />
       );
     `);
-    assert.match(code, /_\$createComponent\(Switch, \{/);
+    assert.match(code, /_\$createComponent\(Switch, (?:_\$slots\()?\{/);
   });
 
   it('leaves a third-party Switch with children alone', () => {
@@ -289,7 +289,7 @@ describe('compiled Switch/Match', () => {
       import { Switch } from '@headlessui/react';
       export const A = ({ arms }) => <Switch className="toggle">{arms}</Switch>;
     `);
-    assert.match(code, /_\$createComponent\(Switch, \{/);
+    assert.match(code, /_\$createComponent\(Switch, (?:_\$slots\()?\{/);
   });
 
   // Provenance, not the bare tag name, decides whose control flow this is. A
@@ -328,7 +328,7 @@ describe('compiled Switch/Match', () => {
       import { Show } from 'some-ui-kit';
       export const A = ({ open }) => <Show as="div" open={open}>panel</Show>;
     `);
-    assert.match(code, /_\$createComponent\(Show, \{/);
+    assert.match(code, /_\$createComponent\(Show, (?:_\$slots\()?\{/);
   });
 
   it('leaves a third-party For alone', () => {
@@ -336,7 +336,7 @@ describe('compiled Switch/Match', () => {
       import { For } from 'some-ui-kit';
       export const A = ({ items }) => <For data={items}>row</For>;
     `);
-    assert.match(code, /_\$createComponent\(For, \{/);
+    assert.match(code, /_\$createComponent\(For, (?:_\$slots\()?\{/);
   });
 
   // A relative import can be a re-export of What's own control flow, so it must
@@ -403,7 +403,9 @@ describe('host-element codegen', () => {
     assert.ok(code.includes('const _el$0 = _tmpl$0();'), code);
     assert.ok(code.includes('const _el$1 = _el$0.firstChild;'), code);
     assert.ok(code.includes('const _el$2 = _el$1.nextSibling.nextSibling;'), code);
-    assert.ok(code.includes('_$insert(_el$1, () => title);'), code);
+    // `title` is only placed, so it is read from props where it is placed
+    // (common.js deferPlacedProps).
+    assert.ok(code.includes('_$insert(_el$1, _$place(_props, "title"));'), code);
     assert.ok(code.includes('_el$2.$$click = onPick;'), code);
     assert.doesNotMatch(code, /_\$createComponent/);
   });

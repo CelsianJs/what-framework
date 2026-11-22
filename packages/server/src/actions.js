@@ -259,11 +259,17 @@ async function post(id, args, options) {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Action failed' }));
-      // ERROR_CODES.ACTION_FAILED
-      throw Object.assign(new Error(error.message || 'Action failed'), {
-        code: 'ERR_ACTION_FAILED',
-      });
+      const body = await response.json().catch(() => ({}));
+      // ERROR_CODES.PAYLOAD_TOO_LARGE for a body over the server's bodyLimit
+      // (`limit`, its bytes), else ERROR_CODES.ACTION_FAILED; `status` is the
+      // response's.
+      if (response.status === 413) {
+        const limit = typeof body.limit === 'number' ? body.limit : undefined;
+        throw Object.assign(new Error(`Payload too large: the server accepts ${limit === undefined ? 'less' : `at most ${limit} bytes`} in one request`), {
+          code: 'ERR_PAYLOAD_TOO_LARGE', status: 413, limit,
+        });
+      }
+      throw Object.assign(new Error(body.message || 'Action failed'), { code: 'ERR_ACTION_FAILED', status: response.status });
     }
     return [await response.json(), response.headers.get('x-what-redirect')];
   } catch (error) {

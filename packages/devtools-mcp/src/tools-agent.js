@@ -392,7 +392,7 @@ export function registerAgentTools(server, bridge, { root = process.cwd() } = {}
     'The fix for a What Framework diagnostic: severity, what it means, how to fix it and a worked bad/good example. Accepts a code (ERR_INFINITE_EFFECT) or an error message containing one. No browser needed.',
     {
       error: z.string().describe('Error code, e.g. "ERR_INFINITE_EFFECT", or the error message'),
-      kind: z.enum(['tag', 'text', 'missing', 'extra-nodes', 'marker', 'key', 'not-hydratable', 'shadow-root']).optional()
+      kind: z.enum(['tag', 'text', 'missing', 'extra-nodes', 'marker', 'key', 'not-hydratable', 'shadow-root', 'prebuilt']).optional()
         .describe('Hydration mismatch kind for a targeted fix'),
     },
     async ({ error, kind }) => {

@@ -11,7 +11,13 @@
 //     walk: its <title>, <meta> and <link> children never render in place.
 //   - A user's compiled component that only places its children, however it
 //     reads them, has each read compiled where it stands (what-compiler's
-//     deferPlacedChildren), so they are built where they render.
+//     deferPlacedProps), so they are built where they render.
+//   - JSX handed to a component in any other prop (a named slot, a boundary's
+//     fallback) is lazy the same way (_$slots), and so is a prop a component
+//     hands on to another. JSX that is still built before it is placed (in a
+//     variable, read by a component that inspects it, given to an h()
+//     component) is reported where it takes the server's place (kind
+//     prebuilt), and what the user typed in a form control there is kept.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -217,6 +223,161 @@ describe('an h() component, hydrated', () => {
     const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
     await check(h(server.Page), h(client.Page));
   });
+});
+
+// Every way a component reads a named slot and hands it on. `leaf` reads the
+// slot `toolbar`; at depth 2 and 3 it arrives through wrappers that hand it
+// on, destructured and through props.
+const SLOTS = [
+  ['destructured', 'function S1({ toolbar, children }) { return <div class="s"><header>{toolbar}</header><main>{children}</main></div>; }'],
+  ['props.toolbar', 'function S1(props) { return <div class="s"><header>{props.toolbar}</header><main>{props.children}</main></div>; }'],
+  ['renamed', 'function S1({ toolbar: bar }) { return <div class="s"><header>{bar}</header></div>; }'],
+  ['a null default', 'function S1({ toolbar = null }) { return <div class="s"><header>{toolbar}</header></div>; }'],
+  ['a rest element', 'function S1({ toolbar, ...rest }) { return <div class="s" {...rest}><header>{toolbar}</header></div>; }'],
+  ['destructured in the body', 'function S1(props) { const { toolbar } = props; return <div class="s"><header>{toolbar}</header></div>; }'],
+  ['a logical expression', 'function S1({ toolbar }) { return <div class="s">{open() && toolbar}</div>; }'],
+  ['a reactive conditional', 'function S1({ toolbar }) { return <div class="s">{open() ? toolbar : <p>closed</p>}</div>; }'],
+  ['its own result', 'function S1({ toolbar }) { return toolbar; }'],
+  ['a <Show>', 'function S1({ toolbar }) { return <div class="s"><Show when={open}>{toolbar}</Show></div>; }'],
+  ['read twice', 'function S1({ toolbar }) { return <div class="s"><header>{toolbar}</header><footer>{toolbar}</footer></div>; }'],
+  ['a boundary fallback', 'function Failed() { throw new Error("recoverable"); } function S1({ toolbar }) { return <ErrorBoundary fallback={toolbar}><Failed /></ErrorBoundary>; }'],
+];
+const HAND_ON = [
+  '',
+  'function S2({ toolbar }) { return <section class="s2"><S1 toolbar={toolbar} /></section>; }',
+  'function S2({ toolbar }) { return <section class="s2"><S1 toolbar={toolbar} /></section>; } function S3(props) { return <S2 toolbar={props.toolbar} />; }',
+];
+const VALUES = [
+  ['an element', '<input name="q" />'],
+  ['a fragment', '<><input name="q" /><b>x</b></>'],
+  ['a conditional', 'yes ? <input name="q" /> : null'],
+];
+
+// The server's elements, every field's early edit, the problems hydration
+// reported, and the fields and elements after it.
+async function hydrateEdited(source) {
+  const server = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+  const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+  __resetHydrationData();
+  document.body.innerHTML = renderToHydratableString(h(server.Page));
+  const serverElements = [...document.body.querySelectorAll('*')];
+  const fields = [...document.querySelectorAll('[name=q]')];
+  fields.forEach((field, i) => { field.value = `typed ${i}`; });
+  const problems = [];
+  const stop = hydrate(h(client.Page), document.body, { onHydrationError: (info) => problems.push(info.kind) });
+  return { serverElements, fields, problems, stop, after: () => [...document.querySelectorAll('[name=q]')] };
+}
+
+describe('JSX in a named prop, hydrated', () => {
+  for (const [shape, leaf] of SLOTS) {
+    for (const [valueName, value] of VALUES) {
+      for (const depth of [1, 2, 3]) {
+        it(`${valueName} slot read through ${shape}, ${depth} deep: every server node is adopted and an early edit kept`, async () => {
+          const source = `
+            import { Show, ErrorBoundary, signal } from 'what-framework';
+            export const open = signal(true);
+            const yes = true;
+            ${leaf}
+            ${HAND_ON[depth - 1]}
+            export function Page() { return <div><S${depth} toolbar={${value}}><i>kid</i></S${depth}></div>; }`;
+          const run = await hydrateEdited(source);
+          try {
+            assert.deepEqual(run.problems, []);
+            assert.deepEqual(run.serverElements.filter((el) => !el.isConnected).map((el) => el.localName), [], 'no server element is replaced');
+            assert.ok(run.fields.length > 0);
+            assert.deepEqual(run.after(), run.fields, 'the server\'s fields are the page\'s');
+            assert.deepEqual(run.fields.map((field) => field.value), run.fields.map((_, i) => `typed ${i}`));
+          } finally {
+            run.stop();
+          }
+        });
+      }
+    }
+  }
+
+  it('a slot read twice is built twice, as h() and the server render it', async () => {
+    const { mount, flushSync } = await import('what-core');
+    const mod = await loadCompiled(`
+      function Twice({ children, toolbar }) { return <div><p>{children}{toolbar}</p><p>{children}{toolbar}</p></div>; }
+      export function Page() { return <Twice toolbar={<i>t</i>}><b>x</b>y</Twice>; }`);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const stop = mount(h(mod.Page), host);
+    flushSync();
+    try {
+      assert.equal(host.innerHTML.replace(/<!--[^>]*-->/g, ''), '<div><p><b>x</b>y<i>t</i></p><p><b>x</b>y<i>t</i></p></div>');
+    } finally {
+      stop();
+      host.remove();
+    }
+  });
+
+  it('a slot shown again is built again', async () => {
+    const { mount, flushSync } = await import('what-core');
+    const mod = await loadCompiled(`
+      import { signal } from 'what-framework';
+      export const open = signal(true);
+      export const n = signal(0);
+      function S({ toolbar }) { return <div>{open() && toolbar}</div>; }
+      function Count() { return <i>{n()}</i>; }
+      export function Page() { return <S toolbar={<><Count /><b>x</b></>} />; }`);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const stop = mount(h(mod.Page), host);
+    try {
+      mod.open(false);
+      flushSync();
+      mod.open(true);
+      flushSync();
+      mod.n(4);
+      flushSync();
+      assert.equal(host.querySelector('i')?.textContent, '4', 'the slot is back, and live');
+      assert.equal(host.querySelector('b')?.textContent, 'x');
+    } finally {
+      stop();
+      host.remove();
+    }
+  });
+
+  // JSX built before it is placed takes the server's place, and says so.
+  const PREBUILT = [
+    ['an inspected slot', 'function S1({ toolbar }) { return <div class="s">{toolbar ? toolbar : <p>none</p>}</div>; }', '<S1 toolbar={<input name="q" />} />'],
+    ['a slot given to an h() component', 'const S1 = ({ toolbar }) => h("div", { class: "s" }, toolbar);', '<S1 toolbar={<input name="q" />} />'],
+    ['JSX in a variable', 'function S1({ toolbar }) { return <div class="s">{toolbar}</div>; }', '<S1 toolbar={field} />'],
+    ['a checkbox and a select in an inspected slot', 'function S1({ toolbar }) { return <div class="s">{toolbar ? toolbar : null}</div>; }',
+      '<S1 toolbar={<div><input name="c" type="checkbox" /><select name="s"><option value="a">A</option><option value="b">B</option></select><input name="q" /></div>} />'],
+  ];
+  for (const [shape, leaf, use] of PREBUILT) {
+    it(`${shape}: reported as prebuilt, and what the user changed is kept`, async () => {
+      const source = `
+        import { h } from 'what-framework';
+        ${leaf}
+        export function Page() { const field = <input name="q" />; return <main>${use}</main>; }`;
+      const server = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+      const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+      __resetHydrationData();
+      document.body.innerHTML = renderToHydratableString(h(server.Page));
+      document.querySelector('[name=q]').value = 'typed before hydration';
+      const box = document.querySelector('[name=c]');
+      if (box) {
+        box.checked = true;
+        document.querySelector('[name=s]').value = 'b';
+      }
+      const problems = [];
+      const stop = hydrate(h(client.Page), document.body, { onHydrationError: (info) => problems.push(info) });
+      try {
+        assert.deepEqual(problems.map((p) => p.kind), ['prebuilt']);
+        assert.equal(problems[0].component, 'S1', 'the component that placed it');
+        assert.equal(document.querySelector('[name=q]').value, 'typed before hydration');
+        if (box) {
+          assert.equal(document.querySelector('[name=c]').checked, true);
+          assert.equal(document.querySelector('[name=s]').value, 'b');
+        }
+      } finally {
+        stop();
+      }
+    });
+  }
 });
 
 process.on('exit', () => env.cleanup());

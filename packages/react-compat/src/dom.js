@@ -18,7 +18,17 @@ import {
 
 // ---- createRoot (React 18) ----
 
+// A root renders into a DOM element; anything else is a coded error, as
+// mount() and hydrate() throw it (what-core dom.js _mountTarget).
+function rootContainer(container, fn) {
+  if (container == null || typeof container.nodeType !== 'number') {
+    throw Object.assign(new Error(`[what] ${fn}() was given no container element: ${String(container)}.`), { code: 'ERR_MOUNT_TARGET_MISSING' });
+  }
+  return container;
+}
+
 export function createRoot(container) {
+  rootContainer(container, 'createRoot');
   /** @type {{ container: any, rns: any } | null} */
   let root = null;
 
@@ -55,7 +65,7 @@ export function hydrateRoot(container, initialChildren) {
 const legacyRoots = new WeakMap();
 
 export function render(element, container, callback) {
-  let root = legacyRoots.get(container);
+  let root = legacyRoots.get(rootContainer(container, 'render'));
   if (!root) {
     root = createRoot(container);
     legacyRoots.set(container, root);

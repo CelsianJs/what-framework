@@ -1336,8 +1336,11 @@ export default function Post() {
 //     with any form POST: a save redirects, so only an error page does.
 // A save redirects to the post in both modes (the action's
 // getResponse().redirect()). mode:'server': an editor is one visitor's page.
+// A call the server refuses (a body over its bodyLimit: ERR_PAYLOAD_TOO_LARGE,
+// with \`limit\`) or an action that throws reaches the <ErrorBoundary> around
+// the component whose useActionState dispatched it, which says so.
 
-import { h, Head, useActionState, useLoaderData } from 'what-framework';
+import { h, ErrorBoundary, Head, useActionState, useLoaderData } from 'what-framework';
 import { Form } from 'what-framework/server';
 import { savePostAction } from '../components/post-actions.js';
 
@@ -1352,18 +1355,25 @@ export const loader = async ({ params, response }) => {
 
 export default function EditPost() {
   const { post } = useLoaderData();
-  const [state, save] = useActionState(savePostAction, null);
   if (!post) return h('main', { class: 'container' }, h('h1', {}, 'Not found'));
   return h('main', { class: 'container' },
     h(Head, { title: \`Edit \${post.title} — ${packageName}\` }),
     h('h1', {}, 'Edit post'),
-    h(Form, { action: save },
-      h('input', { type: 'hidden', name: 'slug', value: post.slug }),
-      h('label', {}, 'Title ', h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title })),
-      () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
-      h('button', { type: 'submit' }, 'Save')
-    ),
+    h(ErrorBoundary, { fallback: ({ error, reset }) => h('p', { role: 'alert' },
+      error.code === 'ERR_PAYLOAD_TOO_LARGE' ? \`Too large: the limit is \${error.limit} bytes.\` : \`Could not save: \${error.message}\`,
+      ' ', h('button', { type: 'button', onClick: reset }, 'Try again')) },
+      h(PostForm, { post })),
     h('p', {}, h('a', { href: \`/blog/\${post.slug}\` }, '← Back'))
+  );
+}
+
+function PostForm({ post }) {
+  const [state, save] = useActionState(savePostAction, null);
+  return h(Form, { action: save },
+    h('input', { type: 'hidden', name: 'slug', value: post.slug }),
+    h('label', {}, 'Title ', h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title })),
+    () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
+    h('button', { type: 'submit' }, 'Save')
   );
 }
 `);

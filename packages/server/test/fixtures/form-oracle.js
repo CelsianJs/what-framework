@@ -23,7 +23,10 @@
 //     three of the user's own wrapper components (each reading and placing
 //     its children another way: destructured, renamed, with a default or a
 //     rest element, in the body, through a fragment, a condition, an array, a
-//     forward or props.children);
+//     forward or props.children; or taking the field in a named prop: placed,
+//     read from props, handed on, as an error boundary's fallback, or
+//     inspected, which builds it before it is placed: reported as prebuilt,
+//     with what the user changed kept);
 //   - server renderers: renderToString, renderToHydratableString and
 //     renderToStream of each authoring;
 //   - client paths: mount and hydrate for each authoring, a hydration from
@@ -626,12 +629,18 @@ export function jsxComponent(shape, component, spread, wrapped = false) {
     if (GROUPED.has(shape.set)) opts = `<optgroup label="g">${opts}</optgroup>`;
     field = `<select${attrs(null, ` name="${name}"${shape.control === 'multiple' ? ' multiple' : ''}`)}>${opts}</select>`;
   }
-  if (wrapped) field = wrappersOf(shape).reduceRight((inner, [name, , attrs]) => `<${name}${attrs}>${inner}</${name}>`, field);
-  return `export function ${component}({ v, o, l }) { return <form>${field}</form>; }`;
+  if (wrapped) {
+    field = wrappersOf(shape).reduceRight((inner, [name, , attrs, slot]) => (slot === undefined
+      ? `<${name}${attrs}>${inner}</${name}>`
+      : `<${name}${attrs} ${slot}={<>${inner}</>}>${slot === 'fallback' ? '<WFails />' : ''}</${name}>`), field);
+  }
+  const own = `export function ${component}({ v, o, l }) { return <form>${field}</form>; }`;
+  return wrapped && wrappedPrebuilt(shape) ? `${own}\n${component}.prebuilt = true;` : own;
 }
 
 // The user's own wrapper components a wrapped field is placed through:
-// [name, source, the attributes a use passes].
+// [name, source, the attributes a use passes, the prop it takes the field in
+// (its children when none), whether it builds the field before placing it].
 const WRAPPERS = [
   ['WDestructured', 'function WDestructured({ children }) { return <div class="w">{children}</div>; }', ''],
   ['WRenamed', 'function WRenamed({ children: kids }) { return <div class="w">{kids}</div>; }', ''],
@@ -645,7 +654,20 @@ const WRAPPERS = [
   ['WArray', 'function WArray({ children }) { return <div class="w">{[children]}</div>; }', ''],
   ['WForward', 'function WForward({ children }) { return <WDestructured>{children}</WDestructured>; }', ''],
   ['WProps', 'function WProps(props) { return <div class="w">{props.children}</div>; }', ''],
+  ['WSlot', 'function WSlot({ toolbar }) { return <div class="w"><header>{toolbar}</header></div>; }', '', 'toolbar'],
+  ['WSlotProps', 'function WSlotProps(props) { return <div class="w">{props.toolbar}</div>; }', '', 'toolbar'],
+  ['WSlotForward', 'function WSlotForward({ toolbar }) { return <section><WSlot toolbar={toolbar} /></section>; }', '', 'toolbar'],
+  ['WFallback', 'function WFallback({ children, fallback }) { return <ErrorBoundary fallback={fallback}>{children}</ErrorBoundary>; }', '', 'fallback'],
+  ['WInspected', 'function WInspected({ toolbar }) { return <div class="w">{toolbar ? toolbar : null}</div>; }', '', 'toolbar', true],
 ];
+
+// A child that throws, so that an error boundary shows its fallback.
+const WFAILS = 'function WFails() { throw new Error("the fallback shows"); }';
+
+/** Whether `shape`'s wrapped field passes through a wrapper that builds it before placing it. */
+export function wrappedPrebuilt(shape) {
+  return wrappersOf(shape).some((w) => w[4] === true);
+}
 
 // One to three wrappers, outermost first, turning with the shape's id so
 // that every wrapper meets every control at every depth.
@@ -656,8 +678,8 @@ function wrappersOf(shape) {
 
 /** One module of every shape's components: C<id> plain, S<id> through a spread, W<id> wrapped. */
 export function jsxModule(list) {
-  return `import { For, Show } from 'what-framework';\nconst is = (value, r) => (value == null ? value : value === r);\nconst relabelled = ${relabelled.toString()};\n` +
-    WRAPPERS.map(([, source]) => source).join('\n') + '\n' +
+  return `import { For, Show, ErrorBoundary } from 'what-framework';\nconst is = (value, r) => (value == null ? value : value === r);\nconst relabelled = ${relabelled.toString()};\n` +
+    WRAPPERS.map(([, source]) => source).join('\n') + '\n' + WFAILS + '\n' +
     list.map((shape) => [jsxComponent(shape, `C${shape.id}`, false), jsxComponent(shape, `S${shape.id}`, true), jsxComponent(shape, `W${shape.id}`, false, true)].join('\n')).join('\n');
 }
 
@@ -725,7 +747,17 @@ export async function runClient(env, shape, Component, html, early = false) {
       }
       host.addEventListener('input', record, true);
       host.addEventListener('change', record, true);
-      stop = env.hydrate(env.h(Component, { v, o, l }), host, { onHydrationError: (info) => problems.push(`hydration error: ${info && (info.kind || info.message)}`) });
+      // A field built before it is placed takes the server's place, once, and
+      // says so; what the user changed in it is kept.
+      let prebuilt = Component.prebuilt === true ? 1 : 0;
+      stop = env.hydrate(env.h(Component, { v, o, l }), host, {
+        onHydrationError: (info) => {
+          if (prebuilt === 1 && info && info.kind === 'prebuilt') prebuilt = 2;
+          else problems.push(`hydration error: ${info && (info.kind || info.message)}`);
+        },
+      });
+      if (prebuilt === 1) problems.push('hydration did not report the prebuilt field');
+      if (prebuilt !== 0) adopted = null;
     } else {
       stop = env.mount(env.h(Component, { v, o, l }), host);
     }

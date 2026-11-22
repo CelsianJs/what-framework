@@ -132,9 +132,7 @@ export function _liveRegionNodes(tracked) {
 // that already holds a mounted (or hydrated) root has that root disposed
 // first.
 export function mount(node, container) {
-  if (typeof container === 'string') {
-    container = document.querySelector(container);
-  }
+  container = _mountTarget(container, 'mount');
   /** @type {() => void} */
   let unmount = () => {};
   createRoot((dispose) => {
@@ -145,6 +143,18 @@ export function mount(node, container) {
     for (let i = 0; i < nodes.length; i++) container.appendChild(nodes[i]);
   });
   return unmount;
+}
+
+// The element mount() or hydrate() (`fn`) renders into: `container`, or the
+// element its selector matches. None is a coded error, not a failure deeper
+// in.
+export function _mountTarget(container, fn) {
+  const el = typeof container === 'string' ? document.querySelector(container) : container;
+  if (el == null || typeof el.nodeType !== 'number') {
+    const what = __DEV__ ? `: ${typeof container === 'string' ? `no element matches "${container}"` : `it was ${String(container)}`}` : '';
+    throw Object.assign(new Error(`[what] ${fn}() got no container element${what}`), { code: 'ERR_MOUNT_TARGET_MISSING' });
+  }
+  return el;
 }
 
 // The root mounted or hydrated into each container.
@@ -289,48 +299,94 @@ export function _runInComponentSSR(frame, fn) {
   return runWithOwner(frame, fn);
 }
 
-// --- _installLazyChildren(Component, target, lazyChildren) ---
-// Deferred children from compiled JSX arrive as a zero-arg factory instead of
-// built DOM. This defines target.children over that factory and returns a
-// function that ends the current read burst (or null when there is none).
+// --- _installLazyChildren(Component, target, lazyChildren, slots) ---
+// JSX that compiled code hands a component, as its children or through any
+// other prop (`slots`, a key -> factory map: render.js _$slots), arrives as a
+// zero-arg factory instead of built DOM. This defines a getter over each
+// factory on target and returns a function that ends the current read burst
+// (or null when there is none).
 //
-// Reads are cached only for the duration of one burst, i.e. the component's own
-// execution. Within a burst a component that inspects its children and then
-// renders them gets one array with one set of nodes, so rendering them twice
-// moves them instead of duplicating them. Across bursts the cache is dropped,
-// because realized children are single-use DOM: a DocumentFragment is drained
-// by its first insertion and removed nodes have had their effects disposed, so
-// a component that re-reads props.children from a reactive thunk must get a
+// The burst is the component's own execution. A read where the value is
+// placed (compiled code reads it with _place) builds it there, so the same
+// children placed twice are two copies, as h() and the server render them.
+// Any other read (an inspection: `children.length`, a test, an alias) builds
+// it once for the burst, and the first placement after it takes that build:
+// a component that inspects its children and then renders them renders the
+// nodes it inspected. Outside the burst every read builds afresh, because
+// realized children are single-use DOM: a DocumentFragment is drained by its
+// first insertion and removed nodes have had their effects disposed, so a
+// component that re-reads props.children from a reactive thunk must get a
 // freshly built subtree rather than the corpse of the previous one.
 //
+// While hydrating, a placement builds where the walk stands, so its JSX
+// claims the server's nodes for it. Any other read builds off the walk
+// (outsideRead, render.js _$outside): the value is placed later, where it
+// takes the place of the server's copy and is reported.
+//
 // A component that establishes a scope its children depend on (a context
-// provider, an error or suspense boundary) cannot use the getter at all: the
-// scope only exists after the component returns, and reading props.children
-// anywhere, including destructuring it in the parameter list, would build the
-// subtree first. Those set _deferChildren and receive the factory itself, which
-// the render paths realize once the scope exists and which a boundary
-// re-invokes to rebuild its subtree on a later attempt.
-export function _installLazyChildren(Component, target, lazyChildren) {
-  if (Component._deferChildren) {
-    target.children = lazyChildren;
-    return null;
+// provider, an error or suspense boundary) cannot use the getter for its
+// children: the scope only exists after the component returns, and reading
+// props.children anywhere, including destructuring it in the parameter list,
+// would build the subtree first. Those set _deferChildren and receive the
+// children factory itself, which the render paths realize once the scope
+// exists and which a boundary re-invokes to rebuild its subtree on a later
+// attempt. Their other props are getters like anyone's.
+let placing = false;
+
+/** @type {((build: () => any) => any) | null} */
+let outsideRead = null;
+
+/** Hydration's off-walk build, for reads that do not place what they read (render.js). */
+export function _setOutsideRead(fn) {
+  outsideRead = fn;
+}
+
+/** Compiled code's read of `props[key]` where the value is placed. */
+export function _place(props, key) {
+  placing = true;
+  try {
+    return props[key];
+  } finally {
+    placing = false;
   }
-  let realized;
-  let cached = false;
-  let inPass = true;
-  Object.defineProperty(target, 'children', {
-    get() {
-      if (!inPass) return lazyChildren();
-      if (!cached) {
-        cached = true;
-        realized = lazyChildren();
-      }
-      return realized;
-    },
-    enumerable: true,
-    configurable: true,
-  });
-  return () => { inPass = false; cached = false; realized = undefined; };
+}
+
+export function _installLazyChildren(Component, target, lazyChildren, slots) {
+  // The burst's cache: for each prop, its key, then what its reads built, and
+  // 1 while that build waits for its placement (an inspection made it), 2 once
+  // it is placed. Emptied when the burst ends.
+  /** @type {any[] | null} */
+  let cache = [];
+  const define = (key, factory) => {
+    const at = /** @type {any[]} */ (cache).push(key, undefined, 0) - 3;
+    Object.defineProperty(target, key, {
+      get() {
+        const place = placing;
+        placing = false;
+        if (cache !== null) {
+          const state = cache[at + 2];
+          if (place ? state === 1 : state !== 0) {
+            if (place) cache[at + 2] = 2;
+            return cache[at + 1];
+          }
+        }
+        const value = place || outsideRead === null ? factory() : outsideRead(factory);
+        if (cache !== null) {
+          cache[at + 1] = value;
+          cache[at + 2] = place ? 2 : 1;
+        }
+        return value;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+  };
+  if (lazyChildren) {
+    if (Component._deferChildren) target.children = lazyChildren;
+    else define('children', lazyChildren);
+  }
+  if (slots) for (const key in slots) define(key, slots[key]);
+  return /** @type {any[]} */ (cache).length === 0 ? null : () => { cache = null; };
 }
 
 // --- _handleNavigationSignal(error) ---
@@ -360,7 +416,8 @@ function createComponent(vnode, parent, isSvg) {
   const mergedProps = Object.assign(Object.create(null), props);
   if (children.length > 0) mergedProps.children = children.length === 1 ? children[0] : children;
   const lazyChildren = props && props._$lazyChildren;
-  const endChildrenPass = lazyChildren ? _installLazyChildren(Component, mergedProps, lazyChildren) : null;
+  const slots = props && props._$slots;
+  const endChildrenPass = lazyChildren || slots ? _installLazyChildren(Component, mergedProps, lazyChildren, slots) : null;
   if (__DEV__ && vnode._loc) return _renderComponent(Component, mergedProps, endChildrenPass, isSvg, vnode._loc);
   return _renderComponent(Component, mergedProps, endChildrenPass, isSvg);
 }

@@ -72,7 +72,7 @@ describe('development metadata: what is emitted', () => {
   it('names binding effects and inserts by what they write', () => {
     assert.match(code, /_\$effect\(\(\) => _\$setProp\(_el\$0, "title", count\(\)\), \{\s*name: "li\.title@src\/App\.jsx:14:41",\s*binding: _el\$0\s*\}\);/);
     assert.match(code, /_\$insert\(_el\$0, \(\) => count\(\), _el\$1, "li\.children@src\/App\.jsx:14:57"\);/);
-    assert.match(code, /_\$insert\(_el\$1, props\.label, void 0, "b\.children@src\/App\.jsx:14:69"\);/);
+    assert.match(code, /_\$insert\(_el\$1, _\$place\(props, "label"\), void 0, "b\.children@src\/App\.jsx:14:69"\);/);
   });
 
   it('names server components too', () => {
