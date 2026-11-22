@@ -1,6 +1,6 @@
-// Served server actions (Phase 3). Wires the missing /__what_action HTTP path:
-// createActionHandler (framework-agnostic core) + Node middleware + fetch handler.
-// Also the first real coverage of actions.js round-trip + CSRF.
+// Served server actions: the /__what_action HTTP path, createActionHandler
+// (framework-agnostic core) + Node middleware + fetch handler, and the
+// actions.js round-trip + CSRF.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

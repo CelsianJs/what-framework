@@ -8,6 +8,7 @@
 import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let core;
@@ -158,7 +159,7 @@ describe('<Form> on a mounted page', () => {
     }
     const el = mount(core.h(core.ErrorBoundary, { fallback: ({ error }) => error.message }, core.h(() => {
       const [, dispatch] = core.useActionState(() => {
-        const gate = Promise.withResolvers();
+        const gate = withResolvers();
         gates.push(gate);
         return gate.promise;
       }, null);
@@ -323,7 +324,7 @@ describe('<Form> resets as React 19 resets a form, after its action succeeded', 
     const flights = [];
     let status;
     const el = mount(core.h(form.Form, { action: () => {
-      const work = Promise.withResolvers();
+      const work = withResolvers();
       flights.push(work);
       return work.promise;
     } }, core.h('input', { name: 'title' }), core.h(() => { status = core.useFormStatus(); return null; })));

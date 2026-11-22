@@ -36,7 +36,7 @@
 
 import { isHydrating, _resumeBoundary } from './render.js';
 import { getCurrentComponent } from './dom.js';
-import { _currentComponent, _installSeedOps, __DEV__ } from './reactive.js';
+import { _currentComponent, _installSeedOps, _installStoreSeedOps, __DEV__ } from './reactive.js';
 import { getServerContext, isServerRender } from './server-context.js';
 import { report } from './diagnostics.js';
 
@@ -341,10 +341,16 @@ export function _adoptOwnedValue(frame) {
 /** @type {typeof seedFor | null} */
 let seeder = null;
 
-/** @internal A server render or a hydration is starting: async values take part in the channel. */
+/** @internal A hydration is starting: async values take part in the channel. */
 export function _installSeeding() {
   seeder = seedFor;
   _installSeedOps();
+}
+
+/** @internal A server render is starting: async values take part in the channel, through its resource store. */
+export function _installServerSeeding() {
+  seeder = seedFor;
+  _installStoreSeedOps();
 }
 
 /**

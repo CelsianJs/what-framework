@@ -1,4 +1,4 @@
-// Tests for Phase 1, Phase 2, and Round 2 fixes
+// Regression tests for the reactive core and renderer
 // Covers: microtask deferral, diamond dependency, marker array patching,
 // _parentCtx chain, reactive cache, memo redesign, createResource lifecycle
 import { describe, it } from 'node:test';

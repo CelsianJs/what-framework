@@ -4,6 +4,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -19,7 +20,7 @@ const drain = () => new Promise((resolve) => setImmediate(resolve));
 function server() {
   const flights = [];
   const fetch = (name, signal) => {
-    const flight = Promise.withResolvers();
+    const flight = withResolvers();
     flights.push({ name, signal, ...flight });
     return flight.promise;
   };
@@ -386,7 +387,7 @@ describe('use()', () => {
   it('reads a context, a settled promise, and suspends on a pending one', async () => {
     const { use, createContext, h, mount, Suspense } = W;
     const Theme = createContext('light');
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const data = gate.promise;
     let renders = 0;
     function Card() {
@@ -407,7 +408,7 @@ describe('use()', () => {
 
   it('a rejected promise throws to the ErrorBoundary', async () => {
     const { use, h, mount, Suspense, ErrorBoundary } = W;
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     function Card() { return h('p', null, use(gate.promise)); }
     const host = document.createElement('div');
     const stop = mount(h(ErrorBoundary, { fallback: ({ error }) => h('em', null, error.message) },

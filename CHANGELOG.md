@@ -2,6 +2,603 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.15.0] - Unreleased
+
+Minor release with breaking changes. All 13 maintained packages move to 0.15.0
+together; deprecated `what-mcp` stays frozen at 0.12.4. React's familiar names
+and call shapes now run on a new engine: push-pull signals with an owner tree,
+async values in the graph, a compiled server target with out-of-order
+streaming, hydration that adopts the server's DOM, data and actions built on
+transitions, a router whose navigations are transitions, and one coded
+diagnostics channel behind 25 MCP tools.
+
+[docs/UPGRADING.md](docs/UPGRADING.md) is the upgrade guide. It lists every
+moved, renamed and removed name, and each behaviour change below with its
+migration. `npx eslint --fix .` with eslint-plugin-what 0.15 rewrites the
+moved imports. `docs/releases/v0.15.0.md` has the release summary.
+
+### Breaking: upgrading and imports
+
+- **Upgrade every What package together, then recompile.** what-compiler 0.15
+  output runs only on what-core 0.15, and the reverse: a page fails with
+  `does not provide an export named '_$mapKeyed'`, and a 0.14-compiled SVG
+  template root throws `ERR_TEMPLATE_NAMESPACE`. what-text 0.14 installs
+  beside what-core 0.15 and fails at import. The server and the client must
+  run the same release, because the hydration protocol changed.
+  *Migration:* move every What package to 0.15.0 in one install, and publish
+  libraries compiled with what-compiler 0.15.
+- **The root entry has 58 names instead of 177.** The kits moved to
+  `what-framework/a11y`, `/ui`, `/motion`, `/dom`, `/form`, `/data` and
+  `/render`, each with a `what-core/<kit>` twin, and internals moved to
+  `what-core/internal`. No name is kept behind as an alias.
+  *Migration:* run `npx eslint --fix .` (`what/no-moved-imports`). A moved
+  import that remains fails a `what-compiler/vite` build with
+  `ERR_MOVED_IMPORT` and the import to write.
+- **Removed names:** `each`, `atom`, `storeComputed`, `onRootCleanup`,
+  `signalMemo`, `getLoaderData`, `getResource`, `_template`, `collectError`,
+  `getCollectedErrors`, `clearCollectedErrors`, `installAgentContext`, the
+  component and signal registry helpers, `getHealth`, `checkComponentName`
+  and `installSignalReadGuardrail`. *Migration:* UPGRADING's Removed table
+  gives the replacement for each, such as `signal`, `derived`, `onCleanup`,
+  `computed`, `useLoaderData`, `createResource(fetcher, { key })`,
+  `getDiagnostics()` or what-devtools.
+- **`useTransition` and `startTransition` on the root entry are React's
+  transition API.** *Migration:* the animation helper is `useTween` and the
+  class helper is `transitionClass`, both from `what-framework/motion`.
+- **The root `Island` export is removed.** *Migration:* import `Island` from
+  `what-framework/server` (`{ name, props, mode }`). `client:*` JSX needs no
+  change. Code that called `h(Island, …)` imports `_$Island` from
+  `what-framework/render`.
+- **`memo` is no longer exported from `what-framework/render`.** That was the
+  compiler's eager memo, now `_$memo`. The root `memo` is React's component
+  memo, unchanged. *Migration:* use `computed()` or `useMemo`.
+- **Buildless pages that load What through a hand-written import map** must
+  map what the framework's own modules import: `what-framework/<kit>` imports
+  `what-core/<kit>`, `what-framework/render` imports `what-core/render`, and
+  `what-server/islands` and `what-router` import `what-core/internal`.
+  what-core reads its development flag through its own `#env` import.
+  *Migration:* add the entries, and
+  `"scopes": { "/node_modules/what-core/": { "#env": "/node_modules/what-core/src/env.js" } }`.
+  The create-what full-stack template builds its map from the packages'
+  `exports` and `imports`.
+- **Packages export three tiers.** Each export of what-core, what-router and
+  what-server resolves `production` to `dist/*.min.js` (development code
+  removed), `module` to `dist/*.js` (development checks read
+  `process.env.NODE_ENV`), and `development`, `node` and the defaults to
+  `src/`. A bundle that resolves `module` ignores `globalThis.__WHAT_DEV__`,
+  and an unminified esbuild or rolldown build with no `NODE_ENV` of its own is
+  a development build. *Migration:* minify, or define `process.env.NODE_ENV`
+  as `"production"`. A tool that passes custom conditions adds `production`.
+  Custom tooling that externalizes every bare specifier bundles `#` imports
+  with their package.
+
+### Breaking: reactivity, effects and hooks
+
+- **Effect order.** Render-phase effects, which include every DOM binding,
+  run before user-phase effects (`{ phase: 'user' }`, `useEffect`,
+  `onMount`). An effect runs before the effects created during its run, and
+  otherwise in the order the write reached them. 0.14 sorted by graph depth.
+  *Migration:* an effect that reads DOM a binding writes uses
+  `{ phase: 'user' }`. A value another effect computes belongs in a signal or
+  a `computed()`.
+- **`batch()` returns the callback's value.** A batch that ends inside an
+  effect's run or a computed's evaluation leaves its effects to the flush
+  already running. *Migration:* read the signals you wrote, rather than
+  relying on their effects having run.
+- **`onCleanup()` follows the owner.** Inside an effect it belongs to that
+  run. With no owner it does nothing and reports `ERR_CLEANUP_WITHOUT_OWNER`
+  in development. *Migration:* replace `onRootCleanup` with `onCleanup`.
+- **An effect owns what its run creates** and disposes it before the next
+  run. A component is an owner too: everything it creates, a bare `effect()`
+  included, is disposed with it, whether it was built from compiled JSX or
+  `h()`. *Migration:* delete hand-written disposal of nested effects. Create
+  an effect that must outlive the run outside it.
+- **`useEffect` and `onMount` run after their flush's DOM bindings**, in that
+  flush, and an error they throw reaches the nearest `<ErrorBoundary>`.
+  *Migration:* code that called `flushSync()` after mounting should expect
+  them to have run.
+- **`<ErrorBoundary>` catches errors thrown after mount**: effect re-runs,
+  bindings, list rows, `useEffect` and `onMount`. *Migration:* none, unless an
+  error was meant to pass the boundary.
+- **`useId()` returns a string**, as do the ids from `useDescribedBy` and
+  `useLabelledBy`. *Migration:* write `id` where you wrote `id()`.
+- **Async functions are reported in development.** An `async` effect reports
+  `ERR_ASYNC_EFFECT`. An `async` component renders its promise as text and
+  reports `ERR_ASYNC_COMPONENT`. A `useMemo` that returns a promise reports
+  `ERR_ASYNC_MEMO`. *Migration:* fetch with an async `computed()`.
+- **Development warnings are coded `[what] ERR_…` lines.** A looping effect
+  is stopped after 100 flush rounds (0.14: 25) as `ERR_INFINITE_EFFECT`.
+  `useContext()` of a context with no default and no provider reports
+  `ERR_CONTEXT_NOT_PROVIDED`. A signal converted to a string or a number
+  reports `ERR_MISSING_SIGNAL_READ` and converts as in production, to the
+  function's source. *Migration:* assert on the code, not the text, and call
+  the signal.
+
+### Breaking: async values
+
+- **A computed whose function returns a promise, a thenable or an async
+  iterable is an async value.** Its readers wait for it to land, and under a
+  `<Suspense>` the fallback shows. *Migration:* to keep a promise as the
+  value, wrap it, `computed(() => ({ promise }))`, or use `useMemo`.
+- **A `computed`/`useComputed` function that declares a parameter receives
+  `{ signal }`** and starts when it is created. *Migration:* drop the
+  parameter, or pass the signal to `fetch`.
+- **`createResource`'s `data` is an async value.** It has no `.set`. A read
+  before the first value waits or suspends instead of returning `null`.
+  `loading` and `error` are accessors, and `refetch` returns a promise that
+  never rejects. *Migration:* put a `<Suspense fallback>` around it (or read
+  `loading()` and `data.peek()`), and write with `mutate(value)`.
+- **`<Suspense>` shows its fallback on first load only.** A later refresh
+  keeps the content mounted (read `c.pending()` to show staleness). A later
+  suspension brings the fallback back and keeps the children mounted. Effects
+  under a boundary that has not revealed its content run at the reveal.
+- **what-server's `useOptimistic(initial, reducer)` object is gone.**
+  `useOptimistic(state, update)` returns `[optimistic, addOptimistic]`, as in
+  React 19, from the root entry (what-server re-exports it). *Migration:*
+  `startTransition(async () => { add(x); serverState(await action()); })`. A
+  rejection rolls the overlay back.
+
+### Breaking: rendering, lists and hydration
+
+- **`hydrate()` returns the unmount function**, as `mount()` does. It takes a
+  selector and `{ onHydrationError }`. Mounting or hydrating into a container
+  that holds a root disposes that root first. *Migration:*
+  `const unmount = hydrate(<App />, el)`, and query the container for nodes.
+- **`hydrate()` adopts the server's DOM** where the markup matches, and
+  renders only the differing part on the client. Compiled JSX adopts only
+  when compiled with what-compiler's `hydratable` option. `what-compiler/vite`
+  turns it on (`'auto'`) for a project that renders on the server.
+  *Migration:* for a client build the plugin cannot detect, pass
+  `what({ hydratable: true })`. JSX compiled without it renders on the client
+  and reports `ERR_HYDRATION_MISMATCH` of kind `not-hydratable`.
+- **Vnodes are recognised by a private brand.** An object shaped
+  `{ tag, props, children }` (from JSON, a store or a literal) renders as
+  text on the client, on the server and in islands. `vnode._vnode` and
+  `el._vnode` are gone. An island's vnode prop is revived only where the
+  server recorded one. *Migration:* make elements with `h()` or JSX. A
+  library checks with `isVNode` from `what-core/internal`.
+- **A function `key` on a component is a prop**, not the vnode key, unless it
+  is a signal. So `<For key={(item) => item.id}>` works under `h()` and the
+  JSX runtime. *Migration:* none for a `key` that is a row's key value.
+- **A keyed `.map()` row follows an item replaced under its key.** Compiled
+  rows read the new item in place and keep their nodes and focus. A row that
+  handed the item to a component is built again from it. *Migration:* none,
+  unless code relied on a row ignoring the new item.
+- **`on(el, event, handler)` removes its listener when the current owner is
+  disposed.** *Migration:* attach long-lived listeners outside a component.
+- **`ERR_HYDRATION_MISMATCH` carries a record**,
+  `{ kind, component, ownerPath, path, expected, found, recovery }`, in
+  development and through `onHydrationError` in every build. The "already
+  built DOM" warning is kind `not-hydratable`, and `shadow-root` is a new
+  kind. *Migration:* read the record, and handle the new kinds where you
+  switch over `kind`.
+- **Hydration's trust baseline.** After `hydrate()` the page holds what a
+  client render of the same tree and data holds. A server attribute survives
+  only where a prop renders exactly its value. A refused URL removes the
+  attribute. A style object replaces the inline style. An element the client
+  leaves empty is emptied, and a declarative shadow root is replaced, each
+  with a report. SECURITY.md has a Hydration section. *Migration:* markup a
+  server adds outside the rendered tree no longer survives hydration.
+- **Hydratable server output changed.** `renderToStream`,
+  `renderToStringAsync`, `renderDocument`, `renderDocumentStream` and
+  `renderToHydratableString` write one protocol:
+  - owner-path `data-hk` keys (`0`, `00`, …), comment markers around reactive
+    children and arrays, and `<!--b-->…<!--/b-->` boundaries;
+  - a keyed list's `<!--k:SALT:DIGESTS-->` comment, a per-render salt and a
+    64-bit digest per key, or `<!--k!-->` when a key cannot be compared, which
+    the client rebuilds;
+  - `<textarea>` and `<title>` content as text only, and a newline after
+    `<pre>`, `<textarea>` and `<listing>`;
+  - compiled keyed-row fields with no `<!--$-->` markers.
+
+  *Migration:* tests that match exact HTML strip the protocol, or render with
+  `renderToString`. Code that parsed the keyed-list comment should stop.
+- **what-react:** `cloneElement(nonElement)` returns its argument, and
+  `isValidElement` accepts only real elements. *Migration:* pass a real
+  element, or call `createElement(obj.type, obj.props)` on purpose.
+
+### Breaking: server rendering
+
+- **`renderToStream()` returns a `RenderStream`**,
+  `{ shellReady, allReady, response, pipe, readable, abort }`, which is also
+  async-iterable. It takes options (`loaderData`, `request`, `response`,
+  `signal`, `nonce`, `noScripts`, `onError`, `idPrefix`) instead of a render
+  context. *Migration:* `for await` works as before. `.next()` now throws.
+  Pass loader data and the request as options.
+- **`renderToStringAsync(vnode, init?, options?)` renders on the streaming
+  engine.** `init` is `{ loaderData, signal, request, response }`, and any
+  other field rejects with a `TypeError`. A resource with no `key` is
+  returned in `owned`, not under `resources.__r0`. *Migration:* send `owned`
+  along with `resources`, or let `renderDocument()` write the payload.
+- **A `mode: 'server'` route streams shell-first.** Status and headers are
+  final when the shell is ready. *Migration:* decide them in the loader, or
+  set `page: { stream: false }`.
+- **what-isr stores only public renders.** A render is private, and never
+  stored or shared, when it sets a cookie, sets `Cache-Control` with
+  `private`, `no-store` or `no-cache`, sets `Vary`, or reads a request header
+  or cookie that the route's `vary` does not name. In a render the cache may
+  share, `request` is a real `Request` that carries only the headers and
+  cookies the route's `vary` names, so `fetch(request)` and
+  `new Request(request)` forward nothing the cache key does not vary on. On
+  cacheable routes the loader no longer sees `utm_*` and the other ignored
+  parameters.
+  *Migration:* name what the page varies on (`page: { vary: ['cookie:session'] }`).
+  To forward a visitor's credentials upstream from a cached route, read them
+  through `request.headers` (which makes that render private), name them in
+  `vary`, or use `mode: 'server'`. Read tracking parameters on the client.
+- **Error details stay on the server.** `<!-- SSR Error -->` comments and
+  resource error records carry the message only when `NODE_ENV` is exactly
+  `development`. *Migration:* read errors from `onError`.
+- **The Node adapter answers 400 to a request target that is not a path.**
+  `toNodeListener` and `whatMiddleware` refuse `*`, absolute-form and
+  authority-form targets, and any target whose URL cannot be built.
+  `whatMiddleware` passes a handler's error to `next(err)` instead of
+  rejecting. *Migration:* behind a forward proxy that sends absolute-form
+  targets, rewrite them to origin-form at the proxy.
+- **`exportStatic()` resolves `{ pages, redirects, skipped }`.** A page that
+  redirects is written as a redirect stub, and a page with another status is
+  skipped with a warning.
+- **SSR style objects follow a conservative value grammar.** A value with a
+  CSS comment, an escape outside a string, or an unquoted `url(` that is not a
+  valid url token is dropped. *Migration:* write the value without it.
+
+### Breaking: data, actions, forms and routing
+
+- **`useAction`, `useFormAction`, `useMutation` and `formAction` (what-server)
+  are removed.** *Migration:*
+  `const [result, run, isPending] = useActionState((prev, args) => save(args), null)`,
+  the action inside `startTransition`, or `<Form action={save}>`.
+  `ERR_FORM_ACTION_NOT_REGISTERED` is gone: a plain function is a valid
+  `action`.
+- **The query hooks read one cache of async values.** `useQuery`, `useSWR`,
+  `useInfiniteQuery` and `useFetch` keep their shapes. *Migration:*
+  - `invalidateQueries` returns a promise of the refetches; code that ignored
+    it is unchanged.
+  - Callbacks fire once per landing, for the reader that started the fetch.
+    To react in every component, read `data()` in an effect.
+  - Unmounting a key's last reader cancels its fetch in flight, and a remount
+    refetches. `setQueryData` drops a fetch in flight for its key; call
+    `invalidateQueries` afterwards for a fresh copy.
+  - `prefetchQuery`'s fetcher gets the key as written plus `{ signal }`, not
+    the normalized string. Read the array, or `String(key)`.
+  - `setQueryData`'s updater gets `undefined` for a key with nothing cached.
+    Write `(prev = []) => …`.
+  - A key may be a function of signals (`queryKey: () => ['search', term()]`).
+    Move a signal read inside `queryFn` into the key.
+  - The hooks render their first state on the server and while hydrating:
+    loading, or their own `initialData`/`fallbackData`. To server-render data,
+    read it with `query()`.
+- **`onRevalidate` and `invalidatePath` come from `what-framework/data`**;
+  what-server re-exports them. `invalidatePath` also refetches the queries
+  read on the path.
+- **The action endpoint refuses cross-site posts** (`Sec-Fetch-Site:
+  cross-site` or `same-site`, or a foreign or `null` `Origin`) with 403, even
+  with a valid token, and accepts same-origin posts without one. The
+  server's own origin takes its scheme from the connection (a TLS socket, or
+  the platform's URL), or from `X-Forwarded-Proto` when the request carries
+  it. *Migration:* name another origin of the app with
+  `createRequestHandler({ csrf: { trustedOrigins: ['https://…'] } })`. Behind
+  a TLS proxy that sends no `X-Forwarded-Proto`, make it send one, or list the
+  app's https origin in `trustedOrigins`.
+- **`<Form>`** omits the empty token field and no longer warns about a missing
+  token. It resets at its submission's commit, only after the action
+  succeeds: uncontrolled fields clear, and a controlled field keeps what its
+  prop holds, as in React 19. `useFormStatus().action` is the action function
+  or `null`. *Migration:* reset by hand in the action's success path if you
+  relied on an immediate reset, and compare `action` against your function,
+  not its id.
+- **`enhanceForms()` submits a same-origin form without a token**, as the
+  native submit would, and leaves the decision to the endpoint.
+  `data-no-csrf` is gone. *Migration:* remove `data-no-csrf`, and check the
+  response where you relied on the client-side "Missing CSRF token" refusal.
+- **Navigations are transitions.** `navigate()` and `<Link>` load a lazy
+  route's chunk and run its `preload` while the old page stays. A lazy
+  route's fallback no longer flashes on navigation; it still shows on first
+  load. A newer navigation supersedes one still preparing. `navigate()`
+  resolves, and `route.isNavigating` turns false, once the new page's first
+  data has landed. *Migration:* return what the page needs at once from
+  `preload`. Use `navigate(to, { flushSync: true })` for an immediate commit.
+- **Route middleware runs once per navigation**, before the route's `preload`,
+  and again only when a signal it read changes. A declined route is never
+  prepared. A middleware that navigates supersedes its own navigation.
+  *Migration:* keep middleware free of side effects that expected a second
+  call at render.
+- **The router commits the URL the address bar commits**, with dot segments
+  resolved, and splits it as `URL` does (`?q=a?b` is `{ q: 'a?b' }`). A
+  path that starts `//` is that path, not another host. A nested `<Router>`
+  has route state of its own.
+- **`isSafeUrl` refuses an absolute URL the URL parser rejects**, so
+  `<Link href="http://[">` renders `href="about:blank"`.
+- **A server never navigates.** During a server render, route state is the
+  request's own, and a `<Router url>` keeps route state of its own, which
+  readers outside it do not see. `navigate()`, a middleware redirect,
+  `<Redirect>`, a `guard()` path fallback and a `redirect()` thrown from a
+  component body under a `<Router>` redirect the response (a same-origin
+  path). A
+  `beforeNavigate` or `afterNavigate` subscribed during a server render is not
+  kept. *Migration:* read the redirect from the response you passed in
+  (`createResponse()`); the deploy adapters answer with the 3xx. Read the URL
+  a `<Router url>` was given inside that Router.
+
+### Breaking: compiler
+
+- **Server transforms compile for the server.** The Vite plugin's `ssr`
+  option, on by default, compiles a module Vite transforms for the server
+  with the server target, which every what-server renderer accepts.
+  *Migration:* test runners that set `ssrGuard: false` to get DOM output from
+  server transforms set `ssr: false, ssrGuard: false`. With the Babel plugin,
+  the server target is `generate: 'ssr'`.
+- **A call in JSX is static only when the compiler proves it.** A call is
+  left unwrapped only when nothing it reaches can read a signal. A call it
+  cannot prove (a parameter, a method of a value it did not see made, a
+  getter, a class instance, a callback handed on, a generator, an unknown
+  global) is a reactive child. *Migration:* none for correctness; snapshot
+  tests of compiled output or server markup may show new thunks or markers.
+- **`autoSelector`, on by default, rewrites `selected() === row.id`** in a
+  keyed `.map()` row into a `createSelector` lookup. *Migration:* opt out
+  with `/* @what-no-selector */` or `autoSelector: false`.
+- **Markup the HTML parser would move fails the build** with
+  `ERR_INVALID_HTML_NESTING`, and the server target refuses unsafe static
+  values with `ERR_UNSAFE_STATIC_MARKUP`. *Migration:* write markup the parser
+  keeps, such as a `<tbody>` around rows.
+- **Development output carries names and locations** (`devMetadata`, on in
+  the Vite dev server, never in `vite build`). *Migration:* update snapshots
+  of development output.
+
+### Breaking: tools
+
+- **eslint-plugin-what:** `what/no-signal-in-effect-deps` is now
+  `what/no-signal-read-in-effect-deps` and reports the opposite case
+  (`[count()]`, fixed to `[count]`). `what/no-destructured-props` is retired.
+  `what/no-moved-imports` and `what/no-effect-self-write` are errors in
+  `recommended`. *Migration:* rename or delete the rules in a config that
+  lists them, then run `eslint --fix`.
+- **what-devtools:** `subscribe()` events carry ids instead of registry
+  entries, and `safeSerialize(value, depth)` is `safeSerialize(value, budget)`.
+  *Migration:* look entries up by id in the exported `signals`, `effects` or
+  `components` map.
+- **what-devtools-mcp:** 0.14's 29 tools are now 25.
+  - `what_component_tree`, `what_diff_snapshot`, `what_watch`,
+    `what_record_window`, `what_validate` and `what_perf` are gone. *Migration:*
+    UPGRADING's MCP table gives the call for each.
+  - Every answer is compact JSON with a `seq` cursor; the prose `summary` is
+    gone.
+  - The Vite plugin pairs the page, and another dev server serves the same
+    endpoint with `createDiscoveryHandler({ root })`.
+  - `what_signals` counts include async computed rows (writable rows have
+    `id`, async rows `effectId`).
+  - Causal recording starts on connection. *Migration:* reproduce the action
+    after connecting.
+  - `what_diagnose`'s hot-effect cutoff defaults to 5 runs. *Migration:* pass
+    `threshold: 50` for 0.14's cutoff.
+  - `what_errors` returns hydration guidance in `mismatchFixes[kind]`.
+
+### Added
+
+- **Engine.** A push-pull signal engine with an owner tree, equality cut-off
+  and evaluation on a bounded stack, and the new `createSelector`.
+  Development code sits behind a build-time `__DEV__` and is absent from
+  production builds.
+- **Async values.** `computed()` over a promise, a thenable or an async
+  iterable, with `{ signal }`, supersede and abort, `.pending()` and
+  `.peek()`. `refresh()`, `isPending()`, `startTransition()`/`useTransition()`,
+  `useOptimistic()`, `use()` and `settled()`. `<Suspense>` catches async reads
+  anywhere under it and reveals once dependent values have landed.
+  `ErrorBoundary`'s `reset()` retries only the sources of the errors it
+  caught. A rejected `useTransition` action shows in the nearest
+  `<ErrorBoundary>`, as in React 19. `settled` is exported from
+  `what-framework/testing`, and `act()` resolves after it.
+- **Server rendering.** A compiled server target. Buffered and out-of-order
+  streaming, with `applyStreamedBoundaries()` for `noScripts` pages. The
+  request context survives `await`. Async values render on the server, are
+  serialized and are adopted on hydrate. A render sets its status, headers and
+  redirect: loaders get `response`, components call `getResponse()`,
+  `response.redirect(path)` takes a same-origin path, and
+  `response.redirectExternal(url)` leaves the site. `renderToString(vnode,
+  { response })`, and `renderToStringAsync` returns `response`.
+- **Hydration by adoption.** Matching markup creates no nodes, each reactive
+  child runs once, and nothing the server sent is fetched again. Keyless
+  server values are found by owner identity. A component that suspends while
+  hydrating keeps the server's content. A streamed boundary hydrates when its
+  content arrives. `onHydrationError` works in production, and
+  `hydrateIslands`/`autoIslands` take it too.
+- **Data.** `query(key, fetcher, options?)` in `what-framework/data`:
+  reactive keys, one request per key, the last value with `pending()` while
+  refetching, abort of keys nothing reads, `gcTime`, `refresh(q)`, and server
+  rendering with adoption on hydrate. One cache under `query` and the hooks,
+  with function keys, `keepPreviousData`, function `placeholderData`,
+  `isPlaceholderData`, `dataUpdatedAt`, `refetchOnReconnect` and
+  `initialData`. `invalidatePath(path)`.
+- **Actions and forms.** `useActionState` and `useFormStatus` (React 19) on
+  the root entry. Server actions are transitions on the client, with an
+  `invalidates` option, and their revalidation commits with them. Actions run
+  in their request's context, with `getRequest()` and a query cache of their
+  own. `<Form>` accepts client actions. CSRF by Fetch Metadata and `Origin`,
+  so forms on cached and streamed pages post without a token, with
+  `trustedOrigins` for other origins.
+- **Router.** Route `preload` with a `data` prop, `navigate(to,
+  { flushSync })`, and `route.isNavigating` from the moment a navigation
+  starts, including one started inside a transition.
+- **Components and the compiler.** `<For>` takes an array or an accessor, and
+  `<For key>` keeps rows per key on the runtime path. Compiled JSX makes
+  `each={items().filter(f)}`, optional chains and calls given a reactive
+  callback reactive. what-compiler's `hydratable` option, and
+  `what-compiler/vite`'s `hydratable: 'auto' | true | false`. Compiled keyed
+  rows write a plain item field (`{row.label}`) as a text node with no effect.
+- **Diagnostics.** One coded channel: `getDiagnostics()`,
+  `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
+  `WhatError` on the root entry, `captureDiagnostics()` in
+  `what-framework/testing`. A catalogue of 66 codes, each with a fix and an
+  example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
+  page, and the `diagnostics.json` and generated `skills/` that ship in
+  what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
+  `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
+  `ERR_QUERY_OUTSIDE_RENDER`.
+- **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
+  Suspense and action events) and `what_why` (why a run, a skipped effect or
+  a mount happened, back to the write or landing). Async flight details and
+  stalled-work diagnosis (`what_diagnose({ focus: "async" })`), unread
+  written signals with creation sites, repeated computeds, hydration adoption
+  counts and kind-specific mismatch fixes. `what_cache` shows each key's
+  status, readers, age and last fetch. `what_invalidate_cache` takes array
+  prefixes. `what_lint` compiles the snippet with the project's ESLint config
+  (`filePath`), and `what_scaffold` detects the project's template. The server
+  exits on stdin EOF and frees its port.
+- **eslint-plugin-what.** `no-moved-imports` (with autofix),
+  `no-signal-read-in-effect-deps`, `no-effect-self-write`, `effect-cleanup`,
+  `no-unsafe-innerhtml`, `no-async-component`, `no-promise-in-usememo`,
+  `no-optimistic-snapshot` and `prefer-async-computed` in `recommended`;
+  `prefer-computed` and `signal-debug-name` in `strict`. `no-uncalled-signals`
+  knows `pending()`, `useTransition()[0]` and `useOptimistic()[0]`.
+- **Types.** `useOptimistic` accepts a signal or a computed. `<For>` has
+  keyed and unkeyed signatures. An `async` component is a type error in JSX.
+  `action()` accepts a synchronous function. `what-framework/router`
+  re-exports what-router's declarations.
+- **Benchmarks and gates.** Reactivity, SSR, size and krausest harnesses
+  against Solid 1.9, Solid 2.0 and React 19 (`benchmark/`), `npm run
+  bench:hydrate` in `benchmark/ssr`, size ceilings in `.size-budgets.json`
+  with the cause of each change, and `npm run check:snippets`, which runs
+  every code block shipped in the docs, READMEs, skills and MCP resources.
+  `npm run check:node-floor` keeps APIs newer than Node 20 out of the shipped
+  code and the tests, and CI runs the suite on Node 20, 22, 24 and 26.
+  `npm run bench:gate` measures core and DX against a reference build
+  (`benchmark/reference.json`) in interleaved runs of one session.
+
+### Fixed
+
+- **Request isolation (security).** Loaders and actions run in their
+  request's server context, so `prefetchQuery` and the query cache never
+  serve one user's data to another, including on a server with a DOM global
+  and no AsyncLocalStorage. Outside any render the server cache is never
+  shared. On the server, route state (`route.url`, `route.query`,
+  `useParams()`, `useSearch()`, `useRoute()`) is the request's own, also for
+  ISR-cached pages. Process-wide registries are shared by every tier of the
+  packages one process loads, so `node --conditions=production` no longer
+  splits what-server's action registry (actions answered 404) or
+  what-router's matcher. Each process-wide key names a protocol version
+  (`Symbol.for('what.actions.v1')`, …), so a copy of another protocol keeps
+  its own. Work that another copy of what-core creates during
+  a server render, once that copy has read the render's context, is released
+  with the render. One realm serves one app's actions: two apps in one process
+  that register the same action id share it, and development reports
+  `ERR_DUPLICATE_ACTION_ID`.
+- **Redirects and URLs (security).** `_redirect` and `response.redirect()`
+  refuse dot-segment targets such as `/.//evil`, and what-isr's path predicate
+  matches what-server's. SVG `values`, `to`, `from` and `by` with
+  `javascript:` are refused on every path. The Origin-only CSRF path compares
+  the full origin, and the Node adapter sees TLS as https.
+- **Request targets (security).** A target that is not a path (`GET //`,
+  `*`, absolute or authority form) gets a 400 or goes to `next()` in
+  `what dev`, `what preview`, the create-what full-stack server and its Vite
+  middleware, and what-server's Node adapter and middlewares, so one request
+  cannot end the process. `nodeActionMiddleware` never rejects. The router's
+  and the cache's URL parsing never throws on a request's path.
+- **Form data (security).** No-JS and enhanced form fields such as
+  `constructor` and `__proto__` arrive as own fields. ISR loader `query`
+  objects are null-prototype. A malformed cookie no longer fails every page.
+  A cached ISR render sees exactly what its key is made of: a repeated cookie
+  name counts once, with its first value.
+- **Keyed hydration.** A server row is adopted only as its own key's row;
+  rows in another order are moved and the rest rebuilt, with a report, so
+  what was typed into a row stays with its key. A differing text takes exactly
+  its share of the server's merged text.
+- **Hydration.** Arrays, fragments and providers before a boundary adopt
+  cleanly. Interaction islands hydrate on keyboard focus, and the click that
+  hydrates one reaches its handler. `<Show>`, `<For>`, `<Switch>` and
+  `<Match>` take no owner-path step, so mixed compiled and runtime JSX keeps
+  its keys. A compiled `<Portal>`'s children and an island's slot hydrate
+  where they render. Event handlers belong to their owner. A late streamed
+  boundary's mismatch reaches `onHydrationError`, and a mismatch is reported
+  once per region. Stale server attributes are removed from claimed elements.
+  A custom element's own property is written on hydration even when the
+  server's attribute matches.
+- **Async values.** `settled()` waits for the reveal's effects and for
+  streams, and never spins on a synchronous refetch. `refresh()` settles when
+  the function answers at once or throws. Transitions that reach one binding
+  commit together, and an urgent write no longer releases a held region. A
+  second optimistic overlay shows while another action holds the view.
+  `createResource().mutate()` during a transition aborts the request. A
+  transition awaited inside an action no longer deadlocks.
+- **Retention.** Unmounted components, abandoned promises, held effects,
+  dropped query flights, unmounted `useActionState` dispatches, rejected form
+  actions, superseded navigations and `<Suspense>` boundaries unmounted while
+  waiting retain nothing.
+- **Forms.** A control named `reset` or `elements` no longer breaks a reset,
+  and a reset that throws becomes the form's `form:error`. A multiple
+  `<select>` keeps its array value through a reset. Getter-only properties
+  such as an input's `form` and `list` are set as attributes, so
+  `h('input', { form })` no longer throws. Value and checked bindings no
+  longer rewrite the value they last wrote, so a refetch keeps what the user
+  typed. `useFormStatus().data()` is the latest submission still pending.
+  A value released to `null` or `undefined` makes the field uncontrolled, so
+  a form reset restores its default, in `h()` and compiled output.
+  `defaultValue`, `defaultChecked` and `defaultSelected` are written as the
+  `value`, `checked` and `selected` attributes in server HTML and compiled
+  templates. A server-rendered `<select value>` marks the options it names
+  `selected` (in a multiple select, every one its array names), so a form
+  posted before hydration carries them. A later write to a select's value
+  supersedes a deferred earlier one, and `false` clears it. An action result
+  whose `then` getter throws reaches `form:error`.
+- **Data.** A fetcher that throws reaches the `<ErrorBoundary>`. A fetch that
+  lands `undefined` is data. A superseded invalidation answers when its
+  replacement lands. The query hooks and a `query()` on one key no longer
+  report a hydration mismatch.
+- **Router.** A delayed View Transition cannot commit a superseded
+  navigation. A `preload` that throws renders the route's error boundary.
+  `<Router>` server-renders the request's URL with its `preload`. A relative
+  `<Link>` is active on the server as on the client, and a relative server
+  `navigate()` resolves against the page. A nested Router's middleware and
+  `preload` read its own route, and sibling server Routers keep their own
+  URLs. A navigation started from inside a guard is released when the Router
+  unmounts.
+- **Compiler.** The callee analysis is iterative, so a module of thousands
+  of chained helpers or aliases compiles. A getter read through a local alias
+  is reactive, and a member replaced through a destructuring or a `for…of`
+  loop is seen. An `Array.of()` or `Array.from()` array of primitives the
+  compiler can see is static. `x?.map((item) => <Row key=… />)` and lists
+  nested in keyed rows, ternaries and `&&` are keyed on the server as on the
+  client. A keyed `.map()` row in a template literal no longer crashes it.
+- **Server.** A component given one child receives the child itself, as on
+  the client. SSR style objects drop the declarations the client's CSSOM
+  would drop. A no-JS action sees `getRequest()` before its first `await`
+  without AsyncLocalStorage. what-server's bundler tier no longer writes SSR
+  error details into pages.
+- **Development builds report diagnostics in every bundler**: Vite's dev
+  server, webpack's development mode, Rollup with node-resolve and
+  `NODE_ENV=development`, and a default `bun build`. Markup that names a
+  global `process` (`<form id="process">`) no longer switches what-core into
+  development mode. An app's `Error.prepareStackTrace` that throws no longer
+  breaks signal creation in development.
+- **create-what full-stack.** A production build serves and publishes only
+  the packages' production files (`dist/*.min.js`: no development tier, no
+  source maps) whatever the host's `NODE_ENV`, `node server.js` names its mode
+  on its first line, and `npm run smoke:clean` stops only its own checkout's
+  servers.
+
+### Performance
+
+- The compiled create-what counter is smaller than 0.14's: compiled output
+  no longer carries the vnode reconciler, and an app with no computed leaves
+  out the engine's pull phase. Apps written with `h()`, and apps that use
+  async values or hydrate, are larger. UPGRADING's Bundle size section has
+  the measured numbers and their causes.
+- An app that makes no `computed()`, `useMemo()` or `createSelector()` does
+  not bundle the engine's pull phase (the lazy computeds' verification, the
+  deferral of deep chains, the release of unobserved computeds): about
+  1.1 KB gzip. The first computed installs it, which costs an app that makes
+  computeds about 70 B.
+- `<ErrorBoundary>` and `<Portal>` carry their client renderers on their
+  vnodes, as `<Suspense>` does, so an `h()` or runtime-JSX app that uses
+  neither leaves them out (about 380 B gzip).
+- Browser bundles leave out the server render's resource store: a server
+  render installs it, not `hydrate()` or `query()` (about 410 B gzip in a
+  hydrating app, 220 B in an app that uses the query cache).
+- A swap of two rows among 1,000 reads about 12 keys instead of about 2,000.
+- Development-tier signal writes, batches and effect runs take 0.72–0.93×
+  0.14's time, and a page without devtools takes no stack trace per signal.
+- `jsx()` no longer allocates an array per element (h() SSR heap −10% at 1k
+  rows).
+
 ## [0.14.0] - 2026-10-13
 
 Minor release: all 13 maintained packages move to 0.14.0 together. It adds

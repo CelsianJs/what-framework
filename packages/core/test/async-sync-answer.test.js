@@ -8,6 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM('<!DOCTYPE html><html><body></body></html>');
 
@@ -17,7 +18,7 @@ const timeout = (ms) => new Promise((resolve) => setTimeout(() => resolve('timed
 
 describe('a run that gives way to a synchronous answer', () => {
   it('reveals the <Suspense> waiting on it, and settled() waits for the reveal', async () => {
-    const source = Promise.withResolvers();
+    const source = withResolvers();
     const user = computed(async () => source.promise);
     // A computed that answers with a promise of the value it reads, then,
     // when that value lands and it runs again, with the value itself.
@@ -40,7 +41,7 @@ describe('a run that gives way to a synchronous answer', () => {
   });
 
   it('settled() waits until the <Suspense> has looked again at what it waits for', async () => {
-    const source = Promise.withResolvers();
+    const source = withResolvers();
     const user = computed(async () => source.promise);
     const profile = computed(() => {
       try {

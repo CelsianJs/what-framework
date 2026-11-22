@@ -23,8 +23,13 @@ import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalida
 // process loaded (dist/*.js, dist/*.min.js and the source each hold a copy of
 // this module): an action registered through one is found by the handler of
 // another. Keyed by Symbol.for, so one realm has one; made on first use, so
-// importing the module writes no global.
-const REGISTRY = Symbol.for('what.actions');
+// importing the module writes no global. The key names the shape of what it
+// holds (`.v1`), as the vnode and HTML brands do: a copy that holds another
+// shape uses another key, so copies of two protocols keep two registries.
+// Action ids are the realm's: one realm serves one app's actions, and an id
+// registered twice warns in development (ERR_DUPLICATE_ACTION_ID); the later
+// registration is the one called.
+const REGISTRY = Symbol.for('what.actions.v1');
 /** @type {Map<string, any> | null} */
 let registry = null;
 function actionRegistry() {

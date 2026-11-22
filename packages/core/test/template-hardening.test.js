@@ -1,7 +1,7 @@
 /**
  * Template Hardening Tests — SVG Namespace & Table Element Wrapping
  *
- * Tests for Sprint 2 runtime fixes:
+ * Covers:
  * 1. SVG elements created in correct namespace via template()
  * 2. Table child elements (tr, td, th, etc.) parsed with proper parent context
  */

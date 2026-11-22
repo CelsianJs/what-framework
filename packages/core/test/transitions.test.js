@@ -3,6 +3,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -17,7 +18,7 @@ const drain = () => new Promise((resolve) => setImmediate(resolve));
 function deferreds() {
   const map = new Map();
   const get = (name) => {
-    if (!map.has(name)) map.set(name, Promise.withResolvers());
+    if (!map.has(name)) map.set(name, withResolvers());
     return map.get(name);
   };
   return {

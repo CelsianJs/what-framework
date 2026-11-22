@@ -1,4 +1,4 @@
-// Deploy-readiness verification (D7, sprint/v0.11-quality).
+// Deploy-readiness verification.
 //
 // One suite per deploy adapter, each proving the adapter's OUTPUT actually
 // serves the way the deploy docs (packages/server/README.md "Deploying") say:

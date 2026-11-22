@@ -8,6 +8,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/' });
 
@@ -20,7 +21,7 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 function remote() {
   const calls = [];
   const fetcher = (key) => {
-    const call = { key, ...Promise.withResolvers() };
+    const call = { key, ...withResolvers() };
     calls.push(call);
     return call.promise;
   };
@@ -96,7 +97,7 @@ describe('a navigation to a route with preload', () => {
   it('a newer navigation supersedes one whose View Transition has not run its commit yet', async () => {
     const updates = [];
     document.startViewTransition = (update) => {
-      const done = Promise.withResolvers();
+      const done = withResolvers();
       updates.push(async () => {
         try { done.resolve(await update()); } catch (error) { done.reject(error); }
       });

@@ -10,12 +10,14 @@
 // provider) or what it was; `foreign` lists any other request's token that
 // appears anywhere in the response.
 
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
+
 const COUNT = 120;
 const tokenOf = (i) => `tok${i}z`;
 
 export async function renderInterleaved({ server, h, Suspense, query, Router, route, useParams, useSearch, useRoute }) {
-  const gates = Array.from({ length: COUNT }, () => Promise.withResolvers());
-  const entered = Array.from({ length: COUNT }, () => Promise.withResolvers());
+  const gates = Array.from({ length: COUNT }, () => withResolvers());
+  const entered = Array.from({ length: COUNT }, () => withResolvers());
   const read = () => [route.path, route.hash, route.url, useParams().id, useSearch().q, route.params.id, route.query.q, useRoute().path()].join(' ');
   const own = (i) => [`/items/${i}`, `#h${i}`, `/items/${i}?q=${tokenOf(i)}#h${i}`, i, tokenOf(i), i, tokenOf(i), `/items/${i}`].join(' ');
   const none = ['/', '', '/', '', '', '', '', '/'].join(' ');

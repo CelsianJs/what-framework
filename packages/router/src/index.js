@@ -30,6 +30,15 @@ import { matchRoute, parseQuery } from './match.js';
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
+function parses(url) {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isSafeUrl(url) {
   if (typeof url !== 'string') return false;
   const trimmed = url.trim();
@@ -40,7 +49,9 @@ export function isSafeUrl(url) {
   if (normalized.startsWith('vbscript:')) return false;
   if (/^[/\\]{2}/.test(normalized)) return false;
   const scheme = normalized.match(/^([a-z][a-z0-9+.-]*:)/);
-  if (scheme) return SAFE_PROTOCOLS.has(scheme[1]);
+  // An absolute URL the URL parser rejects (`http://[`, `https://%zz.example`)
+  // is no destination: a link to it goes nowhere, and resolving it throws.
+  if (scheme) return SAFE_PROTOCOLS.has(scheme[1]) && parses(trimmed);
   // Scheme-less only: browsers normalize a backslash to a forward slash, so
   // `\evil.com` resolves off-origin exactly as `/\evil.com` does. Absolute
   // URLs already passed the protocol allowlist above.
@@ -146,31 +157,57 @@ const NO_ROUTE = Object.freeze({ url: () => '/', params: () => ({}), query: () =
 function requestUrl(ctx) {
   const request = ctx.request;
   if (request == null || typeof request.url !== 'string') return '/';
-  const parsed = new URL(request.url, 'http://localhost');
-  return parsed.pathname + parsed.search + parsed.hash;
+  const parsed = parseLocal(request.url);
+  return parsed === null ? '/' : parsed.pathname + parsed.search + parsed.hash;
 }
 
 // What a relative URL resolves against where there is no page.
 const NO_PAGE = 'http://what.invalid';
+// A relative reference: no scheme, and not a path from the root or another
+// host ('/x', '//x', '\\x').
+const RELATIVE = /^(?![a-z][a-z0-9+.-]*:)(?![/\\])/i;
+
+// A URL as the router holds one, parsed: a path (with its search and hash) is
+// read as the address bar holds it, so `//other.test/x` is the path
+// `//other.test/x`, never another host's `/x`; anything else resolves against
+// the root. Null for what the URL parser rejects (`http://[`), so that no
+// value a request or a prop carries makes a render throw.
+function parseLocal(url) {
+  const text = String(url);
+  try {
+    return text.startsWith('/') ? new URL(NO_PAGE + text) : new URL(text, NO_PAGE + '/');
+  } catch {
+    return null;
+  }
+}
 
 // A URL's path, search (with its '?') and hash (with its '#'), as the URL
 // parser splits them: the search runs from the first '?' to the first '#', so
 // a second '?' belongs to a query value, and the hash is all after the first
-// '#'. Dot segments are resolved, as the address bar resolves them.
+// '#'. Dot segments are resolved, as the address bar resolves them. A URL the
+// parser rejects is the root.
 function splitUrl(url) {
-  const parsed = new URL(url, NO_PAGE);
-  return { path: parsed.pathname, search: parsed.search, hash: parsed.hash };
+  const parsed = parseLocal(url);
+  return parsed === null
+    ? { path: '/', search: '', hash: '' }
+    : { path: parsed.pathname, search: parsed.search, hash: parsed.hash };
 }
 
 // The URL the browser commits for a navigation to `to` (a path, a relative
 // URL, a '#hash', a URL of this origin): its path, search and hash, resolved
 // against the page as history.pushState resolves it, dot segments and
-// percent-encoding included. Null for another origin's URL (mailto:, an
-// external site), which no route shows.
+// percent-encoding included. On a server the page is the URL the render shows
+// (its nearest <Router>'s), so a relative link resolves there as it does in
+// the browser. Null for another origin's URL (mailto:, an external site),
+// which no route shows, and for one the URL parser rejects.
 function resolveHref(to) {
-  const page = typeof location !== 'undefined' ? location.href : NO_PAGE + _url.peek();
-  const parsed = new URL(to, page);
-  return parsed.origin === new URL(page).origin ? parsed.pathname + parsed.search + parsed.hash : null;
+  const page = onServer() || typeof location === 'undefined' ? NO_PAGE + here().url() : location.href;
+  try {
+    const parsed = new URL(to, page);
+    return parsed.origin === new URL(page).origin ? parsed.pathname + parsed.search + parsed.hash : null;
+  } catch {
+    return null;
+  }
 }
 
 // --- Navigation Hooks ---
@@ -264,8 +301,11 @@ function waitsOf(data, out) {
 // It is decided again only when a signal the middleware read changes, and the
 // route is loaded when a verdict first admits it. `current()`, when given, is
 // asked before the first load: a navigation the middleware superseded (it
-// called navigate()) loads nothing.
-function prepare(url, routes, current) {
+// called navigate()) loads nothing. `state`, when given, is the route state
+// of the Router preparing it, which `route` reads in its middleware and
+// preload: the preparation is owned by nothing, so it would otherwise see
+// the state of no Router.
+function prepare(url, routes, current, state = null) {
   const { path, search } = splitUrl(url);
   const matched = routes ? matchRoute(path, routes) : null;
   /** @type {any} */
@@ -281,6 +321,7 @@ function prepare(url, routes, current) {
   // (or being prepared), whatever called navigate().
   runWithOwner(null, () => createRoot((dispose) => {
     prep.dispose = dispose;
+    if (state !== null) _provide(SCOPE, state);
     const owner = getOwner();
     let loaded = false;
     const admit = () => {
@@ -366,8 +407,10 @@ let _leave = noop;
 
 // What `value` settles to, as a promise the next navigation can settle at
 // once (to undefined). The callbacks `value` holds reach only `wait`, which
-// leaving empties.
-function waitFor(value) {
+// leaving empties. Only the navigation in flight, `nav`, sets how it leaves:
+// a guard that started another navigation returns after that one began
+// waiting, and must not replace the newer one's way out.
+function waitFor(value, nav) {
   /** @type {{ resolve: (value?: any) => void, reject: (error?: any) => void }} */
   const wait = { resolve: noop, reject: noop };
   const settled = new Promise((resolve, reject) => {
@@ -375,6 +418,7 @@ function waitFor(value) {
     wait.reject = reject;
   });
   Promise.resolve(value).then((v) => wait.resolve(v), (err) => wait.reject(err));
+  if (nav !== _navigation) return settled;
   _leave = () => {
     const resolve = wait.resolve;
     wait.resolve = wait.reject = noop;
@@ -401,9 +445,12 @@ export async function navigate(to, opts = {}) {
   const { replace = false, state = null, transition = true, flushSync: sync = false, _fromPopstate = false, _redirectChain = false } = opts;
 
   // The response refuses a target that is not a same-origin path, and
-  // redirects to '/' instead.
+  // redirects to '/' instead. A relative one ('next', '../up', '?page=2')
+  // resolves against the URL the render shows, as the browser resolves it
+  // against the address bar.
   if (onServer()) {
-    if (typeof to !== 'string' || !to.startsWith('#')) getResponse().redirect(to);
+    if (typeof to !== 'string') getResponse().redirect(to);
+    else if (!to.startsWith('#')) getResponse().redirect(RELATIVE.test(to) ? resolveHref(to) ?? to : to);
     return;
   }
 
@@ -467,7 +514,7 @@ export async function navigate(to, opts = {}) {
     // history.state is not carried over. Documented on beforeNavigate in
     // index.d.ts.
     for (const fn of _beforeHooks.slice()) {
-      const allowed = await waitFor(fn(href, from));
+      const allowed = await waitFor(fn(href, from), nav);
       if (nav !== _navigation) return;
       if (allowed === false) {
         if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', from);
@@ -486,7 +533,7 @@ export async function navigate(to, opts = {}) {
       return;
     }
     _incoming = prep;
-    await waitFor(prep.ready);
+    await waitFor(prep.ready, nav);
     if (nav !== _navigation) {
       if (_incoming === prep) _incoming = null;
       prep.dispose();
@@ -564,7 +611,7 @@ export async function navigate(to, opts = {}) {
       }
     } else {
       try {
-        await waitFor(commit());
+        await waitFor(commit(), nav);
       } catch {
         // A commit's async work failed; the URL has changed and its page shows
         // the error.
@@ -575,7 +622,7 @@ export async function navigate(to, opts = {}) {
     if (_afterHooks.length) {
       for (const fn of _afterHooks.slice()) fn(href, from);
     }
-    if (landed !== null) await waitFor(landed);
+    if (landed !== null) await waitFor(landed, nav);
     // Inside a transition an action holds, the commit (and the end) is still to come.
     else if (!committing && nav === _navigation) _navigating.set(false);
   } finally {
@@ -607,7 +654,7 @@ function end() {
 //
 //   - Route middleware, caught by the Router's own matching pass below.
 //   - A component body, caught by core's createComponent, which invokes the
-//     handler the signal carries under Symbol.for('what.navigation.signal')
+//     handler the signal carries under Symbol.for('what.navigation.signal.v1')
 //     rather than reporting the throw to an ErrorBoundary. h() is lazy, so a
 //     route component is instantiated after the matching pass has returned;
 //     that is why the second catch has to live in core.
@@ -617,8 +664,8 @@ function end() {
 // an example for exactly that case, because that is the only case a human reads
 // it in.
 
-const REDIRECT = Symbol.for('what.router.redirect');
-const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+const REDIRECT = Symbol.for('what.router.redirect.v1');
+const NAV_SIGNAL = Symbol.for('what.navigation.signal.v1');
 
 export function redirect(to, options = {}) {
   if (!isSafeUrl(to)) {
@@ -872,9 +919,10 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   if (parent !== null) {
     state = ownState(server && typeof url === 'string' ? () => url : parent.url);
   } else if (server) {
+    // The request's state, unless this Router shows a URL of its own: then
+    // its own, so a sibling Router (or a reader outside both) never reads it.
     const ctx = getServerContext();
-    state = ctx === null ? ownState(() => (typeof url === 'string' ? url : '/')) : requestState(ctx);
-    if (ctx !== null && typeof url === 'string') state.url.set(url);
+    state = ctx === null || typeof url === 'string' ? ownState(() => (typeof url === 'string' ? url : '/')) : requestState(ctx);
   } else {
     state = tab;
     _routes = routes;
@@ -900,7 +948,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   const prepFor = state === tab ? shownFor : (/** @type {string} */ at, /** @type {any} */ r) => {
     if (local !== null && local.url === at && local.route === r) return local;
     const old = local;
-    local = prepare(at, routes);
+    local = prepare(at, routes, undefined, state);
     if (old !== null) queueMicrotask(() => old.dispose());
     return local;
   };
@@ -1249,16 +1297,13 @@ export function prefetch(href) {
 // Saved viewport offsets. ONE key (the full URL: path + search + hash) and ONE
 // shape ({ x, y }) shared by every writer and by the reader below.
 //
-// They used to disagree on both. navigate() and the popstate handler wrote
-// { x, y } keyed by the full URL, while enableScrollRestoration()'s own
-// beforeunload handler wrote a bare NUMBER keyed by location.pathname, and the
-// restore effect looked the entry up by route.path (the pattern-stripped path,
-// never the query or the hash) and handed it straight to
-// `window.scrollTo(0, savedPosition)`. A hit on a { x, y } record therefore
-// produced `scrollTo(0, NaN)`, which browsers normalize to 0 and which jumps
-// the page to the TOP; a URL carrying a query string or a hash missed the
-// lookup entirely and got the same jump. Restoration could not work at all.
-// If you add a writer, key it by the full URL and store { x, y }.
+// A writer that disagrees on either breaks restoration. The reader calls
+// `window.scrollTo(saved.x, saved.y)`, so an entry of another shape (a bare
+// number) scrolls to non-finite offsets, which browsers normalize to 0: the
+// page jumps to the TOP. An entry keyed by route.path (the pattern-stripped
+// path, never the query or the hash) misses every URL that carries a query
+// string or a hash. If you add a writer, key it by the full URL and store
+// { x, y }.
 const scrollPositions = new Map();
 
 export function enableScrollRestoration() {
@@ -1266,10 +1311,9 @@ export function enableScrollRestoration() {
 
   // There is deliberately no beforeunload writer. scrollPositions is an
   // in-memory Map that dies with the document, so anything written while the
-  // page is unloading can never be read back. The only case where the write
-  // survived is the one where the document does NOT go away (the user cancels
-  // the "leave site?" prompt), and there it poisoned the map with an entry of
-  // the wrong shape under the wrong key. Restoring scroll across a RELOAD is
+  // page is unloading can never be read back. The only case where such a write
+  // would survive is the one where the document does NOT go away (the user
+  // cancels the "leave site?" prompt). Restoring scroll across a RELOAD is
   // the browser's job (history.scrollRestoration), and the first-run guard
   // below is what keeps this effect out of its way.
 
@@ -1407,9 +1451,8 @@ export function FileRouter({
   error: globalError,
 }) {
   // Convert file-router route format to Router's expected format.
-  // loading/error used to be dropped here, so a route could declare either and
-  // never see it rendered, and the `error` prop was destructured and then never
-  // read: a documented public prop that silently did nothing.
+  // Each route keeps its loading and error components; the `error` prop is
+  // the error component of a route that declares none.
   const routerRoutes = routes.map(r => ({
     path: r.path,
     component: r.component,

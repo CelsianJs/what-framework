@@ -19,6 +19,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM();
 
@@ -447,7 +448,7 @@ describe('what adoption needs from the boundary', () => {
 
 describe('a streamed boundary that resumes late', () => {
   it('adopts its content and the async values it reads, with no fetch, and is then a live boundary', async () => {
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const make = (api, ran) => {
       function Products() {
         const products = computed(({ signal: abort }) => api(abort));

@@ -21,15 +21,6 @@ export function getGuardrailConfig() {
   return { ...guardrails };
 }
 
-// NOTE: an "effect cycle detection" guardrail (trackEffectSignalWrite /
-// checkEffectCycle) used to live here, exported but never called by anything
-// — it was removed in v0.11 rather than shipped as a dead API. Reviving it
-// requires hooks inside reactive.js: (1) a call on every signal WRITE while
-// an effect is the active listener (to attribute writes to effects), and
-// (2) a post-run callback with the effect's tracked read-set (to intersect
-// reads with writes). reactive.js already detects runaway cascades at flush
-// time (iteration cap), which covers the practical failure mode.
-
 // --- Import Validation ---
 // Verify that all named imports from 'what-framework' are valid exports. A name
 // in import-changes.js gets the answer recorded there (where it went, or what

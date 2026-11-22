@@ -10,6 +10,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 import { asyncClock } from './fixtures/async-clock.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -60,7 +61,7 @@ describe('a run replaced by an answer known at once', () => {
     const { createResource, startTransition, effect } = W;
     const requests = [];
     const [data, { refetch, mutate }] = createResource((source, { signal }) => {
-      const flight = Promise.withResolvers();
+      const flight = withResolvers();
       requests.push({ signal, flight });
       return flight.promise;
     }, { initialValue: 'initial' });
@@ -106,7 +107,7 @@ describe('a run replaced by an answer known at once', () => {
   it('a synchronous throw after a run started: refresh() rejects with it, and readers see the error', async () => {
     const { signal, computed, refresh, effect } = W;
     const key = signal(0);
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const value = computed(({ signal: abort }) => {
       if (key()) throw new Error('offline');
       void abort;

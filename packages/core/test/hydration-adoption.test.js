@@ -8,6 +8,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM();
 
@@ -168,7 +169,7 @@ describe('compiled JSX built for hydration', () => {
 
 describe('a boundary still streaming', () => {
   it('hydrates its fallback now and its content when the content arrives', async () => {
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     let fetches = 0;
     const page = (fetch) => {
       function Data() {

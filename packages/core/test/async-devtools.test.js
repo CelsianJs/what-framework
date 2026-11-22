@@ -5,6 +5,7 @@
 import { it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -38,7 +39,7 @@ it('sees an async computed\'s creation, runs with their causes, status and rejec
   const dispose = createRoot((d) => {
     user = computed(function user() {
       id();
-      const flight = Promise.withResolvers();
+      const flight = withResolvers();
       flights.push(flight);
       return flight.promise;
     });

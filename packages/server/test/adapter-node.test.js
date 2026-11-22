@@ -1,4 +1,4 @@
-// Node adapter integration (Phase 7): a real http.Server + real fetch, and a
+// Node adapter integration: a real http.Server + real fetch, and a
 // concurrent-request isolation check (loader/head must not bleed across reqs).
 
 import { describe, it, before, after } from 'node:test';

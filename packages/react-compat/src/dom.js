@@ -7,6 +7,7 @@
  */
 
 import { h } from 'what-core';
+import { _mountPortal } from 'what-core/internal';
 import {
   mountRoot,
   patchRoot,
@@ -80,9 +81,11 @@ export function unmountComponentAtNode(container) {
 // ---- createPortal ----
 // The compat runtime recognizes '__portal' vnodes and renders children into
 // the target container while keeping context/ownership from the React tree.
+// The vnode carries what-core's portal renderer (`mount`), which renders it
+// where it reaches a native What tree.
 
 export function createPortal(children, container, key) {
-  return Object.assign(h('__portal', { container, key }), {
+  return Object.assign(h('__portal', { container, key, mount: _mountPortal }), {
     type: '__portal',
     children: Array.isArray(children) ? children : [children],
     _compat: true,

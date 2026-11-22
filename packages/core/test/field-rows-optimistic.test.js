@@ -1,4 +1,4 @@
-// Where the hydration lane's plain-field rows meet the data and async lanes:
+// Where plain-field rows meet the query cache and async values:
 // a compiled keyed list whose rows write `{t.title}` as a plain field
 // (_$field, and _$hfield in hydratable output) gets its items from a query(),
 // server-rendered and streamed, and is reordered by a useOptimistic overlay

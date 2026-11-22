@@ -79,6 +79,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # bench:gate reads the commit in benchmark/reference.json from history.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -124,8 +127,6 @@ jobs:
         # every push in ci.yml's bench-gate job, and blocks in `release:verify`
         # on local hardware.
         env:
-          WHAT_BENCH_TOLERANCE_CORE: 0.80
-          WHAT_BENCH_TOLERANCE_DX: 0.85
           WHAT_BENCH_SKIP_DOM: 1
         run: npm run -s bench:gate
 

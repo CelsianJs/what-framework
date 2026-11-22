@@ -11,6 +11,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 import { asyncClock } from './fixtures/async-clock.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -145,7 +146,7 @@ describe('a transition an async action awaits', () => {
     const b = signal(0);
     const stop = mount(h('p', null, () => a() + ',' + b()), host);
     try {
-      const gate = Promise.withResolvers();
+      const gate = withResolvers();
       const outer = startTransition(async () => {
         a(1);
         await gate.promise;
@@ -207,14 +208,14 @@ describe('limits, pinned', () => {
     const { useOptimistic, signal, computed, refresh, startTransition, h, mount } = W;
     const host = document.createElement('div');
     const page = signal(1);
-    let answer = Promise.withResolvers();
+    let answer = withResolvers();
     const base = computed(async () => { page(); return answer.promise; });
     const [shown, add] = useOptimistic(base, (n, d) => n + d);
     const stop = mount(h('p', null, () => 'page ' + page() + ': ' + shown()), host);
     answer.resolve(10);
     await drain();
-    const gate = Promise.withResolvers();
-    answer = Promise.withResolvers();
+    const gate = withResolvers();
+    answer = withResolvers();
     void startTransition(async () => {
       page(2);
       await Promise.resolve();
@@ -225,7 +226,7 @@ describe('limits, pinned', () => {
     await drain();
     await drain();
     assert.equal(host.textContent, 'page 1: 10', 'the transition holds the binding');
-    const liked = Promise.withResolvers();
+    const liked = withResolvers();
     void startTransition(async () => { add(1); await liked.promise; });
     await drain();
     assert.equal(host.textContent, 'page 2: 11', 'the overlay ran it: page 2 shows before the commit');
@@ -240,7 +241,7 @@ describe('limits, pinned', () => {
 describe('useTransition', () => {
   it('a component that unmounts in the synchronous part of its action stops waiting for it', async () => {
     const { useTransition, h, mount } = W;
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const host = document.createElement('div');
     let trigger;
     let stop;
@@ -315,7 +316,7 @@ describe('a component that suspends while a transition commits', () => {
     const { signal, h, mount, Suspense, use, startTransition, getDiagnostics, clearDiagnostics } = W;
     clearDiagnostics();
     const tab = signal('a');
-    const panelB = Promise.withResolvers();
+    const panelB = withResolvers();
     function B() { return h('p', null, use(panelB.promise)); }
     const host = document.createElement('div');
     const warn = console.warn;
@@ -343,7 +344,7 @@ describe('a component that suspends while a transition commits', () => {
     const { signal, h, mount, Suspense, use, getDiagnostics, clearDiagnostics } = W;
     clearDiagnostics();
     const tab = signal('a');
-    const panelB = Promise.withResolvers();
+    const panelB = withResolvers();
     function B() { return h('p', null, use(panelB.promise)); }
     const host = document.createElement('div');
     const stop = mount(h(Suspense, { fallback: h('p', null, 'loading') },

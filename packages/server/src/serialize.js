@@ -6,8 +6,8 @@
 //
 // JSON.stringify alone is NOT safe to drop inside <script>...</script>: a value
 // containing "</script>" (or "<!--", "<script") breaks out of the element and
-// injects markup -- stored XSS when any value is user-controlled
-// (AUDIT-2026-06-06 H3). Escaping "<", ">", "&" as \uXXXX keeps the output
+// injects markup -- stored XSS when any value is user-controlled.
+// Escaping "<", ">", "&" as \uXXXX keeps the output
 // valid JSON (so JSON.parse on hydrate still works) while making it inert in
 // HTML. U+2028/U+2029 are also escaped: they are valid in JSON strings but are
 // illegal in JS string literals and can break inline script parsing.

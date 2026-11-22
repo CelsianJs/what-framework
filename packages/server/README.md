@@ -242,8 +242,9 @@ one render between visitors, so what a render sets decides what can be shared:
   Cookie header carries every cookie, so reading it reads each cookie the
   request has: with `vary: ['cookie:theme']`, a visitor who also sends `uid`
   gets a private render. A copy of the request (`request.clone()`) counts the
-  same, and using the request whole (`new Request(request)`, `fetch(request)`)
-  makes the render private. It is
+  same. The request is a real `Request`, so it can be used whole
+  (`new Request(request)`, `fetch(request)`); used that way it carries only the
+  headers and cookies the route's `vary` names. A private render is
   sent to its own visitor only, with its own headers and cookies, as
   `private, no-store` (or the private `Cache-Control` it set), and every
   visitor waiting on the same regeneration renders for themselves.
@@ -327,6 +328,10 @@ function TodoForm() {
   return h(Form, { action: addTodo, redirect: '/todos' }, h('input', { name: 'text' }), h(SaveButton));
 }
 
+// Action IDs belong to the JavaScript realm: one realm serves one app's
+// actions (an ID registered twice warns in development,
+// ERR_DUPLICATE_ACTION_ID, and the later registration is called).
+
 // Or call it: on the client it runs as a transition (or joins the one it is
 // called in) and resolves once what it revalidates has landed.
 function AddButton() {
@@ -390,7 +395,14 @@ How the default CSRF protection works:
    this host) with `403`, and accepts one it marks same-origin. That is how a
    form on a cached or streamed page posts: its shared HTML carries no
    visitor's token. `csrf: { trustedOrigins: ['https://app.example'] }` lets
-   other origins of the app post.
+   other origins of the app post. An `Origin` is compared with this server's
+   origin, scheme included: the scheme is the connection's (a TLS socket, or
+   the URL the platform hands the handler), or `X-Forwarded-Proto` when a proxy
+   sends it. That header is believed without configuration, because a page on
+   another site cannot set it on a visitor's request. Behind a TLS-terminating
+   proxy, have the proxy send it (nginx: `proxy_set_header X-Forwarded-Proto
+   $scheme;`), or list the `https://` origin in `trustedOrigins`; otherwise the
+   server takes itself for `http`.
 2. A request that carries neither header (an old browser, a script) must
    carry the double-submit token: every HTML response ensures a `what-csrf`
    cookie (`SameSite=Lax`, readable by JS so the fetch client can echo it),

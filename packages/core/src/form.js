@@ -249,9 +249,10 @@ function createFormController(options = {}) {
 
     const handler = (e) => {
       const target = e && e.target;
-      // NOT `|| {}`: a missing target used to read as `{}`, whose `.value` is
-      // undefined, so calling the handler without an event quietly OVERWROTE the
-      // field with undefined. Refuse instead — there is no value to apply.
+      // NOT `|| {}`: a missing target would read as `{}`, whose `.value` is
+      // undefined, so calling the handler without an event would quietly
+      // overwrite the field with undefined. Refuse instead — there is no value
+      // to apply.
       if (!target) {
         if (__DEV__) report('ERR_FORM_HANDLER_WITHOUT_EVENT', { data: { name } });
         return;

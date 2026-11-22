@@ -6,7 +6,7 @@ export {
   svgTemplate,
   // Compiler-internal alias: identical to template() but never dev-warns.
   // Compiled output imports this so scaffolded apps don't log the
-  // "template() is a compiler internal" guard (SPRINT v0.11 C5).
+  // "template() is a compiler internal" guard.
   _$template,
   insert,
   mapArray,
@@ -22,7 +22,7 @@ export {
   spread,
   setProp,
   // Specialized setters emitted by the compiler for statically-known
-  // attribute names (SPRINT v0.11 C2).
+  // attribute names.
   setClass,
   className,
   setClassList,
@@ -32,7 +32,7 @@ export {
   setChecked,
   applyRef,
   // Equality-gated eager memo — emitted for branch memoization of
-  // conditional JSX (SPRINT v0.11 C1).
+  // conditional JSX.
   _$memo,
   // What `<C client:idle />` compiles to: an island that hydrates itself.
   _$Island,

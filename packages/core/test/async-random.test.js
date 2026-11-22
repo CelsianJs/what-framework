@@ -8,6 +8,7 @@
 import { it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -127,7 +128,7 @@ async function runSeed(seed) {
     user = computed(({ signal: abort }) => {
       if (id() === 0) return 'local';
       const name = 'f' + starts++;
-      const flight = Promise.withResolvers();
+      const flight = withResolvers();
       flights.set(name, { ...flight, abort });
       return flight.promise;
     });

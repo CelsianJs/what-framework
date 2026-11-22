@@ -34,7 +34,7 @@
 
 import {
   RAW_TEXT_ELEMENTS, TEXT_ONLY_ELEMENTS, LEADING_NEWLINE_ELEMENTS, SAFE_ATTR_NAME, SAFE_TAG_NAME, VOID_ELEMENTS, escapeHtml,
-  attributeName, isEnumeratedAttr, isNamespaceNeutralText, isRefusedAttr, isUrlAttr,
+  controllingProp, isEnumeratedAttr, isNamespaceNeutralText, isRefusedAttr, isUrlAttr, markupName,
 } from 'what-core/internal/markup-rules';
 import { t } from './types.js';
 import {
@@ -228,10 +228,12 @@ function staticValue(attr) {
 // name written twice keeps its first position and its last value. Events,
 // refs and keys are not markup. A spread, a classList or innerHTML make the
 // whole element a run-time element whose props object is built exactly as
-// h() would build it.
+// h() would build it; so does a <select>'s value, which HTML shows by marking
+// the options it names (what-server's _markSelected), not as an attribute.
 /** @returns {{ runtime: boolean, props: any, list: any[] }} */
 function readAttributes(node, state) {
   const attrs = node.openingElement.attributes;
+  const select = t.isJSXIdentifier(node.openingElement.name, { name: 'select' });
   const entries = [];
   let runtime = false;
   for (const attr of attrs) {
@@ -249,8 +251,8 @@ function readAttributes(node, state) {
       name = prop;
       expr = t.callExpression(t.cloneNode(attr.value.expression), []);
     }
-    if (RUNTIME_ATTRS.has(name)) runtime = true;
-    const key = attributeName(name);
+    if (RUNTIME_ATTRS.has(name) || (select && name === 'value')) runtime = true;
+    const key = markupName(name);
     if (!SAFE_ATTR_NAME.test(key)) {
       throw unsafeMarkup(attr, state, `"${key}" is not an attribute name what-server can emit.`);
     }
@@ -271,6 +273,12 @@ function readAttributes(node, state) {
     const first = byName.get(entry.name);
     if (first) Object.assign(first, { fixed: entry.fixed, expr: entry.expr, attr: entry.attr });
     else byName.set(entry.name, entry);
+  }
+  // One attribute shows a field's value: its value prop's when it has one,
+  // else its default's (what-server's renderAttrs decides the same).
+  for (const name of [...byName.keys()]) {
+    const controlling = controllingProp(name);
+    if (controlling !== null && byName.has(controlling)) byName.delete(name);
   }
   return { runtime: false, props: null, list: [...byName.values()] };
 }

@@ -7,7 +7,7 @@
 // stays standalone. Render is owned here (renderDocument) but overridable.
 //
 // A cached route and the response API. A render the cache may share sees a
-// view of the request whose `signal` is the cache's (a regeneration is shared
+// copy of the request whose `signal` is the cache's (a regeneration is shared
 // work: it stops only when every request waiting on it has gone) and which
 // records the request headers it reads. Reading a header the route's `vary`
 // does not name (a cookie, Authorization, Accept-Language) makes the render
@@ -152,6 +152,7 @@ function variedHeaderNames(config) {
 }
 
 const ITERATING_METHODS = new Set(['forEach', 'entries', 'keys', 'values', Symbol.iterator]);
+const WRITING_METHODS = new Set(['set', 'append', 'delete']);
 
 // The names of the cookies a Cookie header carries.
 function cookieNames(header) {
@@ -163,13 +164,90 @@ function cookieNames(header) {
   return names;
 }
 
-// The request a shareable render sees: the cache's signal, and a record of
-// what it read that the cache key does not vary on. The Cookie header holds
+// The headers a cache key covers: those the route's `vary` names and, of the
+// Cookie header, the cookies it names (the first of a repeated name, as the
+// key reads it).
+function keyedHeaders(headers, varied) {
+  const keyed = new Headers();
+  headers.forEach((value, name) => {
+    if (varied.headers.has(name)) {
+      keyed.append(name, value);
+    } else if (name === 'cookie') {
+      const kept = new Map();
+      for (const part of value.split(';')) {
+        const cookie = part.trim();
+        const cookieName = cookie.split('=')[0].trim();
+        if (varied.cookies.has(cookieName) && !kept.has(cookieName)) kept.set(cookieName, cookie);
+      }
+      if (kept.size) keyed.set('cookie', [...kept.values()].join('; '));
+    }
+  });
+  return keyed;
+}
+
+// `all` (every header the request carried), watched: a read records each
+// header name the key does not vary on. A write goes to `own` too, the
+// request's own list, so a copy of the request carries what the render set.
+function watchedHeaders(all, own, read) {
+  return new Proxy(all, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      if (property === 'get' || property === 'has') {
+        return (name) => {
+          read(target, name);
+          return value.call(target, name);
+        };
+      }
+      if (ITERATING_METHODS.has(property)) {
+        return (...args) => {
+          target.forEach((_value, name) => read(target, name));
+          return value.apply(target, args);
+        };
+      }
+      if (typeof property === 'string' && WRITING_METHODS.has(property)) {
+        return (...args) => {
+          value.apply(target, args);
+          own[property](...args);
+        };
+      }
+      return value.bind(target);
+    },
+  });
+}
+
+// A real Request, because native code (`new Request(request)`, `fetch(request)`)
+// reads a Request's internal state, which no wrapper can watch. That state is
+// made of what the cache key is made of: the URL, the method and the keyed
+// headers. Every other read goes through `headers`, which is watched.
+class SharedRenderRequest extends Request {
+  #all;
+  #read;
+  #headers;
+
+  constructor(input, init, all, read) {
+    super(input, init);
+    this.#all = all;
+    this.#read = read;
+    this.#headers = watchedHeaders(all, super.headers, read);
+  }
+
+  get headers() {
+    return this.#headers;
+  }
+
+  clone() {
+    return new SharedRenderRequest(super.clone(), undefined, new Headers(this.#all), this.#read);
+  }
+}
+
+// The request a shareable render sees, with the cache's signal, and a record
+// of what it read that the cache key does not vary on. The Cookie header holds
 // every cookie, so reading it counts as reading each cookie the request
-// carries: one the route's `vary` does not name makes the render private.
-// A copy of the request (`clone()`) is watched the same way; the request used
-// whole (`new Request(request)`, `fetch(request)`), which reads its internal
-// state rather than its headers, makes the render private.
+// carries: one the route's `vary` does not name makes the render private. A
+// copy (`clone()`) is watched the same way. The request used whole
+// (`new Request(request)`, `fetch(request)`) carries only the keyed headers, so
+// it cannot carry anything the key does not vary on into a shared render.
 function sharedRenderRequest(request, signal, varied) {
   /** @type {Set<string>} */
   const unvaried = new Set();
@@ -183,38 +261,8 @@ function sharedRenderRequest(request, signal, varied) {
       unvaried.add(lower);
     }
   };
-  const watch = (req) => {
-    const headers = new Proxy(req.headers, {
-      get(target, property) {
-        const value = Reflect.get(target, property, target);
-        if (typeof value !== 'function') return value;
-        if (property === 'get' || property === 'has') {
-          return (name) => {
-            read(target, name);
-            return value.call(target, name);
-          };
-        }
-        if (ITERATING_METHODS.has(property)) {
-          return (...args) => {
-            target.forEach((_value, name) => read(target, name));
-            return value.apply(target, args);
-          };
-        }
-        return value.bind(target);
-      },
-    });
-    return new Proxy(req, {
-      get(target, property) {
-        if (property === 'headers') return headers;
-        if (property === 'signal') return signal;
-        if (property === 'clone') return () => watch(target.clone());
-        if (typeof property === 'symbol' && property !== Symbol.toStringTag) unvaried.add('the whole request');
-        const value = Reflect.get(target, property, target);
-        return typeof value === 'function' ? value.bind(target) : value;
-      },
-    });
-  };
-  return { request: watch(request), unvaried };
+  const init = { headers: keyedHeaders(request.headers, varied), signal };
+  return { request: new SharedRenderRequest(request, init, request.headers, read), unvaried };
 }
 
 function defaultRenderRoute(documentOptions) {
@@ -433,10 +481,9 @@ export function createRequestHandler(options = {}) {
 
     const out = await renderRoute(routeMatch);
     // `out.headers` is honoured here exactly as it is on the cache path above.
-    // It used to be dropped on this branch only, so a custom `render` could set
-    // response headers for a cached route and not for an uncached one — which
-    // meant a render returning a 302 produced a redirect with no Location, an
-    // empty page with nothing to say why. The CSRF cookie is appended after the
+    // Dropping them on this branch alone would let a custom `render` set
+    // response headers for a cached route and not for an uncached one, so a
+    // render returning a 302 would produce a redirect with no Location. The CSRF cookie is appended after the
     // render's own cookies, so neither can drop the other.
     const headers = responseHeaders(
       HTML_HEADERS,

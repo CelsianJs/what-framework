@@ -62,6 +62,7 @@
     "check:error-docs": "node scripts/generate-error-docs.mjs --check",
     "docs:imports": "node scripts/generate-import-changes.mjs",
     "check:import-docs": "node scripts/generate-import-changes.mjs --check",
+    "check:node-floor": "node scripts/check-node-floor.mjs",
     "check:snippets": "node scripts/docs/check-snippets.mjs",
     "bench:record": "node benchmark/check-regressions.js --record"
   },

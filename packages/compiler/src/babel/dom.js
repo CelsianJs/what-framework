@@ -1,7 +1,7 @@
 // The DOM back end: JSX lowered to cloned templates, fine-grained bindings and
 // keyed list inserters (what-framework/render).
 
-import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, attributeName, isEnumeratedAttr } from 'what-core/internal/markup-rules';
+import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, attributeName, markupName, isEnumeratedAttr } from 'what-core/internal/markup-rules';
 import { t } from './types.js';
 import {
   EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,
@@ -264,7 +264,7 @@ function extractStaticHTML(node, state) {
     if (isEventAttrName(name) || name.startsWith('bind:') || name.includes('|')) continue;
     if (t.isJSXExpressionContainer(attr.value)) continue; // Dynamic attr — set via effect
 
-    const domName = attributeName(name);
+    const domName = markupName(name);
     checkStaticAttribute(attr, domName, name, t.isStringLiteral(attr.value) ? attr.value.value : true, state);
     const sep = afterQuote ? '' : ' ';
     if (!attr.value) {
@@ -476,8 +476,8 @@ function buildRef(refExpr, elId, state) {
 const VALUE_PROP_TAGS = new Set(['input', 'textarea', 'select', 'option']);
 
 function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
-  // Specialized monomorphic setters for statically-known attribute names
-  // (SPRINT v0.11 C2). The generic _$setProp re-dispatches on the key string
+  // Specialized monomorphic setters for statically-known attribute names.
+  // The generic _$setProp re-dispatches on the key string
   // (ref/key/url/class/style/innerHTML/boolean/...) on EVERY reactive update;
   // when the compiler knows the name it emits the direct helper instead.
   // SECURITY: URL attributes (href/src/action/formaction) and innerHTML/
@@ -567,7 +567,8 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
 
     const attrName = getAttrName(attr);
 
-    // Strip key prop — WhatFW has no virtual DOM, so key is meaningless (issue #6)
+    // `key` is not an attribute: the list lowering reads a .map() row's key
+    // before this runs, and on any other element it does nothing.
     if (attrName === 'key') continue;
 
     // Ref handling — assign element to ref object/callback
@@ -760,7 +761,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
 }
 
 // =====================================================
-// Branch Memoization (SPRINT v0.11 C1)
+// Branch Memoization
 // =====================================================
 // `_$insert(el, () => cond() ? <A/> : <B/>)` re-creates the taken branch's
 // DOM tree (and re-registers every effect inside it) on EVERY re-evaluation
@@ -907,7 +908,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
   // node is needed twice (as a marker, then as an element), all of them are
   // captured up front, before any insert runs. The capture is one cursor
   // walk, each reference chained from the previous one: O(n) in compile
-  // time and emitted size rather than O(n^2). (AUDIT-2026-06-06 H2)
+  // time and emitted size rather than O(n^2).
   const markerVars = new Map(); // template node index → variable name
   if (!hydratable && (refIndices.length >= 2 || uses.length > refIndices.length)) {
     let prevVar = null;
@@ -1005,7 +1006,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
         // (e.g. cond ? _$mapArray(...) : fallback), the surrounding condition
         // must stay reactive, so wrap the whole expression in () => and let
         // _$insert re-evaluate it on change. Without this the condition is read
-        // exactly once and never re-tracks. (AUDIT-2026-06-06 H1)
+        // exactly once and never re-tracks.
         const isBareMapArray = isListInserterCall(mapResult);
         const isArrowAlready = t.isArrowFunctionExpression(mapResult);
         // Branch memoization (C1): when the lowered result is a conditional
@@ -1237,10 +1238,8 @@ function transformComponentFineGrained(path, state) {
 
     for (const attr of filteredAttrs) {
       if (t.isJSXSpreadAttribute(attr)) {
-        // A spread used to be dropped on the floor here, so
-        // `<Chart client:visible {...config} />` lost every prop in `config`.
-        // Then only the LAST spread was kept, which lost every key an earlier
-        // spread carried and the last one did not.
+        // Every spread is its own part of the island's props, in source order,
+        // so `<Chart client:visible {...a} {...b} />` keeps the keys of both.
         if (t.isObjectExpression(attr.argument)) {
           for (const prop of attr.argument.properties) {
             if (t.isObjectProperty(prop)) checkIslandProp(t.isIdentifier(prop.key) ? prop.key.name : String(prop.key.value), prop.value, node, state);
@@ -1300,15 +1299,15 @@ function transformComponentFineGrained(path, state) {
 
   // Props resolve in SOURCE order. `<Box a {...s} b />` is one spelling of
   // `{ a, ...s, b }`, which is what h(), the JSX runtime, every other JSX
-  // toolchain, and (since #65) this compiler's own ELEMENT path all produce.
+  // toolchain, and this compiler's own ELEMENT path all produce.
   // `parts` is that argument list: runs of explicit attributes, separated by
   // the spreads written between them.
   //
-  // Keeping a single `spreadExpr` and appending every explicit prop last, the
-  // way this used to, got both halves wrong. `<Box {...a} {...b} />` kept only
-  // `b`, so every key `a` carried and `b` did not vanished completely — data
-  // loss, not merely precedence — and an attribute written BEFORE a spread
-  // beat it, which no other JSX implementation does.
+  // A single `spreadExpr` with every explicit prop appended last would get
+  // both halves wrong: `<Box {...a} {...b} />` would keep only `b`, so every
+  // key `a` carried and `b` did not would vanish — data loss, not merely
+  // precedence — and an attribute written BEFORE a spread would beat it, which
+  // no other JSX implementation does.
   //
   // The merge is a shallow copy, deliberately: a prop is reactive here when
   // its VALUE is an accessor, and Object.assign copies that function through
@@ -1334,7 +1333,8 @@ function transformComponentFineGrained(path, state) {
 
     const attrName = getAttrName(attr);
 
-    // Strip key prop — WhatFW has no virtual DOM, so key is meaningless (issue #6)
+    // `key` is not a prop: the list lowering reads a .map() row's key before
+    // this runs, and on any other component it does nothing.
     if (attrName === 'key') continue;
 
     // Handle bind: attributes for components
@@ -1522,11 +1522,9 @@ function transformForFineGrained(path, state) {
     return buildMapArrayCall(eachExpr);
   }
 
-  // `fallback` used to be read by nobody: the loop above only looked at
-  // `each` and `key`, so the attribute was silently discarded. The RUNTIME
-  // For (packages/core/src/components.js) does implement it, so an app that
-  // moved from a buildless setup to the Vite compiler lost its empty state
-  // with nothing on the console.
+  // The RUNTIME For (packages/core/src/components.js) implements `fallback`,
+  // so the compiled form does too: an app that moves from a buildless setup
+  // to the Vite compiler keeps its empty state.
   //
   // mapArray has no fallback of its own, and the obvious lowering — gate the
   // WHOLE thing on emptiness, `() => empty() ? _$mapArray(...) : fallback` —
@@ -1758,7 +1756,7 @@ function transformShowFineGrained(path, state) {
     : contentExpr;
   const alternate = fallbackExpr || t.nullLiteral();
 
-  // Branch memoization (SPRINT v0.11 C1): route a reactive `when` through an
+  // Branch memoization: route a reactive `when` through an
   // equality-gated memo so the insert effect only re-fires (recreating the
   // taken branch's DOM) when the condition actually changes — not on every
   // write to a signal the condition happens to read.
@@ -1909,7 +1907,7 @@ function transformSwitchFineGrained(path, state) {
 //    actually flips, not on every read of a signal the condition touches)
 //  - reactive expressions wrapped in `() =>` so the runtime tracks them
 // Memo (_$memo) declarations are pushed into state._pendingSetup, which
-// transformJsxRoot drains into the enclosing scope. (SPRINT v0.11)
+// transformJsxRoot drains into the enclosing scope.
 function lowerFragmentExprChild(expr, state) {
   if (!state._pendingSetup) state._pendingSetup = [];
   const setup = state._pendingSetup;
@@ -2009,12 +2007,10 @@ function getOrCreateTemplate(state, html, ns, rootTag) {
 // visits the JSX root is responsible for draining _pendingSetup and placing
 // those statements somewhere the returned reference can see them.
 //
-// The JSXElement visitor always did this; the JSXFragment visitor did not,
-// so fragments whose element children had dynamic parts (event handlers,
-// dynamic attrs/children) compiled to references to _el$N variables that
-// were never declared — a runtime ReferenceError. Both visitors now share
-// this driver. (SPRINT v0.11: composes with C1 branch memoization and C2
-// specialized setters — memo/setter statements ride in _pendingSetup too.)
+// The JSXElement and JSXFragment visitors both use this driver, so a fragment
+// whose element children have dynamic parts (event handlers, dynamic
+// attrs/children) declares the _el$N variables those parts reference. Branch
+// memo and specialized-setter statements ride in _pendingSetup too.
 export function transformJsxRoot(path, state) {
   enterJsxRoot(path, state);
   state._pendingSetup = [];
@@ -2159,7 +2155,7 @@ export function initDomState(state) {
 // specifiers are written. `null` takes the export name from the module state.
 const RENDER_IMPORTS = [
   // The compiler-internal `_$template`, never the public `template`, which
-  // dev-warns for hand-written calls with dynamic strings. (SPRINT v0.11 C5)
+  // dev-warns for hand-written calls with dynamic strings.
   // Hydratable output takes `_$htemplate`, which also hands claims the root.
   ['_$template', null],
   ['_$insert', 'insert'],
@@ -2204,13 +2200,13 @@ const CORE_IMPORTS = ['h'];
 
 export function finishDomProgram(path, state) {
   // Emit LAZY event delegation setup if any delegated events were used.
-  // Previously this was a bare module-top-level `_$delegateEvents([...])`
-  // call — a side effect that (a) prevented bundlers from tree-shaking
-  // modules whose components are never used, and (b) attached document
-  // listeners at import time even when no component ever mounted.
+  // A bare module-top-level `_$delegateEvents([...])` call would be a side
+  // effect that (a) keeps bundlers from tree-shaking modules whose components
+  // are never used, and (b) attaches document listeners at import time even
+  // when no component ever mounts.
   // Instead we emit a once-guarded helper that each element setup calls
   // at construction time; unused modules carry only dead declarations
-  // that DCE removes. (SPRINT v0.11 C6)
+  // that DCE removes.
   /** @type {any[] | null} */
   let delegation = null;
   if (state.delegatedEvents.size > 0) {
@@ -2251,7 +2247,7 @@ export function finishDomProgram(path, state) {
   for (const tmpl of state.templates.reverse()) {
     // /* @__PURE__ */ marks the hoisted call as side-effect-free so
     // bundlers (esbuild/rollup/terser) can drop templates whose
-    // components are tree-shaken away. (SPRINT v0.11 C6)
+    // components are tree-shaken away.
     const tmplCall = t.callExpression(helper(state, '_$template'), tmpl.flag
       ? [t.stringLiteral(tmpl.html), t.numericLiteral(tmpl.flag)]
       : [t.stringLiteral(tmpl.html)]);

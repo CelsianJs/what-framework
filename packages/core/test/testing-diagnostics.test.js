@@ -2,6 +2,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM();
 
@@ -70,8 +71,8 @@ describe('captureDiagnostics', () => {
   });
 
   it('overlapping async captures each count the runs made while they are open', async () => {
-    const gateA = Promise.withResolvers();
-    const gateB = Promise.withResolvers();
+    const gateA = withResolvers();
+    const gateB = withResolvers();
     const before = reactive.__devtools;
     const s = signal(0);
     let dispose;

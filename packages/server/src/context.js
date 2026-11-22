@@ -2,7 +2,7 @@
 // installs (see what-core's server-context.js). One per request; never shared.
 
 import { createRoot, getOwner } from 'what-core';
-import { beginHeadCollection, ERROR_CODES, getServerContext, runWithServerContext, __installServerContextStorage, __markServerProcess, __outsideServerContext } from 'what-core/internal';
+import { beginHeadCollection, ERROR_CODES, getServerContext, runWithServerContext, __installServerContextStorage, __markServerProcess, __outsideServerContext, _engine } from 'what-core/internal';
 import { _exposesErrorDetails } from './html.js';
 import { createResponse, isRenderResponse } from './response.js';
 
@@ -77,6 +77,10 @@ export function createRenderContext(loaderData, { signal, request, response } = 
     owner = getOwner();
     disposeOwner = dispose;
   }));
+  // The root each other copy of what-core in the process holds its work in
+  // for this render (rootFor), by that copy's engine.
+  /** @type {Map<any, unknown>} */
+  const foreign = new Map();
   let released = false;
   return {
     head: beginHeadCollection(),
@@ -92,11 +96,27 @@ export function createRenderContext(loaderData, { signal, request, response } = 
     abort(reason) {
       controller.abort(reason ?? abortError('The render was aborted.'));
     },
+    // The root `other`, a copy of what-core, holds what it creates in this
+    // render with no owner current: this render's own for the copy that made
+    // it, else one of that copy's own, which the release disposes too (made
+    // after the release, it is disposed at once, as the render's own is).
+    /** @param {any} other */
+    rootFor(other) {
+      if (other === _engine) return owner;
+      let root = foreign.get(other);
+      if (root === undefined) {
+        root = other.root();
+        foreign.set(other, root);
+        if (released) other.dispose(root);
+      }
+      return root;
+    },
     release() {
       if (released) return;
       released = true;
       if (unlink) unlink();
       disposeOwner();
+      for (const [other, root] of foreign) other.dispose(root);
     },
   };
 }
@@ -212,8 +232,7 @@ export function ensureServerRuntime() {
   __markServerProcess();
   const g = /** @type {any} */ (globalThis);
   const AsyncLocalStorage = g.AsyncLocalStorage
-    ?? (typeof g.process?.getBuiltinModule === 'function'
-      ? g.process.getBuiltinModule('node:async_hooks')?.AsyncLocalStorage
-      : undefined);
+    // node-floor: feature-detected; older Node 20 releases get it from what-server's Node entry
+    ?? (typeof g.process?.getBuiltinModule === 'function' ? g.process.getBuiltinModule('node:async_hooks')?.AsyncLocalStorage : undefined);
   if (AsyncLocalStorage) __installServerContextStorage(new AsyncLocalStorage());
 }

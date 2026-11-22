@@ -14,7 +14,8 @@ import {
   RAW_TEXT_ELEMENTS,
   TEXT_ONLY_ELEMENTS,
   LEADING_NEWLINE_ELEMENTS,
-  attributeName,
+  markupName,
+  controllingProp,
   isEnumeratedAttr,
   isRefusedAttr,
   isUnsafeUrl,
@@ -172,21 +173,21 @@ function _resolveInnerHTML(props) {
 // A real DOM node reaching a renderer is not a bad tag name, it is a compiled
 // component body.
 //
-// what-compiler lowers a component's own JSX to a module-scope `_$template()`
-// and a `cloneNode(true)` at call time, so the component RETURNS finished DOM
-// rather than a vnode. Every renderer here destructures `vnode.tag`, gets
-// `undefined` off an Element, and used to report ERR_INVALID_SSR_TAG: "Invalid
-// tag name in SSR: undefined". That message names the wrong thing entirely.
-// It sent people looking for a typo'd tag or a component returning a plain
-// object, when the actual cause is that what-compiler's fine-grained output is
-// client-only and there is no supported way to server-render it.
+// what-compiler's client output lowers a component's own JSX to a module-scope
+// `_$template()` and a `cloneNode(true)` at call time, so the component RETURNS
+// finished DOM rather than a vnode. Every renderer here destructures
+// `vnode.tag` and gets `undefined` off an Element. Reporting that as
+// ERR_INVALID_SSR_TAG ("Invalid tag name in SSR: undefined") would name the
+// wrong thing entirely and send people looking for a typo'd tag, when the cause
+// is a module compiled for the client reaching a server renderer: the client
+// output has no server-rendered form, and what-compiler's server target
+// (generate: 'ssr') is the one a server renders.
 //
 // This only fires when a DOM implementation exists in the process (jsdom in a
-// test, a shim someone installed). On a bare Node server the compiled module
-// cannot even be IMPORTED — `_$template()` runs at module scope and throws
-// `ReferenceError: document is not defined` first — which is why the build-time
-// guard in what-compiler's Vite plugin is the earlier and better seam. This is
-// the backstop for the paths that get past it.
+// test, a shim someone installed). On a bare Node server the component's first
+// template use throws `ReferenceError: document is not defined` instead, which
+// is why the build-time guard in what-compiler's Vite plugin is the earlier and
+// better seam. This is the backstop for the paths that get past it.
 // ERR_COMPILED_JSX_IN_SSR must never be swallowed.
 //
 // Every render path here degrades rather than 500s: a reactive child that throws
@@ -201,7 +202,7 @@ function _resolveInnerHTML(props) {
 // change that. Degrading turns a build misconfiguration into silent data loss:
 //
 //   renderToString(h('main', null, () => CompiledComponent()))
-//     -> "<main></main>"          measured on origin/main
+//     -> "<main></main>"
 //
 // The component simply vanished from the page. In development a console.warn
 // fires; in production `_isDevMode` is false and nothing is logged at all, so
@@ -216,7 +217,7 @@ function _resolveInnerHTML(props) {
 // redirects the render's response. The catcher then renders the subtree it
 // cut short as it renders a failed one; a signal one catcher rethrows to the
 // next (a <Suspense> passes errors on) is acted on once.
-const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+const NAV_SIGNAL = Symbol.for('what.navigation.signal.v1');
 const _navigated = new WeakSet();
 
 function _claimThrow(e) {
@@ -288,7 +289,7 @@ const ATTR_INFO_CACHE_SIZE = 1024;
 function attrInfo(propKey) {
   let info = _attrInfo.get(propKey);
   if (info !== undefined) return info;
-  const key = attributeName(propKey);
+  const key = markupName(propKey);
   info = {
     key,
     skip: SKIPPED_PROPS.has(propKey) || (key.length > 2 && key.toLowerCase().startsWith('on')),
@@ -321,6 +322,10 @@ function renderAttrs(props) {
     }
     const info = attrInfo(propKey);
     if (info.skip) continue; // internal props, and event handlers (never rendered in SSR)
+    // One attribute shows a field's value: its value prop's when it has one,
+    // else its default's.
+    const controlling = controllingProp(propKey);
+    if (controlling !== null && props[controlling] != null) continue;
     const key = info.key;
 
     // A remaining function value is a reactive accessor, so CALL it. Every
@@ -401,6 +406,46 @@ function resolveAttr(key, val) {
 }
 
 const CLASS_PROPS = new Set(['class', 'className', 'classList']);
+
+// A <select> rendered on a server, before any script runs: HTML has no value
+// attribute for it, so its value is shown by marking the options it names
+// `selected` (_markSelected). The select's props without `value`, the value
+// (resolved as renderAttrs resolves an attribute) and whether it is multiple;
+// null for any other element, or a select with no value.
+export function _selectValue(tag, props) {
+  if (tag !== 'select' || props == null || props.value == null) return null;
+  const value = resolveAttr('value', props.value);
+  const multiple = resolveAttr('multiple', props.multiple);
+  const { value: _value, ...rest } = props;
+  return { props: rest, value: value === UNRESOLVED ? null : value, multiple: multiple !== UNRESOLVED && !!multiple };
+}
+
+// An option open tag and its content, up to the next option, optgroup or the
+// end of the select.
+const OPTION = /<option(\s[^>]*)?>([\s\S]*?)(?=<\/?option[\s>]|<\/?optgroup[\s>]|<\/select>|$)/g;
+const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+const unescape = (text) => text.replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => ENTITIES[entity]);
+
+// `html`, a select's rendered content, with the options `value` names marked
+// `selected`, as a client select written that value shows them: every option
+// named in a multiple select, the first in another. An option's value is its
+// value attribute, else its text with tags and markers removed, stripped and
+// its whitespace collapsed (the HTML rule). An option already marked keeps its
+// mark.
+export function _markSelected(html, value, multiple) {
+  if (value == null) return html;
+  const wanted = new Set((Array.isArray(value) ? value : [value]).map(String));
+  let marked = false;
+  return html.replace(OPTION, (option, attrs = '', content) => {
+    if ((marked && !multiple) || /\sselected(?=[\s=]|$)/.test(attrs)) return option;
+    const named = /\svalue="([^"]*)"/.exec(attrs);
+    const own = named ? unescape(named[1])
+      : unescape(content.replace(/<!--[\s\S]*?-->|<[^>]*>/g, '')).replace(/[\t\n\f\r ]+/g, ' ').trim();
+    if (!wanted.has(own)) return option;
+    marked = true;
+    return `<option${attrs} selected>${content}`;
+  });
+}
 
 // The class attribute the client ends up with when the props carry a classList,
 // or null for none. In prop order, `class` or `className` sets the attribute,

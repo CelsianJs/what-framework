@@ -232,7 +232,7 @@ describe('MEDIUM-2: CSRF enforcement', () => {
 });
 
 // =========================================================================
-// An untrusted props object on an element that has a parent (w2 security #3)
+// An untrusted props object on an element that has a parent
 // =========================================================================
 // `<section><div {...block.attrs} /></section>` with attributes from a CMS:
 // setProp's property fall-through wrote any key the element has as a property,

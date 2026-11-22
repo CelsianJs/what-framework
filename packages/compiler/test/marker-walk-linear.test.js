@@ -1,7 +1,7 @@
 // Regression: marker access for elements with many dynamic children must use a
 // shared forward cursor walk (each marker chains from the previous), NOT
 // `el.firstChild.nextSibling…`-from-root per child. The latter is O(n²) in both
-// compile time and emitted bundle size. (AUDIT-2026-06-06 H2)
+// compile time and emitted bundle size.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

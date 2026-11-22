@@ -13,12 +13,11 @@ import { createHash } from 'node:crypto';
  * escape rather than a raw 0x00 byte so this file stays plain text, which means
  * grep can search it and git can diff it without a .gitattributes override.
  *
- * It is a CONSTANT because it used to be spelled twice and the two spellings
- * disagreed: cacheKey() joined with a raw NUL while redactVary() searched for a
- * space. redactVary therefore never found a separator and returned every key
- * unchanged, so the redaction that exists to keep session tokens out of Redis
- * key names and out of cache files on disk had never once fired on a real key.
- * Both readers now use this binding and cannot drift apart again.
+ * It is a CONSTANT so cacheKey(), which joins with it, and redactVary(), which
+ * searches for it, cannot disagree. If they did, redactVary would never find a
+ * separator and would return every key unchanged, and the redaction that keeps
+ * session tokens out of Redis key names and out of cache files on disk would
+ * never fire.
  */
 const KEY_SEP = '\u0000';
 
@@ -143,14 +142,14 @@ export function declaredVary(routeMatch) {
  * Coerce a `vary` declaration into the canonical `string[]` form, or null when
  * it is a shape we cannot resolve.
  *
- * This exists because the key builder and the Cache-Control builder each used to
- * test the declaration themselves, and they disagreed. `vary: 'cookie:session'`
- * (the most natural shorthand) was passed through as if it were an
- * already-resolved name -> value map, so varyString() ran Object.entries() over
- * the STRING and keyed on its character indices: one constant key for every
- * user, plus `Cache-Control: public`, which is the cross-user leak the vary
- * mechanism exists to prevent. Both callers now read this one function, so a
- * third shape cannot desynchronise the key from the header again.
+ * The key builder and the Cache-Control builder both read this one function,
+ * so no shape can desynchronise the key from the header. Were each to test the
+ * declaration itself, `vary: 'cookie:session'` (the most natural shorthand)
+ * could pass through one of them as an already-resolved name -> value map, and
+ * varyString() would run Object.entries() over the STRING and key on its
+ * character indices: one constant key for every user, plus
+ * `Cache-Control: public`, which is the cross-user leak the vary mechanism
+ * exists to prevent.
  *
  * Anything that is neither a string nor an array of strings returns null, which
  * every caller treats as "refuse to cache". Failing closed is the only safe

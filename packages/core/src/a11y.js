@@ -501,9 +501,9 @@ export function useRovingTabIndex(itemCountOrSignal, options = {}) {
   }
 
   // Out-of-range indexes handed in from application code are REFUSED rather
-  // than clamped. focusItem(99) used to write 99 into the signal and return
-  // null: no item matched, so every item went to tabindex="-1" and the widget
-  // dropped out of the tab order entirely. Clamping instead would move focus
+  // than clamped. Writing focusItem(99) into the signal would match no item,
+  // so every item would go to tabindex="-1" and the widget would drop out of
+  // the tab order entirely. Clamping instead would move focus
   // somewhere the caller never asked for, which is a worse surprise than
   // ignoring an index that does not exist.
   function isValidIndex(i) {

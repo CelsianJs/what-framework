@@ -11,6 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM();
 const { h, mount, signal, flushSync, settled } = await import('what-core');
@@ -40,7 +41,7 @@ describe('<Form> reset restores every controlled field', () => {
   });
 
   it('a value prop cleared to null while the action ran is not restored', async (t) => {
-    const flight = Promise.withResolvers();
+    const flight = withResolvers();
     const value = signal('old');
     const host = show(t, h(Form, { action: () => flight.promise }, h('input', { name: 'title', value })));
     const input = host.querySelector('input');

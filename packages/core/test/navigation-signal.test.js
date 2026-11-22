@@ -1,5 +1,5 @@
 // Tests for thrown navigation signals: a value carrying its own handler under
-// Symbol.for('what.navigation.signal'). what-router's redirect() throws one, so
+// Symbol.for('what.navigation.signal.v1'). what-router's redirect() throws one, so
 // a redirect from a component body runs the navigation instead of reaching an
 // ErrorBoundary, which would render error UI for a value that is not an error.
 import { describe, it } from 'node:test';
@@ -13,7 +13,7 @@ const { mount } = await import('../src/dom.js');
 const { hydrate } = await import('../src/render.js');
 const { ErrorBoundary, Suspense } = await import('../src/components.js');
 
-const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+const NAV_SIGNAL = Symbol.for('what.navigation.signal.v1');
 
 function getContainer() {
   const el = document.getElementById('app');

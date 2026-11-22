@@ -1,5 +1,5 @@
 // Regression: serializeState must neutralize </script> breakout so SSR/island
-// state with user-controlled values cannot inject markup. (AUDIT-2026-06-06 H3)
+// state with user-controlled values cannot inject markup.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

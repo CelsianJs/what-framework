@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// Run every package's node:test suite (D3, sprint/v0.11-quality).
+// Run every package's node:test suite.
 //
-// The old root "test" script enumerated package test dirs by hand and silently
-// omitted packages (devtools, eslint-plugin, react-compat, what). This runner
-// DISCOVERS packages/*/test/*.test.js and examples/*/test/*.test.js so a new
-// package's tests can never be forgotten again.
+// The runner DISCOVERS packages/*/test/*.test.js and examples/*/test/*.test.js
+// instead of listing package test dirs by hand, so a new package's tests cannot
+// be left out.
 //
 // Why a script instead of `node --test <glob>`: the repo supports Node >= 20
 // (package.json engines), and the test runner's own glob expansion is only

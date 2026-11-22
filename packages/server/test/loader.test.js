@@ -1,4 +1,4 @@
-// Server data loaders (Phase 2). A page module's `export const loader` runs
+// Server data loaders. A page module's `export const loader` runs
 // before SSR; its result is passed as a `loaderData` prop AND readable via
 // useLoaderData() from any descendant. Params flow into the loader + component.
 

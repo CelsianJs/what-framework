@@ -5,9 +5,9 @@ import type { Signal } from './index.js';
 //
 // Every accessor below is a plain getter function, NOT a Signal: the objects
 // these factories return expose reads through closures and offer writes as
-// named methods (set/snap/setValue), so nothing here carries .set/.peek. The
-// declarations used to promise Signal<number> and a single shared SpringValue
-// shape for both spring() and tween(), which are two different objects.
+// named methods (set/snap/setValue), so nothing here carries .set/.peek.
+// spring() and tween() return two different objects, SpringValue and
+// TweenValue.
 
 export interface SpringConfig {
   stiffness?: number;

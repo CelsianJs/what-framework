@@ -216,9 +216,8 @@ export type PrimitiveChild = string | number | boolean | null | undefined;
 // `VNode<any>`, not `VNode`. VNode is invariant in P (its `tag` holds a
 // `Component<P>`, whose parameter position is contravariant under
 // strictFunctionTypes), so `VNode` — which means `VNode<Record<string, any>>` —
-// rejects every specifically-typed node. `h('div', {}, h('h1', { style: '' }))`
-// did not compile for any TypeScript user before 0.12.5, and neither did
-// passing that tree to mount().
+// rejects every specifically-typed node: `h('div', {}, h('h1', { style: '' }))`
+// would not compile, and neither would passing that tree to mount().
 export type VNodeChild = PrimitiveChild | VNode<any> | (() => VNodeChild) | VNodeChild[];
 
 /** Components may return renderable children, including reactive thunks and arrays. */

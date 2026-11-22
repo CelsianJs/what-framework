@@ -1,0 +1,4 @@
+{
+  "commit": "8c6e572bd909fd8d7c8916eaf7d4fce3a462c619",
+  "note": "The commit bench:gate measures the core and DX suites against, interleaved in the same session (benchmark/ab.mjs). Move it forward with `npm run bench:record` once a change in performance is intended."
+}

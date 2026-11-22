@@ -88,6 +88,8 @@ A call with arguments is left unwrapped only when the compiler proves that nothi
 - Anything the compiler cannot prove is wrapped: a function it cannot see into (a parameter, `props.format('x')`, a value some call returned), a method called on a value it did not see made (`{row.padStart(3)}` for a parameter `row`: it could be any object's method), a getter or setter, a class instance, a function handed on to be called, a generator or async function, a default parameter, and a global the platform does not define. If it turns out constant, the cost is one effect that runs once.
 - A call whose argument reads an accessor (`{format(count())}`) is wrapped, and so is one handed a function whose body reads one anywhere: `{fmt(() => { const text = label(); return text; })}`.
 
+A property read with no call (`{model.text}`) is wrapped when its object is a signal read or an import, or when it may be an object this module builds with a getter or setter of that name, or an instance of a class it declares. The object may reach the read through local names (`const alias = model`, `a || b`, `c ? a : b`, a later `x = model`). A property of a value the compiler did not see made (a prop, a parameter, what a call returned, an element of an array) is read once. Read a getter of such a value inside a thunk: `{() => props.store.count}`.
+
 ## 3. Don't Mutate Signal Values Directly
 
 Signals use `Object.is` for equality checks. Mutating an object/array in place and setting it back will not trigger updates because the reference hasn't changed: after `items().push(4)`, `items.set(items())` writes the same array, so no reader re-runs, and `user().name = 'Bob'` followed by `user.set(user())` does nothing either.

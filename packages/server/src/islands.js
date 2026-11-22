@@ -181,7 +181,7 @@ export function useIslandStore(name, fallbackInitial = {}) {
 // Serialize all shared stores for SSR.
 // Uses serializeState (not bare JSON.stringify) so user-controlled store values
 // containing "</script>" cannot break out of the <script> tag this is embedded
-// in. (AUDIT-2026-06-06 H3)
+// in.
 export function serializeIslandStores() {
   return serializeState(getIslandStoresSnapshot());
 }

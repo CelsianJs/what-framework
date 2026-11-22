@@ -1,4 +1,4 @@
-// Track C (sprint/v0.11): server security hardening.
+// Server security hardening.
 //
 // Covers three findings:
 //   1. Open redirect via backslash smuggling in the form `_redirect` field.

@@ -628,6 +628,17 @@ test('createPortal renders children into the target container', () => {
   assert.equal(target.querySelector('#ported'), null, 'portal content removed on unmount');
 });
 
+test('a createPortal element in a native What tree renders through what-core', async () => {
+  const { h: whatH, mount: whatMount } = await import('what-core');
+  const target = makeContainer();
+  const host = makeContainer();
+  const unmount = whatMount(whatH('div', {}, 'main', createPortal(whatH('p', { id: 'native-ported' }, 'native'), target)), host);
+  assert.equal(host.textContent, 'main');
+  assert.equal(target.querySelector('#native-ported').textContent, 'native');
+  unmount();
+  assert.equal(target.querySelector('#native-ported'), null, 'portal content removed on unmount');
+});
+
 // ---------------------------------------------------------------
 // Events & controlled inputs
 // ---------------------------------------------------------------

@@ -1,4 +1,4 @@
-// Consolidated hydration payload (Phase 5): renderDocument emits exactly one
+// Consolidated hydration payload: renderDocument emits exactly one
 // <script id="__what_data"> with { loaderData, resources, islandStores },
 // XSS-safe, plus the collected <head>.
 

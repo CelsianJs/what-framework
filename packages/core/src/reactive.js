@@ -74,7 +74,7 @@ export let __devtools = null;
 // loaded (dist/*.js and the source each hold a copy of this module): hooks
 // installed through one reach the engine of each. Keyed by Symbol.for, so one
 // realm has one.
-const devtoolsSlot = __DEV__ ? /** @type {any} */ (globalThis)[Symbol.for('what.devtools')] ??= { hooks: null, tiers: new Set() } : null;
+const devtoolsSlot = __DEV__ ? /** @type {any} */ (globalThis)[Symbol.for('what.devtools.v1')] ??= { hooks: null, tiers: new Set() } : null;
 if (__DEV__) {
   devtoolsSlot.tiers.add((hooks) => { __devtools = hooks; });
   __devtools = devtoolsSlot.hooks;
@@ -189,6 +189,18 @@ let selectorOps = null;
 /** Computeds left without observers, released at the next microtask. @type {any[]} */
 const releaseQueue = [];
 
+// Signals and effects reach the pull phase (markPending, checkDirty,
+// updateComputed and the deferral of deep chains) and the release of
+// unobserved computeds only through these operations, which the first computed
+// or selector installs: an app of signals and effects alone does not ship
+// them.
+/** @type {{ mark: typeof markPending, check: typeof checkEffect, unwatched: typeof unwatched, dispose: typeof disposeComputed, settle: typeof settleInputs } | null} */
+let pullOps = null;
+
+function installPull() {
+  if (pullOps === null) pullOps = { mark: markPending, check: checkEffect, unwatched, dispose: disposeComputed, settle: settleInputs };
+}
+
 // The async machinery is reached only through these operations, which the
 // first async-capable computed() installs, so an app that never makes one does
 // not ship it; the transition machinery likewise through `txOps`, installed by
@@ -247,7 +259,7 @@ function unlink(l) {
   if (nextSub !== null) nextSub.prevSub = prevSub; else dep.subTail = prevSub;
   if (prevSub !== null) prevSub.nextSub = nextSub;
   else if ((dep.subHead = nextSub) === null && (dep.flags & (COMPUTED | KEYED))) {
-    if (dep.flags & KEYED) /** @type {any} */ (selectorOps).release(dep); else unwatched(dep);
+    if (dep.flags & KEYED) /** @type {any} */ (selectorOps).release(dep); else /** @type {any} */ (pullOps).unwatched(dep);
   }
   return nextDep;
 }
@@ -337,7 +349,7 @@ function propagate(l) {
       sub.flags = f | DIRTY;
       if ((f & PENDING) === 0) {                 // first time reached in this batch
         if (f & EFFECT) enqueue(sub);
-        else if (sub.subHead !== null) markPending(sub.subHead);
+        else if (sub.subHead !== null) /** @type {any} */ (pullOps).mark(sub.subHead);
         else if (f & SELECTOR) selectorQueue.push(sub);
       }
     }
@@ -583,6 +595,20 @@ function settleDeferred() {
   }
 }
 
+/** Whether an input of a PENDING effect really changed. */
+function checkEffect(e) {
+  try {
+    return checkDirty(e.depHead, e);
+  } catch (err) {
+    if (err !== DEFER) throw err;
+    // A dependency's re-run reached a never-evaluated deep chain. The effect
+    // goes below the deferred nodes: it is checked again once they settle.
+    deferred.unshift(e);
+    settleDeferred();
+    return (e.flags & DIRTY) !== 0 || ((e.flags & PENDING) !== 0 && checkDirty(e.depHead, e));
+  }
+}
+
 /** A read of a stale computed; a running one is reading itself. */
 function refreshRead(c) {
   if (c.flags & RUNNING) throw cycleError(c);
@@ -751,6 +777,7 @@ export function _setRowItem(node, item, rebuildTaken) {
 // ---------------------------------------------------------------------------
 
 function createComputedNode(fn) {
+  installPull();
   /** @type {WhatComputedNode} */
   const node = {
     value: undefined,
@@ -852,6 +879,7 @@ function disposeComputed(c) {
 /** @returns {(key: any) => boolean} */
 export function _createSelector(source) {
   if (selectorOps === null) selectorOps = { notify: notifyKeys, settle: settleSelectors, release: releaseKey };
+  installPull();
   /** @type {WhatSelectorNode} */
   const s = {
     value: undefined,
@@ -1617,6 +1645,7 @@ export function _isPending(fn) {
 // An async-capable computed: the node of the root entry's computed(), with
 // its async state in `a`, made on first use.
 function asyncCapableNode(fn) {
+  installPull();
   return {
     value: undefined,
     subHead: null, subTail: null,
@@ -1701,22 +1730,34 @@ export function _asyncComputed(fn, seed) {
   return read;
 }
 
-// Starting from a seed, and keeping a server render's store up to date, are
-// reached only through these operations: a seed comes only from a server
-// render or a hydration (hydration-data.js installs them when either starts)
-// or from createResource, which installs them too.
+// Starting from a seed is reached only through these operations: a seed comes
+// only from a server render or a hydration (hydration-data.js installs them
+// when either starts), or from a query or createResource, which install them
+// too. Only a server render's seed names its resource store, which the run
+// keeps up to date (`store`, `pending`, `settled`), and only a server render
+// installs those (_installStoreSeedOps), so a browser bundle does not carry
+// them.
 /** @type {any} */
 let seedOps = null;
 
 /** @internal Let async values start from a seed (see _asyncComputed). */
 export function _installSeedOps() {
-  if (seedOps !== null) return;
-  seedOps = {
-    // Whether the seed gave `c` its state (else it starts like any other).
-    seed: (c, seed, fn) => (seed.store === undefined ? (adopt(c, seed, fn), true) : seedFromStore(c, seed)),
-    pending: storePending,
-    settled: storeSettled,
-  };
+  if (seedOps === null) seedOps = { seed: seedFrom, store: null, pending: null, settled: null };
+}
+
+/** @internal A server render: async values also start from its resource store, and keep it up to date. */
+export function _installStoreSeedOps() {
+  _installSeedOps();
+  seedOps.store = seedFromStore;
+  seedOps.pending = storePending;
+  seedOps.settled = storeSettled;
+}
+
+// Whether the seed gave `c` its state (else it starts like any other).
+function seedFrom(c, seed, fn) {
+  if (seed.store !== undefined) return seedOps.store(c, seed);
+  adopt(c, seed, fn);
+  return true;
 }
 
 function adopt(c, seed, fn) {
@@ -2375,7 +2416,16 @@ export function _startTransition(fn, onStart) {
     queueMicrotask(() => closeTx(t));
     throw err;
   }
-  if (result != null && typeof result.then === 'function') {
+  let thenable;
+  try {
+    thenable = result != null && typeof result.then === 'function';
+  } catch (err) {
+    // A `then` getter that throws makes a rejected result, as Promise.resolve()
+    // reads it.
+    result = Promise.reject(err);
+    thenable = true;
+  }
+  if (thenable) {
     settleWith(result, link);
     // An async fn keeps the transition open until it settles, unless what
     // started it left first (in fn's synchronous part included).
@@ -2646,16 +2696,7 @@ function runEffect(e) {
   if (f & DISPOSED) return;
   let dirty = (f & DIRTY) !== 0;
   if (!dirty && (f & PENDING)) {
-    try {
-      dirty = checkDirty(e.depHead, e);
-    } catch (err) {
-      if (err !== DEFER) throw err;
-      // A dependency's re-run reached a never-evaluated deep chain. The effect
-      // goes below the deferred nodes: it is checked again once they settle.
-      deferred.unshift(e);
-      settleDeferred();
-      dirty = (e.flags & DIRTY) !== 0 || ((e.flags & PENDING) !== 0 && checkDirty(e.depHead, e));
-    }
+    dirty = /** @type {any} */ (pullOps).check(e);
     if (e.flags & DISPOSED) return;               // checking ran code that disposed it
   }
   if (dirty) executeEffect(e);
@@ -2877,7 +2918,7 @@ function stopLoop() {
     userQueue = []; userQueueLen = 0;
     for (const e of dropped) {
       e.flags &= ~QUEUED;
-      if (pass < MAX_FLUSH_ROUNDS) settleInputs(e);
+      if (pass < MAX_FLUSH_ROUNDS && pullOps !== null) pullOps.settle(e);
       e.flags &= ~(DIRTY | PENDING);
     }
   }
@@ -2964,17 +3005,25 @@ function scopeOf(o) {
   return o.owned !== null ? o.owned : (o.owned = createOwner(o, o.flags & DISPOSED));
 }
 
-// Where work created now belongs when no owner is current: what-server
-// installs the render whose async context is active (server-context.js), so
-// what an async server component creates after an `await` is released with
-// its render. Null on the client.
+// Where work created now belongs when no owner is current: the root of the
+// server render that is active (server-context.js installs the lookup, on
+// first use of the render store). For the copy of this module that rendered
+// it that is the render's own root (current anyway in the render's
+// synchronous slices; this covers code after an `await` with an async
+// context provider), and for another copy (a component bundled with its own
+// framework, another export tier) a root of that copy's own, which the
+// render's release disposes too (what-server's createRenderContext, rootFor).
+// Null on the client and outside every render. _detached() turns it off.
 /** @type {(() => any) | null} */
 let ownerFallback = null;
 
-/** @internal what-server: the owner for work created with no current owner. */
+/** @internal server-context.js: the owner for work created with no current owner. */
 export function _setOwnerFallback(fn) {
   ownerFallback = fn;
 }
+
+/** @internal what-server: this copy of the engine, as a render's rootFor() takes it: a root owned by nothing, and its disposal. */
+export const _engine = { root: () => createOwner(null, 0), dispose: (root) => disposeOwner(root) };
 
 // The innermost run executing: the node tracking reads, or under untrack()
 // the effect whose function is executing.
@@ -3294,7 +3343,7 @@ function disposeOwner(root, runNode) {
     try {
       if (typeof d === 'function') d();
       else if (d.flags & EFFECT) disposeEffect(d);
-      else disposeComputed(d);
+      else /** @type {any} */ (pullOps).dispose(d);
     } catch (err) {
       if (runNode !== undefined) {
         cleanupFailed(runNode, err);

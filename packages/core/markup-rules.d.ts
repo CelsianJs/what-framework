@@ -27,6 +27,10 @@ export const INNER_HTML_PROPS: ReadonlySet<string>;
 export const ATTRIBUTE_ALIASES: ReadonlyMap<string, string>;
 /** The attribute a prop name writes. */
 export function attributeName(prop: string): string;
+/** The attribute `prop` is written as in markup: a field default (`defaultValue`, `defaultChecked`, `defaultSelected`) is its content attribute. */
+export function markupName(prop: string): string;
+/** The prop that takes a default prop's attribute when both are given (`value` for `defaultValue`), or null. */
+export function controllingProp(prop: string): 'value' | 'checked' | 'selected' | null;
 /** role and aria-*. */
 export function isAriaAttr(name: string): boolean;
 /** aria-*, role and data-*: true and false are written out. */

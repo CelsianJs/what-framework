@@ -92,8 +92,9 @@ describe('request handler ISR in-flight privacy', () => {
 // A cached route's render that reads what its `vary` does not name is private,
 // never stored. The Cookie header carries every cookie, so reading it counts
 // as reading each cookie the request has; a copy of the request (`clone()`) is
-// watched like the request; and the request used whole (`new Request(request)`)
-// makes the render private.
+// watched like the request. The request is a real Request, so native code can
+// use it whole (`new Request(request)`, `fetch(request)`); used that way it
+// carries only the headers the key varies on.
 describe('request handler ISR: what a shared render read', () => {
   const cookie = (headers, name) => (new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(headers.get('cookie') || '') || [])[1] || 'anon';
   const Page = ({ loaderData }) => h('p', { id: 'who' }, `signed in as ${loaderData.uid}`);
@@ -102,20 +103,19 @@ describe('request handler ISR: what a shared render read', () => {
     { path: '/vary-theme', component: Page, loader: ({ request }) => ({ uid: cookie(request.headers, 'uid') }), page: { ...page, vary: ['cookie:theme'] } },
     { path: '/theme-only', component: Page, loader: ({ request }) => ({ uid: cookie(request.headers, 'theme') }), page: { ...page, vary: ['cookie:theme'] } },
     { path: '/clone', component: Page, loader: ({ request }) => ({ uid: cookie(request.clone().headers, 'uid') }), page },
-    { path: '/new-request', component: Page, loader: ({ request }) => ({ uid: new Request(request).headers.get('cookie') ? cookie(request.headers, 'uid') : 'anon' }), page },
   ];
   const who = async (handle, path, cookieHeader) => {
     const res = await handle(new Request(`http://shop.test${path}`, { headers: { cookie: cookieHeader } }));
     return (/signed in as (\w+)/.exec(await res.text()) || [])[1];
   };
 
-  it('a cookie the route does not vary on, read through the Cookie header, a clone or the whole request, keeps the page out of the cache', async () => {
+  it('a cookie the route does not vary on, read through the Cookie header or a clone, keeps the page out of the cache', async () => {
     const warn = console.warn;
     console.warn = () => {};
     try {
       const cache = createCacheEngine({ store: createMemoryStore(), logger: { warn() {}, error() {} } });
       const handle = createRequestHandler({ routes, cache });
-      for (const path of ['/vary-theme', '/clone', '/new-request']) {
+      for (const path of ['/vary-theme', '/clone']) {
         assert.equal(await who(handle, path, 'uid=alice; theme=dark'), 'alice', path);
         assert.equal(await who(handle, path, 'uid=bob; theme=dark'), 'bob', `${path}: bob never gets alice's page`);
       }
@@ -132,5 +132,53 @@ describe('request handler ISR: what a shared render read', () => {
     assert.equal(await who(handle, '/theme-only', 'theme=dark'), 'dark');
     assert.equal(await who(handle, '/theme-only', 'theme=dark'), 'dark');
     assert.equal(renders, 1, 'served from the cache the second time');
+  });
+
+  it('the request used whole is a real Request that carries only the keyed headers, so the page is still stored', async () => {
+    let renders = 0;
+    const seen = [];
+    const cache = createCacheEngine({ store: createMemoryStore(), logger: { warn() {}, error() {} } });
+    const handle = createRequestHandler({
+      cache,
+      routes: [{
+        path: '/copy',
+        component: Page,
+        page: { ...page, vary: ['cookie:theme', 'accept-language'] },
+        loader: ({ request }) => {
+          renders++;
+          const copy = new Request(request);
+          seen.push([copy.headers.get('cookie'), copy.headers.get('accept-language'), copy.headers.get('authorization'), copy.signal.aborted]);
+          return { uid: cookie(copy.headers, 'uid') };
+        },
+      }],
+    });
+    const visit = async (cookieHeader) => {
+      const res = await handle(new Request('http://shop.test/copy', { headers: { cookie: cookieHeader, 'accept-language': 'fr', authorization: 'Bearer secret' } }));
+      return (/signed in as (\w+)/.exec(await res.text()) || [])[1];
+    };
+    assert.equal(await visit('uid=alice; theme=dark; theme=light'), 'anon');
+    assert.equal(await visit('uid=bob; theme=dark'), 'anon');
+    assert.deepEqual(seen, [['theme=dark', 'fr', null, false]]);
+    assert.equal(renders, 1, 'served from the cache the second time');
+  });
+
+  it('a write to the watched headers reaches a copy of the request', async () => {
+    const cache = createCacheEngine({ store: createMemoryStore(), logger: { warn() {}, error() {} } });
+    let copied;
+    const handle = createRequestHandler({
+      cache,
+      routes: [{
+        path: '/write',
+        component: Page,
+        page,
+        loader: ({ request }) => {
+          request.headers.set('x-trace', 'abc');
+          copied = [new Request(request).headers.get('x-trace'), request.clone().headers.get('x-trace'), request instanceof Request];
+          return { uid: 'anon' };
+        },
+      }],
+    });
+    await handle(new Request('http://shop.test/write'));
+    assert.deepEqual(copied, ['abc', 'abc', true]);
   });
 });

@@ -1,4 +1,4 @@
-// Deploy adapter core (Phase 7): the Web-Fetch request handler tying route
+// Deploy adapter core: the Web-Fetch request handler tying route
 // match -> ISR cache -> render -> action dispatch -> revalidate webhook.
 
 import { describe, it } from 'node:test';

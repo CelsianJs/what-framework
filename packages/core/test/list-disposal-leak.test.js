@@ -1,5 +1,5 @@
 // Regression: component lifecycle disposal MUST run when items are removed
-// from a list (keyed or unkeyed). Before AUDIT-2026-06-06 C5, _removeItemNodes
+// from a list (keyed or unkeyed). In the bug pinned here, _removeItemNodes
 // and reconcileList's removal paths skipped disposeTree for component contexts
 // (which live on the `c:start` comment), leaking effects, hook cleanups,
 // onCleanup callbacks, event listeners, and devtools registrations on every

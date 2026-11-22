@@ -16,6 +16,12 @@ const TOO_LARGE_RESPONSE = () => new Response(
   { status: 413, headers: { 'content-type': 'application/json' } },
 );
 
+// Returned instead of a Request for a request target that is not a path, or
+// whose URL cannot be built from it and the Host header.
+const BAD_TARGET = Symbol('what.badTarget');
+
+const BAD_TARGET_RESPONSE = () => new Response('Bad Request', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+
 // The Request's signal aborts when the client goes away before the response is
 // finished, so the loader, the render and every server fetcher can stop.
 function disconnectSignal(res) {
@@ -28,8 +34,17 @@ function disconnectSignal(res) {
 
 async function nodeToWebRequest(req, res) {
   const host = req.headers.host || 'localhost';
+  // A path only ('/x?y', '//x' included): an absolute-form or authority-form
+  // target names a host of its own, which the request's Host header decides
+  // here, and `*` names no resource.
+  if (typeof req.url !== 'string' || !req.url.startsWith('/')) return BAD_TARGET;
   // The scheme the socket was reached by: a TLS server's requests are https.
-  const url = `${req.socket && req.socket.encrypted ? 'https' : 'http'}://${host}${req.url}`;
+  let url;
+  try {
+    url = new URL(`${req.socket && req.socket.encrypted ? 'https' : 'http'}://${host}${req.url}`);
+  } catch {
+    return BAD_TARGET;
+  }
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
     if (v != null) headers.set(k, Array.isArray(v) ? v.join(', ') : String(v));
@@ -112,48 +127,67 @@ function isAbort(err) {
   return !!err && (err.name === 'AbortError' || err.name === 'TimeoutError');
 }
 
+// The handler's response for one Node request: 413 and 400 come from reading
+// the request, before the handler.
+async function respond(handler, req, res) {
+  const webReq = await nodeToWebRequest(req, res);
+  if (webReq === TOO_LARGE) return TOO_LARGE_RESPONSE();
+  if (webReq === BAD_TARGET) return BAD_TARGET_RESPONSE();
+  return handler(webReq);
+}
+
+// What a failed request gets, unless the client went away and the work
+// stopped on purpose (nobody to answer). Once the status line and part of the
+// page are out, a second document cannot be appended to the first. Cutting
+// the connection is the only honest signal left: the client (and any cache)
+// sees a truncated response, not a complete-looking page with a 500 glued to
+// its end.
+function failed(res, err) {
+  if (res.destroyed && isAbort(err)) return;
+  console.error('[what-server] request error:', err);
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
+  res.writeHead(500, { 'content-type': 'text/html; charset=utf-8' });
+  res.end('<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>');
+}
+
 /** Convert a Web-Fetch handler into a Node (req, res) listener. */
 export function toNodeListener(handler) {
   return async function listener(req, res) {
     try {
-      const webReq = await nodeToWebRequest(req, res);
-      if (webReq === TOO_LARGE) return await sendWebResponse(res, TOO_LARGE_RESPONSE());
-      const webRes = await handler(webReq);
-      await sendWebResponse(res, webRes);
+      await sendWebResponse(res, await respond(handler, req, res));
     } catch (err) {
-      // The client went away and the work stopped on purpose: nobody to answer.
-      if (res.destroyed && isAbort(err)) return;
-      // eslint-disable-next-line no-console
-      console.error('[what-server] request error:', err);
-      // Once the status line and part of the page are out, a second document
-      // cannot be appended to the first. Cutting the connection is the only
-      // honest signal left: the client (and any cache) sees a truncated
-      // response, not a complete-looking page with a 500 glued to its end.
-      if (res.headersSent) {
-        res.destroy();
-        return;
-      }
-      res.writeHead(500, { 'content-type': 'text/html; charset=utf-8' });
-      res.end('<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>');
+      failed(res, err);
     }
   };
 }
 
-/** connect/express middleware: handles app routes, calls next() on a 404. */
+/**
+ * connect/express middleware: handles app routes, calls next() on a 404. It
+ * never rejects (connect and Express 4 drop the promise a middleware returns,
+ * and Node ends the process on a rejection nobody handles): an error the
+ * handler throws goes to next(err).
+ */
 export function whatMiddleware(options = {}) {
   const handler = createRequestHandler(options);
   return async function middleware(req, res, next) {
-    const webReq = await nodeToWebRequest(req, res);
-    if (webReq === TOO_LARGE) return await sendWebResponse(res, TOO_LARGE_RESPONSE());
     let webRes;
     try {
-      webRes = await handler(webReq);
+      webRes = await respond(handler, req, res);
     } catch (err) {
       if (res.destroyed && isAbort(err)) return;
-      throw err;
+      if (typeof next === 'function') return next(err);
+      failed(res, err);
+      return;
     }
     if (webRes.status === 404 && typeof next === 'function') return next();
-    await sendWebResponse(res, webRes);
+    try {
+      await sendWebResponse(res, webRes);
+    } catch (err) {
+      failed(res, err);
+    }
   };
 }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { installDOM, flushMicrotasks } from '../../../test-utils/dom.js';
 import { asyncComputedOracle, asyncSourceOracle, schedules } from './fixtures/async-source-schedule.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let core;
 let data;
@@ -76,7 +77,7 @@ for (const [source, adapt] of Object.entries(adapters)) {
         let request;
         let starts = 0;
         const fetch = () => {
-          const flight = Promise.withResolvers();
+          const flight = withResolvers();
           starts++;
           flights.set(request, flight);
           return flight.promise;
@@ -136,7 +137,7 @@ it('SWR late settlement cannot make another reader refetch an active replacement
   const requests = [];
   const delivered = [];
   const fetch = () => {
-    const flight = Promise.withResolvers();
+    const flight = withResolvers();
     requests.push(flight);
     return flight.promise;
   };
@@ -204,7 +205,7 @@ for (const [kind, make] of Object.entries(values)) for (const mode of ['default'
         let stop = null;
         let current = null;
         const fetchFor = (name, abort) => {
-          const flight = Promise.withResolvers();
+          const flight = withResolvers();
           starts++;
           flights.set(name, { ...flight, abort });
           return flight.promise;

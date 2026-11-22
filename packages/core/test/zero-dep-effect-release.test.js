@@ -1,4 +1,4 @@
-// SPRINT v0.11 C4 — zero-dependency effect auto-release.
+// Zero-dependency effect auto-release.
 // An effect that tracked zero signals on its first run can never be notified
 // again (re-tracking only happens during a re-run, and a re-run requires a
 // notification). If it also registered no cleanup, effect() releases it

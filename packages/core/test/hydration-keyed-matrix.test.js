@@ -52,10 +52,10 @@ function hView(items) {
       () => row.children?.map((child) => h('div', { key: child, 'data-child': child }, h('input'))))));
 }
 
-// 0.15 round 2's row key digest: 32-bit FNV-1a of the key's type and value,
-// unsalted. Two keys it gave one digest, for the cases that force a
-// collision across renders.
-function roundTwoDigest(key) {
+// An unsalted row key digest: 32-bit FNV-1a of the key's type and value. Two
+// keys it gives one digest, for the cases that force a collision across
+// renders.
+function unsaltedDigest(key) {
   const text = 's' + key;
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
@@ -159,7 +159,7 @@ for (const render of ['string', 'stream']) {
 
       for (const wrapper of ['plain', 'suspense', 'island']) {
         it(`${wrapper}: a different key never inherits the server row, one that collided under 0.15's first digest included`, () => {
-          assert.equal(roundTwoDigest(COLLIDING[0]), roundTwoDigest(COLLIDING[1]));
+          assert.equal(unsaltedDigest(COLLIDING[0]), unsaltedDigest(COLLIDING[1]));
           return run({
             wrapper,
             original: [{ ...ALICE, id: COLLIDING[0], children: [] }],

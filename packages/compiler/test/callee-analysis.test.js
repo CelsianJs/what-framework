@@ -8,8 +8,10 @@
 // function or method named like a built-in, a helper declared in a nested
 // block, an object literal whose method may be replaced, getters and setters,
 // class instances, callbacks handed by name, generators, async functions and
-// default parameters all compile to the reactive form; a chain of thousands
-// of helpers compiles.
+// default parameters all compile to the reactive form, and so does a getter
+// read through any local alias or a member written through a destructuring.
+// A chain of thousands of helpers, of constant aliases, or of variables
+// written from each other compiles.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -147,6 +149,15 @@ describe('a call reaches a signal through anything the compiler cannot prove', (
     ['a global the platform does not define', "globalThis.__whatTestText = { get text() { return label(); } }; function read(x) { return __whatTestText.text; }", "read('x')"],
     ['iterating a value nobody built', "const items = { *[Symbol.iterator]() { yield label(); } }; function read(x) { for (const item of items) return item; return ''; }", "read('x')"],
     ['an object literal method replaced elsewhere', "const model = { format: (x) => 'first' }; function swap(m) { m.format = () => label(); } swap(model);", "model.format('x')"],
+    ['a getter read through a local alias', 'const model = { get text() { return label(); } }; const alias = model;', 'alias.text'],
+    ['a getter read through a chain of aliases, `||` and `?:`', 'const model = { get text() { return label(); } }; const a = model; const b = a || null; const c = b ? b : a;', 'c.text'],
+    ['a getter read through a variable assigned later', 'const model = { get text() { return label(); } }; let current = null; current = model;', 'current.text'],
+    ['a class instance read through an alias', 'class Model { get text() { return label(); } } const model = new Model(); const alias = model;', 'alias.text'],
+    ['a method replaced through an array destructuring', "const model = { format() { return 'first'; } }; [model.format] = [() => label()];", "model.format(0)"],
+    ['a method replaced through an object destructuring, a default or a rest', "const model = { format() { return 'first'; } }; ({ f: model.format = () => label() } = {});", "model.format(0)"],
+    ['a method replaced by a for-of loop', "const model = { format() { return 'first'; } }; for (model.format of [() => label()]);", "model.format(0)"],
+    ['`this` writing its own method through a destructuring', "const model = { swap() { [this.format] = [() => label()]; return ''; }, format() { return 'first'; } }; model.swap();", "model.format(0)"],
+    ['an array element replaced through a destructuring', "const names = ['first']; [names[0]] = [{ toString: () => label() }];", "names.join('')"],
   ];
   it('a function handed to a package utility, which may call it', () => {
     const code = compileJSX("import { apply } from 'some-lib'; import { signal } from 'what-framework'; const label = signal(''); function format(x) { return label(); } export function View() { return <p>{apply(format, 1)}</p>; }");
@@ -201,5 +212,62 @@ describe('a call stays static when nothing it reaches reads', () => {
     `);
     isStatic(code, 'units.px(4)');
     isStatic(code, 'String(4)');
+  });
+
+  it('a chain of 20,000 constant aliases compiles, with the call static', () => {
+    const count = 20000;
+    const aliases = Array.from({ length: count - 1 }, (_, i) => `const value${i + 1} = value${i};`);
+    const code = compileJSX(`const value0 = 'catalog';\n${aliases.join('\n')}\nexport const Row = () => <p>{value${count - 1}.toUpperCase()}</p>;`, { production: true });
+    isStatic(code, `value${count - 1}.toUpperCase()`);
+  });
+
+  it('a chain of 20,000 aliases of a getter compiles, with the read reactive', async () => {
+    const count = 20000;
+    const aliases = Array.from({ length: count - 1 }, (_, i) => `const model${i + 1} = model${i};`);
+    await follows(`const model0 = { get text() { return label(); } };\n${aliases.join('\n')}\nexport const View = () => <p>{model${count - 1}.text}</p>;`);
+  });
+
+  it('a variable written from 4,500 others, each written later, compiles, reactive past the bound', () => {
+    const count = 4500;
+    const declared = Array.from({ length: count - 1 }, (_, i) => `let v${i + 1} = 1;`).join(' ');
+    const writes = Array.from({ length: count - 1 }, (_, i) => `v${count - 1 - i} = v${count - 2 - i};`).join(' ');
+    const code = compileJSX(`function read(a) { let v0 = a; ${declared} ${writes} return v${count - 1}.toFixed(1); }\nexport const View = () => <p>{read(1)}</p>;`, { production: true });
+    assert.ok(code.includes('() => read(1)'), 'past the bound the call is wrapped');
+    const short = compileJSX('function read(a) { let v0 = a; let v1 = 1; let v2 = 1; v2 = v1; v1 = v0; return v2.toFixed(1); }\nexport const View = () => <p>{read(1)}</p>;', { production: true });
+    isStatic(short, 'read(1)');
+  });
+
+  it('a fixed array built by Array.from or Array.of, and its length', () => {
+    const code = compileJSX(`
+      const ROWS = Array.from({ length: 10000 }, (_, i) => i);
+      const DOUBLED = Array.from([1, 2], (n) => n * 2);
+      const NAMES = Array.of('a', 'b');
+      const LETTERS = Array.from('abc');
+      export const View = () => <p>{ROWS.length.toLocaleString()}{DOUBLED.join('-')}{NAMES.join('')}{LETTERS.length.toFixed(0)}</p>;
+    `, { production: true });
+    for (const call of ['ROWS.length.toLocaleString()', "DOUBLED.join('-')", "NAMES.join('')", 'LETTERS.length.toFixed(0)']) isStatic(code, call);
+  });
+});
+
+describe('an array Array.from builds is reactive where its elements may be', () => {
+  const isWrapped = (code, call) => assert.ok(code.includes(`() => ${call}`), code);
+
+  it('a mapper that reads, a mapper with a body, a mutated result, a shadowed Array', () => {
+    const code = compileJSX(`
+      import { signal } from 'what-framework';
+      const label = signal('a');
+      const READ = Array.from({ length: 2 }, () => label());
+      const BODY = Array.from({ length: 2 }, (_, i) => { return i; });
+      const PUSHED = Array.from({ length: 2 }, (_, i) => i);
+      PUSHED.push(label);
+      export const View = () => <p>{READ.join('')}{BODY.join('')}{PUSHED.join('')}</p>;
+    `, { production: true });
+    for (const call of ["READ.join('')", "BODY.join('')", "PUSHED.join('')"]) isWrapped(code, call);
+    const shadowed = compileJSX(`
+      const Array = { from: (x) => x };
+      const ROWS = Array.from({ length: 2 });
+      export const View = () => <p>{ROWS.join('')}</p>;
+    `, { production: true });
+    isWrapped(shadowed, "ROWS.join('')");
   });
 });

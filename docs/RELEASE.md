@@ -52,6 +52,26 @@ When packages are published, it also runs `npm run -s verify:registry` and uploa
 `artifacts/registry-smoke.json`. A release is not complete until this registry
 smoke passes against npm.
 
+## Release Qualification
+
+`npm run release:verify` runs on one Node version inside the workspace. Before
+a release, also:
+
+- run the suite and the stress tests on Node 20 (latest 20.x), 22, 24 and the
+  current release, the versions CI's test job runs;
+- pass both real-install smokes, `npm run smoke:scaffold` (every create-what
+  template from packed tarballs) and `npm run smoke:apps` (the apps under
+  `smoke/apps`), which `release:verify` includes;
+- build and run the bundler matrix: Vite, esbuild, Rollup, webpack and Bun, in
+  development and production;
+- run benchmarks only on a quiet machine, one at a time, checking `uptime`
+  first;
+- regenerate every `benchmark/*/RESULTS.md` and `results.json` after the
+  version bump, so each names the release it measured.
+
+[RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md#qualify-the-release-candidate) has
+the commands for each.
+
 ## Required Secrets
 
 Set these repository secrets in GitHub:

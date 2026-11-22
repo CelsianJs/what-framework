@@ -4,6 +4,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM('<!DOCTYPE html><html><body></body></html>');
 
@@ -27,7 +28,7 @@ describe('useActionState', () => {
   it('returns [state, dispatch, isPending]; the new state commits when the action has finished', async () => {
     let dispatch;
     let pending;
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const el = mount(h(() => {
       const [count, run, isPending] = useActionState(async (prev, by) => { await gate.promise; return prev + by; }, 0);
       dispatch = run;
@@ -70,7 +71,7 @@ describe('useActionState', () => {
     let dispatch;
     const el = mount(h(Suspense, { fallback: 'loading' }, h(() => {
       const todos = query(['todos'], () => {
-        const r = Promise.withResolvers();
+        const r = withResolvers();
         requests.push(r);
         return r.promise;
       });
@@ -164,7 +165,7 @@ describe('useFormStatus', () => {
     })));
     assert.equal(el.textContent, 'save');
     assert.equal(inner.method, 'post');
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const data = new FormData();
     data.set('title', 'draft');
     const resets = [];

@@ -3,14 +3,14 @@
 
 import { h, _vnode } from './h.js';
 import {
-  signal, untrack, getOwner, runWithOwner, createRoot, onCleanup, _handleError, _isDisposed, HANDLED,
+  signal, effect, untrack, getOwner, runWithOwner, createRoot, onCleanup, _handleError, _isDisposed, HANDLED,
   _trackWork, _beginWork, _retryErrors, _errorSource, _setUserEffectGate, _releaseUserEffect,
   _committingTransition, __DEV__, __devtools,
 } from './reactive.js';
 import { report, recordObservation } from './diagnostics.js';
 import { isServerRender } from './server-context.js';
 import { hydrate, insert, _enableSuspense, _hydrationErrorHook } from './render.js';
-import { createDOM } from './dom.js';
+import { createDOM, _handleNavigationSignal } from './dom.js';
 
 // --- memo ---
 // In the run-once model, components execute exactly once and never re-render.
@@ -335,8 +335,8 @@ function mountSuspense(vnode, parent) {
 
 // --- ErrorBoundary ---
 // Catch errors in children and show fallback. The renderers install
-// `handleError` on the owner its children are built under (dom.js
-// createErrorBoundary, render.js hydrateErrorBoundary), so an error thrown while the
+// `handleError` on the owner its children are built under
+// (createErrorBoundary below, render.js hydrateErrorBoundary), so an error thrown while the
 // children are built, or later by an effect, a binding, a cleanup, a list row,
 // a component created inside them or an async value they read, reaches it.
 // `reset` fetches again the async values whose errors it caught, disposes the
@@ -368,8 +368,55 @@ export const ErrorBoundary = /* @__PURE__ */ deferChildren(function ErrorBoundar
     errorState.set(null);
   };
 
-  return _vnode('__errorBoundary', { errorState, handleError, fallback, reset }, Array.isArray(children) ? children : [children]);
+  return _vnode('__errorBoundary', { errorState, handleError, fallback, reset, mount: createErrorBoundary }, Array.isArray(children) ? children : [children]);
 });
+
+// The client render of a boundary, which its vnode carries (`mount`) as
+// Suspense's does: <!--eb:start--> arm <!--eb:end-->. An effect shows the arm
+// `errorState` names and rebuilds it when the state changes. Each arm is built
+// in a root owned by the run that builds it, so the next run, or the
+// boundary's disposal, disposes the arm before another takes its place.
+// `handleError` goes on the root of the children's arm (`_onError`), which is
+// how an error anywhere under the children finds it, and why one in the
+// fallback goes past it to the boundary above.
+function createErrorBoundary(vnode, parent) {
+  const { errorState, handleError, fallback, reset } = vnode.props;
+  const children = vnode.children;
+  const start = document.createComment('eb:start');
+  const end = document.createComment('eb:end');
+  const container = document.createDocumentFragment();
+  container.appendChild(start);
+  container.appendChild(end);
+  effect(() => {
+    const error = errorState();
+    for (let n = start.nextSibling; n !== null && n !== end; n = start.nextSibling) n.remove();
+    untrack(() => {
+      if (error) {
+        buildErrorArm(typeof fallback === 'function' ? fallback({ error, reset }) : fallback, parent, end, null);
+        return;
+      }
+      try {
+        buildErrorArm(children, parent, end, handleError);
+      } catch (err) {
+        if (_handleNavigationSignal(err)) return;
+        handleError(err);
+      }
+    });
+  });
+  return container;
+}
+
+// Build `vnodes` before `end` in a root of their own, with `onError` (when
+// given) as the root's error handler.
+function buildErrorArm(vnodes, parent, end, onError) {
+  createRoot(() => {
+    if (onError !== null) /** @type {any} */ (getOwner())._onError = onError;
+    for (const v of Array.isArray(vnodes) ? vnodes : [vnodes]) {
+      const node = createDOM(v, parent);
+      if (node) end.parentNode.insertBefore(node, end);
+    }
+  });
+}
 
 // Hand an error to the nearest error boundary above `owner` (the current owner
 // by default). Returns true when a boundary took it.
@@ -518,11 +565,6 @@ export const Match = /* @__PURE__ */ lowered(function Match(props) {
 // `<Counter client:idle />` into h(_$Island, { component: Counter, mode: 'idle' }),
 // importing it from what-framework/render. The public island component, which
 // hydrates through the island registry, is what-framework/server's Island.
-//
-// This used to render an empty marker div on every path, on the server AND the
-// client, in every mode: the SSR branch never rendered the component, and the
-// client branch read `hydrated()` once in a run-once component so the swap-in
-// never happened. Every `client:*` directive silently deleted its component.
 
 // Island props cross the server/client boundary as JSON, so anything that is not
 // representable is dropped rather than throwing mid-render. Functions in

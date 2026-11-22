@@ -1,4 +1,4 @@
-// Publish-surface safety net (D4, sprint/v0.11-quality).
+// Publish-surface safety net.
 //
 // 1. Every documented what-framework subpath ('.', './router', './server',
 //    './jsx-runtime', plus the rest of the exports map) must resolve AND

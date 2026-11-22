@@ -4,7 +4,8 @@
 [![license](https://img.shields.io/npm/l/what-framework)](https://github.com/CelsianJs/what-framework/blob/main/LICENSE)
 [![CI](https://img.shields.io/github/checks-status/CelsianJs/what-framework/main?label=CI)](https://github.com/CelsianJs/what-framework/commits/main)
 
-**The web framework built for AI agents.**
+**The web framework built for AI agents.** The familiar parts of React on an
+entirely new engine, with everything bundled and MCP tools for agents.
 
 [whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [Playground](https://playground.whatfw.com) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
 
@@ -14,11 +15,14 @@
 
 ## Why What?
 
-- **MCP DevTools** — AI agents inspect every signal, effect, and component in a running app via the Model Context Protocol
-- **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
-- **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
-- **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast**: fine-grained, no VDOM. `npm run check:size` bundles counter apps for production (the `production` export condition), minified and gzipped with Node's zlib at level 9 (1 KB = 1024 B): written with `h()` and bundled by esbuild, a counter app is 8.68KB (8889 B); the create-what counter compiled from JSX by what-compiler/vite in a production `vite build`, the way the scaffold builds it, is 6.24KB (6386 B) of JavaScript, not counting the modulepreload polyfill Vite adds to a build from the scaffold's `index.html`. Minimal dependencies, fully tree-shakeable
+- **Familiar API** — `useState`, `useEffect`, `useMemo`, `useContext`, `<Suspense>`, `<ErrorBoundary>`, `startTransition`, `useOptimistic` and `useActionState` keep React's names and call shapes. A component runs once, so a hook hands you an accessor: call it to read it (`count()`)
+- **A new engine** — Push-pull signals with an owner tree update only the DOM a write reaches. Async values live in the graph: a `computed()` that fetches is read like any other value, under `<Suspense>` and transitions
+- **Everything bundled** — Router, server rendering with out-of-order streaming, hydration that adopts the server's DOM, ISR, server actions, a query cache, forms, motion and a11y helpers, all in `what-framework`
+- **MCP DevTools** — 25 Model Context Protocol tools let AI agents inspect the signals, effects, components, cache and DOM of a running app, and ask why something ran
+- **Coded diagnostics** — Every problem the runtime notices in development is an `ERR_…` code with a fix and an example ([docs/ERRORS.md](docs/ERRORS.md)), on one channel that the console, the MCP tools and `getDiagnostics()` read. Agents parse and fix in one pass
+- **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and reports a signal used without its call. Lint rules catch the rest before they ship
+- **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations, with no vnode reconciler and no VDOM diff
+- **Small & Fast**: fine-grained, no VDOM. `npm run check:size` bundles counter apps for production (the `production` export condition), minified and gzipped with Node's zlib at level 9 (1 KB = 1024 B): written with `h()` and bundled by esbuild, a counter app is 7.46KB (7644 B); the create-what counter compiled from JSX by what-compiler/vite in a production `vite build`, the way the scaffold builds it, is 5.19KB (5314 B) of JavaScript, not counting the modulepreload polyfill Vite adds to a build from the scaffold's `index.html`. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
@@ -92,8 +96,8 @@ The 13 maintained packages publish together at the same version. The table also 
 | `what-framework` | Umbrella package: the core API on its root entry; router, server and the kits (forms, data, motion, a11y, …) on subpaths |
 | `what-core` | Signals, components, reactivity, hooks, stores; forms, data fetching and the other kits on subpaths |
 | `what-compiler` | JSX transform and optimizing compiler (`what-compiler/vite`, `/babel`) |
-| `what-router` | File-based & programmatic routing with View Transitions |
-| `what-server` | SSR, islands architecture, static generation, server actions |
+| `what-router` | File-based & programmatic routing; navigations are transitions, with View Transitions |
+| `what-server` | SSR with out-of-order streaming, islands, static generation, server actions |
 | `what-isr` | Origin-first ISR cache engine (stale-while-revalidate, tags, webhooks) |
 | `what-text` | Optional text engine (powered by `@chenglou/pretext`) |
 | `create-what` | Project scaffolder (`npm create what@latest`) |

@@ -45,7 +45,7 @@ export function _setTextInsertHook(hook: unknown): void;
 export function _$template(html: string, flag?: number): () => Element;
 
 // Specialized attribute setters emitted by the compiler for statically-known
-// attribute names (SPRINT v0.11 C2). Function values are treated as reactive
+// attribute names. Function values are treated as reactive
 // accessors (wrapped in an effect), mirroring setProp.
 export function setClass(el: Element, value: string | null | undefined | (() => any)): void;
 /** class on an element the compiler knows is HTML or MathML: writes `className`. */
@@ -95,7 +95,7 @@ export function _$mapKeyed<T>(
 
 // Equality-gated eager memo (the reactive memo, NOT the component-HOC `memo`
 // exported from the package index). Emitted by the compiler for branch
-// memoization of conditional JSX (SPRINT v0.11 C1).
+// memoization of conditional JSX.
 export function _$memo<T>(fn: () => T): (() => T) & { peek(): T };
 
 export interface IslandProps {

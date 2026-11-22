@@ -89,9 +89,8 @@ function interactionCapture() {
         let release;
         let capture;
         window.beginInteractionCapture = () => {
-          const gate = Promise.withResolvers();
-          release = gate.resolve;
-          capture = captureDiagnostics(() => gate.promise);
+          const gate = new Promise(resolve => { release = resolve; });
+          capture = captureDiagnostics(() => gate);
         };
         window.endInteractionCapture = async max => {
           flushSync();

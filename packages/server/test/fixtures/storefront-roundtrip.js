@@ -3,6 +3,7 @@ import { transform } from 'esbuild';
 import { compileJSX } from '../../../../test-utils/compile.js';
 import { renderDocument, renderDocumentStream, renderToHydratableString, renderToStream, renderToString } from 'what-framework/server';
 import { h } from 'what-framework';
+import { withResolvers } from '../../../../test-utils/with-resolvers.js';
 
 export const fixtureURL = new URL('./storefront-roundtrip.jsx', import.meta.url);
 export const stock = 'In stock today';
@@ -45,8 +46,8 @@ export async function serverPage({ createStorefront, loader }, mode) {
   const streamed = mode.includes('stream');
   const fullDocument = mode.startsWith('document');
   const calls = [];
-  const stockGate = Promise.withResolvers();
-  const deliveryGate = Promise.withResolvers();
+  const stockGate = withResolvers();
+  const deliveryGate = withResolvers();
   if (!streamed) {
     stockGate.resolve(stock);
     deliveryGate.resolve(delivery);

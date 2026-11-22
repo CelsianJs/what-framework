@@ -63,7 +63,7 @@ What Framework is a lightweight, signals-based web framework.
 Key features:
 - Signals: Fine-grained reactivity without virtual DOM diffing
 - Islands: Zero JS by default, hydrate components on demand
-- ~8.62 kB gzipped: Tiny bundle size (measured: what-core in a counter app, min+gzip)
+- ~7.46 kB gzipped: Tiny bundle size (measured: what-core in a counter app, min+gzip)
 - React's hook names (useState, useEffect, useMemo), returning signals: call them to read
 - File-based routing: Drop files in pages/, get routes
 - SSR/SSG/Hybrid: Choose rendering mode per page

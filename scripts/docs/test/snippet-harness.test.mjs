@@ -135,7 +135,7 @@ const FIXTURES = {
   forCrash: { code: "function List() { const config = null; return <ul><li>{config.title}</li></ul>; }" },
   missingExport: { code: "import { useTween } from 'what-framework';" },
   unknownEntry: { code: "import { x } from 'what-framework/nope';" },
-  oldPackage: { code: "import { signal } from 'what';" },
+  unpublishedPackage: { code: "import { signal } from 'what';" },
   diagnostic: { code: "import { signal, mount } from 'what-framework';\nconst count = signal(0);\nfunction App() { return <p>{`Count: ${count}`}</p>; }\nmount(<App />, '#app');" },
   clickThrows: { code: "function App() { return <button onClick={() => { throw new Error('boom'); }}>x</button>; }" },
   missingKey: { code: "import { signal } from 'what-framework';\nfunction L() { const items = signal([1]); return <ul>{items().map((i) => <li>{i}</li>)}</ul>; }" },
@@ -189,7 +189,7 @@ describe('checks', () => {
   it('fails a component that throws while mounting', () => failsWith('forCrash', /thrown while mounting <List>: TypeError/));
   it('fails an import of a name the package does not export', () => failsWith('missingExport', /imports useTween from 'what-framework', which does not export it/));
   it('fails an import of an unpublished subpath', () => failsWith('unknownEntry', /not an entry point of what-framework/));
-  it("fails an import from 'what'", () => failsWith('oldPackage', /'what' is not a published What package/));
+  it("fails an import from 'what'", () => failsWith('unpublishedPackage', /'what' is not a published What package/));
   it('fails a What diagnostic reported at run time', () => failsWith('diagnostic', /reports ERR_MISSING_SIGNAL_READ/));
   it('fails an exception in a click handler', () => failsWith('clickThrows', /uncaught exception in an event handler: Error: boom/));
   it('fails a coded compile warning', () => failsWith('missingKey', /compile warning: .*ERR_MISSING_KEY/));

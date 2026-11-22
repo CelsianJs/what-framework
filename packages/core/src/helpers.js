@@ -3,6 +3,7 @@
 
 import { signal, effect, onCleanup, __DEV__ } from './reactive.js';
 import { _vnode } from './h.js';
+import { createPortalDOM } from './dom.js';
 import { report } from './diagnostics.js';
 
 // --- cls(...args) ---
@@ -132,7 +133,7 @@ export const Portal = /* @__PURE__ */ Object.assign(function Portal({ target, ch
     : target;
   if (!container) return null;
   // The DOM reconciler will mount children here
-  return _vnode('__portal', { container }, Array.isArray(children) ? children : [children]);
+  return _vnode('__portal', { container, mount: createPortalDOM }, Array.isArray(children) ? children : [children]);
 }, { _deferChildren: true });
 
 // --- useClickOutside ---

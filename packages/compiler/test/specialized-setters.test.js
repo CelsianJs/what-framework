@@ -1,4 +1,4 @@
-// Structural tests for specialized attribute setters (SPRINT v0.11 C2).
+// Structural tests for specialized attribute setters.
 // The compiler statically classifies attribute names and emits direct
 // monomorphic helpers instead of the generic _$setProp dispatcher.
 // URL attributes and innerHTML MUST stay on _$setProp (sanitization lives there).

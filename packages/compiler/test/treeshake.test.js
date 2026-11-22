@@ -1,4 +1,4 @@
-// SPRINT v0.11 C6 — tree-shakeability of compiled output.
+// Tree-shakeability of compiled output.
 //  - Hoisted `_$template(...)` consts carry /* @__PURE__ */ so bundlers can
 //    drop templates of components that are never imported.
 //  - Event delegation is LAZY: a once-guarded module helper called at element

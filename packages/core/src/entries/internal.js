@@ -39,9 +39,12 @@ export {
   __flushOutsideServerContext,
   __outsideServerContext,
 } from '../server-context.js';
+export { _engine } from '../reactive.js';
 export { beginHeadCollection, endHeadCollection } from '../head.js';
 export { escapeHtml as _escapeHtml } from '../markup-rules.js';
 export { _isAriaAttr, _beginComponentSSR, _endComponentSSR, _runInComponentSSR, _resetForm } from '../dom.js';
+// The client renderer a '__portal' vnode carries (react-compat's createPortal).
+export { createPortalDOM as _mountPortal } from '../dom.js';
 export { _mapArrayToArray, _rowKeyDigest, _rowKeySalt } from '../render.js';
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.

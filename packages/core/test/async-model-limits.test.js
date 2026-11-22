@@ -7,6 +7,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -23,7 +24,7 @@ function page() {
   const flights = new Map();
   const id = signal(1);
   const user = computed(() => {
-    const flight = Promise.withResolvers();
+    const flight = withResolvers();
     flights.set(id(), flight);
     return flight.promise;
   });
@@ -84,7 +85,7 @@ describe('limits of the model, pinned', () => {
 
   it('a transition does not hold a component that suspends on a chunk: the fallback shows (React keeps the old page)', async () => {
     const { signal, h, mount, Suspense, lazy, startTransition } = W;
-    const chunk = Promise.withResolvers();
+    const chunk = withResolvers();
     const Page = lazy(() => chunk.promise);
     const route = signal('home');
     const host = document.createElement('div');
@@ -104,7 +105,7 @@ describe('limits of the model, pinned', () => {
   it('a write after an await inside startTransition is an ordinary write: it shows before the commit (Solid keeps it in the action)', async () => {
     const { signal, h, mount, startTransition, refresh, computed } = W;
     const status = signal('idle');
-    const answers = [Promise.withResolvers(), Promise.withResolvers()];
+    const answers = [withResolvers(), withResolvers()];
     let run = 0;
     const list = computed(() => answers[run++].promise);
     const host = document.createElement('div');

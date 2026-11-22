@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 const { cleanup } = installDOM();
 after(cleanup);
@@ -33,7 +34,7 @@ async function assertCollected(ref, label) {
 }
 
 test('an unmounted useActionState dispatch releases its props while the action\'s promise is pending', async () => {
-  const work = Promise.withResolvers();
+  const work = withResolvers();
   const ran = [];
   let ref;
   (function startAndUnmount() {
@@ -70,8 +71,8 @@ for (const [name, transport] of [
   }],
 ]) {
   test(`a dropped query flight releases its fetcher's closure while a transport that ${name} has not answered`, async () => {
-    const work = Promise.withResolvers();
-    const entered = Promise.withResolvers();
+    const work = withResolvers();
+    const entered = withResolvers();
     const kept = [];
     const second = transport(work, kept);
     let ref;

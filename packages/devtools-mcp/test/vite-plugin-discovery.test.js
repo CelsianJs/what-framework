@@ -1,5 +1,5 @@
 /**
- * Same-origin bridge discovery served by the Vite plugin (T3-04, security #11).
+ * Same-origin bridge discovery served by the Vite plugin (security review #11).
  *
  * The page asks its own dev server; the dev server pairs with the bridge
  * Node-side, using the pairing key the bridge wrote under the project, and

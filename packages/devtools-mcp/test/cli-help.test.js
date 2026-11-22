@@ -1,6 +1,6 @@
-// T3-03 (sprint/audit-fixes-2026-06-09): `what-devtools-mcp --help` used to
-// start the WS bridge + discovery server and block on the MCP stdio transport
-// forever. The flag must print usage and exit 0 BEFORE any server starts.
+// `what-devtools-mcp --help` must print usage and exit 0 BEFORE any server
+// starts: not start the WS bridge + discovery server and block on the MCP stdio
+// transport forever.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

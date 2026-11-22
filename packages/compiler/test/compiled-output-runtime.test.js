@@ -1,4 +1,5 @@
-// Runtime behavior of COMPILED output (SPRINT v0.11 C1/C2/C5).
+// Runtime behavior of COMPILED output (branch memoization, specialized setters,
+// the compiler-internal template).
 // Compiles JSX through the real babel plugin, rewrites the emitted
 // `what-framework`/`what-framework/render` imports to the local what-core
 // sources, loads the module in jsdom, and asserts on live DOM behavior.

@@ -4,9 +4,9 @@
  *
  * Lookup never guesses. A code, a message containing a code, or a message
  * that matches exactly one catalogue template resolves; anything else returns
- * the closest codes and lets the agent choose. A keyword table used to live
- * here and sent "render" to ERR_SIGNAL_WRITE_IN_RENDER, so ERR_HOOK_OUTSIDE_RENDER
- * came back with the wrong fix.
+ * the closest codes and lets the agent choose. A keyword table would guess:
+ * it would send "render" to ERR_SIGNAL_WRITE_IN_RENDER, so ERR_HOOK_OUTSIDE_RENDER
+ * would come back with the wrong fix.
  */
 
 import { getErrorDefinition } from 'what-core';

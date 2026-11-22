@@ -163,7 +163,7 @@ describe('redirect()', () => {
 
     assert.equal(signal.to, '/login', 'the signal names its target');
     assert.equal(signal.name, 'RouterRedirect');
-    assert.ok(signal[Symbol.for('what.router.redirect')], 'the signal is branded');
+    assert.ok(signal[Symbol.for('what.router.redirect.v1')], 'the signal is branded');
     assert.equal(route.path, '/login', 'the redirect should have navigated to /login');
     assert.ok(!container.querySelector('#private'), 'the private page must not render');
   });

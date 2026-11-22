@@ -10,7 +10,6 @@ export function enterJsxRoot(path, state) {
   // Memoized per Babel scope: every JSX root in the same scope yields the
   // same signal-name set, so without this the full scope-chain walk ran
   // once per element — O(n²) compile time for a large single component.
-  // (AUDIT-2026-06-06 H2)
   const scope = path.scope;
   let cache = state._signalNamesCache;
   if (!cache) cache = state._signalNamesCache = new WeakMap();

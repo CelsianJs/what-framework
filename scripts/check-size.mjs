@@ -497,6 +497,24 @@ for (const [name, expected] of [
   if (has !== expected) failed = true;
 }
 
+// --- The pull phase only where a computed is made -------------------------
+// The text of DEFER (reactive.js, the marker of a deferred deep evaluation)
+// stands for the pull phase, which the first computed or selector installs: an
+// app of signals and effects must not carry it, and one computed brings it.
+const PULL_PHASE = '[what] deferred evaluation';
+console.log('\n[check-size] pull phase only when a computed is made:\n');
+for (const [name, expected] of [
+  ['core-counter', false],
+  ['compiled-counter', false],
+  ['compiled-counter (vite, source)', false],
+  ['compiled-hydrate', false],
+  ['computed-counter', true],
+]) {
+  const has = Buffer.from(productionBundles[name]).toString().includes(PULL_PHASE);
+  console.log(`  ${has === expected ? '✓' : '✗'} ${name}: ${has ? 'carries' : 'does not carry'} the pull phase`);
+  if (has !== expected) failed = true;
+}
+
 // --- The error catalogue only where it is read ----------------------------
 // ERROR_CODES is one object literal, so one of its messages (also a
 // DEV_MODULE_SENTINELS entry, so it cannot go stale) stands for all of it. Only

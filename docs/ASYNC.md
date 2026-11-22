@@ -462,11 +462,11 @@ visible (`async-model-limits.test.js`, `transitions-holds.test.js`).
 - **A pending indicator is never held**, so it can show a transition's pending
   state while the transition holds everything else.
 - **`refresh()` always shows as pending.** There is no quiet refresh.
-- **Cost.** An app that calls `computed()` carries the async core, about 2.7 KB
-  gzip, even if every function it passes is synchronous: a function shows it is
-  async only when it runs. Transitions are installed by the first
-  `startTransition`, and the server data channel by the first server render or
-  `hydrate()`. An app that uses neither does not carry them
+- **Cost.** An app that calls `computed()` carries the engine's pull phase and
+  the async core, about 3.8 KB gzip, even if every function it passes is
+  synchronous: a function shows it is async only when it runs. Transitions are
+  installed by the first `startTransition`, and the server data channel by the
+  first server render or `hydrate()`. An app that uses neither does not carry them
   (`.size-budgets.json`, `computed-counter`). Each run of a computed made by
   `computed()` goes through one more call that checks what its function
   returned. `benchmark/run.js` measures that against the engine's own

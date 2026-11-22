@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
 import { asyncClock } from './fixtures/async-clock.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -158,7 +159,7 @@ describe('<Suspense> stops waiting for what no longer blocks it', () => {
 
   it('a suspended component that was removed: the boundary reveals, and settled() does not wait for its promise', async () => {
     const { use, signal, h, mount, Suspense } = W;
-    const work = Promise.withResolvers();
+    const work = withResolvers();
     const visible = signal(true);
     function Child() { return use(work.promise); }
     const host = document.createElement('div');
@@ -175,7 +176,7 @@ describe('<Suspense> stops waiting for what no longer blocks it', () => {
 
   it('an effect disposed by its own disposer: the boundary reveals while the component that made it stays', async () => {
     const { computed, effect, h, mount, Suspense } = W;
-    const work = Promise.withResolvers();
+    const work = withResolvers();
     const value = computed(() => work.promise);
     let stopReading;
     const host = document.createElement('div');
@@ -195,7 +196,7 @@ describe('<Suspense> stops waiting for what no longer blocks it', () => {
 
   it('an unmounted boundary: settled() does not wait for what it waited on', async () => {
     const { use, h, mount, Suspense } = W;
-    const work = Promise.withResolvers();
+    const work = withResolvers();
     let runs = 0;
     function Child() { runs++; return use(work.promise); }
     const host = document.createElement('div');
@@ -211,7 +212,7 @@ describe('<Suspense> stops waiting for what no longer blocks it', () => {
 
   it('settled() resolves after the onMount and useEffect the reveal releases have run, and their writes have shown', async () => {
     const { computed, h, mount, settled, Suspense, onMount, signal } = W;
-    const work = Promise.withResolvers();
+    const work = withResolvers();
     const value = computed(async () => work.promise);
     const mounted = signal(false);
     function Child() {

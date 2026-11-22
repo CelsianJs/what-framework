@@ -4,7 +4,7 @@ import { setNextBinding } from './diagnostics.js';
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
 import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, runWithOwner, __DEV__ } from './reactive.js';
-import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, applyRef, setClassList, _writeClass } from './render.js';
+import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, applyRef, setClassList, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, isAriaAttr, isUnsafeUrl } from './markup-rules.js';
 import { isVNode } from './vnode-renderer.js';
 // SVG elements that need namespace
@@ -58,12 +58,6 @@ export function _isUnsafeAttr(key, value) {
 // return booleans.
 export function _isAriaAttr(key) {
   return isAriaAttr(key);
-}
-
-function isDomNode(value) {
-  if (!value || typeof value !== 'object') return false;
-  if (typeof Node !== 'undefined' && value instanceof Node) return true;
-  return typeof value.nodeType === 'number' && typeof value.nodeName === 'string';
 }
 
 
@@ -193,7 +187,7 @@ export function createDOM(vnode, parent, isSvg) {
   }
 
   // DOM node passthrough (fine-grained components return real nodes)
-  if (isDomNode(vnode)) {
+  if (_isDomNode(vnode)) {
     return vnode;
   }
 
@@ -225,10 +219,11 @@ export function createDOM(vnode, parent, isSvg) {
     return createComponent(vnode, parent, isSvg);
   }
 
-  // VNode with special boundary tags — route to boundary handlers
-  if (vnode.tag === '__errorBoundary') return createErrorBoundary(vnode, parent);
+  // VNode with special tags. A boundary's or a portal's vnode carries its
+  // client renderer (components.js, createPortalDOM below), so a bundle that
+  // never uses one does not carry it.
+  if (vnode.tag === '__errorBoundary' || vnode.tag === '__portal') return vnode.props.mount(vnode, parent);
   if (vnode.tag === '__suspense') return vnode.props.boundary.mount(vnode, parent);
-  if (vnode.tag === '__portal') return createPortalDOM(vnode, parent);
   return createElementFromVNode(vnode, parent, isSvg);
 }
 
@@ -342,14 +337,14 @@ export function _installLazyChildren(Component, target, lazyChildren) {
 
 // --- _handleNavigationSignal(error) ---
 // A thrown value may carry its own handler under
-// Symbol.for('what.navigation.signal'). what-router's redirect() throws one, so
+// Symbol.for('what.navigation.signal.v1'). what-router's redirect() throws one, so
 // a redirect from a component body runs the navigation instead of reaching an
 // ErrorBoundary, which would render error UI for a value that is not an error.
 // Returns true when the value was a signal and has been handled.
 //
 // Both component paths route through this (_renderComponent and the hydration
 // branch, both in render.js) so the two cannot drift.
-const NAV_SIGNAL = Symbol.for('what.navigation.signal');
+const NAV_SIGNAL = Symbol.for('what.navigation.signal.v1');
 
 export function _handleNavigationSignal(error) {
   if (error == null) return false;
@@ -372,67 +367,11 @@ function createComponent(vnode, parent, isSvg) {
   return _renderComponent(Component, mergedProps, endChildrenPass, isSvg);
 }
 
-// --- Boundaries ---
-// <!--start--> arm <!--end-->: an effect shows the arm its state names and
-// rebuilds it when the state changes. Each arm is built in a root owned by the
-// run that builds it, so the next run, or the boundary's disposal, disposes
-// the arm before another takes its place. A boundary installs its handler on
-// the root of its children arm (`_onError`), which is how an error anywhere
-// under the children finds it, and why one in the fallback goes past it to the
-// boundary above. <Suspense> renders itself (components.js): the vnode carries
-// its boundary, whose `mount` builds it.
-function boundaryRegion(startText, endText, state, render) {
-  const start = document.createComment(startText);
-  const end = document.createComment(endText);
-  const container = document.createDocumentFragment();
-  container.appendChild(start);
-  container.appendChild(end);
-  effect(() => {
-    const value = state();
-    for (let n = start.nextSibling; n !== null && n !== end; n = start.nextSibling) n.remove();
-    untrack(() => render(value, end));
-  });
-  return container;
-}
-
-// Build `vnodes` before `end` in a root of their own; `setup` gets the root
-// first.
-function buildArm(vnodes, parent, end, setup) {
-  createRoot(() => {
-    if (setup !== null) setup(getOwner());
-    for (const v of Array.isArray(vnodes) ? vnodes : [vnodes]) {
-      const node = createDOM(v, parent);
-      if (node) end.parentNode.insertBefore(node, end);
-    }
-  });
-}
-
-// <ErrorBoundary>: an error thrown while its children are built, by an effect
-// or binding under them later, by a cleanup, a list row or a component created
-// later inside them reaches `handleError`, which flips `errorState` to show the
-// fallback; `reset` clears it, disposing the fallback and building the
-// children again.
-function createErrorBoundary(vnode, parent) {
-  const { errorState, handleError, fallback, reset } = vnode.props;
-  const children = vnode.children;
-  return boundaryRegion('eb:start', 'eb:end', errorState, (error, end) => {
-    if (error) {
-      buildArm(typeof fallback === 'function' ? fallback({ error, reset }) : fallback, parent, end, null);
-      return;
-    }
-    try {
-      buildArm(children, parent, end, (root) => { root._onError = handleError; });
-    } catch (err) {
-      if (_handleNavigationSignal(err)) return;
-      handleError(err);
-    }
-  });
-}
-
 // <Portal>: its children are built into `container` under the portal's owner,
 // so context and boundaries reach them, and removed from it when that owner
-// is disposed.
-function createPortalDOM(vnode, _parent) {
+// is disposed. A portal's vnode carries it (`mount`): helpers.js Portal and
+// react-compat's createPortal (through what-core/internal).
+export function createPortalDOM(vnode, _parent) {
   const { container } = vnode.props;
   const children = vnode.children;
 
@@ -512,11 +451,24 @@ function applyProps(el, newProps, oldProps, isSvg) {
 // each option it names (a multiple select), which `el.value` cannot.
 export function _setSelectValue(el, value) {
   el._$value = value ?? undefined;
-  if (!selectOptions(el, value)) queueMicrotask(() => selectOptions(el, value));
+  // The options may not be in the DOM yet (children are appended after
+  // props), so a value they do not show is tried once more after them. A
+  // later write, null included, supersedes that retry.
+  const write = (el._$selectWrite = (el._$selectWrite || 0) + 1);
+  if (!selectOptions(el, value)) {
+    queueMicrotask(() => {
+      if (el._$selectWrite === write) selectOptions(el, value);
+    });
+  }
 }
 
-// Whether the options `value` names are now the selected ones.
+// Whether the options `value` names are now the selected ones. Null and
+// undefined name none.
 function selectOptions(el, value) {
+  if (value == null) {
+    el.selectedIndex = -1;
+    return true;
+  }
   if (!Array.isArray(value)) {
     el.value = value;
     return el.value === String(value);
@@ -528,6 +480,30 @@ function selectOptions(el, value) {
     if (option.selected) found++;
   }
   return found === wanted.length;
+}
+
+// A form field's value prop: an <input>'s, a <textarea>'s or a <select>'s,
+// through every write path (h(), compiled setProp, setValue, a spread,
+// hydration). A value is shown and recorded as the value a form reset keeps
+// (_resetForm), any value as its string (`true` is "true", as React writes
+// it). Null or undefined makes the field uncontrolled again: a reset restores
+// its default, which no value write ever touches (an <input>'s value
+// attribute is its defaultValue); one it controlled shows nothing, and a
+// select selects nothing. A write of the value it wrote last leaves what the
+// user has typed since.
+export function _setFieldValue(el, value) {
+  if (el.tagName === 'SELECT') return _setSelectValue(el, value);
+  let str = value == null ? undefined : String(value);
+  if (el._$value === str) return;
+  el._$value = str;
+  if (el.value !== (str ??= '')) el.value = str;
+}
+
+const FIELDS = /^(?:INPUT|TEXTAREA|SELECT)$/;
+
+/** Whether `key` on `el` is a form field's value prop (_setFieldValue). */
+export function _isFieldValue(el, key) {
+  return key === 'value' && FIELDS.test(el.tagName);
 }
 
 // Whether `el` takes prop `key` through a property it can write: one with a
@@ -687,6 +663,13 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
+  // A form field's value, before the nullish and boolean branches below,
+  // which would treat it as an attribute (the field's default).
+  if (_isFieldValue(el, key)) {
+    _setFieldValue(el, value);
+    return;
+  }
+
   // null / undefined — attribute must be ABSENT (React/Solid semantics), not
   // stamped as the literal string "undefined"/"null". Runs before the boolean,
   // data-*/aria-*, SVG and property-reflected branches, all of which would
@@ -732,12 +715,6 @@ function setProp(el, key, value, isSvg) {
     } else {
       el.setAttribute(key, value === true ? '' : String(value));
     }
-    return;
-  }
-
-  // <select> value must be set after <option> children are in the DOM
-  if (key === 'value' && el.tagName === 'SELECT') {
-    _setSelectValue(el, value);
     return;
   }
 

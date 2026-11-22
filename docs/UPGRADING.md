@@ -36,14 +36,15 @@ migration.
 
 | Import from | What it holds |
 |---|---|
-| `what-framework` | `signal`, `computed`, `effect`, `batch`, `untrack`, `flushSync`, `createRoot`, `getOwner`, `runWithOwner`, `createSelector`; `refresh`, `isPending`, `startTransition`, `useTransition`, `useOptimistic`, `use`, `settled` (async values, [ASYNC.md](ASYNC.md)); `h`, `Fragment`, `html`, `mount`, `hydrate`, `applyStreamedBoundaries`; `useState`, `useSignal`, `useComputed`, `useEffect`, `useMemo`, `useCallback`, `useRef`, `useReducer`, `useId`, `createContext`, `useContext`, `onMount`, `onCleanup`, `createResource`, `useLoaderData`; `memo`, `lazy`, `Suspense`, `ErrorBoundary`, `Show`, `For`, `Switch`, `Match`, `Portal`, `Island`; `createStore`, `derived`; `Head`, `getResponse`; `getDiagnostics`, `subscribeDiagnostics`, `clearDiagnostics`, `getErrorDefinition`, `WhatError` |
+| `what-framework` | `signal`, `computed`, `effect`, `batch`, `untrack`, `flushSync`, `createRoot`, `getOwner`, `runWithOwner`, `createSelector`; `refresh`, `isPending`, `startTransition`, `useTransition`, `useOptimistic`, `use`, `settled` (async values, [ASYNC.md](ASYNC.md)); `h`, `Fragment`, `html`, `mount`, `hydrate`, `applyStreamedBoundaries`; `useState`, `useSignal`, `useComputed`, `useEffect`, `useMemo`, `useCallback`, `useRef`, `useReducer`, `useId`, `createContext`, `useContext`, `onMount`, `onCleanup`, `createResource`, `useLoaderData`; `useActionState`, `useFormStatus` (actions, [DATA.md](DATA.md)); `memo`, `lazy`, `Suspense`, `ErrorBoundary`, `Show`, `For`, `Switch`, `Match`, `Portal`; `createStore`, `derived`; `Head`, `getResponse`; `getDiagnostics`, `subscribeDiagnostics`, `clearDiagnostics`, `getErrorDefinition`, `WhatError` |
 | `what-framework/a11y` | focus management, ARIA state helpers, announcements, `useIds`, keyboard helpers |
 | `what-framework/ui` | skeletons and loading placeholders |
 | `what-framework/motion` | `spring`, `tween`, `easings`, `useTween`, `useGesture`, `useAnimatedValue`, CSS transitions |
 | `what-framework/dom` | the DOM read/write scheduler, `cls`, `style`, `debounce`, `throttle`, `useMediaQuery`, `useLocalStorage`, `useClickOutside`, `clearHead` |
 | `what-framework/form` | `useForm`, `useField`, `rules`, resolvers, bound field components |
-| `what-framework/data` | `useFetch`, `useSWR`, `useQuery`, `useInfiniteQuery` and the query cache |
-| `what-framework/render` | the compiled-JSX runtime: `template`, `insert`, `mapArray`, `spread`, `on`, … for code written without JSX |
+| `what-framework/data` | `query`, `useFetch`, `useSWR`, `useQuery`, `useInfiniteQuery`, the query cache, `invalidatePath`, `onRevalidate` |
+| `what-framework/render` | the compiled-JSX runtime: `template`, `insert`, `mapArray`, `spread`, `on`, … for code written without JSX; the compiler's own helpers are `_$`-prefixed (`_$Island`, `_$memo`) |
+| `what-framework/server` | rendering, streaming, `Island`, actions, `<Form>`, the request handler and the deploy adapters ([what-server README](../packages/server/README.md)) |
 | `what-core/internal` | what `what-core` shares with `what-server`, `what-devtools` and `what-devtools-mcp`; not for applications, not covered by semver |
 
 Every `what-framework/<kit>` path has a `what-core/<kit>` twin with the same
@@ -138,16 +139,15 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `_rowKeySalt`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `_contextOf`, `_provide`, `_isServerProcess`, `isVNode` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `_rowKeySalt`, `_engine`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `_contextOf`, `_provide`, `_isServerProcess`, `isVNode`, `_mountPortal` |
 
 <!-- import-changes:end -->
 
 ## Hooks hand you accessors
 
 The hooks kept their call shapes (what changed for `useId()`, `onCleanup()`
-and context is under Behaviour changes), but the docs used to say React's
-names "mean what they mean in React", which is wrong for the values they
-return. This is the contract:
+and context is under Behaviour changes), but what they return is not what
+React returns. This is the contract:
 
 <!-- hooks-contract:start (generated by scripts/generate-error-docs.mjs from packages/create-what/agent-instructions.js) -->
 
@@ -298,6 +298,15 @@ are the differences from 0.14.
   provider above the reader reports `ERR_CONTEXT_NOT_PROVIDED` in development.
   Production still returns `undefined`. Give the context a default, or render
   a provider above the reader.
+- **A function `key` on a component is a prop**, not the vnode key, unless it
+  is a signal, so `<For key={(item) => item.id}>` reaches `<For>` under `h()`
+  and the JSX runtime. A `key` that is a row's key value works as before.
+- **`on(el, event, handler)` removes its listener when the current owner is
+  disposed**, as a JSX event handler is. Attach a listener that must outlive
+  the component outside it.
+- **`memo` is no longer exported from `what-framework/render`.** That was the
+  compiler's eager memo, now `_$memo`; the root `memo` is React's component
+  memo, unchanged. Use `computed()` or `useMemo` where you imported it.
 - `useFocus()` tracks focus from its first call, starting from the element
   that has focus then. Before, every app registered a document `focusin`
   listener at startup whether or not it used focus tracking. Call `useFocus()`
@@ -358,7 +367,17 @@ and navigations that are transitions. Each change below has its migration.
   key no longer both run `onSuccess` for one response.
 - **Unmounting the last reader of a key while its fetch is in flight cancels
   the fetch**, and a remount fetches again. **`setQueryData` drops a fetch in
-  flight** for its key, so a late response cannot overwrite it.
+  flight** for its key, so a late response cannot overwrite it; call
+  `invalidateQueries` afterwards for a fresh copy.
+- **`prefetchQuery`'s fetcher gets the key as written, plus `{ signal }`**,
+  not the normalized string: read the array (`([, id]) => …`) or
+  `String(key)`. **`setQueryData`'s updater gets `undefined`** for a key with
+  nothing cached, not `null`: write `(prev = []) => …`.
+- **The hooks render their first state on the server and while hydrating**:
+  loading, or their own `initialData`/`fallbackData`. Right after hydration
+  they show what the cache holds, with no request. To render data on the
+  server, read it with `query()`, which the server renders and hands to the
+  client.
 - **what-server's `useAction`, `useFormAction`, `useMutation` and `formAction`
   are removed.** Use `useActionState` from `what-framework`
   (`const [result, run, isPending] = useActionState((prev, args) => save(args), null)`),
@@ -375,43 +394,66 @@ and navigations that are transitions. Each change below has its migration.
   its submit as a transition when mounted (with `useFormStatus()` inside it),
   renders the CSRF field only when it has a token, and no longer warns about
   a missing one.
+- **`<Form>` resets at its submission's commit, only after the action
+  succeeds.** As in React 19, the reset clears uncontrolled fields and keeps
+  a controlled one (a `value` or `checked` prop) at what its prop holds. Code
+  that relied on an immediate reset resets in the action's success path.
+  `useFormStatus().action` is the action function or `null`: compare it with
+  your function, not an id.
+- **`enhanceForms()` submits a same-origin form without a token**, as the
+  form's native submit would, and leaves the decision to the endpoint.
+  `data-no-csrf` is gone: remove it, and check the response where you relied
+  on the client-side "Missing CSRF token" refusal.
 - **The action endpoint refuses cross-site posts** (`Sec-Fetch-Site:
   cross-site`/`same-site`, or a foreign `Origin`) with 403, token or not, and
   accepts same-origin ones without a token, which is how forms on cached pages
   post. Another origin of the app needs
-  `createRequestHandler({ csrf: { trustedOrigins: [...] } })`.
+  `createRequestHandler({ csrf: { trustedOrigins: [...] } })`. The server's
+  own origin takes its scheme from the connection (a TLS socket, or the
+  platform's URL), or from `X-Forwarded-Proto` when the request carries it:
+  behind a TLS proxy that sends no `X-Forwarded-Proto`, make it send one, or
+  list the app's https origin in `trustedOrigins`.
 - **`ERR_FORM_ACTION_NOT_REGISTERED` is gone**: a plain function is a valid
   `<Form action>`.
 - **A navigation waits for its destination.** `navigate()` and `<Link>` load
   a `lazy()` route's chunk and run its new `preload`, while the old page
   stays, then commit the URL in `startTransition`. The fallback a lazy route
-  showed on navigation no longer appears (it still does on first load), a
+  showed on navigation no longer appears (it still does on first load), and a
   navigation started while another is preparing supersedes it instead of being
-  dropped, and `navigate()` resolves once the new page is on screen.
-  `{ flushSync: true }` commits at once.
-- **`renderToString(vnode, { response })`** takes a response to read the
-  status and headers back from, and `renderToStringAsync` returns it as
-  `response`.
-- **Route middleware runs once per navigation.** The page renders by the
-  verdict the navigation reached: a redirect it returned, a decline, or what
-  it threw (`ERR_ASYNC_MIDDLEWARE` from an async one, which starts once). It
+  dropped. `navigate()` resolves, and `route.isNavigating` turns false, once
+  the new page's first data has landed: data the page reads that `preload`
+  does not return shows as pending after the commit, so return what the page
+  needs at once from `preload`. `navigate(to, { flushSync: true })` commits at
+  once.
+- **Route middleware runs once per navigation**, before the route's
+  `preload`, on the server and in the browser, and a route it declines is
+  never prepared. The page renders by the verdict the navigation reached: a
+  redirect it returned, a decline, or what it threw (`ERR_ASYNC_MIDDLEWARE` from an async one, which starts once). It
   runs again only when a signal it read changes. A middleware that calls
   `navigate()` supersedes its own navigation, and the route it was asked about
   is not prepared. This affects middleware with side effects that expected a
   second call at render.
 - **The router commits the URL the address bar commits**, dot segments
   resolved (`/old/../find` is `/find`), and splits it as `URL` does (`??a=1`
-  is the key `?a`).
+  is the key `?a`). A path that starts `//` is that path, not another host.
+- **`isSafeUrl` refuses an absolute URL the URL parser rejects**, where 0.14
+  accepted any URL with a safe scheme, so `<Link href="http://[">` renders
+  `href="about:blank"`.
 - **A `<Router>` inside another has route state of its own**, on the server
   and in the browser: what it renders reads the params and query it matched,
   and its parent's subtree keeps reading the parent's. In the browser the
   outermost Router keeps the routes `navigate()` prepares against. This
   affects a page that read a nested Router's params from outside it.
-- **A server never navigates.** During a server render, `navigate()` and a
-  `redirect()` thrown from a component body redirect the response (as
+- **A server never navigates.** During a server render, route state
+  (`route.url`, `route.query`, `route.params`, `useParams()`, `useSearch()`,
+  `useRoute()`) is the request's own, and `navigate()` and a `redirect()`
+  thrown from a component body under a `<Router>` redirect the response (as
   `<Redirect>` does); `navigate()` no longer leaves the process's router in a
   navigation that every later render showed. A `beforeNavigate` or
-  `afterNavigate` subscribed anywhere in a server process is not kept.
+  `afterNavigate` subscribed anywhere in a server process is not kept. A
+  `<Router url>` rendered on the server keeps route state of its own, and
+  readers outside it see the request's URL: read the URL it was given inside
+  it.
 
 ### Lists
 
@@ -467,8 +509,25 @@ and navigations that are transitions. Each change below has its migration.
   row is adopted only for the client key whose digest is its own. Code that
   parsed the comment should stop; a test that compares two renders' markup
   compares them without it (two renders have two salts).
+  A list with a key hydration cannot compare (anything but strings and finite
+  numbers) writes `<!--k!-->`, and the client builds that list and reports
+  kind `key`, recovery `client-render`.
 - **An island reports to the `onHydrationError` of the `hydrate()` that
-  rendered it**, when it hydrates later.
+  rendered it**, when it hydrates later, and `hydrateIslands()` and
+  `autoIslands()` take `{ onHydrationError }`.
+- **After `hydrate()` the page holds what a client render holds.** A server
+  attribute survives only where a prop renders exactly its value, a URL the
+  client refuses removes the attribute, a style object replaces the inline
+  style, an element the client leaves empty is emptied (kind `extra-nodes`),
+  and an element hosting a declarative shadow root is replaced (the new kind
+  `shadow-root`). This affects pages whose server adds markup the client tree
+  does not render, and code that switches over `kind`
+  ([SECURITY.md](../SECURITY.md#hydration)).
+- **Server output for a few elements changed.** `<textarea>` and `<title>`
+  content is written as text, with no markers; a newline follows `<pre>`,
+  `<textarea>` and `<listing>`, so a leading newline survives; and a compiled
+  keyed row's plain field (`{row.label}`) is plain text with no `<!--$-->`
+  markers. Tests that match exact HTML should expect these.
 
 ### Server rendering
 
@@ -506,12 +565,13 @@ The [what-server README](../packages/server/README.md) documents each of these.
   leaving the site is `response.redirectExternal(url, status)`, for an
   absolute `http:` or `https:` URL. A target that either method refuses
   redirects to `/` instead, and development logs `ERR_SSR_UNSAFE_REDIRECT`.
-  what-router's `redirect()` thrown from a component body still escapes
-  `renderToString()` as a `RouterRedirect` error, as in 0.14; route middleware
-  that redirects (a path, or `redirect()`), `<Redirect>` and a `guard()` path
-  fallback redirect the render's response. To redirect from a server render, call
-  `getResponse().redirect('/login')`; the deploy adapters answer with the
-  3xx, and a custom server passes a `createResponse()` in and reads it back
+  Under a `<Router>`, a `redirect()` thrown from a component body, route
+  middleware that redirects (a path, or `redirect()`), `<Redirect>` and a
+  `guard()` path fallback redirect the render's response. To redirect from a
+  server render, call `getResponse().redirect('/login')`; the deploy adapters answer with the
+  3xx, and a custom server passes a `createResponse()` in and reads it back:
+  `renderToString(vnode, { response })` takes one, and `renderToStringAsync`
+  returns it as `response`
   ([Loaders, status and redirects](../packages/server/README.md#loaders-status-and-redirects)).
 - **A `mode: 'server'` route streams.** The deploy adapters send a
   server-mode route's document shell-first (`renderDocumentStream()`); 0.14
@@ -532,6 +592,27 @@ The [what-server README](../packages/server/README.md) documents each of these.
   for each visitor and caches nothing. Name the header in the route's `vary`
   (`page: { vary: ['cookie:session'] }`) to cache one entry per value
   ([Cached routes and the response](../packages/server/README.md#cached-routes-and-the-response)).
+  A cached render also sees exactly what its key is made of: the parameters
+  the key ignores (`utm_*`, `fbclid` and the like) are gone from the loader's
+  `query` and the request URL. Read them on the client, or render the route
+  with `mode: 'server'`. Its `request` is a real `Request` that carries only
+  the headers and cookies the route's `vary` names, so `fetch(request)` and
+  `new Request(request)` forward nothing else. To forward a visitor's
+  credentials upstream from a cached route, read them through
+  `request.headers`, which makes that render private, name them in `vary`, or
+  use `mode: 'server'`.
+- **The Node adapter answers 400 to a request target that is not a path.**
+  `toNodeListener` and `whatMiddleware` refuse `*`, absolute-form
+  (`GET http://other/x`) and authority-form targets, and any target whose URL
+  cannot be built; 0.14 joined the Host header and the target as written
+  (`http://hosthttp://other/x`). `whatMiddleware` passes a handler's error to
+  `next(err)`, where 0.14's rejected. This affects a server behind a forward
+  proxy that sends absolute-form targets: rewrite them to origin-form at the
+  proxy.
+- **SSR style objects follow a conservative value grammar.** A value that
+  hides a declaration behind a CSS comment or an escape, or an unquoted
+  `url(` that is not a valid url token, is dropped. Write the value without
+  it.
 - **Error details stay on the server.** A failed component's
   `<!-- SSR Error -->` comment and a resource's error record carry the error's
   message only when `NODE_ENV` is exactly `development`; 0.14 included it
@@ -646,32 +727,34 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 8889 B |
-| The create-what counter, runtime JSX | 6702 B | 8929 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 6386 B |
+| A counter written with `h()` | 6601 B | 7644 B |
+| The create-what counter, runtime JSX | 6702 B | 7689 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5314 B |
 
-The compiled counter, what the scaffold ships, is 1345 B (17%) smaller in
-0.15: compiled output no longer carries the vnode reconciler. 0.14's numbers
+The compiled counter, what the scaffold ships, is 2417 B (31%) smaller in
+0.15: compiled output no longer carries the vnode reconciler, and an app that
+makes no computed no longer carries the engine's pull phase. 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 2288 B, for the new engine, the engine hooks async
+counter still grows by 1871 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
-delegated events, hydration, `<Suspense>` release and SVG animation URLs. The
-production build (`dist/*.min.js`, what the `production` export condition
-resolves) has one file per source module instead of one shared chunk, so an
-app bundled from it is as small as the same app bundled from source, and a
-compiled app with no `h()`, boundary or portal leaves the vnode renderer out.
+delegated events, form field values, hydration, `<Suspense>` release and SVG
+animation URLs. The production build (`dist/*.min.js`, what the
+`production` export condition resolves) has one file per source module
+instead of one shared chunk, so an app bundled from it is as small as the
+same app bundled from source, and a compiled app with no `h()`, boundary or
+portal leaves the vnode renderer out.
 Loading the dist straight into a browser without a bundler fetches more,
 smaller files. This affects an app written with `h()` that has a size budget:
-compiled with what-compiler, the same counter is 6386 B.
+compiled with what-compiler, the same counter is 5314 B.
 
 Three kinds of app grow more than the counters:
 
 - **An app that calls `computed()`** brings the async core with it
   ([ASYNC.md](ASYNC.md)): the compiled counter with one `computed()` is
-  9117 B, against 7979 B in 0.14 (+1138 B).
+  9196 B, against 7979 B in 0.14 (+1217 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 18182 B, the same app mounted without hydration 8920 B.
+  hydrating counter is 17624 B, the same app mounted without hydration 7851 B.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
   export of what-core, what-router and what-server has three: `production`
@@ -683,12 +766,12 @@ Three kinds of app grow more than the counters:
   `bun build --production` select `module`, and each defines
   `process.env.NODE_ENV` itself: `"production"` when it minifies (Bun: with
   `--production`), `"development"` otherwise. So `esbuild app.js --bundle
-  --minify` builds the `h()` counter at 8892 B, and an unminified esbuild or
+  --minify` builds the `h()` counter at 7655 B, and an unminified esbuild or
   rolldown build with no `NODE_ENV` of your own is a development build, with
   its diagnostics: minify, or define `process.env.NODE_ENV` as `"production"`,
   for production. A bundler given custom conditions with neither `production`
   nor `module` bundles `src/` and its development tier (esbuild
-  `--conditions=browser`: 31574 B), whatever `process.env.NODE_ENV` says. Add
+  `--conditions=browser`: 31416 B), whatever `process.env.NODE_ENV` says. Add
   `production` to such a list.
 - **Development builds report diagnostics in every bundler.** The source reads
   its flag through what-core's `#env` import, by the same conditions: under
@@ -734,6 +817,11 @@ Beyond that:
     Delete the rule from your config.
   - `what/no-moved-imports` is new, an error in every preset, with an autofix
     ([For agents and tools](#for-agents-and-tools)).
+  - `what/no-effect-self-write` (an effect that writes a signal it reads) is
+    new and an error in `recommended`, so a lint run that passed on 0.14 can
+    fail. `effect-cleanup`, `no-unsafe-innerhtml`, `no-async-component`,
+    `no-promise-in-usememo`, `no-optimistic-snapshot` and
+    `prefer-async-computed` warn in `recommended`.
 - **what-devtools**: `subscribe()` events carry ids instead of the registry
   entry. `signal:created` is `{ id, name, componentId }` (0.14 also sent `ref`
   and `createdAt`), `effect:created` is `{ id, name, kind, componentId }`, and
@@ -747,7 +835,10 @@ Beyond that:
 - **what-server** and **what-isr**: see [Server rendering](#server-rendering).
 - **what-compiler**: see [The compiler](#the-compiler).
 - **what-router**: navigations are transitions; see [Data, actions and routing](#data-actions-and-routing).
-- **what-react**: nothing to change in your code.
+- **what-react**: `isValidElement` accepts only real elements, and
+  `cloneElement` returns anything else unchanged, so JSON shaped like an
+  element no longer becomes one. Pass a real element, or call
+  `createElement(obj.type, obj.props)` on purpose.
 
 ## MCP tools
 
@@ -772,4 +863,10 @@ plugin pairs it, and a dev server other than Vite serves the same endpoint
 with `createDiscoveryHandler({ root })`
 ([Setup](MCP-DEVTOOLS.md#2-configure-vite)). This affects scripts and prompts
 written against 0.14's tools: make the calls in the table, and read the
-answer's fields. [MCP-DEVTOOLS.md](MCP-DEVTOOLS.md) documents every tool.
+answer's fields. Causal events are recorded from the moment a client
+connects, so reproduce an action after connecting to see its history.
+`what_signals` counts include async computed rows: rows with `id` are
+writable signals, and async rows carry `effectId`. `what_diagnose` counts an
+effect as hot above 5 runs (pass `threshold` to change it), and
+`what_errors` returns hydration guidance in `mismatchFixes[kind]`.
+[MCP-DEVTOOLS.md](MCP-DEVTOOLS.md) documents every tool.

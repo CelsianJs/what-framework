@@ -147,8 +147,8 @@ function ownSignalNames(scope) {
     }
   }
   // Scan this scope's own function params (destructured props) ONCE per
-  // scope — not once per binding. The old per-binding rescan made this
-  // O(params × bindings) per scope per JSXElement. (AUDIT-2026-06-06 H2)
+  // scope — not once per binding, which would make this O(params × bindings)
+  // per scope per JSXElement.
   const fnNode = scope.path && scope.path.node;
   if (fnNode) {
     if (fnNode.params) {
@@ -428,20 +428,53 @@ function evaluation(fn, outer, thisKind, scope, importedIds) {
 }
 
 // Whether the property read `expr` may run an accessor the module declares:
-// its object is an object literal it keeps with a getter or setter of that
-// name (or a key it cannot see), or an instance of a class it declares.
+// its object may be an object literal the module declares with a getter or
+// setter of that name (or a key it cannot see), or an instance of a class it
+// declares, held directly or through other names (see builtValues).
 function mayRunAccessor(expr, scope) {
   let root = expr.object;
   while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) root = root.object;
   if (!t.isIdentifier(root)) return false;
-  const binding = bindingOf(root, scope);
-  if (!binding || !binding.path.isVariableDeclarator()) return false;
-  const init = binding.path.node.init;
-  if (t.isNewExpression(init)) return !builtinConstructor(init.callee, binding.path.scope);
-  if (!t.isObjectExpression(init)) return false;
+  const built = builtValues(root, scope);
+  if (built.instance) return true;
+  if (!built.literal) return false;
   const ev = evaluation(null, null, U, scope, null);
   evalExpr(expr, ev);
   return finish(ev);
+}
+
+// What the module built that the name `id` may hold: an object literal
+// (`literal`), an instance of a class it declares (`instance`). A value is
+// followed through the names it passes through, each a variable's
+// initializer and every value assigned to it, and through `a || b`,
+// `c ? a : b`, `(x, a)` and `b = a`, on a list of its own (a chain of
+// thousands of aliases nests nothing). What a call returns, a parameter and
+// a property of another value are values it did not see built.
+function builtValues(id, scope) {
+  const built = { literal: false, instance: false };
+  const pending = [{ node: id, scope }];
+  const seen = new Set();
+  while (pending.length > 0) {
+    const { node, scope: at } = /** @type {{ node: any, scope: any }} */ (pending.pop());
+    if (t.isObjectExpression(node)) built.literal = true;
+    else if (t.isNewExpression(node)) built.instance = built.instance || !builtinConstructor(node.callee, at);
+    else if (t.isLogicalExpression(node)) pending.push({ node: node.left, scope: at }, { node: node.right, scope: at });
+    else if (t.isConditionalExpression(node)) pending.push({ node: node.consequent, scope: at }, { node: node.alternate, scope: at });
+    else if (t.isSequenceExpression(node)) pending.push({ node: node.expressions[node.expressions.length - 1], scope: at });
+    else if (t.isAssignmentExpression(node)) pending.push({ node: node.right, scope: at });
+    else if (t.isParenthesizedExpression(node) || t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node) || t.isTSNonNullExpression(node)) {
+      pending.push({ node: node.expression, scope: at });
+    } else if (t.isIdentifier(node)) {
+      const binding = bindingOf(node, at);
+      if (!binding || seen.has(binding) || !binding.path.isVariableDeclarator() || !t.isIdentifier(binding.path.node.id)) continue;
+      seen.add(binding);
+      if (binding.path.node.init) pending.push({ node: binding.path.node.init, scope: binding.path.scope });
+      for (const write of binding.constantViolations) {
+        if (write.isAssignmentExpression() && t.isIdentifier(write.node.left)) pending.push({ node: write.node.right, scope: write.scope });
+      }
+    }
+  }
+  return built;
 }
 
 function bindingOf(id, scope) {
@@ -496,33 +529,77 @@ function inert(kind) {
 }
 
 // --- The kind of what a binding names, from its declaration ---
+//
+// A declaration's kind depends on the kinds of the bindings its initializer
+// names (`const b = a`), so working it out by recursion nests as deep as a
+// chain of aliases, and a generated module of thousands overflows the stack.
+// Each binding's kind is worked out once instead, on a stack of its own: a
+// declaration that names a binding not worked out yet waits under it, and one
+// that names a binding already waiting (a cycle, possible only through a
+// temporal dead zone) takes U for it.
+
+/** @type {WeakMap<object, Kind>} */
+let declaredKinds = new WeakMap();
+const waitingKinds = new Set();
 
 /** @returns {Kind} */
-function declaredKind(binding, seen = new Set()) {
-  if (binding.kind === 'module' || binding.kind === 'param' || seen.has(binding)) return U;
+function declaredKind(binding) {
+  const known = declaredKinds.get(binding);
+  if (known !== undefined) return known;
+  if (waitingKinds.has(binding)) return U;
+  const stack = [binding];
+  waitingKinds.add(binding);
+  try {
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      let next = null;
+      const kind = declarationKind(top, (other) => {
+        const otherKind = declaredKinds.get(other);
+        if (otherKind !== undefined) return otherKind;
+        if (next === null && !waitingKinds.has(other)) next = other;
+        return U;
+      });
+      if (next !== null) {
+        stack.push(next);
+        waitingKinds.add(next);
+      } else {
+        declaredKinds.set(top, kind);
+        stack.pop();
+        waitingKinds.delete(top);
+      }
+    }
+  } finally {
+    for (const waiting of stack) waitingKinds.delete(waiting);
+  }
+  return /** @type {Kind} */ (declaredKinds.get(binding));
+}
+
+// The kind of `binding` given `lookup`, the kind of each binding its
+// declaration names.
+/** @returns {Kind} */
+function declarationKind(binding, lookup) {
+  if (binding.kind === 'module' || binding.kind === 'param') return U;
   const path = binding.path;
-  if (!binding.constant) return countedKind(binding, seen);
+  if (!binding.constant) return countedKind(binding, lookup);
   if (path.isFunctionDeclaration()) return { f: path };
   if (!path.isVariableDeclarator() || !t.isIdentifier(path.node.id)) return U;
   const init = path.get('init');
   if (!init.node) return P;
   if (init.isArrowFunctionExpression() || init.isFunctionExpression()) return { f: init };
   if (init.isObjectExpression()) return keepsItself(binding) ? { o: binding } : U;
-  seen.add(binding);
-  const kind = constKind(init.node, init.scope, seen);
+  const kind = constKind(init.node, init.scope, lookup);
   return kind === A && !keepsElements(binding) ? U : kind;
 }
 
 // A variable that is written again (a loop counter, a total) is a primitive
 // when it starts as one and every write gives it one by the rules of
 // constKind: `i++`, `i = 0`, `n += 2`.
-function countedKind(binding, seen) {
+function countedKind(binding, lookup) {
   const path = binding.path;
   if (!path.isVariableDeclarator() || !t.isIdentifier(path.node.id)) return U;
-  seen.add(binding);
-  if (path.node.init && constKind(path.node.init, path.scope, seen) !== P) return U;
+  if (path.node.init && constKind(path.node.init, path.scope, lookup) !== P) return U;
   return binding.constantViolations.every((write) => write.isUpdateExpression() ||
-    (write.isAssignmentExpression() && t.isIdentifier(write.node.left) && constKind(write.node.right, write.scope, seen) === P)) ? P : U;
+    (write.isAssignmentExpression() && t.isIdentifier(write.node.left) && constKind(write.node.right, write.scope, lookup) === P)) ? P : U;
 }
 
 // Whether the array `binding` names keeps the primitives it was declared
@@ -531,34 +608,85 @@ function keepsElements(binding) {
   return binding.referencePaths.every((ref) => {
     const parent = ref.parentPath;
     if (parent.isForOfStatement({ right: ref.node }) || parent.isSpreadElement()) return true;
-    if (!parent.isMemberExpression({ object: ref.node })) return false;
+    if (!parent.isMemberExpression({ object: ref.node }) || isWritten(parent)) return false;
     const use = parent.parentPath;
-    if (use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() || use.isUnaryExpression({ operator: 'delete' })) return false;
     return !(use.isCallExpression({ callee: parent.node }) && MUTATING.has(propertyName(parent.node)));
   });
 }
 
-// The kind of a module-level constant's initializer, where it is built of
-// literals, operators, built-in objects and other such constants.
-function constKind(node, scope, seen) {
+// Whether the member expression at `member` is written, not read: assigned
+// (`o.x = v`, `o.x += v`), the target of a destructuring however deep
+// (`[o.x] = list`, `({ a: o.x } = v)`, `[...o.x] = list`, `[o.x = 1] = list`),
+// the variable of a for-in or for-of loop, updated or deleted.
+function isWritten(member) {
+  let at = member;
+  for (;;) {
+    const parent = at.parentPath;
+    if (!parent) return false;
+    if (parent.isAssignmentExpression() || parent.isForInStatement() || parent.isForOfStatement()) return parent.node.left === at.node;
+    if (parent.isUpdateExpression()) return true;
+    if (parent.isUnaryExpression({ operator: 'delete' })) return true;
+    if (parent.isArrayPattern() || parent.isRestElement() || (parent.isAssignmentPattern() && parent.node.left === at.node)) {
+      at = parent;
+      continue;
+    }
+    if (parent.isObjectProperty() && parent.node.value === at.node && parent.parentPath.isObjectPattern()) {
+      at = parent.parentPath;
+      continue;
+    }
+    return false;
+  }
+}
+
+// The kind of a constant's initializer, where it is built of literals,
+// operators, built-in objects and other such constants, given `lookup`, the
+// kind of each binding it names.
+function constKind(node, scope, lookup) {
   if (t.isStringLiteral(node) || t.isNumericLiteral(node) || t.isBooleanLiteral(node) || t.isNullLiteral(node) || t.isBigIntLiteral(node)) return P;
-  if (t.isTemplateLiteral(node)) return node.expressions.every((e) => constKind(e, scope, seen) === P) ? P : U;
-  if (t.isUnaryExpression(node)) return constKind(node.argument, scope, seen) === P ? P : U;
+  if (t.isTemplateLiteral(node)) return node.expressions.every((e) => constKind(e, scope, lookup) === P) ? P : U;
+  if (t.isUnaryExpression(node)) return constKind(node.argument, scope, lookup) === P ? P : U;
   if (t.isBinaryExpression(node) || t.isLogicalExpression(node)) {
-    return constKind(node.left, scope, seen) === P && constKind(node.right, scope, seen) === P ? P : U;
+    return constKind(node.left, scope, lookup) === P && constKind(node.right, scope, lookup) === P ? P : U;
   }
   if (t.isConditionalExpression(node)) {
-    return [node.test, node.consequent, node.alternate].every((e) => constKind(e, scope, seen) === P) ? P : U;
+    return [node.test, node.consequent, node.alternate].every((e) => constKind(e, scope, lookup) === P) ? P : U;
   }
-  if (t.isArrayExpression(node)) return node.elements.every((e) => e !== null && !t.isSpreadElement(e) && constKind(e, scope, seen) === P) ? A : U;
+  if (t.isArrayExpression(node)) return node.elements.every((e) => e !== null && !t.isSpreadElement(e) && constKind(e, scope, lookup) === P) ? A : U;
   if (t.isRegExpLiteral(node)) return B;
-  if (t.isNewExpression(node) && builtinConstructor(node.callee, scope) && node.arguments.every((e) => !t.isSpreadElement(e) && constKind(e, scope, seen) === P)) return B;
+  if (t.isNewExpression(node) && builtinConstructor(node.callee, scope) && node.arguments.every((e) => !t.isSpreadElement(e) && constKind(e, scope, lookup) === P)) return B;
+  if (t.isCallExpression(node)) return builtArrayKind(node, scope, lookup);
   if (t.isIdentifier(node)) {
     if (node.name === 'undefined' || node.name === 'NaN' || node.name === 'Infinity') return bindingOf(node, scope) ? U : P;
     const binding = bindingOf(node, scope);
-    return binding ? declaredKind(binding, seen) : U;
+    return binding ? lookup(binding) : U;
   }
   return U;
+}
+
+// `Array.of(...)` of primitives, and `Array.from(x)` of a primitive array, a
+// string or `{ length }`, mapped by nothing or by a function expression whose
+// returned expression is a primitive built of its parameters by constKind's
+// rules (`(_, i) => i * 2`): an array of primitives.
+function builtArrayKind(node, scope, lookup) {
+  const callee = node.callee;
+  if (!t.isMemberExpression(callee) || callee.computed || !t.isIdentifier(callee.object, { name: 'Array' }) ||
+      bindingOf(callee.object, scope) || node.arguments.some((e) => t.isSpreadElement(e))) return U;
+  const method = callee.property.name;
+  if (method === 'of') return node.arguments.every((e) => constKind(e, scope, lookup) === P) ? A : U;
+  if (method !== 'from' || node.arguments.length === 0 || node.arguments.length > 2) return U;
+  const [source, mapper] = node.arguments;
+  const sized = t.isObjectExpression(source) && source.properties.length === 1 && t.isObjectProperty(source.properties[0]) &&
+    !source.properties[0].computed && keyName(source.properties[0]) === 'length' && constKind(source.properties[0].value, scope, lookup) === P;
+  if (!sized) {
+    const kind = constKind(source, scope, lookup);
+    if (kind !== A && kind !== P) return U;
+  }
+  if (mapper === undefined) return A;
+  if (!t.isArrowFunctionExpression(mapper) || mapper.async || t.isBlockStatement(mapper.body) || !mapper.params.every((p) => t.isIdentifier(p))) return U;
+  const path = functionPaths.get(mapper);
+  if (!path) return U;
+  const own = (binding) => (binding.kind === 'param' && binding.scope === path.scope ? P : lookup(binding));
+  return constKind(mapper.body, path.scope, own) === P ? A : U;
 }
 
 function builtinConstructor(callee, scope) {
@@ -577,10 +705,7 @@ function keepsItself(binding) {
   if (answer !== undefined) return answer;
   answer = binding.referencePaths.every((ref) => {
     const parent = ref.parentPath;
-    if (!parent || !parent.isMemberExpression({ object: ref.node }) || parent.node.computed) return false;
-    const use = parent.parentPath;
-    return !(use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() ||
-      use.isUnaryExpression({ operator: 'delete' }));
+    return parent && parent.isMemberExpression({ object: ref.node }) && !parent.node.computed && !isWritten(parent);
   }) && binding.path.get('init.properties').every((prop) => {
     const fn = prop.isObjectMethod() ? prop : prop.isObjectProperty() && prop.get('value').isFunctionExpression() ? prop.get('value') : null;
     return fn === null || thisStaysPut(fn);
@@ -594,10 +719,7 @@ function thisStaysPut(fn) {
   fn.traverse({
     ThisExpression(path) {
       const parent = path.parentPath;
-      const use = parent.parentPath;
-      if (!parent.isMemberExpression({ object: path.node }) || parent.node.computed ||
-          use.isAssignmentExpression({ left: parent.node }) || use.isUpdateExpression() ||
-          use.isUnaryExpression({ operator: 'delete' })) ok = false;
+      if (!parent.isMemberExpression({ object: path.node }) || parent.node.computed || isWritten(parent)) ok = false;
     },
     Function(path) {
       if (!path.isArrowFunctionExpression()) path.skip();
@@ -765,9 +887,28 @@ function identKind(id, ev) {
 // with every value written to it, each of a kind that may depend on the
 // variable's own (taken to be what it starts with while it is worked out: a
 // variable only ever given primitives is a primitive). A write the join
-// cannot see (a destructuring, a loop's left side) makes it U.
+// cannot see (a destructuring, a loop's left side) makes it U. A variable
+// written from one that is itself written again nests the work, so past
+// WRITTEN_DEPTH such variables the rest are U and the evaluation reads:
+// handwritten code nests a few, a generated chain of thousands would
+// overflow the stack.
+const WRITTEN_DEPTH = 200;
+let writtenDepth = 0;
 function writtenKind(binding, ev) {
   if (ev.written.has(binding)) return ev.written.get(binding);
+  if (writtenDepth >= WRITTEN_DEPTH) {
+    ev.reads = true;
+    return U;
+  }
+  writtenDepth++;
+  try {
+    return writtenKindOf(binding, ev);
+  } finally {
+    writtenDepth--;
+  }
+}
+
+function writtenKindOf(binding, ev) {
   const path = binding.path;
   /** @type {Kind} */
   let kind = U;
@@ -859,7 +1000,7 @@ function readMember(object, name, ev) {
       const binding = bindingOf(value.node, value.scope);
       return binding ? declaredKind(binding) : U;
     }
-    return constKind(value.node, value.scope, new Set());
+    return constKind(value.node, value.scope, declaredKind);
   }
   ev.reads = true;
   return U;
@@ -1254,6 +1395,7 @@ export function resolveCallees(program, callPaths, importedIds) {
   functionPaths = new WeakMap();
   declaratorPaths = new WeakMap();
   decided = new WeakMap();
+  declaredKinds = new WeakMap();
   program.traverse({
     ReferencedIdentifier(path) {
       if (path.isIdentifier()) references.set(path.node, path.scope.getBinding(path.node.name) || null);

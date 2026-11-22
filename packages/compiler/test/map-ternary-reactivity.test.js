@@ -1,7 +1,7 @@
 // Regression: when .map() is lowered inside a ternary/logical, the surrounding
-// condition must remain reactive. Before AUDIT-2026-06-06 H1 the compiler
-// emitted `_$insert(el, cond ? _$mapArray(...) : fallback, m)` with NO arrow
-// wrapper, so `cond` was read once and toggling it never switched list<->fallback.
+// condition must remain reactive. Emitting
+// `_$insert(el, cond ? _$mapArray(...) : fallback, m)` with NO arrow wrapper
+// would read `cond` once, and toggling it would never switch list<->fallback.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

@@ -41,7 +41,7 @@ import { h, Fragment } from 'what-core';
 import { _$Island } from 'what-core/render';
 import { isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
-import { _afterOpen, _isDevMode, _rawText, _resolveInnerHTML, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
+import { _afterOpen, _isDevMode, _markSelected, _rawText, _resolveInnerHTML, _selectValue, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
 
 // Compiled JSX: HTML, or HTML with what is rendered when it is placed. The
@@ -445,22 +445,28 @@ class Element extends Html {
 
   render(renderChild, hk, ns) {
     const { tag, props, children } = this;
-    const open = keyed(hk, '<' + tag + renderAttrs(props) + '>');
+    const select = _selectValue(tag, props);
+    const open = keyed(hk, '<' + tag + renderAttrs(select ? select.props : props) + '>');
     if (VOID_ELEMENTS.has(tag)) return open;
     const inner = _resolveInnerHTML(props);
-    const content = inner != null ? keyed(hk, String(inner)) : _afterOpen(tag, ns) + (children === null ? '' : children.render(renderChild, hk, ns));
-    return open + content + keyed(hk, '</' + tag + '>');
+    if (inner != null) return open + keyed(hk, String(inner)) + keyed(hk, '</' + tag + '>');
+    const content = children === null ? '' : children.render(renderChild, hk, ns);
+    return open + _afterOpen(tag, ns) + (select ? _markSelected(content, select.value, select.multiple) : content) + keyed(hk, '</' + tag + '>');
   }
 
+  // A select's options are marked when its content is all known now; content
+  // that streams later (a boundary inside the select) is left as it is.
   parts(ns) {
     const { tag, props, children } = this;
-    const open = '<' + tag + renderAttrs(props) + '>';
+    const select = _selectValue(tag, props);
+    const open = '<' + tag + renderAttrs(select ? select.props : props) + '>';
     if (VOID_ELEMENTS.has(tag)) return open;
     const inner = _resolveInnerHTML(props);
     if (inner != null) return open + String(inner) + '</' + tag + '>';
     const head = open + _afterOpen(tag, ns);
     const content = children === null ? '' : children.parts(ns);
-    return typeof content === 'string' ? head + content + '</' + tag + '>' : [head, ...content, '</' + tag + '>'];
+    if (typeof content !== 'string') return [head, ...content, '</' + tag + '>'];
+    return head + (select ? _markSelected(content, select.value, select.multiple) : content) + '</' + tag + '>';
   }
 
   childNs(ns) {

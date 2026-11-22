@@ -130,16 +130,22 @@ export function requestSite(headers, url, trustedOrigins) {
 }
 
 // The origin a request was sent to, scheme included: an https page posting to
-// an http host is another origin. The scheme is the one a proxy in front
-// reports (X-Forwarded-Proto, which a cross-site form cannot set), else the
-// request URL's; the host is the Host header's, else the URL's. Null when
-// neither names a host.
+// an http host is another origin. The host is the Host header's, else the
+// URL's. The scheme is the one a proxy in front reports in X-Forwarded-Proto,
+// else the request URL's, which the adapter builds from what it knows of the
+// connection (a TLS socket, the platform's own URL); a bare path says http.
+// X-Forwarded-Proto is believed without configuration: a page on another site
+// cannot set it on a visitor's request (a form cannot set headers, and a
+// fetch that sets one is preflighted), so only the proxy or the sender itself
+// can, and neither is a cross-site request. Behind a TLS proxy that does not
+// send it, the server sees http: have the proxy send it, or list the https
+// origin in `trustedOrigins`. Null when no host is named.
 function targetOrigin(headers, url) {
   /** @type {URL | null} */
   let parsed = null;
   try {
-    parsed = new URL(url, headers.host ? `http://${headers.host}` : undefined);
-  } catch { /* a path with no Host to resolve it against */ }
+    parsed = new URL(String(url));
+  } catch { /* a path: no scheme or host of its own */ }
   const host = headers.host || (parsed && parsed.host);
   if (!host) return null;
   const forwarded = String(headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
@@ -193,14 +199,16 @@ const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-c
  *    failures respond with an HTML error page and the matching status.
  */
 // The request an action call answers: the Web Request a fetch endpoint got,
-// else one made from the request-like object (its URL against its Host).
+// else one made from the request-like object. A path is this host's (its Host
+// header's), so `//other.test/x` is a path here, never another authority.
 function requestOf(reqLike, method) {
   if (typeof Request === 'undefined') return null;
   if (reqLike.request instanceof Request) return reqLike.request;
   const headers = lowerHeaders(reqLike.headers);
+  const target = typeof reqLike.url === 'string' && reqLike.url ? reqLike.url : '/';
   let url;
   try {
-    url = new URL(reqLike.url || '/', `http://${headers.host || 'localhost'}`);
+    url = new URL(target.startsWith('/') ? `http://${headers.host || 'localhost'}${target}` : target);
   } catch {
     url = new URL('http://localhost/');
   }
@@ -302,38 +310,57 @@ export function createActionHandler(options = {}) {
 
 // --- Node connect/express middleware ---
 // Mount before your routes: app.use(nodeActionMiddleware({ getCsrfToken }))
+//
+// The endpoint is the request target's raw path, compared exactly before
+// anything parses it: `//other.test/__what_action`, `/x/../__what_action` and
+// an absolute-form target are other paths, and go to next(). The middleware
+// never rejects: connect and Express 4 drop the promise a middleware returns,
+// and Node ends the process on a rejection nobody handles.
 
 export function nodeActionMiddleware(options = {}) {
   const basePath = options.basePath || DEFAULT_BASE_PATH;
   const handle = createActionHandler(options);
 
   return async function middleware(req, res, next) {
-    const { pathname, search } = new URL(req.url || '/', 'http://localhost');
-    if (pathname !== basePath || (req.method || '').toUpperCase() !== 'POST') {
+    const target = typeof req.url === 'string' ? req.url : '/';
+    const queryAt = target.indexOf('?');
+    const path = queryAt < 0 ? target : target.slice(0, queryAt);
+    if (path !== basePath || String(req.method || '').toUpperCase() !== 'POST') {
       return next ? next() : undefined;
     }
-
-    let body;
     try {
-      const raw = await readRawBody(req);
-      body = parseActionBody(raw, req.headers['content-type'] || '');
-    } catch (err) {
-      res.writeHead(err.code === 'BODY_TOO_LARGE' ? 413 : 400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ message: err.code === 'BODY_TOO_LARGE' ? 'Payload too large' : 'Invalid request body' }));
-      return;
-    }
-
-    const query = Object.fromEntries(new URLSearchParams(search));
-    let out;
-    try {
-      out = await handle({ method: req.method, headers: req.headers, body, query, url: req.url });
+      await answerAction(req, res, handle, target.slice(path.length));
     } catch (err) {
       console.error('[what] Action request failed:', err);
-      out = { status: 500, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Action failed' }) };
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Action failed' }));
     }
-    res.writeHead(out.status, out.headers);
-    res.end(out.body);
   };
+}
+
+// One action request the middleware matched, `search` its raw query. The
+// Request the action sees (getRequest()) is this connection's: its scheme
+// (TLS or not), its Host header, and the endpoint's path.
+async function answerAction(req, res, handle, search) {
+  let body;
+  try {
+    const raw = await readRawBody(req);
+    body = parseActionBody(raw, req.headers['content-type'] || '');
+  } catch (err) {
+    res.writeHead(err.code === 'BODY_TOO_LARGE' ? 413 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: err.code === 'BODY_TOO_LARGE' ? 'Payload too large' : 'Invalid request body' }));
+    return;
+  }
+  const query = Object.fromEntries(new URLSearchParams(search));
+  const scheme = req.socket && req.socket.encrypted ? 'https' : 'http';
+  const url = `${scheme}://${req.headers.host || 'localhost'}${req.url}`;
+  const out = await handle({ method: req.method, headers: req.headers, body, query, url });
+  res.writeHead(out.status, out.headers);
+  res.end(out.body);
 }
 
 /** Parse an action request body by content type: form-urlencoded -> fields object, else JSON. */

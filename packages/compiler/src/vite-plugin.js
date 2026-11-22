@@ -328,7 +328,7 @@ export default function whatVitePlugin(options = {}) {
         const result = transformSync(code, {
           filename: id,
           sourceMaps,
-          // Hermetic transform (SPRINT v0.11 C7): never load the project's
+          // Hermetic transform: never load the project's
           // babel.config.js/.babelrc. A user's React preset or unrelated
           // plugins corrupting What's JSX output is a debugging nightmare —
           // and scanning the disk for config files on every transform is
@@ -416,7 +416,7 @@ export default function whatVitePlugin(options = {}) {
 
     // Configure for development
     async config(config, { mode, command }) {
-      // SPRINT v0.11 C7: make the `production` exports condition reachable.
+      // Make the `production` exports condition reachable.
       // what-framework/what-core ship pre-minified production bundles behind
       // the `production` condition in their exports maps, but Vite's default
       // resolve conditions never include `production` — so production builds

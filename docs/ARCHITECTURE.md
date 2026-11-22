@@ -155,7 +155,7 @@ A production build is byte-identical with the option on or off.
 
 - **Event delegation.** Event handlers are stored as `el.$$eventName` properties. A single document-level listener per event type (registered lazily, the first time an element needs it) walks the event's composed path and calls the handlers on it, innermost first. `e.target` reads at each handler as the native target would there: the inner node inside an open shadow tree, the host once the event leaves the shadow tree that node lives in, and the slotted node itself for a light-DOM child slotted into a shadow host. A disabled element's handler is skipped. A shadow root or an element passed to `delegateEvents(names, root)` delegates for its own subtree, its own handler included, and the document's listener does not run those handlers again. `currentTarget` and `target` are handed back after the walk, also when a handler throws. A handler belongs to the owner it was set under (the element is marked with it): once that owner is disposed the handler never runs again and is dropped the first time an event reaches it, also on an element that outlived the owner (one the next `hydrate()` of the same container claims, one the app keeps and inserts again). A listener the compiler adds for an event that is not delegated is removed with its owner.
 
-- **Compiled-only runtime.** Compiled output imports `what-framework/render`, which never reaches the vnode renderer (`createDOM`: elements from vnodes, `<ErrorBoundary>`/`<Suspense>`/`<Portal>`). Vnodes are handed to a renderer held in an import-free slot (`vnode-renderer.js`) that `h.js` fills when imported, and every vnode producer (`h()`, the JSX runtime, the boundaries, `lazy`, `_$Island`) imports `h.js`. A compiled-only app therefore bundles none of it; an app that uses a boundary or `h()` gets it back automatically. A class component is not a vnode: the small bridge that runs it lives in `render.js`, so a compiled-only bundle renders one under every bundler. A vnode reaching a runtime with no renderer throws `ERR_NO_VNODE_RENDERER`; in development the message says what to import.
+- **Compiled-only runtime.** Compiled output imports `what-framework/render`, which never reaches the vnode renderer (`createDOM`: elements from vnodes, `<ErrorBoundary>`/`<Suspense>`/`<Portal>`). Vnodes are handed to a renderer held in an import-free slot (`vnode-renderer.js`) that `h.js` fills when imported, and every vnode producer (`h()`, the JSX runtime, the boundaries, `lazy`, `_$Island`) imports `h.js`. A compiled-only app therefore bundles none of it; an app that uses a boundary or `h()` gets it back automatically. The vnode of a `<Suspense>`, an `<ErrorBoundary>` or a `<Portal>` carries its own client renderer (`mount`), so an `h()` app that never uses one does not carry that either. A class component is not a vnode: the small bridge that runs it lives in `render.js`, so a compiled-only bundle renders one under every bundler. A vnode reaching a runtime with no renderer throws `ERR_NO_VNODE_RENDERER`; in development the message says what to import.
 
 - **Compiler and runtime move together.** The runtime takes the compiler's output protocol as given rather than second-guessing it: `_$template(html, 2)` marks a template whose SVG or MathML root the compiler wrapped, and a template without the flag parses as HTML. what-compiler requires the what-core of its own minor version, so an installed pair always agrees; output from an older compiler that reaches a newer runtime anyway (a library shipping precompiled code) throws `ERR_TEMPLATE_NAMESPACE` in development at its first SVG or MathML root.
 
@@ -249,7 +249,7 @@ D.set(...):
         did (the equality cut-off), A does not run.
 ```
 
-There is no level sort. Consistency comes from the pull: an effect, or a computed being read, verifies its inputs (iteratively, without recursion) before it runs, so it never sees half-updated state. Effects are queued render phase first, then user phase; within a queue a parent effect (the effect that was running when another was created) always precedes its children, otherwise notification order applies. The microtask flush, `batch()` and `flushSync()` all drain the same queues, at most 100 rounds per flush. See [EFFECT-TIMING.md](./EFFECT-TIMING.md).
+There is no level sort. Consistency comes from the pull: an effect, or a computed being read, verifies its inputs (iteratively, without recursion) before it runs, so it never sees half-updated state. Effects are queued render phase first, then user phase; within a queue a parent effect (the effect that was running when another was created) always precedes its children, otherwise notification order applies. The microtask flush, `batch()` and `flushSync()` all drain the same queues, at most 100 rounds per flush. See [EFFECT-TIMING.md](./EFFECT-TIMING.md). The pull phase, and the release of computeds nothing observes, are installed by the first computed or selector: an app of signals and effects alone does not ship them.
 
 ### Bounded-stack evaluation
 
@@ -602,8 +602,8 @@ without the option, a component returns DOM it already built, before the walk
 can claim anything: `hydrate()` puts it in place of the server's copy and
 reports one `ERR_HYDRATION_MISMATCH` of kind `not-hydratable`. The page works;
 the reuse is lost. A hydratable build carries the hydration runtime (about
-6.3 KB gzip, `.size-budgets.json` `compiled-hydrate`); a build without the
-option carries none of it.
+9.5 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
+the same app mounted); a build without the option carries none of it.
 
 **Mismatches** are reported, never silently rewritten: one record per region
 (a marked region, else the element the walk is in),
@@ -723,11 +723,11 @@ packages/
 |       +-- reactive.js     Signals, computed, effects, batch, ownership
 |       +-- render.js       Fine-grained rendering: template, insert, mapArray, spread, components
 |       +-- selector.js     createSelector (O(1) keyed selection)
-|       +-- dom.js          mount, the vnode renderer (createDOM), boundaries, portals, SSR frames
+|       +-- dom.js          mount, the vnode renderer (createDOM), the portal renderer, SSR frames
 |       +-- vnode-renderer.js  Slot through which render.js reaches createDOM
 |       +-- h.js            JSX factory (h, Fragment, html tagged template); installs the vnode renderer
 |       +-- hooks.js        React-compatible hooks backed by signals
-|       +-- components.js   memo, lazy, Suspense, ErrorBoundary, Show, For
+|       +-- components.js   memo, lazy, Suspense, ErrorBoundary (and their client renderers), Show, For
 |       +-- store.js        Global state management (createStore, derived)
 |       +-- data.js         Data fetching (useSWR, useQuery, useFetch): what-framework/data
 |       +-- form.js         Form utilities (useForm, validation): what-framework/form

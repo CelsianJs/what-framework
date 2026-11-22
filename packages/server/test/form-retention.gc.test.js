@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 const { cleanup } = installDOM();
 after(cleanup);
@@ -23,7 +24,7 @@ async function collectedWithin(ref) {
 }
 
 test('an unmounted Form releases the submitted FormData while its action is pending', async () => {
-  const work = Promise.withResolvers();
+  const work = withResolvers();
   let ref;
   (() => {
     const host = document.createElement('div');

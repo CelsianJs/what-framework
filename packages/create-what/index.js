@@ -1655,7 +1655,8 @@ const MIME = {
 
 // Deny-by-default static serving: ONLY the client files listed in
 // client-files.js are served from the project root (plus public/ at the root),
-// and the client packages from the directories their exports point into.
+// and the client packages from the directories their exports point into (in
+// production, only their production build's files).
 // Server-only modules — src/db.js, src/actions/** and src/routes.js — are
 // importable by Node but 404 over HTTP, so DB code and mutation logic never
 // leak to the browser. \`npm run build\` publishes the same list, so a new
@@ -1666,7 +1667,7 @@ let packageDirs = null;
 function resolveStaticFile(pathname) {
   if (pathname.includes('..') || pathname.includes('\\0')) return null;
   packageDirs ??= clientPackages({ dev: !isProd, production: isProd }).flatMap((pkg) => pkg.dirs);
-  const pkgDir = packageDirs.find((d) => pathname.startsWith(d.url));
+  const pkgDir = packageDirs.find((d) => (d.url.endsWith('/') ? pathname.startsWith(d.url) : pathname === d.url));
   let file;
   if (pkgDir) {
     file = join(pkgDir.dir, pathname.slice(pkgDir.url.length));
@@ -1679,9 +1680,12 @@ function resolveStaticFile(pathname) {
   return file;
 }
 
+// A path only: \`//x\` is the path \`//x\`, and a target that is not a path
+// (\`*\`, an absolute URL) or that does not parse is null.
 function requestPathname(reqUrl) {
+  if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/')) return null;
   try {
-    return decodeURIComponent(new URL(reqUrl || '/', 'http://localhost').pathname);
+    return decodeURIComponent(new URL('http://localhost' + reqUrl).pathname);
   } catch {
     return null;
   }
@@ -1716,7 +1720,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   process.once('SIGINT', stop);
 
   const port = Number(process.env.PORT) || 3000;
-  server.listen(port, () => console.log(\`${packageName} → http://localhost:\${port}\`));
+  // The mode decides what is served (the development build and the devtools,
+  // or the production build only), so the first line says which this is.
+  server.listen(port, () => console.log(\`${packageName} → http://localhost:\${port} (\${isProd ? 'production' : 'development; NODE_ENV=production serves the production build'})\`));
 }
 `);
 
@@ -1729,7 +1735,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
 // absent. A new client-side file or folder goes here, or neither the dev
 // server nor a deploy will serve it.
 
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1752,7 +1758,8 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 // them only there. Each one is served at /node_modules/<name>/. For
 // production (\`production: true\`) each export maps to the package's
 // production build (dist/*.min.js), which carries no development code, and
-// only that build is served.
+// only that build's files are served and published: not the development
+// build beside it, and not the source maps.
 const DEVTOOLS = { 'what-devtools': ['.'], 'what-devtools-mcp': ['./client'] };
 
 export function clientPackages({ dev = false, production = false } = {}) {
@@ -1820,7 +1827,25 @@ function clientPackage(name, from, subpaths, conditions = BROWSER_CONDITIONS) {
     scope.push([specifier, url + file.slice(2)]);
     tops.add(file.slice(2).split('/')[0]);
   }
-  return { name, dir, url, imports, scope, dirs: [...tops].map((top) => ({ url: \`\${url}\${top}/\`, dir: join(home, top) })) };
+  const dirs = [...tops].map((top) => ({ url: \`\${url}\${top}/\`, dir: join(home, top) }));
+  return { name, dir, url, imports, scope, dirs: conditions === PRODUCTION_CONDITIONS ? dirs.flatMap(productionFiles) : dirs };
+}
+
+// The production build's files under a directory, each as its own entry
+// (a URL with no trailing '/' names one file): its *.min.js, which import only
+// each other.
+function productionFiles({ url, dir }) {
+  const files = [];
+  const pending = [''];
+  while (pending.length > 0) {
+    const at = pending.pop();
+    for (const entry of readdirSync(join(dir, at), { withFileTypes: true })) {
+      const path = at + entry.name;
+      if (entry.isDirectory()) pending.push(path + '/');
+      else if (entry.name.endsWith('.min.js')) files.push({ url: url + path, dir: join(dir, path) });
+    }
+  }
+  return files;
 }
 
 // The file a browser import of an export resolves to: its \`browser\`,
@@ -1966,6 +1991,18 @@ export default defineConfig({
   },
 });
 
+// The path of a request target: \`//x\` is the path \`//x\`, and a target that
+// is not a path, or that does not parse, is null (never a throw out of a
+// middleware, which would end the dev server).
+function pathOf(target) {
+  if (typeof target !== 'string' || !target.startsWith('/')) return null;
+  try {
+    return new URL('http://localhost' + target).pathname;
+  } catch {
+    return null;
+  }
+}
+
 function staticPages() {
   return {
     name: 'static-pages',
@@ -1980,9 +2017,9 @@ function staticPages() {
       });
       server.middlewares.use(async (req, res, next) => {
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-        const { pathname } = new URL(req.url, 'http://localhost');
+        const pathname = pathOf(req.url);
         // Files and Vite's own endpoints are never pages.
-        if (extname(pathname) || pathname.startsWith('/@') || pathname.startsWith('/__')) return next();
+        if (pathname === null || extname(pathname) || pathname.startsWith('/@') || pathname.startsWith('/__')) return next();
         try {
           const { renderRoute } = await server.ssrLoadModule('/src/entry-server.js');
           const html = await renderRoute(pathname, {
@@ -2004,8 +2041,8 @@ function staticPages() {
     configurePreviewServer(server) {
       const outDir = resolve(server.config.root, server.config.build.outDir);
       server.middlewares.use((req, res, next) => {
-        const { pathname } = new URL(req.url, 'http://localhost');
-        if (!extname(pathname) && existsSync(join(outDir, pathname, 'index.html'))) {
+        const pathname = pathOf(req.url);
+        if (pathname !== null && !extname(pathname) && existsSync(join(outDir, pathname, 'index.html'))) {
           req.url = posix.join(pathname, 'index.html');
         }
         next();

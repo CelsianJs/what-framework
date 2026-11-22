@@ -1,6 +1,6 @@
 # What Framework, full agent guide
 
-> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (24 tools) lets agents inspect a running app, and its `what_fix` tool returns a code, fix, and worked example for any What error code offline. This file inlines the essentials an agent needs to write, debug, and ship correct What code.
+> What is a signal-based reactive web framework built for AI agents. Components run once, no re-renders, no virtual DOM. The compiler lowers JSX to fine-grained DOM operations. A live MCP server (25 tools) lets agents inspect a running app, and its `what_fix` tool returns a code, fix, and worked example for any What error code offline. This file inlines the essentials an agent needs to write, debug, and ship correct What code.
 
 ---
 
@@ -370,7 +370,7 @@ Tip for agents: the MCP tool `what_fix({ error })` returns the diagnosis, fix, a
 
 ## MCP DevTools usage
 
-What ships an MCP server (`what-devtools-mcp`) that bridges an agent to a running app over the Model Context Protocol. It exposes 24 tools.
+What ships an MCP server (`what-devtools-mcp`) that bridges an agent to a running app over the Model Context Protocol. It exposes 25 tools.
 
 Wire it into your MCP client:
 

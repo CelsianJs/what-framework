@@ -1,4 +1,4 @@
-// D2 (sprint/v0.11): CSRF on by default + plain-POST form fallback.
+// CSRF on by default + plain-POST form fallback.
 //
 // Covers:
 //   - createActionHandler form-encoded path (progressive enhancement):

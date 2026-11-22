@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Built-dist smoke gate — guards against the C1 dual-instance regression
-// (AUDIT-2026-06-06.md) in both of What's tiers. Must be run with the
+// Built-dist smoke gate — guards against a dual-instance build (two copies of
+// what-core's module state, so every production build renders blank) in both
+// of What's tiers. Must be run with the
 // `production` export condition so bare imports resolve to dist/*.min.js:
 //
 //   node --conditions=production scripts/check-prod-build.mjs

@@ -1,7 +1,7 @@
 // Regression: a single throwing effect must not abort the whole flush batch.
-// Before AUDIT-2026-06-06 H8, _runEffect rethrew real errors during flush, so
-// effects queued after the thrower never ran and the error escaped out of the
-// signal write (e.g. an event handler) instead of being contained.
+// If _runEffect rethrew real errors during flush, effects queued after the
+// thrower would never run and the error would escape out of the signal write
+// (e.g. an event handler) instead of being contained.
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';

@@ -9,8 +9,8 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setSelectValue, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
-import { attributeName, isEnumeratedAttr } from './markup-rules.js';
+import { _trackRoot, _liveRegionNodes, _setFieldValue, _isFieldValue, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { isEnumeratedAttr, markupName } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
 import { _assignHydrationOwnerPath, _hydrationRoot, _ownerCounter, _installSeeding, _swapArrived } from './hydration-data.js';
@@ -527,7 +527,8 @@ function insertReactive(parent, child, marker, devName) {
   return current;
 }
 
-function isDomNode(value) {
+/** @internal Whether `value` is a DOM node (or looks like one: a node of another realm). */
+export function _isDomNode(value) {
   if (!value || typeof value !== 'object') return false;
   if (typeof Node !== 'undefined' && value instanceof Node) return true;
   return typeof value.nodeType === 'number' && typeof value.nodeName === 'string';
@@ -777,7 +778,7 @@ function valuesToNodes(value, parent, out, isSvg) {
     return out;
   }
 
-  if (isDomNode(value)) {
+  if (_isDomNode(value)) {
     if (value.nodeType === 11 && value.childNodes.length > 0) {
       for (let node = value.firstChild; node !== null; node = node.nextSibling) out.push(node);
     } else {
@@ -1708,7 +1709,7 @@ export function setProp(el, key, value) {
     return;
   }
 
-  // Key prop — no-op, WhatFW has no virtual DOM (defense in depth, issue #6)
+  // `key` identifies a list row and is never an attribute (defense in depth).
   if (key === 'key') return;
 
   // A function classList, or an object with function entries, is reactive in
@@ -1765,6 +1766,9 @@ export function setProp(el, key, value) {
   } else if (key === 'style') {
     // Delegate to setStyle so the object form clears stale keys (el._lastStyleObj).
     setStyle(el, value);
+  } else if (_isFieldValue(el, key)) {
+    // Before the nullish and boolean branches (dom.js _setFieldValue).
+    _setFieldValue(el, value);
   } else if (value == null) {
     // null / undefined — attribute must be ABSENT (React/Solid semantics), not
     // stringified to "undefined"/"null". Caught before the data-*/aria-*, SVG
@@ -1783,8 +1787,6 @@ export function setProp(el, key, value) {
     else el.removeAttribute(key);
   } else if (isSvg) {
     el.setAttribute(key, value);
-  } else if (key === 'value' && el.tagName === 'SELECT') {
-    _setSelectValue(el, value);
   } else if (_writableProp(el, key)) {
     el[key] = value;
     // What a controlled field's value prop holds, which a form reset keeps
@@ -1795,7 +1797,7 @@ export function setProp(el, key, value) {
   }
 }
 
-// --- Specialized attribute setters (SPRINT v0.11 C2) ---
+// --- Specialized attribute setters ---
 // The compiler statically knows most attribute names, so it emits direct calls
 // to these monomorphic helpers instead of routing everything through the
 // generic setProp() dispatcher (which re-checks ref/key/url/class/style/...
@@ -1964,9 +1966,9 @@ export function setStyle(el, value) {
 }
 
 // Plain attribute set — used for data-*/aria-* (statically recognizable).
-// null/undefined removes the attribute (previously setProp stringified them
-// to "null"/"undefined" — removal is the correct semantic). Booleans are
-// stringified ("true"/"false") because aria-* boolean strings are meaningful.
+// null/undefined removes the attribute rather than writing "null"/"undefined".
+// Booleans are stringified ("true"/"false") because aria-* boolean strings are
+// meaningful.
 export function setAttr(el, name, value) {
   if (typeof value === 'function') {
     return _wrapPropAccessor(el, value, (e2, v) => setAttr(e2, name, v));
@@ -1975,21 +1977,12 @@ export function setAttr(el, name, value) {
   else el.setAttribute(name, value);
 }
 
-// value — controlled-input property set. <select> keeps multi/deferred-option
-// handling; other elements get a guarded property write (the !== guard avoids
-// resetting the caret position in focused inputs on unrelated re-runs).
+// value — a controlled field's value (dom.js _setFieldValue: a <select>'s
+// options, null releasing the field, the guarded write that leaves the caret
+// of a focused input alone on an unrelated re-run).
 export function setValue(el, value) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setValue);
-  if (el.tagName === 'SELECT') {
-    _setSelectValue(el, value);
-    return;
-  }
-  const str = value == null ? '' : String(value);
-  // A binding run again with the value it wrote last (a list row handed an
-  // equal item) leaves what the user has typed since.
-  if (el._$value === str) return;
-  el._$value = str;
-  if (el.value !== str) el.value = str;
+  _setFieldValue(el, value);
 }
 
 // checked — live property write (matches bind:checked). The old generic path
@@ -2754,6 +2747,9 @@ function templateAttrs(t) {
 function keepsAttr(el, key, value, current) {
   if ((typeof value !== 'string' && typeof value !== 'number') || current !== String(value)) return false;
   if (key === 'value' || /** @type {Function} */ (vnodeRefuses)(key, value)) return false;
+  // A custom element's own property need not reflect its attribute (a setter
+  // that keeps state of its own): it takes the prop as a mount does.
+  if (el.localName.includes('-') && _writableProp(el, key)) return false;
   return current !== '' || !(key in el && typeof el[key] === 'boolean');
 }
 
@@ -2762,7 +2758,7 @@ function keepsAttr(el, key, value, current) {
 // listener, a classList (it writes class, which `fold` removed first).
 function attrOf(key) {
   return key === 'children' || key === 'key' || key === 'ref' || key.startsWith('$$') || key === 'innerHTML'
-    || key === 'dangerouslySetInnerHTML' || key === 'classList' || _isEventProp(key) ? null : attributeName(key);
+    || key === 'dangerouslySetInnerHTML' || key === 'classList' || _isEventProp(key) ? null : markupName(key);
 }
 
 // The server attributes no prop renders, removed: an event handler's name
@@ -2826,7 +2822,7 @@ function adopt(value) {
     adoptVNode(value);
     return;
   }
-  if (isDomNode(value)) {
+  if (_isDomNode(value)) {
     adoptNode(value);
     return;
   }
@@ -3484,7 +3480,7 @@ function placeInserter(c, inserter) {
 // Each kind reads its state synchronously, untracked, right after its
 // children's first run, and keeps the arm the walk adopted until the walk is
 // over. An <ErrorBoundary> then rebuilds the arm its error signal names
-// whenever the signal changes, as dom.js's boundaryRegion does. A <Suspense>
+// whenever the signal changes, as components.js's createErrorBoundary does. A <Suspense>
 // is driven by its boundary record (components.js) and keeps its children
 // mounted, as mountSuspense does.
 
@@ -3880,7 +3876,7 @@ function showsFallback(c, fallback) {
   if (s === null || s.nodeType !== 1 || fallback == null) return false;
   const built = clientBuild(() => createRoot((dispose) => {
     const node = typeof fallback === 'function' ? fallback() : fallback;
-    const out = isDomNode(node) ? node : /** @type {Function} */ (vnodeRenderer)(node, c.p);
+    const out = _isDomNode(node) ? node : /** @type {Function} */ (vnodeRenderer)(node, c.p);
     dispose();
     return out;
   }));

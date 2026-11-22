@@ -1,6 +1,6 @@
-// file-router codegen rework (Phase 6): loaders/getStaticPaths ride as live
-// bindings on the SERVER routes module; the client module omits them (only a
-// hasLoader flag). SPA pages stay byte-identical (additive change).
+// file-router codegen: loaders/getStaticPaths ride as live bindings on the
+// SERVER routes module; the client module omits them (only a hasLoader flag).
+// SPA pages are unaffected.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';

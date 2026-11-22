@@ -182,10 +182,10 @@ const PAGE_EXPORT_RE = /export\s+const\s+page\s*=\s*\{/;
 /**
  * Extract `export const page = { ... }` from a file's source code.
  *
- * This used to be four chained regexes over the matched text (swap ' for ",
- * quote bare keys, drop trailing commas, strip comments). Every one of them was
- * blind to string boundaries, so any config whose VALUES contained a
- * parser-significant character was corrupted into invalid JSON and thrown away:
+ * Chained regexes over the matched text (swap ' for ", quote bare keys, drop
+ * trailing commas, strip comments) would each be blind to string boundaries, so
+ * any config whose VALUES contained a parser-significant character would be
+ * corrupted into invalid JSON and thrown away:
  *
  *   vary: ['cookie:theme']          → the key regex rewrote it to ["cookie":theme"]
  *   canonical: 'https://x.com/a'    → the comment strip ate the rest of the line
@@ -199,7 +199,7 @@ const PAGE_EXPORT_RE = /export\s+const\s+page\s*=\s*\{/;
  * anything else looks at the text, and brace matching finds the real end of the
  * literal. It is still not a JS parser: only JSON-shaped values are supported
  * (strings, numbers, booleans, null, arrays, nested objects). Anything else is
- * a parse failure, which is now REPORTED rather than swallowed.
+ * a parse failure, which is REPORTED rather than swallowed.
  *
  * @param {string} source            Page module source.
  * @param {{ filePath?: string }} [options]  filePath is used in the warning.

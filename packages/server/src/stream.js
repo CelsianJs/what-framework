@@ -100,6 +100,8 @@ import {
   _plainText,
   assertSafeTag,
   renderAttrs,
+  _markSelected,
+  _selectValue,
   escapeHtml,
   arrayKeys,
 } from './html.js';
@@ -125,6 +127,7 @@ const SCOPE_END = 3; // a <Suspense> / <ErrorBoundary> subtree is finished
 const RETRY = 4;     // re-run a node that suspended
 const AWAITED = 5;   // the settled result of an async component
 const NS_END = 6;    // an element whose children sit in another namespace is finished
+const SELECT_END = 7; // a <select> with a value is finished: mark its options
 
 // A marker is an instance of this module's own class, never a shape: a child
 // can be any value a reactive child returns, JSON included, and a plain
@@ -321,6 +324,7 @@ function step(seg, node, owner) {
         return null;
       case SCOPE_END: seg.scopes.pop(); return null;
       case NS_END: seg.ns = marker.ns; return null;
+      case SELECT_END: markSelectedIn(seg, marker); return null;
       case RETRY: return retry(seg, marker, owner);
       case AWAITED:
         if (marker.failed) throw marker.error;
@@ -376,7 +380,8 @@ function step(seg, node, owner) {
 
   assertSafeTag(tag, node);
   const props = node.props;
-  put(seg, `<${tag}${renderAttrs(props || {})}>`);
+  const select = _selectValue(tag, props);
+  put(seg, `<${tag}${renderAttrs(select ? select.props : props || {})}>`);
   if (VOID_ELEMENTS.has(tag)) return null;
   const rawInner = _resolveInnerHTML(props);
   if (rawInner != null) {
@@ -390,8 +395,18 @@ function step(seg, node, owner) {
   }
   enterNamespace(seg, childNamespace(seg.ns, tag, props && props.encoding), owner);
   push(seg, mark(CLOSE, { html: `</${tag}>` }), owner);
+  if (select) push(seg, mark(SELECT_END, { start: seg.buf.length, value: select.value, multiple: select.multiple }), owner);
   pushChildren(seg, node.children, owner);
   return null;
+}
+
+// A finished <select>'s options, marked in the segment's output. Content a
+// boundary inside the select streams later is in another segment, and is
+// left as it is; so is everything when one did (its placeholder's offset
+// must not move).
+function markSelectedIn(seg, marker) {
+  if (seg.buf.length < marker.start || seg.detached.some((d) => d.at >= marker.start)) return;
+  seg.buf = seg.buf.slice(0, marker.start) + _markSelected(seg.buf.slice(marker.start), marker.value, marker.multiple);
 }
 
 // The items pushed next sit in namespace `ns` (what-core's childNamespace); the

@@ -2,17 +2,21 @@
 
 // What Framework - Benchmark regression gate
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { DOM_TIMING, loadAverage } from './dom-gate.mjs';
+import { compareInterleaved, referenceTree, runInterleaved } from './ab.mjs';
 
 const ROOT = process.cwd();
 const BASELINE_DIR = join(ROOT, 'benchmark', 'baseline');
 const CORE_BASELINE = join(BASELINE_DIR, 'core.json');
 const DX_BASELINE = join(BASELINE_DIR, 'dx.json');
 const DOM_BASELINE = process.env.WHAT_BENCH_DOM_BASELINE || join(BASELINE_DIR, 'dom.json');
+// The commit the core and DX suites are measured against (benchmark/ab.mjs).
+const REFERENCE_FILE = join(ROOT, 'benchmark', 'reference.json');
+const AB_SCRIPTS = ['benchmark/run.js', 'benchmark/dx-microbench.js'];
 
 // A gate that cannot read its own configuration must never report success.
 function envNumber(name, fallback, { integer = false, min = 0 } = {}) {
@@ -29,9 +33,15 @@ function envNumber(name, fallback, { integer = false, min = 0 } = {}) {
   return value;
 }
 
-const coreTolerance = envNumber('WHAT_BENCH_TOLERANCE_CORE', 0.1);
-const dxTolerance = envNumber('WHAT_BENCH_TOLERANCE_DX', 0.15);
+// Core and DX: how far below the reference build, as the median of the
+// paired ratios, an operation may land. Interleaving takes the machine's
+// drift out of the ratio, so a real 10% regression lands near 90% and these
+// floors stand clear of the paired noise (measured: W5-FIX7's report).
+const coreTolerance = envNumber('WHAT_BENCH_TOLERANCE_CORE', 0.05);
+const dxTolerance = envNumber('WHAT_BENCH_TOLERANCE_DX', 0.05);
 const domTolerance = envNumber('WHAT_BENCH_TOLERANCE_DOM', 0.1);
+// Reference/current pairs per suite.
+const PAIRS = envNumber('WHAT_BENCH_PAIRS', 9, { integer: true, min: 3 });
 
 // More rounds give the pooled script percentile more samples at the cost of runtime.
 const domRounds = envNumber('WHAT_BENCH_DOM_ROUNDS', 21, { integer: true, min: 1 });
@@ -91,9 +101,9 @@ const DOM_GUARD_OPS = new Set([
   'clear1k',
 ]);
 
-if (!RECORD && (!existsSync(CORE_BASELINE) || !existsSync(DX_BASELINE) || (!skipDom && !existsSync(DOM_BASELINE)))) {
-  console.error('Missing benchmark baseline files in benchmark/baseline.');
-  console.error('  Fix: npm run bench:record (core and dx), or restore them from git.');
+if (!RECORD && ((!skipDom && !existsSync(DOM_BASELINE)) || !existsSync(REFERENCE_FILE))) {
+  console.error('Missing benchmark/baseline/dom.json or benchmark/reference.json.');
+  console.error('  Fix: restore them from git (npm run bench:dom re-records the DOM baseline).');
   process.exit(1);
 }
 
@@ -101,8 +111,6 @@ const tmp = mkdtempSync(join(tmpdir(), 'what-bench-'));
 const coreOut = join(tmp, 'core.json');
 const dxOut = join(tmp, 'dx.json');
 const domOut = join(tmp, 'dom.json');
-const coreOutRetry = join(tmp, 'core-retry.json');
-const dxOutRetry = join(tmp, 'dx-retry.json');
 const domOutRetry = join(tmp, 'dom-retry.json');
 
 function loadJson(path) {
@@ -129,44 +137,32 @@ if (domBaseline && (
   process.exit(1);
 }
 
-function compareSet(name, baselinePath, currentPath, tolerance, guardOps, metric = 'opsPerSec') {
-  const baseline = toMap(loadJson(baselinePath));
+// The DOM suite against its recorded baseline (script ms, lower is better).
+function compareDomSet(currentPath) {
+  const baseline = toMap(domBaseline);
   const report = loadJson(currentPath);
-  if (metric === 'ms' && report.timing !== domBaseline.timing) {
-    return [`${name}: timing metric ${report.timing} does not match baseline ${domBaseline.timing}`];
+  if (report.timing !== domBaseline.timing) {
+    return [`dom: timing metric ${report.timing} does not match baseline ${domBaseline.timing}`];
   }
   const current = toMap(report);
   const failures = [];
-
   for (const [benchName, base] of baseline.entries()) {
-    if (guardOps && !guardOps.has(benchName)) continue;
-
+    if (!DOM_GUARD_OPS.has(benchName)) continue;
     const now = current.get(benchName);
     if (!now) {
-      failures.push(`${name}: missing benchmark "${benchName}" in current run`);
+      failures.push(`dom: missing benchmark "${benchName}" in current run`);
       continue;
     }
-
-    if (metric === 'ms') {
-      if (!Number.isFinite(now.ms)) {
-        failures.push(`${name}: ${benchName} produced no measurement (${JSON.stringify(now.ms)} ms)`);
-        continue;
-      }
-      const maxAllowed = Math.max(base.ms * (1 + tolerance), base.ms + domNoiseFloorMs);
-      if (now.ms > maxAllowed) {
-        const delta = (((now.ms - base.ms) / base.ms) * 100).toFixed(1);
-        failures.push(`${name}: ${benchName} regressed +${delta}% (${now.ms} ms > ${maxAllowed.toFixed(3)} ms threshold)`);
-      }
+    if (!Number.isFinite(now.ms)) {
+      failures.push(`dom: ${benchName} produced no measurement (${JSON.stringify(now.ms)} ms)`);
       continue;
     }
-
-    const minAllowed = base.opsPerSec * (1 - tolerance);
-    if (now.opsPerSec < minAllowed) {
-      const delta = (((now.opsPerSec - base.opsPerSec) / base.opsPerSec) * 100).toFixed(1);
-      failures.push(`${name}: ${benchName} regressed ${delta}% (${now.opsPerSec} < ${Math.round(minAllowed)} ops/s threshold)`);
+    const maxAllowed = Math.max(base.ms * (1 + domTolerance), base.ms + domNoiseFloorMs);
+    if (now.ms > maxAllowed) {
+      const delta = (((now.ms - base.ms) / base.ms) * 100).toFixed(1);
+      failures.push(`dom: ${benchName} regressed +${delta}% (${now.ms} ms > ${maxAllowed.toFixed(3)} ms threshold)`);
     }
   }
-
   return failures;
 }
 
@@ -200,12 +196,31 @@ function runBestOf(script, outPath, runs) {
 const runCoreBestOf = (outPath) => runBestOf('benchmark/run.js', outPath, CORE_RUNS);
 const runDxBestOf = (outPath) => runBestOf('benchmark/dx-microbench.js', outPath, DX_RUNS);
 
-function compareRun(corePath, dxPath, domPath) {
-  return [
-    ...compareSet('core', CORE_BASELINE, corePath, coreTolerance, CORE_GUARD_OPS),
-    ...compareSet('dx', DX_BASELINE, dxPath, dxTolerance, DX_GUARD_OPS),
-    ...(skipDom ? [] : compareSet('dom', DOM_BASELINE, domPath, domTolerance, DOM_GUARD_OPS, 'ms')),
-  ];
+// The core and DX suites against the reference build, `PAIRS` interleaved
+// pairs each; prints each guarded operation's median ratio and range.
+function runAB(referenceDir, tag) {
+  const failures = [];
+  for (const [name, script, tolerance, guard] of [
+    ['core', 'benchmark/run.js', coreTolerance, CORE_GUARD_OPS],
+    ['dx', 'benchmark/dx-microbench.js', dxTolerance, DX_GUARD_OPS],
+  ]) {
+    console.log(`Running ${name} benchmark: ${PAIRS} pairs against the reference build...`);
+    const outDir = join(tmp, `${name}-${tag}`);
+    mkdirSync(outDir);
+    const { reference, current } = runInterleaved({ script, pairs: PAIRS, referenceDir, currentDir: ROOT, outDir });
+    const result = compareInterleaved(name, reference, current, tolerance, guard);
+    for (const row of result.rows) {
+      console.log(row.note
+        ? `  ${name}: ${row.op}: ${row.note}`
+        : `  ${name}: ${row.op}: ${(row.median * 100).toFixed(1)}% of the reference (range ${(row.low * 100).toFixed(1)}-${(row.high * 100).toFixed(1)}%)`);
+    }
+    failures.push(...result.failures);
+  }
+  return failures;
+}
+
+function compareDom(domPath) {
+  return skipDom ? [] : compareDomSet(domPath);
 }
 
 // `--record` regenerates the core and DX baselines with the gate's own
@@ -218,6 +233,12 @@ function compareRun(corePath, dxPath, domPath) {
 // dom-gate.mjs with its own round count and noise floor.
 if (RECORD) {
   try {
+    // The reference build the gate measures core and DX against moves to
+    // this commit: record only when the change in performance is intended.
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    const reference = loadJson(REFERENCE_FILE);
+    console.log(`Reference build: ${reference.commit} -> ${head}`);
+    writeFileSync(REFERENCE_FILE, JSON.stringify({ ...reference, commit: head }, null, 2) + '\n');
     const loadAtStart = loadAverage();
     console.log(`\nRecording core baseline (best of ${CORE_RUNS})...`);
     runCoreBestOf(coreOut);
@@ -255,12 +276,13 @@ if (RECORD) {
   process.exit(0);
 }
 
+let referenceDir = null;
 try {
-  console.log(`\nRunning core benchmark (best of ${CORE_RUNS})...`);
-  runCoreBestOf(coreOut);
+  const reference = process.env.WHAT_BENCH_REFERENCE || loadJson(REFERENCE_FILE).commit;
+  console.log(`\nReference build: ${reference} (load ${loadAverage()})`);
+  referenceDir = referenceTree(ROOT, reference, AB_SCRIPTS);
 
-  console.log(`Running DX microbenchmark (best of ${DX_RUNS})...`);
-  runDxBestOf(dxOut);
+  const abFailures = runAB(referenceDir, 'first');
 
   if (skipDom) {
     console.log('Skipping DOM benchmark (WHAT_BENCH_SKIP_DOM=1).');
@@ -269,34 +291,30 @@ try {
     execFileSync('node', ['benchmark/dom-gate.mjs', '--out', domOut, '--rounds', String(domRounds)], { stdio: 'inherit' });
   }
 
-  let failures = compareRun(coreOut, dxOut, domOut);
+  const failures = [...abFailures, ...compareDom(domOut)];
 
-  if (failures.length > 0) {
+  if (failures.length === 0) {
+    console.log('\nBenchmark regression check passed.');
+  } else {
     console.warn('\nPotential benchmark regression detected. Re-running once to reduce noise...');
-
-    console.log(`\nRe-running core benchmark (best of ${CORE_RUNS})...`);
-    runCoreBestOf(coreOutRetry);
-
-    console.log(`Re-running DX microbenchmark (best of ${DX_RUNS})...`);
-    runDxBestOf(dxOutRetry);
+    for (const failure of failures) console.warn(`  - ${failure}`);
+    const retryAB = runAB(referenceDir, 'retry');
 
     if (!skipDom) {
       console.log('Re-running DOM benchmark...');
       execFileSync('node', ['benchmark/dom-gate.mjs', '--out', domOutRetry, '--rounds', String(domRounds), '--no-build'], { stdio: 'inherit' });
     }
 
-    const retryFailures = compareRun(coreOutRetry, dxOutRetry, domOutRetry);
+    const retryFailures = [...retryAB, ...compareDom(domOutRetry)];
     if (retryFailures.length > 0) {
       console.error('\nBenchmark regression check failed:');
       for (const failure of retryFailures) console.error(`  - ${failure}`);
-      process.exit(1);
+      process.exitCode = 1;
+    } else {
+      console.log('\nBenchmark regression check passed on retry (initial run was likely noisy).');
     }
-
-    console.log('\nBenchmark regression check passed on retry (initial run was likely noisy).');
-    process.exit(0);
   }
-
-  console.log('\nBenchmark regression check passed.');
 } finally {
   rmSync(tmp, { recursive: true, force: true });
+  if (referenceDir) rmSync(referenceDir, { recursive: true, force: true });
 }

@@ -112,9 +112,8 @@ function DevPanelBody() {
   // --- Tab: Overview ---
   const renderOverview = () => {
     // Everything below reads snapshot()/getHealth()/recentErrors() inside a
-    // thunk so it stays reactive. Four eager copies used to be taken here and
-    // then shadowed; had anything rendered them directly it would have frozen
-    // at first paint.
+    // thunk so it stays reactive; an eager copy taken here would freeze at
+    // first paint.
     return (
       <div style="padding:12px;">
         {/* Health indicator */}

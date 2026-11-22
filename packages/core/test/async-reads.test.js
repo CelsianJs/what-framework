@@ -8,6 +8,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -41,8 +42,8 @@ describe('ErrorBoundary reset() fetches again the run whose error it caught', ()
     const { computed, h, mount, ErrorBoundary } = W;
     const host = document.createElement('div');
     const shared = new Error('offline');
-    const a = Promise.withResolvers();
-    const b = Promise.withResolvers();
+    const a = withResolvers();
+    const b = withResolvers();
     let runsA = 0;
     let runsB = 0;
     let reset;
@@ -84,7 +85,7 @@ describe('isPending()', () => {
     const { computed, signal, effect, isPending, createRoot } = W;
     const key = signal(0);
     const enabled = signal(false);
-    const idle = Promise.withResolvers();
+    const idle = withResolvers();
     const value = computed(async () => (key() ? idle.promise : 'ready'));
     const outer = computed(() => (enabled() ? value() : 'disabled'));
     await drain();
@@ -108,7 +109,7 @@ describe('use()', () => {
   it('counts suspensions per instance: rows that each read a cached promise never look uncached', async () => {
     const { use, h, mount, Suspense, ErrorBoundary } = W;
     const host = document.createElement('div');
-    const flights = Array.from({ length: 4 }, () => Promise.withResolvers());
+    const flights = Array.from({ length: 4 }, () => withResolvers());
     const cached = flights.map(({ promise }) => ({ then: promise.then.bind(promise) }));
     function Row({ promise }) { return use(promise); }
     const place = (i) => {
@@ -166,7 +167,7 @@ describe('a value with nothing landed yet, read through a derived value', () => 
   it('read through a derived value made outside, the body suspends until it lands', async () => {
     const { computed, h, mount, Suspense } = W;
     const host = document.createElement('div');
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const source = computed(async () => gate.promise);
     const derived = computed(() => 'derived:' + source());
     function Child() { return derived(); }

@@ -80,6 +80,30 @@ export function attributeName(prop) {
   return ATTRIBUTE_ALIASES.get(prop) || prop;
 }
 
+// The props whose value lives in markup under another attribute: a field's
+// default is its content attribute (an <input>'s defaultValue is its `value`
+// attribute, what a form reset restores), so markup writes it there. A client
+// writes these props as properties, which reflect to the same attributes.
+const DEFAULT_ATTRIBUTES = new Map([
+  ['defaultValue', 'value'],
+  ['defaultChecked', 'checked'],
+  ['defaultSelected', 'selected'],
+]);
+
+/** The attribute `prop` is written as in markup (server HTML, a compiled template). */
+export function markupName(prop) {
+  return DEFAULT_ATTRIBUTES.get(prop) || attributeName(prop);
+}
+
+/**
+ * The prop that writes the same attribute as the default prop `prop` and
+ * takes it when both are given (`value` over `defaultValue`): the attribute
+ * then shows the field's value. Null for any other prop.
+ */
+export function controllingProp(prop) {
+  return prop === 'defaultValue' ? 'value' : prop === 'defaultChecked' ? 'checked' : prop === 'defaultSelected' ? 'selected' : null;
+}
+
 // ARIA attributes and `role` take enumerated string values, never HTML boolean
 // syntax: an absent aria-expanded means "unsupported" and aria-expanded="false"
 // means "collapsed". data-* attributes are strings too, so `[data-open="false"]`

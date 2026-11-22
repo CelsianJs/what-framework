@@ -25,22 +25,38 @@
 // runs with no owner current; with an async context provider installed, what
 // it creates still goes to its own render's root, so nothing a finished
 // request created can run later (a root already released disposes it at once).
+// Another copy of what-core in the process (a component bundled with its own
+// framework, another export tier) cannot hold work in the render's root, which
+// is the renderer's copy's: what it creates goes to a root of its own for that
+// render, which the render's release disposes too (renderOwner below).
 
-import { runWithOwner, flushSync, _setOwnerFallback, _detached } from './reactive.js';
-import { _installSeeding } from './hydration-data.js';
+import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback } from './reactive.js';
+import { _installServerSeeding } from './hydration-data.js';
 
 // The process's render context, its async context provider and whether it is
 // a server, kept once for every tier of what-core the process loaded: the
 // development and production builds (dist/*.js, dist/*.min.js) and the source
 // each hold a copy of this module, and a component bundled from one tier that
 // a server of another renders still reads that render's context (its
-// response, its loader data). Keyed by Symbol.for, so one realm has one.
-const STORE = Symbol.for('what.serverContext');
+// response, its loader data). Keyed by Symbol.for, so one realm has one; the
+// key names the store's shape (`.v1`), so a copy that keeps another shape
+// keeps another store.
+const STORE = Symbol.for('what.serverContext.v1');
 /** @type {{ current: any, storage: { getStore: () => any, run: (store: any, fn: () => any) => any } | null, server: boolean, withDocument: boolean } | null} */
 let shared = null;
-// Made on first use, so importing the module writes no global.
+// Made on first use, so importing the module writes no global. On first use
+// this copy's engine also starts asking the active render for the root that
+// holds what it creates with no owner current (renderOwner).
 function store() {
+  if (shared === null) _setOwnerFallback(renderOwner);
   return shared ??= /** @type {any} */ (globalThis)[STORE] ??= { current: null, storage: null, server: false, withDocument: false };
+}
+
+// The root of the active render for work this copy of the engine creates
+// with no owner current: the render's own, or one of this copy's for it.
+function renderOwner() {
+  const ctx = getServerContext();
+  return ctx != null && typeof ctx.rootFor === 'function' ? ctx.rootFor(_engine) : null;
 }
 // Whether this copy of the module has wired the provider into its tier.
 let installed = false;
@@ -59,16 +75,7 @@ export function __installServerContextStorage(storage) {
   installed = true;
   const state = store();
   if (state.storage === null) state.storage = storage;
-  _installSeeding();
-  _setOwnerFallback(renderOwner);
-}
-
-// The root of the render whose async context is active, for work created with
-// no owner current.
-function renderOwner() {
-  const storage = store().storage;
-  const ctx = storage ? storage.getStore() : null;
-  return ctx != null && ctx.owner != null ? ctx.owner : null;
+  _installServerSeeding();
 }
 
 // Whether code outside every render runs on a server, where a query cache
@@ -117,7 +124,7 @@ export function isServerRender() {
  * manually (runWithServerContext does this for you).
  */
 export function setServerContext(ctx) {
-  _installSeeding();
+  _installServerSeeding();
   const state = store();
   const prev = state.current;
   state.current = ctx;
@@ -131,7 +138,7 @@ export function setServerContext(ctx) {
  * provider is installed.
  */
 export function runWithServerContext(ctx, fn) {
-  _installSeeding();
+  _installServerSeeding();
   const state = store();
   const prev = state.current;
   state.current = ctx;

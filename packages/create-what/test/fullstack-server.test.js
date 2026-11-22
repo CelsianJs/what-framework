@@ -97,6 +97,24 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
       assert.match(html, /type="importmap"/, 'injects the import map');
     });
 
+    await t.test('the first line names the mode, and a target that is not a path is refused without ending the server', async () => {
+      assert.match(child.logs, /http:\/\/localhost:\d+ \(development; NODE_ENV=production serves the production build\)/);
+      const net = await import('node:net');
+      const send = (target) => new Promise((resolve) => {
+        const socket = net.connect(PORT, '127.0.0.1');
+        let data = '';
+        socket.on('connect', () => socket.write(`GET ${target} HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n`));
+        socket.on('data', (chunk) => { data += chunk; });
+        socket.on('close', () => resolve(Number((/^HTTP\/1\.1 (\d+)/.exec(data) || [])[1] || 0)));
+        socket.on('error', () => resolve(0));
+      });
+      for (const target of ['//', '//[::1', '*', 'http://[']) {
+        assert.ok([400, 404].includes(await send(target)), target);
+      }
+      assert.equal(child.exitCode, null, child.logs);
+      assert.equal((await fetch(BASE + '/')).status, 200);
+    });
+
     await t.test('server-only modules are NOT served over HTTP', async () => {
       for (const path of ['/src/db.js', '/src/actions/posts.js', '/src/routes.js']) {
         const res = await fetch(BASE + path);
@@ -218,6 +236,12 @@ test('fullstack scaffold production server starts from a path containing spaces'
     assert.equal(res.status, 200, `server in a path with spaces must answer:\n${child.logs}`);
     assert.match(await res.text(), /fs space app/);
     assert.equal(child.exitCode, null, `server exited in path with spaces:\n${child.logs}`);
+    assert.match(child.logs, /http:\/\/localhost:\d+ \(production\)/, 'the first line names the mode');
+    // Of each package, the production build only: no development build, no map.
+    assert.equal((await fetch(base + '/node_modules/what-core/dist/index.min.js')).status, 200);
+    for (const path of ['/node_modules/what-core/dist/reactive.js', '/node_modules/what-core/dist/index.min.js.map', '/node_modules/what-core/dist/entries/dom.js']) {
+      assert.equal((await fetch(base + path)).status, 404, path);
+    }
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => { child.on('exit', r); setTimeout(r, 2000); });

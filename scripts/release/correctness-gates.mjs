@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // run again after building; app smokes then consume those fresh artifacts.
 export const CORRECTNESS_GATES = [
   'hygiene:publish', 'test', 'build', 'hygiene:publish', 'hygiene:types',
-  'check:error-codes', 'check:error-docs', 'check:import-docs', 'typecheck', 'typecheck:src', 'lint',
+  'check:error-codes', 'check:error-docs', 'check:import-docs', 'check:node-floor', 'typecheck', 'typecheck:src', 'lint',
   'check:size', 'test:prod', 'smoke:scaffold', 'smoke:apps',
 ];
 

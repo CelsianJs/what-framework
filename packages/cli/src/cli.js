@@ -59,6 +59,18 @@ function isInside(target, base) {
   return target === base || target.startsWith(base + sep);
 }
 
+// The path of a request target, or null for one that is not a path (`*`, an
+// absolute URL) or that the URL parser rejects. `//x` is the path `//x`:
+// resolving the target against a base would read it as another host.
+function targetPath(target) {
+  if (typeof target !== 'string' || !target.startsWith('/')) return null;
+  try {
+    return new URL(`http://localhost${target}`).pathname;
+  } catch {
+    return null;
+  }
+}
+
 // WS handshakes are exempt from the same-origin policy, so any page the developer
 // browses could otherwise subscribe to the HMR stream (a live feed of edited file
 // paths). Non-browser clients send no Origin at all; browsers always do.
@@ -254,7 +266,7 @@ function isMainModule() {
 
 if (isMainModule()) main();
 
-export { safePath, isAllowedOrigin, transformImports, fileToRoute };
+export { safePath, isAllowedOrigin, targetPath, transformImports, fileToRoute };
 
 // --- Dev Server ---
 
@@ -265,8 +277,12 @@ async function dev() {
   const runtimeDirs = requireRuntimeDirs('what dev');
 
   const server = createServer(async (req, res) => {
-    const url = new URL(req.url || '/', `http://${host}:${port}`);
-    let pathname = url.pathname;
+    let pathname = targetPath(req.url);
+    if (pathname === null) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
 
     // Handle server actions
     if (pathname === '/__what_action' && req.method === 'POST') {
@@ -581,7 +597,12 @@ async function preview() {
   }
 
   const server = createServer((req, res) => {
-    let pathname = new URL(req.url || '/', `http://localhost:${port}`).pathname;
+    let pathname = targetPath(req.url);
+    if (pathname === null) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
     if (pathname === '/') pathname = '/index.html';
 
     // Security: Prevent path traversal

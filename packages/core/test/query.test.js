@@ -5,6 +5,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM('<!DOCTYPE html><html><body></body></html>');
 
@@ -23,7 +24,7 @@ const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 function remote() {
   const calls = [];
   const fetcher = (key, { signal: abort }) => {
-    const call = { key, abort, ...Promise.withResolvers() };
+    const call = { key, abort, ...withResolvers() };
     calls.push(call);
     return call.promise;
   };

@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -122,6 +122,11 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
     for (const f of ['src/db.js', 'src/routes.js', 'src/actions', 'server.js', 'function.js', 'import-map.json', 'node_modules/what-devtools', 'node_modules/what-devtools-mcp', 'node_modules/what-core/src', 'node_modules/what-framework/src']) {
       assert.equal(existsSync(join(s, f)), false, `dist/static/${f} must not be published`);
     }
+    // Of each package, the production build's files alone: not the
+    // development build beside them, not the source maps.
+    const published = (await readdir(join(s, 'node_modules'), { recursive: true })).filter((f) => /\.(js|map)$/.test(f));
+    assert.ok(published.length > 0);
+    assert.deepEqual(published.filter((f) => !f.endsWith('.min.js')), [], 'only *.min.js under node_modules');
     // Every URL in the page's import map is a published file, what-framework's
     // router and server subpaths among them.
     const { imports, scopes } = JSON.parse(await readFile(join(appDir, 'import-map.json'), 'utf8'));

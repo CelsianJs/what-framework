@@ -163,6 +163,25 @@ describe('URL sanitization', () => {
     assert.equal(isSafeUrl(null), false);
   });
 
+  // An absolute URL the URL parser rejects is no destination, so a Link to it
+  // renders blocked instead of throwing out of the page's mount.
+  it('should reject an absolute URL the URL parser rejects, and a Link to one still mounts', () => {
+    const hostile = ['http://[', 'http://', 'https://%zz.example', 'http://a:b:c/', 'https://ada example.org'];
+    for (const href of hostile) assert.equal(isSafeUrl(href), false, href);
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      for (const href of hostile) {
+        const container = getContainer();
+        assert.doesNotThrow(() => mount(h('p', null, h(Link, { href }, 'site'), ' footer'), container), href);
+        assert.equal(container.textContent, 'site footer', href);
+        assert.equal(container.querySelector('a').getAttribute('href'), 'about:blank', href);
+      }
+    } finally {
+      console.warn = warn;
+    }
+  });
+
   it('the blocked-navigation warning does not throw on a non-coercible target', () => {
     // isSafeUrl() rejects non-strings, so the warning path is reached with
     // exactly the values that cannot go through a template literal.

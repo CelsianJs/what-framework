@@ -1,7 +1,7 @@
 /**
  * Compiler Hardening Tests — SVG, Tables, Imported Signals
  *
- * Tests for Sprint 2 compiler fixes:
+ * Covers:
  * 1. SVG namespace support in template()
  * 2. Table element wrapping in template()
  * 3. Imported signal reactivity tracking in babel-plugin

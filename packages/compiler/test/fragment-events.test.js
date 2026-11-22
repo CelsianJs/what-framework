@@ -1,7 +1,7 @@
 // Regression tests: top-level JSX fragments whose element children carry
 // event handlers (or any dynamic parts).
 //
-// BUG (sprint/v0.11-quality): the JSXFragment visitor called
+// The bug pinned here: the JSXFragment visitor called
 // transformFragmentFineGrained — which routes element children through
 // transformElementFineGrained — but never drained state._pendingSetup.
 // The element transform pushes its setup statements

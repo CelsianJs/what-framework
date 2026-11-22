@@ -4,6 +4,7 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 let env;
 let W;
@@ -113,7 +114,7 @@ describe('ERR_WRITE_AFTER_AWAIT', () => {
   it('stays silent for a write wrapped in its own transition, and for an event handler', async () => {
     const { signal, startTransition, h, mount } = W;
     const status = signal('idle');
-    const slow = Promise.withResolvers();
+    const slow = withResolvers();
     const done = startTransition(async () => {
       status('saving');
       await slow.promise;
@@ -184,7 +185,7 @@ describe('ERR_USE_UNCACHED_PROMISE', () => {
 describe('ERR_ASYNC_WITHOUT_SUSPENSE', () => {
   it('stays silent under a boundary, and for a binding that waits', async () => {
     const { lazy, computed, h, mount, Suspense } = W;
-    const chunk = Promise.withResolvers();
+    const chunk = withResolvers();
     const Settings = lazy(() => chunk.promise);
     const later = computed(() => new Promise(() => {}));
     const host = document.createElement('div');
@@ -252,7 +253,7 @@ describe('ERR_WRITE_AFTER_AWAIT is a heuristic', () => {
     const other = signal('a', 'other');
     const host = document.createElement('div');
     const stop = mount(h('p', null, () => status() + other()), host);
-    const slow = Promise.withResolvers();
+    const slow = withResolvers();
     const done = startTransition(async () => { status('saving'); await slow.promise; });
     await new Promise((resolve) => setTimeout(() => { other('b'); resolve(); }, 0));
     slow.resolve();

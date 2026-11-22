@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 // The real implementation, not a copy: an earlier copy of safePath drifted from
 // cli.js and hid both the dead-containment-check and the symlink-escape bugs.
-import { safePath, isAllowedOrigin } from '../src/cli.js';
+import { safePath, isAllowedOrigin, targetPath } from '../src/cli.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const testDir = join(__dirname, '.test-security');
@@ -125,6 +125,21 @@ describe('security', () => {
 
     it('allows non-browser clients (no Origin header)', () => {
       assert.equal(isAllowedOrigin(undefined, allowed), true);
+    });
+  });
+
+  // `what dev` and `what preview` answer 400 for a target that is not a path,
+  // instead of throwing out of the request listener (which ended the process).
+  describe('the dev and preview servers read a request target as a path', () => {
+    it('`//x` is a path, never another host, and nothing throws', () => {
+      assert.equal(targetPath('/a/b?q=1'), '/a/b');
+      assert.equal(targetPath('//'), '//');
+      assert.equal(targetPath('//evil.test/x'), '//evil.test/x');
+      assert.equal(targetPath('//[::1'), '//[::1');
+      for (const target of ['*', 'http://evil.test/', 'http://[', '', undefined]) {
+        assert.doesNotThrow(() => targetPath(target));
+        assert.equal(targetPath(target), null, String(target));
+      }
     });
   });
 });

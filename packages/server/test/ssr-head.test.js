@@ -1,4 +1,4 @@
-// SSR head collection (Phase 1). <Head> declared anywhere in the tree is
+// SSR head collection. <Head> declared anywhere in the tree is
 // captured during renderToStringWithHead and emitted as escaped <head> HTML.
 // renderToString stays body-only and must not throw when a tree uses <Head>.
 

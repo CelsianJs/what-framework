@@ -20,6 +20,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/' });
 
@@ -53,7 +54,7 @@ function show(routes) {
 
 describe('a nested Router has route state of its own', () => {
   it('on the server, in a string render and in a boundary a stream renders later', async () => {
-    const gate = Promise.withResolvers();
+    const gate = withResolvers();
     const inner = [{ path: '/embedded/:id', component: () => h('p', null, 'inner=' + read()) }];
     const Late = () => {
       query('nested-router-late', () => gate.promise)();

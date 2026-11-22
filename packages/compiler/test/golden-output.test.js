@@ -1,4 +1,4 @@
-// SPRINT v0.11 C8 — golden-output snapshot tests.
+// Golden-output snapshot tests.
 // Exact-compare the compiler's emitted code for representative components.
 // Any intentional codegen change must regenerate the snapshots:
 //

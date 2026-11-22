@@ -1,4 +1,4 @@
-// Static export adapter (Phase 7).
+// Static export adapter.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';

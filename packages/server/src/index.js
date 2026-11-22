@@ -34,6 +34,8 @@ import {
   _plainText,
   assertSafeTag,
   renderAttrs,
+  _markSelected,
+  _selectValue,
   escapeHtml,
   arrayKeys,
 } from './html.js';
@@ -94,11 +96,12 @@ function renderElementChildren(tag, props, children, render) {
 
 export function renderToHydratableString(vnode) {
   ensureServerRuntime();
-  // Establish a render scope whenever one isn't already active. This used to be
+  // Establish a render scope whenever one isn't already active. It is not
   // gated on `typeof document === 'undefined'` as a proxy for "are we on the
-  // server", but renderToString IS the server render, and the proxy is wrong
-  // under any DOM shim (jsdom, happy-dom, a Workers polyfill) where SSR ran with
-  // no scope at all and render-scoped state fell back to module globals. Every
+  // server": renderToString IS the server render, and the proxy is wrong under
+  // any DOM shim (jsdom, happy-dom, a Workers polyfill), where SSR would run
+  // with no scope at all and render-scoped state would fall back to module
+  // globals. Every
   // other consumer of the context checks `typeof document` itself before reading
   // it, so a scope existing on the client changes nothing for them.
   if (!getServerContext()) return renderInOwnContext(() => renderToHydratableString(vnode));
@@ -246,7 +249,8 @@ function _renderHydratable(vnode) {
   // Element
   const { tag, props, children } = vnode;
   assertSafeTag(tag, vnode);
-  const open = out(`<${tag}${renderAttrs(props || {})}>`);
+  const select = _selectValue(tag, props);
+  const open = out(`<${tag}${renderAttrs(select ? select.props : props || {})}>`);
 
   // Void elements
   if (VOID_ELEMENTS.has(tag)) return open;
@@ -255,7 +259,8 @@ function _renderHydratable(vnode) {
   if (rawInner != null) return open + out(String(rawInner)) + out(`</${tag}>`);
   const lead = _afterOpen(tag, _ns);
   if (_isTextContent(tag, _ns)) return open + lead + out(_rawText(tag, children, _ns)) + out(`</${tag}>`);
-  return open + lead + renderElementChildren(tag, props, children, _renderHydratable) + out(`</${tag}>`);
+  const content = renderElementChildren(tag, props, children, _renderHydratable);
+  return open + lead + (select ? _markSelected(content, select.value, select.multiple) : content) + out(`</${tag}>`);
 }
 
 function renderChildren(children, render) {
@@ -368,7 +373,8 @@ function _renderString(vnode) {
   // Element
   const { tag, props, children } = vnode;
   assertSafeTag(tag, vnode);
-  const attrs = renderAttrs(props || {});
+  const select = _selectValue(tag, props);
+  const attrs = renderAttrs(select ? select.props : props || {});
   const open = `<${tag}${attrs}>`;
 
   // Void elements
@@ -378,7 +384,8 @@ function _renderString(vnode) {
   if (rawInner != null) return `${open}${String(rawInner)}</${tag}>`;
   const lead = _afterOpen(tag, _ns);
   if (_isTextContent(tag, _ns)) return `${open}${lead}${_rawText(tag, children, _ns)}</${tag}>`;
-  return `${open}${lead}${renderElementChildren(tag, props, children, _renderString)}</${tag}>`;
+  const content = renderElementChildren(tag, props, children, _renderString);
+  return `${open}${lead}${select ? _markSelected(content, select.value, select.multiple) : content}</${tag}>`;
 }
 
 // --- Render to String + collected <head> ---
@@ -694,5 +701,5 @@ export {
 export { createRequestHandler } from './adapter/core.js';
 export { createCloudflareHandler } from './adapter/cloudflare.js';
 
-// Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
+// Safe state serialization for inlining into <script> tags
 export { serializeState } from './serialize.js';

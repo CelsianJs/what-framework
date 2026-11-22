@@ -205,6 +205,8 @@ export function _rowKeyDigest(key: unknown, salt: string): string | null;
 export function _rowKeySalt(): string;
 /** @internal Used by what-server's <Form>. Resets a form as React 19 does after a successful action: uncontrolled fields to their defaults, controlled ones to what their props hold. */
 export function _resetForm(form: HTMLFormElement, onError: (error: unknown) => void): void;
+/** @internal Used by what-react. The client renderer a '__portal' vnode carries as its `mount` prop: builds the vnode's children into `props.container` and returns the placeholder comment. */
+export function _mountPortal(vnode: VNode<any>, parent?: Node): Comment;
 /** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
 export function __installServerContextStorage(storage: unknown): void;
 /** @internal Used by what-server. Marks a process that renders on the server with no document: outside a render, the query cache shares nothing. */
@@ -215,5 +217,7 @@ export function _isServerProcess(): boolean;
 export function __flushOutsideServerContext(): void;
 /** @internal Used by what-server. Runs `fn` with no render context visible and no reactive owner. */
 export function __outsideServerContext<T>(fn: () => T): T;
+/** @internal Used by what-server. This copy of what-core's engine: a render context's `rootFor(engine)` returns the render's root for the copy that made it, and a root of its own, disposed with the render, for any other copy. */
+export const _engine: { root(): unknown; dispose(root: unknown): void };
 /** @internal Used by what-server's tests. Drops the cached hydration payload. */
 export function __resetHydrationData(): void;

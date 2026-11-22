@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { installDOM } from '../../../test-utils/dom.js';
+import { withResolvers } from '../../../test-utils/with-resolvers.js';
 
 const { document, cleanup } = installDOM();
 after(cleanup);
@@ -28,8 +29,8 @@ async function assertCollected(ref, label) {
 }
 
 test('an unmounted component\'s pending run and suspension retain nothing while their promises are pending', async () => {
-  const computedWork = Promise.withResolvers();
-  const useWork = Promise.withResolvers();
+  const computedWork = withResolvers();
+  const useWork = withResolvers();
   const refs = {};
   function ComputedChild() {
     const payload = { label: 'computed' };
@@ -73,7 +74,7 @@ test('an async error an error boundary caught retains nothing of the failed comp
 });
 
 test('an action left by the component that started it retains nothing of the component while its promise is pending', async () => {
-  const work = Promise.withResolvers();
+  const work = withResolvers();
   let ref;
   (() => {
     const host = document.createElement('div');

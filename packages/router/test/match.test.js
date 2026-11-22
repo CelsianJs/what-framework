@@ -1,4 +1,4 @@
-// Isomorphic matcher (Phase 6): match.js must work server-side with no DOM.
+// Isomorphic matcher: match.js must work server-side with no DOM.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

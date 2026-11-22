@@ -1,5 +1,5 @@
 /**
- * Who may attach to the bridge (security review #11, AUDIT-2026-06-06 C6).
+ * Who may attach to the bridge (security review #11).
  *
  * A credential is issued only to a dev server of this project, through the
  * Node-only pairing endpoint, and only works from the origin it was issued

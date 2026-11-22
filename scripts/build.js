@@ -32,7 +32,7 @@ const root = resolve(__dirname, '..');
 //   would each hold its state: what-core's component stack and tracking
 //   context (`useSignal` reads one stack while the compiler's
 //   `_$createComponent` pushes the other, and every production build renders
-//   blank, AUDIT-2026-06-06.md C1), or what-server's action registry (an
+//   blank), or what-server's action registry (an
 //   action registered through what-server/actions is "not found" by the
 //   root's handleActionRequest under `--conditions=production`). Across
 //   tiers (a component bundled from dist/*.js that a server running
