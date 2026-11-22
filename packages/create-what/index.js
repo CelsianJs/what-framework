@@ -1035,7 +1035,10 @@ Set \`PUBLIC_ORIGIN\` to the site's public origin (several, comma-separated).
 Only its pages are cached: a request naming any other Host is rendered for
 itself, never stored. Development defaults to \`http://localhost:PORT\` and
 \`http://127.0.0.1:PORT\`; in production without it the app logs one warning and
-caches a page for any Host a request names.
+caches a page for any Host a request names. A value that names no origin
+(\`" , "\`), or an origin without its scheme (\`blog.example\`), stops the server
+with an error naming the value. Behind a TLS proxy, have it send
+\`X-Forwarded-Proto\`: the request's origin takes the scheme it reports.
 
 ## Deploy to Vura
 
@@ -1060,6 +1063,13 @@ The ISR cache is in memory, per Function instance: a cold start begins with an
 empty cache, and \`revalidatePath\` purges only the instance that ran the action.
 Swap \`createMemoryStore()\` in \`server.js\` for a shared store if you need one
 cache across instances.
+
+The Function reads the same environment as \`npm start\`: set \`PUBLIC_ORIGIN\` in
+its environment to the deploy's public origin (\`https://\` and the domain it is
+served on; several, comma-separated). Without it, every cold start logs the
+warning above and the cache stores a page for any Host a request names; an
+origin given without its scheme stops the Function with an error naming the
+value. Set \`WHAT_REVALIDATE_SECRET\` there too to enable the webhook.
 
 The poll scheduler in \`server.js\` does not run in the Function, which only runs
 while it serves a request. For scheduled revalidation, have an external cron
@@ -1645,10 +1655,25 @@ if (!REVALIDATE_SECRET) {
 // every origin a request names is cached, and a tick refreshes at most 16 of
 // them.
 const DEV_PORT = Number(process.env.PORT) || 3000;
-const PUBLIC_ORIGINS = (process.env.PUBLIC_ORIGIN || (isProd ? '' : \`http://localhost:\${DEV_PORT},http://127.0.0.1:\${DEV_PORT}\`))
-  .split(',').map((origin) => origin.trim()).filter(Boolean);
+const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').trim();
+const PUBLIC_ORIGINS = PUBLIC_ORIGIN ? publicOrigins(PUBLIC_ORIGIN) : isProd ? [] : [\`http://localhost:\${DEV_PORT}\`, \`http://127.0.0.1:\${DEV_PORT}\`];
 if (isProd && PUBLIC_ORIGINS.length === 0) {
   console.warn('[${packageName}] PUBLIC_ORIGIN is not set, so the ISR cache stores a page for any Host a request names. Set it to the public origin of the site.');
+}
+
+// PUBLIC_ORIGIN's origins: a value that names none, or one that is not an
+// origin (no scheme), stops the server with the value it holds.
+function publicOrigins(value) {
+  const origins = value.split(',').map((origin) => origin.trim()).filter(Boolean);
+  if (origins.length === 0) {
+    throw new Error(\`[${packageName}] PUBLIC_ORIGIN is \${JSON.stringify(value)}, which names no origin. Set it to the site's public origin (https://blog.example; several, comma-separated), or leave it unset.\`);
+  }
+  for (const origin of origins) {
+    if (!/^https?:\\/\\/[^/?#]+\\/?$/i.test(origin)) {
+      throw new Error(\`[${packageName}] PUBLIC_ORIGIN holds \${JSON.stringify(origin)}, which is not an origin. Give its scheme and host, as in https://blog.example.\`);
+    }
+  }
+  return origins;
 }
 
 // Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})

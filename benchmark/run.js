@@ -27,6 +27,11 @@ function bench(name, fn, iterations = 10000) {
     fn();
     times.push(performance.now() - start);
   }
+  // A write outside a batch leaves its effects queued for a microtask, which
+  // this synchronous run never reaches: run them now, unmeasured. Left queued,
+  // the next operation's first flush ran every effect the earlier ones made
+  // (26,000 before the batch benchmarks), inside its warm-up.
+  flushSync();
 
   times.sort((a, b) => a - b);
   const p10 = Math.floor(times.length * 0.1);

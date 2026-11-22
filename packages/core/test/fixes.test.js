@@ -184,6 +184,51 @@ describe('flush loop guard', () => {
     assert.ok(s() < 200, `the loop was stopped (s = ${s()})`);
     dispose();
   });
+
+  it('counts only the runs of the flush it stopped, after flushes that ran the effect before', () => {
+    const go = signal(0);
+    const s = signal(0);
+    let runs = 0;
+    const cap = capture({ quiet: true });
+    const dispose = effect(function looping() {
+      runs++;
+      const n = s();
+      if (go() && n < 1000) s.set(n + 1);
+    });
+    s.set(-5);
+    flushSync();
+    s.set(-6);
+    flushSync();
+    const before = runs;
+    go.set(1);
+    flushSync();
+    cap.stop();
+    dispose();
+    const loops = cap.events.filter((e) => e.code === 'ERR_INFINITE_EFFECT');
+    assert.equal(loops.length, 1);
+    assert.equal(loops[0].data.rounds, runs - before);
+  });
+
+  it('records a flush for its loop report without making a Map or a Set', () => {
+    const s = signal(0);
+    const seen = [];
+    const dispose = effect(() => { seen.push(s()); });
+    const made = { Map: 0, Set: 0 };
+    const { Map: RealMap, Set: RealSet } = globalThis;
+    globalThis.Map = class extends RealMap { constructor(...args) { super(...args); made.Map++; } };
+    globalThis.Set = class extends RealSet { constructor(...args) { super(...args); made.Set++; } };
+    try {
+      batch(() => { for (let i = 1; i <= 3; i++) s.set(i); });
+      s.set(4);
+      flushSync();
+    } finally {
+      globalThis.Map = RealMap;
+      globalThis.Set = RealSet;
+    }
+    dispose();
+    assert.deepEqual(seen, [0, 3, 4]);
+    assert.deepEqual(made, { Map: 0, Set: 0 });
+  });
 });
 
 // =========================================================================

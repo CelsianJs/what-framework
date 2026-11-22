@@ -956,7 +956,8 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     onCleanup(() => {
       if (_routes !== routes) return;
       _routes = null;
-      delete (/** @type {any} */ (globalThis)[NAVIGATOR]);
+      // Only its own: another copy of what-router mounted since keeps its.
+      if (/** @type {any} */ (globalThis)[NAVIGATOR] === navigate) delete (/** @type {any} */ (globalThis)[NAVIGATOR]);
       if (_preparing.peek()) {
         _navigation++;
         _leave();

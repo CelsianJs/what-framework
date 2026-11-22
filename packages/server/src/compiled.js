@@ -25,8 +25,11 @@
 //   childNs(ns)     the namespace the items of that array sit in.
 //   rootTag()       the name of the element it opens with, or null, read
 //                   without rendering anything (what-core's <Head> uses it).
+//   edge(frame, root)  only on the start or end of a keyed row (ssr-runtime's
+//                   RowEdge), which renders no HTML: the stream calls it in
+//                   the frame it renders the markup in, in place of parts().
 
-import { _rowKeyDigest, _rowKeySalt, getServerContext } from 'what-core/internal';
+import { _renderSalt, _rowKeyDigest } from 'what-core/internal';
 
 export class Html {
   #brand;
@@ -48,7 +51,7 @@ export class Html {
 }
 
 const checks = /** @type {Set<(value: object) => boolean>} */ (
-  /** @type {any} */ (globalThis)[Symbol.for('what-server.html.v2')] ??= new Set()
+  /** @type {any} */ (globalThis)[Symbol.for('what-server.html.v3')] ??= new Set()
 );
 checks.add(Html.is);
 
@@ -107,7 +110,7 @@ export const BOUNDARY_CLOSE = '<!--/b-->';
  * client builds the list.
  */
 export function rowKeys(keys) {
-  const salt = renderSalt();
+  const salt = _renderSalt();
   let digests = '';
   for (const key of keys) {
     const digest = _rowKeyDigest(key, salt);
@@ -115,17 +118,6 @@ export function rowKeys(keys) {
     digests += digest;
   }
   return `<!--k:${salt}:${digests}-->`;
-}
-
-// One salt per render, by its render context; a fresh one outside a render.
-const salts = new WeakMap();
-
-function renderSalt() {
-  const ctx = getServerContext();
-  if (ctx === null) return _rowKeySalt();
-  let salt = salts.get(ctx);
-  if (salt === undefined) salts.set(ctx, salt = _rowKeySalt());
-  return salt;
 }
 
 /** @returns {{ key: string | null }} */

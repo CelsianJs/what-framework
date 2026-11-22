@@ -18,10 +18,15 @@ import { shapes, jsxModule, hComponent, runClient, checkServerHtml, editsEarly }
 
 installDOM();
 const { h, mount, hydrate, flushSync, signal, For, Show } = await import('../../core/src/index.js');
-const { _resetForm } = await import('../../core/src/dom.js');
+const { _resetForm, _changedFields } = await import('../../core/src/dom.js');
 const { renderToString, renderToHydratableString, renderToStream } = await import('../src/index.js');
 
-const env = { h, mount, hydrate, flushSync, signal, resetForm: _resetForm, For, Show, document };
+const changedFields = (el) => {
+  const out = [];
+  _changedFields(el, out, new WeakSet());
+  return out.length;
+};
+const env = { h, mount, hydrate, flushSync, signal, resetForm: _resetForm, changedFields, For, Show, document };
 const SHAPES = shapes();
 
 async function stream(view) {
@@ -69,7 +74,7 @@ describe('form-control oracle', () => {
           const v = shape.binding === 'signal' || shape.binding === 'accessor' ? signal(shape.initial) : undefined;
           let html;
           try {
-            html = await render(h(component(shape, authoring, server), { v, o: signal(true) }));
+            html = await render(h(component(shape, authoring, server), { v, o: signal(true), l: signal(false) }));
           } catch (error) {
             findings.push({ shape, authoring, renderer, problem: `threw: ${error.message}` });
             continue;
@@ -89,7 +94,7 @@ describe('form-control oracle', () => {
     const markup = async (shape, source) => {
       const [authoring, renderer] = source.split(':');
       const v = shape.binding === 'signal' || shape.binding === 'accessor' ? signal(shape.initial) : undefined;
-      return RENDERERS[renderer](h(component(shape, authoring, server), { v, o: signal(shape.late === undefined) }));
+      return RENDERERS[renderer](h(component(shape, authoring, server), { v, o: signal(shape.late === undefined), l: signal(false) }));
     };
     for (const shape of SHAPES) {
       for (const authoring of ['h', 'compiled', 'spread']) {

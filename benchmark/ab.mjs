@@ -102,6 +102,26 @@ function pct(ratio) {
  * scripts, with node_modules linked to the repository's (the workspace
  * packages to the reference's own). Removed by the caller.
  */
+/**
+ * The operation a gate failure names: `core: batch() 100 writes, 1 effect`,
+ * `dom: partialUpdate`. A failure no operation can be read from is its own key.
+ */
+export function failureKey(failure) {
+  const m = /^(\w+): (.+?)(?:: (?:throughput|median call|95th-percentile call|99th-percentile call) at | regressed \+| produced no measurement)/.exec(failure);
+  return m ? `${m[1]}: ${m[2]}` : failure;
+}
+
+/**
+ * The retry's failures whose operation also failed on the first attempt. A real
+ * regression slows the same operation in both; session noise lands on
+ * whichever operations it happens to, so an operation that fails only once is
+ * not a regression.
+ */
+export function persistentFailures(first, retry) {
+  const failed = new Set(first.map(failureKey));
+  return retry.filter((failure) => failed.has(failureKey(failure)));
+}
+
 export function referenceTree(root, commit, scripts) {
   if (!COMMIT.test(commit)) throw new Error(`[bench] the reference "${commit}" is not a commit hash (benchmark/reference.json)`);
   const dir = mkdtempSync(join(tmpdir(), 'what-bench-ref-'));

@@ -1,7 +1,8 @@
 // Hydration and the fields a page shows before it runs. A field the user
 // changed keeps what they left in it; one they did not is left as the markup
 // shows it; and no input or change event is dispatched for either, as
-// released React (react-dom 19.3) does. A value the browser restored on a
+// released React (react-dom 19.3) does for every field but a textarea, which
+// it puts back to the server's text. A value the browser restored on a
 // history navigation looks like an edit, so a replayed event ran handlers on
 // Back. "Changed" is what the browser's own reset says differs: a range's
 // midpoint, a color's #000000, a select whose first group is disabled, a
@@ -14,8 +15,9 @@ import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 
 const env = installDOM();
-const { h, hydrate, signal, flushSync } = await import('what-core');
+const { h, hydrate, signal, flushSync, onMount, useEffect, lazy, Suspense } = await import('what-core');
 const { renderToHydratableString } = await import('../src/index.js');
+const { loadCompiled } = await import('../../../test-utils/load-compiled.js');
 
 const flush = async () => {
   for (let i = 0; i < 3; i++) await Promise.resolve();
@@ -147,6 +149,111 @@ describe('hydration and fields the user did not touch', () => {
       assert.equal(host.querySelector('[name=h]').value, 'kept');
       assert.equal(host.querySelector('[name=u]').value, '');
       assert.deepEqual(events, []);
+    } finally {
+      stop();
+      host.remove();
+    }
+  });
+});
+
+// A country the user picked before hydration, with what depends on it: the
+// component reads the field in onMount and writes its state from it. Before,
+// the fields were restored after the hydration's mount callbacks had run, so
+// a synchronous read there saw the server's value.
+describe('the mount callbacks of a hydration see what the user left in each field', () => {
+  const countries = ['CA', 'US'];
+  function Country({ seen }) {
+    const country = signal('CA');
+    let select;
+    let note;
+    onMount(() => {
+      seen.push(['onMount', select.value, note.value]);
+      country(select.value);
+    });
+    useEffect(() => {
+      seen.push(['useEffect', select.value, note.value]);
+    }, []);
+    return h('form', null,
+      h('select', { name: 'country', value: country, ref: (el) => { select = el; }, onChange: (e) => country(e.currentTarget.value) },
+        ...countries.map((c) => h('option', { value: c }, c))),
+      h('input', { name: 'note', defaultValue: 'server', ref: (el) => { note = el; } }),
+      h('p', { id: 'regions' }, () => (country() === 'US' ? 'NY, TX' : 'BC, ON')));
+  }
+
+  async function edited(view, hydrateView) {
+    const host = document.createElement('div');
+    document.body.append(host);
+    host.innerHTML = renderToHydratableString(view());
+    host.querySelector('[name=country]').value = 'US';
+    host.querySelector('[name=note]').value = 'typed';
+    const stop = hydrateView(host);
+    await flush();
+    return { host, stop };
+  }
+
+  it('in a full-page hydration of h() vnodes', async () => {
+    const seen = [];
+    const { host, stop } = await edited(() => h(Country, { seen: [] }), (el) => hydrate(h(Country, { seen }), el));
+    try {
+      assert.deepEqual(seen, [['onMount', 'US', 'typed'], ['useEffect', 'US', 'typed']]);
+      assert.equal(host.querySelector('#regions').textContent, 'NY, TX');
+      assert.equal(host.querySelector('[name=country]').value, 'US');
+    } finally {
+      stop();
+      host.remove();
+    }
+  });
+
+  it('in compiled JSX', async () => {
+    const source = `
+      import { signal, onMount } from 'what-framework';
+      export function Country(props) {
+        const country = signal('CA');
+        let select;
+        onMount(() => { props.seen.push(select.value); country(select.value); });
+        return <form>
+          <select name="country" value={country()} ref={(el) => { select = el; }}><option value="CA">CA</option><option value="US">US</option></select>
+          <p id="regions">{country() === 'US' ? 'NY, TX' : 'BC, ON'}</p>
+        </form>;
+      }`;
+    const server = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+    const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+    const seen = [];
+    const { host, stop } = await (async () => {
+      const el = document.createElement('div');
+      document.body.append(el);
+      el.innerHTML = renderToHydratableString(h(server.Country, { seen: [] }));
+      el.querySelector('[name=country]').value = 'US';
+      const unmount = hydrate(h(client.Country, { seen }), el);
+      await flush();
+      return { host: el, stop: unmount };
+    })();
+    try {
+      assert.deepEqual(seen, ['US']);
+      assert.equal(host.querySelector('#regions').textContent, 'NY, TX');
+    } finally {
+      stop();
+      host.remove();
+    }
+  });
+
+  it('in a <Suspense> whose content waits for its code: the walk that reveals it restores first', async () => {
+    let load;
+    const Lazy = lazy(() => new Promise((resolve) => { load = resolve; }));
+    const seen = [];
+    const host = document.createElement('div');
+    document.body.append(host);
+    host.innerHTML = renderToHydratableString(h(Suspense, { fallback: h('i', null, 'loading') }, h(Country, { seen: [] })));
+    const stop = hydrate(h(Suspense, { fallback: h('i', null, 'loading') }, h(Lazy, { seen })), host);
+    await flush();
+    try {
+      assert.equal(host.querySelector('i'), null, 'the server\'s content stays up while the code loads');
+      host.querySelector('[name=country]').value = 'US';
+      host.querySelector('[name=note]').value = 'typed';
+      load({ default: Country });
+      for (let i = 0; i < 10 && seen.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 1));
+      assert.deepEqual(seen, [['onMount', 'US', 'typed'], ['useEffect', 'US', 'typed']]);
+      assert.equal(host.querySelector('#regions').textContent, 'NY, TX');
     } finally {
       stop();
       host.remove();

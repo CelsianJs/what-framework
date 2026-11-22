@@ -40,12 +40,18 @@ entry (`fetchActionHandler`, the Vercel, Cloudflare and Vura adapters) receives 
 already parsed, so the platform's routing is the one a guard has to agree with there. A cached
 (ISR) page is keyed on the request's origin as well as its path, so a Host one sender chose never
 reaches another host's visitors; a regeneration with no request renders a path's default entry
-from no visitor's request, and refreshes at most 16 stored origins of a path at a time (those a
-request read most recently first, so planted Hosts that are only stored cannot push the real one
-out). Name the site's origins, `createCacheEngine({ origins: ['https://shop.example'] })` (the
-full-stack starter reads `PUBLIC_ORIGIN`), and a request for any other origin is rendered for itself
-alone, never stored or served from the store, and a scheduled regeneration renders exactly the named
-origins. Still allowlist the hosts your proxy forwards: a page that builds absolute URLs from
+from no visitor's request, and refreshes at most 16 stored origins of a path at a time, those a
+request read most recently first. A planted Host that is requested counts as read: a sender who
+requests 16 or more planted Hosts after the real one pushes the real origin out of the next tick's
+16, and its entry then waits for a visitor's request to refresh it (served stale, within its
+stale-while-revalidate window, or rendered for that visitor). Name the site's origins,
+`createCacheEngine({ origins: ['https://shop.example'] })` (the full-stack starter reads
+`PUBLIC_ORIGIN`), and that cannot happen: a request for any other origin is rendered for itself
+alone (`private, no-store`), never stored or served from the store, and a scheduled regeneration
+renders exactly the named origins. The origin is the request's Host with the scheme a proxy in
+front reports in `X-Forwarded-Proto` (else the connection's), the rule the CSRF check uses: behind a
+TLS proxy that sends it, `origins: ['https://…']` matches. An origin listed without its scheme, or an
+empty list, stops the engine with an error. Still allowlist the hosts your proxy forwards: a page that builds absolute URLs from
 `request.url` (a canonical link, a fetch to the app's own API) builds them on the host the request
 named.
 
@@ -72,9 +78,11 @@ runs the action and renders the page with the result. What holds, and what does 
 
 - The post goes through the action endpoint's checks, in the same code (`createFormPostHandler`):
   Fetch Metadata, then Origin, then the double-submit token; a registered action id only; the
-  reserved fields kept from the action; the 1 MB body limit; the action run in the request's
-  context. A post refused there never reaches the action. The page's `csrf` option decides the
-  checks, whatever `actionHandler` is. A POST to a page without `_action` is the page's own.
+  reserved fields kept from the action; the body limit (`bodyLimit`, 1 MB by default); the action
+  run in the request's context. A post refused there never reaches the action. The page's `csrf`
+  option decides the checks, whatever `actionHandler` is. A POST to a page without `_action` is the
+  page's own, and an urlencoded one over `bodyLimit` is answered 413 before the page reads it, as
+  every body over it is.
 - The render that answers it is the visitor's own: never stored in or served from the ISR cache,
   and sent `private, no-store`. Nothing is set on the visitor's browser to carry the result: no
   cookie, and no Referer is read.

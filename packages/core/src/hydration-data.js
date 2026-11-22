@@ -34,7 +34,7 @@
 // Every read first merges the elements it has not seen yet, so data that
 // arrives with a late boundary is found by the same lookups.
 
-import { isHydrating, _resumeBoundary } from './render.js';
+import { isHydrating, _resumeBoundary, _rowKeyDigest, _rowKeySalt, _installRowEntry } from './render.js';
 import { getCurrentComponent } from './dom.js';
 import { _currentComponent, _installSeedOps, _installStoreSeedOps, _serverStoreKey, __DEV__ } from './reactive.js';
 import { getServerContext, isServerRender } from './server-context.js';
@@ -167,6 +167,9 @@ export function _ownerCounter(frame, root) {
  * once per frame, in creation order. Returns whether the frame took a step
  * (false for a built-in the compiler lowers away), and so has a hydration key
  * of its own.
+ *
+ * Once an app defines a server action, it also places the frame among the
+ * keyed rows (placeInRow, below).
  */
 export function _assignOwnerPath(frame, parent, root) {
   const holder = holderOf(parent, root);
@@ -174,11 +177,13 @@ export function _assignOwnerPath(frame, parent, root) {
   if (frame.Component !== undefined && frame.Component._lowered === true) {
     frame._ownerPath = prefix;
     frame._ownerHolder = holder;
+    if (placeRow !== null) placeRow(frame, parent, null, prefix);
     return false;
   }
   const index = holder._ownerChildren || 0;
   holder._ownerChildren = index + 1;
   frame._ownerPath = formatId(prefix, index);
+  if (placeRow !== null) placeRow(frame, parent, holder, prefix);
   return true;
 }
 
@@ -196,12 +201,201 @@ export function _nextOwnerKey(frame, root) {
   return `${frame ? frame._ownerPath || '' : ''}:${index}`;
 }
 
+// --- Keyed rows ---
+//
+// A useActionState of a server action has an identity its <Form> posts, and
+// a form posted without JavaScript comes back to the instance of that
+// identity alone. A render that answers the post is another render, of data
+// that may have changed since (a teammate added a record above), so inside a
+// keyed list the identity follows the row's key, as React's key path names
+// an element: the keys of the keyed rows around the instance, outermost
+// first, each with its list's place in the component that renders it and
+// how many rows of that list had the same key before it, then the steps from
+// the innermost row down to the instance's component, and its place among
+// that component's. Position counts only below the innermost keyed row, and
+// outside keyed lists, where the identity is the owner path.
+//
+// A keyed row is a member of an array (a reactive child's, a component's, a
+// keyed list's rows) or of an element's children whose key is a string or a
+// finite number: a `.map()` row with a `key`, a <For key> row, a vnode with
+// a key. A key of any other kind (an object, a boolean, NaN) has no stable
+// form from one render to the next, so its row is not a keyed row and the
+// components in it count by position. The renderers enter each row as they
+// reach it (_enterRow, _leaveRow), on the server and while hydrating alike,
+// on the object that counts the components of the frame rendering it.
+//
+// The page carries no key: a key is written as its digest under the render's
+// salt (_rowKeyDigest, as a keyed list's keys comment writes it), and the
+// identity begins with that salt. The render that answers a post compares
+// under the posted identity's salt, and the hydration of a page computes its
+// identities under the page's, which the server writes into the page's data
+// (what-server actions.js).
+
+const isRowKey = (key) => typeof key === 'string' || (typeof key === 'number' && Number.isFinite(key));
+
+// Installed with the keyed rows (_installRowKeys): placeInRow, and readRootRow
+// for a hydration root. An app with no server action carries neither.
+/** @type {((frame: any, parent: any, holder: any, prefix: string) => void) | null} */
+let placeRow = null;
+/** @type {((root: any, container: any) => void) | null} */
+let rootRow = null;
+
+// A frame's place among the keyed rows: `_rowIn`, the innermost keyed row
+// around it, and `_rowPath`, its steps counted from that row. A component at
+// the top of a row (the row is open in the output of the frame counting it,
+// `holder`) counts from the row's start; any other takes its owner path's
+// step under its parent, and a built-in the compiler lowers away (no
+// `holder`) none.
+function placeInRow(frame, parent, holder, prefix) {
+  const row = holder === null ? undefined : holder._row;
+  if (row !== undefined) {
+    frame._rowIn = row;
+    frame._rowPath = formatId('', /** @type {{ index: number }} */ (stepAt(frame._ownerPath, prefix.length)).index - row.base);
+  } else if (parent && parent._rowIn !== undefined) {
+    frame._rowIn = parent._rowIn;
+    frame._rowPath = holder === null ? parent._rowPath : parent._rowPath + frame._ownerPath.slice(prefix.length);
+  }
+}
+
+// An island's root starts from the keyed rows its server wrote around it.
+function readRootRow(root, container) {
+  const row = root._ownerPath[0] !== UNANCHORED ? container.getAttribute('data-what-row') : null;
+  if (row !== null && ROW_PATH.test(row)) {
+    root._rowIn = { written: row };
+    root._rowPath = '';
+  }
+}
+
+// What an island's data-what-row holds: digests, steps and the row marks
+// between them.
+const ROW_PATH = /^[0-9A-Za-z_.-]+$/;
+
 /**
- * @internal The key of the server action's useActionState being made now: its
- * component's owner path and its place among that component's, so it is the
- * same in a server render and in the hydration of what that render made. The
- * <Form> of its dispatch posts it, and a form posted without JavaScript comes
- * back to that one alone. Null in any other client render, or outside a
+ * @internal A keyed row with key `key` of the list `list` begins in the
+ * output of `frame` (undefined: the component running now; null: the root,
+ * counted by `root`). `list` is an object the caller makes for one array or
+ * one element's children, and passes for each of its members with a key:
+ * the first takes the list's place among the lists of that frame's output
+ * (of the row open there, inside one), every one the count of the rows of the
+ * same key before it. A caller that enters only
+ * some of its rows (compiled markup enters the rows it renders components
+ * in) gives the list its rows' keys as `list.keys`, enters it once before the
+ * first row with no key, and passes each row's place in `keys` as `index`.
+ * Returns what _leaveRow puts back once the row is done. A key that is not a
+ * row key (above) enters nothing, and the result is the row open there now,
+ * as it is for a null `list`.
+ */
+export function _enterRow(frame, root, list, key, index) {
+  const holder = holderOf(frame === undefined ? _currentComponent() : frame, root);
+  const outer = holder._row;
+  if (list === null) return outer;
+  // A list in a row of the same frame's output counts among that row's.
+  if (list.n === undefined) {
+    const lists = outer !== undefined ? outer : holder;
+    list.n = lists._ownerLists || 0;
+    lists._ownerLists = list.n + 1;
+  }
+  if (!isRowKey(key)) return outer;
+  let n;
+  if (list.keys !== undefined) n = (list.counts ??= keyCounts(list.keys))[/** @type {number} */ (index)];
+  else {
+    const seen = list.seen ??= new Map();
+    const id = keyId(key);
+    n = seen.get(id) || 0;
+    seen.set(id, n + 1);
+  }
+  let up = outer;
+  let lead = '';
+  if (outer === undefined) {
+    up = holder._rowIn !== undefined ? holder._rowIn : null;
+    lead = up !== null ? holder._rowPath : holder._ownerPath || '';
+  }
+  holder._row = { up, lead, list: list.n, key, n, base: holder._ownerChildren || 0 };
+  return outer;
+}
+
+const keyId = (key) => (typeof key === 'string' ? 's' : 'n') + key;
+
+// For each key of `keys`, how many before it are the same row key.
+function keyCounts(keys) {
+  const seen = new Map();
+  return keys.map((key) => {
+    if (!isRowKey(key)) return 0;
+    const id = keyId(key);
+    const n = seen.get(id) || 0;
+    seen.set(id, n + 1);
+    return n;
+  });
+}
+
+/** @internal The row _enterRow entered in `frame`'s output is done: `saved` is what it returned. */
+export function _leaveRow(frame, root, saved) {
+  holderOf(frame === undefined ? _currentComponent() : frame, root)._row = saved;
+}
+
+/**
+ * @internal An app defines a server action: hydration enters keyed rows from
+ * now on, as the server renderers always do, so its useActionState keys are
+ * the server's (what-server action()).
+ */
+export function _installRowKeys() {
+  placeRow = placeInRow;
+  rootRow = readRootRow;
+  _installRowEntry(_enterRow, _leaveRow);
+}
+
+// `row` and the rows around it, under `salt`. An island's root starts from
+// the path its server wrote (_hydrationRoot).
+function rowPath(row, salt) {
+  let path = '';
+  for (let r = row; r !== null; r = r.up) {
+    if (r.written !== undefined) return r.written + path;
+    path = r.lead + '-' + formatId('', r.list) + _rowKeyDigest(r.key, salt) + formatId('', r.n) + path;
+  }
+  return path;
+}
+
+/**
+ * @internal The keyed rows around the component rendering now and its steps
+ * below the innermost, under `salt`; null outside keyed rows. An island
+ * writes it as data-what-row, for the root it hydrates into to start from.
+ */
+export function _currentRowPath(salt) {
+  const frame = _currentComponent();
+  return frame === null || frame._rowIn === undefined ? null : rowPath(frame._rowIn, salt) + frame._rowPath;
+}
+
+const SALT = /^[0-9A-Za-z_.]{11}$/;
+
+/**
+ * @internal The salt the render running now writes its keyed rows' digests
+ * under: one per render context, a fresh one outside a render.
+ */
+export function _renderSalt() {
+  const ctx = getServerContext();
+  if (ctx === null) return _rowKeySalt();
+  let salt = salts.get(ctx);
+  if (salt === undefined) salts.set(ctx, salt = _rowKeySalt());
+  return salt;
+}
+
+const salts = new WeakMap();
+
+/** @internal The salt an action-state key (_actionStateKey) was made under, or null for one made under none. */
+export function _actionKeySalt(key) {
+  if (typeof key !== 'string' || key.charCodeAt(11) !== 47) return null;
+  const salt = key.slice(0, 11);
+  return SALT.test(salt) ? salt : null;
+}
+
+/**
+ * @internal The identity of the server action's useActionState being made
+ * now (Keyed rows above), as a function of the salt it is written under:
+ * `key(salt)`. `key.salted` says whether it has keyed rows in it, and so
+ * whether the salt matters; a key without one is its component's owner path
+ * and its place among that component's. The same on the server and while
+ * hydrating what the server rendered; under a salt that is not one, a key no
+ * server render makes. Null in any other client render, or outside a
  * component.
  */
 export function _actionStateKey() {
@@ -210,7 +404,17 @@ export function _actionStateKey() {
   const holder = holderOf(frame, null);
   const index = holder._ownerActions || 0;
   holder._ownerActions = index + 1;
-  return `${frame._ownerPath}:${index}`;
+  const positional = `${frame._ownerPath}:${index}`;
+  const row = frame._rowIn;
+  if (row === undefined || positional[0] === UNANCHORED) {
+    const key = () => positional;
+    key.salted = false;
+    return key;
+  }
+  const below = `${frame._rowPath}:${index}`;
+  const key = (salt) => (typeof salt === 'string' && SALT.test(salt) ? `${salt}/${rowPath(row, salt)}${below}` : UNANCHORED + positional);
+  key.salted = true;
+  return key;
 }
 
 // --- Adopting keyless values while hydrating ---
@@ -264,7 +468,9 @@ const OWNER_PATH = /^[0-9A-Za-z]*$/;
  * @internal
  */
 export function _hydrationRoot(container) {
-  return { _ownerPath: anchorPath(container), _ownerChildren: 0 };
+  const root = { _ownerPath: anchorPath(container), _ownerChildren: 0 };
+  if (rootRow !== null) rootRow(root, container);
+  return root;
 }
 
 function anchorPath(container) {
@@ -310,8 +516,11 @@ export function _assignHydrationOwnerPath(ctx, root, key, ordered) {
   if (prefix[0] === UNANCHORED) return 1;
   const step = key && key.startsWith(prefix) ? stepAt(key, prefix.length) : null;
   if (step !== null) {
+    const holder = holderOf(frame, null);
     ctx._ownerPath = key.slice(0, step.end);
-    holderOf(frame, null)._ownerChildren = step.index + 1;
+    holder._ownerChildren = step.index + 1;
+    // Its place among the keyed rows follows the step it took from the key.
+    if (placeRow !== null) placeRow(ctx, frame, holder, prefix);
     return 1;
   }
   if (key !== '' || !ordered) ctx._ownerPath = UNANCHORED + ctx._ownerPath;

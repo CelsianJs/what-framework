@@ -39,7 +39,7 @@
 
 import { h, Fragment } from 'what-core';
 import { _$Island } from 'what-core/render';
-import { isVNode } from 'what-core/internal';
+import { _enterRow, _leaveRow, getServerContext, isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
 import { _afterOpen, _enterSelect, _field, _isDevMode, _leaveSelect, _rawText, _renderOption, _resolveInnerHTML, ElementParts, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
@@ -267,15 +267,23 @@ export function ssrText(v) {
 export function ssrList(list, fn, asArray, keyFn) {
   if (list == null) list = [];
   const m = new Markup('', false, asArray);
-  if (asArray && keyFn && Array.isArray(list)) m.keys = rowKeys(list.map((item) => keyFn(item)));
   if (Array.isArray(list)) {
+    const keys = keyFn ? list.map((item) => keyFn(item)) : null;
+    if (asArray && keys !== null) m.keys = rowKeys(keys);
+    // A keyed list's rows are keyed rows (what-core hydration-data.js
+    // _enterRow): it takes its place among the lists as its first row
+    // renders, and the components a row renders count in that row.
+    const rowList = keys !== null && keys.length > 0 ? { keys } : null;
+    if (rowList !== null) defer(m, new RowEdge(rowList, undefined, 0, null));
     const outer = rows;
     rows = m;
     try {
       for (let i = 0; i < list.length; i++) {
         if (!(i in list)) continue;
+        const at = rowList !== null ? /** @type {any[]} */ (m.p).length : 0;
         const row = fn(list[i], i, list);
         if (row !== WRITTEN) append(m, ssrText(row));
+        if (rowList !== null) keyRow(m, at, rowList, i);
       }
     } finally {
       rows = outer;
@@ -285,6 +293,62 @@ export function ssrList(list, fn, asArray, keyFn) {
     for (let i = 0; i < mapped.length; i++) append(m, ssrText(mapped[i]));
   }
   return finish(m);
+}
+
+// Row `index` of a keyed list, when its markup defers what may render a
+// component (it added parts to `m` from `at` on): between the edges of a
+// keyed row. A row of finished HTML renders no component, and needs none.
+function keyRow(m, at, list, index) {
+  if (/** @type {any[]} */ (m.p).length === at) return;
+  const end = new RowEdge(null, undefined, 0, null);
+  /** @type {any[]} */ (m.p).splice(at, 0, new RowEdge(list, list.keys[index], index, end));
+  defer(m, end);
+}
+
+// The start of a keyed row of `list` (`key`, its `index` in the list's keys,
+// and `end`, its end), the start of the list itself (no key, no end), or a
+// row's end (no list), in compiled markup (what-core hydration-data.js
+// _enterRow). `edge(frame, root)` runs it in the output of `frame`
+// (undefined: the component rendering now): the stream calls it with the
+// frame it renders the markup in, and a synchronous renderer reaches it
+// through render().
+class RowEdge extends Html {
+  constructor(list, key, index, end) {
+    super();
+    this.list = list;
+    this.key = key;
+    this.index = index;
+    this.end = end;
+    this.saved = undefined;
+    this.entered = false;
+  }
+
+  edge(frame, root) {
+    if (this.list === null) {
+      if (!this.entered) return;
+      this.entered = false;
+      _leaveRow(frame, root, this.saved);
+      return;
+    }
+    const saved = _enterRow(frame, root, this.list, this.key, this.index);
+    if (this.end !== null) {
+      this.end.saved = saved;
+      this.end.entered = true;
+    }
+  }
+
+  render() {
+    this.edge(undefined, getServerContext());
+    return '';
+  }
+
+  parts() {
+    return '';
+  }
+
+  childNs(ns) {
+    return ns;
+  }
 }
 
 /**

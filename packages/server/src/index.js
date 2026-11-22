@@ -7,6 +7,8 @@ import {
   _beginComponentSSR,
   _endComponentSSR,
   _mapArrayToArray,
+  _enterRow,
+  _leaveRow,
   getServerContext,
   runWithServerContext,
   endHeadCollection,
@@ -154,9 +156,8 @@ function restoreKeys(saved) {
 }
 
 function renderArray(rows, keys) {
-  let html = out(ARRAY_OPEN) + out(keys);
-  for (let i = 0; i < rows.length; i++) html += _renderHydratable(rows[i]);
-  return html + out(ARRAY_CLOSE);
+  const html = out(ARRAY_OPEN) + out(keys);
+  return html + renderChildren(rows, _renderHydratable) + out(ARRAY_CLOSE);
 }
 
 // What a reactive child returned: an array is the region's rows, written with
@@ -302,10 +303,32 @@ function optionContent(props, children, render) {
   return rawInner != null ? String(rawInner) : renderElementChildren('option', props, children, render, null);
 }
 
+// The members of an array or of an element's children, each with a key
+// (a keyed list's, or a vnode's) as a keyed row (what-core hydration-data.js
+// _enterRow), in the frame rendering them.
 function renderChildren(children, render) {
   if (!children) return '';
+  const keys = children._keys;
   let out = '';
-  for (let i = 0; i < children.length; i++) out += render(children[i]);
+  /** @type {object | null} */
+  let list = null;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
+    if (key == null && keys === undefined) {
+      out += render(child);
+      continue;
+    }
+    if (list === null) list = {};
+    // A render always runs in a context: the root that counts its components.
+    const root = /** @type {object} */ (getServerContext());
+    const saved = _enterRow(undefined, root, list, key);
+    try {
+      out += render(child);
+    } finally {
+      _leaveRow(undefined, root, saved);
+    }
+  }
   return out;
 }
 

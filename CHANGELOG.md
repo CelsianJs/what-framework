@@ -251,7 +251,10 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   public origins to cache: a request for any other host renders uncached, and
   a regeneration renders exactly those. The full-stack starter reads them from
   `PUBLIC_ORIGIN`. Without it, a regeneration prefers the origins visitors
-  read most recently.
+  read most recently. `createCacheEngine` throws on an origin without a scheme
+  and on an empty `origins`, naming the value, and the starter stops on a
+  `PUBLIC_ORIGIN` that names no origin. *Migration:* write full origins
+  (`'https://shop.example'`), or leave `origins` out.
 - **A Host header that is not a host gets 400** from `toNodeListener`,
   `whatMiddleware`, `nodeActionMiddleware` and the Vura handler. *Migration:*
   fix a proxy that forwards a malformed Host.
@@ -485,6 +488,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   successful save can go to the record. A custom server uses
   `createFormPostHandler()` ([docs/DATA.md](docs/DATA.md), "An edit form with
   server validation"). The full-stack starter's `/edit/:slug` page uses it.
+  Inside a keyed list (`<For key>`, `.map()` with `key`) a posted result
+  follows its row's key, so it comes back to its own record when rows were
+  added, removed or reordered in between; unkeyed repeated forms are matched
+  by position. Row keys never appear in the page: the form posts a digest
+  under the render's salt. `bodyLimit` (default 1 MB) on
+  `createRequestHandler`, `nodeActionMiddleware` and the action endpoint sets
+  the largest body read; a page post over it gets an HTML 413.
 - **Router.** Route `preload` with a `data` prop, `navigate(to,
   { flushSync })`, and `route.isNavigating` from the moment a navigation
   starts, including one started inside a transition.
@@ -504,7 +514,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
   `ERR_QUERY_OUTSIDE_RENDER`. The production build's catalogue keeps each
   code's severity and message and leaves the fix and example to `what_fix` and
-  docs/ERRORS.md (5.3 KB gzip instead of 21.8 KB).
+  docs/ERRORS.md (5.3 KB gzip instead of 21.0 KB).
 - **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
   Suspense and action events) and `what_why` (why a run, a skipped effect or a
   mount happened, back to the write or landing). Async flight details and
@@ -540,7 +550,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   of one session. The gate judges each operation by its throughput, median
   call and 95th-percentile call (`WHAT_BENCH_TOLERANCE_TAIL`, default 0.25),
   so a change that slows one call in twenty fails it. Every package declares
-  `engines.node: ">=20"`.
+  `engines.node: ">=20"`. The gate re-runs once and fails only an operation
+  that missed on both attempts, and each benchmark runs its queued effects
+  after it is measured, so its warm-up measures that operation alone.
 
 ### Fixed
 
@@ -583,7 +595,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   are skipped, and a validated `:authority` is the host when Host is absent.
   An HTTP/2 request whose Host and `:authority` differ gets 400.
   `ERR_REDIRECT_CYCLE` reports route patterns (`/verify/:token`), never the
-  visitor's paths, query or fragment.
+  visitor's paths, query or fragment. `what dev`'s HMR socket accepts only
+  loopback, `--host` and `allowedHosts` origins, not any IP address.
 - **Form data (security).** No-JS and enhanced form fields such as
   `constructor` and `__proto__` arrive as own fields. ISR loader `query`
   objects are null-prototype. A malformed cookie no longer fails every page. A
@@ -593,7 +606,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   visitors; a repeated cookie name counts once, with its first value. A stored
   ISR render sees the URL and params of its key: a trailing slash is dropped,
   and HEAD renders as GET. A posted `_state` is read as plain values: no
-  member named `toString` or `valueOf` survives.
+  member named `toString` or `valueOf` survives. ISR stores and serves only
+  GET and HEAD renders: a POST to a cached route renders `private, no-store`
+  and is never stored. A request for an origin outside `origins` is answered
+  `private, no-store`. Behind a TLS proxy, the request URL, the CSRF check and
+  the ISR origin all take the scheme from `X-Forwarded-Proto`.
 - **Keyed hydration.** A server row is adopted only as its own key's row;
   rows in another order are moved and the rest rebuilt, with a report, so
   what was typed into a row stays with its key. A differing text takes exactly
@@ -615,6 +632,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   and a disabled first option group are untouched). Handlers see the edits
   made after hydration; a file chosen before it stays in the form and submits.
   On the client a `<noscript>`'s content is neither rendered nor hydrated.
+  `onMount` and `useEffect` after hydration see the user's edits, so a
+  dependent field can be updated from them there. A form field named after a
+  form member (`reset`, `elements`, …) no longer breaks hydration or submit.
+  Hydrating a controlled select is linear in its options again, an untouched
+  field is not copied to decide whether it was edited, and the copies run no
+  element constructors and load no images.
 - **Async values.** `settled()` waits for the reveal's effects and for
   streams, and never spins on a synchronous refetch. `refresh()` settles when
   the function answers at once or throws. Transitions that reach one binding
@@ -664,7 +687,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   value, and an emptied keyed list of options; an uncontrolled select's
   default follows options that arrive later, a streamed `<Suspense>` included,
   until the user chooses. Style objects set CSS custom properties (`--accent`)
-  on every path.
+  on every path. Changing an option's label no longer re-selects a controlled
+  select.
 - **Data.** A fetcher that throws reaches the `<ErrorBoundary>`. A fetch that
   lands `undefined` is data. A superseded invalidation answers when its
   replacement lands. The query hooks and a `query()` on one key no longer
@@ -679,7 +703,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   page reads its nearest `<Router>`, its hooks and the context its parents
   provide after an `await`, also in a nested or sibling Router and in
   concurrent streams. A redirect loop reports `ERR_REDIRECT_CYCLE` with the
-  URLs it went through and the routes whose guards sent it on.
+  URLs it went through and the routes whose guards sent it on. A `<Router>`
+  that unmounts removes only its own action-redirect registration.
 - **Compiler.** The callee analysis is iterative, so a module of thousands of
   chained helpers or aliases compiles. A getter read through a local alias is
   reactive, and a member replaced through a destructuring or a `for…of` loop
@@ -748,6 +773,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   marking hydration repeats for controlled selects (about 160 B gzip), and
   browser bundles leave out the lookup a second copy adopts from a server
   render.
+- In development, an effect flush no longer allocates a `Map` and a `Set` for
+  its infinite-loop report.
 
 ## [0.14.0] - 2026-10-13
 

@@ -103,14 +103,26 @@ function hostAllowance(host, config, flag = getFlag('--allowed-hosts', '')) {
 
 // WS handshakes are exempt from the same-origin policy, so any page the developer
 // browses could otherwise subscribe to the HMR stream (a live feed of edited file
-// paths). A browser's Origin is answered as its Host would be (`hostAllowed`),
-// at this server's port. Non-browser clients send no Origin at all; browsers
-// always do.
-function isAllowedOrigin(origin, hostAllowed, port) {
+// paths), and the Origin is the only check. It is narrower than the Host's: an
+// IP literal is a safe Host (no other site can rebind it), but any site can
+// serve its page from an IP of its own. Allowed, at this server's port:
+// loopback (localhost, *.localhost, 127.0.0.0/8, [::1]), the exact --host, and
+// the config's `allowedHosts` names with --allowed-hosts (true: any origin).
+// Non-browser clients send no Origin at all; browsers always do.
+function originAllowance(host, config, flag = getFlag('--allowed-hosts', '')) {
+  if (config.allowedHosts === true || flag === 'true') return () => true;
+  const names = new Set([host, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
+    .map((name) => String(name).trim().toLowerCase()).filter(Boolean));
+  return (hostname) => names.has(hostname) || hostname === 'localhost' || hostname.endsWith('.localhost')
+    || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+}
+
+function isAllowedOrigin(origin, originAllowed, port) {
   if (!origin) return true;
   try {
     const url = new URL(origin);
-    return (url.port || (url.protocol === 'https:' ? '443' : '80')) === String(port) && hostAllowed(url.host);
+    return (url.protocol === 'http:' || url.protocol === 'https:')
+      && (url.port || (url.protocol === 'https:' ? '443' : '80')) === String(port) && originAllowed(url.hostname.toLowerCase());
   } catch {
     return false;
   }
@@ -118,13 +130,13 @@ function isAllowedOrigin(origin, hostAllowed, port) {
 
 // Simple WebSocket implementation using native Node.js APIs (no external deps)
 class SimpleWebSocketServer {
-  constructor({ server, hostAllowed, port }) {
+  constructor({ server, originAllowed, port }) {
     this.clients = new Set();
     server.on('upgrade', (req, socket, _head) => {
       if (req.headers.upgrade?.toLowerCase() !== 'websocket') return;
 
       const key = req.headers['sec-websocket-key'];
-      if (!key || !isAllowedOrigin(req.headers.origin, hostAllowed, port)) {
+      if (!key || !isAllowedOrigin(req.headers.origin, originAllowed, port)) {
         socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;
@@ -298,7 +310,7 @@ function isMainModule() {
 
 if (isMainModule()) main();
 
-export { safePath, isAllowedOrigin, hostAllowance, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
+export { safePath, isAllowedOrigin, hostAllowance, originAllowance, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
 
 // --- Dev Server ---
 
@@ -486,7 +498,7 @@ async function dev() {
   });
 
   // Initialize WebSocket server
-  const wss = new SimpleWebSocketServer({ server, hostAllowed, port });
+  const wss = new SimpleWebSocketServer({ server, originAllowed: originAllowance(host, config), port });
   wss.on('connection', (ws) => {
     wsClients.add(ws);
     ws.onclose = () => wsClients.delete(ws);

@@ -9,10 +9,38 @@
 import { handleActionRequest } from './actions.js';
 import { addField } from './fields.js';
 import { runInActionContext } from './context.js';
-import { isHost, nodeRequestHost, requestUrl } from './request-url.js';
+import { isHost, nodeRequestHost, requestOrigin, requestScheme, requestUrl } from './request-url.js';
 
 const DEFAULT_BASE_PATH = '/__what_action';
-export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB, the default `bodyLimit`
+
+/**
+ * The most bytes a request body the handler reads may hold: `bodyLimit`
+ * (a positive whole number of bytes), MAX_BODY_BYTES by default. A body over
+ * it is answered 413 before anything parses it.
+ */
+export function bodyLimitOf(options) {
+  const limit = options && options.bodyLimit;
+  if (limit === undefined) return MAX_BODY_BYTES;
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new TypeError(`[what-server] \`bodyLimit\` is ${JSON.stringify(limit)}: give the most bytes a request body may hold, a positive whole number (default ${MAX_BODY_BYTES}).`);
+  }
+  return limit;
+}
+
+/**
+ * The 413 for a body over `limit`: an HTML page for a browser's form post (a
+ * request that accepts HTML), so a visitor without JavaScript reads why, and
+ * JSON for any other caller.
+ */
+export function tooLargeResponse(headers, limit) {
+  const accept = String((headers && (typeof headers.get === 'function' ? headers.get('accept') : headers.accept)) || '');
+  if (accept.includes('text/html')) {
+    return new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Too large</title></head><body><h1>413 — Too large</h1><p>What you sent is over the ${limit} bytes this site accepts in one request. Go back and shorten it.</p></body></html>`,
+      { status: 413, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'private, no-store' } });
+  }
+  return new Response(JSON.stringify({ message: 'Payload too large' }), { status: 413, headers: { 'content-type': 'application/json' } });
+}
 
 function lowerHeaders(headers) {
   if (!headers) return {};
@@ -122,39 +150,11 @@ export function requestSite(headers, url, trustedOrigins) {
   // "null" is an opaque origin: a sandboxed frame, a data: URL, a privacy
   // redirect. None of them is this site.
   if (origin === 'null') return 'cross';
-  const target = targetOrigin(headers, url);
+  const target = requestOrigin(headers, url);
   try {
     return target !== null && new URL(origin).origin === target ? 'same' : 'cross';
   } catch {
     return 'cross';
-  }
-}
-
-// The origin a request was sent to, scheme included: an https page posting to
-// an http host is another origin. The host is the Host header's, else the
-// URL's. The scheme is the one a proxy in front reports in X-Forwarded-Proto,
-// else the request URL's, which the adapter builds from what it knows of the
-// connection (a TLS socket, the platform's own URL); a bare path says http.
-// X-Forwarded-Proto is believed without configuration: a page on another site
-// cannot set it on a visitor's request (a form cannot set headers, and a
-// fetch that sets one is preflighted), so only the proxy or the sender itself
-// can, and neither is a cross-site request. Behind a TLS proxy that does not
-// send it, the server sees http: have the proxy send it, or list the https
-// origin in `trustedOrigins`. Null when no host is named.
-function targetOrigin(headers, url) {
-  /** @type {URL | null} */
-  let parsed = null;
-  try {
-    parsed = new URL(String(url));
-  } catch { /* a path: no scheme or host of its own */ }
-  const host = headers.host || (parsed && parsed.host);
-  if (!host || !isHost(host)) return null;
-  const forwarded = String(headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-  const scheme = forwarded === 'https' || forwarded === 'http' ? forwarded : parsed && parsed.protocol === 'https:' ? 'https' : 'http';
-  try {
-    return new URL(`${scheme}://${host}`).origin;
-  } catch {
-    return null;
   }
 }
 
@@ -317,7 +317,7 @@ function requestOf(reqLike, method) {
   const headers = lowerHeaders(reqLike.headers);
   const target = typeof reqLike.url === 'string' && reqLike.url ? reqLike.url : '/';
   // A Host that is not a host (request-url.js) is this server's own.
-  let url = target.startsWith('/') ? requestUrl('http', isHost(headers.host) ? headers.host : 'localhost', target) : null;
+  let url = target.startsWith('/') ? requestUrl(requestScheme(headers, 'http'), isHost(headers.host) ? headers.host : 'localhost', target) : null;
   if (url === null) {
     try {
       url = new URL(target.startsWith('/') ? `http://localhost${target}` : target);
@@ -424,6 +424,7 @@ export function createFormPostHandler(options = {}) {
 
 export function nodeActionMiddleware(options = {}) {
   const basePath = options.basePath || DEFAULT_BASE_PATH;
+  const limit = bodyLimitOf(options);
   const handle = createActionHandler(options);
 
   return async function middleware(req, res, next) {
@@ -434,7 +435,7 @@ export function nodeActionMiddleware(options = {}) {
       return next ? next() : undefined;
     }
     try {
-      await answerAction(req, res, handle, target.slice(path.length));
+      await answerAction(req, res, handle, target.slice(path.length), limit);
     } catch (err) {
       console.error('[what] Action request failed:', err);
       if (res.headersSent) {
@@ -450,10 +451,10 @@ export function nodeActionMiddleware(options = {}) {
 // One action request the middleware matched, `search` its raw query. The
 // Request the action sees (getRequest()) is this connection's: its scheme
 // (TLS or not), its Host header, and the endpoint's path.
-async function answerAction(req, res, handle, search) {
+async function answerAction(req, res, handle, search, limit) {
   let body;
   try {
-    const raw = await readRawBody(req);
+    const raw = await readRawBody(req, limit);
     body = parseActionBody(raw, req.headers['content-type'] || '');
   } catch (err) {
     res.writeHead(err.code === 'BODY_TOO_LARGE' ? 413 : 400, { 'content-type': 'application/json' });
@@ -461,7 +462,7 @@ async function answerAction(req, res, handle, search) {
     return;
   }
   const query = Object.fromEntries(new URLSearchParams(search));
-  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', nodeRequestHost(req.headers), req.url);
+  const url = requestUrl(requestScheme(req.headers, req.socket && req.socket.encrypted ? 'https' : 'http'), nodeRequestHost(req.headers), req.url);
   if (url === null) {
     res.writeHead(400, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ message: 'Bad Request' }));
@@ -484,8 +485,8 @@ export function parseActionBody(raw, contentType) {
 }
 
 /**
- * Read a Web Fetch `Request` body as text with the same MAX_BODY_BYTES cap the
- * Node middleware enforces. Used by the adapter/edge entry points (Vercel /
+ * Read a Web Fetch `Request` body as text with the cap the Node middleware
+ * enforces (`bodyLimit`). Used by the adapter/edge entry points (Vercel /
  * Cloudflare / Node-adapter) so all three share one DoS guard.
  *
  * Returns { raw } on success or { tooLarge: true } when the cap is exceeded —
@@ -528,13 +529,13 @@ export async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
   return { raw: Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8') };
 }
 
-function readRawBody(req) {
+function readRawBody(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         /** @type {Error & { code?: string }} */
         const e = new Error('Body too large');
         e.code = 'BODY_TOO_LARGE';
@@ -556,17 +557,13 @@ function readRawBody(req) {
 // const handler = fetchActionHandler({ getCsrfToken }); addEventListener('fetch', e => e.respondWith(handler(e.request)))
 
 export function fetchActionHandler(options = {}) {
+  const limit = bodyLimitOf(options);
   const handle = createActionHandler(options);
   return async function (request) {
     let body = {};
     try {
-      const read = await readFetchBodyCapped(request);
-      if (read.tooLarge) {
-        return new Response(JSON.stringify({ message: 'Payload too large' }), {
-          status: 413,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
+      const read = await readFetchBodyCapped(request, limit);
+      if (read.tooLarge) return tooLargeResponse(request.headers, limit);
       body = parseActionBody(read.raw, request.headers.get('content-type') || '');
     } catch {
       body = {};

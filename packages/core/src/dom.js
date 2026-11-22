@@ -484,13 +484,16 @@ function applyProps(el, newProps, oldProps, isSvg) {
 export function _setFieldProp(el, key, value) {
   const tag = el.tagName;
   if (tag === 'OPTION') {
-    // Its value names it: a select a value controls selects again.
+    // Its value names it: a select a value controls selects again when the
+    // value changed, and after its default changed (_keepSelection).
     if (key === 'value') {
       if (value == null) el.removeAttribute('value');
       else el.value = value;
-    } else if (key === 'selected' || key === 'defaultSelected') el.defaultSelected = !!value;
-    else return false;
-    _keepSelection(el);
+      _optionsChanged(el);
+    } else if (key === 'selected' || key === 'defaultSelected') {
+      el.defaultSelected = !!value;
+      _keepSelection(el);
+    } else return false;
   } else if (tag === 'INPUT' && key === 'checked') {
     const on = value == null ? undefined : !!value;
     if (el._$checked !== on) el.checked = (el._$checked = on) === true;
@@ -500,7 +503,7 @@ export function _setFieldProp(el, key, value) {
     // in its group, a radio a prop controls among them: that one is checked
     // again.
     if (value && el.type === 'radio' && el._$checked === undefined && el.form) {
-      for (const other of el.form.elements) if (other._$checked && other.name === el.name) other.checked = true;
+      for (const other of _formMember(el.form, 'elements')) if (other._$checked && other.name === el.name) other.checked = true;
     }
   } else if ((key !== 'value' && key !== 'defaultValue')
     || (tag === 'INPUT' ? ATTRIBUTE_VALUE_TYPES.has(el.type) : tag !== 'TEXTAREA' && tag !== 'SELECT')) {
@@ -534,10 +537,13 @@ export function _setSelectValue(el, value) {
 // a single select then shows none, as unselecting the last option of one
 // would select its first). Whether its options were there to name.
 function markOptions(el, value, prop) {
-  const { options } = el;
-  const values = [...options].map((option) => option.value);
+  const options = [...el.options];
+  const values = options.map((option) => option.value);
+  el._$marked = [options, values];
   const chosen = selectedOptions(values, value);
-  for (let i = 0; i < options.length; i++) options[i][prop] = chosen[i];
+  // Only the options whose mark changes: each write runs the select's
+  // selectedness algorithm over all of them.
+  for (let i = 0; i < options.length; i++) if (options[i][prop] !== chosen[i]) options[i][prop] = chosen[i];
   if (prop === 'selected' && !el.multiple && !chosen.includes(true)) el.selectedIndex = -1;
   return values.length > 0 && [value].flat().every((v) => values.includes(String(v)));
 }
@@ -551,17 +557,51 @@ function markOptions(el, value, prop) {
 // default.
 export function _keepSelection(el) {
   const select = el.closest('select');
-  if (select !== null) follow(select);
+  if (select !== null) refollow(select, true);
 }
 
 /**
  * A region, a list or a text write changed the options under `parent` (a
- * select, an optgroup or an option): its select selects them again.
+ * select, an optgroup or an option), or an option's value was written: its
+ * select selects them again when its option values changed (other options,
+ * or another value of one), and leaves what it shows alone otherwise, so a
+ * label written in place of another keeps what the user chose.
  */
 function _optionsChanged(parent) {
   const tag = parent.localName;
   const select = tag === 'select' ? parent : tag === 'optgroup' || tag === 'option' ? parent.closest('select') : null;
-  if (select !== null) follow(select);
+  if (select !== null) refollow(select, false);
+}
+
+// A select follows its options again (`always`, or when their values
+// changed): now, or, while a hydration walk claims them one by one, once
+// when the walk is done, so hydrating a select is linear in its options.
+function refollow(select, always) {
+  if (select._$refollow !== undefined) {
+    select._$refollow ||= always;
+    return;
+  }
+  select._$refollow = always;
+  const run = () => {
+    const now = select._$refollow;
+    select._$refollow = undefined;
+    if (now || optionValuesChanged(select)) follow(select);
+  };
+  if (!_afterWalk(run)) run();
+}
+
+// Whether `select` has other options, or other values of them, than the ones
+// it marked last (markOptions).
+function optionValuesChanged(select) {
+  const marked = select._$marked;
+  if (marked === undefined) return true;
+  const [options, values] = marked;
+  const now = select.options;
+  if (now.length !== options.length) return true;
+  for (let i = 0; i < options.length; i++) {
+    if (now[i] !== options[i] || now[i].value !== values[i]) return true;
+  }
+  return false;
 }
 
 // A select shows what its value names, else, until the user changes what it
@@ -615,12 +655,18 @@ function setSelectDefault(el, value) {
 // A field the user changed between the first paint and hydration keeps what
 // they left in it, controlled or not, and no event is dispatched for it: the
 // handlers see the edits made after hydration. Released React does the same
-// (react-dom 19.3: hydration leaves the live value alone and dispatches
-// nothing). A value the browser restored on a history navigation looks
+// for every field but a textarea (react-dom 19.3 leaves the live value alone
+// and dispatches nothing, and puts a textarea back to the server's text). The
+// fields show the user's values before the hydration's mount callbacks run
+// (render.js walkDone). A value the browser restored on a history navigation looks
 // exactly like an edit, so replaying one would run a handler the user never
 // triggered. A field is changed when what it shows is not what the same
-// markup shows untouched (the server wrote what it showed there), which the
-// browser's own reset algorithm gives on a copy: its value, its checkedness,
+// markup shows untouched (the server wrote what it showed there). An input
+// or a textarea that shows exactly what its markup says (its value attribute
+// or text, its checked attribute) is untouched: what it shows is a value the
+// browser kept, and the same markup shows it untouched. Any other, and every
+// select, is compared with the browser's own reset algorithm run on a copy:
+// its value (a range at its midpoint, a color at #000000), its checkedness,
 // or the options a reset selects. A controlled field's prop still counts as
 // written, so a write of the same value leaves the user's change, and any
 // other value replaces it. A file input keeps the files chosen in it:
@@ -638,31 +684,63 @@ export function _changedFields(el, out, seen) {
     if (changed !== null) out.push(changed);
     return;
   }
-  const group = el.form !== null ? el.form.elements : el.ownerDocument.getElementsByName(el.name);
+  const group = el.form !== null ? _formMember(el.form, 'elements') : el.ownerDocument.getElementsByName(el.name);
   const radios = [];
   for (const radio of group) {
     if (radio.type !== 'radio' || radio.name !== el.name || radio.form !== el.form || seen.has(radio)) continue;
     seen.add(radio);
     radios.push(radio);
   }
-  if (radios.length === 0) return;
+  if (radios.length === 0 || radios.every((radio) => radio.checked === radio.hasAttribute('checked'))) return;
   const copies = untouched(radios);
   radios.forEach((radio, i) => { if (radio.checked !== copies[i].checked) out.push([radio, radio.checked]); });
 }
 
 // What `els` show untouched: copies of them, reset by the browser in a form
 // of their own (a radio group resets together, so the last `checked` wins).
+// A copy is made from the field's markup alone (copyOf), so it runs no
+// customized element's constructor and loads no image: the reset needs a
+// form in a document with a browsing context, where a clone would do both.
 function untouched(els) {
-  const form = els[0].ownerDocument.createElement('form');
-  const copies = els.map((el) => form.appendChild(el.cloneNode(true)));
-  form.reset();
+  const doc = els[0].ownerDocument;
+  const form = doc.createElement('form');
+  const copies = els.map((el) => copyOf(el, doc));
+  _formMember(form, 'append')(...copies);
+  _formMember(form, 'reset')();
   return copies;
 }
 
+// An element of `el`'s tag with its attributes but `is` (a customized
+// built-in is decided when the element is made); for a textarea its text,
+// for a select its options, each with its attributes and text, in their
+// groups.
+function copyOf(el, doc) {
+  const copy = doc.createElement(el.localName);
+  for (const name of el.getAttributeNames()) if (name !== 'is') copy.setAttribute(name, el.getAttribute(name));
+  if (el.localName === 'textarea') copy.textContent = el.defaultValue;
+  else if (el.localName === 'select') {
+    let group = null;
+    let groupCopy = null;
+    for (const option of el.options) {
+      const parent = option.parentElement;
+      let into = copy;
+      if (parent !== el && parent !== null && parent.localName === 'optgroup') {
+        if (parent !== group) {
+          group = parent;
+          groupCopy = copy.appendChild(copyOf(parent, doc));
+        }
+        into = groupCopy;
+      }
+      into.appendChild(copyOf(option, doc)).textContent = option.text;
+    }
+  }
+  return copy;
+}
+
 function changedField(el) {
-  if (el.type === 'file') return null;
-  const [copy] = untouched([el]);
+  if (el.type === 'file' || el.type === 'image') return null;
   if (el.tagName === 'SELECT') {
+    const [copy] = untouched([el]);
     const options = [...el.options];
     const live = options.map((option) => option.selected);
     const reset = copy.options;
@@ -670,8 +748,12 @@ function changedField(el) {
     el._$chosen = true;
     return [el, options, live];
   }
-  if (el.type === 'checkbox') return el.checked !== copy.checked ? [el, el.checked] : null;
-  return el.value !== copy.value ? [el, el.value] : null;
+  if (el.type === 'checkbox') {
+    if (el.checked === el.hasAttribute('checked')) return null;
+    return el.checked !== untouched([el])[0].checked ? [el, el.checked] : null;
+  }
+  if (el.value === (el.tagName === 'TEXTAREA' ? el.defaultValue : el.getAttribute('value') ?? '')) return null;
+  return el.value !== untouched([el])[0].value ? [el, el.value] : null;
 }
 
 /** The fields a hydration claimed changed (_changedFields) show what they showed. */
@@ -866,21 +948,31 @@ function setProp(el, key, value, isSvg) {
   }
 }
 
+/**
+ * @internal A member of a form, read from its prototype; a method comes back
+ * bound to the form. HTMLFormElement is [LegacyOverrideBuiltIns]: a control
+ * whose name or id is a member's (`reset`, `elements`, `action`, `append`,
+ * `dispatchEvent`, any of them) stands in for that member on the form itself,
+ * so every read of a form's member in the framework goes through here.
+ */
+export function _formMember(form, name) {
+  const value = Reflect.get(Object.getPrototypeOf(form), name, form);
+  return typeof value === 'function' ? value.bind(form) : value;
+}
+
 // A form's reset after its action succeeded (what-server's <Form>), as React 19
 // resets one: its uncontrolled fields go back to their defaults, and a
 // controlled field (a value or checked prop) keeps the value its prop holds.
-// The form's own reset and elements, read from its prototype: a control named
-// "reset" or "elements" shadows them on the form itself. A write that throws
-// (a control's own setter, a custom element's formResetCallback) goes to
-// `onError`, and every other field is still restored.
+// A write that throws (a control's own setter, a custom element's
+// formResetCallback) goes to `onError`, and every other field is still
+// restored.
 export function _resetForm(form, onError) {
-  const proto = Object.getPrototypeOf(form);
-  const fields = [...Reflect.get(proto, 'elements', form)];
+  const fields = [..._formMember(form, 'elements')];
   const held = fields.map((el) => [el._$value, el._$checked]);
   const attempt = (write) => {
     try { write(); } catch (error) { onError(error); }
   };
-  attempt(() => proto.reset.call(form));
+  attempt(_formMember(form, 'reset'));
   fields.forEach((el, i) => {
     const [value, checked] = held[i];
     if (value !== undefined) attempt(() => (el.tagName === 'SELECT' ? _setSelectValue(el, value) : (el.value = value)));

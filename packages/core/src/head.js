@@ -130,7 +130,7 @@ function textOf(value) {
 // Markup is compiled JSX only when one of what-server's brand checks
 // recognises it (packages/server/src/compiled.js keeps them in this
 // process-wide set), so an object that merely looks like markup is a child.
-const HTML_CHECKS = Symbol.for('what-server.html.v2');
+const HTML_CHECKS = Symbol.for('what-server.html.v3');
 
 function isServerMarkup(value) {
   const checks = /** @type {any} */ (globalThis)[HTML_CHECKS];

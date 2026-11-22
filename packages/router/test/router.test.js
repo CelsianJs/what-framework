@@ -430,6 +430,26 @@ describe('Router middleware', () => {
     }
   });
 
+  // A server action that redirects navigates through the mounted Router's
+  // registration. Unmounting a Router removes its own registration only:
+  // another copy of what-router mounted since (a second bundle) keeps its
+  // own, and its redirects keep navigating instead of loading the page.
+  it('takes away only its own navigate registration when it unmounts', async () => {
+    const NAVIGATOR = Symbol.for('what.router.navigate.v1');
+    const unmount = mount(h(Router, { routes: [{ path: '/', component: () => h('p', null, 'home') }] }), getContainer());
+    await flush();
+    assert.equal(typeof globalThis[NAVIGATOR], 'function');
+    const other = () => {};
+    globalThis[NAVIGATOR] = other;
+    unmount();
+    assert.equal(globalThis[NAVIGATOR], other, 'the other copy\'s registration stays');
+    delete globalThis[NAVIGATOR];
+    const again = mount(h(Router, { routes: [{ path: '/', component: () => h('p', null, 'home') }] }), getContainer());
+    await flush();
+    again();
+    assert.equal(globalThis[NAVIGATOR], undefined, 'its own goes');
+  });
+
   it('should render 403 when middleware returns false', async () => {
     const container = getContainer();
     history.pushState(null, '', '/protected');

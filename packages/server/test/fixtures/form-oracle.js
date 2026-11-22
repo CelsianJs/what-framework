@@ -31,7 +31,16 @@
 //     hydration path;
 //   - a select's options added after mount, at a later tick, by a <For> and
 //     by a <Show> (the select's own defaultValue aside: it names the default
-//     options there are when it is written, as React's does).
+//     options there are when it is written, as React's does);
+//   - a select whose options' labels change after the first edit, their
+//     values staying: what it shows stays, the user's early choice included;
+//   - a range input, whose untouched value (the midpoint, with no value
+//     attribute) is not its default attribute: hydration leaves an untouched
+//     one clean, so a later default still moves it;
+//   - fields named after, or given the id of, a member of their form
+//     (`reset`, `elements`, `append`, ...): HTMLFormElement's named
+//     properties stand in for its members ([LegacyOverrideBuiltIns]), in a
+//     browser (JSDOM does not shadow them).
 //
 // Ground truth before hydration is the browser's own parsing of the
 // equivalent static HTML (staticHtml): the markup a page would carry if it
@@ -58,9 +67,10 @@
 //     which is what the runner calls.
 //   - A field the user changed before hydration keeps what they left in it,
 //     controlled or not, and hydration dispatches no input or change event,
-//     for it or any other field: released react-dom (19.3, installed here)
-//     leaves the live value and selection alone while hydrating and
-//     dispatches nothing. The prop of a controlled field still counts as
+//     for it or any other field: released react-dom (19.3) leaves the live
+//     value and selection alone while hydrating and dispatches nothing, for
+//     every field but a textarea, which it puts back to the server's text
+//     (What keeps the textarea's draft too). The prop of a controlled field still counts as
 //     written, so the model's state after hydration is its state after mount
 //     and the same edit.
 // Where React documents no behaviour, the model states What's own rules, as
@@ -86,6 +96,17 @@
 
 export const NAME = 'f';
 const RADIOS = ['a', 'b', 'c'];
+
+// The members of a form a field's name or id stands in for.
+export const MEMBERS = ['reset', 'elements', 'append', 'submit', 'requestSubmit', 'action', 'method', 'length', 'name'];
+
+/** The name `shape`'s field submits under. */
+export const nameOf = (shape) => shape.name ?? NAME;
+
+// The form's own querySelector, which a field named "querySelector" would
+// stand in for.
+const find = (form, selector) => Element.prototype.querySelector.call(form, selector);
+const findAll = (form, selector) => Element.prototype.querySelectorAll.call(form, selector);
 
 export const OPTION_SETS = {
   explicit: [{ value: 'a', text: 'A' }, { value: 'b', text: 'B' }, { value: 'c', text: 'C' }],
@@ -122,13 +143,14 @@ export function shapes() {
       for (const valueFirst of dflt === undefined || dflt === 'none' ? [false] : [false, true]) fn(dflt, valueFirst);
     }
   };
-  for (const control of ['text', 'textarea']) {
-    each([undefined, 'D'], (dflt, valueFirst) => {
+  for (const control of ['text', 'textarea', 'range']) {
+    const [d, c, w] = control === 'range' ? ['20', '70', ['30', '90', null, '10', undefined]] : ['D', 'C', ['W1', 'W2', null, 'W4', undefined]];
+    each([undefined, d], (dflt, valueFirst) => {
       const base = { control, dflt, valueFirst };
       add({ ...base, binding: 'none' });
-      for (const initial of ['C', '', 0, null, undefined]) add({ ...base, binding: 'static', initial });
+      for (const initial of [c, '', 0, null, undefined]) add({ ...base, binding: 'static', initial });
       for (const binding of ['signal', 'accessor']) {
-        for (const initial of ['C', null, undefined]) add({ ...base, binding, initial, writes: ['W1', 'W2', null, 'W4', undefined] });
+        for (const initial of [c, null, undefined]) add({ ...base, binding, initial, writes: w });
       }
     });
   }
@@ -189,6 +211,26 @@ export function shapes() {
       for (const binding of ['signal', 'accessor']) add({ ...base, binding, initial: [vals[1]], writes: [[vals[2]], [vals[0], vals[1]], null, vals[1], undefined] });
     }
   }
+  // Selects whose options' labels change, their values staying.
+  for (const set of ['explicit', 'grouped']) {
+    for (const control of ['select', 'multiple']) {
+      for (const dflt of ['none', 'selected0']) {
+        const base = { control, set, dflt, valueFirst: false, relabel: true };
+        const one = control === 'multiple' ? [vals[1]] : vals[1];
+        add({ ...base, binding: 'none' });
+        add({ ...base, binding: 'static', initial: one });
+        add({ ...base, binding: 'signal', initial: one, writes: control === 'multiple' ? [[vals[2]], [vals[0], vals[1]], null, vals[1], undefined] : [vals[2], 'zzz', null, vals[0], undefined] });
+      }
+    }
+  }
+  // Fields named after a member of their form, or given its id.
+  for (const name of MEMBERS) {
+    add({ control: 'text', dflt: 'D', valueFirst: false, binding: 'signal', initial: 'C', writes: ['W1', 'W2', null, 'W4', undefined], name });
+    add({ control: 'checkbox', dflt: true, valueFirst: false, binding: 'signal', initial: false, writes: [true, false, null, false, undefined], name });
+    add({ control: 'radio', dflt: 'c', valueFirst: false, binding: 'signal', initial: 'a', writes: ['b', 'zz', 'c', null, 'a', undefined], name });
+    add({ control: 'select', set: 'explicit', dflt: 'selected0', valueFirst: false, binding: 'signal', initial: vals[1], writes: [vals[2], 'zzz', null, vals[0], undefined], name });
+    add({ control: 'text', dflt: 'D', valueFirst: false, binding: 'none', fieldId: name });
+  }
   return list;
 }
 
@@ -202,9 +244,18 @@ const options = (shape) => OPTION_SETS[shape.set];
 // defaultChecked, defaultSelected), each a list, and the FormData values the
 // live state submits under NAME.
 
+// What a range input (0 to 100, step 1) shows for `value`: the value
+// rounded to its step and clamped, the midpoint for anything else.
+function rangeValue(value) {
+  const n = Number(value);
+  return String(value).trim() === '' || !Number.isFinite(n) ? '50' : String(Math.min(100, Math.max(0, Math.round(n))));
+}
+
+const textual = (shape) => shape.control === 'text' || shape.control === 'textarea' || shape.control === 'range';
+
 function declaredDefault(shape) {
   switch (shape.control) {
-    case 'text': case 'textarea': return [shape.dflt ?? ''];
+    case 'text': case 'textarea': case 'range': return [shape.dflt ?? ''];
     case 'checkbox': return [!!shape.dflt];
     case 'radio': return RADIOS.map((r) => r === shape.dflt);
     default: {
@@ -238,6 +289,7 @@ function selection(shape, value) {
 // shows its first option when no option is selected by default, and its last
 // when several are.
 function fromDefaults(shape, dflt) {
+  if (shape.control === 'range') return [rangeValue(dflt[0])];
   if (shape.control !== 'select') return dflt.slice();
   const last = dflt.lastIndexOf(true);
   return dflt.map((_, i) => i === (last === -1 ? 0 : last));
@@ -246,12 +298,14 @@ function fromDefaults(shape, dflt) {
 function shown(shape, value) {
   switch (shape.control) {
     case 'text': case 'textarea': return [String(value)];
+    case 'range': return [rangeValue(value)];
     case 'checkbox': return [!!value];
     default: return selection(shape, value);
   }
 }
 
 function nothing(shape) {
+  if (shape.control === 'range') return [rangeValue('')];
   if (shape.control === 'text' || shape.control === 'textarea') return [''];
   return declaredDefault(shape).map(() => false);
 }
@@ -267,6 +321,7 @@ export function editTarget(shape, live) {
 function edited(shape, live) {
   switch (shape.control) {
     case 'text': case 'textarea': return ['typed'];
+    case 'range': return ['80'];
     case 'checkbox': return [!live[0]];
     case 'radio': case 'select': {
       const at = editTarget(shape, live);
@@ -279,7 +334,7 @@ function edited(shape, live) {
 /** The FormData values `live` submits under NAME. */
 export function submitted(shape, live) {
   switch (shape.control) {
-    case 'text': case 'textarea': return [live[0]];
+    case 'text': case 'textarea': case 'range': return [live[0]];
     case 'checkbox': return live[0] ? ['on'] : [];
     case 'radio': return RADIOS.filter((_, i) => live[i]);
     default: {
@@ -301,7 +356,7 @@ function bound(shape, value) {
 // boolean, a select's value as it is).
 function sameWrite(shape, a, b) {
   if (a === undefined || b === undefined) return false;
-  if (shape.control === 'text' || shape.control === 'textarea') return String(a) === String(b);
+  if (textual(shape)) return String(a) === String(b);
   if (shape.control === 'checkbox' || shape.control === 'radio') return !!a === !!b;
   return false;
 }
@@ -367,11 +422,14 @@ export function expectations(shape) {
     ? ['edit', ['write', 0], ['write', 1], 'edit', 'reset', ['write', 2], 'edit', 'reset', ['write', 3], ['write', 4], 'reset']
     : ['edit', 'reset'];
   if (shape.control === 'radio' && isDynamic(shape)) steps.splice(4, 0, ['write', 5]);
+  // New labels change nothing the select shows.
+  if (shape.relabel) steps.splice(1, 0, 'relabel');
   // A signal write of the value it holds notifies no one.
   let current = startValue(shape);
   for (const step of steps) {
     if (step === 'edit') state.live = edited(shape, state.live);
     else if (step === 'reset') reset(shape, state);
+    else if (step === 'relabel') { /* the state stays */ }
     else if (!Object.is(current, shape.writes[step[1]])) {
       current = shape.writes[step[1]];
       writeAll(shape, state, current);
@@ -393,16 +451,19 @@ const escape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;
 /** The markup of a form that shows `shape`'s first state by hand. */
 export function staticHtml(shape) {
   const { live } = firstState(shape);
+  const name = nameOf(shape);
+  const id = shape.fieldId !== undefined ? ` id="${shape.fieldId}"` : '';
   let field;
   switch (shape.control) {
-    case 'text': field = `<input name="${NAME}" value="${escape(live[0])}">`; break;
-    case 'textarea': field = `<textarea name="${NAME}">${escape(live[0])}</textarea>`; break;
-    case 'checkbox': field = `<input type="checkbox" name="${NAME}"${live[0] ? ' checked' : ''}>`; break;
-    case 'radio': field = RADIOS.map((r, i) => `<input type="radio" name="${NAME}" value="${r}"${live[i] ? ' checked' : ''}>`).join(''); break;
+    case 'text': field = `<input${id} name="${name}" value="${escape(live[0])}">`; break;
+    case 'range': field = `<input type="range" name="${name}" value="${escape(live[0])}">`; break;
+    case 'textarea': field = `<textarea name="${name}">${escape(live[0])}</textarea>`; break;
+    case 'checkbox': field = `<input type="checkbox" name="${name}"${live[0] ? ' checked' : ''}>`; break;
+    case 'radio': field = RADIOS.map((r, i) => `<input type="radio" name="${name}" value="${r}"${live[i] ? ' checked' : ''}>`).join(''); break;
     default: {
       const opts = options(shape).map((o, i) =>
         `<option${o.value !== undefined ? ` value="${escape(o.value)}"` : ''}${o.title !== undefined ? ` title="${escape(o.title)}"` : ''}${live[i] ? ' selected' : ''}>${escape(o.text)}</option>`).join('');
-      field = `<select name="${NAME}"${shape.control === 'multiple' ? ' multiple' : ''}>${GROUPED.has(shape.set) ? `<optgroup label="g">${opts}</optgroup>` : opts}</select>`;
+      field = `<select name="${name}"${shape.control === 'multiple' ? ' multiple' : ''}>${GROUPED.has(shape.set) ? `<optgroup label="g">${opts}</optgroup>` : opts}</select>`;
     }
   }
   return `<form>${field}</form>`;
@@ -412,18 +473,18 @@ export function staticHtml(shape) {
 
 /** The state of the field in `form`: { live, dflt, data }. */
 export function readState(shape, form) {
-  const data = new FormData(form).getAll(NAME);
+  const data = new FormData(form).getAll(nameOf(shape));
   switch (shape.control) {
-    case 'text': case 'textarea': {
-      const el = form.querySelector(shape.control === 'text' ? 'input' : 'textarea');
+    case 'text': case 'textarea': case 'range': {
+      const el = find(form, shape.control === 'textarea' ? 'textarea' : 'input');
       return { live: [el.value], dflt: [el.defaultValue], data };
     }
     case 'checkbox': case 'radio': {
-      const inputs = [...form.querySelectorAll('input')];
+      const inputs = [...findAll(form, 'input')];
       return { live: inputs.map((el) => el.checked), dflt: inputs.map((el) => el.defaultChecked), data };
     }
     default: {
-      const opts = [...form.querySelector('select').options];
+      const opts = [...find(form, 'select').options];
       return { live: opts.map((o) => o.selected), dflt: opts.map((o) => o.defaultSelected), data };
     }
   }
@@ -448,7 +509,7 @@ function fieldProps(shape, r) {
     props.push([valueKey, shape.binding, shape.binding === 'static' ? initial : r]);
   }
   let dflt = null;
-  if (shape.control === 'text' || shape.control === 'textarea') dflt = shape.dflt === undefined ? null : ['defaultValue', 'static', shape.dflt];
+  if (textual(shape)) dflt = shape.dflt === undefined ? null : ['defaultValue', 'static', shape.dflt];
   else if (shape.control === 'checkbox') dflt = shape.dflt === undefined ? null : ['defaultChecked', 'static', shape.dflt];
   else if (shape.control === 'radio') dflt = shape.dflt === r ? ['defaultChecked', 'static', true] : null;
   else if (shape.dflt === 'selectDefault') dflt = ['defaultValue', 'static', selectDefault(shape)];
@@ -472,19 +533,26 @@ function optionProps(shape, i) {
 
 const is = (value, r) => (value == null ? value : value === r);
 
+// An option's label once the labels have changed (`on`): its value stays.
+function relabelled(text, on) {
+  return on ? `${text} (new)` : text;
+}
+
 /**
  * The h() component for `shape`: ({ v, o }) => <form>field</form>, `o` the
  * signal that adds a late shape's options. `env` gives For and Show.
  */
 export function hComponent(h, shape, env) {
   const propsOf = (r) => {
-    const props = { name: NAME };
+    const props = { name: nameOf(shape) };
+    if (shape.fieldId !== undefined) props.id = shape.fieldId;
+    if (shape.control === 'range') props.type = 'range';
     if (shape.control === 'checkbox') props.type = 'checkbox';
     if (shape.control === 'radio') Object.assign(props, { type: 'radio', value: r });
     if (shape.control === 'multiple') props.multiple = true;
     return props;
   };
-  return function Field({ v, o }) {
+  return function Field({ v, o, l }) {
     const field = (r) => {
       const props = propsOf(r);
       for (const [key, kind, value] of fieldProps(shape, r)) {
@@ -495,12 +563,12 @@ export function hComponent(h, shape, env) {
       return props;
     };
     let fields;
-    if (shape.control === 'text') fields = [h('input', field())];
+    if (shape.control === 'text' || shape.control === 'range') fields = [h('input', field())];
     else if (shape.control === 'textarea') fields = [h('textarea', field())];
     else if (shape.control === 'checkbox') fields = [h('input', field())];
     else if (shape.control === 'radio') fields = RADIOS.map((r) => h('input', field(r)));
     else {
-      const option = (i) => h('option', optionProps(shape, i), options(shape)[i].text);
+      const option = (i) => h('option', optionProps(shape, i), shape.relabel ? () => relabelled(options(shape)[i].text, l()) : options(shape)[i].text);
       let opts = options(shape).map((_, i) => option(i));
       if (shape.late === 'for') opts = [h(env.For, { each: () => (o() ? [0, 1, 2] : []) }, option)];
       if (shape.late === 'show') opts = [h(env.Show, { when: o }, ...opts)];
@@ -527,35 +595,38 @@ function jsxProp(shape, [key, kind, value], spread) {
  * The compiled JSX source of `shape`'s component named `name`: its field
  * props as attributes, or (spread) inside one spread object.
  */
-export function jsxComponent(shape, name, spread) {
+export function jsxComponent(shape, component, spread) {
   const attrs = (r, fixed) => {
     const props = fieldProps(shape, r);
     const own = props.map((p) => jsxProp(shape, p, spread));
     return `${fixed}${spread ? (own.length ? ` {...{ ${own.join(', ')} }}` : '') : own.map((p) => ' ' + p).join('')}`;
   };
+  const name = nameOf(shape);
+  const id = shape.fieldId !== undefined ? ` id="${shape.fieldId}"` : '';
   let field;
-  if (shape.control === 'text') field = `<input${attrs(null, ` name="${NAME}"`)} />`;
-  else if (shape.control === 'textarea') field = `<textarea${attrs(null, ` name="${NAME}"`)} />`;
-  else if (shape.control === 'checkbox') field = `<input${attrs(null, ` type="checkbox" name="${NAME}"`)} />`;
-  else if (shape.control === 'radio') field = RADIOS.map((r) => `<input${attrs(r, ` type="radio" name="${NAME}" value="${r}"`)} />`).join('');
+  if (shape.control === 'text') field = `<input${attrs(null, `${id} name="${name}"`)} />`;
+  else if (shape.control === 'range') field = `<input${attrs(null, ` type="range" name="${name}"`)} />`;
+  else if (shape.control === 'textarea') field = `<textarea${attrs(null, ` name="${name}"`)} />`;
+  else if (shape.control === 'checkbox') field = `<input${attrs(null, ` type="checkbox" name="${name}"`)} />`;
+  else if (shape.control === 'radio') field = RADIOS.map((r) => `<input${attrs(r, ` type="radio" name="${name}" value="${r}"`)} />`).join('');
   else {
     const option = (o, i) => {
       const p = optionProps(shape, i);
       const own = Object.entries(p).map(([k, x]) => (x === true ? ` ${k}` : ` ${k}={${JSON.stringify(x)}}`)).join('');
-      return `<option${own}>{${JSON.stringify(o.text)}}</option>`;
+      return shape.relabel ? `<option${own}>{relabelled(${JSON.stringify(o.text)}, l())}</option>` : `<option${own}>{${JSON.stringify(o.text)}}</option>`;
     };
     let opts = options(shape).map(option).join('');
     if (shape.late === 'for') opts = `<For each={() => (o() ? [0, 1, 2] : [])}>{(i) => [${options(shape).map(option).join(', ')}][i]}</For>`;
     if (shape.late === 'show') opts = `<Show when={o()}>${opts}</Show>`;
     if (GROUPED.has(shape.set)) opts = `<optgroup label="g">${opts}</optgroup>`;
-    field = `<select${attrs(null, ` name="${NAME}"${shape.control === 'multiple' ? ' multiple' : ''}`)}>${opts}</select>`;
+    field = `<select${attrs(null, ` name="${name}"${shape.control === 'multiple' ? ' multiple' : ''}`)}>${opts}</select>`;
   }
-  return `export function ${name}({ v, o }) { return <form>${field}</form>; }`;
+  return `export function ${component}({ v, o, l }) { return <form>${field}</form>; }`;
 }
 
 /** One module of every shape's components: C<id> plain, S<id> through a spread. */
 export function jsxModule(list) {
-  return `import { For, Show } from 'what-framework';\nconst is = (value, r) => (value == null ? value : value === r);\n` +
+  return `import { For, Show } from 'what-framework';\nconst is = (value, r) => (value == null ? value : value === r);\nconst relabelled = ${relabelled.toString()};\n` +
     list.map((shape) => jsxComponent(shape, `C${shape.id}`, false) + '\n' + jsxComponent(shape, `S${shape.id}`, true)).join('\n');
 }
 
@@ -568,16 +639,16 @@ const flushMicrotasks = async () => {
 // Apply a user edit to the field in `form`, as a user's input does.
 function applyEdit(shape, form, live) {
   switch (shape.control) {
-    case 'text': case 'textarea': {
-      const el = form.querySelector(shape.control === 'text' ? 'input' : 'textarea');
-      el.value = 'typed';
+    case 'text': case 'textarea': case 'range': {
+      const el = find(form, shape.control === 'textarea' ? 'textarea' : 'input');
+      el.value = shape.control === 'range' ? '80' : 'typed';
       el.dispatchEvent(new Event('input', { bubbles: true }));
       return;
     }
-    case 'checkbox': form.querySelector('input').click(); return;
-    case 'radio': form.querySelectorAll('input')[editTarget(shape, live)].click(); return;
+    case 'checkbox': find(form, 'input').click(); return;
+    case 'radio': findAll(form, 'input')[editTarget(shape, live)].click(); return;
     default: {
-      const select = form.querySelector('select');
+      const select = find(form, 'select');
       const option = select.options[editTarget(shape, live)];
       option.selected = shape.control === 'select' ? true : !option.selected;
       select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -590,8 +661,10 @@ export const editsEarly = (shape) => shape.late === undefined;
 
 /**
  * Run `shape`'s script on a client path and return its first finding, or
- * null. `env` is { h, mount, hydrate, flushSync, signal, resetForm, For,
- * Show, document }; `Component` the component; `html` the server markup to
+ * null. `env` is { h, mount, hydrate, flushSync, signal, resetForm,
+ * changedFields, For, Show, document }; `changedFields(el)` is how many
+ * fields hydration would count as changed by the user at `el`, which for an
+ * untouched page is none. `Component` the component; `html` the server markup to
  * hydrate, or undefined to mount. With `early`, the script's first edit is
  * made on the server's markup before hydration runs, as a user does while
  * the page loads, and the first state checked is the edited one.
@@ -600,6 +673,7 @@ export async function runClient(env, shape, Component, html, early = false) {
   const expected = expectations(shape);
   const v = isDynamic(shape) ? env.signal(shape.initial) : undefined;
   const o = env.signal(shape.late === undefined);
+  const l = env.signal(false);
   const host = env.document.createElement('div');
   env.document.body.append(host);
   const problems = [];
@@ -614,11 +688,15 @@ export async function runClient(env, shape, Component, html, early = false) {
       host.innerHTML = html;
       adopted = host.querySelector('[name]');
       if (early) applyEdit(shape, host.querySelector('form'), expected[0].live);
+      else {
+        const changed = [...findAll(host.querySelector('form'), '[name]')].reduce((n, el) => n + env.changedFields(el), 0);
+        if (changed > 0) problems.push(`hydration counts ${changed} untouched field(s) as changed`);
+      }
       host.addEventListener('input', record, true);
       host.addEventListener('change', record, true);
-      stop = env.hydrate(env.h(Component, { v, o }), host, { onHydrationError: (info) => problems.push(`hydration error: ${info && (info.kind || info.message)}`) });
+      stop = env.hydrate(env.h(Component, { v, o, l }), host, { onHydrationError: (info) => problems.push(`hydration error: ${info && (info.kind || info.message)}`) });
     } else {
-      stop = env.mount(env.h(Component, { v, o }), host);
+      stop = env.mount(env.h(Component, { v, o, l }), host);
     }
     await flushMicrotasks();
     if (shape.late !== undefined) {
@@ -633,6 +711,15 @@ export async function runClient(env, shape, Component, html, early = false) {
     const form = host.querySelector('form');
     if (form === null) return { step: 'first', problem: 'no form rendered' };
     if (adopted !== null && host.querySelector('[name]') !== adopted) problems.push('hydration did not adopt the server field');
+    // An uncontrolled field nobody touched is left clean by hydration: a new
+    // default still moves what it shows.
+    if (html !== undefined && !early && shape.binding === 'none' && textual(shape)) {
+      const el = find(form, shape.control === 'textarea' ? 'textarea' : 'input');
+      const [value, dflt] = [el.value, el.defaultValue];
+      el.defaultValue = shape.control === 'range' ? '33' : 'moved';
+      if (el.value !== el.defaultValue) problems.push(`hydration left the untouched field dirty (${JSON.stringify(value)}, default ${JSON.stringify(dflt)})`);
+      el.defaultValue = dflt;
+    }
     let at = early ? 1 : 0;
     const check = (step) => {
       const actual = readState(shape, form);
@@ -644,7 +731,10 @@ export async function runClient(env, shape, Component, html, early = false) {
     if (found) return found;
     for (const want of expected.slice(at)) {
       if (want.step === 'edit') applyEdit(shape, form, expected[at - 1].live);
-      else if (want.step === 'reset') env.resetForm(form, (error) => problems.push(`reset threw: ${error && error.message}`));
+      else if (want.step === 'relabel') {
+        l(true);
+        env.flushSync();
+      } else if (want.step === 'reset') env.resetForm(form, (error) => problems.push(`reset threw: ${error && error.message}`));
       else {
         const index = shape.writes.findIndex((w) => `write ${JSON.stringify(w) ?? 'undefined'}` === want.step);
         v(shape.writes[index]);

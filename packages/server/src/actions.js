@@ -15,7 +15,7 @@
 //   const result = await saveUser({ name: 'John' });
 
 import { startTransition } from 'what-core';
-import { _actionStateKey, _devAction, __DEV__, __readHydrationData, getServerContext } from 'what-core/internal';
+import { _actionKeySalt, _actionStateKey, _devAction, _installRowKeys, _renderSalt, __DEV__, __readHydrationData, getServerContext } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
@@ -127,6 +127,8 @@ function generateActionId() {
 
 export function action(fn, options = {}) {
   const id = options.id || generateActionId();
+  // Its useActionState keys follow keyed rows while hydrating too.
+  _installRowKeys();
 
   // Server-side: register the action
   if (typeof window === 'undefined') {
@@ -156,19 +158,27 @@ export function action(fn, options = {}) {
 // createFormPostHandler); the render hands it to its hydration in the data
 // channel, under the key, and the hydration starts from it too. Every other
 // useActionState of the same action, on this page, keeps its initial state.
-// As { key } or { key, state }.
+// A key with keyed rows in it is written under the render's salt, which the
+// render puts in the data channel too, for its hydration's keys; the posted
+// one is compared under the salt it was made under. As { key } or
+// { key, state }.
 const POSTED = 'what:action-state:';
+const SALT = 'what:action-salt';
 function formState(id) {
-  const key = _actionStateKey();
-  if (key === null) return { key };
+  const identity = _actionStateKey();
+  if (identity === null) return { key: null };
   const ctx = getServerContext();
   if (ctx !== null) {
+    const salt = _renderSalt();
+    const key = identity(salt);
+    if (identity.salted && ctx.resources && !ctx.resources.has(SALT)) ctx.resources.set(SALT, { status: 'ready', value: salt });
     const posted = ctx.actionState;
-    if (posted == null || posted.action !== id || posted.key !== key) return { key };
+    if (posted == null || posted.action !== id || posted.key !== identity(_actionKeySalt(posted.key))) return { key };
     ctx.resources?.set(POSTED + key, { status: 'ready', value: posted.state });
     return { key, state: posted.state };
   }
   const resources = __readHydrationData()?.resources;
+  const key = identity(resources && Object.hasOwn(resources, SALT) ? resources[SALT] : null);
   return resources && Object.hasOwn(resources, POSTED + key) ? { key, state: resources[POSTED + key] } : { key };
 }
 

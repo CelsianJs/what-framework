@@ -4,18 +4,13 @@
 
 import http from 'node:http';
 import { createRequestHandler } from './core.js';
-import { MAX_BODY_BYTES } from '../action-handler.js';
-import { nodeRequestHost, requestUrl } from '../request-url.js';
+import { MAX_BODY_BYTES, tooLargeResponse } from '../action-handler.js';
+import { nodeRequestHost, requestScheme, requestUrl } from '../request-url.js';
 
 // A Request object only exists after the body is read, so the cap the fetch
 // path enforces would run too late here. Returned instead of a Request when the
 // body is over the limit, so the caller answers 413 without buffering it all.
 const TOO_LARGE = Symbol('what.bodyTooLarge');
-
-const TOO_LARGE_RESPONSE = () => new Response(
-  JSON.stringify({ message: 'Payload too large' }),
-  { status: 413, headers: { 'content-type': 'application/json' } },
-);
 
 // Returned instead of a Request for a request target that is not a path, or
 // a Host header that is not a host (request-url.js).
@@ -33,12 +28,13 @@ function disconnectSignal(res) {
   return controller.signal;
 }
 
-async function nodeToWebRequest(req, res) {
+async function nodeToWebRequest(req, res, limit) {
   // A path only ('/x?y', '//x' included): an absolute-form or authority-form
   // target names a host of its own, which the request's Host header decides
-  // here, and `*` names no resource. The scheme is the one the socket was
-  // reached by: a TLS server's requests are https.
-  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', nodeRequestHost(req.headers), req.url);
+  // here, and `*` names no resource. The scheme is the one a proxy in front
+  // reports (X-Forwarded-Proto), else the one the socket was reached by: a TLS
+  // server's requests are https (request-url.js requestScheme).
+  const url = requestUrl(requestScheme(req.headers, req.socket && req.socket.encrypted ? 'https' : 'http'), nodeRequestHost(req.headers), req.url);
   if (url === null) return BAD_TARGET;
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
@@ -48,7 +44,7 @@ async function nodeToWebRequest(req, res) {
   let body;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     const declared = Number(req.headers['content-length']);
-    let tooLarge = Number.isFinite(declared) && declared > MAX_BODY_BYTES;
+    let tooLarge = Number.isFinite(declared) && declared > limit;
     const chunks = [];
     let size = 0;
     // Once over the cap the remaining chunks are drained and discarded rather
@@ -58,7 +54,7 @@ async function nodeToWebRequest(req, res) {
     for await (const chunk of req) {
       if (tooLarge) continue;
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         tooLarge = true;
         chunks.length = 0;
         continue;
@@ -124,10 +120,11 @@ function isAbort(err) {
 }
 
 // The handler's response for one Node request: 413 and 400 come from reading
-// the request, before the handler.
+// the request, before the handler, with its `bodyLimit` (createRequestHandler).
 async function respond(handler, req, res) {
-  const webReq = await nodeToWebRequest(req, res);
-  if (webReq === TOO_LARGE) return TOO_LARGE_RESPONSE();
+  const limit = handler.bodyLimit ?? MAX_BODY_BYTES;
+  const webReq = await nodeToWebRequest(req, res, limit);
+  if (webReq === TOO_LARGE) return tooLargeResponse(req.headers, limit);
   if (webReq === BAD_TARGET) return BAD_TARGET_RESPONSE();
   return handler(webReq);
 }

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 // The real implementation, not a copy: an earlier copy of safePath drifted from
 // cli.js and hid both the dead-containment-check and the symlink-escape bugs.
-import { safePath, isAllowedOrigin, hostAllowance, targetPath, resolveFrameworkModule, guarded } from '../src/cli.js';
+import { safePath, isAllowedOrigin, hostAllowance, originAllowance, targetPath, resolveFrameworkModule, guarded } from '../src/cli.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const testDir = join(__dirname, '.test-security');
@@ -108,8 +108,7 @@ describe('security', () => {
     });
   });
 
-  // The Host `what dev` and `what preview` answer, and the Origin an HMR
-  // socket opens from: one allowlist for both, which reads the value as a
+  // The Host `what dev` and `what preview` answer, which reads the value as a
   // host before any name test.
   describe('the dev host allowlist', () => {
     const allowed = hostAllowance('localhost', { allowedHosts: ['app.test'] }, 'tunnel.example');
@@ -133,10 +132,15 @@ describe('security', () => {
     });
   });
 
+  // The Origin an HMR socket opens from: loopback, --host and the configured
+  // names, at the dev port. Not any IP literal, as the Host is: any site can
+  // serve its page from its own IP, and a WebSocket handshake has no
+  // same-origin policy. Before, the socket took the Host's allowlist, and a
+  // page served from 203.0.113.7 at the dev port read the saved file paths.
   describe('HMR websocket origin allowlist', () => {
-    const allowed = hostAllowance('localhost', { allowedHosts: ['app.test'] }, '');
+    const allowed = originAllowance('localhost', { allowedHosts: ['app.test'] }, '');
 
-    it('accepts the dev server own origin, on every host the server answers', () => {
+    it('accepts the dev server own origin on loopback, --host and the configured names', () => {
       assert.equal(isAllowedOrigin('http://localhost:3000', allowed, 3000), true);
       assert.equal(isAllowedOrigin('http://127.0.0.1:3000', allowed, 3000), true);
       assert.equal(isAllowedOrigin('https://localhost:3000', allowed, 3000), true);
@@ -151,6 +155,22 @@ describe('security', () => {
       assert.equal(isAllowedOrigin('http://evil.example:3000', allowed, 3000), false);
       assert.equal(isAllowedOrigin('http://localhost:4000', allowed, 3000), false);
       assert.equal(isAllowedOrigin('null', allowed, 3000), false);
+    });
+
+    it('rejects an IP-literal origin that is not loopback, at the dev port too', () => {
+      for (const origin of ['http://203.0.113.7:3000', 'http://198.51.100.20:3000', 'http://192.168.1.20:3000', 'http://10.0.0.5:3000',
+        'https://203.0.113.7:3000', 'http://[2001:db8::1]:3000', 'http://[fe80::1]:3000', 'http://0.0.0.0:3000', 'file://localhost:3000']) {
+        assert.equal(isAllowedOrigin(origin, allowed, 3000), false, origin);
+      }
+      assert.equal(isAllowedOrigin('http://127.8.9.10:3000', allowed, 3000), true, '127.0.0.0/8 is loopback');
+    });
+
+    it('accepts the exact --host and the --allowed-hosts names, and any origin with allowedHosts: true', () => {
+      const lan = originAllowance('192.168.1.20', {}, 'box.lan');
+      assert.equal(isAllowedOrigin('http://192.168.1.20:3000', lan, 3000), true);
+      assert.equal(isAllowedOrigin('http://box.lan:3000', lan, 3000), true);
+      assert.equal(isAllowedOrigin('http://192.168.1.21:3000', lan, 3000), false);
+      assert.equal(isAllowedOrigin('http://203.0.113.7:3000', originAllowance('localhost', { allowedHosts: true }, ''), 3000), true);
     });
 
     it('allows non-browser clients (no Origin header)', () => {

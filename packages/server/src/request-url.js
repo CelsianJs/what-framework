@@ -66,3 +66,48 @@ export function requestUrl(scheme, host, target) {
     return null;
   }
 }
+
+// --- The origin a request was sent to ---
+//
+// The scheme is the one a proxy in front reports in X-Forwarded-Proto (its
+// first value, when it is http or https), else the one the server knows of
+// the connection (a TLS socket, the platform's own URL). X-Forwarded-Proto is
+// believed without configuration: a page on another site cannot set it on a
+// visitor's request (a form cannot set headers, and a fetch that sets one is
+// preflighted), so only the proxy or the sender itself can, and neither is a
+// cross-site request; what a sender claims there names an origin it could
+// have named in the Host header too. Behind a TLS proxy that does not send it,
+// the server sees http: have the proxy send it. The CSRF check compares this
+// origin with the page's; the Node adapter builds a request's URL with this
+// scheme, and the request handler hands the cache engine a URL with it, so an
+// ISR entry is keyed on the origin the visitor asked for.
+
+// A header of a plain object of lowercase names, or of a Headers.
+const header = (headers, name) => (headers == null ? undefined : typeof headers.get === 'function' ? headers.get(name) : headers[name]);
+
+/** The scheme ('http' or 'https') a request with `headers` was sent over, `scheme` when no proxy reports one. */
+export function requestScheme(headers, scheme) {
+  const forwarded = String(header(headers, 'x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
+  return forwarded === 'https' || forwarded === 'http' ? forwarded : scheme;
+}
+
+/**
+ * The origin a request was sent to, scheme included (an https page posting
+ * to an http host is another origin): its Host header's host, else its URL's,
+ * over requestScheme's scheme (the URL's, a bare path's being http). Null
+ * when no host is named.
+ */
+export function requestOrigin(headers, url) {
+  /** @type {URL | null} */
+  let parsed = null;
+  try {
+    parsed = new URL(String(url));
+  } catch { /* a path: no scheme or host of its own */ }
+  const host = header(headers, 'host') || (parsed && parsed.host);
+  if (!host || !isHost(host)) return null;
+  try {
+    return new URL(`${requestScheme(headers, parsed && parsed.protocol === 'https:' ? 'https' : 'http')}://${host}`).origin;
+  } catch {
+    return null;
+  }
+}

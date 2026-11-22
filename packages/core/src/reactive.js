@@ -150,10 +150,15 @@ let userQueueLen = 0;
 let flushing = false;
 let flushScheduled = false;
 const MAX_FLUSH_ROUNDS = 100;
-/** Development only: how many times each effect re-ran in the running flush. @type {Map<WhatEffectNode, number> | null} */
-let devRuns = null;
-/** Development only: the effects that wrote a signal in the running flush. @type {Set<WhatEffectNode> | null} */
-let devWriters = null;
+// Development only, for the report of a loop: the effect of each run in the
+// running flush, and the effects that wrote a signal in it. Both are reused
+// from flush to flush, so a flush allocates no record of its own.
+/** @type {(WhatEffectNode | null)[]} */
+const devRan = [];
+let devRanLen = 0;
+/** @type {(WhatEffectNode | null)[]} */
+const devWrote = [];
+let devWroteLen = 0;
 
 // Bounded stack for first evaluation. Computeds evaluating computeds recurse on
 // the JS stack; updates never do (checkDirty is iterative), so only the first
@@ -696,7 +701,7 @@ function mutateSignal(sig, node, fn) {
 function notify(sig, node, prev) {
   if (__DEV__) {
     node.devSeq = ++devSeq;
-    if (devWriters !== null && runningEffect !== null) devWriters.add(runningEffect);
+    if (flushing && runningEffect !== null && devWrote[devWroteLen - 1] !== runningEffect) devWrote[devWroteLen++] = runningEffect;
     if (txOps !== null) devWriteAfterAwait(sig, node);
     if (__devtools) devHook('onSignalUpdate', sig, node.value, prev);
   }
@@ -2733,7 +2738,7 @@ function executeEffect(e) {
   if (__DEV__) {
     e.devSeen = devSeq;
     if (__devtools?.trace) devHook('onEffectBegin', e, causes);
-    if (devRuns !== null) devRuns.set(e, (devRuns.get(e) || 0) + 1);
+    if (flushing) devRan[devRanLen++] = e;
   }
   try {
     const result = e.fn();
@@ -2855,10 +2860,6 @@ function microtaskFlush() {
 // the caller of batch() or flushSync() has.
 function flush() {
   flushing = true;
-  if (__DEV__) {
-    devRuns = new Map();
-    devWriters = new Set();
-  }
   const prevOwner = currentOwner;
   const prevRun = ownerRun;
   currentOwner = null;
@@ -2891,8 +2892,9 @@ function flush() {
   } finally {
     flushing = false;
     if (__DEV__) {
-      devRuns = null;
-      devWriters = null;
+      devRan.fill(null, 0, devRanLen);
+      devWrote.fill(null, 0, devWroteLen);
+      devRanLen = devWroteLen = 0;
     }
     currentOwner = prevOwner;
     ownerRun = prevRun;
@@ -3594,17 +3596,23 @@ function devWriteInComputed(sig, c) {
 // re-ran in this flush.
 function devReportLoop() {
   const stuck = queueLen > 0 ? queue.slice(0, queueLen) : userQueue.slice(0, userQueueLen);
-  const writers = stuck.filter((e) => devWriters?.has(e));
+  const writers = stuck.filter((e) => devWrote.includes(e));
   for (const e of writers.length > 0 ? writers : stuck) {
     const effectName = devName(e);
     const where = __ownerPath(e);
     report('ERR_INFINITE_EFFECT', {
-      data: { effectName, rounds: devRuns?.get(e) || 0 },
+      data: { effectName, rounds: devRunsOf(e) },
       subject: { kind: 'effect', id: e._devId, name: effectName },
       owner: where,
       loc: where.loc,
     });
   }
+}
+
+function devRunsOf(e) {
+  let runs = 0;
+  for (let i = 0; i < devRanLen; i++) if (devRan[i] === e) runs++;
+  return runs;
 }
 
 // Development: pending() or isPending() read in a component body, untracked.

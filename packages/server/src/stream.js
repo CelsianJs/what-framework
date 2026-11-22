@@ -80,6 +80,8 @@ import {
   _mapArrayToArray,
   _assignOwnerPath,
   _ownerCounter,
+  _enterRow,
+  _leaveRow,
   runWithServerContext,
   __flushOutsideServerContext,
   isVNode,
@@ -136,6 +138,8 @@ const AWAITED = 5;   // the settled result of an async component
 const NS_END = 6;    // an element whose children sit in another namespace is finished
 const SELECT_END = 7; // a <select> is finished: back to the select scope it was in
 const OPTION_END = 8; // an option whose text is its value is finished: mark it
+const ROW = 9;        // a keyed row begins (what-core hydration-data.js _enterRow)
+const ROW_END = 10;   // a keyed row is finished
 
 // A marker is an instance of this module's own class, never a shape: a child
 // can be any value a reactive child returns, JSON included, and a plain
@@ -291,8 +295,38 @@ function push(seg, node, owner) {
   seg.owners.push(owner);
 }
 
+// The members of an array or of an element's children, each with a key (a
+// keyed list's, or a vnode's) between the markers of a keyed row.
 function pushChildren(seg, children, owner) {
-  for (let i = children.length - 1; i >= 0; i--) push(seg, children[i], owner);
+  const keys = children._keys;
+  /** @type {object | null} */
+  let list = null;
+  for (let i = children.length - 1; i >= 0; i--) {
+    const child = children[i];
+    const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
+    if (key == null && keys === undefined) {
+      push(seg, child, owner);
+      continue;
+    }
+    if (list === null) list = {};
+    const end = mark(ROW_END, { entered: false, saved: undefined });
+    push(seg, end, owner);
+    push(seg, child, owner);
+    push(seg, mark(ROW, { list, key, end }), owner);
+  }
+}
+
+// The row open in `owner`'s output now, which a row entered later leaves
+// behind it: a boundary falling back, or a retry, puts it back.
+function openRow(seg, owner) {
+  return _enterRow(owner || null, seg.r.ctx, null, undefined);
+}
+
+// What a keyed row's end marker undoes, unless the row never began.
+function leaveRow(seg, marker, owner) {
+  if (!marker.entered) return;
+  marker.entered = false;
+  _leaveRow(owner || null, seg.r.ctx, marker.saved);
 }
 
 // Process work items until the segment is finished (returns null) or has to
@@ -350,8 +384,16 @@ function step(seg, node, owner) {
       case NS_END: seg.ns = marker.ns; return null;
       case SELECT_END: seg.select = marker.outer; return null;
       case OPTION_END: finishOption(seg, marker); return null;
+      case ROW:
+        marker.end.saved = _enterRow(owner || null, seg.r.ctx, marker.list, marker.key);
+        marker.end.entered = true;
+        return null;
+      case ROW_END: leaveRow(seg, marker, owner); return null;
       case RETRY: return retry(seg, marker, owner);
       case AWAITED:
+        // Its siblings in a keyed row number in that row, whatever ran while
+        // it was awaited.
+        _leaveRow(marker.owner || null, seg.r.ctx, marker.row);
         if (marker.failed) throw marker.error;
         push(seg, marker.value, marker.frame);
         return null;
@@ -364,6 +406,10 @@ function step(seg, node, owner) {
   // between it the thunks, vnodes and attributes rendered here in document
   // order, as the same children of an h() tree would be.
   if (isHtml(node)) {
+    if (typeof node.edge === 'function') {
+      node.edge(owner || null, seg.r.ctx);
+      return null;
+    }
     const parts = node.parts(seg.ns);
     if (typeof parts === 'string') {
       put(seg, parts);
@@ -394,6 +440,7 @@ function step(seg, node, owner) {
       suspense: tag === '__suspense',
       vnode: node,
       owner,
+      row: openRow(seg, owner),
       bufStart: seg.buf.length,
       itemIndex: seg.items.length,
       ns: seg.ns,
@@ -542,7 +589,7 @@ function stepComponent(seg, node, owner, attempts) {
   }
   push(seg, mark(END, { frame, outer }), frame);
   if (isThenable(result)) {
-    const awaited = mark(AWAITED, { frame, failed: false, value: undefined, error: undefined });
+    const awaited = mark(AWAITED, { frame, failed: false, value: undefined, error: undefined, owner, row: openRow(seg, owner) });
     push(seg, awaited, frame);
     return result.then(
       (value) => { awaited.value = value; },
@@ -558,7 +605,7 @@ function stepComponent(seg, node, owner, attempts) {
 // hydration-data.js in what-core); restoring them gives the retry the same
 // owner path and resource keys, so it finds what the first attempt started.
 function suspend(seg, node, owner, attempts, children, resources, thenable) {
-  push(seg, mark(RETRY, { node, attempts: attempts + 1, children, resources }), owner);
+  push(seg, mark(RETRY, { node, attempts: attempts + 1, children, resources, row: openRow(seg, owner) }), owner);
   return thenable;
 }
 
@@ -573,6 +620,7 @@ function retry(seg, marker, owner) {
   const holder = _ownerCounter(owner || null, seg.r.ctx);
   holder._ownerChildren = marker.children;
   holder._ownerResources = marker.resources;
+  _leaveRow(owner || null, seg.r.ctx, marker.row);
   return typeof node === 'function'
     ? stepFunction(seg, node, owner, attempts)
     : stepComponent(seg, node, owner, attempts);
@@ -594,6 +642,7 @@ function fallBackToSuspense(seg, error) {
 
 // Drop everything a scope produced and everything still queued inside it.
 function unwindTo(seg, scope, index) {
+  _leaveRow(scope.owner || null, seg.r.ctx, scope.row);
   seg.items.length = scope.itemIndex;
   seg.owners.length = scope.itemIndex;
   seg.scopes.length = index;
@@ -640,7 +689,7 @@ function cancel(seg) {
 function enclosingErrorBoundary(seg, index) {
   for (let i = index - 1; i >= 0; i--) {
     const scope = seg.scopes[i];
-    if (!scope.suspense) return { vnode: scope.vnode, owner: scope.owner };
+    if (!scope.suspense) return { vnode: scope.vnode, owner: scope.owner, row: scope.row };
   }
   return seg.inheritedBoundary;
 }
@@ -700,6 +749,8 @@ function detach(seg, blocker) {
   seg.detached = keep;
 
   seg.detached.push({ segment: boundary, at: seg.buf.length });
+  // The rows the boundary's children opened are its segment's now.
+  _leaveRow(scope.owner || null, r.ctx, scope.row);
   seg.buf += `<template id="pl-${id}"></template>`;
   push(seg, mark(CLOSE, { html: `<!--pl-${id}-->` }), scope.owner);
   if (seg.select !== null) {
@@ -741,6 +792,7 @@ function handleError(seg, error, node) {
     seg.select = seg.baseSelect;
     seg.option = null;
     cancelDetachedFrom(seg, 0);
+    _leaveRow(errorBoundary.owner || null, r.ctx, errorBoundary.row);
     report(r, error, 'boundary', seg.id);
     push(seg, _boundaryFallback(errorBoundary.vnode, error, (e) => report(r, e, 'boundary', seg.id)), errorBoundary.owner);
     return;
@@ -753,10 +805,12 @@ function handleError(seg, error, node) {
   }
   while (seg.items.length) {
     const item = seg.items.pop();
-    seg.owners.pop();
+    const itemOwner = seg.owners.pop();
+    if (isHtml(item) && typeof item.edge === 'function') item.edge(itemOwner || null, r.ctx);
     if (!(item instanceof Mark)) continue;
     const marker = /** @type {any} */ (item);
     if (marker.$m === CLOSE) put(seg, marker.html);
+    else if (marker.$m === ROW_END) leaveRow(seg, marker, itemOwner);
     else if (marker.$m === SCOPE_END) seg.scopes.pop();
     else if (marker.$m === NS_END) seg.ns = marker.ns;
     else if (marker.$m === SELECT_END) seg.select = marker.outer;

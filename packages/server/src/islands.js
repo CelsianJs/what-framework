@@ -17,7 +17,7 @@
 //   'action'  - Hydrate on first user interaction (click, focus, hover)
 
 import { h, mount, hydrate, signal, batch } from 'what-core';
-import { getServerContext, _currentOwnerPath, __readHydrationData, isVNode } from 'what-core/internal';
+import { getServerContext, _currentOwnerPath, _currentRowPath, _formMember, _renderSalt, __readHydrationData, isVNode } from 'what-core/internal';
 import { serializeState } from './serialize.js';
 
 const islandRegistry = new Map();
@@ -286,6 +286,9 @@ function reviveIslandProps(json, vnodePaths) {
 // component it wraps is its first child there, and the client, hydrating that
 // component into this element, numbers it from the same path, so the island's
 // keyless resources adopt their server values (what-core hydration-data.js).
+// Inside a keyed row it writes its place among the keyed rows as
+// data-what-row (digests, no key), so the island's useActionState keys are
+// the server's too.
 
 export function Island({ name, props = {}, children, mode, priority, stores }) {
   const entry = islandRegistry.get(name);
@@ -293,6 +296,7 @@ export function Island({ name, props = {}, children, mode, priority, stores }) {
   const resolvedPriority = priority ?? entry?.priority ?? 0;
   const resolvedStores = stores || entry?.stores || [];
   const ownerPath = getServerContext() ? _currentOwnerPath() : undefined;
+  const rowPath = ownerPath !== undefined ? _currentRowPath(_renderSalt()) : null;
 
   // Server: render as a div with data attributes for hydration
   const { json, vnodes } = serializeIslandProps(props);
@@ -306,6 +310,7 @@ export function Island({ name, props = {}, children, mode, priority, stores }) {
   };
   if (vnodes.length > 0) markerProps['data-island-vnodes'] = JSON.stringify(vnodes);
   if (ownerPath !== undefined) markerProps['data-what-owner'] = ownerPath;
+  if (rowPath !== null) markerProps['data-what-row'] = rowPath;
   return h('div', markerProps, children);
 }
 
@@ -425,6 +430,7 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores, optio
     el.removeAttribute('data-island-priority');
     el.removeAttribute('data-island-stores');
     el.removeAttribute('data-what-owner');
+    el.removeAttribute('data-what-row');
 
     // Dispatch event for analytics/debugging
     el.dispatchEvent(new CustomEvent('island:hydrated', {
@@ -529,8 +535,10 @@ export function enhance(selector, handler) {
 
   const elements = document.querySelectorAll(selector);
   for (const el of elements) {
-    if (el.dataset.enhanced) continue;
-    el.dataset.enhanced = 'true';
+    // A form's own dataset: a field named "dataset" stands in for it.
+    const data = _formMember(el, 'dataset');
+    if (data.enhanced) continue;
+    data.enhanced = 'true';
     handler(el);
   }
 }
@@ -550,7 +558,7 @@ function readFormCsrfToken(form) {
     || document.querySelector('meta[name="what-csrf-token"]');
   if (meta) return meta.getAttribute('content');
 
-  const field = form.querySelector('input[name="what-csrf-token"], input[name="_csrf"]');
+  const field = /** @type {HTMLInputElement | null} */ (_formMember(form, 'querySelector')('input[name="what-csrf-token"], input[name="_csrf"]'));
   if (field && field.value) return field.value;
 
   const cookie = document.cookie.match(/(?:^|;\s*)what-csrf=([^;]+)/);
@@ -624,19 +632,19 @@ function formEntries(form, submitter, multipart) {
  */
 export function enhanceForms(selector = 'form[data-enhance]') {
   enhance(selector, (form) => {
-    form.addEventListener('submit', async (event) => {
+    _formMember(form, 'addEventListener')('submit', async (event) => {
       event.preventDefault();
 
       try {
-        // getAttribute, never the properties. HTMLFormElement is
-        // [LegacyOverrideBuiltIns]: a field named "method" or "action" SHADOWS
-        // form.method / form.action with the input element itself. Reading
-        // `form.method.toUpperCase()` then threw a TypeError after
-        // preventDefault() had already run, so the submit produced no fetch, no
-        // form:error, and no native fallback. It just did nothing.
+        // The attributes, never the properties, and every member of the form
+        // read through _formMember: HTMLFormElement is [LegacyOverrideBuiltIns],
+        // so a field named "method", "action" or "getAttribute" stands in for
+        // that member. Reading `form.method.toUpperCase()` threw a TypeError
+        // after preventDefault() had already run, so the submit produced no
+        // fetch, no form:error, and no native fallback. It just did nothing.
         const submitter = event.submitter || null;
         const attr = (name) => (submitter && submitter.getAttribute(`form${name}`))
-          || form.getAttribute(name);
+          || _formMember(form, 'getAttribute')(name);
 
         const method = (attr('method') || 'get').toUpperCase();
         const action = new URL(attr('action') || location.href, location.href);
@@ -683,7 +691,7 @@ export function enhanceForms(selector = 'form[data-enhance]') {
           cancelable: true,
           detail: { response, ok: response.ok, redirected: response.redirected },
         });
-        const proceed = form.dispatchEvent(responseEvent);
+        const proceed = _formMember(form, 'dispatchEvent')(responseEvent);
 
         // Same-origin only. A native submit would follow an off-site redirect,
         // but a framework default that can navigate the page to another origin
@@ -699,7 +707,7 @@ export function enhanceForms(selector = 'form[data-enhance]') {
           if (target) location.assign(target);
         }
       } catch (error) {
-        form.dispatchEvent(new CustomEvent('form:error', {
+        _formMember(form, 'dispatchEvent')(new CustomEvent('form:error', {
           bubbles: true,
           detail: { error },
         }));

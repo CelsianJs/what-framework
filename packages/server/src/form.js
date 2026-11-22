@@ -31,7 +31,7 @@
 // it as `csrfToken` and the form carries it.
 
 import { h } from 'what-core';
-import { _formStatusContext, _formStatus, _resetForm, getServerContext, isHydrating } from 'what-core/internal';
+import { _formMember, _formStatusContext, _formStatus, _resetForm, getServerContext, isHydrating } from 'what-core/internal';
 import { _callAction } from './actions.js';
 import { addField } from './fields.js';
 
@@ -136,7 +136,7 @@ export function Form({
       event.stopImmediatePropagation();
       const form = event.currentTarget;
       const formData = new FormData(form, event.submitter || undefined);
-      const fail = (error) => form.dispatchEvent(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
+      const fail = (error) => _formMember(form, 'dispatchEvent')(new CustomEvent('form:error', { bubbles: true, detail: { error } }));
       status.submit(formData, (data) => (actionId === null ? action(data)
         : typeof action === 'function' ? action(fieldsOf(data))
           : _callAction(actionId, [fieldsOf(data)])), () => {

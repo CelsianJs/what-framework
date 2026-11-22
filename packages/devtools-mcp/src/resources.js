@@ -141,7 +141,7 @@ ${HOOKS_CONTRACT}
 The rest of the hooks:
 - \`useSignal(initial)\` / \`useComputed(fn)\`: a signal or computed scoped to the component
 - \`createContext(defaultValue?)\`: a context, which is also its own provider (\`<Ctx value={v}>\`)
-- \`onMount(fn)\`: runs once after the component mounts (client only)
+- \`onMount(fn)\`: runs once after the component mounts (client only). After a hydration it sees every field as the user left it: a field changed before hydration keeps the user's value, with no event, so read it there and write your state from it (\`onMount(() => country(select.value))\`)
 - \`onCleanup(fn)\`: see Reactive Primitives
 - \`useId(prefix?)\`: a unique id string, stable for the component's life
 - \`createResource(fetcher, options?)\`: \`[data, { loading, error, refetch, mutate }]\`; \`data\` is an async computed (\`data()\` holds under a \`<Suspense>\` until it lands), \`loading()\` and \`error()\` are accessors, \`mutate(value)\` sets the data
@@ -191,7 +191,7 @@ mount(<Suspense fallback={<p>Loading…</p>}><Todos /></Suspense>, '#app');
 - \`useActionState(action, initial)\` (root): \`[state(), dispatch, isPending()]\`; \`dispatch(payload)\` runs \`action(prev, payload)\` in a transition, and the state commits with the data it revalidated
 - \`useFormStatus()\` (root): \`{ pending(), data(), method, action }\` of the \`<Form>\` around the component
 - \`action(fn, { id, revalidate?: [path], invalidates?: [key] })\` (what-framework/server): on the client a transition that refetches what it revalidates inside it
-- \`<Form action={serverActionOrDispatch} redirect?>\` (what-framework/server): posts without JavaScript (cached pages too: the endpoint accepts same-origin posts), and runs as a transition when mounted. Without JavaScript the dispatch of \`useActionState(serverAction, initial)\` posts to its page, which renders with the action's result for that form alone (return the fields as typed); \`getResponse().redirect(path)\` in the action is the success route in both modes
+- \`<Form action={serverActionOrDispatch} redirect?>\` (what-framework/server): posts without JavaScript (cached pages too: the endpoint accepts same-origin posts), and runs as a transition when mounted. Without JavaScript the dispatch of \`useActionState(serverAction, initial)\` posts to its page, which renders with the action's result for that form alone (return the fields as typed): inside a keyed list (\`<For key>\`, \`.map()\` with a \`key\`) that form is found by its row's key, so rows added or removed in between do not move the result; unkeyed repeated forms are told apart by position; \`getResponse().redirect(path)\` in the action is the success route in both modes
 
 ## DOM
 - \`mount(node, container)\`: mount into a container (an element or a selector); returns the unmount function

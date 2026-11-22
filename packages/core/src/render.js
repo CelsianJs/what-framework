@@ -40,11 +40,12 @@ export function _setTextInsertHook(fn) {
 }
 
 // Dynamic text was written in `parent`: the text engine hears it, and a
-// select follows an option whose text changed (its value, when it has no
-// `value` attribute: dom.js _optionsChanged).
+// select follows an option whose text is its value, one with no `value`
+// attribute (dom.js _optionsChanged). The text of an option with a value is
+// its label, and a label changes nothing the select shows.
 function textWritten(parent, text) {
   if (_onTextInsert !== null) _onTextInsert(parent, text);
-  if (optionsChanged !== null) optionsChanged(parent);
+  if (optionsChanged !== null && !(parent.localName === 'option' && parent.hasAttribute('value'))) optionsChanged(parent);
 }
 
 // --- Vnodes ---
@@ -2314,7 +2315,9 @@ function newSession(container, onError, ownerRoot) {
 }
 
 // The walk `walk` is done: what waited for it runs, then the fields the user
-// changed show what they showed.
+// changed show what they showed. Called inside the walk's batch, so that the
+// mount callbacks and effects the walk queued, which run when the batch ends,
+// read every field as the user left it.
 function walkDone(walk) {
   for (const fn of walk.after) fn();
   if (walk.fields.length > 0) /** @type {Function} */ (restoreFields)(walk.fields);
@@ -2435,8 +2438,8 @@ export function hydrate(tree, container, options) {
         pendingKey = saved.pendingKey;
         if (saved.depth === 0) releaseCursors();
       }
+      walkDone(walk);
     });
-    walkDone(walk);
     _adoptDetached(container.childNodes);
     if (__DEV__ && /** @type {any} */ (saved).devNodes) devHydrationComplete(container, /** @type {any} */ (saved).devNodes);
   });
@@ -2931,8 +2934,44 @@ function adopt(value) {
   claimText(String(value));
 }
 
+// The members of an array or of an element's children, a vnode with a key
+// as a keyed row (hydration-data.js _enterRow), as what-server renders them.
 function adoptEach(values) {
-  for (let i = 0; i < values.length; i++) adopt(values[i]);
+  /** @type {object | null} */
+  let list = null;
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
+    const key = isVNode(value) ? value.key : null;
+    if (key == null) adopt(value);
+    else adoptRow(list ??= {}, key, adopt, value);
+  }
+}
+
+// The keyed rows hydration enters (hydration-data.js _enterRow and
+// _leaveRow), for the keys of server actions' useActionState: installed by
+// the first server action an app defines (what-server action()), so an app
+// with none carries no row tracking.
+/** @type {any} */
+let rowEntry = null;
+/** @type {any} */
+let rowExit = null;
+
+/** @internal What-core's keyed rows, for hydration to enter (hydration-data.js _installRowKeys). */
+export function _installRowEntry(enter, exit) {
+  rowEntry = enter;
+  rowExit = exit;
+}
+
+// `fn(a)` as the keyed row `key` of `list`, in the component adopting it.
+function adoptRow(list, key, fn, a) {
+  if (rowEntry === null) return fn(a);
+  const root = session.ownerRoot;
+  const saved = rowEntry(undefined, root, list, key);
+  try {
+    return fn(a);
+  } finally {
+    rowExit(undefined, root, saved);
+  }
 }
 
 // A node: one a compiled claim took in place (nothing left to do), or one the
@@ -3061,7 +3100,7 @@ function adoptVNode(vnode) {
   if (empty && (el.firstChild === null || props['data-island'] != null)) return;
   enterNode(el, null);
   try {
-    if (!empty) for (let i = 0; i < children.length; i++) adopt(children[i]);
+    if (!empty) adoptEach(children);
     finish(cur);
   } finally {
     cur = outer.pop();
@@ -3335,6 +3374,7 @@ function adoptVNodeRows(value, scope) {
   const order = close !== null ? inServerOrder(at, close, value, vnodeKey) : null;
   const vnodes = order === null ? value : order.map((i) => value[i]);
   const rows = [];
+  const list = {};
   const adoptRows = () => {
     const rc = cur;
     for (let i = 0; i < vnodes.length; i++) {
@@ -3343,7 +3383,7 @@ function adoptVNodeRows(value, scope) {
         next(rc);
         splitHere(rc);
         const anchor = anchorOf(rc);
-        adopt(vnode);
+        adoptRow(list, vnode.key, adopt, vnode);
         splitHere(rc);
         let first = afterAnchor(rc, anchor);
         let last = anchorOf(rc);
@@ -3476,6 +3516,8 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
   // another order (inServerOrder): the row's callback is given that index.
   /** @type {number[] | null} */
   let order = null;
+  // A keyed list's rows are keyed rows (_enterRow), as the server rendered them.
+  const list = keyFn !== itemKey ? {} : null;
   const adoptRows = (newItems) => {
     const rc = cur;
     for (let i = 0; i < newItems.length; i++) {
@@ -3487,10 +3529,12 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
       next(rc);
       splitHere(rc);
       const anchor = anchorOf(rc);
-      _createItemScope((dispose) => {
+      const build = (dispose) => {
         disposeFns[i] = dispose;
         adopt(mapFn(cell === null ? item : keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), order === null ? i : order[i], item));
-      });
+      };
+      if (list === null) _createItemScope(build);
+      else adoptRow(list, keyFn(item), _createItemScope, build);
       if (cell !== null) {
         cell.building = false;
         disposeFns[i]._item = cell;
@@ -4030,8 +4074,8 @@ function resumeIn(walk, start, end, fn) {
       pendingKey = saved.pendingKey;
       if (saved.depth === 0) releaseCursors();
     }
+    walkDone(walk);
   });
-  walkDone(walk);
 }
 
 /**

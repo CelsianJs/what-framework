@@ -188,6 +188,28 @@ describe('a useActionState form without JavaScript', () => {
     assert.deepEqual(calls.length, 2, 'the over-limit post never reached the action');
   });
 
+  it('takes a larger body with `bodyLimit`, and answers one over it with a page', async () => {
+    const handle = createRequestHandler({ routes, bodyLimit: 4 * 1024 * 1024 });
+    const [one] = await page(handle);
+    const body = 'x'.repeat(1536 * 1024);
+    const res = await post(handle, '/edit', fieldsOf(one, 'one', { title: 'x', body }), { accept: 'text/html' });
+    assert.equal(res.status, 200);
+    assert.equal(forms(await res.text())[0].body.length, body.length);
+    const over = await post(handle, '/edit', fieldsOf(one, 'one', { title: 'x', body: 'y'.repeat(4 * 1024 * 1024) }), { accept: 'text/html' });
+    assert.equal(over.status, 413);
+    assert.match(over.headers.get('content-type'), /text\/html/);
+    assert.match(await over.text(), /over the 4194304 bytes this site accepts/);
+    const endpoint = await handle(new Request(`${origin}/__what_action`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-what-action': 'posts/save', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ args: [null, { title: 'y'.repeat(4 * 1024 * 1024) }] }),
+    }));
+    assert.equal(endpoint.status, 413);
+    assert.match(endpoint.headers.get('content-type'), /json/, 'a fetch call gets JSON');
+    for (const bodyLimit of [0, -1, 1.5, '1mb', Infinity]) {
+      assert.throws(() => createRequestHandler({ routes, bodyLimit }), /bodyLimit/, String(bodyLimit));
+    }
+  });
+
   it('comes back to the form that was posted, and to no other form of the same action', async () => {
     const handle = createRequestHandler({ routes });
     const [one] = await page(handle);

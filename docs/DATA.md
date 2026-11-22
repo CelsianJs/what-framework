@@ -321,14 +321,17 @@ export default function EditPost() {
   it held (a hidden `_state` field) and its `useActionState`'s key
   (`_actionKey`). `createRequestHandler` runs the action, by the action
   endpoint's rules (where the post comes from, the CSRF token, a registered
-  action id, the reserved field names, the 1 MB body limit, the request's
+  action id, the reserved field names, the body limit, the request's
   context), and renders that page with what it returned, answering with the
   render's status (200 by default) and `cache-control: private, no-store`. That
   render is the visitor's own: never stored in the ISR cache, never served
-  from it. The state comes back to that form alone: another form of the same
-  action on the page (a list of inline editors) keeps its own state. A draft
-  of any length comes back whole: there is no limit but the body's, and no
-  cookie or Referer is involved. Hydration starts from the same state.
+  from it. The state comes back to that form alone (its key, below): another
+  form of the same action on the page keeps its own state. A draft
+  comes back whole up to the body limit (`bodyLimit` on `createRequestHandler`,
+  1 MB by default; a post over it gets a 413 page). The state carries the
+  fields as typed, so a re-post holds the draft twice and a draft fits in about
+  half the limit. No cookie or Referer is involved. Hydration starts from the
+  same state.
 - **Success routing**: `getResponse().redirect(path)` in the action, a
   same-origin path by the loaders' rule. Without JavaScript the post answers
   303 to it; with JavaScript the client goes there once what the action
@@ -336,12 +339,23 @@ export default function EditPost() {
   page when there is none). The headers the action sets with
   `getResponse().setHeader()` (a cookie) are on the response in both modes;
   its `setStatus()` is not used.
-- The key is the hook's place in the component tree (its component's owner
-  path and its order there), the same in the render that served the form and
-  the one that answers it. Two forms are told apart as long as the page
-  renders them in the same places both times; a list of forms whose order
-  changed between the two renders can hand the result to the form now in
-  that place.
+- The key names the hook the way React's key path names an element. Inside a
+  keyed list (a `<For key>` row, a `.map()` row with a `key`, any vnode with a
+  key) it is the keys of the keyed rows around the hook, outermost first, then
+  the hook's place below the innermost row; outside keyed lists it is the
+  hook's place in the component tree (its component's owner path and its
+  order there). So in a list of inline editors keyed by record, a record's
+  form gets its own result back when a teammate added, removed or reordered
+  records between the render that served the form and the one that answers
+  it, with JavaScript or without. Forms that repeat without a key (several in
+  one component, an unkeyed list) are told apart by position only: if their
+  order changed between the two renders, the result goes to the form now in
+  that place. A row key is a string or a finite number; a row whose key is
+  anything else (an object, a boolean) has no form that is the same from one
+  render to the next, so the forms in it count by position. Rows of one list
+  with the same key are told apart by their order. The page carries no row
+  key: the key holds each one as a digest under the render's salt, as a keyed
+  list's hydration comment does.
 - The page renders from a POST, so reloading it, or coming back to it with the
   Back button, posts the form again, as with any form POST (the browser asks
   first). A redirect on success avoids that for the common case.
@@ -350,7 +364,8 @@ export default function EditPost() {
   anything else. The action gets `previousState` from the client too, with or
   without JavaScript.
 - A POST to a page without `_action` is the page's own, as before: its loader
-  reads the body.
+  reads the body. An urlencoded one is read first, up to `bodyLimit`, to look
+  for `_action`, so one over it is answered 413, as every body over it is.
 - A custom server that renders with `renderDocument` runs the post itself with
   `createFormPostHandler(options)` (the action endpoint's options), then
   renders with its result:

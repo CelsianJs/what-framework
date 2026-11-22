@@ -415,6 +415,8 @@ export interface ActionHandlerOptions {
   trustedOrigins?: string[];
   /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. */
   basePath?: string;
+  /** The most bytes a request body may hold, default 1048576 (1 MB): a larger one is answered 413. Read by nodeActionMiddleware and fetchActionHandler, which read the body; a server that reads it itself sets its own limit. */
+  bodyLimit?: number;
 }
 
 export function createActionHandler(options?: ActionHandlerOptions): (request: any) => Promise<any>;
@@ -584,6 +586,8 @@ export interface RequestHandlerOptions {
   actionHandler?: (reqLike: any) => Promise<{ status: number; headers: Record<string, string>; body: any }>;
   /** Hears every error a built-in route render (streamed or buffered) contains or fails on. Default: console.error. */
   onError?: (error: unknown, info: StreamErrorInfo) => void;
+  /** The most bytes a request body may hold (an action call, a form posted to a page, the revalidate webhook), default 1048576 (1 MB), the Node adapter's read included: a larger one is answered 413, as a page for a form a browser posted to a page. */
+  bodyLimit?: number;
 }
 
 // Request in, Response out, and nothing else: the handler takes ONE argument.

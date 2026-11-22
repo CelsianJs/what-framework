@@ -383,13 +383,32 @@ gives, so the typed title stays. Without JavaScript the form posts to the page
 it is on (it has no `action` attribute; `useActionState`'s `permalink` names
 another URL), with its state in a hidden `_state` field and the hook's key in
 `_actionKey`. `createRequestHandler` runs the action by the action endpoint's
-rules (the CSRF checks, the 1 MB body limit, registered ids only, the reserved
+rules (the CSRF checks, the body limit, registered ids only, the reserved
 fields, the request's context) and renders the matched page with what it
-returned, seeded into that form's `useActionState` alone (another form of the
-same action keeps its own state), with the render's status and
+returned, seeded into that form's `useActionState` alone, with the render's
+status and
 `cache-control: private, no-store`, outside the ISR cache. There is no size
 limit but the body's. Reloading that page, or going back to it, posts the form
 again, as with any form POST; a redirect on success avoids it. The state is the visitor's to set: show it, trust it for nothing.
+
+The body limit is `bodyLimit` (bytes, 1 MB by default) on `createRequestHandler`,
+`nodeActionMiddleware` and `fetchActionHandler`, and it covers every body the
+handler reads: an action call, a form posted to a page (read to look for
+`_action`, so a page's own urlencoded POST is held to it too) and the
+revalidate webhook. A body over it is answered 413: a short HTML page for a
+form a browser posted, JSON for a fetch. The recipe above returns the fields as
+typed in the state, so a re-post carries the draft twice (its field, and
+`_state`'s `fields`): a draft fits in about half the limit. A site that takes
+long drafts raises it, `createRequestHandler({ routes, bodyLimit: 4 * 1024 * 1024 })`.
+
+Which form is "that form" is the hook's key. Inside a keyed list (a `<For key>`
+row, a `.map()` row with a `key`) the key follows the row's key, as React's key
+path does, so a record's editor gets its own result back when records were
+added, removed or reordered between the page and the post. Another form of the
+same action keeps its own state. Forms that repeat without a key are told
+apart by position only, and a change in their order in between hands the
+result to the form now in that place. A row key is a string or a finite
+number; the page carries it only as a salted digest (docs/DATA.md).
 
 `getResponse()` in an action is the response of its call: `redirect(path)`
 (a same-origin path, as in a loader) answers a no-JS post with 303 and, with

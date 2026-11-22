@@ -179,10 +179,17 @@ its action, as \`src/pages/edit.js\` does: the action is called as
 \`action(previousState, fields)\` and returns the error and the fields exactly
 as typed, and the fields' defaults come from the state. Without JavaScript the
 form posts to the page it is on, and the server renders that page with the
-result, for that form only. To go somewhere once a save succeeds, the action
+result, for that form only: in a list of editors, give the rows a \`key\` (the
+record's id), so the result finds its record's form even when the list changed
+in between. To go somewhere once a save succeeds, the action
 calls \`getResponse().redirect(path)\` (from \`what-framework\`): a 303 without
 JavaScript, a navigation with it. \`<Form redirect>\` is for a server action's
 own form, whose result is not shown; a dispatch's form does not read it.
+
+A field the user changed before hydration keeps the user's value (no event is
+dispatched), so a signal bound to it still holds the server's: read the field in
+\`onMount\`, which sees it as the user left it, and write the signal from it
+(\`onMount(() => country(select.value))\`).
 
 \`\`\`js
 import { h, useActionState } from 'what-framework';

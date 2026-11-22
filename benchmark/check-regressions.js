@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { DOM_TIMING, domThreshold, loadAverage } from './dom-gate.mjs';
-import { compareInterleaved, referenceTree, runInterleaved } from './ab.mjs';
+import { compareInterleaved, persistentFailures, referenceTree, runInterleaved } from './ab.mjs';
 
 const ROOT = process.cwd();
 const BASELINE_DIR = join(ROOT, 'benchmark', 'baseline');
@@ -310,13 +310,20 @@ try {
       execFileSync('node', ['benchmark/dom-gate.mjs', '--out', domOutRetry, '--rounds', String(domRounds), '--no-build'], { stdio: 'inherit' });
     }
 
+    // An operation fails the gate only when it fails both attempts: a real
+    // regression slows the same operation each time, noise does not.
     const retryFailures = [...retryAB, ...compareDom(domOutRetry)];
-    if (retryFailures.length > 0) {
-      console.error('\nBenchmark regression check failed:');
-      for (const failure of retryFailures) console.error(`  - ${failure}`);
+    const persistent = persistentFailures(failures, retryFailures);
+    if (persistent.length > 0) {
+      console.error('\nBenchmark regression check failed (these operations failed both attempts):');
+      for (const failure of persistent) console.error(`  - ${failure}`);
       process.exitCode = 1;
     } else {
-      console.log('\nBenchmark regression check passed on retry (initial run was likely noisy).');
+      if (retryFailures.length > 0) {
+        console.warn('\nOn the retry, other operations missed their floor once (noise; each passed the first attempt):');
+        for (const failure of retryFailures) console.warn(`  - ${failure}`);
+      }
+      console.log('\nBenchmark regression check passed on retry: no operation failed both attempts.');
     }
   }
 } finally {

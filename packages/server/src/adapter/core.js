@@ -21,11 +21,12 @@
 
 import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument, renderDocumentStream } from '../index.js';
-import { createActionHandler, createFormPostHandler, parseActionBody, readFetchBodyCapped } from '../action-handler.js';
+import { bodyLimitOf, createActionHandler, createFormPostHandler, parseActionBody, readFetchBodyCapped, tooLargeResponse } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
 import { generateCsrfToken } from '../actions.js';
 import { createResponse } from '../response.js';
 import { _isDevMode } from '../html.js';
+import { requestScheme } from '../request-url.js';
 
 const ACTION_PATH = '/__what_action';
 const HTML_HEADERS = { 'content-type': 'text/html; charset=utf-8' };
@@ -79,12 +80,12 @@ function readCookie(cookieHeader, name) {
   }
 }
 
-// Read + parse the action body with the shared MAX_BODY_BYTES cap. Returns
+// Read + parse the action body with the handler's `bodyLimit`. Returns
 // { tooLarge: true } when over the limit so the caller can respond 413 (DoS
 // guard parity with the Node connect/express middleware).
-async function readActionBody(request) {
+async function readActionBody(request, limit) {
   try {
-    const read = await readFetchBodyCapped(request);
+    const read = await readFetchBodyCapped(request, limit);
     if (read.tooLarge) return { tooLarge: true };
     return parseActionBody(read.raw, request.headers.get('content-type') || '');
   } catch { return {}; }
@@ -93,9 +94,9 @@ async function readActionBody(request) {
 // Same cap for the revalidate webhook: the secret is only checked once the body
 // is parsed, so an unauthenticated client must never be able to make the origin
 // buffer an unbounded payload before its 401.
-async function readJsonBody(request) {
+async function readJsonBody(request, limit) {
   let read;
-  try { read = await readFetchBodyCapped(request); } catch { return { json: {} }; }
+  try { read = await readFetchBodyCapped(request, limit); } catch { return { json: {} }; }
   if (read.tooLarge) return { tooLarge: true };
   // `raw` is absent on the tooLarge branch, which returned above; `?? ''` keeps
   // the parse throwing into the same catch it always did.
@@ -343,7 +344,8 @@ export function createRouteRenderer(documentOptions = {}) {
  * `actionHandler` is), and the page renders with what it returned for that
  * form, outside the cache (`private, no-store`), or the response is the 303 the
  * action redirected to. A POST to a page without `_action` is answered as
- * before.
+ * before, its body unread; a body over `bodyLimit` (1 MB by default) is
+ * answered 413 (a page for a form a browser posted to a page), whatever it is.
  *
  * @param {import('what-server').RequestHandlerOptions} [options]
  */
@@ -359,6 +361,7 @@ export function createRequestHandler(options = {}) {
     csrf = true,
     onError,
   } = options;
+  const bodyLimit = bodyLimitOf(options);
 
   // Auto-provisioning (cookie + meta tag) only applies to the built-in
   // handler; a user-supplied actionHandler owns its own CSRF policy.
@@ -386,20 +389,20 @@ export function createRequestHandler(options = {}) {
     });
   }
 
-  return async function handle(request) {
+  // The Node adapter reads each body before the handler gets a Request: it
+  // reads this one's `bodyLimit` from it.
+  handle.bodyLimit = bodyLimit;
+  return handle;
+
+  async function handle(request) {
     const url = new URL(request.url, 'http://localhost');
     let pathname = url.pathname;
     if (basePath && pathname.startsWith(basePath)) pathname = pathname.slice(basePath.length) || '/';
 
     // Server actions (JSON fetch path AND plain form-post fallback)
     if (request.method === 'POST' && pathname === ACTION_PATH) {
-      const body = await readActionBody(request);
-      if (body && body.tooLarge) {
-        return new Response(JSON.stringify({ message: 'Payload too large' }), {
-          status: 413,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
+      const body = await readActionBody(request, bodyLimit);
+      if (body && body.tooLarge) return tooLargeResponse(null, bodyLimit);
       const out = await actionHandler({
         method: 'POST',
         headers: headersToObject(request.headers),
@@ -425,9 +428,7 @@ export function createRequestHandler(options = {}) {
         // Secure when the request is HTTPS (direct or via a proxy's
         // x-forwarded-proto) or in production; OFF for plain-http localhost dev
         // so the cookie still sets and CSRF keeps working locally.
-        const reqHeaders = headersToObject(request.headers);
-        const isHttps = reqHeaders['x-forwarded-proto'] === 'https'
-          || url.protocol === 'https:'
+        const isHttps = requestScheme(request.headers, url.protocol === 'https:' ? 'https' : 'http') === 'https'
           || process.env.NODE_ENV === 'production';
         csrfSetCookie = `${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}; Path=/; SameSite=Lax`
           + (isHttps ? '; Secure' : '');
@@ -437,13 +438,8 @@ export function createRequestHandler(options = {}) {
 
     // On-demand revalidation webhook
     if (request.method === 'POST' && pathname === REVALIDATE_PATH && revalidateWebhook) {
-      const read = await readJsonBody(request);
-      if (read.tooLarge) {
-        return new Response(JSON.stringify({ message: 'Payload too large' }), {
-          status: 413,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
+      const read = await readJsonBody(request, bodyLimit);
+      if (read.tooLarge) return tooLargeResponse(null, bodyLimit);
       const out = await revalidateWebhook({ headers: headersToObject(request.headers), body: read.json });
       return new Response(JSON.stringify(out.body), {
         status: out.status,
@@ -470,13 +466,9 @@ export function createRequestHandler(options = {}) {
     /** @type {any} */
     let posted = null;
     if (request.method === 'POST' && (request.headers.get('content-type') || '').includes('application/x-www-form-urlencoded')) {
-      const read = await readFetchBodyCapped(request.clone());
-      if (read.tooLarge) {
-        return new Response(JSON.stringify({ message: 'Payload too large' }), {
-          status: 413,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
+      // A page's form: a visitor without JavaScript reads the 413 as a page.
+      const read = await readFetchBodyCapped(request.clone(), bodyLimit);
+      if (read.tooLarge) return tooLargeResponse({ accept: 'text/html' }, bodyLimit);
       posted = await formPostHandler({
         method: 'POST',
         headers: headersToObject(request.headers),
@@ -494,10 +486,13 @@ export function createRequestHandler(options = {}) {
     // response is the visitor's own.
     const actionHeaders = posted !== null ? posted.headers : null;
 
-    // ISR cache path (static/hybrid with a cache engine). Server-mode bypasses.
+    // ISR cache path (static/hybrid with a cache engine), for a GET or a HEAD:
+    // the cache stores and serves only those. Server-mode bypasses, and any
+    // other method renders below as that request's own, never stored.
     // NOTE: cached HTML is shared across users, so the per-user CSRF token is
     // NOT embedded in the page here — clients read it from the cookie instead.
-    if (cache && config.mode !== 'server' && !posted) {
+    const readOnly = request.method === 'GET' || request.method === 'HEAD';
+    if (cache && config.mode !== 'server' && !posted && readOnly) {
       // The cache key's path has no trailing slash (what-isr normalizePath):
       // the render a key stores sees the params of that path, not the slash
       // one visitor sent.
@@ -512,6 +507,14 @@ export function createRequestHandler(options = {}) {
       // request, which is how the vary control shipped never executing.
       routeMatch.varyHeaders = headersToObject(request.headers);
       routeMatch.signal = request.signal;
+      // The entry is keyed on the origin the visitor asked for: a TLS proxy
+      // in front reports its scheme (request-url.js requestScheme).
+      const scheme = requestScheme(request.headers, url.protocol.slice(0, -1));
+      if (scheme !== url.protocol.slice(0, -1)) {
+        const at = new URL(request.url);
+        at.protocol = scheme;
+        routeMatch.request = new Request(at, { method: request.method, headers: request.headers, signal: request.signal });
+      }
       const result = await cache.handle(routeMatch, (match, cacheCtx) => renderRoute(match, cacheCtx));
       const status = result.status || 200;
       const headers = responseHeaders(HTML_HEADERS, result.headers, csrfHeaders);
@@ -553,10 +556,10 @@ export function createRequestHandler(options = {}) {
       HTML_HEADERS,
       actionHeaders,
       out.headers,
-      config.mode === 'server' || posted !== null ? NO_STORE : null,
+      config.mode === 'server' || posted !== null || !readOnly ? NO_STORE : null,
       csrfHeaders,
     );
     const status = out.status || 200;
     return new Response(NULL_BODY.has(status) ? null : out.html, { status, headers });
-  };
+  }
 }

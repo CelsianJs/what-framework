@@ -44,11 +44,11 @@ export {
 export { _engine } from '../reactive.js';
 export { beginHeadCollection, endHeadCollection } from '../head.js';
 export { escapeHtml as _escapeHtml } from '../markup-rules.js';
-export { _isAriaAttr, _beginComponentSSR, _endComponentSSR, _runInComponentSSR, _resetForm } from '../dom.js';
+export { _isAriaAttr, _beginComponentSSR, _endComponentSSR, _runInComponentSSR, _resetForm, _formMember } from '../dom.js';
 // The client renderer a '__portal' vnode carries (react-compat's createPortal).
 export { createPortalDOM as _mountPortal } from '../dom.js';
-export { _mapArrayToArray, _rowKeyDigest, _rowKeySalt, isHydrating } from '../render.js';
+export { _mapArrayToArray, _rowKeyDigest, isHydrating } from '../render.js';
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';
-export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath, _actionStateKey } from '../hydration-data.js';
+export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath, _actionStateKey, _actionKeySalt, _currentRowPath, _enterRow, _installRowKeys, _leaveRow, _renderSalt } from '../hydration-data.js';

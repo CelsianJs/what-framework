@@ -4,8 +4,10 @@
 // rendered here, in Node, and parsed in the page next to the equivalent static
 // HTML; the client paths run in the page with the development runtime. The
 // part run is every shape with a checkedness or a selection (checkbox, radio
-// group, single and multiple selects) plus every tenth other shape, on every
-// client path, each hydration also after a user edit made before it runs.
+// group, single and multiple selects), every field named after or given the
+// id of a member of its form (only a browser lets it stand in for the
+// member), plus every tenth other shape, on every client path, each
+// hydration also after a user edit made before it runs.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,7 +28,8 @@ const root = path.resolve(here, '../../..');
 
 const browserAvailable = await chromiumLaunches(chromium);
 
-const SHAPES = shapes().filter((s) => s.control !== 'text' && s.control !== 'textarea' || s.id % 10 === 0);
+const textual = (s) => s.control === 'text' || s.control === 'textarea' || s.control === 'range';
+const SHAPES = shapes().filter((s) => !textual(s) || s.id % 10 === 0 || s.name !== undefined || s.fieldId !== undefined);
 const AUTHORINGS = ['h', 'compiled', 'spread'];
 const SOURCES = ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable'];
 
@@ -47,7 +50,7 @@ async function serverMarkup() {
     for (const authoring of AUTHORINGS) {
       const Component = authoring === 'h' ? hComponent(h, shape, { For, Show }) : server[`${authoring === 'spread' ? 'S' : 'C'}${shape.id}`];
       for (const [name, render] of Object.entries(renderers)) {
-        markup[`${shape.id}|${authoring}|${name}`] = await render(h(Component, { v: isDynamic(shape) ? signal(shape.initial) : undefined, o: signal(editsEarly(shape)) }));
+        markup[`${shape.id}|${authoring}|${name}`] = await render(h(Component, { v: isDynamic(shape) ? signal(shape.initial) : undefined, o: signal(editsEarly(shape)), l: signal(false) }));
       }
     }
   }
@@ -63,11 +66,16 @@ async function pageBundle(dir) {
   writeFileSync(path.join(dir, 'hydratable.mjs'), rewrite(compileJSX(source, { pluginOptions: { hydratable: true } })));
   writeFileSync(path.join(dir, 'entry.mjs'), `
     import * as core from ${JSON.stringify(path.join(root, 'packages/core/src/index.js'))};
-    import { _resetForm } from ${JSON.stringify(path.join(root, 'packages/core/src/dom.js'))};
+    import { _resetForm, _changedFields } from ${JSON.stringify(path.join(root, 'packages/core/src/dom.js'))};
     import * as oracle from ${JSON.stringify(path.join(here, 'fixtures/form-oracle.js'))};
     import * as client from './client.mjs';
     import * as hydratable from './hydratable.mjs';
-    const env = { h: core.h, mount: core.mount, hydrate: core.hydrate, flushSync: core.flushSync, signal: core.signal, resetForm: _resetForm, For: core.For, Show: core.Show, document };
+    const changedFields = (el) => {
+      const out = [];
+      _changedFields(el, out, new WeakSet());
+      return out.length;
+    };
+    const env = { h: core.h, mount: core.mount, hydrate: core.hydrate, flushSync: core.flushSync, signal: core.signal, resetForm: _resetForm, changedFields, For: core.For, Show: core.Show, document };
     const byId = new Map(oracle.shapes().map((s) => [s.id, s]));
     const component = (shape, authoring, build) => authoring === 'h' ? oracle.hComponent(core.h, shape, env) : build[(authoring === 'spread' ? 'S' : 'C') + shape.id];
     export async function run(ids, markup, authorings, sources) {

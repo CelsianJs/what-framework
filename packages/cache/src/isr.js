@@ -54,7 +54,9 @@ function abortError(signal) {
 }
 
 // The origin of the request a route match answers: the scheme and host its
-// render sees in `request.url`, which the adapter took from a validated Host.
+// render sees in `request.url`, which the adapter took from a validated Host
+// and, for the scheme, what a proxy in front reports in X-Forwarded-Proto
+// (what-server's request-url.js requestScheme, the rule its CSRF check uses).
 function originOf(routeMatch) {
   const request = routeMatch.request;
   if (request == null || typeof request.url !== 'string') return '';
@@ -63,6 +65,20 @@ function originOf(routeMatch) {
   } catch {
     return '';
   }
+}
+
+// `value`, an option holding a public origin, as one: an http or https URL's
+// scheme and host.
+function originNamed(value, option) {
+  /** @type {URL | null} */
+  let url = null;
+  try {
+    url = new URL(String(value));
+  } catch { /* not a URL */ }
+  if (url === null || (url.protocol !== 'http:' && url.protocol !== 'https:') || !url.host) {
+    throw new TypeError(`[what-isr] createCacheEngine: ${JSON.stringify(value)} in \`${option}\` is not an origin: give its scheme and host, as in "https://shop.example".`);
+  }
+  return url.origin;
 }
 
 // The most origins one regeneration with no request renders (storedOrigins).
@@ -92,9 +108,12 @@ function requestAt(routeMatch, origin) {
  * @param {string[]} [options.origins] the public origins the site serves: only their entries are stored
  */
 export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console, origin: publicOrigin, origins: publicOrigins } = {}) {
-  const defaultOrigin = publicOrigin ? new URL(publicOrigin).origin : 'http://localhost';
+  const defaultOrigin = publicOrigin ? originNamed(publicOrigin, 'origin') : 'http://localhost';
+  if (publicOrigins !== undefined && (!Array.isArray(publicOrigins) || publicOrigins.length === 0)) {
+    throw new TypeError(`[what-isr] createCacheEngine: \`origins\` is ${JSON.stringify(publicOrigins)}: list the public origins the site serves (['https://shop.example']), or leave it out to cache a page for any Host a request names.`);
+  }
   /** @type {Set<string> | null} */
-  const served = Array.isArray(publicOrigins) && publicOrigins.length > 0 ? new Set(publicOrigins.map((o) => new URL(o).origin)) : null;
+  const served = publicOrigins !== undefined ? new Set(publicOrigins.map((o) => originNamed(o, 'origins'))) : null;
   // key -> { promise: Promise<{ entry, headers }>, waiters, pinned, controller }
   const inFlight = new Map();
 
@@ -290,22 +309,26 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
 
     // Uncacheable routes: server-rendered, or a `vary` declaration the adapter
     // left unresolved (caching it would publish one user's HTML to everyone),
-    // and a request for an origin the site does not name. Always render,
-    // never store.
+    // a request for an origin the site does not name, and a request that is
+    // not a GET (or a HEAD): a POST's render is that post's, whatever its
+    // body holds. Always render, never store; the last three are the
+    // request's own (private, no-store).
     const origin = originOf(routeMatch);
-    if (config.mode === 'server' || vary === null || (served !== null && origin !== '' && !served.has(origin))) {
+    const method = routeMatch.request != null ? routeMatch.request.method : 'GET';
+    const own = (served !== null && origin !== '' && !served.has(origin)) || (method !== 'GET' && method !== 'HEAD');
+    if (config.mode === 'server' || vary === null || own) {
       if (vary === null) {
         // ERROR_CODES.ISR_VARY_NO_HEADERS
         logger.warn?.(`ERR_ISR_VARY_NO_HEADERS [what-isr] route declares \`vary\` but the adapter supplied no request headers; refusing to cache. (${routeMatch.path})`);
       }
       const out = await (renderOverride || render)(routeMatch, { signal: routeMatch.signal });
-      const entry = makeEntry({ ...out, path: routeMatch.path, private: vary === null || out.private }, config, now());
+      const entry = makeEntry({ ...out, path: routeMatch.path, private: vary === null || own || out.private }, config, now());
       return serve(entry, 'BYPASS', routeMatch, responseHeaderList(out.headers));
     }
 
-    const own = cacheKey({ origin, path: routeMatch.path, query: routeMatch.query, vary });
-    let key = own;
-    let entry = await store.get(own);
+    const ownKey = cacheKey({ origin, path: routeMatch.path, query: routeMatch.query, vary });
+    let key = ownKey;
+    let entry = await store.get(ownKey);
     // No entry of its own origin: the path's default entry, which a stale
     // one refreshes as it was made, from no visitor's request. A site that
     // names its origins has none.
@@ -331,7 +354,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
         .catch((e) => logger.error?.('[what-isr] background regenerate failed:', e));
       return serve(entry, 'STALE', routeMatch);
     }
-    key = own;
+    key = ownKey;
 
     // Cold miss or expired beyond the swr window.
     if (entry && config.onMiss === 'stale-if-error') {

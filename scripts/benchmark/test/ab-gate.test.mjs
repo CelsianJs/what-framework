@@ -96,3 +96,22 @@ test('a change that slows one call in fifty 25 times fails on its 99th-percentil
     assert.ok(slowed.rows[0].measures[2].median > 0.75, 'the 95th percentile does not see it');
   }
 });
+
+// The retry fails the gate only for an operation that failed both attempts: a
+// real regression slows the same operation each time, session noise wanders.
+test('the gate fails only operations that fail both attempts', async () => {
+  const { failureKey, persistentFailures } = await import('../../../benchmark/ab.mjs');
+  const first = [
+    'core: batch() 100 writes, 1 effect: throughput at 93.6% of the reference (median of 9 pairs, range 77.9% to 105.8%; the floor is 95.0%)',
+    'dom: partialUpdate regressed +32.5% (0.265 ms > 0.240 ms threshold)',
+  ];
+  assert.equal(failureKey(first[0]), 'core: batch() 100 writes, 1 effect');
+  assert.equal(failureKey(first[1]), 'dom: partialUpdate');
+  assert.equal(failureKey('dom: missing benchmark "x" in current run'), 'dom: missing benchmark "x" in current run');
+  // Noise: a different operation misses on the retry.
+  assert.deepEqual(persistentFailures(first, ['core: batch() 10 signals, 10 writes each: throughput at 93.8% of the reference (median of 9 pairs, range 80.0% to 104.0%; the floor is 95.0%)']), []);
+  // A regression: the same operation misses again, by another measure.
+  const again = ['core: batch() 100 writes, 1 effect: median call at 92.0% of the reference (median of 9 pairs, range 70.0% to 101.0%; the floor is 95.0%)'];
+  assert.deepEqual(persistentFailures(first, again), again);
+  assert.deepEqual(persistentFailures(first, ['dom: partialUpdate regressed +40.0% (0.280 ms > 0.240 ms threshold)']).length, 1);
+});

@@ -189,8 +189,20 @@ export function _assignOwnerPath(...args: unknown[]): boolean;
 export function _ownerCounter(frame: unknown, root: unknown): { _ownerChildren?: number; _ownerResources?: number; [key: string]: unknown };
 /** @internal Used by what-server. The owner path of the component frame running now, or undefined. */
 export function _currentOwnerPath(): string | undefined;
-/** @internal Used by what-server. The key of the server action's useActionState being made now (owner path and its place in the component), the same on the server and while hydrating; null elsewhere. */
-export function _actionStateKey(): string | null;
+/** @internal Used by what-server. The identity of the server action's useActionState being made now, written under a salt: the keys of the keyed rows around it (as digests) and its place below the innermost, or its owner path and its place in the component when no keyed row is around it. The same on the server and while hydrating; null elsewhere. */
+export function _actionStateKey(): (((salt: string | null) => string) & { salted: boolean }) | null;
+/** @internal Used by what-server. The salt an action-state key was made under, or null. */
+export function _actionKeySalt(key: unknown): string | null;
+/** @internal Used by what-server's <Island>. The keyed rows around the component rendering now and its steps below them, under `salt`, or null. */
+export function _currentRowPath(salt: string): string | null;
+/** @internal Used by what-server's renderers. A keyed row begins in the output of `frame` (undefined: the current component; null: the root `root`); returns what _leaveRow puts back. */
+export function _enterRow(frame: object | null | undefined, root: object, list: object | null, key: unknown, index?: number): unknown;
+/** @internal Used by what-server's action(). Hydration enters keyed rows from now on, for useActionState keys. */
+export function _installRowKeys(): void;
+/** @internal Used by what-server's renderers. The row _enterRow entered is done. */
+export function _leaveRow(frame: object | null | undefined, root: object, saved: unknown): void;
+/** @internal Used by what-server. The salt the render running now writes its keyed rows' digests under. */
+export function _renderSalt(): string;
 /** @internal Used by what-server. The hydration data merged from the page's data elements, or null. */
 export function __readHydrationData(): Record<string, any> | null;
 /** Whether a hydrate() walk is claiming the server's DOM now (what-framework/render's isHydrating). */
@@ -205,10 +217,10 @@ export function isVNode(value: unknown): value is VNode<any>;
 export function _mapArrayToArray(...args: unknown[]): unknown;
 /** @internal Used by what-server. A keyed list row key's digest under a render's salt, as the server writes it and hydrate() compares it; null for a key that is not a string or a finite number. */
 export function _rowKeyDigest(key: unknown, salt: string): string | null;
-/** @internal Used by what-server. A random salt for one render's keyed-list digests. */
-export function _rowKeySalt(): string;
 /** @internal Used by what-server's <Form>. Resets a form as React 19 does after a successful action: uncontrolled fields to their defaults, controlled ones to what their props hold. */
 export function _resetForm(form: HTMLFormElement, onError: (error: unknown) => void): void;
+/** @internal Used by what-server. A form's member read from its prototype (a method bound to the form), so a control named after the member cannot stand in for it. */
+export function _formMember<K extends keyof HTMLFormElement>(form: HTMLFormElement, name: K): HTMLFormElement[K];
 /** @internal Used by what-react. The client renderer a '__portal' vnode carries as its `mount` prop: builds the vnode's children into `props.container` and returns the placeholder comment. */
 export function _mountPortal(vnode: VNode<any>, parent?: Node): Comment;
 /** @internal Used by what-server. Installs the AsyncLocalStorage backends: one carries a render's context past an `await`, the other an async component's frame. */
