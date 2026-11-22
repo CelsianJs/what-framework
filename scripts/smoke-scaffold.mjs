@@ -150,9 +150,10 @@ function packLocalPackages(tarballDir) {
 
 // `answers` are typed into create-what's prompts (one per line); without them
 // it scaffolds with --yes.
-// Two pages that redirect on the server, added to a scaffolded full-stack
-// app: /gate from its loader, /lab/dashboard from a <Router> middleware.
-function addRedirectPages(appDir) {
+// Pages added to a scaffolded full-stack app: two that redirect on the server
+// (/gate from its loader, /lab/dashboard from a <Router> middleware), and
+// /pair, two editors of the template's savePostAction on one page.
+function addSmokePages(appDir) {
   writeFileSync(join(appDir, 'src/pages/gate.js'), `import { h } from 'what-framework';
 export const page = { mode: 'server' };
 export const loader = ({ response }) => { response.redirect('/'); return {}; };
@@ -168,12 +169,33 @@ const routes = [
 ];
 export default function Lab() { return h('main', {}, h(Router, { routes })); }
 `);
+  writeFileSync(join(appDir, 'src/pages/pair.js'), `import { h, useActionState, useLoaderData } from 'what-framework';
+import { Form } from 'what-framework/server';
+import { savePostAction } from '../components/post-actions.js';
+export const page = { mode: 'server' };
+export const loader = async () => {
+  const { getPost } = await import('../db.js');
+  return { posts: [getPost('hello-world'), getPost('why-signals')] };
+};
+function Editor({ post }) {
+  const [state, save] = useActionState(savePostAction, null);
+  return h(Form, { action: save, id: 'editor-' + post.slug },
+    h('input', { type: 'hidden', name: 'slug', value: post.slug }),
+    h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title }),
+    () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
+    h('button', { type: 'submit' }, 'Save'));
+}
+export default function Pair() {
+  const { posts } = useLoaderData();
+  return h('main', {}, ...posts.map((post) => h(Editor, { post })));
+}
+`);
   const routesFile = join(appDir, 'src/routes.js');
   const routes = readFileSync(routesFile, 'utf8');
   const patched = routes
-    .replace("import './actions/posts.js';", "import './actions/posts.js';\nimport Gate, { loader as gateLoader, page as gatePage } from './pages/gate.js';\nimport Lab, { loader as labLoader, page as labPage } from './pages/lab.js';")
-    .replace('export const routes = [', "export const routes = [\n  { path: '/gate', component: Gate, loader: gateLoader, page: gatePage, mode: gatePage.mode },\n  { path: '/lab/:sub', component: Lab, loader: labLoader, page: labPage, mode: labPage.mode },");
-  if (patched === routes) fail('smoke: could not add the redirect routes to src/routes.js');
+    .replace("import './actions/posts.js';", "import './actions/posts.js';\nimport Gate, { loader as gateLoader, page as gatePage } from './pages/gate.js';\nimport Lab, { loader as labLoader, page as labPage } from './pages/lab.js';\nimport Pair, { loader as pairLoader, page as pairPage } from './pages/pair.js';")
+    .replace('export const routes = [', "export const routes = [\n  { path: '/gate', component: Gate, loader: gateLoader, page: gatePage, mode: gatePage.mode },\n  { path: '/lab/:sub', component: Lab, loader: labLoader, page: labPage, mode: labPage.mode },\n  { path: '/pair', component: Pair, loader: pairLoader, page: pairPage, mode: pairPage.mode },");
+  if (patched === routes) fail('smoke: could not add the smoke routes to src/routes.js');
   writeFileSync(routesFile, patched);
 }
 
@@ -408,7 +430,7 @@ async function smokeStylex(workDir, tarballs, browser) {
 async function smokeFullstack(workDir, tarballs, browser) {
   log('--- fullstack template (SSR + ISR + hydration) ---');
   const appDir = scaffoldApp(workDir, 'smoke-fullstack', tarballs, ['--fullstack']);
-  addRedirectPages(appDir);
+  addSmokePages(appDir);
   const port = PORT_BASE + 10;
 
   await assertPortFree(port);
@@ -451,25 +473,46 @@ async function smokeFullstack(workDir, tarballs, browser) {
     `a <Router> middleware redirect answers a redirect to /lab/login (got ${guarded.status} ${guarded.headers.get('location')})`);
   assert((await fetch(base + '/blog/no-such-post')).status === 404, 'a missing post answers 404');
 
-  // The editor's server validation without JavaScript: an invalid title comes
-  // back to the editor with the error and the title typed, once.
+  // The editor's server validation without JavaScript: the form posts to the
+  // editor itself, which renders the error next to the title as typed; a
+  // valid title saves and answers 303 to the post.
   const editor = await (await fetch(base + '/edit/hello-world')).text();
-  assert(editor.includes('<input type="hidden" name="_action" value="savePost">') && editor.includes('<input type="hidden" name="_state" value="null">'),
-    'the editor posts the useActionState dispatch to the action endpoint, with its state');
-  const invalid = await fetch(base + '/__what_action', {
+  const editorKey = (/name="_actionKey" value="([^"]+)"/.exec(editor) || [])[1];
+  assert(editor.includes('<input type="hidden" name="_action" value="savePost">') && editor.includes('<input type="hidden" name="_state" value="null">')
+    && editorKey && !/<form[^>]*\saction=/.test(editor),
+    'the editor posts the useActionState dispatch to its own page, with its state and its key');
+  const postForm = (path, fields) => fetch(base + path, {
     method: 'POST',
     redirect: 'manual',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'same-origin', referer: base + '/edit/hello-world' },
-    body: new URLSearchParams({ _action: 'savePost', _state: 'null', slug: 'hello-world', title: 'x' }),
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'same-origin' },
+    body: new URLSearchParams({ _action: 'savePost', _state: 'null', ...fields }),
   });
-  const stateCookie = (invalid.headers.get('set-cookie') || '').split(';')[0];
-  assert(invalid.status === 303 && invalid.headers.get('location') === '/edit/hello-world' && stateCookie.startsWith('what-as-'),
-    `an invalid no-JS post answers 303 back to the editor with the state cookie (got ${invalid.status} ${invalid.headers.get('location')} ${stateCookie})`);
-  const shown = await fetch(base + '/edit/hello-world', { headers: { cookie: stateCookie } });
-  const shownHtml = await shown.text();
-  assert(shownHtml.includes('role="alert">Title needs three characters<') && shownHtml.includes('name="title" value="x"'),
-    'the editor renders the error and the typed title from the posted state');
-  assert((shown.headers.get('set-cookie') || '').includes('Max-Age=0'), 'that render clears the state cookie');
+  const typed = ' x' + ' '.repeat(8 * 1024);
+  const invalid = await postForm('/edit/hello-world', { _actionKey: editorKey, slug: 'hello-world', title: typed });
+  const invalidHtml = await invalid.text();
+  assert(invalid.status === 200 && invalid.headers.get('cache-control') === 'private, no-store'
+    && !(invalid.headers.get('set-cookie') || '').includes('what-as-'),
+    `an invalid no-JS post renders the editor, private and cookie-free (got ${invalid.status} ${invalid.headers.get('cache-control')})`);
+  assert(invalidHtml.includes('role="alert">Title needs three characters<') && invalidHtml.includes(`name="title" value="${typed}"`),
+    'the editor renders the error and the 8 KB title exactly as typed');
+  const valid = await postForm('/edit/why-signals', { _actionKey: editorKey, slug: 'why-signals', title: 'Why Signals' });
+  assert(valid.status === 303 && valid.headers.get('location') === '/blog/why-signals',
+    `a valid no-JS save answers 303 to the post (got ${valid.status} ${valid.headers.get('location')})`);
+
+  // Two editors of the same action on one page: a post comes back to the
+  // form that sent it, and the other keeps its own post's title.
+  const pair = await (await fetch(base + '/pair')).text();
+  const pairKeys = [...pair.matchAll(/name="_actionKey" value="([^"]+)"/g)].map((m) => m[1]);
+  assert(pairKeys.length === 2 && pairKeys[0] !== pairKeys[1], `each editor on /pair has a key of its own (got ${pairKeys.join(', ')})`);
+  const firstInvalid = await (await postForm('/pair', { _actionKey: pairKeys[0], slug: 'hello-world', title: 'x' })).text();
+  const shownForms = [...firstInvalid.matchAll(/<form[^>]*id="editor-([^"]+)"[^>]*>([\s\S]*?)<\/form>/g)]
+    .map(([, slug, inner]) => [slug, (/role="alert">([^<]*)</.exec(inner) || [])[1] || '', (/name="title" value="([^"]*)"/.exec(inner) || [])[1]]);
+  assert(JSON.stringify(shownForms) === JSON.stringify([['hello-world', 'Title needs three characters', 'x'], ['why-signals', '', 'Why Signals']]),
+    `the first editor's error reaches it alone (got ${JSON.stringify(shownForms)})`);
+  const secondSave = await postForm('/pair', { _actionKey: pairKeys[1], slug: 'why-signals', title: shownForms[1][2] });
+  const firstPost = await (await fetch(base + '/blog/hello-world')).text();
+  assert(secondSave.status === 303 && firstPost.includes('Hello, World'),
+    `saving the second editor saves its own title and leaves the first post's (got ${secondSave.status})`);
 
   if (browser) {
     // The page actually hydrates: the Like button works.
@@ -519,17 +562,21 @@ async function smokeFullstack(workDir, tarballs, browser) {
     assert(home.includes('Smoke Post'), 'action revalidated the cached home page (new post listed)');
 
     // The editor, in Chromium, with JavaScript off and on: the same error next
-    // to the same typed title.
+    // to the title as typed, then a save that lands on the post.
     for (const javaScriptEnabled of [false, true]) {
       const mode = javaScriptEnabled ? 'with JavaScript' : 'without JavaScript';
       await withPage(browser, base + '/edit/hello-world', async (page, errors) => {
-        await page.fill('input[name=title]', 'x');
+        await page.fill('input[name=title]', ' x ');
         await page.click('button[type=submit]');
         await page.waitForSelector('[role=alert]', { timeout: 8000 });
         const alert = await page.textContent('[role=alert]');
         const title = await page.inputValue('input[name=title]');
-        assert(new URL(page.url()).pathname === '/edit/hello-world' && alert === 'Title needs three characters' && title === 'x',
-          `the editor shows the server's validation error next to the typed title ${mode} (got ${page.url()} "${alert}" "${title}")`);
+        assert(new URL(page.url()).pathname === '/edit/hello-world' && alert === 'Title needs three characters' && title === ' x ',
+          `the editor shows the server's validation error next to the title as typed ${mode} (got ${page.url()} "${alert}" "${title}")`);
+        await page.fill('input[name=title]', 'Hello, World');
+        await page.click('button[type=submit]');
+        await page.waitForURL('**/blog/hello-world', { timeout: 8000 });
+        assert((await page.textContent('article h1')) === 'Hello, World', `a save goes to the post ${mode}`);
         assert(errors.length === 0, `no browser errors in the editor ${mode} (got: ${errors.join('; ') || 'none'})`);
       }, { javaScriptEnabled });
     }

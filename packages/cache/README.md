@@ -84,9 +84,11 @@ request (`engine.regenerate(route)`, which the scheduler calls, and
 read:
 
 - every origin's entry stored for the path and query, each rendered from a GET
-  request the engine makes at that origin (at most 16 per regeneration, the
-  most recently used: a sender can make the engine store an entry for any host
-  it names);
+  request the engine makes at that origin (at most 16 per regeneration: those
+  a request read most recently, then those stored most recently; a sender can
+  make the engine store an entry for any host it names). The engine keeps an
+  index of each path's origins, read from the store's keys once per path, so
+  a tick does not list the store (a Redis store SCANs its namespace);
 - with none stored, the path's default entry, keyed without an origin and
   rendered from a GET request at `createCacheEngine({ origin })` (default
   `http://localhost`). A request whose origin has no entry of its own is served
@@ -97,6 +99,17 @@ So a scheduler warms a page before its first visit. Set `origin` to the public
 origin when the page builds absolute URLs from `request.url`. The render is
 what-server's `createRouteRenderer`, as for a request; it also renders a match
 that has no request, as a GET of its path.
+
+Name the site's public origins and only they are cached:
+
+```js
+const cache = createCacheEngine({ store, render, origins: [process.env.PUBLIC_ORIGIN || 'http://localhost:3000'] });
+```
+
+A request for any other origin (a Host someone planted) is rendered for that
+request alone: never stored, never served from the store. A regeneration with
+no request renders each named origin's entry, and there is no default entry.
+The full-stack starter sets it from `PUBLIC_ORIGIN`.
 
 ## Stores
 
@@ -111,6 +124,10 @@ that has no request, as a GET of its path.
 `engine.revalidatePath(path, { regenerate })` and
 `engine.revalidateTag(tag, { regenerate })` purge the origin store (and the CDN,
 when a CDN adapter is configured). Only same-origin local paths are accepted.
+With `regenerate`, what was purged is rendered again from `routeResolver`'s
+route, else from the route the engine last rendered for it; a path the engine
+never rendered (a fresh process, no resolver) is only purged, with a warning,
+and its next request renders it.
 `createRevalidateWebhook(engine, { secret })` exposes them over HTTP, and
 `createScheduler()` regenerates registered routes on an interval.
 

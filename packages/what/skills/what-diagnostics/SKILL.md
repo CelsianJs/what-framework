@@ -93,7 +93,3 @@ To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, offline) for the fix an
 ## Raised by the MCP servers (rejected tool calls)
 
 - `ERR_UNKNOWN_TOOL` error: The MCP client called a tool this server does not expose.
-
-## Catalogued, no detector yet
-
-- `ERR_ACTION_STATE_TOO_LARGE` warn: Server action "id" returned bytes bytes of state to a form posted without…

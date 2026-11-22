@@ -15,7 +15,7 @@
 //   const result = await saveUser({ name: 'John' });
 
 import { startTransition } from 'what-core';
-import { _devAction, __DEV__, __readHydrationData, getServerContext, isHydrating } from 'what-core/internal';
+import { _actionStateKey, _devAction, __DEV__, __readHydrationData, getServerContext } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
@@ -143,29 +143,33 @@ export function action(fn, options = {}) {
 
   callAction._actionId = id;
   callAction._isAction = true;
-  callAction._postedState = () => postedState(id);
+  callAction._formState = () => formState(id);
 
   return callAction;
 }
 
-// The state an action's form left when it was posted without JavaScript: the
-// action endpoint carries what the action returned to the page's next render
-// in a cookie, which the request handler reads into the render's
-// `actionStates` (action-handler.js). useActionState(action) starts from it in
-// that render, which hands it to the hydration in the data channel, and the
-// hydration starts from it too. As [state], or null.
+// A useActionState(action) being made: its key (_actionStateKey: the same on
+// the server and while hydrating, posted by its form as `_actionKey`) and,
+// when this render answers that form posted without JavaScript, the state
+// the action returned for it. The request handler hands the render that
+// result as `actionState` ({ action, key, state }, action-handler.js
+// createFormPostHandler); the render hands it to its hydration in the data
+// channel, under the key, and the hydration starts from it too. Every other
+// useActionState of the same action, on this page, keeps its initial state.
+// As { key } or { key, state }.
 const POSTED = 'what:action-state:';
-function postedState(id) {
+function formState(id) {
+  const key = _actionStateKey();
+  if (key === null) return { key };
   const ctx = getServerContext();
   if (ctx !== null) {
-    if (ctx.actionStates == null || !ctx.actionStates.has(id)) return null;
-    const value = ctx.actionStates.get(id);
-    ctx.resources?.set(POSTED + id, { status: 'ready', value });
-    return [value];
+    const posted = ctx.actionState;
+    if (posted == null || posted.action !== id || posted.key !== key) return { key };
+    ctx.resources?.set(POSTED + key, { status: 'ready', value: posted.state });
+    return { key, state: posted.state };
   }
-  if (!isHydrating()) return null;
   const resources = __readHydrationData()?.resources;
-  return resources && Object.hasOwn(resources, POSTED + id) ? [resources[POSTED + id]] : null;
+  return resources && Object.hasOwn(resources, POSTED + key) ? { key, state: resources[POSTED + key] } : { key };
 }
 
 /**
@@ -184,7 +188,7 @@ export function _callAction(id, args, options = {}) {
       /** @type {{ name: string, invalidated: Set<string>, revalidated: string[] } | null} */
       const observation = __DEV__ ? { name, invalidated: new Set(), revalidated: [] } : null;
       try {
-        const result = await post(id, args, options);
+        const [result, to] = await post(id, args, options);
         if (options.onSuccess) options.onSuccess(result);
         const waits = [];
         for (const path of options.revalidate || []) {
@@ -200,6 +204,7 @@ export function _callAction(id, args, options = {}) {
         await Promise.all(waits);
         if (__DEV__ && observation) _devAction({ ...observation, invalidated: [...observation.invalidated], outcome: 'ok' });
         resolve(result);
+        if (to !== null) follow(to);
       } catch (error) {
         if (__DEV__ && observation) _devAction({ ...observation, invalidated: [...observation.invalidated], outcome: 'error' });
         if (options.onError) options.onError(error);
@@ -209,6 +214,18 @@ export function _callAction(id, args, options = {}) {
   });
 }
 
+// Where an action's redirect (getResponse().redirect() in the action) takes
+// the browser, once what it revalidates has landed: a path through the
+// mounted <Router> (what-router registers its navigate()), anything else, or
+// a page with no Router, by loading it.
+const NAVIGATOR = Symbol.for('what.router.navigate.v1');
+function follow(to) {
+  const navigate = /** @type {any} */ (globalThis)[NAVIGATOR];
+  if (typeof navigate === 'function' && to.startsWith('/')) navigate(to);
+  else location.assign(to);
+}
+
+// The action's result, and the redirect it made (or null).
 async function post(id, args, options) {
   const timeout = options.timeout || 30000;
   const controller = new AbortController();
@@ -236,7 +253,7 @@ async function post(id, args, options) {
         code: 'ERR_ACTION_FAILED',
       });
     }
-    return await response.json();
+    return [await response.json(), response.headers.get('x-what-redirect')];
   } catch (error) {
     if (error.name === 'AbortError') {
       /** @type {Error & { code?: string }} */

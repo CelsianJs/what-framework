@@ -191,7 +191,7 @@ mount(<Suspense fallback={<p>Loading…</p>}><Todos /></Suspense>, '#app');
 - \`useActionState(action, initial)\` (root): \`[state(), dispatch, isPending()]\`; \`dispatch(payload)\` runs \`action(prev, payload)\` in a transition, and the state commits with the data it revalidated
 - \`useFormStatus()\` (root): \`{ pending(), data(), method, action }\` of the \`<Form>\` around the component
 - \`action(fn, { id, revalidate?: [path], invalidates?: [key] })\` (what-framework/server): on the client a transition that refetches what it revalidates inside it
-- \`<Form action={serverActionOrDispatch} redirect?>\` (what-framework/server): posts without JavaScript (cached pages too: the endpoint accepts same-origin posts), and runs as a transition when mounted
+- \`<Form action={serverActionOrDispatch} redirect?>\` (what-framework/server): posts without JavaScript (cached pages too: the endpoint accepts same-origin posts), and runs as a transition when mounted. Without JavaScript the dispatch of \`useActionState(serverAction, initial)\` posts to its page, which renders with the action's result for that form alone (return the fields as typed); \`getResponse().redirect(path)\` in the action is the success route in both modes
 
 ## DOM
 - \`mount(node, container)\`: mount into a container (an element or a selector); returns the unmount function

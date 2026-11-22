@@ -9,14 +9,14 @@
 //   </Form>
 //
 // `action` is a server action (what action() returns, or its id) or a client
-// function such as the dispatch of useActionState. Without JavaScript the
-// browser posts to the action endpoint (a server action) or to the
-// dispatch's permalink, and the endpoint answers 303 to `redirect`. The
-// dispatch of useActionState(serverAction, initial) posts to the endpoint too,
-// with the state it holds: the endpoint runs serverAction(state, fields),
-// answers 303 back to the page (`redirect`, else the page that posted), and
-// the page renders again from the state the action returned
-// (action-handler.js carries it). Mounted,
+// function such as the dispatch of useActionState. Without JavaScript a
+// server action's form posts to the action endpoint, which answers 303 to
+// `redirect` (else the page the form is on). The dispatch of
+// useActionState(serverAction, initial) posts to its permalink, by default
+// the page itself (the form has no `action` attribute, so the browser posts
+// to the address it shows), with the state the hook holds and the hook's key:
+// the request handler runs serverAction(state, fields) and renders the page
+// with what it returned, for this form alone (adapter/core.js). Mounted,
 // the form handles its own submit: it runs the action with the form's data as
 // a transition, the status useFormStatus() reads inside it shows the
 // submission, and the form is reset when that transition commits, if the
@@ -31,14 +31,14 @@
 // it as `csrfToken` and the form carries it.
 
 import { h } from 'what-core';
-import { _formStatusContext, _formStatus, _resetForm, isHydrating } from 'what-core/internal';
+import { _formStatusContext, _formStatus, _resetForm, getServerContext, isHydrating } from 'what-core/internal';
 import { _callAction } from './actions.js';
 import { addField } from './fields.js';
 
 export const ACTION_ENDPOINT = '/__what_action';
 
 // Fields the endpoint reads itself; an enhanced submit does not pass them on.
-const RESERVED = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state']);
+const RESERVED = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state', '_actionKey']);
 
 // The action id lives on the callable wrapper that action() returns. Accepting
 // the function itself is the point: passing the id as a string means keeping two
@@ -64,6 +64,18 @@ function readClientCsrfToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// The address of the page being rendered, path and query: the request's in a
+// server render, the address bar's in the browser.
+function pageUrl() {
+  const ctx = getServerContext();
+  if (ctx !== null) {
+    if (ctx.request == null) return null;
+    const url = new URL(ctx.request.url, 'http://localhost');
+    return url.pathname + url.search;
+  }
+  return typeof location === 'undefined' ? null : location.pathname + location.search;
+}
+
 // The form's fields as the endpoint hands them to a server action: one value
 // per name, an array for a repeated name, reserved fields left out.
 function fieldsOf(formData) {
@@ -84,6 +96,8 @@ export function Form({
   ...rest
 }) {
   const actionId = serverActionId(action);
+  // The dispatch of useActionState(serverAction): it holds a state.
+  const dispatch = typeof action === 'function' && action._state !== undefined;
   // A hydration adopts the fields the server rendered, which carry only the
   // token it was handed: the page's own token is a field the server never
   // wrote. A mounted form submits through the action client, which sends it.
@@ -94,9 +108,14 @@ export function Form({
   if (actionId !== null) {
     hidden.push(h('input', { type: 'hidden', name: '_action', value: actionId }));
     if (token) hidden.push(h('input', { type: 'hidden', name: 'what-csrf-token', value: token }));
-    if (redirect) hidden.push(h('input', { type: 'hidden', name: '_redirect', value: redirect }));
-    if (typeof action === 'function' && action._state) {
+    if (dispatch) {
       hidden.push(h('input', { type: 'hidden', name: '_state', value: JSON.stringify(action._state()) ?? 'null' }));
+      if (action._key != null) hidden.push(h('input', { type: 'hidden', name: '_actionKey', value: action._key }));
+    } else {
+      // Back to this page when there is no `redirect`, without relying on a
+      // Referer the browser may not send. Always written, so a render that
+      // does not know its address (no request) hydrates the same fields.
+      hidden.push(h('input', { type: 'hidden', name: '_redirect', value: redirect || pageUrl() || '' }));
     }
   }
 
@@ -104,7 +123,7 @@ export function Form({
   const props = {
     ...rest,
     method,
-    action: rest.action || (actionId !== null ? ACTION_ENDPOINT : action.permalink),
+    action: rest.action || (actionId !== null && !dispatch ? ACTION_ENDPOINT : action.permalink),
   };
   if (actionId !== null) props['data-action'] = actionId;
   if (enhance) {

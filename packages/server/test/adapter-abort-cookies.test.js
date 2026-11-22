@@ -26,16 +26,24 @@ async function listen(server) {
 }
 
 describe('a client disconnect stops the work (R5a)', () => {
-  it('aborts the loader signal and never renders', async () => {
+  // Ordered by the loader's own progress, not by timers: the client goes away
+  // once the loader has started, and the loader returns once it is aborted (a
+  // server that never aborts it fails on the timeout).
+  it('aborts the loader signal and never renders', { timeout: 20000 }, async () => {
     const log = [];
     let loaderSignal;
+    let entered;
+    const started = new Promise((resolve) => { entered = resolve; });
+    let stopped;
+    const aborted = new Promise((resolve) => { stopped = resolve; });
     const routes = [{
       path: '/slow',
       page: { mode: 'server' },
       loader: async ({ signal }) => {
         loaderSignal = signal;
-        signal.addEventListener('abort', () => log.push('loader aborted'));
-        await delay(200);
+        signal.addEventListener('abort', () => { log.push('loader aborted'); stopped(); });
+        entered();
+        await aborted;
         return { n: 1 };
       },
       component: () => { log.push('render ran'); return h('p', null, 'slow'); },
@@ -45,9 +53,12 @@ describe('a client disconnect stops the work (R5a)', () => {
     try {
       const req = http.get({ port, path: '/slow' });
       req.on('error', () => {});
-      await delay(40);
+      await started;
       req.destroy();
-      await delay(300);
+      await aborted;
+      // What follows the loader's return (the render, when it is not
+      // stopped) runs in the promise jobs after it: let them all run.
+      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
       assert.equal(loaderSignal.aborted, true);
       assert.deepEqual(log, ['loader aborted']);
     } finally {

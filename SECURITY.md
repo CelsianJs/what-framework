@@ -28,7 +28,9 @@ The Host header is client input: a sender chooses it, and a proxy may forward it
 Node entry points (`toNodeListener`, `whatMiddleware`, `nodeActionMiddleware`) accept a Host only as
 a host (a DNS name or IPv4 address, or a bracketed IPv6 literal, with an optional port) and answer
 400 to anything else (a path, a query, a backslash, userinfo). Over HTTP/2 the host is `:authority`
-when the request sends no Host, validated the same way. The path What routes on comes from the
+when the request sends no Host, validated the same way, and a request whose Host and `:authority`
+differ is malformed (RFC 9113 section 8.3.1) and answered 400: a proxy in front may have routed or
+cached it by the other. The path What routes on comes from the
 request target, never from the Host, and it is the target's own path: a target whose path holds a
 dot segment (`/public/../admin`, or percent-encoded, `%2e%2e`, `.%2E`) or a backslash is answered
 400, because URL parsing would resolve it to a path a server in front (an Express route, a proxy
@@ -38,13 +40,20 @@ entry (`fetchActionHandler`, the Vercel, Cloudflare and Vura adapters) receives 
 already parsed, so the platform's routing is the one a guard has to agree with there. A cached
 (ISR) page is keyed on the request's origin as well as its path, so a Host one sender chose never
 reaches another host's visitors; a regeneration with no request renders a path's default entry
-from no visitor's request, and refreshes at most 16 stored origins of a path at a time. Still
-allowlist the hosts your proxy forwards: a page that builds absolute URLs from `request.url` (a
-canonical link, a fetch to the app's own API) builds them on the host the request named.
+from no visitor's request, and refreshes at most 16 stored origins of a path at a time (those a
+request read most recently first, so planted Hosts that are only stored cannot push the real one
+out). Name the site's origins, `createCacheEngine({ origins: ['https://shop.example'] })` (the
+full-stack starter reads `PUBLIC_ORIGIN`), and a request for any other origin is rendered for itself
+alone, never stored or served from the store, and a scheduled regeneration renders exactly the named
+origins. Still allowlist the hosts your proxy forwards: a page that builds absolute URLs from
+`request.url` (a canonical link, a fetch to the app's own API) builds them on the host the request
+named.
 
-`what dev` answers only a Host that is localhost (or `*.localhost`), an IP address, its `--host`
-or a name in `allowedHosts`, so a page that rebinds its own domain to the developer's machine
-cannot read the dev sources (403).
+`what dev` and `what preview` answer only a Host that is localhost (or `*.localhost`), an IP
+address, their `--host` or a name in `allowedHosts`, so a page that rebinds its own domain to the
+developer's machine cannot read the dev sources or the build (403). The value is read as a host
+first: `evil.test/.localhost` is no host, not a `.localhost` name. The HMR WebSocket answers a
+page's Origin by the same list, at the dev server's port.
 
 ## Server actions
 
@@ -55,26 +64,29 @@ client from calling an action itself. Authorize the caller and validate the argu
 action: the built-in endpoints run each call with `getRequest()` returning its request (cookies,
 headers), and with a query cache of its own.
 
-### The state a form posted without JavaScript
+### A form posted to a page without JavaScript
 
-A `<Form>` whose action is the dispatch of `useActionState(serverAction)` posts the state it holds
-(`_state`, JSON) and gets the action's result back on the next render of the page in a cookie. What
-holds, and what does not:
+A `<Form>` whose action is the dispatch of `useActionState(serverAction)` posts to the page it is on,
+with the state it holds (`_state`, JSON) and its hook's key (`_actionKey`). `createRequestHandler`
+runs the action and renders the page with the result. What holds, and what does not:
 
-- The cookie is the action's own (`what-as-` and the action id in hex), `HttpOnly`,
-  `SameSite=Lax`, `Path=/`, `Max-Age=60`, `Secure` over HTTPS and in production, and at most
-  3 KB; a larger result is not sent (`ERR_ACTION_STATE_TOO_LARGE`). The endpoint sets it only on
-  the 303 of a post that passed the CSRF checks and an action that returned.
-- `createRequestHandler` reads it before the ISR cache: a request that carries one is rendered for
-  its visitor alone, never stored and never served from the cache, and its response clears every
-  state cookie it carried (`Max-Age=0`) and is `private, no-store`. A cookie that does not parse
-  is cleared and ignored.
-- The state, posted or in the cookie, is client data: the visitor can set it to anything, and a
-  script on a sibling subdomain can set the cookie. A render shows it escaped like any value. Never
-  authorize, look up or write anything from it; the action validates `previousState` as it
-  validates its other arguments.
-- `HttpOnly` keeps the page's scripts from reading the result; it does not make it secret from the
-  visitor, whose own data it is. Do not return another user's data, or a token, in it.
+- The post goes through the action endpoint's checks, in the same code (`createFormPostHandler`):
+  Fetch Metadata, then Origin, then the double-submit token; a registered action id only; the
+  reserved fields kept from the action; the 1 MB body limit; the action run in the request's
+  context. A post refused there never reaches the action. The page's `csrf` option decides the
+  checks, whatever `actionHandler` is. A POST to a page without `_action` is the page's own.
+- The render that answers it is the visitor's own: never stored in or served from the ISR cache,
+  and sent `private, no-store`. Nothing is set on the visitor's browser to carry the result: no
+  cookie, and no Referer is read.
+- The result reaches the one `useActionState` whose key the form posted. The key is a position in
+  the component tree, not a secret: a visitor can post any key, and so choose which form on the page
+  shows the result of their own post.
+- The state, posted or rendered, is client data: the visitor can post anything as `_state`. A render
+  shows it escaped like any value. Never authorize, look up or write anything from it; the action
+  validates `previousState` as it validates its other arguments. Do not return another user's data,
+  or a token, in it: it is in the page.
+- An action's `getResponse().redirect()` takes a same-origin path only, by the loaders' rule (an
+  absolute URL is refused and goes to `/`); `redirectExternal()` is the explicit way off the site.
 
 ## Hydration
 

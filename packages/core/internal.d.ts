@@ -189,6 +189,8 @@ export function _assignOwnerPath(...args: unknown[]): boolean;
 export function _ownerCounter(frame: unknown, root: unknown): { _ownerChildren?: number; _ownerResources?: number; [key: string]: unknown };
 /** @internal Used by what-server. The owner path of the component frame running now, or undefined. */
 export function _currentOwnerPath(): string | undefined;
+/** @internal Used by what-server. The key of the server action's useActionState being made now (owner path and its place in the component), the same on the server and while hydrating; null elsewhere. */
+export function _actionStateKey(): string | null;
 /** @internal Used by what-server. The hydration data merged from the page's data elements, or null. */
 export function __readHydrationData(): Record<string, any> | null;
 /** Whether a hydrate() walk is claiming the server's DOM now (what-framework/render's isHydrating). */
@@ -213,6 +215,8 @@ export function _mountPortal(vnode: VNode<any>, parent?: Node): Comment;
 export function __installServerContextStorage(storage: unknown, frames?: unknown): void;
 /** @internal Used by what-server. Calls a server component's function in its frame, so that its code after an `await` keeps the frame as its owner. */
 export function _runComponentAsync<T>(frame: unknown, fn: () => T): T;
+/** @internal Used by what-server. Calls a server component's function in its frame, synchronously (renderToString). */
+export function _runComponentSync<T>(frame: unknown, fn: () => T): T;
 /** @internal Used by what-server. Marks a process that renders on the server with no document: outside a render, the query cache shares nothing. */
 export function __markServerProcess(): void;
 /** @internal Used by what-router. Whether code outside a render runs on a server: a process what-server marked, unless it had a document then and has AsyncLocalStorage. */

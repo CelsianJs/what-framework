@@ -195,14 +195,15 @@ export function getRequest() {
 
 /**
  * Run `fn`, a server action's call, in a context of its own, as a render
- * runs: getRequest() is `request` there, and the query cache it reads is its
+ * runs: getRequest() is `request` there, getResponse() is the response the
+ * call answers with (handed to `fn`), and the query cache it reads is its
  * own. Released when `fn` settles.
  */
 export async function runInActionContext(request, fn) {
   ensureServerRuntime();
   const ctx = createRenderContext(undefined, { request });
   try {
-    return await runWithServerContext(ctx, fn);
+    return await runWithServerContext(ctx, () => fn(ctx.response));
   } finally {
     ctx.release();
   }

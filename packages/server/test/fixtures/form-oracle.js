@@ -57,12 +57,12 @@
 //     <Form> does that with _resetForm when the action's transition commits,
 //     which is what the runner calls.
 //   - A field the user changed before hydration keeps what they left in it,
-//     controlled or not: react-dom 19 (ReactDOMInput.js hydrateInput,
-//     ReactDOMSelect.js hydrateSelect) never writes the live value or
-//     selection while hydrating, and replays the change event when the live
-//     state differs from the server's. The prop of a controlled field still
-//     counts as written, so the model's state after hydration is its state
-//     after mount and the same edit.
+//     controlled or not, and hydration dispatches no input or change event,
+//     for it or any other field: released react-dom (19.3, installed here)
+//     leaves the live value and selection alone while hydrating and
+//     dispatches nothing. The prop of a controlled field still counts as
+//     written, so the model's state after hydration is its state after mount
+//     and the same edit.
 // Where React documents no behaviour, the model states What's own rules, as
 // docs-site/docs/learn/forms.html and the code document them:
 //   - null or undefined as `value` or `checked` releases the field: it is
@@ -606,10 +606,16 @@ export async function runClient(env, shape, Component, html, early = false) {
   let stop = null;
   try {
     let adopted = null;
+    // The input and change events dispatched while the client takes over:
+    // the user's own edit has been made by then, so there must be none.
+    const dispatched = [];
+    const record = (event) => dispatched.push(event.type);
     if (html !== undefined) {
       host.innerHTML = html;
       adopted = host.querySelector('[name]');
       if (early) applyEdit(shape, host.querySelector('form'), expected[0].live);
+      host.addEventListener('input', record, true);
+      host.addEventListener('change', record, true);
       stop = env.hydrate(env.h(Component, { v, o }), host, { onHydrationError: (info) => problems.push(`hydration error: ${info && (info.kind || info.message)}`) });
     } else {
       stop = env.mount(env.h(Component, { v, o }), host);
@@ -621,6 +627,9 @@ export async function runClient(env, shape, Component, html, early = false) {
       env.flushSync();
       await flushMicrotasks();
     }
+    host.removeEventListener('input', record, true);
+    host.removeEventListener('change', record, true);
+    if (dispatched.length > 0) problems.push(`hydration dispatched ${dispatched.join(', ')}`);
     const form = host.querySelector('form');
     if (form === null) return { step: 'first', problem: 'no form rendered' };
     if (adopted !== null && host.querySelector('[name]') !== adopted) problems.push('hydration did not adopt the server field');

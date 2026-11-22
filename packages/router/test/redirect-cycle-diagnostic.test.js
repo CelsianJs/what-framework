@@ -47,7 +47,53 @@ test('the report carries paths and route patterns, never the query or fragment',
   stop();
   const loop = events.find((e) => e.code === 'ERR_REDIRECT_CYCLE');
   assert.ok(loop, JSON.stringify(events.map((e) => e.code)));
-  assert.match(loop.data.cycle, /^\/login → \/team\/7 → \/login/);
+  assert.match(loop.data.cycle, /^\/login → \/team\/:id → \/login/);
   assert.deepEqual(loop.data.guards.split(', ').sort(), ['/login', '/team/:id']);
-  assert.doesNotMatch(JSON.stringify(loop), /SECRET|ann%40|example\.test|frag-/);
+  assert.doesNotMatch(JSON.stringify(loop), /SECRET|ann%40|example\.test|frag-|\/team\/7/);
+});
+
+// A path carries data too (a token segment): the cycle is the route patterns
+// it went through, in development and in production's console.error alike.
+const tokenRoutes = `[
+  { path: '/verify/:token', component: () => h('p', {}, 'verify'), middleware: [() => '/login'] },
+  { path: '/login', component: () => h('p', {}, 'login'), middleware: [() => '/gone/SECRET-GONE'] },
+  { path: '*', component: () => h('p', {}, 'none'), middleware: [() => '/verify/SECRET-AGAIN'] },
+]`;
+
+test('a path segment the visitor sent stays out of the report, in development', async () => {
+  history.replaceState(null, '', '/verify/SECRET-PATH-TOKEN');
+  let stop = () => {};
+  const { events } = await captureDiagnostics(async () => {
+    // eslint-disable-next-line no-new-func
+    const routes = new Function('h', `return ${tokenRoutes}`)(h);
+    stop = mount(h(Router, { routes }), document.getElementById('app'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+  stop();
+  const loop = events.find((e) => e.code === 'ERR_REDIRECT_CYCLE');
+  assert.ok(loop, JSON.stringify(events.map((e) => e.code)));
+  assert.match(loop.data.cycle, /\/verify\/:token → \/login → \*/);
+  assert.doesNotMatch(JSON.stringify(loop), /SECRET/);
+});
+
+test('and in production', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const script = `
+    globalThis.__WHAT_DEV__ = false;
+    const { installDOM } = await import(${JSON.stringify(new URL('../../../test-utils/dom.js', import.meta.url).href)});
+    installDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/verify/SECRET-PATH-TOKEN' });
+    const lines = [];
+    console.error = (...args) => lines.push(args.join(' '));
+    const { h, mount } = await import('what-core');
+    const { Router } = await import(${JSON.stringify(new URL('../src/index.js', import.meta.url).href)});
+    const routes = ${tokenRoutes};
+    mount(h(Router, { routes }), document.getElementById('app'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    process.stdout.write(JSON.stringify(lines));
+  `;
+  const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('.', import.meta.url), encoding: 'utf8' }));
+  const loop = out.find((line) => line.includes('Redirect loop'));
+  assert.ok(loop, JSON.stringify(out));
+  assert.match(loop, /\/verify\/:token → \/login → \*/);
+  assert.doesNotMatch(loop, /SECRET/);
 });

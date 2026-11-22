@@ -128,10 +128,13 @@ Add the page to `src/routes.js` and its client component to
 A form that shows what the server said (a validation error), with and without
 JavaScript, uses the dispatch of `useActionState(serverAction, initial)` as
 its action, as `src/pages/edit.js` does: the action is called as
-`action(previousState, fields)` and returns the error as a value, and the
-fields' defaults come from the state. Without JavaScript the endpoint brings
-the result back to the page in a one-time cookie. `redirect` is for a form
-whose result is not shown: what its action returns is not carried back.
+`action(previousState, fields)` and returns the error and the fields exactly
+as typed, and the fields' defaults come from the state. Without JavaScript the
+form posts to the page it is on, and the server renders that page with the
+result, for that form only. To go somewhere once a save succeeds, the action
+calls `getResponse().redirect(path)` (from `what-framework`): a 303 without
+JavaScript, a navigation with it. `<Form redirect>` is for a server action's
+own form, whose result is not shown; a dispatch's form does not read it.
 
 ```js
 import { h, useActionState } from 'what-framework';
@@ -141,6 +144,7 @@ import { savePostAction } from '../components/post-actions.js';
 export function EditTitle({ post }) {
   const [state, save] = useActionState(savePostAction, null);
   return h(Form, { action: save },
+    h('input', { type: 'hidden', name: 'slug', value: post.slug }),
     h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title }),
     () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
     h('button', { type: 'submit' }, 'Save'));

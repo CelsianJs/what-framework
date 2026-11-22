@@ -207,6 +207,7 @@ export interface ServeResult {
   cacheStatus: CacheStatus;
 }
 export interface RevalidateOptions {
+  /** Render what was purged again. Without a routeResolver, from the route the engine last rendered for it; a path it never rendered is only purged. */
   regenerate?: boolean;
   routeResolver?: (key: string) => RouteMatch | undefined;
 }
@@ -215,10 +216,12 @@ export interface CacheEngine {
   /**
    * Render and re-store one route now. What the poll scheduler calls per tick.
    * A match with a `request` refreshes that request's origin's entry. One with
-   * none refreshes every origin's entry stored for its path and query (at most
-   * 16, the most recently used), each from a GET request at that origin, or,
-   * with none stored, the path's default entry, which a request whose origin
-   * has no entry of its own is served. Resolves with the first entry, or null.
+   * none refreshes the entry of every origin in `origins`, when the engine has
+   * them; else of the origins with an entry for its path and query (at most
+   * 16: those a request read most recently, then those stored most recently),
+   * each from a GET request at that origin, or, with none, the path's default
+   * entry, which a request whose origin has no entry of its own is served.
+   * Resolves with the first entry, or null.
    */
   regenerate(routeMatch: RouteMatch): Promise<CacheEntry | null>;
   /** Both purges resolve to the cache keys they deleted, not to void. */
@@ -236,6 +239,14 @@ export function createCacheEngine(options?: {
   logger?: Pick<Console, 'error' | 'warn' | 'log'>;
   /** The public origin a default entry (a regeneration with no request and nothing stored) is rendered at. Default http://localhost. */
   origin?: string;
+  /**
+   * The public origins the site serves ('https://shop.example'). Set, a
+   * request for any other origin is rendered for itself (not stored, not
+   * served from the store), and a regeneration with no request renders each
+   * of these origins' entries: a Host a sender plants never takes a place in
+   * the cache or in a scheduled tick. There is no default entry then.
+   */
+  origins?: string[];
 }): CacheEngine;
 
 // --- Revalidation webhook ---

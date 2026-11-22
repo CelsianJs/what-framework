@@ -39,6 +39,21 @@ export function isPlainPath(target) {
 }
 
 /**
+ * The host a Node request's headers name: its Host header, else (HTTP/2) its
+ * `:authority`, which requestUrl validates as it does a Host; localhost when
+ * they name none. An HTTP/2 request whose Host and `:authority` differ is
+ * malformed (RFC 9113 section 8.3.1): something in front may have routed or
+ * cached it by the one the page would not see. It names no host (null), so
+ * it is answered 400.
+ */
+export function nodeRequestHost(headers) {
+  const { host } = headers;
+  const authority = headers[':authority'];
+  if (host != null && authority != null && String(host).toLowerCase() !== String(authority).toLowerCase()) return null;
+  return host ?? authority ?? 'localhost';
+}
+
+/**
  * The URL of a request for the path `target` at `host` over `scheme`
  * ('http' or 'https'), or null when `target` is not a path (or holds a dot
  * segment or a backslash) or `host` is not a host.

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 // The real implementation, not a copy: an earlier copy of safePath drifted from
 // cli.js and hid both the dead-containment-check and the symlink-escape bugs.
-import { safePath, isAllowedOrigin, targetPath, resolveFrameworkModule, guarded } from '../src/cli.js';
+import { safePath, isAllowedOrigin, hostAllowance, targetPath, resolveFrameworkModule, guarded } from '../src/cli.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const testDir = join(__dirname, '.test-security');
@@ -108,23 +108,53 @@ describe('security', () => {
     });
   });
 
-  describe('HMR websocket origin allowlist', () => {
-    const allowed = new Set(['localhost:3000', '127.0.0.1:3000', '::1:3000']);
+  // The Host `what dev` and `what preview` answer, and the Origin an HMR
+  // socket opens from: one allowlist for both, which reads the value as a
+  // host before any name test.
+  describe('the dev host allowlist', () => {
+    const allowed = hostAllowance('localhost', { allowedHosts: ['app.test'] }, 'tunnel.example');
 
-    it('accepts the dev server own origin', () => {
-      assert.equal(isAllowedOrigin('http://localhost:3000', allowed), true);
-      assert.equal(isAllowedOrigin('http://127.0.0.1:3000', allowed), true);
-      assert.equal(isAllowedOrigin('https://localhost:3000', allowed), true);
+    it('answers localhost, *.localhost, IP literals, --host and the configured names', () => {
+      for (const host of ['localhost', 'localhost:3000', 'shop.localhost:3000', '127.0.0.1:3000', '[::1]:3000', 'app.test', 'APP.test:3000', 'tunnel.example']) {
+        assert.equal(allowed(host), true, host);
+      }
+    });
+
+    it('refuses other names, and values that are not a host at all', () => {
+      for (const host of ['evil.test', 'evil.test:3000', 'evil.test/.localhost', 'evil.test\\.localhost', 'evil.test:5380#.localhost', 'a b.localhost', '', undefined]) {
+        assert.equal(allowed(host), false, String(host));
+      }
+    });
+
+    it('allowedHosts: true answers any host, and still only a host', () => {
+      const any = hostAllowance('localhost', { allowedHosts: true }, '');
+      assert.equal(any('anything.example:8080'), true);
+      assert.equal(any('evil.test/.localhost'), false);
+    });
+  });
+
+  describe('HMR websocket origin allowlist', () => {
+    const allowed = hostAllowance('localhost', { allowedHosts: ['app.test'] }, '');
+
+    it('accepts the dev server own origin, on every host the server answers', () => {
+      assert.equal(isAllowedOrigin('http://localhost:3000', allowed, 3000), true);
+      assert.equal(isAllowedOrigin('http://127.0.0.1:3000', allowed, 3000), true);
+      assert.equal(isAllowedOrigin('https://localhost:3000', allowed, 3000), true);
+      assert.equal(isAllowedOrigin('http://[::1]:3000', allowed, 3000), true);
+      assert.equal(isAllowedOrigin('http://shop.localhost:3000', allowed, 3000), true);
+      assert.equal(isAllowedOrigin('http://app.test:3000', allowed, 3000), true);
+      assert.equal(isAllowedOrigin('http://localhost', allowed, 80), true);
     });
 
     it('rejects any other page the developer may have open', () => {
-      assert.equal(isAllowedOrigin('http://evil.example', allowed), false);
-      assert.equal(isAllowedOrigin('http://localhost:4000', allowed), false);
-      assert.equal(isAllowedOrigin('null', allowed), false);
+      assert.equal(isAllowedOrigin('http://evil.example', allowed, 3000), false);
+      assert.equal(isAllowedOrigin('http://evil.example:3000', allowed, 3000), false);
+      assert.equal(isAllowedOrigin('http://localhost:4000', allowed, 3000), false);
+      assert.equal(isAllowedOrigin('null', allowed, 3000), false);
     });
 
     it('allows non-browser clients (no Origin header)', () => {
-      assert.equal(isAllowedOrigin(undefined, allowed), true);
+      assert.equal(isAllowedOrigin(undefined, allowed, 3000), true);
     });
   });
 

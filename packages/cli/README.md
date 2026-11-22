@@ -102,17 +102,19 @@ export default {
 
 ## Options
 
-`what dev` answers only requests whose Host is localhost (or `*.localhost`), an
-IP address, its `--host`, or a name in `allowedHosts` (`what.config.js`, a list,
-or `true` for any) or `--allowed-hosts`; any other Host gets 403. A page on
-another site that points its own domain at your machine (DNS rebinding) cannot
-read your sources through it. The HMR WebSocket also checks the page's Origin.
+`what dev` and `what preview` answer only requests whose Host is localhost (or
+`*.localhost`), an IP address, their `--host`, or a name in `allowedHosts`
+(`what.config.js`, a list, or `true` for any) or `--allowed-hosts`; any other
+Host, and a value that is not a host name or address at all, gets 403. A page
+on another site that points its own domain at your machine (DNS rebinding)
+cannot read your sources or your build through it. The HMR WebSocket answers a
+page's Origin by the same list, at the dev server's port.
 
 | Flag | Description | Default |
 |---|---|---|
 | `--port` | Server port | `3000` (dev), `4000` (preview) |
 | `--host` | Server host | `localhost` |
-| `--allowed-hosts` | `what dev`: more Host names to answer, comma-separated (`true` for any) | |
+| `--allowed-hosts` | `what dev` and `what preview`: more Host names to answer, comma-separated (`true` for any) | |
 | `--version` | Print the CLI version | |
 
 ## Links

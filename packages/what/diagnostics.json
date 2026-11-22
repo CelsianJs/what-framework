@@ -23,15 +23,6 @@
       "example": "// In the action, fail with something the client can read:\nexport const save = action(async (data) => {\n  if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });\n});"
     },
     {
-      "code": "ERR_ACTION_STATE_TOO_LARGE",
-      "severity": "warning",
-      "detects": [],
-      "raisedBy": [],
-      "trigger": "Server action \"{{id}}\" returned {{bytes}} bytes of state to a form posted without JavaScript; the limit is {{limit}}, so the page renders from its initial state.",
-      "fix": "Without JavaScript the state a useActionState form gets back travels to the next render of the page in a cookie, which holds a few kilobytes. Return what the form shows: the errors and the fields the visitor typed, not the saved record or a list.",
-      "example": "// Bad - the whole post comes back:\nexport const save = action(async (previous, data) => ({ error: 'Title needs three characters', post: await db.posts.get(data.slug) }));\n\n// Good - the error and the typed fields:\nexport const save = action(async (previous, data) => ({ error: 'Title needs three characters', fields: { title: data.title } }));"
-    },
-    {
       "code": "ERR_ASYNC_COMPONENT",
       "severity": "warning",
       "detects": [
@@ -672,7 +663,7 @@
         "what-router"
       ],
       "trigger": "[what-router] Redirect loop ({{kind}}): {{cycle}}. Guards of: {{guards}}.",
-      "fix": "Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each path in order (never its query or fragment, which may carry what the visitor sent); the guards are the patterns of the routes whose middleware or component redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.",
+      "fix": "Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each hop as the pattern of the route it matched, in order (never the URL itself: a path segment, a query or a fragment may carry what the visitor sent), and a hop no route matches as (no route); the guards are the patterns of the routes whose middleware or component redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.",
       "example": "// Bad — a logged-in non-admin bounces between the two forever:\nconst routes = [\n  { path: '/login', component: Login, middleware: [() => !isLoggedIn() || '/dashboard'] },\n  { path: '/dashboard', component: Dashboard, middleware: [() => isAdmin() || '/login'] },\n];\n\n// Good — the dashboard's guard sends a logged-in non-admin somewhere that lets them in:\nconst routes = [\n  { path: '/login', component: Login, middleware: [() => !isLoggedIn() || '/dashboard'] },\n  { path: '/dashboard', component: Dashboard, middleware: [() => isAdmin() || (isLoggedIn() ? '/account' : '/login')] },\n];"
     },
     {

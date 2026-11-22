@@ -99,26 +99,29 @@
             <li>A select's value selects options by their value (the <code>value</code> attribute, else the text with HTML whitespace collapsed): a string selects the first option with it, in a <code>multiple</code> select too, and an array every option it names. It does so whenever its options change, so options a <code>&lt;For&gt;</code> or <code>&lt;Show&gt;</code> adds after a fetch show the value too.</li>
             <li>After <code>&lt;Form&gt;</code>'s action succeeds, the form is reset: uncontrolled fields go back to their defaults, and a controlled one shows what its prop holds.</li>
             <li>A server writes what the field shows first, its value, else its default, in the one place the markup has for it (an input's <code>value</code> and <code>checked</code> attributes, a textarea's text, the options' <code>selected</code>), so a form posted before any script runs submits it. Hydration then writes the declared defaults back.</li>
-            <li>A field the user changed before hydration ran keeps what they left in it, controlled or not, and its <code>input</code> and <code>change</code> events fire once hydration is done, so its handlers see the change. React 19 does the same. A controlled field's prop still counts as written: the binding's next write of another value replaces the user's change.</li>
+            <li>A field the user changed before hydration ran keeps what they left in it, controlled or not, and no <code>input</code> or <code>change</code> event is dispatched for it: handlers see the edits made after hydration. Released React (react-dom 19.3) does the same. A value the browser restores on a back or forward navigation looks exactly like an edit, so a replayed event would run a handler nobody triggered. A field counts as changed when it differs from what the same markup shows untouched, as the browser's own reset computes it (a range at its midpoint, a color at <code>#000000</code>, a select whose first options are disabled), so an untouched field is left as it is. A file chosen before hydration stays in the form and submits with it. A controlled field's prop still counts as written: the binding's next write of another value replaces the user's change.</li>
           </ul>
 
           <h2 id="server-validation">Server validation, with and without JavaScript</h2>
-          <p>The dispatch of <code>useActionState(serverAction, initial)</code> as a <code>&lt;Form&gt;</code>'s action gives one edit form that works in both modes. The action is called as <code>savePost(previousState, fields)</code> and returns the error as a value; the fields' defaults come from the state:</p>
+          <p>The dispatch of <code>useActionState(serverAction, initial)</code> as a <code>&lt;Form&gt;</code>'s action gives one edit form that works in both modes. The action is called as <code>savePost(previousState, fields)</code> and returns the error, with the fields as typed, as a value; the fields' defaults come from the state. A save redirects to the post:</p>
 
-<pre><code><span class="keyword">import</span> { useActionState } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<pre><code><span class="keyword">import</span> { getResponse, useActionState } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 <span class="keyword">import</span> { Form, action } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
 
 <span class="keyword">export const</span> savePost = <span class="function">action</span>(<span class="keyword">async</span> (previous, fields) =&gt; {
-  <span class="keyword">const</span> title = String(fields.title ?? <span class="string">''</span>).trim();
-  <span class="keyword">if</span> (title.length &lt; 3) <span class="keyword">return</span> { error: <span class="string">'Title needs three characters'</span>, fields: { title } };
-  <span class="keyword">await</span> db.posts.update({ title });
-  <span class="keyword">return</span> { saved: <span class="keyword">true</span>, fields: { title } };
+  <span class="keyword">const</span> typed = String(fields.title ?? <span class="string">''</span>);
+  <span class="keyword">const</span> title = typed.trim();
+  <span class="keyword">if</span> (title.length &lt; 3) <span class="keyword">return</span> { error: <span class="string">'Title needs three characters'</span>, fields: { title: typed } };
+  <span class="keyword">await</span> db.posts.update(fields.slug, { title });
+  <span class="function">getResponse</span>().<span class="function">redirect</span>(<span class="string">`/posts/${fields.slug}`</span>);
+  <span class="keyword">return</span> { saved: <span class="keyword">true</span> };
 }, { id: <span class="string">'savePost'</span> });
 
 <span class="keyword">function</span> <span class="function">EditPost</span>({ post }) {
   <span class="keyword">const</span> [state, save] = <span class="function">useActionState</span>(savePost, <span class="keyword">null</span>);
   <span class="keyword">return</span> (
     &lt;<span class="component">Form</span> <span class="attr">action</span>={save}&gt;
+      &lt;<span class="tag">input</span> <span class="attr">type</span>=<span class="string">"hidden"</span> <span class="attr">name</span>=<span class="string">"slug"</span> <span class="attr">value</span>={post.slug} /&gt;
       &lt;<span class="tag">input</span> <span class="attr">name</span>=<span class="string">"title"</span> <span class="attr">defaultValue</span>={() =&gt; state()?.fields?.title ?? post.title} /&gt;
       {() =&gt; state()?.error &amp;&amp; &lt;<span class="tag">p</span> <span class="attr">role</span>=<span class="string">"alert"</span>&gt;{state().error}&lt;/<span class="tag">p</span>&gt;}
       &lt;<span class="tag">button</span> <span class="attr">type</span>=<span class="string">"submit"</span>&gt;Save&lt;/<span class="tag">button</span>&gt;
@@ -127,10 +130,11 @@
 }</code></pre>
 
           <ul>
-            <li><strong>With JavaScript</strong> the result becomes <code>state</code>, then the form resets to the defaults that state gives: the typed title stays next to the error.</li>
-            <li><strong>Without JavaScript</strong> the form posts the state it holds; the endpoint runs the action, answers 303 back to the page, and carries the result in a one-time, HttpOnly cookie for that action (3 KB at most). The page's next render starts from it, outside the ISR cache, and clears it; hydration starts from it too. This path needs <code>createRequestHandler</code>, the full-stack starter's handler.</li>
-            <li>The state is the visitor's own data, which they can set to anything: show it, and trust it for nothing else. Keep it small: the errors and the fields typed.</li>
-            <li><code>&lt;Form action={serverAction} redirect="/x"&gt;</code> stays fire and redirect: without JavaScript what the action returns is not carried back.</li>
+            <li><strong>With JavaScript</strong> the result becomes <code>state</code>, then the form resets to the defaults that state gives: the typed title stays next to the error. A redirect from the action is followed once what it revalidates has landed, through the mounted <code>&lt;Router&gt;</code>.</li>
+            <li><strong>Without JavaScript</strong> the form posts to the page it is on, with the state it holds and its hook's key. <code>createRequestHandler</code> runs the action by the action endpoint's rules (CSRF checks, the 1 MB body limit, registered actions only) and renders the page with the result for that form alone: another form of the same action keeps its own state. The render is the visitor's own, outside the ISR cache. There is no size limit but the body's, and no cookie or Referer is involved. A redirect from the action answers 303. Reloading the page, or going back to it, posts the form again, as with any form POST; a redirect on success avoids that.</li>
+            <li>The state is the visitor's own data, which they can post as anything: show it, and trust it for nothing else.</li>
+            <li><code>&lt;Form action={serverAction} redirect="/x"&gt;</code> stays fire and redirect: without JavaScript what the action returns is not carried back. Without <code>redirect</code> it comes back to the page it is on.</li>
+            <li>A custom server runs page-posted forms with <code>createFormPostHandler(options)</code> and renders with its <code>actionState</code>; <code>nodeActionMiddleware</code> serves only the action endpoint.</li>
           </ul>
 
           <h2 id="use-form">useForm</h2>

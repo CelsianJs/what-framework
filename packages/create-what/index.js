@@ -1027,8 +1027,15 @@ serves, logs one warning, and that path returns 404:
 
 \`\`\`bash
 WHAT_REVALIDATE_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))") \\
+PUBLIC_ORIGIN=https://blog.example \\
 NODE_ENV=production npm start
 \`\`\`
+
+Set \`PUBLIC_ORIGIN\` to the site's public origin (several, comma-separated).
+Only its pages are cached: a request naming any other Host is rendered for
+itself, never stored. Development defaults to \`http://localhost:PORT\` and
+\`http://127.0.0.1:PORT\`; in production without it the app logs one warning and
+caches a page for any Host a request names.
 
 ## Deploy to Vura
 
@@ -1088,11 +1095,13 @@ The \`/new\` form works without JavaScript: it SSRs hidden \`_action\`,
 \`src/entry-client.js\` upgrades it to a JSON fetch (no full-page reload).
 
 The \`/edit/:slug\` editor shows a server validation error next to what the
-visitor typed, with and without JavaScript: its \`<Form>\`'s action is the
-dispatch of \`useActionState(savePostAction, null)\`
-(\`src/components/post-actions.js\`), and the title's \`defaultValue\` comes
-from the state. Without JavaScript the action's result comes back to the page
-in a one-time cookie.
+visitor typed, with and without JavaScript, and goes to the post once it is
+saved: its \`<Form>\`'s action is the dispatch of
+\`useActionState(savePostAction, null)\` (\`src/components/post-actions.js\`),
+the title's \`defaultValue\` comes from the state, and the action redirects
+with \`getResponse().redirect()\` when the save succeeds. Without JavaScript the
+form posts to the editor's own URL, and the server renders it with the
+action's result.
 Unknown posts (\`/blog/nope\`) return a real 404 and are never ISR-cached.
 
 ### ISR cheat-sheet
@@ -1179,19 +1188,26 @@ export function updatePostTitle(slug, title) {
 // which only ever runs on the server.
 //
 // It is called as savePostAction(previousState, fields), with and without
-// JavaScript, and a validation failure is a value it returns, not a throw:
-// the edit page shows it next to what the visitor typed.
+// JavaScript. A validation failure is a value it returns, not a throw: the
+// edit page shows it next to what the visitor typed, exactly as typed (the
+// trimmed title is what is checked and saved). A save redirects to the post:
+// a 303 without JavaScript, a client navigation with it. Like createPost, it
+// checks no caller: anyone can call it with any slug. In a real app, check the
+// session here first (getRequest() is the caller's request).
 
+import { getResponse } from 'what-framework';
 import { action, revalidatePath } from 'what-framework/server';
 
 export const savePostAction = action(async (previous, fields) => {
-  const title = String(fields.title ?? '').trim();
-  if (title.length < 3) return { error: 'Title needs three characters', fields: { title } };
+  const typed = String(fields.title ?? '');
+  const title = typed.trim();
+  if (title.length < 3) return { error: 'Title needs three characters', fields: { title: typed } };
   const { updatePostTitle } = await import('../db.js');
   const post = updatePostTitle(String(fields.slug), title);
-  if (!post) return { error: 'That post no longer exists', fields: { title } };
+  if (!post) return { error: 'That post no longer exists', fields: { title: typed } };
   await revalidatePath(\`/blog/\${post.slug}\`);
-  return { saved: true, fields: { title } };
+  getResponse().redirect(\`/blog/\${post.slug}\`);
+  return { saved: true };
 }, { id: 'savePost', revalidate: ['/'] });
 `);
 
@@ -1304,10 +1320,12 @@ export default function Post() {
 //   - With JS: the action's result becomes \`state\`, then the form resets to
 //     the defaults that state gives, so the typed title stays next to the
 //     error.
-//   - No JS: the form posts to /__what_action with the state it holds; the
-//     endpoint runs the action, answers 303 back here, and carries the result
-//     in a one-time cookie, which this page's next render starts from.
-// mode:'server': an editor is one visitor's page.
+//   - No JS: the form posts to this page's own URL with the state it holds;
+//     the server runs the action and renders this page with its result.
+//     Reloading that page, or going back to it, posts the form again, as
+//     with any form POST: a save redirects, so only an error page does.
+// A save redirects to the post in both modes (the action's
+// getResponse().redirect()). mode:'server': an editor is one visitor's page.
 
 import { h, Head, useActionState, useLoaderData } from 'what-framework';
 import { Form } from 'what-framework/server';
@@ -1333,7 +1351,6 @@ export default function EditPost() {
       h('input', { type: 'hidden', name: 'slug', value: post.slug }),
       h('label', {}, 'Title ', h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title })),
       () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
-      () => (state()?.saved ? h('p', { role: 'status' }, 'Saved') : null),
       h('button', { type: 'submit' }, 'Save')
     ),
     h('p', {}, h('a', { href: \`/blog/\${post.slug}\` }, '← Back'))
@@ -1620,12 +1637,30 @@ if (!REVALIDATE_SECRET) {
   }
 }
 
+// The public origins this site serves, comma-separated
+// (PUBLIC_ORIGIN=https://blog.example). Only their pages are cached: a request
+// naming any other Host (one a sender planted) is rendered for itself, and a
+// scheduled regeneration renders each of these. Development defaults to
+// http://localhost:PORT and http://127.0.0.1:PORT. Left unset in production,
+// every origin a request names is cached, and a tick refreshes at most 16 of
+// them.
+const DEV_PORT = Number(process.env.PORT) || 3000;
+const PUBLIC_ORIGINS = (process.env.PUBLIC_ORIGIN || (isProd ? '' : \`http://localhost:\${DEV_PORT},http://127.0.0.1:\${DEV_PORT}\`))
+  .split(',').map((origin) => origin.trim()).filter(Boolean);
+if (isProd && PUBLIC_ORIGINS.length === 0) {
+  console.warn('[${packageName}] PUBLIC_ORIGIN is not set, so the ISR cache stores a page for any Host a request names. Set it to the public origin of the site.');
+}
+
 // Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})
 // to survive restarts, or createRedisStore({client}) for multi-instance.
 // \`render\` powers scheduled regeneration: the framework's own renderer
 // (renderRoute below; function declarations hoist), so a regenerated page is
 // rendered exactly as a requested one.
-const cache = createCacheEngine({ store: createMemoryStore(), render: renderRoute });
+const cache = createCacheEngine({
+  store: createMemoryStore(),
+  render: renderRoute,
+  ...(PUBLIC_ORIGINS.length ? { origins: PUBLIC_ORIGINS } : {}),
+});
 
 // Non-200 renders (soft-404s like /blog/nonexistent) must never be ISR-cached —
 // a cached "Not found" would shadow a post created later and poison SEO. The

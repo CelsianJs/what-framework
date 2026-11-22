@@ -10,10 +10,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
-import { createCacheEngine, createMemoryStore, createScheduler } from 'what-isr';
+import { cacheKey, createCacheEngine, createMemoryStore, createScheduler, makeEntry } from 'what-isr';
 import { createRequestHandler, createRouteRenderer } from '../src/index.js';
 
-function app({ origin } = {}) {
+function app({ origin, origins, store = createMemoryStore(), logger = { warn() {}, error() {} } } = {}) {
   const seen = [];
   const Page = ({ loaderData }) => h('p', { id: 'seen' }, loaderData.seen);
   const loader = ({ request }) => {
@@ -22,7 +22,7 @@ function app({ origin } = {}) {
   };
   const routes = [{ path: '/', component: Page, loader, page: { mode: 'static', revalidate: 60 } }];
   const render = createRouteRenderer();
-  const cache = createCacheEngine({ store: createMemoryStore(), render, logger: { warn() {}, error() {} }, origin });
+  const cache = createCacheEngine({ store, render, logger, origin, origins });
   const handle = createRequestHandler({ routes, cache, render });
   const visit = async (host) => {
     const res = await handle(new Request(`http://${host}/`));
@@ -116,5 +116,89 @@ describe('a regeneration with no request', () => {
     scheduler.stop();
     assert.deepEqual(errors, []);
     assert.equal((await visit('localhost:3000')).cache, 'HIT');
+  });
+});
+
+// Which origins a regeneration renders, and what it reads to know them
+// (round 7, G3). A sender can make the engine store an entry for any Host it
+// names, so the origins visitors read come first; a site that names its
+// origins caches only those.
+describe('the origins a regeneration with no request renders', () => {
+  const stored = (html) => makeEntry({ html, status: 200, path: '/' }, { mode: 'static', revalidate: 60 }, Date.now());
+  // Entries another process stored (a shared store): this engine never read them.
+  const plant = async (store, count) => {
+    for (let i = 0; i < count; i++) await store.set(cacheKey({ origin: `http://p${i}.test`, path: '/', query: {} }), stored('planted'));
+  };
+
+  it('prefers the origins a request read over ones that are only stored', async () => {
+    const store = createMemoryStore();
+    const { routes, cache, visit, seen } = app({ store });
+    await visit('shop.test');
+    await plant(store, 20);
+    seen.length = 0;
+    await cache.regenerate(homeRoute(routes));
+    assert.equal(seen.length, 16);
+    assert.ok(seen.includes('GET http://shop.test/'), seen.join(', '));
+  });
+
+  it('reads the store\'s keys once per path, not on every tick', async () => {
+    const store = createMemoryStore();
+    let listed = 0;
+    const keys = store.keys.bind(store);
+    store.keys = async () => { listed++; return keys(); };
+    const { routes, cache, visit, seen } = app({ store });
+    await visit('a.test');
+    for (let i = 0; i < 3; i++) await cache.regenerate(homeRoute(routes));
+    await visit('b.test');
+    seen.length = 0;
+    await cache.regenerate(homeRoute(routes));
+    assert.equal(listed, 1);
+    assert.deepEqual(seen.sort(), ['GET http://a.test/', 'GET http://b.test/']);
+  });
+
+  it('with `origins`, caches and regenerates exactly the named origins', async () => {
+    const store = createMemoryStore();
+    const { routes, cache, visit, seen } = app({ store, origins: ['http://shop.test'] });
+    for (let i = 0; i < 20; i++) assert.equal((await visit(`p${i}.test`)).cache, 'BYPASS');
+    assert.deepEqual(await store.keys(), [], 'nothing stored for a Host the site does not name');
+    assert.equal((await visit('p0.test')).cache, 'BYPASS', 'and nothing served from the store');
+    assert.equal((await visit('shop.test')).cache, 'MISS');
+    assert.equal((await visit('shop.test')).cache, 'HIT');
+    seen.length = 0;
+    await cache.regenerate(homeRoute(routes));
+    assert.deepEqual(seen, ['GET http://shop.test/']);
+    seen.length = 0;
+    await cache.revalidatePath('/', { regenerate: true });
+    assert.deepEqual(seen, ['GET http://shop.test/']);
+  });
+
+  it('revalidatePath regenerates from the route it last rendered, and without one only purges', async () => {
+    const errors = [];
+    const warnings = [];
+    const logger = { warn: (...a) => warnings.push(a.join(' ')), error: (...a) => errors.push(a.join(' ')) };
+    const { cache, visit, seen } = app({ logger });
+    await visit('a.test');
+    seen.length = 0;
+    await cache.revalidatePath('/', { regenerate: true });
+    assert.deepEqual(seen, ['GET http://a.test/']);
+    assert.equal((await visit('a.test')).cache, 'HIT');
+    assert.deepEqual(errors, []);
+
+    // A route only a scheduler rendered (a match with no request) is
+    // remembered too.
+    const scheduled = app({ logger });
+    await scheduled.cache.regenerate(homeRoute(scheduled.routes));
+    scheduled.seen.length = 0;
+    await scheduled.cache.revalidatePath('/', { regenerate: true });
+    assert.deepEqual(scheduled.seen, ['GET http://localhost/']);
+    assert.deepEqual(errors, []);
+
+    const cold = app({ logger });
+    await cold.cache.store.set(cacheKey({ origin: 'http://a.test', path: '/', query: {} }), stored('old'));
+    const purged = await cold.cache.revalidatePath('/', { regenerate: true });
+    assert.equal(purged.length, 1);
+    assert.deepEqual(cold.seen, []);
+    assert.deepEqual(errors, [], 'no TypeError from rendering a match with no route');
+    assert.match(warnings.join('\n'), /no route to render it from/);
   });
 });

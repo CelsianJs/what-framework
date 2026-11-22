@@ -32,6 +32,13 @@
 // `origin` (else http://localhost); a request whose origin has no entry of
 // its own is served the default entry. No visitor's request makes a default
 // entry, so no sender's Host can reach another host through one.
+//
+// A sender can make the engine store an entry for any host it names, so the
+// origins a regeneration renders are chosen: the ones a request read most
+// recently first, then the ones only stored, at most MAX_ORIGINS. An app that
+// names its public origins (`origins`) gets exactly those: a request for any
+// other host is rendered for it alone (not stored, not served from the
+// store), and a regeneration renders each named origin's entry.
 
 import { cacheKey, canonicalMatch, keyOrigin, keyTarget, normalizePath, normalizeQuery, resolveVary, declaredVary } from './key.js';
 import { makeEntry, isFresh, isServableStale } from './stores/store-interface.js';
@@ -60,6 +67,10 @@ function originOf(routeMatch) {
 
 // The most origins one regeneration with no request renders (storedOrigins).
 const MAX_ORIGINS = 16;
+// What the engine remembers of the paths it serves (`known`): at most this
+// many paths, each with at most this many origins.
+const MAX_KNOWN_TARGETS = 1024;
+const MAX_KNOWN_ORIGINS = 4 * MAX_ORIGINS;
 
 // `routeMatch` with the GET request a regeneration with no request renders
 // it from: its path and query at `origin`.
@@ -78,9 +89,12 @@ function requestAt(routeMatch, origin) {
  * @param {() => number} [options.now]
  * @param {any} [options.logger]
  * @param {string} [options.origin] the public origin a default entry is rendered at
+ * @param {string[]} [options.origins] the public origins the site serves: only their entries are stored
  */
-export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console, origin: publicOrigin } = {}) {
+export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console, origin: publicOrigin, origins: publicOrigins } = {}) {
   const defaultOrigin = publicOrigin ? new URL(publicOrigin).origin : 'http://localhost';
+  /** @type {Set<string> | null} */
+  const served = Array.isArray(publicOrigins) && publicOrigins.length > 0 ? new Set(publicOrigins.map((o) => new URL(o).origin)) : null;
   // key -> { promise: Promise<{ entry, headers }>, waiters, pinned, controller }
   const inFlight = new Map();
 
@@ -119,23 +133,65 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     return results.length ? results[0].entry : null;
   }
 
-  // The origins whose entry for `routeMatch`'s path and query is stored: ''
-  // for the default entry. The default entry when there are none. At most
-  // MAX_ORIGINS, the last the store lists (a memory store lists the most
-  // recently used last): a sender can make the engine store an entry for any
-  // host it names, and a scheduled tick must not render each of them.
-  async function storedOrigins(routeMatch) {
-    const path = normalizePath(routeMatch.path);
-    const query = normalizeQuery(routeMatch.query);
-    const origins = new Set();
-    for (const key of await store.keys()) {
-      const target = keyTarget(key);
-      if (target.path !== path || target.query !== query) continue;
-      const origin = keyOrigin(key);
-      origins.delete(origin);
-      origins.add(origin);
+  // What the engine knows of each path and query (targetOf) it served or
+  // stored: the origins with an entry ('' the default entry), each with when
+  // a request last read it (0: stored, not read since), and the last route
+  // match rendered for it, which a revalidation with no routeResolver renders
+  // again. Seeded from the store's keys once per target, so a scheduled tick
+  // does not list the store every time (a Redis store SCANs it).
+  /** @type {Map<string, { origins: Map<string, number>, match: any, seeded: boolean }>} */
+  const known = new Map();
+  const targetOf = (routeMatch) => `${normalizePath(routeMatch.path)}?${normalizeQuery(routeMatch.query)}`;
+  function knownFor(target) {
+    let k = known.get(target);
+    if (k === undefined) {
+      if (known.size >= MAX_KNOWN_TARGETS) known.delete(/** @type {string} */ (known.keys().next().value));
+      k = { origins: new Map(), match: null, seeded: false };
+    } else {
+      known.delete(target);
     }
-    return origins.size ? new Set([...origins].slice(-MAX_ORIGINS)) : new Set(['']);
+    known.set(target, k);
+    return k;
+  }
+  // An entry of `origin` for `routeMatch` was stored (`read` 0) or read by a
+  // request (`read`, its time).
+  function note(routeMatch, origin, read) {
+    const k = knownFor(targetOf(routeMatch));
+    const last = k.origins.get(origin);
+    k.origins.delete(origin);
+    k.origins.set(origin, Math.max(read, last ?? 0));
+    if (k.origins.size > MAX_KNOWN_ORIGINS) {
+      let oldest = '';
+      let oldestAt = Infinity;
+      for (const [o, t] of k.origins) {
+        if (t < oldestAt) {
+          oldest = o;
+          oldestAt = t;
+        }
+      }
+      k.origins.delete(oldest);
+    }
+    k.match = { ...routeMatch, request: undefined, signal: undefined, varyHeaders: undefined };
+  }
+
+  // The origins a regeneration with no request renders for `routeMatch`:
+  // every named origin; else those with an entry, the ones a request read
+  // most recently first, then the ones stored most recently, at most
+  // MAX_ORIGINS; else the default entry ('').
+  async function storedOrigins(routeMatch) {
+    if (served !== null) return served;
+    const target = targetOf(routeMatch);
+    const k = knownFor(target);
+    if (!k.seeded) {
+      k.seeded = true;
+      for (const key of await store.keys()) {
+        const { path, query } = keyTarget(key);
+        const origin = keyOrigin(key);
+        if (`${path}?${query}` === target && !k.origins.has(origin)) k.origins.set(origin, 0);
+      }
+    }
+    const ordered = [...k.origins].reverse().sort((a, b) => b[1] - a[1]).slice(0, MAX_ORIGINS);
+    return ordered.length ? new Set(ordered.map(([origin]) => origin)) : new Set(['']);
   }
 
   // Render + store. `renderOverride` lets a caller (e.g. the deploy adapter)
@@ -153,6 +209,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     // status; any previously cached good entry is left in place.
     if (isShareable(entry)) {
       await store.set(key, entry);
+      note(routeMatch, keyOrigin(key), 0);
     }
     return { entry, headers: responseHeaderList(out.headers) };
   }
@@ -232,9 +289,11 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     const vary = varyFor(routeMatch);
 
     // Uncacheable routes: server-rendered, or a `vary` declaration the adapter
-    // left unresolved (caching it would publish one user's HTML to everyone).
-    // Always render, never store.
-    if (config.mode === 'server' || vary === null) {
+    // left unresolved (caching it would publish one user's HTML to everyone),
+    // and a request for an origin the site does not name. Always render,
+    // never store.
+    const origin = originOf(routeMatch);
+    if (config.mode === 'server' || vary === null || (served !== null && origin !== '' && !served.has(origin))) {
       if (vary === null) {
         // ERROR_CODES.ISR_VARY_NO_HEADERS
         logger.warn?.(`ERR_ISR_VARY_NO_HEADERS [what-isr] route declares \`vary\` but the adapter supplied no request headers; refusing to cache. (${routeMatch.path})`);
@@ -244,13 +303,14 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       return serve(entry, 'BYPASS', routeMatch, responseHeaderList(out.headers));
     }
 
-    const own = cacheKey({ origin: originOf(routeMatch), path: routeMatch.path, query: routeMatch.query, vary });
+    const own = cacheKey({ origin, path: routeMatch.path, query: routeMatch.query, vary });
     let key = own;
     let entry = await store.get(own);
     // No entry of its own origin: the path's default entry, which a stale
-    // one refreshes as it was made, from no visitor's request.
+    // one refreshes as it was made, from no visitor's request. A site that
+    // names its origins has none.
     let refresh = routeMatch;
-    if (!entry && key !== defaultKeyFor(routeMatch)) {
+    if (!entry && served === null && key !== defaultKeyFor(routeMatch)) {
       const shared = await store.get(defaultKeyFor(routeMatch));
       if (shared) {
         key = defaultKeyFor(routeMatch);
@@ -259,6 +319,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       }
     }
     const t = now();
+    if (entry) note(routeMatch, keyOrigin(key), t);
 
     if (entry && isFresh(entry, t)) {
       return serve(entry, 'HIT', routeMatch);
@@ -285,7 +346,25 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     }
 
     const fresh = await regenerate(key, routeMatch, renderOverride);
+    if (isShareable(fresh.entry)) note(routeMatch, origin, t);
     return serve(fresh.entry, 'MISS', routeMatch, fresh.headers);
+  }
+
+  // The route a regeneration with no request renders for the stored key or
+  // path `target`: the caller's routeResolver's, else the last one the engine
+  // rendered for it, else none.
+  function routeFor(target, routeResolver, { path, query }) {
+    if (routeResolver) return routeResolver(target);
+    const k = known.get(`${path}?${query}`);
+    return k !== undefined && k.match !== null ? k.match : null;
+  }
+
+  // Forget the entries a purge deleted.
+  function forget(keys) {
+    for (const key of keys) {
+      const { path, query } = keyTarget(key);
+      known.get(`${path}?${query}`)?.origins.delete(keyOrigin(key));
+    }
   }
 
   // --- On-demand invalidation (origin purge + optional CDN fan-out) ---
@@ -304,16 +383,24 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     }
     const norm = normalizePath(local);
     const deleted = await store.deleteByPath(norm);
+    forget(deleted);
     if (cdn && cdn.purge) await cdn.purge([local]);
     if (regen) {
-      const route = routeResolver ? routeResolver(norm) : { path: norm, query: {}, config: {} };
-      // The origins it held, or the default entry. keyFor() can throw (a
-      // route declaring `vary` with no headers), so it has to run inside the
-      // try: as an argument expression the .catch() never attached and the
-      // rejection escaped revalidatePath.
+      const route = routeFor(norm, routeResolver, { path: norm, query: '' });
+      if (route === null) {
+        // Nothing says how to render it: its entries are gone, and the next
+        // request for it renders them.
+        logger.warn?.(`[what-isr] revalidatePath(${JSON.stringify(norm)}, { regenerate: true }): no route to render it from (pass routeResolver); its entries were purged and the next request renders it.`);
+        return deleted;
+      }
+      // The origins it held (the named ones on a site that names them), or
+      // the default entry. keyFor() can throw (a route declaring `vary` with
+      // no headers), so it has to run inside the try: as an argument
+      // expression the .catch() never attached and the rejection escaped
+      // revalidatePath.
       try {
         if (originOf(route)) await regenerate(keyFor(route), route, undefined, { background: true });
-        else await regenerateAt(route, deleted.length ? new Set(deleted.map(keyOrigin).slice(-MAX_ORIGINS)) : new Set(['']));
+        else await regenerateAt(route, served ?? (deleted.length ? new Set(deleted.map(keyOrigin).slice(-MAX_ORIGINS)) : new Set([''])));
       } catch (e) {
         logger.error?.('[what-isr] regen after revalidatePath failed:', e);
       }
@@ -327,10 +414,11 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
    */
   async function revalidateTag(tag, { regenerate: regen = false, routeResolver } = {}) {
     const deleted = await store.deleteByTag(tag);
+    forget(deleted);
     if (cdn && cdn.purgeTags) await cdn.purgeTags([tag]);
-    if (regen && routeResolver) {
+    if (regen) {
       for (const key of deleted) {
-        const route = routeResolver(key);
+        const route = routeFor(key, routeResolver, keyTarget(key));
         if (!route) continue;
         try {
           if (originOf(route)) await regenerate(keyFor(route), route, undefined, { background: true });

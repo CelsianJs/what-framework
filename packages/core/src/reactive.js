@@ -3608,10 +3608,13 @@ function devReportLoop() {
 }
 
 // Development: pending() or isPending() read in a component body, untracked.
-// The body runs once, so the answer never changes on screen.
+// The body runs once, so the answer never changes on screen. A server runs
+// every binding once, untracked, in its component's frame once the
+// component's function has returned (`_inBody` false, server-context.js): the
+// same read on the client is a tracked binding, so it is not reported.
 function devUntrackedPending(call) {
   const now = ownerNow();
-  if (now !== null && now.Component !== undefined) report('ERR_PENDING_READ_UNTRACKED', { data: { call } });
+  if (now !== null && now.Component !== undefined && now._inBody !== false) report('ERR_PENDING_READ_UNTRACKED', { data: { call } });
 }
 
 // Development: an effect whose function is async. Only the reads before its

@@ -656,10 +656,11 @@ function detach(seg, blocker) {
   const r = seg.r;
   const scope = seg.scopes[index];
   const id = `${r.idPrefix}${r.nextId++}`;
-  // Its options decide their marks on a copy of the select scope it opened in
-  // (one it opens itself goes with it), which the fallback does not use up.
-  const base = scope.select === null ? null : { ...scope.select, found: scope.found };
-  const boundary = createSegment(r, seg, id, enclosingErrorBoundary(seg, index), seg.ns, scope.ns, base);
+  // Its options decide their marks on the select scope it opened in, the one
+  // the options after it use too: a value names one option however the page
+  // streams (one the boundary opens itself goes with it). The fallback renders
+  // on a copy, which its options do not use up.
+  const boundary = createSegment(r, seg, id, enclosingErrorBoundary(seg, index), seg.ns, scope.ns, scope.select);
   if (seg.select !== scope.select) boundary.select = seg.select;
   // An option open inside it goes with it, its open tag now in its output.
   if (seg.option !== scope.option) {
@@ -701,6 +702,10 @@ function detach(seg, blocker) {
   seg.detached.push({ segment: boundary, at: seg.buf.length });
   seg.buf += `<template id="pl-${id}"></template>`;
   push(seg, mark(CLOSE, { html: `<!--pl-${id}-->` }), scope.owner);
+  if (seg.select !== null) {
+    push(seg, mark(SELECT_END, { outer: seg.select }), scope.owner);
+    seg.select = { ...seg.select };
+  }
   push(seg, _boundaryFallback(scope.vnode, null, (e) => report(r, e, 'boundary', seg.id)), scope.owner);
   r.pending++;
   driveBoundary(boundary, blocker);

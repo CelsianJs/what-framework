@@ -356,18 +356,21 @@ the server said uses the dispatch of `useActionState(serverAction, initial)`:
 
 ```js
 import { action, Form } from 'what-framework/server';
-import { h, useActionState } from 'what-framework';
+import { getResponse, h, useActionState } from 'what-framework';
 
 export const saveTitle = action(async (previous, fields) => {
-  const title = String(fields.title ?? '').trim();
-  if (title.length < 3) return { error: 'Title needs three characters', fields: { title } };
-  await db.posts.update({ title });
-  return { saved: true, fields: { title } };
+  const typed = String(fields.title ?? '');
+  const title = typed.trim();
+  if (title.length < 3) return { error: 'Title needs three characters', fields: { title: typed } };
+  await db.posts.update(fields.slug, { title });
+  getResponse().redirect(`/posts/${fields.slug}`);   // a save goes to the post
+  return { saved: true };
 }, { id: 'saveTitle' });
 
 function EditTitle({ post }) {
   const [state, save] = useActionState(saveTitle, null);
   return h(Form, { action: save },
+    h('input', { type: 'hidden', name: 'slug', value: post.slug }),
     h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title }),
     () => state()?.error && h('p', { role: 'alert' }, state().error),
     h('button', { type: 'submit' }, 'Save'));
@@ -376,14 +379,44 @@ function EditTitle({ post }) {
 
 The action is called as `saveTitle(previousState, fields)`. With JavaScript
 its result becomes `state`, then the form resets to the defaults that state
-gives, so the typed title stays. Without JavaScript the form posts its state
-in a hidden `_state` field; the endpoint runs the action, answers 303 back to
-the page, and carries the result in a one-time cookie for that action
-(HttpOnly, `SameSite=Lax`, a minute, 3 KB at most). `createRequestHandler`
-reads it on the next request for the page, renders that action's
-`useActionState` from it outside the ISR cache, and clears it. The state is
-the visitor's to set: show it, trust it for nothing. A custom server passes
-`actionStates` (a `Map` of action id to state) to `renderDocument` itself.
+gives, so the typed title stays. Without JavaScript the form posts to the page
+it is on (it has no `action` attribute; `useActionState`'s `permalink` names
+another URL), with its state in a hidden `_state` field and the hook's key in
+`_actionKey`. `createRequestHandler` runs the action by the action endpoint's
+rules (the CSRF checks, the 1 MB body limit, registered ids only, the reserved
+fields, the request's context) and renders the matched page with what it
+returned, seeded into that form's `useActionState` alone (another form of the
+same action keeps its own state), with the render's status and
+`cache-control: private, no-store`, outside the ISR cache. There is no size
+limit but the body's. Reloading that page, or going back to it, posts the form
+again, as with any form POST; a redirect on success avoids it. The state is the visitor's to set: show it, trust it for nothing.
+
+`getResponse()` in an action is the response of its call: `redirect(path)`
+(a same-origin path, as in a loader) answers a no-JS post with 303 and, with
+JavaScript, sends `X-What-Redirect`, which the client follows once the
+action's revalidation has landed (through the mounted `<Router>`, else by
+loading the page). `setHeader()` (a cookie) reaches the response either way.
+
+**A custom server.** `nodeActionMiddleware` serves only the action endpoint.
+For page-posted forms, run the post with `createFormPostHandler(options)` (the
+action endpoint's options) before rendering the page, and render with what it
+resolved to:
+
+```js
+import { createFormPostHandler, renderDocument } from 'what-server';
+
+// The same options as the action endpoint: here the token is the app's own CSRF cookie.
+const runFormPost = createFormPostHandler({ getCsrfToken: (req) => /(?:^|;\s*)app-csrf=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] });
+
+// `fields` is the urlencoded body as an object (express.urlencoded()).
+export async function answerPage(page, { request, fields, ctx }) {
+  const posted = await runFormPost({ method: 'POST', headers: Object.fromEntries(request.headers), body: fields, url: request.url, request });
+  if (posted === null) return { html: await renderDocument(page, ctx) };       // not a form the framework runs
+  if (posted.response) return posted.response;                                // a refusal, a failure, or the action's 303
+  const html = await renderDocument(page, { ...ctx, actionState: posted.actionState });
+  return { html, headers: { ...posted.headers, 'cache-control': 'private, no-store' } };
+}
+```
 
 The client callable posts JSON to `/__what_action`, rejects with the action's
 error (`ERR_ACTION_FAILED`, or `TIMEOUT` after `timeout`, default 30 s), and
@@ -479,7 +512,8 @@ createRequestHandler({ routes, csrf: false });
 
 Passing your own `actionHandler` also disables the auto-provisioning — a
 custom handler owns its CSRF policy via `createActionHandler({ getCsrfToken })`
-or `{ skipCsrf: true }`.
+or `{ skipCsrf: true }`. A form posted to a page is checked by the `csrf`
+option either way (the `what-csrf` cookie as its token).
 
 ### Plain HTML form posts (progressive enhancement)
 
@@ -498,13 +532,14 @@ forms work without any client JavaScript:
 
 - Action id: `_action` (or `data-action`) hidden field, or `?action=` query param.
 - The action receives **one argument**: the form fields as a plain object
-  (reserved `_action` / `_csrf` / `_redirect` / `_state` fields stripped;
-  repeated field names become arrays). A form that posts `_state` (JSON, what a
-  `useActionState` form holds) is called with two, `(state, fields)`, and its
-  303 sets the one-time state cookie described above; a `_state` that is not
-  JSON, or longer than 3 KB, is a `400`.
-- Success responds `303 See Other` (POST/redirect/GET) to `_redirect` (must be
-  a local path), else the Referer path, else `/`.
+  (reserved `_action` / `_csrf` / `_redirect` / `_state` / `_actionKey` fields
+  stripped; repeated field names become arrays). A form that posts `_state`
+  (JSON) is called with two, `(state, fields)`; a `_state` that is not JSON is
+  a `400`.
+- Success responds `303 See Other` (POST/redirect/GET) to the action's
+  `getResponse().redirect()`, else `_redirect` (must be a local path; `<Form>`
+  writes the page it is on when it has no `redirect`), else the Referer path,
+  else `/`.
 - Failures respond with an HTML error page and a matching status (`403` bad
   CSRF, `404` unknown action, `500` action error).
 
@@ -705,7 +740,8 @@ covered by automated tests.
 | `generateStaticPage(page, data?)` | Generate a full HTML document |
 | `server(Component)` | Mark a component as server-only |
 | `action(fn, options?)` | Define a server action; on the client a transition that revalidates `revalidate` paths and `invalidates` query keys inside it |
-| `Form` | `<Form action={serverActionOrDispatch} redirect?>`: a real form that runs as a transition when mounted; `useFormStatus()` reads it. The dispatch of `useActionState(serverAction)` carries the action's result back without JavaScript too |
+| `Form` | `<Form action={serverActionOrDispatch} redirect?>`: a real form that runs as a transition when mounted; `useFormStatus()` reads it. Without JavaScript the dispatch of `useActionState(serverAction)` posts to its page, which renders with the action's result for that form |
+| `createFormPostHandler(options?)` | Run a form posted to a page by the action endpoint's rules, for a custom server: `null`, `{ response }` or `{ actionState, headers }` |
 | `useOptimistic(state, update?)` | The root entry's `useOptimistic`, re-exported: `[optimistic, addOptimistic]` as in React 19; call `addOptimistic` inside `startTransition` and the overlay drops when the action's transition commits ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)) |
 | `invalidatePath(path)` / `onRevalidate(path, cb)` | what-framework/data's, re-exported: refetch what was read on `path` and run its callbacks |
 

@@ -415,7 +415,9 @@ function createElementFromVNode(vnode, parent, isSvg) {
     applyProps(el, props, {}, svgContext);
   }
 
-  // Append children
+  // Append children. A <noscript>'s are not rendered: with scripts on, the
+  // browser keeps its content as text, as React does.
+  if (tag === 'noscript') return el;
   const isSvgChildren = svgContext && tag !== 'foreignObject';
   for (let i = 0; i < children.length; i++) {
     const node = createDOM(children[i], el, isSvgChildren);
@@ -468,9 +470,12 @@ function applyProps(el, newProps, oldProps, isSvg) {
 // Its options may not be in the DOM yet (children are appended after props),
 // so a value or default they do not show is written once more after them;
 // a later write, null included, supersedes that retry. A select a value
-// controls follows it whenever its option set changes: a region or list that
-// adds or removes options (its own, or a group's) has it select them again
-// (_optionsChanged), as does an option's default changing (_keepSelection).
+// controls follows it whenever its option values change: a region or list
+// that adds or removes options (its own, or a group's), an option's `value`
+// written, or the text of an option with no `value` (its value) written, has
+// it select them again (_optionsChanged), as does an option's default
+// changing (_keepSelection). A select with a default and no value follows its
+// default the same way until the user changes what it shows.
 
 /**
  * Write prop `key` of a form field `el` and return true, or return false
@@ -546,19 +551,42 @@ function markOptions(el, value, prop) {
 // default.
 export function _keepSelection(el) {
   const select = el.closest('select');
-  if (select?._$value !== undefined) markOptions(select, select._$value, 'selected');
+  if (select !== null) follow(select);
 }
 
-/** A region or list changed the children of `parent`: a select it controls selects its options again. */
+/**
+ * A region, a list or a text write changed the options under `parent` (a
+ * select, an optgroup or an option): its select selects them again.
+ */
 function _optionsChanged(parent) {
-  const select = parent.localName === 'optgroup' ? parent.parentNode : parent;
-  if (select !== null && select._$value !== undefined && select.localName === 'select') markOptions(select, select._$value, 'selected');
+  const tag = parent.localName;
+  const select = tag === 'select' ? parent : tag === 'optgroup' || tag === 'option' ? parent.closest('select') : null;
+  if (select !== null) follow(select);
 }
+
+// A select shows what its value names, else, until the user changes what it
+// shows (a change event, or an edit before hydration: _changedFields), what
+// its default names: an option set that changed under a select the user left
+// alone gets the default's marks again. A hydration rewrites its options one
+// by one, so it marks them once, when its walk is done.
+function follow(select) {
+  if (select._$value !== undefined) markOptions(select, select._$value, 'selected');
+  else if (select._$default !== undefined && !select._$chosen && !select._$following) {
+    select._$following = true;
+    const mark = () => {
+      select._$following = false;
+      if (select._$value === undefined && !select._$chosen) markOptions(select, select._$default, 'defaultSelected');
+    };
+    if (!_afterWalk(mark)) mark();
+  }
+}
+
 
 // What hydration calls with an option whose attributes it rewrote: the above,
-// installed by the first write of a select's value, which is what makes a
-// select one a value controls. A program that never writes one does not carry
-// the option marking.
+// installed by the first write of a select's value or default, so the
+// hydration walk itself does not reach the option marking. A program that
+// writes any form field's value or default still carries it: the one field
+// writer, _setFieldProp, reaches the select branch statically.
 /** @type {((option: Element) => void) | null} */
 export let _selectionKeeper = null;
 
@@ -569,7 +597,10 @@ export let _selectionKeeper = null;
 // when its walk is done.
 function setSelectDefault(el, value) {
   if (value == null) return;
+  if (el._$default === undefined) el.addEventListener('change', () => { el._$chosen = true; });
   el._$default = value;
+  _selectionKeeper = _keepSelection;
+  _installOptionsChanged(_optionsChanged);
   const apply = () => {
     if (el._$default !== value) return;
     markOptions(el, value, 'defaultSelected');
@@ -582,15 +613,18 @@ function setSelectDefault(el, value) {
 // --- What the user changed before hydration ---
 //
 // A field the user changed between the first paint and hydration keeps what
-// they left in it, controlled or not, and its input and change events are
-// replayed once the hydration is done, so its handlers see the change. React
-// 19 does the same: react-dom's hydrateInput and hydrateSelect never write the
-// live value or selection, and queue a replay of the change event when it
-// differs from the server's. A field is changed when what it shows is not
-// what its markup's defaults show (the server wrote what it showed there):
-// its value, its checkedness, or the options a reset would select. A
-// controlled field's prop still counts as written, so a write of the same
-// value leaves the user's change, and any other value replaces it.
+// they left in it, controlled or not, and no event is dispatched for it: the
+// handlers see the edits made after hydration. Released React does the same
+// (react-dom 19.3: hydration leaves the live value alone and dispatches
+// nothing). A value the browser restored on a history navigation looks
+// exactly like an edit, so replaying one would run a handler the user never
+// triggered. A field is changed when what it shows is not what the same
+// markup shows untouched (the server wrote what it showed there), which the
+// browser's own reset algorithm gives on a copy: its value, its checkedness,
+// or the options a reset selects. A controlled field's prop still counts as
+// written, so a write of the same value leaves the user's change, and any
+// other value replaces it. A file input keeps the files chosen in it:
+// hydration writes none.
 
 /**
  * The fields hydration is claiming with `el` that the user changed, each as
@@ -605,33 +639,42 @@ export function _changedFields(el, out, seen) {
     return;
   }
   const group = el.form !== null ? el.form.elements : el.ownerDocument.getElementsByName(el.name);
+  const radios = [];
   for (const radio of group) {
     if (radio.type !== 'radio' || radio.name !== el.name || radio.form !== el.form || seen.has(radio)) continue;
     seen.add(radio);
-    if (radio.checked !== radio.defaultChecked) out.push([radio, radio.checked]);
+    radios.push(radio);
   }
+  if (radios.length === 0) return;
+  const copies = untouched(radios);
+  radios.forEach((radio, i) => { if (radio.checked !== copies[i].checked) out.push([radio, radio.checked]); });
+}
+
+// What `els` show untouched: copies of them, reset by the browser in a form
+// of their own (a radio group resets together, so the last `checked` wins).
+function untouched(els) {
+  const form = els[0].ownerDocument.createElement('form');
+  const copies = els.map((el) => form.appendChild(el.cloneNode(true)));
+  form.reset();
+  return copies;
 }
 
 function changedField(el) {
+  if (el.type === 'file') return null;
+  const [copy] = untouched([el]);
   if (el.tagName === 'SELECT') {
     const options = [...el.options];
     const live = options.map((option) => option.selected);
-    let changed;
-    if (el.multiple) changed = options.some((option, i) => live[i] !== option.defaultSelected);
-    else {
-      let reset = -1;
-      for (let i = 0; i < options.length; i++) if (options[i].defaultSelected) reset = i;
-      if (reset === -1 && el.size <= 1) reset = options.findIndex((option) => !option.disabled);
-      changed = el.selectedIndex !== reset;
-    }
-    return changed ? [el, options, live] : null;
+    const reset = copy.options;
+    if (!live.some((selected, i) => selected !== reset[i].selected)) return null;
+    el._$chosen = true;
+    return [el, options, live];
   }
-  if (el.type === 'checkbox' || el.type === 'radio') return el.checked !== el.defaultChecked ? [el, el.checked] : null;
-  if (el.type === 'file' || (el.tagName === 'INPUT' && ATTRIBUTE_VALUE_TYPES.has(el.type))) return null;
-  return el.value !== el.defaultValue ? [el, el.value] : null;
+  if (el.type === 'checkbox') return el.checked !== copy.checked ? [el, el.checked] : null;
+  return el.value !== copy.value ? [el, el.value] : null;
 }
 
-/** The fields a hydration claimed changed (_changedFields) show what they showed, and replay their events. */
+/** The fields a hydration claimed changed (_changedFields) show what they showed. */
 export function _restoreFields(fields) {
   for (const [el, shown, live] of fields) {
     if (live !== undefined) {
@@ -643,11 +686,6 @@ export function _restoreFields(fields) {
   }
   // A radio checked last unchecks the rest of its group.
   for (const [el, shown] of fields) if (shown === true) el.checked = true;
-  for (const [el, shown] of fields) {
-    if (shown === false && el.type === 'radio') continue;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
 }
 
 // Whether `el` takes prop `key` through a property it can write: one with a

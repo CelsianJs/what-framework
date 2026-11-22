@@ -348,6 +348,12 @@ describe('a target with a dot segment or a backslash is 400', () => {
       const ok = await get({ ':authority': 'app.test' });
       assert.equal(ok.status, 200);
       assert.match(ok.body, /who/);
+      // A Host that disagrees with :authority makes the request malformed
+      // (RFC 9113 section 8.3.1): it would otherwise decide the page URL, the
+      // CSRF origin and the cache key behind a proxy that routed by the other.
+      const split = await get({ ':authority': 'victim.test', host: 'evil.test' });
+      assert.equal(split.status, 400);
+      assert.equal((await get({ ':authority': 'App.Test', host: 'app.test' })).status, 200, 'the same host in another case');
     } finally {
       server.close();
     }

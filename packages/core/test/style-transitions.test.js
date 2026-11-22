@@ -82,3 +82,35 @@ describe('a style binding moves between object, string, null and undefined', () 
     });
   }
 });
+
+// A custom property in a style object is set by name (the CSSOM object has no
+// property for it), on every path, and cleared by the next object that lacks
+// it. The server writes it too. Before, the client dropped it.
+describe('a style object with a custom property', () => {
+  for (const [path, { view, hydrated, ssr }] of Object.entries(paths)) {
+    it(`on the ${path} path, mounted and hydrated`, () => {
+      for (const mode of ['mount', 'hydrate']) {
+        const CUSTOM = { '--accent': 'red', color: 'var(--accent)' };
+        const s = signal(CUSTOM);
+        const host = document.createElement('div');
+        document.body.append(host);
+        if (mode === 'hydrate') host.innerHTML = renderToHydratableString((ssr ?? view)(signal(CUSTOM)));
+        if (mode === 'hydrate') assert.match(host.innerHTML, /--accent:red/, `${path}: the server writes it`);
+        const stop = mode === 'hydrate' ? hydrate((hydrated ?? view)(s), host) : mount(view(s), host);
+        try {
+          const style = host.querySelector('p').style;
+          assert.deepEqual([style.getPropertyValue('--accent'), style.color], ['red', 'var(--accent)'], `${path} ${mode}`);
+          s({ '--accent': 'purple' });
+          flushSync();
+          assert.deepEqual([style.getPropertyValue('--accent'), style.color], ['purple', ''], `${path} ${mode}: replaced`);
+          s(VALUES.other);
+          flushSync();
+          assert.deepEqual([style.getPropertyValue('--accent'), style.color], ['', 'blue'], `${path} ${mode}: cleared`);
+        } finally {
+          stop();
+          host.remove();
+        }
+      }
+    });
+  }
+});

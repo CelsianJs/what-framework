@@ -30,7 +30,7 @@
 // is the renderer's copy's: what it creates goes to a root of its own for that
 // render, which the render's release disposes too (renderOwner below).
 
-import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback, _isDisposed, _serverStoreKey as STORE } from './reactive.js';
+import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback, _isDisposed, _serverStoreKey as STORE, __DEV__ } from './reactive.js';
 import { _installServerSeeding } from './hydration-data.js';
 
 // The process's render context, its async context provider and whether it is
@@ -123,6 +123,19 @@ export function __installServerContextStorage(storage, frames) {
   }
 }
 
+// Development: a server component's frame knows while its function runs
+// (`_inBody`). The server renders the component's bindings once, in that
+// frame, after the function has returned: a pending() read there is the read
+// the client's binding makes, tracked (reactive.js devUntrackedPending).
+function inBody(frame, fn) {
+  frame._inBody = true;
+  try {
+    return fn();
+  } finally {
+    frame._inBody = false;
+  }
+}
+
 /**
  * Call a server component's function `fn` in its `frame` so that the code it
  * runs after an `await` still has the frame as its owner (renderOwner).
@@ -131,7 +144,18 @@ export function __installServerContextStorage(storage, frames) {
  */
 export function _runComponentAsync(frame, fn) {
   const frames = store().frames;
-  return frames === null ? fn() : frames.run({ engine: _engine, frame }, fn);
+  const run = __DEV__ ? () => inBody(frame, fn) : fn;
+  return frames === null ? run() : frames.run({ engine: _engine, frame }, run);
+}
+
+/**
+ * Call a server component's function `fn`, in its `frame`, synchronously
+ * (renderToString).
+ *
+ * @internal
+ */
+export function _runComponentSync(frame, fn) {
+  return __DEV__ ? inBody(frame, fn) : fn();
 }
 
 // Whether code outside every render runs on a server, where a query cache

@@ -210,6 +210,9 @@ export function Rename() {
 - A dispatch whose component unmounts stops: its state never commits, the
   dispatches queued behind it never run, and an action's promise that stays
   pending holds nothing of the component. (`dropped-work-retention.gc.test.js`)
+- `permalink` is where the dispatch's `<Form>` posts before JavaScript has
+  loaded. By default it is the page's own address, path and query: the form
+  has no `action` attribute, so the browser posts to the URL it shows.
 
 ### Server actions
 
@@ -242,8 +245,11 @@ is the request, with its cookies and headers. (`packages/server/test/actions.tes
 ### `<Form action>`
 
 `<Form>` renders a real `<form method="post">`, so it submits without
-JavaScript, posting to the action endpoint (for a server action) or to the
-dispatch's `permalink`. The endpoint answers 303 to `redirect`. On a mounted
+JavaScript: a server action's form posts to the action endpoint, which answers
+303 to `redirect`, else back to the page the form is on (the form names it in a
+hidden `_redirect` field, so no Referer is needed). The dispatch of a
+`useActionState` posts to its `permalink`, by default the page itself (the
+pattern below). On a mounted
 page the form runs its own submit instead: it calls the action with the form's
 data as a transition, `useFormStatus()` inside it shows the submission, and,
 as React 19 does, the form is reset when that transition commits, only if the
@@ -261,24 +267,28 @@ and "<Form> resets as React 19 resets a form"; `packages/server/test/form.test.j
 `<Form action={serverAction} redirect="/x">` is fire and redirect: without
 JavaScript the endpoint answers 303 to `/x` and what the action returned is
 not carried back. For a form that shows what the server said (a validation
-error), use the edit-form pattern below.
+error), use the edit-form pattern below; a dispatch's form does not read
+`redirect`.
 
 ### An edit form with server validation
 
 One form that works with and without JavaScript: the dispatch of
 `useActionState(serverAction, initial)` as the form's action, and field
-defaults that come from the state.
+defaults that come from the state. Errors render in place; a save goes to the
+post.
 
 ```jsx
-import { useActionState, useLoaderData } from 'what-framework';
+import { getResponse, useActionState, useLoaderData } from 'what-framework';
 import { Form, action } from 'what-framework/server';
 
 export const savePost = action(async (previous, fields) => {
-  const title = String(fields.title ?? '').trim();
-  if (title.length < 3) return { error: 'Title needs three characters', fields: { title } };
+  const typed = String(fields.title ?? '');
+  const title = typed.trim();
+  if (title.length < 3) return { error: 'Title needs three characters', fields: { title: typed } };
   const { updatePost } = await import('../db.js');
   await updatePost(fields.slug, { title });
-  return { saved: true, fields: { title } };
+  getResponse().redirect(`/posts/${fields.slug}`);
+  return { saved: true };
 }, { id: 'savePost', revalidate: ['/'] });
 
 export default function EditPost() {
@@ -292,7 +302,6 @@ export default function EditPost() {
         <input name="title" defaultValue={() => state()?.fields?.title ?? post.title} />
       </label>
       {() => state()?.error && <p role="alert">{state().error}</p>}
-      {() => state()?.saved && <p role="status">Saved</p>}
       <button type="submit">Save</button>
     </Form>
   );
@@ -302,32 +311,71 @@ export default function EditPost() {
 - The action is called as `savePost(previousState, fields)` in both modes, as
   React's `useActionState(fn)` calls `fn`. Validation failure is a value it
   returns, not a throw: a throw reaches the `<ErrorBoundary>` with JavaScript
-  and answers 500 without it.
+  and answers 500 without it. Return the fields as the visitor typed them
+  (check and save the trimmed title, show the raw one): the form's defaults
+  come from them.
 - **With JavaScript**, the dispatch posts the call to `/__what_action`, its
   result becomes `state`, and then the form is reset to the defaults that
   state gives: the title the visitor typed stays, next to the error.
-- **Without JavaScript**, the form posts to `/__what_action` with the state it
-  held (a hidden `_state` field). The endpoint runs the action, answers 303
-  back to the page that posted (`redirect` when the form has one), and carries
-  what the action returned in a cookie for that action: one-time, HttpOnly,
-  `SameSite=Lax`, a minute at most, 3 KB at most (a larger result is dropped
-  with `ERR_ACTION_STATE_TOO_LARGE`, and the page renders from `initial`). The
-  next render of the page starts that action's `useActionState` from it, and
-  its response clears the cookie. That render is the visitor's own: never
-  stored in the ISR cache, never served from it. Hydration starts from the
-  same state.
-- The state is the visitor's own data, and the visitor can set the cookie to
-  anything: render it (it is escaped like every value), never trust it for
+- **Without JavaScript**, the form posts to the page it is on, with the state
+  it held (a hidden `_state` field) and its `useActionState`'s key
+  (`_actionKey`). `createRequestHandler` runs the action, by the action
+  endpoint's rules (where the post comes from, the CSRF token, a registered
+  action id, the reserved field names, the 1 MB body limit, the request's
+  context), and renders that page with what it returned, answering with the
+  render's status (200 by default) and `cache-control: private, no-store`. That
+  render is the visitor's own: never stored in the ISR cache, never served
+  from it. The state comes back to that form alone: another form of the same
+  action on the page (a list of inline editors) keeps its own state. A draft
+  of any length comes back whole: there is no limit but the body's, and no
+  cookie or Referer is involved. Hydration starts from the same state.
+- **Success routing**: `getResponse().redirect(path)` in the action, a
+  same-origin path by the loaders' rule. Without JavaScript the post answers
+  303 to it; with JavaScript the client goes there once what the action
+  revalidates has landed, through the mounted `<Router>` (or by loading the
+  page when there is none). The headers the action sets with
+  `getResponse().setHeader()` (a cookie) are on the response in both modes;
+  its `setStatus()` is not used.
+- The key is the hook's place in the component tree (its component's owner
+  path and its order there), the same in the render that served the form and
+  the one that answers it. Two forms are told apart as long as the page
+  renders them in the same places both times; a list of forms whose order
+  changed between the two renders can hand the result to the form now in
+  that place.
+- The page renders from a POST, so reloading it, or coming back to it with the
+  Back button, posts the form again, as with any form POST (the browser asks
+  first). A redirect on success avoids that for the common case.
+- The state is the visitor's own data, and the visitor can post anything as
+  `_state`: render it (it is escaped like every value), never trust it for
   anything else. The action gets `previousState` from the client too, with or
-  without JavaScript. Keep the state small and JSON: the errors and the fields
-  typed, not the saved record.
-- The no-JavaScript path needs `createRequestHandler` (the full-stack starter's
-  handler), which reads the cookie before the cache. A custom server that
-  renders with `renderDocument` passes the states itself:
-  `renderDocument(page, { ...ctx, actionStates })`, a `Map` of action id to
-  state.
-(`packages/server/test/action-state-form.test.js`; the full-stack scaffold's
-editor, `scripts/smoke-scaffold.mjs`)
+  without JavaScript.
+- A POST to a page without `_action` is the page's own, as before: its loader
+  reads the body.
+- A custom server that renders with `renderDocument` runs the post itself with
+  `createFormPostHandler(options)` (the action endpoint's options), then
+  renders with its result:
+
+  ```js
+  import { createFormPostHandler, renderDocument } from 'what-framework/server';
+
+  const runFormPost = createFormPostHandler({ getCsrfToken: (req) => /(?:^|;\s*)app-csrf=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] });
+
+  export async function renderPost(page, { request, fields, ctx }) {
+    const posted = await runFormPost({ method: 'POST', headers: Object.fromEntries(request.headers), body: fields, url: request.url, request });
+    if (posted === null) return renderDocument(page, ctx);
+    if (posted.response) return posted.response;
+    return renderDocument(page, { ...ctx, actionState: posted.actionState });
+  }
+  ```
+
+  It resolves to `null` for a post without `_action`, `{ response }` for a
+  refusal, a failure or the action's redirect, else `{ actionState, headers }`:
+  render the page with `actionState`, and send it with those headers and
+  `cache-control: private, no-store`. `nodeActionMiddleware` serves only the
+  action endpoint.
+(`packages/server/test/action-state-form.test.js`,
+`packages/server/test/action-redirect-client.test.js`; the full-stack
+scaffold's editor, `scripts/smoke-scaffold.mjs`)
 
 ### Call an action from a buildless page
 

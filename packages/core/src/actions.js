@@ -18,24 +18,27 @@ import { createContext, useContext } from './hooks.js';
  * with the transition: in the same flush as the data its action revalidated.
  * `state` and `isPending` are accessors. An action that throws reaches the
  * nearest <ErrorBoundary>, and the dispatches queued behind it are dropped.
- * `permalink` is the URL a <Form> posts to before JavaScript has loaded. The
- * dispatch of a server action (what-server action()) carries its id: a
- * <Form> it is the action of posts to the action endpoint, and the state the
- * action returns there comes back with the page (see postedState).
+ * `permalink` is the URL a <Form> posts to before JavaScript has loaded; by
+ * default the page's own. The dispatch of a server action (what-server
+ * action()) carries its id and this hook's key: posted to the page, the
+ * action runs there, and the page comes back with its result for this hook
+ * alone (what-server actions.js formState).
  */
 export function useActionState(action, initialState, permalink) {
-  // A server action (what-server action()) knows the state its form left
-  // when it was posted without JavaScript, for this render and its hydration.
+  // A server action (what-server action()) knows this hook's key, and the
+  // state its form came back with when it was posted without JavaScript, for
+  // this render and its hydration.
   const id = action != null ? action._actionId : undefined;
-  const posted = id !== undefined && action._postedState ? action._postedState() : null;
-  const state = signal(posted !== null ? posted[0] : initialState);
+  const form = id !== undefined && action._formState ? action._formState() : null;
+  const start = form !== null && 'state' in form ? form.state : initialState;
+  const state = signal(start);
   const open = signal(0);
   const owner = getOwner();
   /** @type {Set<any>} the transition calls of the dispatches still running */
   const calls = new Set();
   /** @type {Set<() => void>} how to stop waiting for each action still running */
   const waits = new Set();
-  let latest = posted !== null ? posted[0] : initialState;
+  let latest = start;
   /** @type {Promise<void> | null} the last dispatch still running, if any */
   let queue = null;
   let generation = 0;
@@ -107,6 +110,7 @@ export function useActionState(action, initialState, permalink) {
   if (permalink !== undefined) dispatch.permalink = permalink;
   if (id !== undefined) {
     dispatch._actionId = id;
+    dispatch._key = form !== null ? form.key : null;
     dispatch._state = () => state();
   }
 

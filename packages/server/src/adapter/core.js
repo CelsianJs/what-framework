@@ -21,7 +21,7 @@
 
 import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument, renderDocumentStream } from '../index.js';
-import { createActionHandler, parseActionBody, readActionStates, readFetchBodyCapped } from '../action-handler.js';
+import { createActionHandler, createFormPostHandler, parseActionBody, readFetchBodyCapped } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
 import { generateCsrfToken } from '../actions.js';
 import { createResponse } from '../response.js';
@@ -122,9 +122,9 @@ function pageRequest(routeMatch, documentOptions) {
   const reqCtx = csrfToken
     ? { params, query, request, signal: request.signal, response, csrfToken }
     : { params, query, request, signal: request.signal, response };
-  // The state a form posted without JavaScript left for this render
-  // (action-handler.js readActionStates).
-  if (routeMatch.actionStates) reqCtx.actionStates = routeMatch.actionStates;
+  // What the action of a form posted to this page without JavaScript
+  // returned, for that form (action-handler.js createFormPostHandler).
+  if (routeMatch.actionState) reqCtx.actionState = routeMatch.actionState;
   const opts = csrfToken
     ? { ...documentOptions, csrfToken }
     : documentOptions;
@@ -337,6 +337,14 @@ export function createRouteRenderer(documentOptions = {}) {
  * in action-handler.js for the field contract (_action, _csrf/what-csrf-token,
  * _redirect).
  *
+ * A form posted to a page (the <Form> of a useActionState(serverAction)
+ * dispatch, without JavaScript) carries `_action`: its action runs under the
+ * same rules (createFormPostHandler, with the `csrf` option's checks whatever
+ * `actionHandler` is), and the page renders with what it returned for that
+ * form, outside the cache (`private, no-store`), or the response is the 303 the
+ * action redirected to. A POST to a page without `_action` is answered as
+ * before.
+ *
  * @param {import('what-server').RequestHandlerOptions} [options]
  */
 export function createRequestHandler(options = {}) {
@@ -355,14 +363,14 @@ export function createRequestHandler(options = {}) {
   // Auto-provisioning (cookie + meta tag) only applies to the built-in
   // handler; a user-supplied actionHandler owns its own CSRF policy.
   const autoCsrf = csrf !== false && !options.actionHandler;
-  const actionHandler = options.actionHandler || createActionHandler(
-    autoCsrf
-      ? {
-        getCsrfToken: (reqLike) => readCookie(reqLike.headers && reqLike.headers.cookie, CSRF_COOKIE),
-        trustedOrigins: (typeof csrf === 'object' && csrf !== null && csrf.trustedOrigins) || [],
-      }
-      : { skipCsrf: true }
-  );
+  const csrfOptions = csrf === false
+    ? { skipCsrf: true }
+    : {
+      getCsrfToken: (reqLike) => readCookie(reqLike.headers && reqLike.headers.cookie, CSRF_COOKIE),
+      trustedOrigins: (typeof csrf === 'object' && csrf !== null && csrf.trustedOrigins) || [],
+    };
+  const actionHandler = options.actionHandler || createActionHandler(autoCsrf ? csrfOptions : { skipCsrf: true });
+  const formPostHandler = createFormPostHandler(csrfOptions);
 
   // `onError` hears the errors every built-in render contains or fails on,
   // streamed or buffered.
@@ -400,7 +408,7 @@ export function createRequestHandler(options = {}) {
         url: request.url,
         request,
       });
-      return new Response(out.body, { status: out.status, headers: out.headers });
+      return new Response(out.body, { status: out.status, headers: responseHeaders(out.headers) });
     }
 
     // CSRF provisioning for HTML responses (double-submit cookie). If the
@@ -454,14 +462,37 @@ export function createRequestHandler(options = {}) {
     const config = route.page || { mode: route.mode || 'client' };
     const routeMatch = { path: pathname, query: parseQuery(url.search), config, route, params, request };
 
-    // A form posted without JavaScript came back here with what its action
-    // returned: this render is the visitor's own, never stored or served from
-    // the cache, and its response clears the state it read.
-    const reqHeaders = headersToObject(request.headers);
-    const posted = readActionStates(reqHeaders.cookie, reqHeaders['x-forwarded-proto'] === 'https'
-      || url.protocol === 'https:' || process.env.NODE_ENV === 'production');
-    const postedHeaders = posted ? { ...NO_STORE, 'set-cookie': posted.clear } : null;
-    if (posted) routeMatch.actionStates = posted.states;
+    // A form posted to this page without JavaScript: its action runs, and the
+    // page renders with what it returned for that form. This render is the
+    // visitor's own, never stored or served from the cache. The body is read
+    // from a copy, so a POST that is not one (no `_action`) reaches the page
+    // with its body unread.
+    /** @type {any} */
+    let posted = null;
+    if (request.method === 'POST' && (request.headers.get('content-type') || '').includes('application/x-www-form-urlencoded')) {
+      const read = await readFetchBodyCapped(request.clone());
+      if (read.tooLarge) {
+        return new Response(JSON.stringify({ message: 'Payload too large' }), {
+          status: 413,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      posted = await formPostHandler({
+        method: 'POST',
+        headers: headersToObject(request.headers),
+        body: parseActionBody(read.raw ?? '', 'application/x-www-form-urlencoded'),
+        url: request.url,
+        request,
+      });
+      if (posted !== null && posted.response) {
+        const { status, headers, body } = posted.response;
+        return new Response(status === 303 ? null : body, { status, headers: responseHeaders(headers, NO_STORE, csrfHeaders) });
+      }
+      if (posted !== null) routeMatch.actionState = posted.actionState;
+    }
+    // The action's headers (a cookie it set) go under the page's own; the
+    // response is the visitor's own.
+    const actionHeaders = posted !== null ? posted.headers : null;
 
     // ISR cache path (static/hybrid with a cache engine). Server-mode bypasses.
     // NOTE: cached HTML is shared across users, so the per-user CSRF token is
@@ -504,11 +535,11 @@ export function createRequestHandler(options = {}) {
       await stream.shellReady;
       if (response.location || NULL_BODY.has(response.status)) {
         stream.abort();
-        return new Response(null, { status: response.status, headers: responseHeaders(committedHeaders(response), NO_STORE, csrfHeaders, postedHeaders) });
+        return new Response(null, { status: response.status, headers: responseHeaders(actionHeaders, committedHeaders(response), NO_STORE, csrfHeaders) });
       }
       return new Response(stream.readable, {
         status: response.status,
-        headers: responseHeaders(HTML_HEADERS, response.headers, NO_STORE, csrfHeaders, postedHeaders),
+        headers: responseHeaders(HTML_HEADERS, actionHeaders, response.headers, NO_STORE, csrfHeaders),
       });
     }
 
@@ -520,10 +551,10 @@ export function createRequestHandler(options = {}) {
     // render's own cookies, so neither can drop the other.
     const headers = responseHeaders(
       HTML_HEADERS,
+      actionHeaders,
       out.headers,
-      config.mode === 'server' ? NO_STORE : null,
+      config.mode === 'server' || posted !== null ? NO_STORE : null,
       csrfHeaders,
-      postedHeaders,
     );
     const status = out.status || 200;
     return new Response(NULL_BODY.has(status) ? null : out.html, { status, headers });

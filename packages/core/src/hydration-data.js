@@ -196,6 +196,23 @@ export function _nextOwnerKey(frame, root) {
   return `${frame ? frame._ownerPath || '' : ''}:${index}`;
 }
 
+/**
+ * @internal The key of the server action's useActionState being made now: its
+ * component's owner path and its place among that component's, so it is the
+ * same in a server render and in the hydration of what that render made. The
+ * <Form> of its dispatch posts it, and a form posted without JavaScript comes
+ * back to that one alone. Null in any other client render, or outside a
+ * component.
+ */
+export function _actionStateKey() {
+  const frame = _currentComponent();
+  if (frame === null || frame._ownerPath === undefined || !(isServerRender() || isHydrating())) return null;
+  const holder = holderOf(frame, null);
+  const index = holder._ownerActions || 0;
+  holder._ownerActions = index + 1;
+  return `${frame._ownerPath}:${index}`;
+}
+
 // --- Adopting keyless values while hydrating ---
 //
 // The client numbers its component contexts the way the server numbered its

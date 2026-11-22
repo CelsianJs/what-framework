@@ -5,7 +5,7 @@
 import http from 'node:http';
 import { createRequestHandler } from './core.js';
 import { MAX_BODY_BYTES } from '../action-handler.js';
-import { requestUrl } from '../request-url.js';
+import { nodeRequestHost, requestUrl } from '../request-url.js';
 
 // A Request object only exists after the body is read, so the cap the fetch
 // path enforces would run too late here. Returned instead of a Request when the
@@ -33,21 +33,12 @@ function disconnectSignal(res) {
   return controller.signal;
 }
 
-/**
- * The host a Node request names: its Host header, else (HTTP/2) its
- * `:authority`, which requestUrl validates as it does a Host; localhost when
- * it names none.
- */
-function requestHost(req) {
-  return req.headers.host ?? req.headers[':authority'] ?? 'localhost';
-}
-
 async function nodeToWebRequest(req, res) {
   // A path only ('/x?y', '//x' included): an absolute-form or authority-form
   // target names a host of its own, which the request's Host header decides
   // here, and `*` names no resource. The scheme is the one the socket was
   // reached by: a TLS server's requests are https.
-  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', requestHost(req), req.url);
+  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', nodeRequestHost(req.headers), req.url);
   if (url === null) return BAD_TARGET;
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {

@@ -247,7 +247,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   each origin stored for the path, up to 16, or renders a default entry at
   `createCacheEngine({ origin })` (default `http://localhost`), which a
   request whose origin has no entry is served. `engine.regenerate(match)`
-  resolves `CacheEntry | null`.
+  resolves `CacheEntry | null`. `createCacheEngine({ origins })` names the
+  public origins to cache: a request for any other host renders uncached, and
+  a regeneration renders exactly those. The full-stack starter reads them from
+  `PUBLIC_ORIGIN`. Without it, a regeneration prefers the origins visitors
+  read most recently.
 - **A Host header that is not a host gets 400** from `toNodeListener`,
   `whatMiddleware`, `nodeActionMiddleware` and the Vura handler. *Migration:*
   fix a proxy that forwards a malformed Host.
@@ -318,8 +322,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   or `null`. *Migration:* reset by hand in the action's success path if you
   relied on an immediate reset, and compare `action` against your function,
   not its id.
-- **`_state` is a reserved `<Form>` field name**, with `_action`, `_redirect`
-  and the CSRF field. *Migration:* rename a field called `_state`.
+- **`_state` and `_actionKey` are reserved `<Form>` field names**, with
+  `_action`, `_redirect` and the CSRF field. *Migration:* rename a field with
+  one of these names. A server action's own `<Form>` posts back to the page it
+  is on without relying on the Referer, and `redirect` applies to that form
+  only.
 - **A form's reset after an action runs after the commit**, so a
   `defaultValue` read from `useActionState`'s new state applies. A `<Form>`
   with no `csrfToken` prop no longer adds the page's token while hydrating,
@@ -414,7 +421,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   page cannot read the dev sources. It serves localhost, `*.localhost`, IP
   literals and `--host`. *Migration:* for a tunnel or a LAN name, add it to
   `allowedHosts` in the config or pass `--allowed-hosts a,b` (`true` allows
-  any).
+  any). `what preview` checks the same list, the Host is read as a host before
+  any name test, and the HMR socket accepts the same origins.
 
 ### Added
 
@@ -442,8 +450,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `response`. `createRouteRenderer(documentOptions)` is the route renderer
   `createRequestHandler` uses, for a custom server. The create-what full-stack
   template uses it, so route middleware redirects, `response.redirect()`,
-  status and headers work there. `createCacheEngine({ origin })` names the
-  origin a request-less regeneration renders at.
+  status and headers work there. `createCacheEngine({ origin, origins })`
+  names the origin a request-less regeneration renders at and the public
+  origins to cache.
 - **Hydration by adoption.** Matching markup creates no nodes, each reactive
   child runs once, and nothing the server sent is fetched again. Keyless
   server values are found by owner identity. A component that suspends while
@@ -466,11 +475,16 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `trustedOrigins` for other origins. Server validation with and without
   JavaScript: `useActionState(serverAction, initial)` with
   `<Form action={dispatch}>` calls the action with `(previousState, fields)`.
-  Without JavaScript the endpoint redirects back with the result in a one-time
-  cookie, and `createRequestHandler` renders that request from it, outside the
-  cache ([docs/DATA.md](docs/DATA.md), "An edit form with server validation").
-  The full-stack starter's `/edit/:slug` page uses it. A custom server passes
-  `actionStates` in the render context.
+  Without JavaScript the form posts to its own page, and
+  `createRequestHandler` runs the action and renders that page with the
+  result, `private, no-store` and outside the cache, for the form that posted
+  only: a long draft comes back whole, two editors of one action keep their
+  own results, and no Referer is needed. Reloading that page re-posts, as with
+  any form POST. `getResponse().redirect(path)` inside an action redirects a
+  no-JS post with 303 and a fetch call once its revalidation has landed, so a
+  successful save can go to the record. A custom server uses
+  `createFormPostHandler()` ([docs/DATA.md](docs/DATA.md), "An edit form with
+  server validation"). The full-stack starter's `/edit/:slug` page uses it.
 - **Router.** Route `preload` with a `data` prop, `navigate(to,
   { flushSync })`, and `route.isNavigating` from the moment a navigation
   starts, including one started inside a transition.
@@ -483,14 +497,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 70 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 69 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
   `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
   `ERR_QUERY_OUTSIDE_RENDER`. The production build's catalogue keeps each
   code's severity and message and leaves the fix and example to `what_fix` and
-  docs/ERRORS.md (5.3 KB gzip instead of 21.2 KB).
+  docs/ERRORS.md (5.3 KB gzip instead of 21.8 KB).
 - **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
   Suspense and action events) and `what_why` (why a run, a skipped effect or a
   mount happened, back to the write or landing). Async flight details and
@@ -567,8 +581,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   rejects. The router's and the cache's URL parsing never throws on a
   request's path. HTTP/2 requests render and route like HTTP/1: pseudo-headers
   are skipped, and a validated `:authority` is the host when Host is absent.
-  `ERR_REDIRECT_CYCLE` reports pathnames and route patterns, not the visitor's
-  query or fragment.
+  An HTTP/2 request whose Host and `:authority` differ gets 400.
+  `ERR_REDIRECT_CYCLE` reports route patterns (`/verify/:token`), never the
+  visitor's paths, query or fragment.
 - **Form data (security).** No-JS and enhanced form fields such as
   `constructor` and `__proto__` arrive as own fields. ISR loader `query`
   objects are null-prototype. A malformed cookie no longer fails every page. A
@@ -577,7 +592,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   two entries and a Host one sender chose never reaches another host's
   visitors; a repeated cookie name counts once, with its first value. A stored
   ISR render sees the URL and params of its key: a trailing slash is dropped,
-  and HEAD renders as GET.
+  and HEAD renders as GET. A posted `_state` is read as plain values: no
+  member named `toString` or `valueOf` survives.
 - **Keyed hydration.** A server row is adopted only as its own key's row;
   rows in another order are moved and the rest rebuilt, with a report, so
   what was typed into a row stays with its key. A differing text takes exactly
@@ -592,8 +608,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   once per region. Stale server attributes are removed from claimed elements.
   A custom element's own property is written on hydration even when the
   server's attribute matches. Hydration keeps what the user typed, checked or
-  selected before it ran, controlled or not, on every path, and replays
-  `input` and `change` for those fields, as React 19 does.
+  selected before it ran, controlled or not, on every path, and dispatches no
+  event for it, as released React does, so a value the browser restored on
+  Back is not taken for an edit. A field counts as edited only when the
+  browser's own reset would change it (a range's midpoint, a color's default
+  and a disabled first option group are untouched). Handlers see the edits
+  made after hydration; a file chosen before it stays in the form and submits.
+  On the client a `<noscript>`'s content is neither rendered nor hydrated.
 - **Async values.** `settled()` waits for the reveal's effects and for
   streams, and never spins on a synchronous refetch. `refresh()` settles when
   the function answers at once or throws. Transitions that reach one binding
@@ -601,6 +622,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   second optimistic overlay shows while another action holds the view.
   `createResource().mutate()` during a transition aborts the request. A
   transition awaited inside an action no longer deadlocks.
+  `ERR_PENDING_READ_UNTRACKED` is no longer reported for a `pending()` read in
+  a binding during server rendering.
 - **Retention.** Unmounted components, abandoned promises, held effects,
   dropped query flights, unmounted `useActionState` dispatches, rejected form
   actions, superseded navigations and `<Suspense>` boundaries unmounted while
@@ -637,7 +660,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   title containing `selected` is kept. A controlled `<select>` follows its
   value when its options change: added, removed or re-valued by a region,
   `<For>`, `<Show>` or `.map()`. A `style` going from an object to `null` no
-  longer throws.
+  longer throws. A controlled select also follows an option whose text is its
+  value, and an emptied keyed list of options; an uncontrolled select's
+  default follows options that arrive later, a streamed `<Suspense>` included,
+  until the user chooses. Style objects set CSS custom properties (`--accent`)
+  on every path.
 - **Data.** A fetcher that throws reaches the `<ErrorBoundary>`. A fetch that
   lands `undefined` is data. A superseded invalidation answers when its
   replacement lands. The query hooks and a `query()` on one key no longer
@@ -686,7 +713,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   renders is the one visitors read. `<Portal>` with no `target` renders into
   `document.body`, and a selector that matches nothing reports
   `ERR_PORTAL_TARGET_MISSING`. `what build` no longer changes whitespace
-  inside attribute values, `<pre>` and `<textarea>`.
+  inside attribute values, `<pre>` and `<textarea>`. `revalidatePath` and
+  `revalidateTag` with `regenerate` and no `routeResolver` render from the
+  route last rendered for the path instead of throwing.
 
 ### Performance
 

@@ -35,6 +35,7 @@ export {
   runWithServerContext,
   __installServerContextStorage,
   _runComponentAsync,
+  _runComponentSync,
   __markServerProcess,
   _isServerProcess,
   __flushOutsideServerContext,
@@ -50,4 +51,4 @@ export { _mapArrayToArray, _rowKeyDigest, _rowKeySalt, isHydrating } from '../re
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';
-export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath } from '../hydration-data.js';
+export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath, _actionStateKey } from '../hydration-data.js';

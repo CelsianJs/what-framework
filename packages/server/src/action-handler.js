@@ -9,7 +9,7 @@
 import { handleActionRequest } from './actions.js';
 import { addField } from './fields.js';
 import { runInActionContext } from './context.js';
-import { isHost, requestUrl } from './request-url.js';
+import { isHost, nodeRequestHost, requestUrl } from './request-url.js';
 
 const DEFAULT_BASE_PATH = '/__what_action';
 export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
@@ -161,93 +161,112 @@ function targetOrigin(headers, url) {
 // Reserved form fields consumed by the framework (not passed to the action).
 // `what-csrf-token` is an alias for `_csrf` matching the <meta name="what-csrf-token">
 // tag SSR pages embed, so templates can reuse one name for both surfaces.
-const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state']);
+const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state', '_actionKey']);
 
-// --- The state of a form posted without JavaScript ---
-//
-// A <Form> whose action is the dispatch of useActionState(serverAction)
-// posts `_state`, the state the page rendered it with (JSON). The endpoint
-// runs serverAction(state, fields), as React's useActionState(fn) calls fn,
-// and carries what the action returned to the next render of the page in a
-// cookie of that action's own: one-time (the render that reads it clears it,
-// and it lasts a minute), HttpOnly, SameSite=Lax, at most STATE_LIMIT bytes.
-// What comes back in it is the visitor's own data, and a visitor can set the
-// cookie to anything: a render shows it, escaped like any value, and must
-// trust it for nothing else. adapter/core.js reads it (readActionStates).
-export const STATE_LIMIT = 3072;
-const STATE_COOKIE = 'what-as-';
-const STATE_MAX_AGE = 60;
-
-// An action id as a cookie name: its UTF-8 bytes in hex, so any id is a token.
-function stateCookieName(id) {
-  let hex = '';
-  for (const byte of new TextEncoder().encode(id)) hex += byte.toString(16).padStart(2, '0');
-  return STATE_COOKIE + hex;
-}
-
-function stateCookie(id, value, secure) {
-  return `${stateCookieName(id)}=${value}; Path=/; Max-Age=${STATE_MAX_AGE}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
-}
-
-/**
- * The states a request's Cookie header carries back, by action id, and the
- * Set-Cookie values that clear each: { states: Map, clear: string[] }, or
- * null when it carries none. A cookie whose value does not parse is cleared
- * and left out.
- */
-export function readActionStates(cookieHeader, secure) {
-  if (!cookieHeader || !String(cookieHeader).includes(STATE_COOKIE)) return null;
-  const states = new Map();
-  const clear = [];
-  for (const part of String(cookieHeader).split(';')) {
-    const at = part.indexOf('=');
-    const name = (at < 0 ? part : part.slice(0, at)).trim();
-    if (!name.startsWith(STATE_COOKIE)) continue;
-    const hex = name.slice(STATE_COOKIE.length);
-    if (!/^(?:[0-9a-f]{2})+$/.test(hex)) continue;
-    clear.push(`${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`);
-    try {
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-      const id = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-      const value = part.slice(at + 1).trim();
-      if (value.length <= STATE_LIMIT && !states.has(id)) states.set(id, JSON.parse(decodeURIComponent(value)));
-    } catch { /* not one this endpoint wrote: cleared, not read */ }
-  }
-  return clear.length > 0 ? { states, clear } : null;
-}
-
-// The state a form posted (`_state`), or undefined when the form posted none:
-// a server action's own form. A state that is not JSON, or longer than the
-// limit, is a 400.
+// The state a form posted (`_state`): a <Form> whose action is the dispatch of
+// useActionState(serverAction) posts the state it rendered with, as JSON, and
+// the action is called (state, fields), as React's useActionState(fn) calls
+// fn. Undefined when the form posted none (a server action's own form, called
+// with the fields alone); a state that is not JSON is a 400. The body limit is
+// the only size limit. It is the client's to write, so it is read as plain
+// values: a member named toString or valueOf would stand in for the method a
+// render calls to write a value as text, and is left out.
 function postedState(form) {
   if (!Object.hasOwn(form, '_state')) return undefined;
-  const raw = form._state;
-  if (typeof raw !== 'string' || raw.length > STATE_LIMIT) return INVALID;
   try {
-    return { value: JSON.parse(raw) };
+    return { value: JSON.parse(String(form._state), plainValue) };
   } catch {
     return INVALID;
   }
 }
+const plainValue = (key, value) => (key === 'toString' || key === 'valueOf' ? undefined : value);
 const INVALID = Symbol('invalid');
 
-// Whether the visitor reached this server over HTTPS: the request URL's
-// scheme, a proxy's X-Forwarded-Proto, or a production process (the CSRF
-// cookie's rule, adapter/core.js).
-function isSecure(headers, url) {
-  if (String(headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https') return true;
-  if (typeof url === 'string' && url.startsWith('https:')) return true;
-  return typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+// The CSRF policy of a handler's options.
+function csrfPolicy(options) {
+  return {
+    getCsrfToken: options.getCsrfToken,
+    skipCsrf: options.skipCsrf === true,
+    trustedOrigins: new Set(options.trustedOrigins || []),
+  };
+}
+
+// The action call: handleActionRequest in a context of its own, whose request
+// is the caller's (getRequest()) and whose response (getResponse()) the call
+// answers with: the redirect and the headers the action set.
+async function callAction(reqLike, id, args, callOptions, callHeaders) {
+  /** @type {any} */
+  let response = null;
+  const result = await runInActionContext(requestOf(reqLike, 'POST'), (own) => {
+    response = own;
+    return handleActionRequest({ headers: callHeaders }, id, args, callOptions);
+  });
+  return { status: result.status, body: result.body, response };
+}
+
+// The headers an action set through getResponse(), as a plain object (every
+// Set-Cookie kept, as an array), under `answer`'s own.
+function withActionHeaders(response, answer) {
+  /** @type {Record<string, any>} */
+  const out = {};
+  response.headers.forEach((value, name) => { if (name !== 'set-cookie') out[name] = value; });
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length > 0) out['set-cookie'] = cookies;
+  return Object.assign(out, answer);
+}
+
+// --- A form post, to the action endpoint or to a page ---
+//
+// Both take the same request rules: where it comes from (Fetch Metadata, the
+// Origin, else the double-submit token), a registered action id, the reserved
+// fields left out of what the action gets, and the action run in the
+// request's context. Resolves to { actionId, call } or a refusal
+// ({ status, message }).
+async function runFormPost(policy, reqLike, form, actionId) {
+  const headers = lowerHeaders(reqLike.headers);
+  const site = policy.skipCsrf ? 'same' : requestSite(headers, reqLike.url, policy.trustedOrigins);
+  if (site === 'cross') return { status: 403, message: 'Cross-site request refused' };
+  const sessionCsrfToken = policy.skipCsrf
+    ? undefined
+    : (policy.getCsrfToken ? await policy.getCsrfToken(reqLike) : undefined);
+  if (!actionId) return { status: 400, message: 'Missing action name (add a hidden "_action" field or ?action= query param)' };
+
+  // The token travels in the `_csrf` (or `what-csrf-token`) field; map it to
+  // the header slot handleActionRequest checks. The header wins when both are
+  // present.
+  const formHeaders = { ...headers };
+  const bodyToken = form._csrf ?? form['what-csrf-token'];
+  if (bodyToken && !formHeaders['x-csrf-token']) formHeaders['x-csrf-token'] = String(bodyToken);
+  // A same-origin post with no token is a form on a cached page.
+  const byOrigin = site === 'same' && !formHeaders['x-csrf-token'];
+  if (!policy.skipCsrf && !byOrigin && policy.getCsrfToken && !sessionCsrfToken) {
+    // CSRF is configured but this client has no token (e.g. no cookie yet).
+    return { status: 403, message: 'Missing CSRF token' };
+  }
+
+  // Copied as own fields (addField), as parseActionBody wrote them: an
+  // assignment to a field named `__proto__` would set data's prototype.
+  const data = {};
+  for (const [k, v] of Object.entries(form)) {
+    if (!RESERVED_FORM_FIELDS.has(k)) addField(data, k, v);
+  }
+  const previous = postedState(form);
+  if (previous === INVALID) return { status: 400, message: 'Invalid form state' };
+  const args = previous === undefined ? [data] : [previous.value, data];
+  const call = await callAction(reqLike, String(actionId), args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, formHeaders);
+  return { actionId: String(actionId), call };
+}
+
+// The answer to a form post the action did not complete: a refusal, or the
+// action's own failure (an unknown id, a bad token, a throw).
+function failedForm(outcome) {
+  if (!outcome.call) return htmlResponse(outcome.status, outcome.message);
+  const { call } = outcome;
+  return htmlResponse(call.status, (call.body && call.body.message) || 'Action failed');
 }
 
 /**
  * Framework-agnostic action dispatcher.
- *
- * A form post that carries `_state` (a <Form> whose action is the dispatch of
- * useActionState(serverAction)) calls the action with the posted state and
- * the fields, and its 303 sets the cookie the next render reads (see
- * readActionStates above).
  *
  * options:
  *   - getCsrfToken(reqLike) -> sessionToken (sync or async). Omit + skipCsrf for none.
@@ -268,7 +287,8 @@ function isSecure(headers, url) {
  *
  * 1. JSON + header (fetch clients — what the `action()` client wrapper sends):
  *    POST with `X-What-Action: <id>` header, JSON body `{ args: [...] }`,
- *    CSRF token in the `X-CSRF-Token` header. Responds with JSON.
+ *    CSRF token in the `X-CSRF-Token` header. Responds with JSON; a redirect
+ *    the action made (getResponse().redirect()) travels in `X-What-Redirect`.
  *
  * 2. Plain HTML form post (progressive enhancement — works without JS):
  *    POST with `Content-Type: application/x-www-form-urlencoded` and NO
@@ -277,10 +297,16 @@ function isSecure(headers, url) {
  *                   query param (reqLike.query.action)
  *    - CSRF token:  `_csrf` (or `what-csrf-token`) hidden field; an
  *                   `x-csrf-token` HEADER wins when both are present
- *    - redirect:    `_redirect` hidden field (local path), else Referer, else '/'
- *    The action receives ONE argument: the form fields object (reserved
- *    fields stripped). Success responds 303 See Other (POST/redirect/GET);
- *    failures respond with an HTML error page and the matching status.
+ *    - redirect:    the action's getResponse().redirect(), else the
+ *                   `_redirect` hidden field (a local path), else Referer,
+ *                   else '/'
+ *    The action receives the form fields object (reserved fields stripped),
+ *    after the posted `_state` when the form carries one. Success responds
+ *    303 See Other (POST/redirect/GET); failures respond with an HTML error
+ *    page and the matching status.
+ *
+ * Either way, the headers the action set through getResponse() (a cookie)
+ * are on the response.
  */
 // The request an action call answers: the Web Request a fetch endpoint got,
 // else one made from the request-like object. A path is this host's (its Host
@@ -308,15 +334,10 @@ function requestOf(reqLike, method) {
 }
 
 export function createActionHandler(options = {}) {
-  const { getCsrfToken, skipCsrf = false } = options;
-  const trustedOrigins = new Set(options.trustedOrigins || []);
+  const policy = csrfPolicy(options);
 
   return async function handle(reqLike) {
     const method = (reqLike.method || 'POST').toUpperCase();
-    // The action runs with its request (getRequest()), the caller's cookies
-    // and headers: an action is a public endpoint, and checks its caller.
-    const call = (id, args, callOptions, callHeaders) => runInActionContext(requestOf(reqLike, method),
-      () => handleActionRequest({ headers: callHeaders }, id, args, callOptions));
     if (method !== 'POST') {
       return jsonResponse(405, { message: 'Method Not Allowed' });
     }
@@ -324,81 +345,71 @@ export function createActionHandler(options = {}) {
     const headers = lowerHeaders(reqLike.headers);
     const headerActionId = headers['x-what-action'];
     const contentType = headers['content-type'] || '';
-    const isFormPost = !headerActionId && contentType.includes('application/x-www-form-urlencoded');
-
-    const site = skipCsrf ? 'same' : requestSite(headers, reqLike.url, trustedOrigins);
-    if (site === 'cross') {
-      return isFormPost ? htmlResponse(403, 'Cross-site request refused') : jsonResponse(403, { message: 'Cross-site request refused' });
-    }
-
-    const sessionCsrfToken = skipCsrf
-      ? undefined
-      : (getCsrfToken ? await getCsrfToken(reqLike) : undefined);
 
     // --- Plain HTML form post (progressive enhancement) ---
-    if (isFormPost) {
+    if (!headerActionId && contentType.includes('application/x-www-form-urlencoded')) {
       const form = reqLike.body || {};
-      const actionId = form._action || form['data-action'] || (reqLike.query && reqLike.query.action);
-      if (!actionId) {
-        return htmlResponse(400, 'Missing action name (add a hidden "_action" field or ?action= query param)');
-      }
-
-      // CSRF token travels in the `_csrf` (or `what-csrf-token`) form field
-      // for plain forms; map it to the header slot handleActionRequest
-      // validates against. The header wins when both are present.
-      const formHeaders = { ...headers };
-      const bodyToken = form._csrf ?? form['what-csrf-token'];
-      if (bodyToken && !formHeaders['x-csrf-token']) formHeaders['x-csrf-token'] = String(bodyToken);
-      // A same-origin post with no token is a form on a cached page.
-      const byOrigin = site === 'same' && !formHeaders['x-csrf-token'];
-
-      if (!skipCsrf && !byOrigin && getCsrfToken && !sessionCsrfToken) {
-        // CSRF is configured but this client has no token (e.g. no cookie yet).
-        return htmlResponse(403, 'Missing CSRF token');
-      }
-
-      // Copied as own fields (addField), as parseActionBody wrote them: an
-      // assignment to a field named `__proto__` would set data's prototype.
-      const data = {};
-      for (const [k, v] of Object.entries(form)) {
-        if (!RESERVED_FORM_FIELDS.has(k)) addField(data, k, v);
-      }
-
-      const previous = postedState(form);
-      if (previous === INVALID) return htmlResponse(400, 'Invalid form state');
-      const args = previous === undefined ? [data] : [previous.value, data];
-      const result = await call(actionId, args, { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }, formHeaders);
-
-      if (result.status === 200) {
-        /** @type {Record<string, string>} */
-        const answer = { location: safeRedirectTarget(form, headers) };
-        if (previous !== undefined) {
-          const value = encodeURIComponent(JSON.stringify(result.body) ?? 'null');
-          if (value.length <= STATE_LIMIT) answer['set-cookie'] = stateCookie(String(actionId), value, isSecure(headers, reqLike.url));
-          else console.warn(`[what-server] ERR_ACTION_STATE_TOO_LARGE Server action "${actionId}" returned ${value.length} bytes of state to a form posted without JavaScript; the limit is ${STATE_LIMIT}, so the page renders from its initial state.`);
-        }
-        return { status: 303, headers: answer, body: '' };
-      }
-      return htmlResponse(result.status, (result.body && result.body.message) || 'Action failed');
+      const outcome = await runFormPost(policy, reqLike, form, form._action || form['data-action'] || (reqLike.query && reqLike.query.action));
+      if (!outcome.call || outcome.call.status !== 200) return failedForm(outcome);
+      const { response } = outcome.call;
+      return { status: 303, headers: withActionHeaders(response, { location: response.location ?? safeRedirectTarget(form, headers) }), body: '' };
     }
 
     // --- JSON + X-What-Action header (fetch clients) ---
+    const site = policy.skipCsrf ? 'same' : requestSite(headers, reqLike.url, policy.trustedOrigins);
+    if (site === 'cross') return jsonResponse(403, { message: 'Cross-site request refused' });
     if (!headerActionId) {
       return jsonResponse(400, { message: 'Missing X-What-Action header' });
     }
+    const sessionCsrfToken = policy.skipCsrf
+      ? undefined
+      : (policy.getCsrfToken ? await policy.getCsrfToken(reqLike) : undefined);
 
     const byOrigin = site === 'same' && !headers['x-csrf-token'];
-    if (!skipCsrf && !byOrigin && getCsrfToken && !sessionCsrfToken) {
+    if (!policy.skipCsrf && !byOrigin && policy.getCsrfToken && !sessionCsrfToken) {
       // CSRF configured, but the client presented no session token (no cookie).
       return jsonResponse(403, { message: 'Missing CSRF token' });
     }
 
     const body = reqLike.body || {};
-    const args = body.args;
+    const call = await callAction(reqLike, headerActionId, body.args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, headers);
+    const answer = jsonResponse(call.status, call.body);
+    if (call.status !== 200) return answer;
+    /** @type {Record<string, string>} */
+    const own = { ...answer.headers };
+    if (call.response.location) own['x-what-redirect'] = call.response.location;
+    return { ...answer, headers: withActionHeaders(call.response, own) };
+  };
+}
 
-    const result = await call(headerActionId, args, { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }, headers);
-
-    return jsonResponse(result.status, result.body);
+/**
+ * A form posted to a page without JavaScript: the <Form> of a
+ * useActionState(serverAction) dispatch posts to the page it is on. The form
+ * post's rules are the action endpoint's (the same options, the same checks).
+ *
+ * Returns: async (reqLike) -> null when the post carries no `_action` (not a
+ * form the framework runs: the page answers it as before), else one of
+ *   { response: { status, headers, body } }  a refusal, the action's failure,
+ *                                            or its redirect (303)
+ *   { actionState, headers }                 render the page with
+ *                                            `actionState` in its request
+ *                                            context, and these headers (the
+ *                                            action's) on the response
+ *   reqLike: { method, headers, body (the parsed fields), url, request? }
+ */
+export function createFormPostHandler(options = {}) {
+  const policy = csrfPolicy(options);
+  return async function handleFormPost(reqLike) {
+    const form = reqLike.body || {};
+    if (!Object.hasOwn(form, '_action')) return null;
+    const outcome = await runFormPost(policy, reqLike, form, form._action);
+    if (!outcome.call || outcome.call.status !== 200) return { response: failedForm(outcome) };
+    const { response, body } = outcome.call;
+    if (response.location) {
+      return { response: { status: 303, headers: withActionHeaders(response, { location: response.location }), body: '' } };
+    }
+    const key = typeof form._actionKey === 'string' ? form._actionKey : null;
+    return { actionState: { action: outcome.actionId, key, state: body }, headers: withActionHeaders(response, {}) };
   };
 }
 
@@ -450,7 +461,7 @@ async function answerAction(req, res, handle, search) {
     return;
   }
   const query = Object.fromEntries(new URLSearchParams(search));
-  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', req.headers.host ?? req.headers[':authority'] ?? 'localhost', req.url);
+  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', nodeRequestHost(req.headers), req.url);
   if (url === null) {
     res.writeHead(400, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ message: 'Bad Request' }));
@@ -506,7 +517,9 @@ export async function readFetchBodyCapped(request, limit = MAX_BODY_BYTES) {
     if (value) {
       size += value.byteLength;
       if (size > limit) {
-        try { await reader.cancel(); } catch { /* ignore */ }
+        // Not awaited: one branch of a tee'd body (request.clone()) settles
+        // its cancel only once the other branch is cancelled too.
+        reader.cancel().catch(() => {});
         return { tooLarge: true };
       }
       chunks.push(value);

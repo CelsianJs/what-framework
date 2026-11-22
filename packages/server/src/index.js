@@ -11,6 +11,7 @@ import {
   runWithServerContext,
   endHeadCollection,
   _assignOwnerPath,
+  _runComponentSync,
   isVNode,
 } from 'what-core/internal';
 import { childNamespace } from 'what-core/internal/markup-rules';
@@ -255,10 +256,11 @@ function _renderHydratable(vnode) {
   // element of its output (compiled.js has the rule) as the output is written.
   // A built-in the compiler lowers away has none (hydration-data.js).
   if (typeof vnode.tag === 'function') {
-    const ctx = _beginComponentSSR(vnode.tag);
+    const Component = vnode.tag;
+    const ctx = _beginComponentSSR(Component);
     if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext())) {
       try {
-        return _renderHydratable(vnode.tag(_componentProps(vnode)));
+        return _renderHydratable(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
       } finally {
         _endComponentSSR(ctx);
       }
@@ -267,7 +269,7 @@ function _renderHydratable(vnode) {
     const key = /** @type {string} */ (ctx._ownerPath);
     HK.key = key;
     try {
-      return _renderHydratable(vnode.tag(_componentProps(vnode)));
+      return _renderHydratable(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
     } finally {
       _endComponentSSR(ctx);
       if (HK.key === key) HK.key = outer;
@@ -411,10 +413,11 @@ function _renderString(vnode) {
   // failed outright rather than degrading. The frame has to stay current while
   // the result is rendered, because useContext resolves by walking owners.
   if (typeof vnode.tag === 'function') {
-    const ctx = _beginComponentSSR(vnode.tag);
+    const Component = vnode.tag;
+    const ctx = _beginComponentSSR(Component);
     _assignOwnerPath(ctx, ctx._parentCtx, getServerContext());
     try {
-      return _renderString(vnode.tag(_componentProps(vnode)));
+      return _renderString(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
     } finally {
       _endComponentSSR(ctx);
     }
@@ -489,16 +492,16 @@ export async function renderPage(pageModule, reqCtx = {}) {
 // A loader that throws releases the context it would have rendered in.
 async function loadPage(pageModule, reqCtx) {
   const Component = pageModule.default || pageModule;
-  const { actionStates, ...loaderCtx } = reqCtx;
+  const { actionState, ...loaderCtx } = reqCtx;
   const response = reqCtx.response || createResponse();
   const ctx = createRenderContext(undefined, {
     signal: reqCtx.signal || (reqCtx.request && reqCtx.request.signal),
     request: reqCtx.request,
     response,
   });
-  // The state forms posted without JavaScript left, by action id: what their
-  // useActionState starts from (what-core actions.js).
-  if (actionStates) ctx.actionStates = actionStates;
+  // What the action of a form posted to this page without JavaScript
+  // returned, for that form's useActionState (actions.js formState).
+  if (actionState) ctx.actionState = actionState;
   try {
     throwIfAborted(ctx.signal);
     if (typeof pageModule.loader === 'function') {
@@ -738,9 +741,11 @@ export {
 // <Form>: the progressive-enhancement form that posts to the action endpoint.
 export { Form, ACTION_ENDPOINT } from './form.js';
 
-// Served server actions: wire the /__what_action route (Node + fetch adapters)
+// Served server actions: wire the /__what_action route (Node + fetch adapters),
+// and run a form posted to a page.
 export {
   createActionHandler,
+  createFormPostHandler,
   nodeActionMiddleware,
   fetchActionHandler,
 } from './action-handler.js';

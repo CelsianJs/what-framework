@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 70 of them: 40 errors and 30 warnings.
+Every code in What's error catalogue, all 69 of them: 40 errors and 29 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -47,7 +47,6 @@ package exports removes it. A bundler resolves one of three files per export:
 | Code | Severity | What it means |
 |---|---|---|
 | [`ERR_ACTION_FAILED`](#err-action-failed) | error | The server action rejected. |
-| [`ERR_ACTION_STATE_TOO_LARGE`](#err-action-state-too-large) | warning | Server action "`id`" returned `bytes` bytes of state to a form posted without JavaScript; the limit is `limit`, so the page renders from its initial state. |
 | [`ERR_ASYNC_COMPONENT`](#err-async-component) | warning | Component "`component`" returned a promise: an async component renders as text. |
 | [`ERR_ASYNC_EFFECT`](#err-async-effect) | warning | Effect "`effectName`" is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it. |
 | [`ERR_ASYNC_MEMO`](#err-async-memo) | warning | useMemo() returned a promise; useMemo keeps it, so its readers get the promise. |
@@ -132,23 +131,6 @@ The server action rejected. The message is the one the action threw, forwarded t
 export const save = action(async (data) => {
   if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });
 });
-```
-
-## ERR_ACTION_STATE_TOO_LARGE
-
-**Severity:** warning
-  ·  **Detected:** not yet (catalogued only)
-
-> Server action "{{id}}" returned {{bytes}} bytes of state to a form posted without JavaScript; the limit is {{limit}}, so the page renders from its initial state.
-
-Without JavaScript the state a useActionState form gets back travels to the next render of the page in a cookie, which holds a few kilobytes. Return what the form shows: the errors and the fields the visitor typed, not the saved record or a list.
-
-```jsx
-// Bad - the whole post comes back:
-export const save = action(async (previous, data) => ({ error: 'Title needs three characters', post: await db.posts.get(data.slug) }));
-
-// Good - the error and the typed fields:
-export const save = action(async (previous, data) => ({ error: 'Title needs three characters', fields: { title: data.title } }));
 ```
 
 ## ERR_ASYNC_COMPONENT
@@ -1176,7 +1158,7 @@ export async function loader() {
 
 > [what-router] Redirect loop ({{kind}}): {{cycle}}. Guards of: {{guards}}.
 
-Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each path in order (never its query or fragment, which may carry what the visitor sent); the guards are the patterns of the routes whose middleware or component redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.
+Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each hop as the pattern of the route it matched, in order (never the URL itself: a path segment, a query or a fragment may carry what the visitor sent), and a hop no route matches as (no route); the guards are the patterns of the routes whose middleware or component redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.
 
 ```jsx
 // Bad — a logged-in non-admin bounces between the two forever:

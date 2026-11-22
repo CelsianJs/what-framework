@@ -78,33 +78,39 @@ function targetPath(target) {
   }
 }
 
-// The hosts `what dev` answers: a page on another site that rebinds its own
-// domain to this machine (DNS rebinding) sends its own name as the Host, and
-// would read the dev sources. Allowed, as Vite allows them: localhost and
-// *.localhost, an IP address, the --host the server listens on, and the
-// config's `allowedHosts` (a list of names, or true for any) with
-// --allowed-hosts (comma-separated). Any other Host is answered 403.
-function hostAllowance(host, config) {
-  const flag = getFlag('--allowed-hosts', '');
-  if (config.allowedHosts === true || flag === 'true') return () => true;
+// The hosts `what dev` and `what preview` answer: a page on another site that
+// rebinds its own domain to this machine (DNS rebinding) sends its own name as
+// the Host, and would read the sources or the build. Allowed, as Vite allows
+// them: localhost and *.localhost, an IP address, the --host the server
+// listens on, and the config's `allowedHosts` (a list of names, or true for
+// any) with --allowed-hosts (comma-separated). Any other Host is answered 403.
+// The value is read as a host first (what-server's request-url.js grammar: a
+// name or an IP literal, an optional port), so a name that is not one
+// (`evil.test/.localhost`, `evil.test:1#.localhost`) is no host at all.
+const HOST = /^(?:[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_.])?|\[[0-9A-Fa-f:.]+\])(?::(\d{1,5}))?$/;
+
+function hostAllowance(host, config, flag = getFlag('--allowed-hosts', '')) {
+  if (config.allowedHosts === true || flag === 'true') return (header) => typeof header === 'string' && HOST.test(header);
   const names = new Set(['localhost', host, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
     .map((name) => String(name).trim().toLowerCase()).filter(Boolean));
   return (header) => {
-    if (typeof header !== 'string') return false;
+    if (typeof header !== 'string' || !HOST.test(header)) return false;
     const value = header.toLowerCase();
     const name = value.startsWith('[') ? value.slice(0, value.indexOf(']') + 1) : value.replace(/:\d*$/, '');
-    return names.has(name) || name.endsWith('.localhost') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(name) || /^\[[0-9a-f:.]+\]$/.test(name);
+    return names.has(name) || name.endsWith('.localhost') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(name) || name.startsWith('[');
   };
 }
 
 // WS handshakes are exempt from the same-origin policy, so any page the developer
 // browses could otherwise subscribe to the HMR stream (a live feed of edited file
-// paths). Non-browser clients send no Origin at all; browsers always do.
-function isAllowedOrigin(origin, allowedHosts) {
+// paths). A browser's Origin is answered as its Host would be (`hostAllowed`),
+// at this server's port. Non-browser clients send no Origin at all; browsers
+// always do.
+function isAllowedOrigin(origin, hostAllowed, port) {
   if (!origin) return true;
   try {
-    const { hostname, port } = new URL(origin);
-    return allowedHosts.has(`${hostname}:${port}`);
+    const url = new URL(origin);
+    return (url.port || (url.protocol === 'https:' ? '443' : '80')) === String(port) && hostAllowed(url.host);
   } catch {
     return false;
   }
@@ -112,13 +118,13 @@ function isAllowedOrigin(origin, allowedHosts) {
 
 // Simple WebSocket implementation using native Node.js APIs (no external deps)
 class SimpleWebSocketServer {
-  constructor({ server, allowedHosts = new Set() }) {
+  constructor({ server, hostAllowed, port }) {
     this.clients = new Set();
     server.on('upgrade', (req, socket, _head) => {
       if (req.headers.upgrade?.toLowerCase() !== 'websocket') return;
 
       const key = req.headers['sec-websocket-key'];
-      if (!key || !isAllowedOrigin(req.headers.origin, allowedHosts)) {
+      if (!key || !isAllowedOrigin(req.headers.origin, hostAllowed, port)) {
         socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;
@@ -292,7 +298,7 @@ function isMainModule() {
 
 if (isMainModule()) main();
 
-export { safePath, isAllowedOrigin, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
+export { safePath, isAllowedOrigin, hostAllowance, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
 
 // --- Dev Server ---
 
@@ -480,10 +486,7 @@ async function dev() {
   });
 
   // Initialize WebSocket server
-  const allowedHosts = new Set(
-    ['localhost', '127.0.0.1', '::1', host].map((h) => `${h}:${port}`)
-  );
-  const wss = new SimpleWebSocketServer({ server, allowedHosts });
+  const wss = new SimpleWebSocketServer({ server, hostAllowed, port });
   wss.on('connection', (ws) => {
     wsClients.add(ws);
     ws.onclose = () => wsClients.delete(ws);
@@ -650,7 +653,13 @@ async function preview() {
     process.exit(1);
   }
 
+  const hostAllowed = hostAllowance(getFlag('--host', 'localhost'), config);
   const server = createServer(guarded((req, res) => {
+    if (!hostAllowed(req.headers.host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end(`Host not allowed. Add it to allowedHosts in what.config.js, or pass --allowed-hosts.`);
+      return;
+    }
     let pathname = targetPath(req.url);
     if (pathname === null) {
       res.writeHead(400);

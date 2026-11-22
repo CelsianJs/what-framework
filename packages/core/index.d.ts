@@ -133,7 +133,8 @@ export function useOptimistic<S, A>(state: S, update: (current: S, value: A) => 
  * with the transition, in the same flush as the data its action revalidated.
  * An action that throws reaches the nearest <ErrorBoundary> and drops the
  * dispatches queued behind it. `permalink` is where a <Form> posts before
- * JavaScript has loaded.
+ * JavaScript has loaded; by default the page it is on (the form has no
+ * `action` attribute).
  */
 export function useActionState<S, P = FormData>(
   action: (previousState: S, payload: P) => S | Promise<S>,

@@ -140,6 +140,14 @@ export default function whatBabelPlugin({ types }) {
           t.traverseFast(path.node, (node) => {
             if (node.type === 'Identifier' || node.type === 'JSXIdentifier') recordName(state, node.name);
           });
+          // A client never builds a <noscript>'s content: with scripts on, the
+          // browser parses it as text, so there is nothing of it to create or
+          // to hydrate (React's rule). The server writes it.
+          if (!state.ssr) {
+            t.traverseFast(path.node, (node) => {
+              if (node.type === 'JSXElement' && t.isJSXIdentifier(node.openingElement.name, { name: 'noscript' })) node.children = [];
+            });
+          }
           // Before any JSX is lowered: forwarded children, server action ids,
           // development names and what each call's callee reads, all read
           // against the original source.

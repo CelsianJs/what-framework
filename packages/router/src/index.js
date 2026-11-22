@@ -666,6 +666,7 @@ function end() {
 
 const REDIRECT = Symbol.for('what.router.redirect.v1');
 const NAV_SIGNAL = Symbol.for('what.navigation.signal.v1');
+const NAVIGATOR = Symbol.for('what.router.navigate.v1');
 
 export function redirect(to, options = {}) {
   if (!isSafeUrl(to)) {
@@ -802,16 +803,23 @@ function loopScreen(message) {
 // unless it is being called from here. Clearing it on a successful match
 // instead would never catch a cycle between two route components, because each
 // hop matches successfully before its component throws the next redirect.
-// A redirect loop, reported with the paths it went through and the route
-// patterns whose guards sent it on (development: ERR_REDIRECT_CYCLE, a coded
-// diagnostic; production: console.error). Paths only: a query or a fragment is
-// what the visitor carried (a token, an email), which error tracking that
-// captures the console would keep.
+// A redirect loop, reported as the route patterns it went through and the
+// patterns of the routes whose guards sent it on (development:
+// ERR_REDIRECT_CYCLE, a coded diagnostic; production: console.error).
+// Patterns only, never a URL: a path can carry what the visitor sent (a token
+// segment, `/verify/SECRET`), and so can a query or a fragment, which error
+// tracking that captures the console would keep. A hop no route matches is
+// shown as NO_ROUTE_HOP.
 const pathOnly = (url) => String(url).split(/[?#]/)[0];
+const NO_ROUTE_HOP = '(no route)';
+function patternOf(url) {
+  const matched = _routes !== null ? matchRoute(pathOnly(url), _routes) : null;
+  return matched ? matched.route.path : NO_ROUTE_HOP;
+}
 function redirectLoop(hops, kind) {
   _redirectHistory.length = 0;
-  const cycle = [hops[0].from, ...hops.map((hop) => hop.to)].map(pathOnly).join(' → ');
-  const guards = [...new Set(hops.map((hop) => hop.guard))].join(', ');
+  const cycle = [hops[0].from, ...hops.map((hop) => hop.to)].map(patternOf).join(' → ');
+  const guards = [...new Set(hops.map((hop) => hop.guard ?? patternOf(hop.from)))].join(', ');
   // ERROR_CODES.REDIRECT_CYCLE
   if (__DEV__) reportDiagnostic('ERR_REDIRECT_CYCLE', { data: { kind, cycle, guards } });
   else console.error(`[what-router] Redirect loop (${kind}): ${cycle}`);
@@ -846,7 +854,7 @@ function handleRedirect(target, options, guard) {
 
   // Each hop: where the navigation was going when that route's guard sent it on.
   const from = _pendingUrl.peek() ?? readUrl();
-  _redirectHistory.push({ from, to: target, guard: guard ?? pathOnly(from) });
+  _redirectHistory.push({ from, to: target, guard });
 
   if (_redirectHistory.length > MAX_REDIRECTS) {
     redirectLoop(_redirectHistory.slice(-5), 'too many redirects');
@@ -941,10 +949,14 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   } else {
     state = tab;
     _routes = routes;
+    // A server action that redirects navigates through the mounted Router
+    // (what-server actions.js), not by loading the page again.
+    /** @type {any} */ (globalThis)[NAVIGATOR] = navigate;
     // An unmounted Router's navigation and pages go with it.
     onCleanup(() => {
       if (_routes !== routes) return;
       _routes = null;
+      delete (/** @type {any} */ (globalThis)[NAVIGATOR]);
       if (_preparing.peek()) {
         _navigation++;
         _leave();

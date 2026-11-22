@@ -29,7 +29,7 @@ before(async () => {
   globalThis.fetch = async (url, init) => {
     posts.push(JSON.parse(init.body));
     const answer = await new Promise((resolve) => { respond = resolve; });
-    return { ok: true, status: 200, json: async () => answer };
+    return { ok: true, status: 200, headers: new Headers(), json: async () => answer };
   };
   core = await import('what-core');
   data = await import('what-core/data');

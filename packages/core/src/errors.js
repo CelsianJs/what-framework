@@ -461,7 +461,7 @@ catch (e) { if (e.name !== 'RouterRedirect') throw e; res.writeHead(302, { locat
     code: 'ERR_REDIRECT_CYCLE',
     severity: 'error',
     template: '[what-router] Redirect loop ({{kind}}): {{cycle}}. Guards of: {{guards}}.',
-    suggestion: 'Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each path in order (never its query or fragment, which may carry what the visitor sent); the guards are the patterns of the routes whose middleware or component redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.',
+    suggestion: 'Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each hop as the pattern of the route it matched, in order (never the URL itself: a path segment, a query or a fragment may carry what the visitor sent), and a hop no route matches as (no route); the guards are the patterns of the routes whose middleware or component redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.',
     codeExample: `// Bad — a logged-in non-admin bounces between the two forever:
 const routes = [
   { path: '/login', component: Login, middleware: [() => !isLoggedIn() || '/dashboard'] },
@@ -921,18 +921,6 @@ function Page({ loaderData }) {
 // Good:
 <Form action={save} />;
 <Form action="save-user" />;`,
-  },
-
-  ACTION_STATE_TOO_LARGE: {
-    code: 'ERR_ACTION_STATE_TOO_LARGE',
-    severity: 'warning',
-    template: 'Server action "{{id}}" returned {{bytes}} bytes of state to a form posted without JavaScript; the limit is {{limit}}, so the page renders from its initial state.',
-    suggestion: 'Without JavaScript the state a useActionState form gets back travels to the next render of the page in a cookie, which holds a few kilobytes. Return what the form shows: the errors and the fields the visitor typed, not the saved record or a list.',
-    codeExample: `// Bad - the whole post comes back:
-export const save = action(async (previous, data) => ({ error: 'Title needs three characters', post: await db.posts.get(data.slug) }));
-
-// Good - the error and the typed fields:
-export const save = action(async (previous, data) => ({ error: 'Title needs three characters', fields: { title: data.title } }));`,
   },
 
   ISLAND_STORE_OUTSIDE_RENDER: {

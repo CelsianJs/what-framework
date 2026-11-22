@@ -37,7 +37,7 @@ const compiled = await loadCompiled(`
         <title>Count {p.count()}</title>
         <meta name="description" content={'about ' + p.count()} />
         <link rel="canonical" href="/page" />
-        <noscript>enable js</noscript>
+        <span class="note">enable js</span>
       </Head>
       <p>body</p>
     </main>
@@ -83,7 +83,7 @@ describe('Head reads <title>, <meta> and <link> children', () => {
     assert.equal(managed('meta[name="description"]')[0].getAttribute('content'), 'about 3');
     assert.equal(managed('link[rel="canonical"]')[0].getAttribute('href'), '/page');
     assert.equal(host.querySelector('title, meta, link'), null, 'head tags must not render in the body');
-    assert.equal(host.querySelector('noscript').textContent, 'enable js', 'any other child renders in place');
+    assert.equal(host.querySelector('.note').textContent, 'enable js', 'any other child renders in place');
     assert.equal(host.querySelector('p').textContent, 'body');
   });
 });

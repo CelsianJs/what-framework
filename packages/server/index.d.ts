@@ -139,14 +139,15 @@ export interface RenderRequestContext {
    */
   csrfToken?: string;
   /**
-   * What a form posted without JavaScript left for this render: action id to
-   * the state its action returned. `useActionState(action)` starts from it,
-   * here and in the hydration. createRequestHandler reads it from the
-   * one-time cookie the action endpoint sets; a custom server passes it
-   * itself. The visitor can set it to anything: show it, trust it for nothing.
-   * The loader does not receive it.
+   * What the action of a form posted to this page without JavaScript returned,
+   * for that form: `useActionState(action)` whose key is `key` starts from
+   * `state`, here and in the hydration; every other one keeps its initial
+   * state. createRequestHandler sets it; a custom server passes what
+   * createFormPostHandler resolved to. The state is the action's answer to the
+   * visitor's own fields: show it, trust it for nothing. The loader does not
+   * receive it.
    */
-  actionStates?: Map<string, unknown>;
+  actionState?: FormActionState;
   [key: string]: any;
 }
 
@@ -356,8 +357,10 @@ export function renderDocument(
 export interface FormProps {
   /**
    * A server action (from `action()`) or its id, or a client function such as
-   * useActionState's dispatch (it receives the FormData; without JavaScript
-   * the form posts to its `permalink`).
+   * useActionState's dispatch. Without JavaScript a server action's form posts
+   * to the action endpoint; a dispatch's posts to its `permalink`, by default
+   * the page it is on, where useActionState(serverAction) gets the result back
+   * for this form alone. A client function's dispatch receives the FormData.
    */
   action: ((...args: any[]) => any) | string;
   /**
@@ -366,7 +369,12 @@ export interface FormProps {
    * browser marks same-origin, which is how a form on a cached page posts.
    */
   csrfToken?: string | null;
-  /** Where the endpoint sends the browser after a no-JS submit (303). A mounted form stays put. */
+  /**
+   * A server action's form: where the endpoint sends the browser after a no-JS
+   * submit (303), by default back to the page the form is on. A mounted form
+   * stays put. A useActionState dispatch's form does not read it: its page
+   * renders the result, and the action redirects with getResponse().redirect().
+   */
   redirect?: string;
   method?: string;
   /** Set false to leave a plain HTML form the client enhancer ignores. */
@@ -410,6 +418,34 @@ export interface ActionHandlerOptions {
 }
 
 export function createActionHandler(options?: ActionHandlerOptions): (request: any) => Promise<any>;
+
+/** What a form posted to a page returned, for the useActionState that rendered it. */
+export interface FormActionState {
+  /** The server action's id. */
+  action: string;
+  /** The key of the useActionState whose form was posted (its `_actionKey` field), or null when it carried none. */
+  key: string | null;
+  /** What the action returned. */
+  state: unknown;
+}
+
+/** What createFormPostHandler resolves to for a post it runs. */
+export type FormPostOutcome =
+  /** A refusal (403, 400), the action's failure (404, 500), or its redirect (303): send it as it is. */
+  | { response: { status: number; headers: Record<string, string | string[]>; body: string } }
+  /** Render the page with `actionState` in its request context, and these headers (the action's) on the response, `cache-control: private, no-store`. */
+  | { actionState: FormActionState; headers: Record<string, string | string[]> };
+
+/**
+ * Run a form posted to a page without JavaScript (the <Form> of a
+ * useActionState(serverAction) dispatch posts to its page), by the action
+ * endpoint's rules: the same options and checks. `request.body` is the posted
+ * fields as an object (a name posted more than once as an array), `url` the
+ * absolute URL. Resolves to null for a post with no
+ * `_action`, which the page answers as before. createRequestHandler does this
+ * itself; a custom server calls it before rendering the page.
+ */
+export function createFormPostHandler(options?: ActionHandlerOptions): (request: { method?: string; headers: any; body: Record<string, any>; url: string; request?: Request }) => Promise<FormPostOutcome | null>;
 export function nodeActionMiddleware(options?: ActionHandlerOptions): (req: any, res: any, next?: () => void) => void;
 export function fetchActionHandler(options?: ActionHandlerOptions): (request: Request) => Promise<Response>;
 

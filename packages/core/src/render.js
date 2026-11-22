@@ -39,6 +39,14 @@ export function _setTextInsertHook(fn) {
   _onTextInsert = typeof fn === 'function' ? fn : null;
 }
 
+// Dynamic text was written in `parent`: the text engine hears it, and a
+// select follows an option whose text changed (its value, when it has no
+// `value` attribute: dom.js _optionsChanged).
+function textWritten(parent, text) {
+  if (_onTextInsert !== null) _onTextInsert(parent, text);
+  if (optionsChanged !== null) optionsChanged(parent);
+}
+
 // --- Vnodes ---
 
 function vnodeRuntimeMissing(what) {
@@ -512,14 +520,14 @@ function insertReactive(parent, child, marker, devName) {
         } else {
           textNode = parent.insertBefore(document.createTextNode(str), m);
         }
-        if (_onTextInsert) _onTextInsert(parent, str);
+        textWritten(parent, str);
         current = textNode;
         return;
       }
     } else if (textNode !== null && (vt === 'string' || vt === 'number')) {
       const str = String(val);
       if (textNode.data !== str) textNode.data = str;
-      if (_onTextInsert) _onTextInsert(parent, str);
+      textWritten(parent, str);
       return;
     }
     // Not text (or no longer text): this region holds content of its own.
@@ -532,7 +540,10 @@ function insertReactive(parent, child, marker, devName) {
         rows.update(parent, m, val);
         return;
       }
-      if (rows !== null) rows.remove();
+      if (rows !== null) {
+        rows.remove();
+        if (optionsChanged !== null) optionsChanged(parent);
+      }
     }
     current = reconcileInsert(parent, val, current, m);
   }, __DEV__ ? { name: devName || 'children', binding: parent } : undefined);
@@ -866,6 +877,7 @@ function reconcileNodes(parent, value, current, marker) {
       && current && !Array.isArray(current) && current.nodeType === 3) {
     const text = String(value);
     if (current.data !== text) current.data = text;
+    if (optionsChanged !== null) optionsChanged(parent);
     return current;
   }
 
@@ -1968,23 +1980,30 @@ export function applyRef(ref, el) {
 // clears the properties the previous one set and it does not. Anything else
 // (null, undefined, false) clears the inline style. Every path writes it
 // here: h() and runtime setProp (dom.js), compiled JSX, spreads, hydration.
+// A custom property (`--accent`), like a dashed name, is not a property of
+// the CSSOM object: it is set and removed by name, as React does.
 export function setStyle(el, value) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setStyle);
   const prev = el._lastStyleObj;
   if (value !== null && typeof value === 'object') {
     const style = el.style;
     if (prev != null) {
-      for (const prop in prev) if (!(prop in value)) style[prop] = '';
+      for (const prop in prev) if (!(prop in value)) writeStyle(style, prop, '');
     } else if (el.hasAttribute('style')) {
       el.removeAttribute('style');
     }
-    for (const prop in value) style[prop] = value[prop] ?? '';
+    for (const prop in value) writeStyle(style, prop, value[prop] ?? '');
     el._lastStyleObj = { ...value };
     return;
   }
   el._lastStyleObj = null;
   if (typeof value === 'string') el.style.cssText = value;
   else if (el.hasAttribute('style')) el.removeAttribute('style');
+}
+
+function writeStyle(style, prop, value) {
+  if (prop[0] === '-') style.setProperty(prop, value);
+  else style[prop] = value;
 }
 
 // Plain attribute set — used for data-*/aria-* (statically recognizable).
@@ -3025,7 +3044,9 @@ function adoptVNode(vnode) {
   const props = vnode.props || {};
   hydrateElementProps(el, props);
   const html = props.dangerouslySetInnerHTML ?? props.innerHTML;
-  if (html != null) return;
+  // A <noscript>'s content is not the client's: with scripts on, the browser
+  // parsed what the server wrote there as text, and it stays (React's rule).
+  if (html != null || tag === 'noscript') return;
   // An element the client leaves empty keeps what the server put in it only
   // where the client says it will: an island's host, which the island fills
   // from that markup when it hydrates. Anywhere else it is left over.
@@ -3249,7 +3270,7 @@ function adoptRegion(fn, devName) {
         if (typeof value === 'string' || typeof value === 'number') {
           const data = String(value);
           if (textNode.data !== data) textNode.data = data;
-          if (_onTextInsert !== null && textNode.parentNode !== null) _onTextInsert(textNode.parentNode, data);
+          if (textNode.parentNode !== null) textWritten(textNode.parentNode, data);
           return;
         }
         const host = textNode.parentNode;
@@ -3270,7 +3291,10 @@ function adoptRegion(fn, devName) {
           rows.update(host, end, value);
           return;
         }
-        if (rows !== null) rows.remove();
+        if (rows !== null) {
+          rows.remove();
+          if (optionsChanged !== null) optionsChanged(host);
+        }
       }
       current = reconcileInsert(host, value, current, end);
     }, __DEV__ ? { name: devName || fn.name || 'region', binding: parent } : undefined);
@@ -4145,13 +4169,16 @@ function claimStatic(c, t) {
 // it only when a binding writes its content (`flags` 2: innerHTML); anything
 // else in it is left over, apart from an empty <textarea>'s text: that is its
 // default, which showed the server's value and which its props write again
-// (dom.js Form fields).
+// (dom.js Form fields), and a <noscript>'s: the compiler leaves its content
+// out of a client template, and the browser keeps what the server wrote
+// there as text.
 function claimNode(el, t, flags) {
   if (flags & 1) {
     keepTemplateAttrs(el, t);
     enterNode(el, t.firstChild);
   } else if (!el.isEqualNode(t) || hasShadowRoot(el)) {
     keepTemplateAttrs(el, t);
+    if (t.localName === 'noscript') return;
     if (t.firstChild === null && t.localName === 'textarea') {
       /** @type {HTMLTextAreaElement} */ (el).defaultValue = '';
     } else if (t.firstChild !== null || (el.firstChild !== null && (flags & 2) === 0)) {
@@ -4246,7 +4273,7 @@ function writeField(node, value) {
   const text = fieldText(value);
   if (text === null) return false;
   if (node.data !== text) node.data = text;
-  if (_onTextInsert !== null && node.parentNode !== null) _onTextInsert(node.parentNode, text);
+  if (node.parentNode !== null) textWritten(node.parentNode, text);
   return true;
 }
 
@@ -4270,7 +4297,7 @@ export function _$field(parent, cell, value, marker, read) {
   } else {
     node = parent.insertBefore(document.createTextNode(text), marker || null);
   }
-  if (_onTextInsert !== null) _onTextInsert(parent, text);
+  textWritten(parent, text);
   bindField(cell, node, read);
 }
 
